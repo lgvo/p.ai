@@ -1,742 +1,452 @@
-# P — environment and image building
+# P — Nix environment images
 
-How an immutable project revision becomes the executable environment used by a
-session, without treating every session start as a Docker build or executing
-repository-controlled material in the daemon's ambient host context.
+How P prepares and caches a Nix development environment as an immutable Incus
+image without sharing writable Nix state between sessions.
 
-> **Status: design.** This document is the authority for environment
-> selection, build isolation, artifact identity, packaging, caching, runtime
-> activation, and build failure behavior. [README.md](../README.md) describes
-> the product, [technology-stack.md](technology-stack.md) records implementation
-> choices, [runtime-isolation.md](runtime-isolation.md) owns runtime assembly
-> and grants, and
-> [communication-boundaries.md](communication-boundaries.md#image-build-communication)
-> defines what crosses Git and RPC while a build is running.
->
-> **Convention:** **Decided** — settled semantics. **Direction** — proposed
-> implementation detail to validate while building. No product or architecture
-> decision in this document remains open.
-
----
+> **Status: design.** This document is authoritative for environment
+> selection, isolated realization, Incus image caching, activation, and cache
+> collection. [Runtime and isolation](runtime-isolation.md) owns the final
+> session instance and its private writable state.
 
 ## Contents
 
 - [The rule](#the-rule)
-- [Terms](#terms)
-- [Responsibility boundaries](#responsibility-boundaries)
-- [Provider model](#provider-model)
+- [Terms and authorities](#terms-and-authorities)
+- [Reusable builder boundary](#reusable-builder-boundary)
 - [Environment selection](#environment-selection)
 - [Immutable source and lock policy](#immutable-source-and-lock-policy)
-- [The P substrate](#the-p-substrate)
-- [Build pipeline](#build-pipeline)
-- [Closure packaging](#closure-packaging)
-- [Self-contained image packaging](#self-contained-image-packaging)
-- [Dockerfile provider](#dockerfile-provider)
-- [Environment activation](#environment-activation)
-- [Runtime assembly](#runtime-assembly)
-- [Artifact identity and caching](#artifact-identity-and-caching)
-- [Concurrency, progress, and cancellation](#concurrency-progress-and-cancellation)
-- [Garbage collection](#garbage-collection)
+- [P base image](#p-base-image)
+- [Environment key](#environment-key)
+- [Build and publish pipeline](#build-and-publish-pipeline)
+- [Nix activation compatibility gate](#nix-activation-compatibility-gate)
+- [Cached Nix store model](#cached-nix-store-model)
+- [Session activation and later Nix work](#session-activation-and-later-nix-work)
+- [Caching, concurrency, and collection](#caching-concurrency-and-collection)
 - [Security boundary](#security-boundary)
-- [Failures and recovery](#failures-and-recovery)
-- [Performance posture](#performance-posture)
+- [Failures and retry](#failures-and-retry)
+- [Performance and evidence](#performance-and-evidence)
 - [API and channel boundary](#api-and-channel-boundary)
-- [v1 boundary](#v1-boundary)
+- [V1 boundary](#v1-boundary)
 - [Acceptance criteria](#acceptance-criteria)
-
----
 
 ## The rule
 
-**Decided.** P separates four operations that are often collapsed into “build
-the image”:
+V1 prepares one immutable Incus environment image for each resolved default
+Nix devShell. The image contains the P base, the realized devShell closure, a
+coherent Nix store database, and activation material. Incus supplies private
+writable instance storage on top of that image for every session.
 
-1. select one project environment from an immutable Git revision;
-2. realize that environment under an isolation boundary;
-3. package the result in a form the selected backend can consume;
-4. assemble a disposable runtime from that artifact, a workspace clone, and
-   P's session endpoints.
+```text
+P Nix base image
+  → isolated builder realizes committed devShell
+  → immutable cached Incus image fingerprint
+      ├─ session A private root and Nix additions
+      └─ session B private root and Nix additions
+```
 
-Only steps 1–3 are environment building. The Git working copy, home directory,
-interactive-host state, credentials, writable caches, and session identity are
-runtime inputs. They are never baked into a reusable environment artifact.
+No session mounts the host `/nix`, uses the host Nix daemon, or shares a
+writable Nix database. The cached image is disposable acceleration; the
+committed Git definition remains reproducible source authority.
 
-The central invariant within one provider is:
+The workspace, session UUID, branch, credentials, home, and interactive state
+are never part of the cached image.
 
-> **One resolved environment produces equivalent session toolchains across
-> every packaging strategy that provider supports. Packaging may change; the
-> selected environment and activation semantics may not.**
-
-For the v1 Nix provider on `local-container`, the normal result is not a new OCI
-image per project or session. P starts its immutable substrate image and mounts
-the exact realized Nix closure read-only. Providers such as Dockerfile already
-produce a self-contained OCI filesystem, and later targets may require Nix to
-produce one too.
-
-## Terms
+## Terms and authorities
 
 | Term | Meaning |
 |---|---|
-| **Source snapshot** | Read-only tree for one committed Git revision selected when creating the session branch. P never snapshots a dirty checkout. |
-| **Environment selection** | Conventional Nix default devShell, trusted later-provider selection, or no project layer. |
-| **Environment plan** | Validated, provider-tagged description of what must be realized for one execution system. It contains no runtime identity or credentials. |
-| **Environment artifact** | Immutable realized toolchain plus activation material and a manifest. It is not a running container. |
-| **Substrate** | P-owned minimal base filesystem used when P supplies the image base, versioned with P. |
-| **Runtime kit** | P-owned shell, Git, API helper, launcher, default interactive-host tools, and dependencies mounted into every session, including sessions based on a project OCI image. The substrate contains this same kit. |
-| **Closure packaging** | Exact Nix store paths exposed read-only beside the substrate. Default in v1. |
-| **Self-contained packaging** | Project environment emitted as a portable backend image, such as OCI; P's compatible runtime kit is included or supplied separately. |
-| **Runtime assembly** | Backend creation of the writable session around an environment artifact. |
-| **Build worker** | Isolated P-owned machinery that evaluates and realizes untrusted project environment definitions. |
+| **P base image** | P-owned Incus system-container image containing Nix, Git, SSH, tmux, basic userland, the fixed user, and runtime kit. |
+| **Environment selection** | The committed repository's conventional default devShell, or no project environment. |
+| **Environment key** | Project-scoped reproducible identity of the base, resolved Nix environment, system, and builder contract. |
+| **Builder instance** | Disposable restricted Incus instance that evaluates and realizes one committed environment. |
+| **Environment image** | Project-scoped private immutable Incus image published from a verified builder and addressed by fingerprint. |
+| **Session delta** | Private writable Incus root derived from the image, including later `/nix` changes. |
+| **Activation material** | Versioned output used to enter the selected devShell inside a session. |
 
-“Image” in the UI is friendly shorthand for the prepared environment. APIs and
-logs use the precise terms above so a closure mount is not mistaken for an OCI
-build.
-
-## Responsibility boundaries
-
-**Decided.** Three extension seams have distinct ownership:
-
-| Component | Owns | Must not own |
+| Fact | Authority | SQLite role |
 |---|---|---|
-| Environment provider | Resolve one typed selection into an immutable `EnvironmentPlan` | Interpret unrelated providers, container lifecycle |
-| Environment builder | Realize and package the plan for an `EnvironmentTarget` under isolation | Session identity, Git publication, runtime lifecycle |
-| Runtime backend | Declare its target capabilities and assemble a runtime from an accepted artifact | Provider evaluation/building or interpretation of project environment definitions |
+| Source definition and lock | committed Git tree | records selected commit/input digest |
+| Nix derivations and store validity | Nix in isolated builder/session | records resolved environment identity |
+| Environment image bytes and fingerprint | Incus image store | indexes project-scoped environment key to fingerprint |
+| Session-private Nix database and additions | Incus instance root | no duplicate store records |
+| Build request/progress | P operation plus current Incus builder operation | bounded presentation only |
 
-Conceptually:
+If an indexed Incus image is absent, P has a cache miss, not corrupt source
+state. It rebuilds from the committed definition.
+
+## Reusable builder boundary
+
+The environment seam remains reusable:
 
 ```go
 type EnvironmentBuilder interface {
-    Build(context.Context, EnvironmentRequest) (EnvironmentArtifact, error)
-}
-
-type Backend interface {
-    EnvironmentTarget() EnvironmentTarget
-    Create(context.Context, SessionSpec, EnvironmentArtifact) (RuntimeLocator, error)
-    // inspect, start, pause/resume, isolated workspace operations,
-    // attach, stop, remove, events ...
+    Resolve(context.Context, EnvironmentRequest) (EnvironmentPlan, error)
+    Build(context.Context, EnvironmentPlan, EnvironmentTarget) (EnvironmentHandle, error)
 }
 ```
 
-The v1 Nix environment provider/builder understands devShells. The
-`local-container` backend accepts both closure and OCI artifacts; it prefers
-closure packaging for Nix and consumes the resulting manifest without calling
-`nix` itself. A Dockerfile provider can later emit OCI to the same backend
-without changing session identity or lifecycle semantics.
+`EnvironmentHandle` contains a target kind/contract version, content identity,
+and opaque immutable locator. Lifecycle and generic runtime code do not inspect
+the locator. V1 returns target kind `incus-system-image`; only the Incus adapter
+interprets its locator as an image fingerprint.
 
-## Provider model
+V1 has one implementation: default Nix devShell to an Incus system-container
+image. The interface preserves separation from session identity and runtime
+lifecycle; it does not require V1 capability negotiation among hypothetical
+formats or additional providers.
 
-**Decided.** Nix is the first implementation, not a type embedded throughout
-P. Every environment provider must implement the same lifecycle:
-
-```text
-resolve default/trusted selection → build immutable artifact
-→ emit normalized manifest → pass backend conformance checks
-```
-
-An `EnvironmentPlan` names its provider and advertises the artifact kinds it
-can produce. An `EnvironmentTarget` advertises the kinds a backend can consume.
-Creation proceeds only when the two sets intersect:
-
-| Provider | Initial availability | Artifact kinds |
-|---|---|---|
-| `nix-devshell` | v1 | closure for `local-container`; self-contained image later |
-| `dockerfile` | first additional provider | OCI image |
-| `devcontainer` | later | normalized OCI image plus supported development metadata |
-| substrate-only | v1 built-in | P substrate, no project build |
-
-A provider owns the meaning of its source definition. P does not translate a
-Dockerfile into a fake devShell or a devShell into Dockerfile instructions.
-They converge only at the normalized artifact manifest and runtime contract.
-
-Provider-specific build code is behind `EnvironmentBuilder`, while provider
-selection and artifact manifests are stable core concepts. Adding a provider
-must not add conditionals to the TUI, Git server, session registry,
-observability reducer, or runtime lifecycle.
+The Incus backend supplies the builder isolation and image publication target.
+A future environment provider or backend may implement another image form
+without changing Git/session identity, but no Dockerfile or OCI contract is
+specified in V1.
 
 ## Environment selection
 
-**Decided.** Selection for the target execution system is deterministic:
+Selection for the Incus host system is deterministic:
 
-1. in v1, the repository's ordinary
-   `devShells.<system>.default`, when present;
-2. otherwise no project environment—the P substrate alone; and
-3. after v1, a provider such as Dockerfile may be selected explicitly by
-   trusted host configuration at project scope.
+1. use `devShells.<system>.default` when it exists at the selected commit;
+2. otherwise use the P base image directly; and
+3. fail when a present default devShell is invalid rather than silently
+   falling back.
 
-There is no custom `p` flake output or repository-controlled provider selector.
-Nix remains ordinary Nix: P discovers and realizes the default devShell from
-the selected committed source.
+There is no custom P flake output, repository-controlled provider selection,
+language detection, or inferred package installation. The execution system is
+the Linux architecture of the Incus host, initially `x86_64-linux` or
+`aarch64-linux` as validated.
 
-P does not infer the Dockerfile provider merely because a file named
-`Dockerfile` exists. Repositories commonly use Dockerfiles for production,
-release, CI, or one service rather than the interactive environment. Choosing
-one changes the session filesystem and must be explicit.
-
-There is no language detection and no inferred package installation. The
-substrate fallback applies only when no default devShell or later trusted
-provider selection exists. Once a default devShell is present, resolution or
-build failure is a build error and P does not silently fall back.
-
-The execution system comes from the backend host, such as `x86_64-linux` or
-`aarch64-linux`; it is not inferred from the client machine. P does not
-cross-build a foreign session environment in v1.
-
-The selected value and reason are visible before creation:
-
-```text
-environment  nix-devshell · devShells.x86_64-linux.default · repository default
-packaging    closure · local-container
-substrate    p/0.1 · sha256:…
-```
+The TUI presents the selected commit, system, devShell attribute, base image
+fingerprint, cache hit/miss, and environment-image fingerprint before runtime
+creation completes.
 
 ## Immutable source and lock policy
 
-**Decided.** Evaluation receives a read-only source snapshot materialized from
-the exact Git commit chosen for the session. It never reads the host checkout,
-uncommitted files, a mutable branch path, or the daemon's current directory.
+Resolution receives a read-only tree for the exact committed source. It never
+reads the user's current checkout or dirty session workspace.
 
-For flakes, P invokes Nix in pure mode and refuses to modify source:
+For flakes, P:
 
-- lock-file writes and updates are disabled;
-- registry-dependent resolution is disabled unless the instance pins that
-  registry as trusted configuration;
-- repository-provided Nix settings are not accepted automatically;
-- impure evaluation is disabled;
-- the execution system is explicit.
+- evaluates in pure mode;
+- disables lock creation and updates;
+- disables ambient registry and `NIX_PATH` dependence;
+- rejects untrusted repository Nix settings;
+- supplies an explicit system; and
+- fails with an actionable instruction when the committed lock is insufficient.
 
-If evaluation would need to create or update `flake.lock`, it fails with an
-actionable diagnostic. A project that wants a devShell therefore commits the
-effective lock file. The optional new-project scaffold may generate both
-`flake.nix` and `flake.lock`, but leaves them uncommitted; the user must commit
-them before a session can use that environment.
+The repository may run arbitrary code through Nix evaluation/build semantics,
+which is why resolution and realization occur only inside the restricted
+builder instance.
 
-This is stricter than interactive `nix develop` and intentional: the same Git
-revision must not silently resolve different inputs on two P instances.
+## P base image
 
-Other providers define equivalent immutable-input rules. A Dockerfile receives
-the commit tree as its build context, honors the selected `.dockerignore`, and
-cannot read files above that context or substitute the host checkout as a
-bind-mounted build directory.
+P publishes and pins one base image per supported architecture and runtime-kit
+contract. It contains:
 
-## The P substrate
+- a functional local Nix daemon and client configured for a private instance
+  store, with build-sandbox posture recorded;
+- Git, OpenSSH, CA certificates, shell, and basic userland;
+- tmux and the P runtime helper;
+- the fixed unprivileged session user and fixed runtime paths; and
+- no project source, user dotfiles, host credential, Incus socket, or origin
+  configuration.
 
-**Decided.** The substrate is an immutable P build input, produced and tested
-per P release and Linux architecture. It contains only what makes any session
-usable:
+The base is an Incus-native system-container image identified by fingerprint,
+not a mutable alias. Updating P or Nix produces a new base fingerprint and
+therefore a new environment key; existing sessions keep their original root.
 
-- a POSIX shell and Bash for environment activation;
-- minimal userland and process utilities;
-- Git and its SSH client;
-- the default interactive host (`tmux`) and direct-entry support;
-- CA certificates;
-- `nc` or an equivalent one-line Unix-socket client;
-- P's session API helper and runtime launcher;
-- passwd/group entries and fixed filesystem locations required by the runtime.
+## Environment key
 
-It contains no coding agent, language toolchain, project dependency, origin
-credential, host credential, or mutable user state.
-
-The same tools and dependencies also form a read-only **runtime kit**. When a
-provider supplies the base filesystem—as Dockerfile does—P mounts this kit at
-fixed paths and uses its launcher. P therefore does not require an arbitrary
-project image to contain Git, SSH, the P helper, the selected P-provided
-interactive host, or even a compatible system package manager.
-
-The runtime contract reserves:
-
-| Path | Ownership |
-|---|---|
-| `/opt/p` | Read-only P runtime kit |
-| `/run/p` | Runtime-scoped sockets and generated metadata |
-| `/workspace` | Writable Git working copy and initial working directory |
-| `/home/p` | Writable session home |
-| `/tmp` | Writable session temporary storage |
-
-The logical session user is `p`; the backend maps its numeric UID/GID safely
-for the local engine. Provider images must tolerate that non-host user and may
-not claim the reserved paths.
-
-The substrate is identified by content digest plus P compatibility version.
-Upgrading P does not mutate an existing running session. A newly created
-runtime uses the current compatible substrate; restarting an existing runtime
-uses the substrate recorded at creation. V1 has no voluntary recreate
-operation; a later one must follow the lifecycle and isolation contracts.
-
-## Build pipeline
-
-**Decided phases; exact commands are Direction.** A build is one persisted
-operation with these phases:
+The key follows actual build identity:
 
 ```text
-source → resolve → realize → capture → package → verify → register
+provider and adapter version
+execution system
+P project path (V1 cache-isolation scope)
+P base-image fingerprint and runtime-kit contract
+committed flake/lock inputs required to resolve the default devShell
+resolved derivation identity
+trusted Nix substituter/sandbox policy affecting realization
+environment-image format version
 ```
 
-### 1. Source
-
-P materializes the selected commit into a read-only snapshot and records the
-project, commit ID, execution system, provider version, and relevant trusted
-builder-policy digest. Source arrives from P's local Git repository; the RPC
-request does not carry source files.
-
-### 2. Resolve
-
-The selected provider resolves its immutable build description in the build
-worker. For Nix, the result is a devShell derivation/store identity, not a shell
-command invented by P. For Dockerfile, it is the selected file, target stage,
-context digest, platform, and validated build arguments. Substrate-only
-selection skips project evaluation and realization entirely.
-
-### 3. Realize
-
-The provider-specific worker realizes the plan. The Nix worker uses its P-owned
-build store and configured public binary caches. A Dockerfile worker uses a
-rootless isolated BuildKit/Buildah-equivalent without the host engine socket.
-Network policy allows public fetches but denies host, LAN, metadata, and
-sibling-container access. No build secret is injected in v1.
-
-### 4. Capture
-
-The worker captures provider-specific activation. The Nix worker uses the
-pinned [`print-dev-env`](https://nix.dev/manual/nix/2.26/command-ref/new-cli/nix3-print-dev-env)
-interface and records both activation material and
-structured metadata for validation and diagnostics. P treats that Nix command
-as a version-pinned adapter because the upstream interface is experimental. A
-Dockerfile artifact preserves image `ENV` values but has no implicit shell-hook
-language.
-
-### 5. Package
-
-The builder emits closure or self-contained packaging according to the
-backend's declared target. Packaging consumes the already resolved plan; it
-does not reevaluate a different environment definition.
-
-### 6. Verify
-
-P verifies manifest schema, expected system, substrate/runtime-kit
-compatibility, store-path or OCI-layer integrity, activation-file bounds, and
-required executables. It performs a smoke start with no project credentials
-before making a newly built artifact available.
-
-### 7. Register
-
-The successful immutable artifact is registered by its build key. SQLite
-records operational metadata and leases; Nix-store or engine-native storage
-owns the actual bytes. A failed or partial artifact is never returned to a
-runtime backend.
-
-## Closure packaging
-
-**Decided for the v1 Nix provider.** The `local-container` target uses:
-
-```text
-P substrate OCI image
-  + exact environment store closure mounted read-only at /nix/store/…
-  + generated activation material mounted read-only
-```
-
-The manifest enumerates the exact store paths required by the resolved
-environment. P does not expose the whole host store or its database. Store
-paths retain their canonical `/nix/store` names so embedded references and
-runtime linking remain valid.
-
-The build worker may export closure objects through a P-owned artifact store or
-local binary-cache representation. Importing verified store objects is a data
-operation; the daemon never sources activation code or runs a project command.
-Only manifest-listed closure paths are mounted into the session.
-
-Consequences:
-
-- no project OCI archive is assembled or loaded for every new session;
-- several sessions can share immutable closure bytes safely;
-- a cache hit reduces environment preparation to manifest validation and
-  runtime assembly;
-- closure packaging is instance-local and is rebuilt or substituted on another
-  P instance rather than copied through Git.
-
-## Self-contained image packaging
-
-**Decided semantics; later Nix implementation.** A target without access to the
-instance-local artifact store requests self-contained packaging. For Nix on a
-container or Kubernetes backend this is an OCI-compatible image containing the
-P substrate, resolved environment closure, activation material, and manifest.
-A VM backend may package the same inputs into its native immutable disk/base
-artifact instead; “self-contained” does not require pretending a VM disk is
-OCI. Dockerfile already produces an OCI project filesystem and receives the
-compatible P runtime kit during normalization/runtime assembly.
-
-For Nix, the implementation should use the pinned
-[Nixpkgs shell-image helpers](https://nixos.org/manual/nixpkgs/stable/)
-or an equivalent expression built on `dockerTools`, rather than P manually
-copying libraries or reconstructing `PATH`. The image is loaded or published
-by digest, never by a mutable `latest` tag.
-
-Portable packaging is not promised to be byte-identical to closure packaging.
-It must be behaviorally equivalent for:
-
-- executable and library availability;
-- exported development-shell variables;
-- activation and shell-hook ordering;
-- user, home, workspace, and P endpoint locations;
-- substrate helper versions.
-
-A packaging conformance suite runs the same fixture commands against both
-forms before a second strategy is accepted.
-
-## Dockerfile provider
-
-**Decided contract; implemented after the Nix path.** Dockerfile is an explicit
-environment provider for users whose development environment is already an
-image recipe. It builds from the immutable commit context and emits an OCI
-archive plus normalized manifest.
-
-Example later trusted project selection:
-
-```text
-# Trusted host configuration; concrete file syntax is implementation-owned.
-projects["lgvo/p"].environment.provider = "dockerfile"
-projects["lgvo/p"].environment.file = "Dockerfile.dev"
-projects["lgvo/p"].environment.target = "development"
-projects["lgvo/p"].environment.buildArgs.EDITION = "community"
-```
-
-Build arguments are non-secret, validated strings and enter the artifact key.
-Neither trusted provider selection nor repository Dockerfile syntax can request
-host networking, privileged build, host bind mounts, SSH forwarding, or secret
-mounts. Authenticated build inputs
-require the same later isolated credential-fetch design as private Nix inputs;
-the model gateway is not a general build-input proxy.
-
-The resulting image supplies the project filesystem/toolchain, but P—not image
-metadata—owns the interactive session contract. During normalization P:
-
-- retains filesystem layers and declared `ENV` values;
-- records but does not execute image `ENTRYPOINT`, `CMD`, or `HEALTHCHECK`;
-- replaces runtime `USER`, `WORKDIR`, and entrypoint with P's fixed session
-  user, workspace, and launcher;
-- does not turn `EXPOSE` into host/LAN port publication;
-- rejects image-declared volumes that target `/workspace`, `/home/p`, `/run/p`,
-  or `/opt/p`, and strips other volume declarations so the engine does
-  not create anonymous writable mounts outside P's declared mount policy;
-- mounts the P runtime kit read-only and composes its paths with the image
-  environment without erasing unrelated image variables.
-
-The session workspace is always the standalone Git clone at `/workspace`.
-Files copied into an image by `COPY . ...` are immutable image contents, not
-the live workspace or a second source of Git truth. Development Dockerfiles
-should normally install dependencies and leave source mounting to P, but P does
-not prohibit copied source when a build requires it.
-
-An image that cannot start under the fixed P runtime contract fails provider
-verification with the incompatible field named. Users may choose a different
-Dockerfile/target; P does not silently run a production entrypoint or weaken
-isolation to make the image start.
-
-Dockerfile cache identity includes the context digest after `.dockerignore`,
-Dockerfile path and contents, target, platform, build arguments, frontend and
-builder versions, P runtime-kit compatibility, and parent-image digests. A
-mutable base tag is resolved to a digest for one build record; rebuilding may
-resolve it differently, so reproducible projects should pin base digests.
-
-## Environment activation
-
-**Decided.** Project activation code is untrusted session code. The Nix build
-worker captures it, but neither the daemon nor the image importer sources it.
-Dockerfile `ENV` is declarative image metadata and is normalized without
-executing the image's configured entrypoint.
-
-On runtime start, P's runtime-kit launcher:
-
-1. establishes the fixed session user, `HOME`, workspace, and P endpoint paths;
-2. applies the provider environment—sources generated Nix activation or applies
-   normalized image environment;
-3. runs the selected devShell's shell hook inside the session, when the provider
-   defines one;
-4. prepares the configured interactive host; and
-5. starts or re-enters the configured interactive command when its attachment
-   semantics require it.
-
-The command may be a shell, Claude Code, Codex, or custom argv. `tmux` is the
-default persistent interactive host; `direct` starts the command for one
-attachment. P v1 does not declare, launch, health-check, or supervise project
-services.
-
-The activation file is generated by the pinned Nix adapter and treated as an
-opaque executable artifact after validation. P does not attempt to translate
-arbitrary Bash functions into environment variables. Structured
-`print-dev-env --json` output supports inspection and validation; it is not a
-replacement implementation of shell activation.
-
-A shell hook may change files in the session workspace or home and use the
-session's allowed public network. That is within the session boundary. Its
-failure stops startup with the failing phase and log; P does not continue into
-a subtly incomplete environment.
-
-## Runtime assembly
-
-**Boundary.** After an environment artifact exists, the backend combines it
-with P's compatible substrate/runtime kit and a normalized `SessionSpec`. The
-spec, writable storage, project-scoped grants, endpoints, labels, and cleanup
-rules are defined by [runtime and isolation](runtime-isolation.md).
-
-The workspace is never an image layer. A new commit that does not change the
-resolved environment can therefore reuse the same environment artifact while
-cloning different source.
-
-Runtime assembly is transactional with the SQLite lifecycle operation. If
-assembly fails, the branch reservation and partial backend machinery reconcile
-through the normal session lifecycle; the immutable environment artifact
-remains reusable.
-
-## Artifact identity and caching
-
-**Decided.** Cache identity follows actual build inputs, not a guessed project
-name or wall-clock TTL.
-
-The common logical build key includes:
-
-- environment provider and adapter version;
-- provider-specific immutable plan identity;
-- execution system;
-- packaging kind and format version;
-- P substrate digest and compatibility version;
-- relevant trusted builder policy and Nix version.
-
-For Nix, the resolved derivation identity determines reuse: two commits or
-projects that resolve to the same environment may share the immutable artifact,
-and a workspace-only source change does not invalidate it. For Dockerfile, the
-filtered build-context digest is an input because Dockerfile instructions may
-copy arbitrary context files; only files excluded by `.dockerignore` are
-irrelevant to its build key.
-
-There are three independent caches:
-
-1. environment-resolution metadata;
-2. realized Nix store objects and substitution results;
-3. packaged closure manifests or OCI/portable images.
-
-P validates that referenced bytes still exist before reporting a hit. SQLite
-is an index and lease ledger, never the artifact store or source of truth for
-Nix paths and engine images.
-
-Failures are not durable cache hits. P may retain their bounded logs and a
-short retry backoff, but a changed input or explicit retry starts a new build.
-
-## Concurrency, progress, and cancellation
-
-**Decided.** Builds are single-flight by build key. Ten sessions requesting the
-same missing artifact observe one build operation and acquire separate leases
-on success.
-
-One caller cancelling does not cancel work still needed by another caller. If
-the last waiter cancels, P requests cancellation from the builder; cleanup is
-idempotent, and a late successful immutable artifact may still be registered.
-
-The host RPC reports phases and bounded progress:
-
-```text
-resolve · evaluating devShell
-realize · 37/52 store paths · downloading 184 MiB
-capture · development environment
-package · closure manifest
-verify  · smoke start
-```
-
-Progress is factual when Nix exposes it and phase-only otherwise. P does not
-invent percentages. Full build logs stay local and are available on demand;
-the TUI preview shows a bounded tail.
-
-Daemon restart reloads the persisted operation, asks the build worker and
-artifact authorities what exists, and either resumes observation, registers a
-completed artifact, or records an interrupted failure. It never assumes that
-connection loss means the build failed.
-
-## Garbage collection
-
-**Decided.** Every environment artifact used by a registered runtime holds a
-lease. In-progress lifecycle operations also hold temporary leases. P never
-collects a leased artifact.
-
-Removing a runtime releases its lease but does not immediately delete shared
-bytes. The overview may show reclaimable build-cache size. v1 collection is an
-explicit action that itemizes unleased manifests, store objects, and engine
-images before removal; there is no automatic space-pressure deletion.
-
-Nix and the container engine remain the byte authorities. P removes its roots
-or image references and lets those tools determine which content is actually
-unreferenced. A missing externally collected artifact is a cache miss, not
-registry corruption.
+Two commits in one project may reuse an immutable image when the resolved
+derivation and all other key inputs match. V1 does not reuse images across P
+projects, even when derivations match: a Nix closure may retain source-derived
+store paths, so cross-project reuse would widen source visibility. A
+source-only commit does not invalidate the cached image merely because its Git
+commit ID changed when the resolved environment identity is unchanged.
+
+SQLite stores `environment_key → Incus image fingerprint` plus bounded build
+metadata. It never stores image bytes or Nix store records.
+
+## Build and publish pipeline
+
+### 1. Resolve
+
+P creates a disposable restricted builder from the pinned base, materializes
+the immutable source under a build-only path, and resolves the default devShell
+without writing the source.
+
+### 2. Realize
+
+The builder's local Nix daemon realizes the environment in its own writable
+`/nix` using only configured public substituters/fetches. It receives no host
+Nix daemon or store. Nix's build sandbox remains enabled unless a pinned
+validation records a specific safe limitation.
+
+### 3. Capture
+
+P uses the pinned Nix adapter, initially `nix print-dev-env --json`, to capture
+variables and shell functions and generate versioned activation material. The
+project shell hook still executes only inside the builder smoke test and final
+session. Neither the P daemon nor Incus host process sources generated or
+project activation code.
+
+### 4. Root
+
+The builder creates a P-owned garbage-collector root for the selected
+environment so session-local Nix collection cannot remove the cached initial
+closure from its logical image state.
+
+### 5. Verify
+
+Inside the builder, P verifies:
+
+- expected system and derivation identity;
+- Nix database/store consistency;
+- activation bounds and required executables;
+- fixed user, home, workspace, and runtime-kit paths; and
+- a smoke activation without P Git, model, origin, or user credentials.
+
+### 6. Scrub
+
+P removes the materialized checkout, temporary build files, transient logs,
+network configuration, and other builder-only data, then collects unreachable
+temporary Nix paths. A retained devShell closure may still contain committed
+source-derived store paths required by Nix. The image is therefore private and
+project-scoped. It must contain no writable workspace, session UUID, private
+key, origin credential/remote, or material from another P project.
+
+### 7. Publish
+
+P stops the builder and asks Incus to publish it as a private immutable image.
+Incus supplies the fingerprint and owns the bytes. P verifies the fingerprint
+and image metadata before registering the environment-key index.
+
+### 8. Clean builder
+
+P deletes the builder instance after the image is verified. A failed cleanup
+leaves a labeled builder orphan for explicit cleanup; it does not invalidate a
+verified image or become a session.
+
+No project branch ref is created or changed by environment building.
+
+## Nix activation compatibility gate
+
+`nix print-dev-env` is an experimental Nix command whose interface may change.
+It is an adapter contract, not an assumed stable platform API. Each supported
+Nix version must pass a pinned compatibility suite covering:
+
+- required experimental-feature flags and complete structured argv;
+- the `--json` top-level schema and every accepted variable/function type;
+- path, array, quoting, unset/export, shell-function, and shell-hook behavior;
+- exit status and bounded diagnostic behavior for evaluation/build failures;
+- generated activation equivalence against `nix develop` fixtures; and
+- rejection of unknown fields/types or an unsupported Nix version without
+  falling back to sourcing raw output.
+
+The supported version and adapter schema version contribute to the environment
+key. Builder startup refuses activation capture when the compatibility gate has
+not passed. Upgrading Nix requires rerunning the suite before the version is
+accepted; cached images retain their recorded adapter contract.
+
+See the upstream [`nix print-dev-env` reference](https://nix.dev/manual/nix/stable/command-ref/new-cli/nix3-print-dev-env),
+including its experimental-interface warning.
+
+## Cached Nix store model
+
+The published image contains one coherent `/nix` view:
+
+- all initial store paths required by the base and selected devShell;
+- the matching Nix database and trusted-key/substituter configuration;
+- the P-owned GC root; and
+- profiles/activation material required by the fixed session launcher.
+
+It may also contain committed source-derived store paths retained by that
+closure. These are immutable project inputs, not the session workspace, and
+are one reason environment-image reuse is scoped to a P project in V1.
+
+When Incus creates a session instance, its private root begins from those
+bytes. The exact block sharing is Incus storage-driver behavior; logically the
+image is immutable and the session root is private.
+
+The design deliberately avoids:
+
+- a shared writable store or daemon across sessions;
+- a host store/daemon mount;
+- individually mounted closure paths with an unrelated database;
+- manual overlay construction by P; and
+- automatic promotion of session-built paths into the cache.
+
+## Session activation and later Nix work
+
+After Incus creates the instance, P installs only session-scoped endpoints and
+creates the standalone clone at `/workspace`. The launcher then:
+
+1. establishes the fixed user, `HOME`, workspace, and P paths;
+2. applies the captured devShell activation;
+3. runs the shell hook inside the session;
+4. prepares tmux; and
+5. starts the configured interactive command.
+
+Activation failure leaves the runtime visible but not ready; P does not claim
+a successful session or run a fallback environment.
+
+Nix remains available through the session-local Nix daemon. If `flake.nix`,
+`flake.lock`, or other inputs change, ordinary Nix commands may realize new
+paths into that session's private `/nix`. Those paths survive stop/start and
+disappear with the instance. They do not modify the cached image or another
+session.
+
+Only committed source can produce a new shared environment image. P never
+turns dirty or uncommitted session state into a cache image automatically.
+
+## Caching, concurrency, and collection
+
+Incus is the image cache and byte authority. P performs a cache hit by looking
+up the environment key and verifying that exact fingerprint in the configured
+Incus project.
+
+Concurrent requests for one missing key may share one in-memory build job and
+progress stream. Durable single-flight scheduling is not required: after a P
+restart, a verified image is a hit and an incomplete build may be retried.
+Deterministic builder names/metadata prevent accidental adoption as sessions.
+
+P does not maintain artifact leases. Existing Incus instances own their
+private roots independently of the cache index. Removing an environment image
+never occurs as a side effect of stop, discard, or session deletion.
+
+Cache collection is explicit. It itemizes P-owned environment keys, image
+fingerprints, last-use metadata, logical size, and currently related sessions
+before removing the index and image. The preview warns that an existing
+instance continues without the image but may no longer be exactly recreatable
+if it is later lost and its branch environment has changed. This warning does
+not introduce a lease or implicit retention rule. A missing externally removed
+image is a cache miss. V1 has no automatic age- or pressure-based collection.
 
 ## Security boundary
 
-**Decided.** Repository-controlled environment evaluation, Nix derivations,
-Dockerfile instructions, fetchers, and activation are untrusted.
+The builder is a separate unprivileged Incus system container in the same
+confined P execution project but is never a session. It receives:
 
-The build worker:
+- immutable committed source;
+- its private root and bounded scratch space;
+- configured public Nix substituters/fetch traffic; and
+- no other P runtime or host authority.
 
-- runs through `IsolationProvider`, separate from the daemon and sessions;
-- receives only the immutable source snapshot, target description, bounded
-  scratch/output space, and provider-specific P cache/store capability;
-- has public-internet egress for declared fetches but no host/LAN/private,
-  metadata, sibling-container, or arbitrary local access;
-- receives no daemon environment, host filesystem, container-engine socket,
-  SSH agent, origin/P Git private key, model credential, or notification secret;
-- never receives a general host Nix daemon or container-engine socket;
-- writes only its disposable/P-owned build state and declared artifact output.
+It receives no Incus socket, host filesystem grant, workspace, SSH agent,
+origin/P Git private key, model key, notification secret, host Nix state, or
+general host/LAN route. Public egress must pass the same destination-isolation
+evidence required by runtime policy.
 
-P supplies no build secrets in v1. Private flake inputs, authenticated binary
-caches, and private Dockerfile build inputs therefore require a later isolated
-credential-fetch capability; mounting ambient user credentials into the
-builder is not an accepted workaround.
+V1 supplies no build secrets. Private flake inputs, authenticated caches,
+remote builders, KVM devices, and deployment credentials require separate
+future capabilities rather than ambient credential mounts.
 
-Nix's own build sandbox and a Dockerfile builder's rootless execution are
-defense in depth, not the outer boundary. The `IsolationProvider` boundary
-remains required.
+## Failures and retry
 
-Activation runs later inside the final session, with that session's authority.
-It cannot influence another runtime merely because its bytes came from a
-shared immutable artifact.
-
-## Failures and recovery
-
-| Failure | Required behavior |
+| Failure | Behavior |
 |---|---|
-| No default devShell or trusted later-provider selection exists | Use substrate only; this is not a warning. |
-| Default devShell is invalid | Fail selection; never fall back. |
-| Explicit Dockerfile/target is missing or invalid | Fail selection; never try Nix or substrate. |
-| Lock file would change or be created | Fail with the required lock action; never write the repository. |
-| Evaluation fails | Show resolve phase and bounded diagnostic. |
-| Fetch/substitute fails | Preserve cache already obtained; report upstream and retry explicitly/background according to operation policy. |
-| Realization fails | Do not package or register partial output. |
-| Worker disappears | Reconcile operation and store; report interrupted only after authorities are queried. |
-| Packaging/import fails | Keep realized closure reusable; retry packaging without rebuilding it. |
-| Verification fails | Quarantine the package and retain diagnostics; never create a runtime from it. |
-| Activation/shell hook fails | Runtime startup fails visibly with log; do not claim the session is ready. |
-| Cached bytes were externally removed | Treat as cache miss and rebuild/repackage. |
-| Wrong architecture | Fail before realization with requested and available systems. |
-| Disk exhaustion | Stop cleanly, retain valid shared objects, and show reclaimable unleased cache. |
+| No default devShell | Use the pinned P base image directly |
+| Invalid devShell or lock mutation required | Fail resolution; do not fall back |
+| Fetch/substitution/realization failure | Report bounded Nix diagnostic; explicit retry starts from current Incus/Nix cache facts |
+| P loses contact with an Incus build operation | Query Incus; do not duplicate its operation state machine |
+| Builder disappears | Treat as interrupted cache build and retry |
+| Verification fails | Do not publish/register; retain bounded diagnostic and remove or expose builder cleanup |
+| Publish succeeds but P loses response | Inspect P-labeled images/build metadata; use exact verified match or retry without guessing |
+| Indexed fingerprint missing | Cache miss and rebuild |
+| Activation fails during creation | Startup readiness remains `inactive` while the session is `creating`; the durable creation operation owns the failed phase and retry stops the partial runtime before a new generation |
+| Activation fails during established Start | Current startup generation remains durably `not_ready` with a bounded activation reason; recovery is Stop → Start |
+| Disk exhaustion | Preserve already valid Incus/Nix data and show cleanup options |
 
-Build failure is an operation failure before a session becomes runnable. It is
-not a runtime or agent failure and never marks the session established. After
-the lifecycle creation commit point, the reserved session row and branch remain
-visible in `creating` state; its preview names the failed build phase and offers
-the retry/discard/delete paths defined by
-[session lifecycle](session-lifecycle.md#failure-cancellation-and-retry).
+Environment building is cache work, not source authority. It may fail and be
+retried without deleting the committed P branch.
 
-## Performance posture
+## Performance and evidence
 
-**Decided.** P does not specify one universal cold-build threshold. Build time
-depends on the selected project environment, target architecture, derivations,
-binary-cache availability, network, and which store paths are already present.
-The same is true of Dockerfile/OCI builds.
+P specifies no universal cold-build threshold. It records:
 
-The product contract is instead:
+- base-image hit;
+- environment-image hit/miss;
+- evaluation, realization, verification, publication, and instance-create
+  durations;
+- substituted and locally built paths/bytes;
+- logical environment-image size;
+- storage-driver-reported physical use when available; and
+- private per-session root growth after representative work.
 
-- substrate-only creation performs no project build;
-- an exact resolution-metadata hit performs no evaluation, and an artifact hit
-  performs no realization;
-- a realized-closure hit does not rebuild merely because a new session or
-  source commit requests it;
-- concurrent identical requests share work;
-- every non-trivial wait exposes its real phase, log tail, and cancellation;
-- P records phase durations, cache-hit level, downloaded/built path counts, and
-  bytes so optimization is based on actual projects.
-
-Dockerfile builds obey the same posture but have different invalidation: a
-context change included by `.dockerignore` may legitimately rebuild layers. P
-reports provider and cache-hit detail instead of comparing that build to a
-devShell threshold.
-
-The warm interaction target remains “a few seconds to attach” when the exact
-artifact and source objects are local, but it is a measured UX objective, not a
-correctness gate or a promise that arbitrary cold devShells finish within one
-minute.
-
-The implementation validation benchmarks representative small, medium, and
-large project fixtures on `x86_64-linux` and `aarch64-linux` where available,
-with cold, substituted, and fully warm stores. Those numbers tune progress UX,
-cache roots, and defaults; they do not reopen the architecture unless evidence
-disproves closure mounting or isolated realization itself.
+The acceptance target is fast session creation after an environment-image hit.
+Cold build performance depends on the project and cache state. Evidence must
+cover empty, substituted, and warm cases on supported architectures and the
+real homelab repository.
 
 ## API and channel boundary
 
-The build preserves the project-wide communication rule:
+- **Git** supplies immutable committed source to the builder and creates the
+  session workspace only after runtime creation.
+- **Host RPC** requests builds, observes bounded progress, and receives image
+  identity; it never transports image bytes.
+- **Incus API/operations** create the builder, publish the image, create the
+  session root, and report runtime/image truth.
+- **Nix fetch traffic** reaches only configured public sources under the
+  builder network policy.
+- **Incus image/storage** retains cached image and instance bytes.
 
-- **Git** supplies the immutable source commit.
-- **Host JSON-RPC** requests creation/build, observes progress, cancels, retries,
-  and returns artifact metadata.
-- **Session RPC** is absent until a runtime exists and never builds images.
-- **Builder isolation IPC/mounts** carry a validated job description, immutable
-  source, logs, and artifact output inside one P instance.
-- **Provider fetch traffic** reaches public Nix substituters, OCI registries,
-  and Dockerfile fetch URLs under the build network policy.
-- **Artifact bytes** remain in instance-local Nix/engine storage; they do not
-  travel inside JSON-RPC or Git.
+Independent P instances rebuild the same environment or obtain inputs from
+ordinary Nix substituters. They do not exchange P cache metadata or images.
 
-Independent P instances rebuild or substitute the environment from the same
-committed definition. They do not exchange images or cache metadata through P
-in v1.
+## V1 boundary
 
-## v1 boundary
+V1 includes:
 
-**In:**
+- conventional default flake devShell or base-only behavior;
+- pure committed-source resolution;
+- one pinned P Nix base per supported architecture;
+- restricted Incus builder instances;
+- private Incus environment images with coherent cached Nix stores;
+- private writable session Nix state;
+- exact activation inside sessions;
+- a pinned `nix print-dev-env --json` compatibility gate;
+- cache index by environment key and fingerprint;
+- bounded progress and explicit retry; and
+- explicit cache collection.
 
-- Linux-native `x86_64-linux`/`aarch64-linux` as available on the instance
-- Nix devShell environment provider as the first implementation
-- Strict immutable-source and lock policy
-- P-owned versioned substrate
-- Isolated build worker with no ambient host authority or build secrets
-- Closure packaging for `local-container`
-- Exact environment activation inside the session
-- Pluggable interactive command/host preparation, with `tmux` as the default
-  persistent host and `direct` as the minimal alternative
-- Substrate-only fallback
-- Build-key caching, single-flight operations, progress, logs, cancellation,
-  leases, explicit collection, restart reconciliation
-
-**Later:**
-
-- Explicit Dockerfile environment provider producing normalized OCI artifacts
-- Self-contained OCI and VM image packaging
-- Cluster-native builders and caches
-- Additional environment providers such as `devcontainer.json`
-- Cross-compilation or emulated foreign-architecture builds
-- Isolated credential fetch for private provider inputs, registries, and caches
-- Remote/shared artifact cache managed by P
-- Automatic cache collection policy
+V1 excludes Dockerfile/devcontainer providers, OCI packaging, raw closure
+mounts, shared writable Nix stores, host Nix access, automatic promotion from
+sessions, build secrets, remote builders, automatic cache collection, and
+portable image distribution between P instances.
 
 ## Acceptance criteria
 
-The v1 Nix path is implemented when tests prove:
+The V1 environment path is supported when tests prove:
 
-1. two sessions using the same build key cause one realization;
-2. a source-only commit change reuses an unchanged resolved environment;
-3. default devShell failure never falls back to substrate;
-4. missing devShell starts a useful substrate-only session;
-5. no repository evaluation, Dockerfile build, Nix realization, or activation
-   executes in the daemon;
-6. the build worker cannot reach host/LAN endpoints or receive ambient
-   credentials;
-7. a normal session sees only its manifest-listed closure paths and has no host
-   Nix daemon socket;
-8. activation and shell-hook failure prevent a false-ready session;
-9. cancellation, daemon restart, missing cached bytes, and partial packaging
-    reconcile without returning a corrupt artifact;
-10. Git/RPC traces contain source identity and build metadata, respectively,
-    but no image bytes cross either control channel;
-11. representative cold/substituted/warm measurements are recorded without
-    turning project-dependent timings into a universal promise.
-
-The provider seam is accepted before the first additional provider ships when
-tests also prove:
-
-1. a Dockerfile artifact cannot replace P's entrypoint, publish ports, mount
-   host paths, or hide P's workspace/runtime endpoints;
-2. Dockerfile context, target, argument, parent digest, and builder changes
-   invalidate the correct cache layer;
-3. adding a fixture environment provider changes no session/TUI/Git logic;
-4. Nix closure and Dockerfile OCI sessions satisfy the same runtime-kit,
-   workspace, identity, network, and attachment conformance suite.
-
-The design issue is closed now. These tests are implementation gates, followed
-by measurement and optimization against the contract—not unresolved choices
-about what P builds or where trust is placed.
+1. resolution and realization use only immutable committed source and cannot
+   reach ambient host authority;
+2. two requests for the same environment key reuse one verified Incus image;
+3. the image contains a coherent Nix store/database and exact activation for
+   the selected devShell;
+4. the materialized checkout, transient builder state, credentials, session
+   identity, and other-project material are absent; any retained committed
+   source exists only as a Nix store path required by the project-scoped
+   closure;
+5. two sessions start from that image while new Nix paths/database changes are
+   private and persist across each session's stop/start;
+6. changing a workspace flake realizes only into the session delta and never
+   mutates the cached image;
+7. removing or losing an image yields a rebuildable cache miss rather than
+   source/session corruption;
+8. the configured Incus storage driver's actual sharing and private growth are
+   measured rather than assumed; and
+9. the homelab validation completes its accepted evaluate/build workflow with
+   no host Nix daemon, Incus socket, ambient credentials, or fleet route; and
+10. every supported Nix version passes the experimental `print-dev-env --json`
+    schema/activation compatibility suite and unsupported versions fail closed.

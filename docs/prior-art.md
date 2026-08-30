@@ -4,7 +4,7 @@ How P relates to tools that already exist. This document has two jobs: keep the
 design honest about what is commodity, and direct effort toward the combination
 that is actually specific to P.
 
-> **Landscape snapshot: 2026-08-13.** Individual products in this area change
+> **Landscape snapshot: 2026-08-20.** Individual products in this area change
 > quickly. Consequential claims link to first-party material; status labels are
 > dated so staleness is visible rather than implicit. This document is
 > non-normative; P's design documents define product behavior.
@@ -14,9 +14,10 @@ that is actually specific to P.
 P is local-first, open-source tooling intended to run on machines the user
 controls and to expand through replaceable, instance-local execution
 mechanisms. Managed vendor platforms matter as strategic context, but they are
-not the primary comparison set. A local container or VM is a backend; a future
-Kubernetes provider could place work for that same instance. An SSH host or a
-second P daemon is not a backend. The user selects another P instance by
+not the primary comparison set. V1 selects a confined local Incus project as
+its sole runtime substrate; a future Incus VM or Kubernetes provider could
+place work for that same instance. An SSH host or a second P daemon is not a
+backend. The user selects another P instance by
 connecting its TUI to that instance, and v1 moves work between instances only
 through the project's ordinary shared `origin` when one is configured. Without
 one, the project is intentionally local-only.
@@ -27,7 +28,7 @@ The comparison uses three verbs:
   supports fast attachment.
 - **Places:** creates an isolated runtime on a selected backend.
 - **Governs:** constrains what the runtime may write and, when a shared origin
-  exists, requires a human action before work reaches it.
+  exists, requires a separate host-authorized action before work reaches it.
 
 “Governance” here means enforced authority, not merely a diff viewer, merge
 button, CI result, or forge branch-protection rule.
@@ -42,25 +43,26 @@ fundamentally different things:
 - A **session** is an immutable UUID that owns exactly one logical Git branch;
   the mutable session name is that branch's real ref name, addressed together
   with the complete project repository path.
-- A **runtime** is container, VM, or other instance-local backend machinery
-  tagged to the session UUID. The configured interactive command may be a shell
-  or agent; tmux is the default persistent host, not session identity.
+- A **runtime** is one unprivileged Incus system container tagged to the
+  session UUID in V1. The configured interactive command may be a shell or
+  agent; tmux is the default persistent host, not session identity.
 - Every session starts from committed source and owns a real branch
   immediately. A timestamp provides an initial name when the user has no better
   one, and transactional rename changes the Git ref without replacing the UUID
   or runtime.
-- One P instance permits at most one session owner for a session branch across
-  all of its backends.
-- A small instance-local SQLite registry records the UUID-to-branch and runtime
-  relationships, project/branch assignments, lifecycle intent, latest
-  unattended condition, and credentials. Backend labels support discovery and
-  repair, but are not the source of truth by themselves.
+- One P instance permits at most one session owner for a session branch and at
+  most one Incus instance for that session UUID.
+- A small instance-local SQLite registry records the UUID-to-branch and Incus
+  relationships, project/branch assignments, cross-authority lifecycle intent,
+  latest unattended condition, and credentials. Incus metadata supports
+  discovery and repair; Incus remains authoritative for its instances, images,
+  storage, and operations.
 - P instances do not discover, address, or synchronize with one another. Each
   has a local Git server. Independent machines converge only through a
   configured ordinary shared `origin`: publish from one instance, fetch on the
   other, then create a fresh runtime. Origin-less projects remain local to
   their instance.
-- Runtime state does not travel. Containers, VMs, tmux, processes,
+- Runtime state does not travel. Incus roots, tmux, processes,
   conversations, and uncommitted files remain instance-local.
 
 This makes the overview a list of **active sessions across Git projects**,
@@ -222,9 +224,9 @@ Shep deliberately automates the forge workflow using the user's ordinary Git
 authority. P instead makes the runtime's Git authority the central enforced
 boundary: the runtime can update only its permitted local refs, has no
 P-supplied configured or credentialed publication path to `origin`, and
-requires the host user to publish. The public forge may still be
-network-reachable through ordinary internet egress. Worktrees also do not
-provide P's process, credential, or network isolation.
+requires a separate host-authorized publication action. The public forge may
+still be network-reachable through ordinary internet egress. Worktrees also do
+not provide P's process, credential, or network isolation.
 
 ### Omnara
 
@@ -269,6 +271,23 @@ rather than an open-source dependency candidate for P today.
 
 ## Execution-provider references
 
+### Incus — selected V1 substrate
+
+**[Incus](https://linuxcontainers.org/incus/docs/main/)** supplies the runtime
+mechanics P should reuse: system containers and VMs, images, storage pools,
+projects, operations/events, exec, and local API access. Its
+[confined user projects](https://linuxcontainers.org/incus/docs/main/howto/projects_confine/)
+are especially relevant because they let the machine owner define an upper
+bound on the instances, devices, paths, and networks P may control. Incus also
+documents that unrestricted administrative access is
+[host-root-equivalent](https://linuxcontainers.org/incus/docs/main/explanation/security/),
+which is why P must use only the confined user project/socket.
+
+Incus replaces V1 engine/image/storage lifecycle implementation; it does not
+replace P's Git project/branch identity, per-session authorization, lifecycle
+intent, status, TUI, or origin publication. P uses local Incus only in V1:
+remote servers and clusters do not create daemon federation.
+
 The following are design references for future isolation providers. They are
 not automatically P backends: using one must preserve the rule that a P daemon
 manages only its own instance and never turns a remote host into a hidden second
@@ -279,7 +298,8 @@ instance.
 - [Fly Sprites](https://fly.io/sprites/)
 - [exe.dev](https://exe.dev/docs/what-is-exe)
 - [Vercel Sandbox](https://vercel.com/docs/sandbox)
-- local Podman/Docker containers, local VMs, and Kubernetes
+- Incus VMs, Kubernetes, and—only if later justified—raw Podman/Docker
+  runtimes
 
 P should evaluate a provider by provisioning and teardown, attach/exec,
 networking, storage and snapshots, observability, secret mediation, egress
@@ -391,10 +411,11 @@ Historical or currently unverifiable:
 ## Comparison
 
 This table records architecture, not feature-count scores. “Hard Git boundary”
-means the runtime's write authority is enforced outside the runtime; “human
-publish” describes the gate when work is sent to a shared external repository.
+means the runtime's write authority is enforced outside the runtime;
+“publication gate” describes the separate authority used when work is sent to
+a shared external repository. It does not claim proof of human presence.
 
-| System | Organizing unit | Runtime placement / isolation | Attention surface | Hard Git boundary | Human publish | Deployment |
+| System | Organizing unit | Runtime placement / isolation | Attention surface | Hard Git boundary | Publication gate | Deployment |
 |---|---|---|---|---|---|---|
 | Agent Deck | registered session/group | local/SSH-managed tmux; worktree + optional Docker modes | TUI/web/phone + notifications | no P-like ref server; Docker can share host tool auth | ordinary user Git/worktree finish | local, open source |
 | dmux | worktree/agent pane | local worktree + tmux | terminal panes | no | merge/PR flow | local, MIT |
@@ -410,7 +431,7 @@ publish” describes the gate when work is sent to a shared external repository.
 | Coder Agents | agent + user workspace | provisioned isolated workspace | web/control-plane UI | server identity and permission policy | workflow-dependent | self-hosted/enterprise |
 | AgentsMesh | pod/runner/ticket | worktree pod scheduled across a runner fleet | web/desktop/iOS console | platform credentials/permissions, different model | workflow-dependent | self-hostable, BSL-1.1 |
 | Vendor cloud agents | task/agent | managed container/VM | web/app/mobile varies | often restricted agent authority | usually branch/PR review | managed service |
-| **P (design)** | **Git project → session UUID ↔ branch** | **instance-local provider; local container in v1; one runtime per session** | **sessions-only TUI + latest-unattended status + notifications** | **session-scoped local Git server; assigned branch only; read-only host principal; no supplied origin authority** | **explicit host push every time when an origin exists; bypassed when local-only** | **open source, user-controlled** |
+| **P (design)** | **Git project → session UUID ↔ branch** | **one unprivileged system container in a confined local Incus project; cached Nix image + private root** | **sessions-only TUI + latest-unattended status + notifications** | **session-scoped local Git server; assigned branch only; read-only host principal; no supplied origin authority** | **explicit host push every time when an origin exists; bypassed when local-only** | **open source, user-controlled** |
 
 ## What P specifically combines
 
@@ -419,9 +440,9 @@ combination:
 
 1. Git repository projects and durable branches as the organizing model, with
    a sessions-only operational view over disposable runtimes.
-2. One immutable session UUID per logical branch, with an instance-local runtime
-   and replaceable interactive host; local containers and tmux are the v1
-   defaults for those separate roles.
+2. One immutable session UUID per logical branch, with one confined local Incus
+   instance and a replaceable interactive host; an unprivileged system
+   container and tmux are the V1 defaults for those separate roles.
 3. A local Git hub that authenticates each session and restricts it to its
    assigned branch while giving the host only read access.
 4. No `origin` credentials or path inside the runtime; when an origin is
@@ -445,9 +466,9 @@ origin publication compose in a self-hosted tool.
   screen should feel familiar even though its grouping model differs. Runtime
   identity must remain immutable, and tmux cleanup must address one isolated
   server/runtime identity rather than matching process names or argv globally.
-- **Treat runtime placement as replaceable infrastructure.** Local containers
-  are v1; local VMs or a later Kubernetes provider can implement the same
-  runtime contract. SSH selects another P instance—it never makes that host a
+- **Reuse Incus instead of rebuilding runtime mechanics.** Confined local Incus
+  is V1; Incus VMs or a later Kubernetes backend can implement the retained
+  runtime seam. SSH selects another P instance—it never makes that host a
   backend of the current daemon. Third-party sandbox APIs remain research until
   they can satisfy the instance, Git, network, and credential boundaries.
 - **Spend design and review effort on the authority boundary.** Immutable

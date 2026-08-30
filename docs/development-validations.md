@@ -1,113 +1,215 @@
 # P — development validations
 
-Evidence to gather while implementing P.
+Evidence to gather alongside implementation.
 
-> These validations do not block unrelated development. Each one blocks only
-> the feature or support claim named under **Gate**. Product behavior remains
-> authoritative in the corresponding design document.
+> A validation blocks only the capability/support claim named by its **Gate**.
+> Product behavior remains authoritative in the corresponding design document.
 
-## 1. Rootless runtime networking
+## 1. Confined Incus authority
 
-**Validate:** Under the pinned rootless Podman version, allow public internet
-egress while denying the host, private and link-local networks, metadata
-endpoints, sibling runtimes, and container-engine administration. Cover IPv4,
-IPv6, DNS, redirects, host aliases, and only the explicit P/Bifrost paths.
+**Validate:** With the pinned Incus release, give P only the configured confined
+user project/socket. Prove it can create and operate labeled builders and
+session instances but cannot access other projects, the administrative API,
+unapproved devices/paths, host namespaces, privileged/raw configuration, or
+the Incus socket from inside an instance.
 
-Default `pasta` connectivity is not proof of this policy; test the selected
-firewall, namespace, or proxy mechanism directly. Run the same suite before
-claiming Docker support.
+Also verify startup detects a missing/misconfigured confinement ceiling and
+fails without falling back to administrative authority.
 
-**Gate:** the isolated outbound-network profile for each tested backend. Core
-Git, registry, RPC, TUI, and network-disabled runtime work may proceed.
+**Gate:** real Incus runtime/build support. State, Git, RPC, TUI, and fake
+backend development may proceed.
 
-## 2. Isolated Nix realization
+## 2. Incus runtime and storage conformance
 
-**Validate:** A restricted worker can evaluate an immutable commit, realize its
-devShell, capture activation, and export only the required closure without
-exposing the host Nix daemon, full store database, or ambient credentials.
-Verify cache behavior and actionable failure reporting.
+**Validate:** Exercise deterministic names/metadata, image launch, private root,
+workspace/home/private `/nix` persistence, start/pause/resume/stop/remove,
+operation inspection, events/gaps, structured exec/attach, resource limits,
+fixed endpoint mounts, filesystem grants, and the non-activating workspace
+helper.
 
-For a Nix-native repository that must invoke Nix again during interactive
-development, also execute the complete
-[Nix project workflow validation](nix-project-workflow-validation.md). It
-separates devShell realization, writable runtime Nix, fleet builds, secrets,
-remote builders, VM devices, and deployment authority instead of assuming
-that a closure-only runtime covers them all.
+Run on each claimed storage driver and architecture. Measure logical and
+physical image/session sizes, but do not generalize copy-on-write or
+deduplication behavior across drivers. Test interruption, duplicate detection,
+builder/session orphans, and external image deletion.
 
-**Gate:** the Nix environment builder. Runtime, Git, and control-plane work may
-use the minimal substrate until this passes. The interactive Nix capability is
-separately gated by the workflow evidence; it must not be implemented by
-mounting the host Nix daemon as a shortcut.
+**Gate:** the claimed Incus/storage-driver/architecture combination.
 
-## 3. Session RPC socket restart
+## 3. Runtime networking
 
-**Validate:** A daemon restart does not leave a runtime bound to a stale Unix
-socket inode. Test mounting a private per-session directory containing the
-socket, reconnection, authentication, and preservation of the session UUID.
+**Validate:** Prove the `none` profile has no general network. For the optional
+`public-egress` profile, allow required public DNS/HTTP(S)/Nix fetch traffic
+while denying host, RFC1918/ULA, link-local, carrier-grade NAT, metadata,
+multicast, gateway administration, sibling instances, Incus API, and undeclared
+services. Cover IPv4, IPv6, DNS rebinding, redirects, literal addresses, and
+host aliases.
 
-**Gate:** reliable runtime-to-daemon RPC and agent-hook status across daemon
-restart. Git and interactive attachment do not depend on it.
+Incus network/ACL defaults are not sufficient evidence; capture the actual
+configured routing and packet-level test results.
 
-## 4. Bifrost integration
+**Gate:** `none` first, then the public-egress project capability. Narrow Unix
+endpoint access may proceed independently.
 
-**Validate:** Treat Bifrost as an independently configured persistent service.
-Against a pinned release, verify:
+## 4. Nix environment images
 
-- virtual-key creation, persistence, use, and revocation;
-- mandatory virtual-key enforcement and model filtering;
-- session access to inference without access to dashboard/admin routes;
-- disabled prompt/response content logging when configured; and
-- P and Bifrost restart behavior.
+**Validate:** In a disposable restricted Incus builder, evaluate an immutable
+commit, resolve the conventional default devShell without lock mutation,
+realize it without host Nix state, capture activation, create the GC root,
+verify/scrub it, and publish a coherent private Incus image. Pin the Nix
+version and validate the experimental `nix print-dev-env --json` contract:
+feature flags/argv, JSON schema and value types, quoting/unset/export behavior,
+functions, hooks, failures, and activation equivalence against representative
+`nix develop` fixtures. Reject unknown output rather than sourcing an
+unvalidated fallback.
 
-Projects without model access must remain ready when Bifrost is absent.
+Verify the cache key includes P project scope, the materialized checkout and
+unreachable temporary paths are absent, and any committed source-derived store
+path retained by the closure cannot be reused by another P project.
 
-**Gate:** optional model access. All non-model session work may proceed.
+Launch two sessions from one fingerprint and prove:
 
-## 5. Agent-hook mappings
+- each activates the expected environment;
+- each local Nix daemon can update only its own private store/database;
+- each has a private writable Nix database/store delta;
+- new paths in one session do not affect the image or the other session;
+- stop/start retains private paths while removal deletes them;
+- removing the cached image does not break existing instances and becomes a
+  cache miss for new creation;
+- after both image and instance loss, repair exposes any environment change in
+  the current committed branch and requires explicit recreation approval; and
+- base-only behavior works when no default devShell exists.
 
-**Validate:** Capture and version real Claude Code and Codex hook traces for the
-events mapped to P's latest unattended condition. Cover permission/input,
-activity, normal stop, failure, subagents, session termination, absent hooks,
-and events emitted around attach/detach.
+Run the complete [Nix project workflow validation](nix-project-workflow-validation.md)
+against the real homelab repository.
 
-Confirm that latest-event replacement, clear-on-enter, and suppression while
-attached match the supported agent versions. Do not add causal attention or
-history semantics during this validation.
+**Gate:** V1 environment building and Nix-capable sessions. Other control-plane
+work may use a fixture image.
 
-**Gate:** semantic agent status and notifications for each claimed agent/version.
-Runtime lifecycle and attachment remain usable without an adapter.
+## 5. Session RPC restart and attachment
 
-## 6. Dependency and protocol pins
+**Validate:** A daemon restart does not strand runtimes on a stale Unix socket
+inode. Test the mounted per-session endpoint directory, socket recreation,
+identity binding, reconnect, loss of pending tokens and confirmed live leases,
+structured Incus attachment, multiple clients where supported, and both direct
+Unix and SSH-to-Unix client paths. Prove that a failed channel establishment or
+expired token never increments attachment presence or clears unattended
+status, while successful confirmation performs both. Prove the trusted helper
+retains the confirmed lease until channel teardown completes while the daemon
+is reachable. If daemon restart removes the lease first, teardown must begin
+immediately and that helper must establish no new lease/channel until it
+finishes. Verify that no existing-channel registration is accepted.
 
-**Validate:** Record and exercise the exact versions used by each integration
-suite: Go, Bubble Tea/Bubbles/Lip Gloss, Wish, Git, Nix, Podman, Docker,
-Bifrost, and the default interactive host (`tmux` initially). Pin external
-schemas and CLI output formats relied upon by parsers.
+Kill the ordinary client and helper with SIGKILL, sever local terminal pipes,
+drop SSH/network connections, and simulate client-machine loss. Tmux must lose
+only the affected attachment and preserve its server/session. The direct
+runtime wrapper must terminate and reap its command on exec-channel loss so no
+uncounted command survives any abrupt-client/helper case.
 
-**Gate:** release support for the affected dependency or integration. Pins may
-be added incrementally as each component enters implementation.
+Also prove that startup readiness is generation-bound, rejects stale or
+malformed launcher markers, retains a bounded `not_ready` reason across daemon
+restart and operation-record expiry, and becomes inactive on stop. Start on a
+running `not_ready` instance must return stable `stop_required`; Stop followed
+by Start must create a new startup generation. A fresh `InteractiveHost` check
+must detect a missing tmux target or invalid direct launch prerequisite,
+recommend stop/start, and leave startup readiness unchanged.
 
-## 7. Runtime engine and grant conformance
+During creation, prove startup readiness remains `inactive` and the durable
+operation exposes activation/preparation failure. Retry must persist
+`stopping-partial-runtime` in the same operation, survive a crash in that phase,
+observe the partial instance stopped, and only then record a new startup
+generation and restart it. There is no in-place launcher retry.
 
-**Validate:** Against the pinned rootless Podman release, exercise the complete
-normalized runtime contract: stable labels, explicit workspace/home/data
-storage, stop/start persistence, guarded removal, read-only/read-write and
-non-executable/executable bind grants, private mount propagation, pause/resume,
-and the isolated non-activating workspace helper. Confirm images cannot create
-anonymous volumes, publish ports, add capabilities, replace P endpoints, or
-inherit ambient host sockets and environment.
+For every marker transition, verify a P-owned launcher writes a temporary file,
+`fsync`s it, renames it over the marker, and `fsync`s the directory. Attempt
+writes from the session user, project shell hook, and interactive command. Test
+spoofed, partial, malformed, and reordered/stale-generation files plus crashes
+before and after each write/sync/rename boundary.
 
-Run the same suite before enabling rootless Docker. Record every engine-specific
-flag and inspect-field mapping behind the shared backend interface; a difference
-must be normalized or reported as an unsupported capability, never ignored.
+**Gate:** reliable status/control from sessions and remote Linux client support.
 
-**Gate:** runtime creation and grant support for each claimed engine. Git,
-registry, RPC, TUI, environment building, and a fake backend may proceed while
-the first real engine is being validated.
+## 6. Lifecycle and authority recovery
+
+**Validate:** Crash at every documented cross-authority commit point. Verify
+create/rename/discard/delete converge without duplicate Incus instances or
+silent Git ref loss. Verify Incus-owned start/stop uses Incus operation/state
+without a duplicate P workflow. Test missing versus unreachable, repair,
+abandonment, orphan recognition, image cache misses, and cleanup failures.
+
+**Gate:** each lifecycle mutation as it enters the implementation.
+
+## 7. Git and origin
+
+**Validate:** Against pinned Git/OpenSSH/Wish versions, test session/host
+principal scope, fast-forward and force-push policy, ref guards, reserved/hidden
+namespaces, arbitrary object wants, committed-source import, rename races,
+local-only bypass, host-SSH origin refresh, and explicit origin publication.
+
+Simulate definite and unknown publication failures. A later explicit retry must
+freshly fetch and safely satisfy an already-applied result without protected
+tracking refs or a publication ledger.
+
+**Gate:** the corresponding P Git/origin feature.
+
+## 8. Bifrost
+
+**Validate first for this milestone:** Treat a pinned Bifrost release as an independently configured
+service. Verify virtual-key ensure/persist/use/revoke, model filtering,
+disabled content logging where configured, and P/Bifrost restarts. Enable
+administrative authentication without giving its credential to sessions and
+prove every inference request requires a valid virtual key.
+
+Using the real session key, positively probe approved inference and filtered
+model discovery. Negatively probe dashboard, management, governance, logs,
+MCP, skills, and every other route in the pinned-version inventory; require an
+authorization rejection rather than treating a connection/server failure as
+evidence. Also test absent, invalid, and revoked keys. Inventory new routes on
+upgrade and fail model access closed for an unclassified route or unvalidated
+effective configuration. Do not assume a default value of
+`disable_auth_on_inference`; validate the resulting behavior. Projects without
+model access must not depend on Bifrost.
+
+**Gate:** optional OpenAI-compatible model access. Anthropic, MCP, Skills,
+Agent Mode, and Code Mode each need later evidence before support is claimed.
+This is an early blocking spike for the optional model milestone only. Failure
+leaves model access disabled for that pinned release; it cannot weaken the
+boundary or block Git, RPC, lifecycle, runtime, TUI, or any project without a
+model grant. An L7 proxy is outside V1 unless separately designed.
+
+## 9. Agent-hook mappings
+
+**Validate:** Capture and version real Claude Code and Codex hook traces for
+input/permission, activity, normal stop, failure, subagents, session end,
+absent hooks, and attach/detach timing. Confirm latest replacement,
+clear-on-confirmed-entry, and confirmed-attached suppression against each
+claimed version.
+
+**Gate:** semantic status/notification support for that agent/version.
+
+## 10. Dependency and protocol pins
+
+**Validate:** Record the exact Go, Bubble Tea ecosystem, Wish, Git, OpenSSH,
+Incus, Nix, tmux, SQLite driver, and Bifrost versions. Pin every CLI JSON/API
+field and protocol behavior parsed by P. Verify upgrades through the relevant
+conformance suites before widening supported ranges.
+
+**Gate:** release support for each affected integration.
+
+## 11. Performance and capacity
+
+**Validate:** On representative `x86_64-linux` and `aarch64-linux` machines,
+measure cold realization, substituted realization, cached-image hit, builder
+publication, session launch/activation, private Nix growth, cache deletion, and
+storage-driver physical use for small and real projects.
+
+Results describe tested projects, inputs, caches, storage drivers, and hosts;
+they do not become a universal devShell-to-image latency or size promise.
+
+**Gate:** performance/capacity claims and default operational guidance, not
+functional development.
 
 ## Recording results
 
-For each validation, record the version, host/kernel context, commands or test
-case, result, and resulting implementation constraint beside the code or test
-that depends on it. A failed validation narrows or postpones that feature; it
-does not stop unrelated milestones.
+For every validation, record the date, exact versions, host/kernel/Incus
+project/storage/network configuration, commands/test cases, raw result, and
+resulting implementation constraint beside the dependent test or code. A
+failure narrows or postpones that support claim; it does not block unrelated
+milestones.

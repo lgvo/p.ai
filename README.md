@@ -5,8 +5,9 @@ by Git projects and branches.
 
 It gives one developer a terminal overview of work across repositories, starts
 each piece of work in its own runtime, and keeps source movement explicit. P is
-open source, runs on machines the user controls, and can grow from a laptop to
-a larger Linux or Kubernetes host without changing its project model.
+open source under the [Apache License 2.0](LICENSE), runs on machines the user
+controls, and can grow from a laptop to a larger Linux or Kubernetes host
+without changing its project model.
 
 > **Status: design.** The design documents under [`docs/`](docs/) are
 > authoritative for their subjects. This README is the product summary.
@@ -35,9 +36,9 @@ carries source. A small RPC API carries lifecycle and status.
 ### Instance
 
 A P instance is one independent control plane with its own daemon, SQLite
-registry, Git server, projects, sessions, and local runtime providers. The
-daemon manages only runtimes belonging to that instance; it never connects to
-another machine to manage containers or VMs.
+registry, Git server, projects, sessions, and one configured local Incus
+execution project. The daemon manages only machinery belonging to that
+instance; it never connects to another machine to manage runtimes.
 
 Instances do not discover, address, or synchronize with one another. Two
 instances working on the same project converge through the project's ordinary
@@ -81,9 +82,10 @@ a dirty host checkout; commit the desired state first.
 
 ### Runtime and interactive command
 
-A runtime is the backend machinery currently attached to a session UUID. V1
-uses one local rootless container per session. Local VMs and a Kubernetes
-backend are later provider options, not different session models.
+A runtime is the execution machinery currently attached to a session UUID. V1
+uses one unprivileged Incus system container per session in a pre-provisioned,
+confined local Incus user project. Incus is the only V1 runtime backend. Incus
+VMs and Kubernetes placement are later options, not different session models.
 
 The program entered inside the runtime may be `bash`, Claude Code, Codex, or
 custom fixed argv. An `InteractiveHost` plugin controls how that program is
@@ -93,8 +95,8 @@ started and attached:
 - `direct` is the minimal non-persistent implementation; and
 - another host such as zellij can be added later.
 
-P does not model panes or infer readiness and agent status from tmux. Terminal
-persistence is a host capability, not session identity.
+P does not model panes or infer startup readiness and agent status from tmux.
+Terminal persistence is a host capability, not session identity.
 
 ## A normal workflow
 
@@ -136,11 +138,11 @@ P never reclaims sessions automatically. The three destructive levels are:
 | Delete | removed | removed | removed | removed |
 
 Before discard or delete, P inspects reachable running or stopped workspaces
-without activating the environment or starting the interactive command. If a
-runtime is missing, P says its local state is already unavailable and offers
-cleanup. If the backend is unreachable, ordinary destruction is refused; an
-explicit abandonment override requires stronger confirmation and records the
-unknown machinery so it can later be recognized as orphaned.
+without activating the environment or starting the interactive command. If an
+instance is missing, P says its local state is already unavailable and offers
+cleanup. If Incus is unreachable, ordinary destruction is refused; an explicit
+abandonment override requires stronger confirmation and records the unknown
+machinery so it can later be recognized as orphaned.
 
 Delete separately itemizes Git refs and commits that lose their last retained
 reference. A configured origin is refreshed before P makes claims about what
@@ -160,17 +162,20 @@ The main UI is an fzf-shaped, filterable list of sessions across projects with
 a preview pane and keyboard actions. It is a client of the same RPC surface
 available to scripts; business logic does not live in the TUI.
 
-Each row is derived from only three facts:
+Each row is derived from only four facts:
 
 - authoritative runtime condition;
-- live attachment count; and
+- current-generation startup readiness;
+- confirmed live attachment count; and
 - one nullable latest condition reported while the session was unattended.
 
-Entering a previously unattended session clears that latest condition. While
-the user is attached, semantic agent events are neither retained as status nor
-notified. Leaving begins empty, and the next event becomes the latest. V1 has
-no seen/unseen history, attention set, participant inventory, service
-supervision, or terminal heuristic pretending to know agent intent.
+Successfully establishing and confirming the first attachment to a previously
+unattended session clears that latest condition. Merely requesting an attach
+does not. While the user is attached, semantic agent events are neither
+retained as status nor notified. Leaving begins empty, and the next event
+becomes the latest. V1 has no seen/unseen history, attention set, participant
+inventory, service supervision, or terminal heuristic pretending to know
+agent intent.
 
 Agent integrations translate native lifecycle hooks into the generic
 `status.report` notification on the private session RPC socket. Claude Code,
@@ -192,14 +197,16 @@ policy grants a narrow exception.
 
 The instance's dedicated host P key is read-only: it can clone and fetch all
 user-visible branches, including retained unassigned branches, but cannot
-mutate P refs. The daemon alone owns branch creation, rename, deletion, and
-protected tracking namespaces. Host fetch and explicit publication against
-origin use the user's normal OpenSSH credentials, not P session credentials.
+mutate P refs. The daemon alone owns branch creation, rename, guards, and
+deletion. Host fetch and explicit publication against origin use the user's
+normal OpenSSH credentials, not P session credentials.
 
 The control API is newline-delimited JSON-RPC 2.0 over Unix sockets. Linux
 clients support both direct local Unix connections and client-initiated
 SSH-to-Unix bridging from day one. Attachment uses a separate validated argv
-path; the daemon never initiates SSH and never returns a shell string.
+path through a trusted host helper that binds lease, terminal carrier, and
+channel lifetime; the daemon never initiates SSH and never returns a shell
+string.
 
 Git carries commits, objects, and refs. RPC carries lifecycle, configuration,
 runtime state, attachment leases, status, and subscriptions. The complete
@@ -207,20 +214,24 @@ division is in [communication boundaries](docs/communication-boundaries.md).
 
 ## Environments and isolation
 
-Every session receives a minimal default substrate containing a shell, basic
-userland, Git and SSH, CA certificates, and P's session helper. The project
-environment is selected in V1 as:
+Every session begins from a P-owned Incus base image containing Nix, a shell,
+basic userland, Git and SSH, CA certificates, tmux, and P's runtime helper. The
+project environment is selected in V1 as:
 
 1. the project's ordinary default Nix `devShell`, when present; or
 2. the minimal substrate alone.
 
-Nix is the first environment builder. A Dockerfile is the first planned
-alternative and will be selected through trusted project configuration.
-Builders consume immutable committed source inside isolated workers and emit
-normalized artifacts; runtime backends consume those artifacts without
-interpreting Nix or Dockerfile syntax. Cache behavior and build time remain
-project-dependent and are measured during development rather than promised as
-one universal threshold.
+The V1 Nix builder consumes immutable committed source in a disposable,
+restricted Incus builder. It realizes the devShell and publishes a verified
+private Incus image with a coherent Nix store/database and activation material.
+Each session receives its own writable Incus root on top, including a private
+`/nix`, workspace, and home. Sessions do not mount the host Nix store/daemon or
+share a writable store. A session may build additional private Nix paths; they
+survive stop/start and disappear with the session. Cache behavior, physical
+deduplication, and build time remain project/storage-driver dependent.
+
+The `EnvironmentBuilder` interface remains reusable, but Dockerfile and OCI
+providers are not specified for V1.
 
 V1 external grants are project-scoped under `{project}/*`. The namespace
 `{project}/{branch}` is reserved for later branch-specific grants. A session
@@ -228,19 +239,20 @@ created from any source receives only its project's trusted mounts, model
 access, and network policy.
 
 Repositories cannot configure P session behavior or request host mounts,
-devices, credentials, published ports, the engine socket, the SSH agent, or
+devices, credentials, published ports, the Incus socket, the SSH agent, or
 routes to the host and local network. Trusted host configuration may grant
 named filesystem mounts, network posture, and model access through typed
 isolation interfaces.
 
-By default sessions may use outbound public internet but cannot reach the host,
-LAN/private or link-local networks, metadata endpoints, gateways, or sibling
-containers. P Git, the private session RPC socket, and explicitly granted model
-inference are narrow service-boundary exceptions. P v1 does not declare,
+The implementation baseline has no general network. A project may select a
+validated public-egress profile, but it still cannot reach the host,
+LAN/private or link-local networks, metadata endpoints, gateways, sibling
+instances, or Incus administration. P Git, private session RPC, and explicitly
+granted model inference use narrow session endpoints. P V1 does not declare,
 supervise, health-check, or restart project services.
 
-See [environment building](docs/environment-building.md) for providers,
-artifacts, activation, and caching, and
+See [environment building](docs/environment-building.md) for Nix image
+building, activation, and caching, and
 [runtime and isolation](docs/runtime-isolation.md) for runtime assembly,
 storage, mounts, network policy, labels, and cleanup.
 
@@ -254,6 +266,13 @@ For a model-enabled project, P obtains and persists one Bifrost virtual key per
 session UUID, exposes it only to that runtime, redacts it everywhere else, and
 revokes it when the session is discarded or deleted. Projects without model
 access do not depend on Bifrost readiness.
+
+Bifrost's native authentication is the V1 enforcement boundary: administrative
+authentication remains enabled, sessions receive no administrative credential,
+and every inference request requires the session key. P validates that the key
+works only for approved inference/model discovery and is rejected by every
+administrative and other non-V1 route; an unvalidated version, configuration,
+or route inventory fails model access closed.
 
 V1 validates Bifrost's OpenAI-compatible surface with Codex, using OpenRouter
 and a local model as initial upstreams. Anthropic-compatible access for Claude
@@ -276,10 +295,12 @@ dependencies; otherwise it uses the minimal substrate. The default interactive
 command is Bash through tmux. Registration never generates a project file.
 
 SQLite stores mutable instance bookkeeping: project registrations, immutable
-session UUIDs, project/branch assignments, backend locators, pending lifecycle
-phases, runtime condition, latest unattended condition, credentials, and
-reconciliation metadata. Git remains authoritative for code and refs; the
-runtime backend remains authoritative for machinery; Bifrost remains
+session UUIDs, project/branch assignments, the configured Incus instance
+relationship, cross-authority lifecycle phases, runtime observations, latest
+startup generation/readiness projection, unattended condition, credentials,
+and small authority indexes. Git remains
+authoritative for code and refs; Incus remains authoritative for instances,
+images, storage, and runtime operations; Bifrost remains
 authoritative for gateway policy.
 
 ## Requirements
@@ -287,11 +308,14 @@ authoritative for gateway policy.
 V1 targets Linux and expects:
 
 - Git and OpenSSH;
-- Nix;
-- rootless Podman, or Docker after its conformance validation; and
+- a locally initialized Incus daemon and confined user project;
+- a verified P base image containing the pinned Nix runtime/build toolchain;
+  and
 - tmux for the default persistent interactive host.
 
-The `direct` host does not require tmux.
+Nix executes inside isolated builder and session instances. Host Nix is not a
+runtime installation dependency; a developer or distribution process may use
+it to build the P base image. The `direct` host does not require tmux.
 
 ### macOS and Windows
 
@@ -305,7 +329,7 @@ and RPC protocol; they do not introduce a remote-runtime backend.
 
 - P is not a multi-user scheduler or agent orchestration framework.
 - P instances do not federate or replicate control-plane state.
-- P does not migrate running containers, terminals, processes, conversations,
+- P does not migrate running instances, terminals, processes, conversations,
   or uncommitted files.
 - P does not invent source commits or snapshot dirty host work.
 - P does not automatically publish to origin.
@@ -320,12 +344,13 @@ V1 closes the loop for one user on Linux:
 
 - register Git projects and create sessions from committed sources;
 - enforce immutable UUID-to-branch ownership and transactional rename;
-- build Nix environments in isolation and run rootless local containers;
+- build cached Nix environment images and run unprivileged local Incus
+  containers;
 - enter a shell or agent through pluggable interactive hosting;
 - use a thin TUI and complete RPC lifecycle surface locally or over
   SSH-to-Unix;
-- report runtime condition, attachment presence, and the latest unattended
-  agent condition;
+- report runtime condition, current-generation startup readiness, confirmed
+  attachment presence, and the latest unattended agent condition;
 - fetch from and explicitly publish to an optional origin;
 - enforce project-scoped external grants and Git credentials;
 - optionally provide model access through per-session Bifrost keys; and

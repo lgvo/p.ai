@@ -38,8 +38,8 @@ channels.
 | Host RPC | lifecycle, configuration, status, subscriptions | source trees or arbitrary command execution |
 | Session RPC | identity, capabilities, latest agent condition, narrow act-on-self calls | other sessions, publication, host control |
 | Attachment | one validated interactive argv and terminal byte stream | lifecycle API or source transfer |
-| Bifrost HTTP | model discovery and inference under a virtual key | P lifecycle or Bifrost administration from sessions |
-| Build worker | immutable commit input, bounded build capabilities, artifacts | ambient host authority or runtime identity |
+| Bifrost HTTP | approved model discovery and inference under a mandatory virtual key | P lifecycle; session keys are rejected by Bifrost administration and every non-V1 surface |
+| Incus builder | immutable commit input, bounded Nix capabilities, environment-image publication | ambient host authority or session identity |
 | Notification sink | selected status transition | source contents by default |
 
 Git already defines source transfer and ref integrity. JSON-RPC expresses the
@@ -74,7 +74,7 @@ The local user, TUI, and `p api` share the complete lifecycle surface:
 | Projects | register, inspect, reload trusted project configuration |
 | Sessions | list, create, attach, rename, stop, discard, delete, repair, abandon |
 | Remotes | configure, refresh, inspect origin state, explicitly publish |
-| Observability | runtime condition, attachment presence, latest unattended condition, subscriptions |
+| Observability | runtime condition, startup readiness, confirmed attachment presence, latest unattended condition, subscriptions |
 | Configuration | validated effective configuration and diagnostics |
 
 RPC accepts identifiers and structured data, not repository contents or
@@ -89,16 +89,17 @@ its immutable session UUID. Its allowed surface is deliberately narrow:
 |---|---|
 | query its UUID, current branch name, and effective project capabilities | list or inspect other sessions |
 | report the latest source-scoped agent condition | invoke any lifecycle operation |
-| receive method/version errors for its own calls | publish to `origin` or change credentials, backend, network policy, or mounts |
+| receive method/version errors for its own calls | publish to `origin` or change credentials, runtime, network policy, or mounts |
 
 The socket authenticates by runtime placement; a request cannot supply a
 different session UUID.
 
 ### Observability over RPC
 
-Host clients query the three-field model from
-[session-observability.md](session-observability.md): runtime condition, live
-attachment count, and latest unattended condition.
+Host clients query the four-field model from
+[session-observability.md](session-observability.md): runtime condition,
+startup readiness, confirmed attachment count, and latest unattended
+condition.
 
 Session adapters send `status.report` notifications. There is no mark-seen API,
 attention collection, participant inventory, or status history in v1.
@@ -126,8 +127,8 @@ current ref)`.
 - It may push only its assigned current branch.
 - Push is fast-forward-only unless trusted host policy explicitly grants a
   narrow rewrite exception; force-push is denied by default.
-- It cannot write tags, another session branch, origin-tracking refs,
-  `refs/attempts/*`, `refs/p/*`, or other reserved namespaces.
+- It cannot write tags, another session branch, `refs/attempts/*`, `refs/p/*`,
+  or other reserved namespaces.
 - Hidden/private namespaces are not advertised and arbitrary object-ID fetches
   are disabled.
 
@@ -145,9 +146,9 @@ not a second writer to an existing branch.
 
 ### Daemon authority
 
-Only the daemon may create, rename, delete, or write protected tracking refs.
-It invokes real Git plumbing and server hooks; P does not implement the Git
-wire protocol or duplicate Git objects in SQLite.
+Only the daemon may create, rename, guard, or delete P refs. It invokes real
+Git plumbing and server hooks; P does not implement the Git wire protocol or
+duplicate Git objects in SQLite.
 
 ## Session creation and branch identity
 
@@ -169,7 +170,7 @@ desired changes before selecting them as a source.
 ## Branch rename
 
 Rename uses host RPC for intent and progress, daemon Git authority for the P
-refs, and a quiesced backend workspace for the local branch/upstream change.
+refs, and a quiesced Incus workspace for the local branch/upstream change.
 Git pushes to the affected refs are guarded while the operation is incomplete.
 The transaction and recovery rules are defined in
 [session lifecycle](session-lifecycle.md#rename).
@@ -196,7 +197,7 @@ repository is registered as a source location rather than disguised as an
 origin.
 
 Changing or removing the origin is explicit. A URL change immediately marks
-the old tracking generation inapplicable; P makes no source, preservation, or
+the last origin observation inapplicable; P makes no source, preservation, or
 publication claim about the new origin until a successful refresh. It never
 rewrites session remotes because sessions have only their P upstream.
 
@@ -220,39 +221,37 @@ The origin runner:
 
 No origin URL or branch value is interpolated into a shell command.
 
-### Tracking state
+### Origin observation
 
-A refresh maps the origin's advertised branches and tags into a new
-generation-specific daemon-owned namespace in the P bare repository. Session
-principals and the read-only host P principal cannot see or write protected
-tracking generations. Refresh never updates, deletes, merges, or checks out an
-ordinary P branch.
+A refresh observes the origin's currently advertised branches and tags and
+fetches the objects needed for the requested comparison or source selection.
+It never updates, deletes, merges, or checks out an ordinary P branch.
 
-SQLite records only observation metadata:
+SQLite may record the current bounded observation:
 
 ```text
 project and origin URL identity
-refresh generation
 successful completion time
-advertisement/result status and bounded diagnostic
+advertised ref names and object IDs needed by the current view
+result status and bounded diagnostic
 ```
 
-Git remains authoritative for the protected tracking refs and objects. P first
-finishes and verifies the new generation, then atomically changes SQLite's
-current-generation pointer. That pointer change is the refresh commit point.
-Refs absent from the new advertisement are absent from the new logical view;
-older generation namespaces may be collected after they lose all readers.
-Publication operations and unexpired destructive-confirmation tokens retain a
-generation lease until they complete or expire.
+P creates no persistent origin-generation or publication refs in the project
+bare repository. Fetched objects are cache, not durable evidence. P serializes
+origin operations and P-controlled Git garbage collection for a project so an
+active comparison cannot lose objects underneath it. When origin source
+selection succeeds, the newly created ordinary P branch retains the selected
+commit.
 
-A failed or interrupted refresh before the pointer change leaves the previous
-successful generation intact and marks current origin state stale/unknown. Its
-incomplete generation is cleanup state and is never presented. After the
-pointer change, interruption is reconciled as a successful new generation even
-if old-generation cleanup remains.
+A failed or interrupted refresh leaves the last completed observation only as
+stale presentation data and marks current origin state unknown. It is not used
+to authorize source selection, publication, or a destructive-preservation
+claim.
 
 There is no ahead/behind or “published” truth without a successful refresh.
-Comparisons always name the generation and exact object IDs they used.
+Every correctness-sensitive operation consumes its fresh observation while
+holding the per-project origin-operation lock; it does not preserve historical
+origin snapshots.
 
 ### Refresh triggers
 
@@ -273,19 +272,20 @@ may continue after refresh failure only by displaying origin preservation as
 
 Background refresh is an optional best-effort convenience. It may update the
 overview, but its presence, interval, or success is never a correctness
-dependency and it does not authorize publication or deletion. P uses a new
-operation-specific generation for the required triggers above rather than a
-wall-clock freshness threshold.
+dependency and it does not authorize publication or deletion. A
+correctness-sensitive operation performs its own refresh rather than relying
+on a wall-clock freshness threshold.
 
-Concurrent refreshes for one project coalesce. Publication waits for or starts
-a new required generation; it never races a second ref update against the same
-tracking namespace.
+Concurrent origin operations for one project are serialized. A waiting
+read-only refresh may reuse the result of the in-progress required refresh,
+but publication and destructive preflight evaluate their own current
+observation after acquiring the lock.
 
 ### Origin sources
 
 After a successful refresh, an advertised origin branch or tag is committed
 source input. Creation copies its exact object ID into a newly created P
-session branch. The session receives neither the tracking ref nor an origin
+session branch. The session receives neither an origin ref nor an origin
 remote, and later origin movement does not move the P branch.
 
 P never imports dirty origin state—Git has none—and never turns a failed fetch
@@ -294,7 +294,13 @@ ordinary P refs remain separate source paths.
 
 ### Publication preconditions
 
-Publication is always an explicit host RPC action. It is permitted only when:
+Publication is an explicit, idempotent host RPC action with this meaning:
+
+```text
+ensure origin/<destination> contains <captured P source commit>
+```
+
+It is permitted only when:
 
 - the source belongs to an established session with no conflicting lifecycle
   operation and a stable assigned P branch;
@@ -309,8 +315,7 @@ always contains the complete destination. The confirmation/preview names the
 origin URL, project, source P ref and object ID, destination ref, observed
 destination object ID or absence, and fast-forward relation.
 
-The destination must pass Git branch-ref validation. A destination already at
-the captured source object succeeds without sending a push.
+The destination must pass Git branch-ref validation.
 
 Publication uses only the P branch tip. Uncommitted files and commits still
 ahead only in the runtime workspace are not included; when P can observe them,
@@ -318,36 +323,32 @@ the preview warns about them but never commits or pushes them implicitly.
 
 ### Publication update rule
 
-V1 publication creates an absent destination or fast-forwards an existing
-destination. It pushes one explicit source-object-to-destination refspec and
-never sends tags, multiple refs, deletion refspecs, or a wildcard.
+After the required refresh:
 
-If the destination is not an ancestor of the captured source object, P refuses
-publication and shows the divergent object IDs. P exposes no force-publication
-operation in V1. The trusted rewrite exception for a session's assigned P ref
-does not apply to origin. A user who intentionally rewrites an origin branch
-does so with ordinary Git outside P and then refreshes P's observation.
+- an absent destination is created with one explicit refspec;
+- a destination equal to the source already satisfies the request;
+- a destination descending from the source already contains the requested
+  work and satisfies the request;
+- a destination that is an ancestor of the source receives one normal
+  fast-forward push; and
+- a divergent destination is refused with the observed object IDs.
 
-A remote race or branch-protection rule may still reject a valid preview. P
-reports the remote result and refreshes before offering another attempt. It
-does not rename/delete an old origin branch after session rename and never
+Git on the origin is the final authority and atomically accepts or rejects the
+non-force update if the destination races after P's refresh. P never sends
+tags, multiple refs, deletion refspecs, a wildcard, or a force update. The
+trusted rewrite exception for a session's assigned P ref does not apply to
+origin.
+
+Any definite failure is reported without another action. If transport loss
+makes the outcome unknowable, P reports `outcome unknown`; it does not retry,
+refresh, or reconcile automatically. A later explicit publication request
+starts from a fresh observation and applies the same idempotent rules. No
+publication-specific recovery record or protected Git ref is required.
+
+P does not rename/delete an old origin branch after session rename and never
 automatically publishes after create, push to P, rename, detach, stop, discard,
-or delete.
-
-### Ambiguous publication
-
-P never blindly retries when transport loss makes a push result ambiguous. It
-records the attempted source/destination object IDs and refreshes:
-
-- destination equal to the attempted source is presented as satisfying the
-  requested update, without claiming which writer produced it;
-- destination at another object is presented as not completed/conflicted; and
-- refresh failure leaves the operation outcome unknown and requires a later
-  explicit refresh.
-
-This operation record is recovery state, not a permanent publication ledger.
-Once current Git refs establish the result, ordinary origin tracking remains
-the only publication evidence.
+or delete. A user who intentionally rewrites an origin branch does so with
+ordinary Git outside P and then refreshes P's observation.
 
 The manual equivalent always remains available: fetch the session branch
 through the read-only host P credential, then push it to origin with normal
@@ -356,8 +357,8 @@ user Git.
 ## Destructive operations
 
 Destructive preflight and lifecycle intent travel over host RPC. Workspace loss
-is obtained through a non-activating backend inspection; branch loss comes from
-Git reachability and optional refreshed origin refs. Runtime files and Git
+is obtained through non-activating Incus inspection; branch loss comes from
+Git reachability and optionally observed origin branches. Runtime files and Git
 objects never travel inside the RPC request.
 
 Discard, delete, missing/unreachable behavior, confirmation fingerprints,
@@ -369,13 +370,15 @@ credential cleanup, and abandonment are defined in
 Project-controlled evaluation and builds run through the isolation boundary in
 [environment-building.md](environment-building.md).
 
-- The daemon passes an immutable commit snapshot and validated job description.
-- The worker receives bounded scratch/output paths and provider-specific cache
-  capabilities.
-- Public artifact egress may be allowed; host/LAN/private access and ambient
-  credentials are denied.
-- The worker returns normalized artifact metadata and diagnostics, never
-  lifecycle authority.
+- The daemon passes an immutable commit snapshot and validated Nix build plan
+  to a disposable builder in the confined Incus project.
+- The builder receives a private root and bounded scratch space; it receives no
+  session identity, filesystem grant, or Incus socket.
+- Public substituter/fetch egress may be allowed; host/LAN/private access and
+  ambient credentials are denied.
+- After verification and scrubbing, P asks Incus to publish the builder as a
+  private image. Incus returns the fingerprint and owns the bytes; RPC carries
+  only progress, bounded diagnostics, cache metadata, and the fingerprint.
 
 ## Future attempts and Git-triggered checks
 
@@ -403,13 +406,30 @@ Attachment is an RPC decision followed by client-side execution:
 1. the client calls the attach method;
 2. the daemon validates or starts the runtime as allowed;
 3. the configured `InteractiveHost` produces fixed inner argv for the selected
-   command;
-4. the backend wraps it into a structured `AttachSpec` for that runtime;
-5. the daemon opens a connection-bound attachment lease only after the spec is
-   ready;
-6. the local client executes it, or a remote Linux client runs it through a
-   client-initiated SSH channel; and
-7. client exit or transport closure ends the lease.
+   command only after a fresh host check succeeds independently of startup
+   readiness;
+4. the Incus backend wraps it into a structured `AttachSpec` for that runtime;
+5. the daemon returns the spec with a short-lived, one-use pending attachment
+   token;
+6. the local client invokes the trusted host helper directly, or a remote Linux
+   client invokes it through client-initiated SSH, transferring the token over
+   private control input rather than argv;
+7. the helper opens a dedicated attachment RPC connection, establishes the
+   interactive channel, and confirms the token on that connection;
+8. the daemon promotes it to a helper-owned attachment lease; and
+9. the helper retains the lease until channel teardown completes whenever the
+   daemon remains reachable, then closes it.
+
+A failed channel establishment or expired pending token never increments
+attachment presence or clears unattended status. Only confirmation does so.
+The helper binds the channel to both lease and client carrier independently of
+client cooperation. Client crash/SIGKILL, SSH/network loss, or carrier closure
+starts teardown. If daemon restart removes the lease first, the helper starts
+teardown immediately and establishes no new lease or channel until it finishes.
+Tmux detaches only that client while retaining its server/session. Direct's
+runtime wrapper terminates and waits for the command on exec-channel loss, so
+abrupt client/helper death cannot leave an uncounted live direct command. No V1
+RPC re-registers an existing channel.
 
 The interactive command may be `bash`, Claude Code, Codex, or custom argv.
 `tmux` is the default persistent interactive host; `direct` is the minimal
@@ -426,12 +446,17 @@ credentials, models, routing, MCP, budgets, and virtual-key policy.
 - P stores the Bifrost endpoint plus the session virtual-key ID and token.
 - P delivers that token only to its session runtime and redacts it from logs,
   diagnostics, operation records, and ordinary RPC responses.
-- Sessions reach inference/model discovery only; dashboard and management
-  routes remain unreachable from runtime networks.
+- The service may be network-reachable, but every inference request requires a
+  valid session virtual key. That key succeeds only for approved inference and
+  filtered model discovery and is rejected for dashboard, management,
+  governance, logs, MCP, skills, and every other non-V1 route.
+- P verifies the pinned Bifrost route/authentication boundary and fails model
+  access closed when configuration, version, positive probes, negative probes,
+  or route inventory are not validated.
 - Projects without model grants receive no key and do not depend on Bifrost
   readiness.
 - Session discard or deletion follows the revocation and cleanup rules in
-  [session lifecycle](session-lifecycle.md#credential-and-artifact-cleanup).
+  [session lifecycle](session-lifecycle.md#credential-and-image-cache-cleanup).
 
 Upstream provider credentials never enter P state or session configuration.
 
@@ -450,9 +475,9 @@ arbitrary RPC payloads.
 | Per-session RPC | private mounted Unix socket | identity and status reports |
 | P Git SSH | host loopback plus explicit runtime path | fixed Git services |
 | Bifrost inference | explicit runtime path when granted | model APIs under virtual key |
-| Bifrost administration | host-only/authenticated | native Bifrost configuration |
+| Bifrost administration | authenticated with a host-only credential; session keys rejected | native Bifrost configuration |
 
-No container-engine socket, host SSH agent, host control socket, or general LAN
+No Incus socket, host SSH agent, host control socket, or general LAN
 route is mounted into a session.
 
 ## Failures, retries, and versioning
@@ -460,12 +485,14 @@ route is mounted into a session.
 | Operation | Rule |
 |---|---|
 | Read-only RPC | client may retry after reconnect |
-| Durable mutating RPC | operation/idempotency key plus persisted phase |
+| Cross-authority mutating RPC | operation/idempotency key plus persisted P phase |
+| Incus-owned mutation | query the Incus operation and current state; do not duplicate its phases |
 | Status notification | latest valid receive wins while unattended |
 | Git push | normal Git atomic/ref semantics; explicit retry |
-| Origin refresh | generation pointer is the commit point; retain the prior generation before it, complete cleanup after it |
-| Origin publish | no blind retry after ambiguous outcome; refresh refs first |
-| Attachment | reconnect performs normal attach flow; host capability determines continuity |
+| Origin refresh | interrupted refresh leaves current state unknown; the next explicit operation refreshes again |
+| Origin publish | idempotent ensure operation; report failure or unknown outcome and wait for explicit retry |
+| Start on running `not_ready` | return stable `stop_required`; recovery is Stop → Start with a new startup generation |
+| Attachment | the helper retains a reachable lease through teardown; client/carrier/lease loss triggers transport-bound teardown, and daemon-restart lease loss permits no new helper channel before completion |
 
 RPC and status payloads carry explicit version fields. Git protocol behavior is
 Git's; P versions its ref-policy implementation and stored operation schema.
@@ -478,8 +505,9 @@ V1 includes local Unix RPC and client-initiated SSH-to-Unix RPC for Linux
 clients, P Git over SSH, session-scoped Git principals, read-only host Git
 access, committed-state session creation, transactional branch rename,
 SSH origin refresh, explicit fast-forward-only origin publication, per-session
-status sockets, structured attachment, optional Bifrost inference, and
-notification sinks.
+status sockets, durable current-generation startup readiness, structured
+pending-to-confirmed attachment, optional Bifrost inference under the validated
+native authentication boundary, and notification sinks.
 
 Native macOS/Windows clients, attempts, checks, and additional network/backend
 claims remain later work or gated validations.

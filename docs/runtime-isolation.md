@@ -1,34 +1,31 @@
 # P — runtime and isolation
 
-How P turns a session and an environment artifact into isolated, persistent
-runtime machinery without giving repository code ambient host authority.
+How P turns a branch-backed session and a cached Nix environment image into one
+isolated Incus instance.
 
-> **Status: design.** This document is authoritative for runtime specifications,
-> effective grants, storage, engine selection, backend labels, network
-> isolation, and non-activating workspace access.
-> [session-lifecycle.md](session-lifecycle.md) owns when machinery is created,
-> started, inspected, stopped, repaired, or removed;
-> [environment-building.md](environment-building.md) owns environment artifacts
-> and activation; [communication-boundaries.md](communication-boundaries.md)
-> owns RPC, Git, and gateway channels; and
-> [model-gateway.md](model-gateway.md) owns Bifrost policy and key behavior.
+> **Status: design.** This document is authoritative for runtime placement,
+> Incus authority, storage, grants, networking, fixed paths, and cleanup.
+> [Environment building](environment-building.md) owns cached environment
+> images. [Session lifecycle](session-lifecycle.md) owns user-visible
+> operations and loss decisions.
 
 ## Contents
 
 - [The rule](#the-rule)
-- [Configuration authority and grant scope](#configuration-authority-and-grant-scope)
+- [Incus boundary](#incus-boundary)
+- [Configuration authority](#configuration-authority)
 - [Session specification](#session-specification)
-- [Runtime manifest and authorities](#runtime-manifest-and-authorities)
-- [Backend and engine selection](#backend-and-engine-selection)
-- [Runtime-owned storage](#runtime-owned-storage)
-- [Fixed runtime paths](#fixed-runtime-paths)
+- [Runtime identity and authority](#runtime-identity-and-authority)
+- [Storage](#storage)
+- [Fixed paths](#fixed-paths)
 - [Grant model](#grant-model)
-- [Filesystem mounts](#filesystem-mounts)
+- [Filesystem grants](#filesystem-grants)
 - [Network contract](#network-contract)
-- [Baseline container isolation](#baseline-container-isolation)
-- [Credentials and environment](#credentials-and-environment)
+- [Container baseline](#container-baseline)
+- [Runtime process model](#runtime-process-model)
+- [Credentials](#credentials)
+- [Attachment](#attachment)
 - [Non-activating workspace access](#non-activating-workspace-access)
-- [Policy changes and recreation](#policy-changes-and-recreation)
 - [Reconciliation and cleanup](#reconciliation-and-cleanup)
 - [Failure posture](#failure-posture)
 - [V1 boundary](#v1-boundary)
@@ -36,493 +33,472 @@ runtime machinery without giving repository code ambient host authority.
 
 ## The rule
 
-A runtime receives only the immutable environment artifact and the normalized
-project policy captured for its session. It does not inherit the daemon's
-filesystem, environment, credentials, namespaces, sockets, or network merely
-because both run on the same machine.
+Incus is the sole V1 runtime backend. P owns session intent and policy; Incus
+owns instance existence, state, root storage, images, and runtime operations.
+P never duplicates an Incus operation state machine in SQLite.
 
-P distinguishes four kinds of runtime input:
+Each V1 session is one unprivileged Incus system container named from its
+immutable session UUID. The instance receives only:
 
-| Input | Owner | Lifetime |
-|---|---|---|
-| Immutable environment and P substrate | Artifact store | leased while a runtime may use it |
-| Runtime-owned writable storage | Runtime backend | session runtime creation through removal |
-| Explicit external grants | Trusted host configuration and grant provider | fixed by the recorded policy snapshot |
-| Narrow P service endpoints | P, Git, and Bifrost authorities | session-scoped and revocable |
+- one immutable cached environment-image fingerprint;
+- its private writable instance root;
+- the normalized project policy captured at creation; and
+- narrow P endpoints and credentials scoped to that session.
 
-Repository contents may influence environment building and later execute during
-activation, but they cannot add or widen any external grant.
+Repository content may execute inside the builder and session, but it cannot
+select an Incus project, modify Incus policy, attach a device, add a host path,
+or gain the Incus socket.
 
-## Configuration authority and grant scope
+## Incus boundary
 
-V1 reads P-specific runtime policy only from trusted host configuration keyed
-by the complete project path:
+Incus is installed and initialized outside P. One configured, confined Incus
+project is the execution boundary for one P instance. Incus projects are not P
+projects: P project identity remains the complete Git repository path.
 
-```text
-projects.<project-path>
-```
+The machine owner provisions the Incus project, storage pool, allowed network
+resources, and the narrow host-path prefix used for P endpoints and approved
+filesystem grants. P verifies the required restrictions at startup but does
+not initialize Incus, create storage pools, enable clustering, expose the
+remote API, or widen project restrictions.
 
-The effective grant namespace is `{project}/*`. Every session in the project
-receives the same project policy. `{project}/{branch}` remains reserved for a
-future branch-specific layer and is not read in V1. There is no session override,
-repository P file, custom P flake output, or inference from repository paths.
+P connects only through the confined Incus user socket. It must not receive
+the full administrative socket, which is host-root-equivalent, and it never
+passes either socket into a builder or session. Running P as a user that also
+has unrestricted Incus administration is an unsupported isolation posture.
 
-Trusted project configuration may select:
+V1 uses local Incus only. Incus remote servers and clusters do not turn other
+machines into backends of this P daemon. A future P deployment may define a
+different placement contract without changing session identity.
+
+## Configuration authority
+
+P-specific policy is trusted host configuration keyed by the complete P
+project path. V1 grants remain project-scoped; repository files cannot request
+P behavior or authority.
+
+Trusted configuration may select:
 
 - the interactive command and interactive host;
-- the V1 runtime engine when more than one supported engine is installed;
-- `public-egress` or `none` network posture;
-- named per-session runtime-owned cache/data directories;
-- named filesystem mounts;
+- `none` or validated `public-egress` networking;
+- named runtime-owned data/cache directories;
+- named filesystem grants within the Incus project's pre-authorized path
+  ceiling; and
 - optional model access through a Bifrost-owned policy reference.
 
-The separate P Git rewrite exception is enforced at the Git server boundary in
-[communication boundaries](communication-boundaries.md#session-principal); it
-is not a runtime grant.
+Instance configuration selects the confined Incus socket/project and the P
+base-image identity. A project cannot select a different Incus authority.
 
-It cannot request privileged containers, host namespaces, devices, published
-ports, a general host/LAN route, or ambient host credentials. Those are outside
-the V1 grant model rather than hidden advanced settings.
-
-Creation normalizes and validates this policy before constructing machinery,
-then records an immutable snapshot and digest. A runtime never consults current
-project configuration to discover additional authority.
+Creation normalizes and validates policy, records the effective snapshot and
+digest, and uses it for the lifetime of the session. A later configuration
+change applies to new sessions. V1 has no in-place policy widening.
 
 ## Session specification
 
-`SessionSpec` is the backend-independent desired input for exactly one runtime.
-Its conceptual fields are:
+`SessionSpec` is backend-neutral desired input for exactly one runtime:
 
 ```text
 schema and runtime-contract version
-P instance ID
+P instance UUID
 session UUID
-project path and assigned P branch ref
-expected branch object ID for initial checkout
-environment-artifact and P-substrate identities
-runtime-kit compatibility version
-backend and engine selection
+project path and assigned branch
+initial branch object ID
 interactive command and host configuration
-normalized grant snapshot and digest
-runtime-owned storage plan
+normalized project-policy snapshot and digest
+runtime-owned directory plan
 session endpoint descriptors
-stable backend labels
+stable P metadata
 ```
 
-The spec contains structured values, never shell fragments. It contains no
-origin credential, upstream model credential, container-engine socket, SSH
-agent socket, or host control socket. Secret session material is delivered
-through its dedicated endpoint or protected file after the backend creates the
-runtime; it is not serialized into ordinary diagnostics.
+It contains structured values, never shell fragments. It contains no origin
+credential, Incus socket, host SSH agent, upstream model credential, or
+administrative endpoint.
 
-The expected initial object ID protects workspace creation from a branch moving
-between resolution and clone. It is creation input, not durable
-`session.base_commit` state. After creation, the assigned P branch is source
-authority.
+The initial object ID prevents workspace creation from racing branch movement.
+After creation, the assigned P branch is the source authority; it is not stored
+as a durable `base_commit` concept.
 
-The instance ID is a random immutable UUID created with the instance state. It
-is not a hostname or filesystem path and survives daemon upgrades and an
-intentional state restore. A copied state directory must not operate
-concurrently as a second instance with the same ID.
-
-## Runtime manifest and authorities
-
-After creation, SQLite records a `RuntimeManifest` containing the intended
-effective runtime facts:
+Runtime creation receives the environment separately as an opaque
+`EnvironmentHandle`:
 
 ```text
-manifest schema
-session UUID, project path, and current assigned branch
-backend, engine, opaque runtime locator, and stable labels
-environment artifact, substrate, and runtime-kit identities
-policy snapshot digest and normalized non-secret grants
-runtime-owned storage locators
-interactive command/host identity
-session endpoint and credential identifiers, never raw diagnostics
-creation and last-reconciliation times
+target kind and contract version
+opaque immutable locator
+content identity/digest
 ```
 
-The manifest is the desired assembly record, not proof of external reality:
+`SessionSpec` and lifecycle code do not interpret the locator. The V1 Incus
+adapter accepts target kind `incus-system-image` and interprets the opaque
+locator as an Incus image fingerprint. SQLite separately indexes the
+project-scoped environment key and records the V1 handle needed for repair.
+This keeps the reusable backend seam honest without specifying formats for
+hypothetical providers.
 
-| Fact | Authority |
-|---|---|
-| Session identity, assignment, intended manifest | SQLite |
-| Runtime existence, state, labels, and engine resources | Runtime backend and engine |
-| Files and local Git state | Runtime-owned storage |
-| Environment bytes | Artifact store |
-| P Git refs and commits | P Git repository |
-| Credential validity | Its issuing authority |
+## Runtime identity and authority
 
-Reconciliation compares the manifest to fresh authority queries. It does not
-mark a runtime healthy merely because the stored locator still exists.
+The Incus instance name is deterministic from the session UUID, for example:
 
-## Backend and engine selection
+```text
+p-550e8400-e29b-41d4-a716-446655440000
+```
 
-`local-container` is the only V1 backend. The backend is an instance-local
-provider; it never opens SSH to manage a remote host. Local VMs and Kubernetes
-are later backends implementing this same normalized contract.
+P writes stable, non-secret Incus metadata containing the P instance UUID,
+session UUID, project path, and runtime-contract version. The branch name is
+display metadata, not an ownership key, because rename may change it.
 
-Podman is the preferred V1 engine and rootless Docker is supported after its
-validation passes. Engine choice is deterministic:
+| Fact | Authority | SQLite role |
+|---|---|---|
+| Session UUID and branch assignment | SQLite | authoritative |
+| P refs and commits | P bare repository | records expected address only |
+| Incus instance, state, root disk, image parent, and operations | Incus | records configured project and instance name |
+| Workspace files and local Git state | Incus instance root | records no duplicate file state |
+| Cached environment image bytes | Incus image store | indexes project-scoped environment key and opaque V1 handle |
+| Git/model credential validity | issuing service | records identifier and protected material needed by the session |
 
-1. an explicit trusted project selection wins;
-2. otherwise the instance's configured default wins;
-3. otherwise one detected supported rootless engine is selected; and
-4. if both are detected without configuration, Podman is selected.
+P may cache the latest observation for presentation, but every lifecycle
+decision queries Incus. An Incus operation ID may be referenced while a P
+operation waits; P does not reproduce its phases or treat its own cache as
+runtime truth.
 
-The selected engine, resolved executable, supported-version result, and engine
-identity are recorded in the manifest. P does not fall back to another engine
-after a create/start failure, and an existing runtime is never silently moved
-between engines. If the recorded engine is unavailable, the runtime is
-unreachable until it returns or an explicit later recreation path is chosen.
+## Storage
 
-Detection is read-only. P never installs, starts, reconfigures, or switches a
-container engine on the user's behalf.
+An Incus instance root contains all session-private writable state:
 
-Container-engine support is independent from environment-provider support.
-Rootless Docker may run the V1 Nix/substrate artifact after conformance even
-though the Dockerfile environment provider remains a later implementation.
-
-## Runtime-owned storage
-
-Every runtime has an explicit storage plan. No anonymous engine volume may be
-created by an image declaration or runtime default.
-
-| Storage | Stop/start | Discard/delete | Notes |
+| Path/state | Stop/start | Discard | Owner |
 |---|---|---|---|
-| Workspace repository | retained | removed | mounted at `/workspace`; standalone clone of the assigned P branch plus local work |
-| Session home | retained | removed | mounted at `/home/p`; agent/tool state and user files |
-| Runtime writable layer | retained | removed | includes runtime-local configuration and `/tmp` |
-| Declared runtime-owned cache/data | retained | removed | named and labeled to the session UUID |
-| Immutable environment artifact | leased | lease released after removal | shared bytes are collected separately |
-| External filesystem mount | remains external | never removed by P | writes already made remain on the host source |
+| `/workspace` standalone clone | retained | removed | instance root |
+| `/home/p` | retained | removed | instance root |
+| `/nix` database, profiles, and new store paths | retained | removed | instance root |
+| `/tmp` and runtime-local configuration | retained | removed | instance root |
+| `/var/p/<name>` runtime-owned data/cache | retained | removed | instance root |
+| Cached image base and initial Nix store | shared immutable parent | retained as cache | Incus image store |
+| External filesystem grant | remains external | never removed by P | host owner |
 
-Workspace, home, and named runtime-owned storage carry the stable instance and
-session labels. Their paths or volume names derive from the UUID, not the
-mutable branch name. Rename therefore changes Git refs and manifest metadata
-without renaming storage.
+The cached image contains the prepared Nix closure and database. Incus creates
+a private writable instance root from it. Nix store paths remain immutable by
+Nix semantics, while new paths and database updates belong only to that
+session. Sessions never share a writable `/nix` and never mount the host Nix
+store or daemon.
 
-The workspace is a standalone clone with its complete Git metadata inside the
-runtime-owned workspace storage. P does not use a linked host worktree whose
-`.git` file points outside `/workspace`; mounting that worktree alone would
-break Git, while exposing its common host repository would violate the
-workspace boundary. Tools inside a session may create additional worktrees
-only within runtime-owned or explicitly granted storage.
+Copy-on-write efficiency depends on the configured Incus storage driver. P
+records logical image/root sizes and reports storage-driver facts rather than
+claiming universal physical deduplication.
 
-P creates storage with the session user's ownership and restrictive host-side
-permissions before untrusted activation runs. Removal addresses only resources
-whose labels and recorded locators both match the instance and session UUID.
-Name similarity is never sufficient authority to delete storage.
+The workspace is a standalone clone with its complete `.git` metadata inside
+the instance root. P never uses a linked host worktree or mounts a host common
+Git directory. Additional worktrees created by tools must remain in the
+instance root or an explicit external grant.
 
-Trusted project configuration may declare runtime-owned cache/data names. Each
-name creates a separate per-session directory at `/var/p/<name>`; it is never
-shared with another session, has no host source, is always writable by the
-session user, and follows the same stop/remove lifetime as home. Names use the
-same portable validation as filesystem-grant names. Images and repository code
-cannot declare additional volumes or change their targets.
-
-## Fixed runtime paths
-
-P reserves a small portable layout across runtime backends:
+## Fixed paths
 
 | Path | Purpose |
 |---|---|
 | `/workspace` | assigned branch working repository |
-| `/home/p` | session user's persistent home |
-| `/run/p` | private session endpoints and protected credential files |
-| `/opt/p` | read-only P runtime kit and launcher |
-| `/mnt/p/<grant-name>` | explicit external filesystem grants |
-| `/var/p/<name>` | declared per-session runtime-owned cache/data |
+| `/home/p` | persistent session home |
+| `/nix` | cached image store plus private session additions |
+| `/run/p` | session-specific P endpoints and credential files |
+| `/opt/p` | P runtime kit and launcher |
+| `/mnt/p/<grant-name>` | explicit external filesystem grant |
+| `/var/p/<name>` | declared runtime-owned data/cache directory |
 
-The environment artifact may additionally expose its provider-owned immutable
-paths, such as `/nix/store`. Neither a project image nor activation may replace
-the reserved layout. `/tmp` is writable runtime-local state and follows the
-writable-layer lifetime.
+The cached image may not replace these paths with conflicting mounts or
+declarations. `/run/p` is supplied from a P-owned per-session endpoint
+directory; `/workspace` is populated after instance creation and is never an
+image layer.
 
 ## Grant model
 
-A grant is a typed, named capability produced from trusted project policy. A
-`GrantProvider` validates the requested type and emits a normalized runtime
-grant plus a cleanup handle. It does not receive arbitrary repository commands.
-
-Conceptually:
-
-```go
-type GrantProvider interface {
-    Resolve(context.Context, ProjectGrant) (RuntimeGrant, error)
-    Verify(context.Context, RuntimeGrant) error
-    Revoke(context.Context, RuntimeGrant) error
-}
-```
-
-The interface exists so a later host integration can supply a narrowly
-isolated filesystem, credential, device-like, or service capability without
-teaching the runtime backend its private implementation. Every provider must
-declare what is mounted or reachable, whether it is writable, how it is
-revoked, and what external state survives session removal.
+The reusable grant boundary remains typed and named. A grant implementation
+must describe what crosses into the runtime, its access mode, revocation, and
+what survives discard. Incus project restrictions are an upper bound: a P
+project grant may narrow them but cannot widen them.
 
 V1 implements only:
 
-- named filesystem mounts;
-- the fixed P Git and session-RPC endpoints;
-- optional Bifrost inference with a session virtual key; and
-- the selected `none` or `public-egress` network profile.
+- named filesystem grants;
+- fixed P Git and session-RPC endpoints;
+- optional Bifrost inference through a session-scoped endpoint; and
+- `none` or validated `public-egress` networking.
 
-Devices, arbitrary local services, published ports, privileged capabilities,
-and general secret injection remain unsupported even if a future provider
-could model them.
+No V1 grant exposes the Incus socket, host namespaces, arbitrary host
+services, privileged mode, raw Incus/LXC configuration, devices, published
+ports, or ambient host credentials.
 
-## Filesystem mounts
+## Filesystem grants
 
-A V1 filesystem grant has these normalized fields:
+A filesystem grant contains:
 
 ```text
-unique grant name
+unique portable name
 canonical absolute host source
-source type: file or directory
-access: read-only (default) or read-write
-execution: denied (default) or allowed
-fixed runtime target: /mnt/p/<grant-name>
-provider/version and snapshot diagnostic
+file or directory
+read-only or explicit read-write
+non-executable or explicit executable
+fixed target /mnt/p/<name>
 ```
 
-Rules:
+P resolves symlinks and rejects dangling, cyclic, overlapping, or changing
+sources. It rejects the host root, whole home, P/Incus state and sockets,
+credential trees, host Nix state, and other broad control paths.
 
-- the source must exist when the policy snapshot is created;
-- P resolves symlink components and records the canonical source; dangling or
-  cyclic resolution is rejected;
-- the target is derived from a portable grant name and cannot be supplied as
-  an arbitrary container path;
-- duplicate names, overlapping targets, and a file/directory type change are
-  rejected;
-- mounts use private/non-propagating semantics and always deny device and
-  set-user-ID behavior;
-- read-write and executable access each require an explicit trusted setting;
-- the container image, devShell, shell hook, and interactive command cannot
-  change mount definitions; and
-- start verifies the canonical source and type before exposing it again.
+The source must also fall within a path prefix already authorized by the
+confined Incus project. P failing that check is a configuration error; P never
+falls back to the admin socket to attach it. Mounts are private and
+non-propagating, and P never deletes their host contents.
 
-P rejects sources that would expose the host root, the user's entire home,
-P's state/configuration/credential trees, container-engine storage or sockets,
-the host control socket, SSH-agent sockets, or the user's SSH credential tree.
-A narrower explicitly named credential directory for a tool may be mounted,
-but P presents it as a readable secret-bearing grant rather than an ordinary
-project file share.
-
-Filesystem grants are deliberately external. P does not snapshot, migrate,
-roll back, or delete their contents. Destructive preflight names every attached
-grant and reminds the user that writes through a read-write grant already
-survive outside the runtime.
+The `/run/p` endpoint mount follows the same upper-bound rule but is generated
+and owned by P rather than selected by project configuration.
 
 ## Network contract
 
-The V1 project policy chooses one of two profiles:
+V1 retains two project profiles:
 
 | Profile | Behavior |
 |---|---|
-| `public-egress` | outbound public internet plus the narrow P endpoints granted below |
-| `none` | no general internet; only required P Git and session-RPC endpoints, plus Bifrost when model access is granted |
+| `none` | no general NIC; only mounted/session-scoped P endpoints |
+| `public-egress` | outbound public internet plus the same narrow endpoints, with host/private destinations denied |
 
-`public-egress` is the default. It does not mean host-network access. Both
-profiles deny unsolicited inbound connectivity, published ports, host network
-mode, the host and engine gateways, loopback services outside the runtime,
-private/LAN, carrier-grade NAT, link-local and multicast ranges, metadata
-endpoints, sibling runtimes, and container-engine administration over IPv4 and
-IPv6. DNS answers and redirects do not bypass address filtering.
+`none` is the implementation baseline. P Git and session RPC use Unix-stream
+endpoints under `/run/p`; fixed helpers bridge Git's SSH stream and any
+session-facing HTTP capability without exposing an arbitrary host address.
 
-P creates only these service-boundary exceptions:
+`public-egress` may be enabled only after the configured Incus network, ACL,
+DNS, and routing combination proves that it denies the host, LAN/private,
+carrier-grade NAT, link-local, metadata, multicast, sibling-instance, Incus
+API, and undeclared service destinations over IPv4 and IPv6. Incus defaults are
+not evidence of this P policy.
 
-- the assigned project's P Git listener;
-- the private per-session RPC socket; and
-- Bifrost inference/model discovery when the project has model access.
+There is no unsolicited inbound access, host network mode, published port, or
+general host route. A public forge may be reachable, but the runtime still
+receives no origin remote or origin credential.
 
-An exception is destination- and protocol-scoped and does not expose the rest
-of the host or service management surface. Bifrost dashboard/administration,
-P host RPC, and arbitrary host ports remain unreachable. Public egress may make
-a public forge address network-reachable, but P supplies no origin remote or
-host-origin credential to the runtime.
+## Container baseline
 
-The exact rootless enforcement mechanism is backend-specific and gated by the
-real-machine validation. A backend that cannot prove this profile may offer
-network `none`; it may not quietly degrade `public-egress` into unrestricted
-rootless networking.
+Every V1 instance is an Incus system container that:
 
-## Baseline container isolation
+- is unprivileged with an isolated user-ID mapping;
+- runs the fixed unprivileged session user for workspace and interactive work;
+- has no nesting, privileged mode, raw LXC configuration, host PID/IPC/network
+  namespace, device passthrough, or security-profile disablement;
+- receives only its managed root disk and validated P devices/mounts;
+- has resource limits supplied by trusted instance/project policy; and
+- cannot access the Incus daemon or user socket.
 
-Every V1 runtime uses a rootless engine and:
+The root Incus daemon remains part of the trusted host computing base. P's
+compromise boundary is the confined user project, which must prevent P from
+turning its runtime authority into arbitrary host-root authority.
 
-- runs as the fixed unprivileged session user;
-- adds no Linux capability and enables no privileged mode;
-- uses private PID, IPC, mount, user, and network namespaces;
-- denies host devices, host cgroups, host process access, and security-profile
-  disablement;
-- enables `no-new-privileges` and the engine's supported default seccomp and
-  mandatory-access-control profile;
-- exposes no engine socket, host SSH agent, host control socket, host Nix
-  daemon, or undeclared ambient host path; and
-- accepts no image-declared volume, port, health-check, entrypoint, or user
-  override that conflicts with P's runtime contract.
+## Runtime process model
 
-Rootless execution is not treated as a complete sandbox. Network filtering,
-mount validation, endpoint scoping, isolated builds, and the workspace helper
-remain separate required controls.
+An Incus system container has a small explicit process hierarchy:
 
-## Credentials and environment
+1. the image's minimal init starts only P-owned base services;
+2. a session-local Nix daemon owns that instance's private `/nix` database and
+   store writes and accepts only the fixed session user;
+3. the fixed P launcher validates paths/endpoints, applies recorded activation,
+   runs the project shell hook as the session user, and writes a versioned
+   startup-readiness marker for the expected start generation;
+4. the selected interactive host starts the configured command as the session
+   user; and
+5. the shell/agent may start its own processes inside the same instance.
 
-The runtime process environment is constructed from fixed P variables, the
-normalized environment artifact, and explicit session capability descriptors.
-P does not inherit the daemon's environment wholesale.
+The Nix daemon is inside the unprivileged Incus user namespace. It is not the
+host daemon, has no host store/socket, and has authority only over this
+instance's private root and validated network profile. Nix build sandboxing
+remains enabled subject to the pinned Incus/Nix validation.
+
+The instance does not run the P control daemon, Git server, Bifrost, an Incus
+client/daemon, SSH server, or a P service supervisor. P Git and session RPC use
+the narrow endpoints under `/run/p`; optional model traffic reaches the
+configured Bifrost endpoint under mandatory native virtual-key authorization.
+P does not model or restart processes started by the interactive command.
+
+Startup readiness means the local Nix daemon, endpoint validation, environment
+activation, and initial interactive-host preparation succeeded for the current
+start generation. It does not mean the agent is idle, a project service is
+healthy, or the interactive host or any child process survived afterward.
+Stopping the Incus instance terminates this complete process tree; starting it
+reruns the sequence against the retained private root.
+
+The marker records `starting`, `ready`, or `failed`, a stable bounded reason
+code/diagnostic, its schema version, and the start generation supplied by P. It
+lives in a P-owned directory; the directory and installed marker files have
+ownership and modes that deny modification by the session user, project shell
+hook, and interactive command. Only P-owned launcher code receives a writable
+descriptor or authority for that directory.
+
+Each state transition is an atomic durable replace on one filesystem: write the
+complete bounded marker to a temporary file in the marker directory, `fsync`
+the file, rename it over the marker, then `fsync` the containing directory.
+Partial temporary files are never markers. Missing, malformed, partially written,
+spoofed, or older-generation markers never establish startup readiness;
+reconciliation accepts only the expected schema and generation and ignores
+reordered writes from earlier generations.
+
+The durable projection and presentation rules are defined in
+[session observability](session-observability.md#startup-readiness).
+
+## Credentials
 
 The session receives only:
 
-- its branch-scoped P Git private key and known-host entry;
+- its UUID-bound P Git private key and known-host entry;
 - its private session-RPC endpoint;
-- its Bifrost virtual key when model access is granted; and
-- the contents of any explicit filesystem grant, including a grant clearly
-  identified as secret-bearing.
+- its Bifrost virtual key when model access is enabled; and
+- explicitly named secret-bearing filesystem grants.
 
-It never receives the host-origin SSH key or agent, upstream model keys,
-notification credentials, daemon/admin credentials, or another session's
-material. Secret files use restrictive ownership and are excluded from normal
-manifest, log, preview, and RPC serialization.
+It never receives host-origin SSH authority, the Incus socket, upstream model
+keys, notification credentials, or another session's material. Secrets are
+written only under the session endpoint directory with restrictive ownership
+and are omitted from instance metadata, logs, SQLite diagnostics, and TUI
+previews.
+
+## Attachment
+
+The Incus backend returns structured attachment argv. V1 enters the configured
+interactive host through a fixed `incus exec`/API operation addressed by the
+configured confined project and deterministic instance name. It supplies an
+explicit user, group, working directory, and argv; it never returns a shell
+string.
+
+Tmux is the default persistent interactive host. Its server/session identity
+derives from the P session UUID. Incus start/stop controls the instance;
+stopping terminates processes even though the writable root survives.
+
+The client never receives general Incus credentials. Remote P clients still
+initiate SSH to the P host and execute the daemon-approved attachment path;
+they do not connect to Incus directly.
+
+The returned spec is not attachment presence. Lifecycle first issues a pending
+token; the trusted host helper establishes the channel, confirms the token on
+its dedicated attachment RPC connection, and owns the resulting lease.
+
+Before returning that spec, the `InteractiveHost` performs a fresh check that
+is independent of startup readiness. For tmux it verifies the UUID-owned
+server/session and attach target; for direct it verifies the current command
+launch prerequisites. Failure reports the host condition and recommends Stop
+then Start without rewriting startup readiness.
+
+The helper binds channel lifetime to the lease and terminal carrier without
+depending on client cleanup. While the daemon is reachable, it retains the
+confirmed lease until channel teardown completes. Client crash, SIGKILL,
+terminal-carrier/SSH loss, or client-machine loss starts teardown. If daemon
+restart removes the lease first, teardown begins immediately and that helper
+establishes no new lease or channel until it finishes. Tmux loses only that
+attachment and preserves its server/session. Direct uses a runtime-side wrapper
+that terminates and waits for the command when the exec channel disappears, so
+abrupt helper/client death cannot leave an uncounted live direct command. V1
+does not re-register an already-running channel.
 
 ## Non-activating workspace access
 
-Lifecycle inspection and Git-ref repair must observe runtime-owned storage
-without executing repository code in the daemon or activating the session.
-The backend therefore implements a closed `WorkspaceOperation` set through a
-P-owned isolated helper.
+Loss inspection and Git repair must not run repository hooks, activation, or
+the interactive command. The Incus backend therefore exposes a closed
+`WorkspaceOperation` set.
 
-The helper:
+An implementation may use Incus file/storage facilities or a P-owned isolated
+helper attached only to the stopped/frozen instance storage. It must:
 
-- runs only while the lifecycle operation holds the required lock and the
-  runtime is stopped or safely paused;
-- mounts the selected workspace and only individually validated runtime-owned
-  paths for additional Git worktrees known to that workspace repository; it
-  never mounts the entire session home merely to discover work;
-- receives no external filesystem grants, session credentials, engine socket,
-  unrelated host paths, project environment, shell hook, or interactive
-  command;
-- disables Git hooks, filesystem monitors, credential helpers, and ambient
-  system/global/repository Git configuration;
-- has no network, except a separately declared read-only path to the assigned
-  P Git repository when a defined repair needs it;
-- accepts an enumerated operation and structured arguments, never arbitrary
-  argv; and
-- returns bounded structured status plus diagnostics.
+- operate under the lifecycle lock;
+- expose only the workspace and explicitly required runtime-owned paths;
+- receive no external grants, session credentials, network, Incus socket, or
+  project activation;
+- disable Git hooks, helpers, monitors, and ambient Git configuration;
+- accept enumerated operations with structured arguments; and
+- return bounded structured results.
 
-The V1 set covers workspace/ref status, branch rename/upstream update, and the
-targeted ref inspection/restoration needed by lifecycle repair. It never runs
-`reset`, `clean`, automatic commit, arbitrary checkout, or force-push.
-
-A backend that cannot provide this boundary cannot implement V1 rename,
-destructive preflight, or workspace repair. The daemon must not replace it by
-opening the runtime filesystem directly in its ambient context.
-
-## Policy changes and recreation
-
-Stop/start, attach, and rename retain the recorded `SessionSpec` and grant
-snapshot. A change to trusted project configuration applies to future sessions,
-not existing runtime machinery.
-
-V1 has no general in-place grant update or voluntary runtime-recreation
-operation. Repairing a missing runtime recreates it only from its recorded
-artifact and policy snapshot. To adopt changed policy in V1, the user ends the
-old session and creates a new one from retained committed state. A later
-recreation operation may preserve the UUID only if lifecycle design defines
-its loss report, commit point, and rollback behavior first.
+The V1 set covers Git status/ref inspection, branch/upstream rename, and the
+targeted ref operations required by lifecycle repair. It never accepts
+arbitrary argv, reset, clean, automatic commit, or force-push.
 
 ## Reconciliation and cleanup
 
-The backend lists resources by stable labels and then verifies their recorded
-locator and kind. Labels are:
+P lists and inspects instances only in its configured confined Incus project.
+It matches deterministic names and stable P metadata to the P instance and
+session UUID. It never adopts or deletes by a human branch name.
 
-```text
-p.managed = true
-p.instance = <immutable instance ID>
-p.kind = runtime | workspace | home | data
-p.session = <session UUID>
-p.project = <complete project path>
-p.contract = <runtime-contract version>
-```
+For an active session:
 
-The branch name is not a reconciliation key because rename changes it. A
-backend may expose it as display metadata, but P never adopts or deletes
-machinery based on that value.
+- zero matching instances is `missing`;
+- one verified instance supplies current runtime state;
+- a name/metadata conflict is an ownership error requiring repair; and
+- machinery belonging to another P instance is never touched.
 
-Labels and ownership metadata live in the engine/backend control plane or
-host-side P metadata and are not writable through the runtime's mounted view.
-An in-runtime file named like a marker never grants cleanup authority.
+Start, stop, exec, and delete outcomes come from Incus state and Incus
+operations. After connection loss P inspects Incus; it does not infer success
+from its own RPC failure or replay Incus operations blindly.
 
-Exactly one matching runtime may be linked to an active session. Zero is
-`missing`; more than one is an ambiguity requiring repair. Resources matching
-another instance ID are never adopted. A UUID found only in an abandonment
-tombstone follows the containment/orphan rules in session lifecycle.
-
-Cleanup removes the runtime and each recorded runtime-owned resource using
-expected labels. External mounts are detached but their sources are untouched.
-Credential revocation and environment-artifact lease release follow their own
-authorities after backend removal reaches its lifecycle commit point.
+Discard removes the verified Incus instance, its private root, endpoint
+directory, and session credentials while retaining the P branch. Cached images
+are independent cache objects and are never deleted as a side effect of
+discard.
 
 ## Failure posture
 
 | Failure | Required result |
 |---|---|
-| Invalid or unavailable engine selection | Fail before runtime creation; never fall back silently |
-| Mount source missing or changed type | Fail creation/start with the named grant; do not omit it |
-| Mount source resolves to a denied host path | Reject policy before creating machinery |
-| Requested public-egress profile cannot be enforced | Fail or offer explicit network `none`; never widen access |
-| Required P endpoint cannot be isolated | Session is not ready |
-| Optional Bifrost unavailable for a model-enabled project | Session is not ready; projects without the grant are unaffected |
-| Partial runtime/storage creation | Reconcile by UUID labels and lifecycle phase; never create a duplicate |
-| Manifest/engine observation differs | Report the exact drift and require defined repair |
-| Cleanup cannot verify ownership labels | Refuse deletion and retain a cleanup diagnostic/tombstone |
+| Incus user socket unavailable | Runtime state is `unreachable`; do not create duplicates or claim stop/removal |
+| Configured Incus project missing or unrestricted | Refuse runtime creation with an actionable host-setup error |
+| Image fingerprint missing | Existing instances continue. New creation rebuilds from its exact committed request; missing-instance repair follows lifecycle and never substitutes silently. |
+| Instance absent | Report `missing`; defined repair may recreate only from committed P state |
+| Instance metadata conflicts | Refuse adoption, attachment, or deletion |
+| Incus operation interrupted | Query Incus operation and instance state; do not duplicate its workflow |
+| Filesystem grant exceeds Incus restriction | Reject; never use administrative access as fallback |
+| `public-egress` cannot be proved | Offer `none` or fail creation; never widen connectivity |
+| Creation activation/preparation fails | Keep startup readiness `inactive` while registry state is `creating`; the durable creation phase reports failure, and retry persists `stopping-partial-runtime` before a new generation |
+| Established Start activation/preparation fails | Keep the running instance `not_ready`; Start returns `stop_required`, and recovery is Stop → Start with a new startup generation |
+| Fresh interactive-host check fails after startup | Report current host condition and recommend Stop → Start; do not rewrite startup readiness |
 
 ## V1 boundary
 
 V1 includes:
 
-- one `local-container` runtime per session with Podman preferred and rootless
-  Docker supported after validation;
-- immutable project-scoped policy snapshots;
-- runtime-owned workspace, home, writable layer, and named cache/data storage;
-- named read-only-by-default filesystem grants under `/mnt/p`;
-- `public-egress` and `none` network profiles with narrow P/Bifrost exceptions;
-- fixed session Git/RPC/model credentials;
-- stable labels, runtime manifests, reconciliation, and guarded cleanup; and
-- isolated, non-activating workspace operations.
+- one local, confined Incus project per P instance;
+- one unprivileged Incus system container per session;
+- immutable environment-image fingerprint plus private writable instance root;
+- persistent workspace, home, and private Nix state across stop/start;
+- project-scoped filesystem grants within the Incus project ceiling;
+- `none` and validation-gated `public-egress` profiles;
+- structured tmux attachment;
+- generation-bound durable startup readiness and confirmed attachment
+  handshake; and
+- Incus-authoritative inspection, operations, and cleanup.
 
-V1 excludes branch/session-specific grants, in-place policy mutation,
-voluntary runtime recreation, devices, privileged capabilities, published
-ports, host/LAN access, arbitrary local services, general secret providers,
-runtime migration, local VMs, and Kubernetes backends.
+V1 excludes Incus administration, remote Incus servers, clustering, Incus
+VMs, live migration, snapshots/backups as P features, raw Podman/Docker
+backends, Kubernetes, privileged instances, devices, published ports, and
+general host/LAN access.
 
 ## Acceptance criteria
 
-The runtime contract is implemented when integration tests prove:
+The backend is supported only when tests prove:
 
-1. the same normalized `SessionSpec` produces equivalent observable isolation
-   under every claimed V1 engine;
-2. stop/start retains all runtime-owned storage while discard/delete removes
-   only resources labeled for that instance and session;
-3. rename changes no storage identity and reconciliation still finds the
-   runtime by UUID;
-4. read-only is the mount default, read-write/execute require explicit policy,
-   and denied host paths cannot be exposed through symlink resolution;
-5. external mount contents survive runtime removal and are clearly itemized by
-   destructive preflight;
-6. public internet works under `public-egress` while host, private, metadata,
-   sibling, engine, and management endpoints remain unreachable over IPv4 and
-   IPv6;
-7. network `none` retains only the explicitly granted P service endpoints;
-8. no ambient daemon, host-origin, provider, notification, or other-session
-   credential is present in the runtime environment, mounts, image metadata,
-   or diagnostics; explicit secret-bearing grants remain itemized exceptions;
-9. a configuration change does not mutate an existing runtime, and a missing
-   runtime repair uses the recorded snapshot;
-10. engine ambiguity and failure never cause silent fallback or duplicate
-    runtime creation;
-11. workspace status/rename/repair executes without activation, external
-    grants, ambient Git configuration, or arbitrary argv; and
-12. daemon restart can relink exactly one labeled runtime and reports missing,
-    duplicate, foreign-instance, and abandoned machinery distinctly.
+1. P operates through the confined user project and cannot use the admin
+   socket or attach an unapproved host path/device;
+2. two sessions receive distinct UUID-named instances, private roots,
+   workspaces, homes, Nix database changes, and credentials;
+3. the cached image remains immutable, new session paths never appear in
+   another session, and physical sharing/copying matches the recorded storage
+   driver behavior;
+4. start/stop state and operation outcome come from Incus and survive a P
+   daemon restart without duplicate instances;
+5. discard removes only the verified instance/private root and retains the P
+   branch and cached image;
+6. sessions cannot reach Incus, host credentials, undeclared mounts, sibling
+   instances, or disallowed network destinations;
+7. attachment uses fixed structured argv, never exposes general Incus
+   authority, and failed launch before confirmation never becomes attachment
+   presence;
+8. the non-activating workspace interface cannot execute repository-controlled
+   hooks or arbitrary commands; and
+9. startup readiness survives daemon restart, rejects stale markers, and
+   preserves a running generation's not-ready reason independently of
+   operation retention;
+10. a fresh interactive-host check can reject attachment without changing
+    startup readiness;
+11. lease loss tears down the channel before another attach, preserving the
+    tmux server/session but terminating a direct command;
+12. client/helper crash, SIGKILL, SSH/network loss, and daemon restart cannot
+    leave an uncounted live direct command; and
+13. marker writes are write-sync-rename-directory-sync atomic and resist
+    session-user/shell-hook spoofing, partial files, and stale or reordered
+    generations.

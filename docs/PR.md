@@ -16,16 +16,17 @@
 It does three things. It **knows** what work exists and tells you when a piece of it needs a human. It **places** each piece through an instance-local isolation provider. And it **governs** what that work can produce and where it can go. The first is the point; the other two are what make the first safe.
 
 One screen shows every session across every project with its authoritative
-runtime condition, whether anybody is attached, and the latest agent condition
-reported while the session was unattended. Enter attaches you to any session.
-When an unattended agent reports that it needs a human, P can notify you
-instead of waiting to be asked.
+runtime condition, startup readiness, whether anybody is confirmed
+attached, and the latest agent condition reported while the session was
+unattended. Enter attaches you to any ready session. When an unattended agent
+reports that it needs a human, P can notify you instead of waiting to be asked.
 
 A project is a Git repository. A session is an immutable UUID that owns one
 real branch and has an instance-local runtime tagged with that UUID. In V1 it
-gets its own rootless local container, working copy, and configured interactive
-command, built fresh from committed source—not copied from the user's checkout.
-Tmux is the default persistent interactive host, not the grouping model.
+gets its own unprivileged Incus system container, working copy, private
+writable root, and configured interactive command, built from committed
+source—not copied from the user's checkout. Tmux is the default persistent
+interactive host, not the grouping model.
 
 ## The problem
 
@@ -50,14 +51,14 @@ You shouldn't have needed to run `p` to find that out, so P reports state out of
 
 ## Sessions are cheap, and so is throwing them away
 
-Choose **New session** and P prepares a cached environment from your project's
-Nix `devShell`—or its minimal substrate when the project has none—creates a new
+Choose **New session** and P prepares or reuses a private Incus environment
+image from your project's Nix `devShell`—or its base image when the project has none—creates a new
 session-owned branch at the committed source you picked, assembles an isolated
 working copy, starts the configured interactive command, and attaches you. The
 TUI presents this as one gesture while using separate create and attach
-lifecycle actions. Nix is the first environment provider; an explicit
-development Dockerfile is the first planned alternative against the same
-artifact contract.
+lifecycle actions. A disposable Incus builder realizes committed Nix inputs;
+each session starts with that immutable store and receives its own writable
+Nix/workspace/home delta.
 
 When work has no good name yet, P suggests a timestamp. Every session still has
 a UUID and a real branch immediately. One keystroke later renames that Git
@@ -86,13 +87,13 @@ contract for code. A small RPC API carries lifecycle and status.
 
 Because the contract is Git, it composes outward. Each P server is its instance's local hub; sessions and your ordinary checkout are spokes. Independent P instances never address one another. For a project with a shared `origin`, continuing on another machine means publishing from the first P server, fetching on the other machine, and creating a fresh session there. A project with no origin is local-only and has no P-managed cross-machine handoff. There is no P sync protocol, state replication, discovery, or message bus.
 
-For a project with an origin, publication is a keystroke you press every time.
-P refreshes origin state when current evidence is required but never pushes
-automatically, so nothing an agent writes becomes visible there without a human
-in the loop at that moment. A host checkout can perform the same handoff
-manually by fetching `p` and pushing `origin`. Origin-less projects bypass
-fetch, comparison, and publication rather than treating their absence as an
-error.
+For a project with an origin, publication is a separate host-authorized action
+every time. The TUI can make that a keystroke, and `p api` can automate it, but
+a session cannot invoke it or receive its credentials. P refreshes origin state
+when current evidence is required but never pushes automatically. A host
+checkout can perform the same handoff manually by fetching `p` and pushing
+`origin`. Origin-less projects bypass fetch, comparison, and publication rather
+than treating their absence as an error.
 
 ## Safe enough to walk away from
 
@@ -101,18 +102,26 @@ error.
   Bifrost policy. P exposes Bifrost's OpenAI-compatible interface first;
   Anthropic-compatible clients follow in a second phase. A secret-bearing
   filesystem grant remains an explicit, itemized containment downgrade.
-- **Containers have no `origin` authority by default.** Their configured Git
+- **Sessions have no `origin` authority.** Their configured Git
   path is P's server, and they hold no publication credential. Public internet
   access may make a forge network-reachable, but P supplies neither an `origin`
   remote nor authority to write there. A session credential can update only its
   UUID-assigned branch, fast-forward-only by default. The host P credential is
   read-only; origin operations use the user's ordinary SSH credentials.
 - **Project-controlled evaluation has its own boundary.** Environment
-  evaluation and builds run through an isolation-provider interface;
+  evaluation and builds run in a disposable restricted Incus builder;
   repository-controlled material never executes with ambient daemon or host
   authority.
-- **Public internet, not the local network.** Sessions may fetch packages and documentation, but cannot reach the host, LAN/private or link-local networks, metadata endpoints, gateways, or sibling containers. P's Git, status, and Bifrost inference endpoints are narrow exceptions; gateway administration remains unreachable.
-- **Publishing is a decision you make**, using host publication credentials P never supplied to the session.
+- **Network starts closed.** The baseline has no general network. A validated
+  public-egress profile may fetch public packages and documentation while still
+  denying the host, LAN/private/link-local/metadata destinations, sibling
+  instances, and Incus administration. P's Git, status, and Bifrost inference
+  endpoints are narrow exceptions.
+- **Incus authority stays confined.** P uses one pre-provisioned confined user
+  project; builders and sessions never receive an Incus socket, and P does not
+  use the host-root-equivalent administrative socket.
+- **Publishing is a separate host-authorized action**, using credentials P
+  never supplies to the session.
 
 Inside the runtime boundary, P does not supervise relationships between agents,
 worktrees, or background processes. They share the session's granted authority;
@@ -131,10 +140,12 @@ it.
 
 ## Availability
 
-P v1 targets Linux with one `local-container` runtime backend. It requires Git,
-Nix, and rootless Podman; Docker is enabled after the same conformance suite.
-Tmux is the default persistent interactive host; the direct host is the minimal
-alternative. The daemon manages only runtimes belonging to its own instance.
+P V1 targets Linux with one local Incus runtime backend. It requires Git, an
+initialized Incus daemon with a confined user project, and a verified P base
+image containing the pinned Nix toolchain. Nix runs inside builder and session
+instances rather than being a host runtime dependency. Tmux is the default
+persistent interactive host; the direct host is the minimal alternative. The
+daemon manages only runtimes belonging to its own instance.
 
 On macOS or Windows, v1 means SSHing to a Linux machine and running the TUI there. Linux clients ship both local-Unix and SSH-to-Unix transports from day one; later native thin-client binaries reuse the SSH transport. The daemon never initiates SSH or treats another machine as a runtime backend.
 
@@ -142,9 +153,9 @@ Nix devShell is the first environment provider, not P's session configuration
 language. A repository contributes only its ordinary default devShell; all
 P-specific settings are trusted host configuration at project scope. A
 repository without a default devShell uses P's immutable minimal session
-substrate, so registration never requires generating a file. Provider and
-backend remain separate: a trusted project setting may later select a
-Dockerfile provider without changing session lifecycle.
+substrate, so registration never requires generating a file. The environment
+builder and runtime backend remain reusable interfaces, but V1 specifies only
+Nix-to-Incus-image and local Incus containers.
 
 P is single-user today. Multi-user policy is a later arc, and the runtime and authorization models leave room for it without making it a v1 claim.
 

@@ -71,9 +71,9 @@ change P's instance boundary or require Envoy AI Gateway.
 It runs as an independently configured persistent service. Bifrost's dashboard,
 management API, configuration store, and provider credentials remain Bifrost
 state. P connects to its authenticated management API only for session virtual-
-key lifecycle and validation. Sessions can reach only inference and their
-filtered model catalog; Bifrost administration, dashboard, raw logs, and
-provider credentials are unreachable from a session.
+key lifecycle and validation. Sessions receive no administrative credential.
+Their virtual keys authorize only the approved inference and filtered model-
+discovery operations described below.
 
 P's management seam is deliberately small:
 
@@ -81,12 +81,72 @@ P's management seam is deliberately small:
 type BifrostIntegration interface {
     EnsureSessionKey(ctx context.Context, sessionUUID UUID, policyRef string) (VirtualKey, error)
     RevokeSessionKey(ctx context.Context, sessionUUID UUID) error
-    VerifyInference(ctx context.Context, key VirtualKey) error
+    VerifySessionBoundary(ctx context.Context, key VirtualKey) error
 }
 ```
 
-Inference forwarding is not a method on this interface. Clients speak directly
-to Bifrost; P manages policy and lifecycle around that data plane.
+Inference forwarding is not a method on this interface. Clients speak to
+Bifrost through the narrow session-facing endpoint granted by runtime policy;
+P does not inspect or proxy inference and manages only policy/lifecycle around
+that data plane.
+
+## Session-facing enforcement boundary
+
+**Decided.** V1 relies on the pinned Bifrost release's native authentication
+and virtual-key enforcement. The Bifrost HTTP service may be network-reachable
+from a session; the security guarantee is that session credentials are rejected
+for every non-V1 operation, not that packets cannot reach those routes.
+
+The effective Bifrost configuration must satisfy all of these invariants:
+
+- administrative authentication is enabled, and its credential is available
+  only to P's trusted management connection and administrators;
+- sessions receive no administrative credential;
+- every inference request requires a valid session virtual key;
+- that key authorizes only the session's approved OpenAI-compatible inference
+  operations and filtered model discovery in phase one; and
+- the same key is rejected by dashboard, management, governance, logs, MCP,
+  Skills Repository, and every other non-V1 route.
+
+P does not prescribe one value for Bifrost's
+`disable_auth_on_inference` setting. Administrative authentication and
+virtual-key enforcement are separate concerns; P accepts any pinned
+configuration whose effective behavior satisfies the invariants above. It
+never trusts defaults.
+
+Before enabling model access, and after a Bifrost version or effective-
+configuration change, P validates the boundary with the real session key. It
+positively probes allowed model discovery and inference, negatively probes the
+non-V1 route inventory, and distinguishes an authorization rejection from a
+connection or server failure. Missing-key, invalid-key, and revoked-key probes
+must also fail. The validated route inventory is tied to the pinned Bifrost
+version; newly introduced routes require classification before an upgrade is
+accepted.
+
+An unexpected success, an unclassified route, or a Bifrost version/configuration
+that P has not validated fails model access closed. It does not make projects
+without model grants, Git, RPC, or an existing runtime unavailable. An L7
+allowlisting proxy is a later fallback only if Bifrost cannot enforce this
+boundary natively; it is not part of V1.
+
+### Native-enforcement feasibility gate
+
+**Open until validated.** Native support is not assumed merely because Bifrost
+implements virtual keys. Its documented governance APIs may accept a virtual
+key as authorization, while documented virtual-key restrictions emphasize
+provider/model/key and MCP scope rather than a general inference-route
+allowlist. See the upstream
+[delete-virtual-key API](https://docs.getbifrost.ai/api-reference/governance/delete-virtual-key)
+and [virtual-key behavior](https://docs.getbifrost.ai/features/governance/virtual-keys).
+
+The positive/negative probe suite is therefore the first implementation spike
+for optional model access. If the pinned release lets the real session key
+invoke any governance or other non-V1 operation, or cannot restrict it to the
+accepted inference/model-discovery surface, P does not ship model access with
+that release. This gate blocks only the optional model-access milestone. It
+cannot weaken the boundary or block Git, RPC, lifecycle, runtime, TUI, or
+projects without model grants. An L7 proxy remains outside V1 unless a separate
+design explicitly introduces it.
 
 ## Bifrost capability map
 
@@ -100,7 +160,7 @@ source surface includes:
 | Providers | Hosted providers including OpenAI, Anthropic, OpenRouter, Bedrock, Azure, and Vertex, plus OpenAI-compatible and local endpoints such as Ollama and vLLM | Configure only in Bifrost; P treats the result as opaque broker policy |
 | Models and routing | Model catalog, pricing, static and conditional aliases, weighted routing, retries, provider/key load balancing, and fallback chains | Configure only in Bifrost; P does not reproduce an alias or fallback catalog |
 | Governance | Virtual keys, provider/model/key allowlists, expiry, budgets, token/request limits, and optional team/customer hierarchy | Use one mandatory persisted virtual key per model-enabled session; reference a Bifrost-owned project policy |
-| Administration | Configuration API, provider/key management, governance API, dashboard, and file- or database-backed configuration | Host/control-plane only; never expose to a session |
+| Administration | Configuration API, provider/key management, governance API, dashboard, and file- or database-backed configuration | Host/control-plane credential only; session keys must be rejected |
 | Observability | Request metadata, token and cost accounting, latency, retries, routing decisions, logs, Prometheus, and OpenTelemetry | Retain metadata with content logging disabled by default; raw logs remain host-only |
 | MCP gateway | MCP client and server, HTTP/SSE/stdio upstreams, authentication, tool aggregation, filtering, execution, and per-virtual-key tool restrictions | Valuable adjacent capability; expose a separately filtered MCP route, never the administrative API or unrestricted host-side stdio tools |
 | MCP Agent Mode | A gateway-owned loop that automatically executes explicitly approved tools and calls the model again until completion or a depth limit | Keep out of interactive coding sessions initially because Codex and Claude Code already own their agent and approval loops; evaluate only as a separately designed future workflow |
@@ -111,6 +171,8 @@ source surface includes:
 
 The [Bifrost overview](https://docs.getbifrost.ai/overview),
 [configuration schema](https://docs.getbifrost.ai/deployment-guides/config-json/schema-reference),
+[governance configuration](https://docs.getbifrost.ai/deployment-guides/config-json/governance),
+[virtual-key behavior](https://docs.getbifrost.ai/features/governance/virtual-keys),
 [MCP overview](https://docs.getbifrost.ai/mcp/overview), and
 [Skills Repository](https://docs.getbifrost.ai/features/skills-repository)
 are the upstream capability references. Their existence does not make every
@@ -214,8 +276,8 @@ an explicit departure from P's privacy posture.
 ## Failure posture
 
 - Principal creation and revocation are idempotent by immutable session UUID.
-- A model-enabled session is not ready until its key is persisted and inference
-  access is verified.
+- A model-enabled session is not ready until its key is persisted and the
+  session-facing enforcement boundary is verified.
 - A session without model access is independent of Bifrost readiness.
 - P does not replay an inference request after ambiguous delivery.
 - Gateway failure affects model access, not Git, attachment, RPC, or runtime
@@ -276,6 +338,9 @@ session runtime pods
   selected inference, skill-serving, and MCP routes to session namespaces.
 - Bifrost's dashboard and `/api/*` management surface are reachable only from
   the trusted P control plane or an explicit administrator path.
+- Native administrative authentication and mandatory session virtual-key
+  enforcement remain required even when cluster networking or ingress also
+  narrows route reachability.
 - Bifrost continues to own aliases, virtual keys, routing, limits, and usage;
   Kubernetes does not duplicate them.
 
@@ -337,11 +402,17 @@ Phase one must prove:
 2. a session sees only the catalog allowed by that key;
 3. Codex works through Bifrost's OpenAI-compatible interface to OpenRouter and
    one local model endpoint;
-4. sessions cannot reach Bifrost administration or upstream credentials;
+4. Bifrost administrative authentication is enabled and sessions receive no
+   administrative or upstream credential;
 5. usage metadata works with content logging disabled;
 6. branch rename, stop, discard/delete, and restart reconciliation preserve the
    principal lifecycle described above;
-7. no unconfigured cross-model fallback occurs.
+7. no unconfigured cross-model fallback occurs;
+8. every inference request requires a valid session key, and positive probes
+   prove the allowed inference/model-discovery operations; and
+9. the real session key receives an authorization rejection—not merely a
+   transport failure—from every dashboard, management, governance, logs, MCP,
+   skills, and other non-V1 route in the pinned-version inventory.
 
 Phase two applies the same requirements to Bifrost's Anthropic-compatible
 interface and Claude Code. Protocol correctness remains Bifrost's

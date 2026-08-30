@@ -13,8 +13,8 @@ organizes isolated runtimes around Git projects and branches, shows them in one
 terminal UI, reports the latest agent condition received while the user is
 away, and controls how committed work leaves the local instance.
 
-It is primarily a bookkeeping and policy layer. Containers, tmux, agents, Git,
-Nix, and Bifrost keep doing their own jobs.
+It is primarily a bookkeeping and policy layer. Incus, tmux, agents, Git, Nix,
+and Bifrost keep doing their own jobs.
 
 ### Who is P for?
 
@@ -28,7 +28,7 @@ plane, and instance federation are not V1 goals.
 No. A daemon manages only runtimes belonging to its own instance. Remote use is
 a client transport: the client initiates SSH and bridges the instance's Unix
 socket or runs its validated attachment argv. The daemon never SSHes outward to
-manage a remote container.
+manage a remote runtime.
 
 See [communication boundaries](communication-boundaries.md#ssh-roles).
 
@@ -75,8 +75,20 @@ consolidate any result it wants to retain there.
 
 No, not in V1. A user or agent may run a database, server, or watcher inside the
 session, but P does not declare, supervise, health-check, restart, or model it.
-The V1 readiness boundary stops at an available runtime, successful environment
-activation, and an attachable interactive command.
+The V1 startup-readiness boundary stops at an available runtime, successful
+environment activation for the current start generation, and initial
+interactive-host preparation. Startup readiness is durable current session
+state rather than a retained operation log, so an activation failure remains
+visible until a later start succeeds or the runtime stops.
+
+A running `not_ready` runtime cannot rerun its launcher in place. Start returns
+the stable `stop_required` error; recovery is explicit Stop then Start, which
+creates a new startup generation.
+
+Before a session is established, startup readiness remains `inactive`.
+Creation-time activation failure is shown by its durable creation phase. Retry
+uses that same operation, persists `stopping-partial-runtime`, observes the
+partial instance stopped, and only then records and starts a new generation.
 
 ## Sessions and branches
 
@@ -167,7 +179,7 @@ Stop preserves writable files and identity, not processes: starting again
 reruns activation and interactive-host preparation.
 
 P inspects runtime-local and Git-ref loss before destructive actions. If the
-backend cannot be reached, ordinary discard/delete is refused because P cannot
+Incus cannot be reached, ordinary discard/delete is refused because P cannot
 truthfully itemize local loss. The explicit abandon path is stronger and leaves
 an orphan record. See
 [destructive preflight](session-lifecycle.md#destructive-preflight).
@@ -199,9 +211,9 @@ does not duplicate source objects or publication history.
 ### What can a session read and write?
 
 It may read ordinary project branches and write only the branch assigned to its
-UUID. It cannot write tags, another session branch, origin-tracking refs, or
-reserved `refs/p/*` and `refs/attempts/*` namespaces. Private namespaces are
-hidden and arbitrary object-ID fetches are disabled.
+UUID. It cannot write tags, another session branch, or reserved `refs/p/*` and
+`refs/attempts/*` namespaces. Private namespaces are hidden and arbitrary
+object-ID fetches are disabled.
 
 Ordinary project branches are not a confidentiality boundary; their history is
 shared project source.
@@ -220,17 +232,21 @@ session.
 
 Because public internet access should not imply publication authority. Sessions
 receive neither an origin remote nor the user's origin credential. This keeps
-publication a host-side, explicit decision and limits a compromised agent to
-its local P branch.
+publication a separate, explicit host-authorized action and limits a
+compromised agent to its local P branch. A person may invoke that action in the
+TUI or automate it through `p api`; the enforceable boundary is separation from
+the session, not proof of human presence.
 
 ### Does P synchronize with origin?
 
 P refreshes when an origin is configured, when asked, before selecting current
 origin source, before publication, and before making destructive-preservation
 claims. Optional background refresh is only a convenience. P does not
-automatically push, continuously mirror, retry an ambiguous publication, or
-maintain a private “published once” flag. Git refs from a completed refresh
-remain the authority. See
+automatically push, continuously mirror, recover an uncertain publication, or
+maintain a private “published once” flag. It creates no protected origin
+generation refs. A later explicit publication request is an idempotent check
+against freshly fetched origin state, and the origin atomically accepts or
+rejects any required non-force push. See
 [origin communication](communication-boundaries.md#origin-communication).
 
 ### Can P force-publish to origin?
@@ -248,28 +264,43 @@ than failed.
 
 ## Runtime, environment, and isolation
 
-### Why containers first?
+### Why Incus first?
 
-A rootless local container gives each session a separate workspace and process
-boundary while remaining cheap enough for workstation use. A local VM can add
-stronger isolation later, and Kubernetes can place runtimes for a P instance in
-a cluster. The backend interface keeps those choices outside session and Git
-identity.
+Incus already provides local instance/image/storage lifecycle, operations,
+events, metadata, confined user projects, system containers, and a future VM
+path. That lets P implement its project/branch/session policy without first
+building and normalizing a Podman/Docker storage and lifecycle layer.
+
+V1 uses unprivileged Incus system containers because they are practical on a
+workstation. Incus VMs may add stronger isolation later, and Kubernetes may
+place runtimes for a cluster-hosted P instance. The backend interface keeps
+those choices outside session and Git identity.
 
 ### Is there an SSH-container backend?
 
 No. SSH is a client transport, not a runtime provider. A remote machine runs
-its own P instance; its daemon manages its own local backend.
+its own P instance; its daemon manages its own local Incus project.
 
-### Why Nix first, and what about Dockerfiles?
+### How does the cached Nix store work?
 
-Nix devShells provide reproducible toolchains and a useful closure/cache model
-for the first implementation. They are not assumed to build quickly for every
-project: cold, substituted, and warm behavior depends on the project and cache.
+P realizes the committed default devShell in a disposable restricted Incus
+builder, then publishes that coherent Nix store/database and activation state
+as a private immutable Incus image. Each session receives its own writable
+Incus root from that image. New Nix paths and database changes are private to
+the session; they survive stop/start and disappear when its instance is
+removed.
 
-Environment building is a provider seam. An explicit Dockerfile is the first
-planned alternative and emits a normalized OCI artifact against the same
-runtime contract. See [environment building](environment-building.md).
+This shares the immutable starting point without a shared writable Nix daemon
+or database. Each builder/session runs its own local Nix daemon over its private
+root. Physical deduplication depends on the configured Incus storage driver.
+The host Nix store and daemon are never mounted into the session.
+
+Nix devShells are not assumed to build quickly for every project: cold,
+substituted, image-hit, and session-private behavior depends on the project,
+cache, host, and storage driver.
+
+The environment builder is reusable, but Dockerfile/OCI behavior is not
+specified in V1. See [environment building](environment-building.md).
 
 ### What happens when a project has no default devShell?
 
@@ -282,7 +313,7 @@ toolchain or generate a config file merely to register the repository.
 Only in trusted host configuration keyed by the complete project path.
 Repositories contain no P-specific configuration and cannot request host
 paths, credentials, devices, published ports, local-network routes, or
-engine/SSH-agent access.
+Incus/SSH-agent access.
 
 V1 grants are project-scoped under `{project}/*`. A future
 `{project}/{branch}` scope is reserved but not implemented, so every new
@@ -290,16 +321,16 @@ session—including one created from an exploratory commit—receives only its
 project's policy.
 
 Mount normalization, fixed targets, lifetime, and cleanup are defined in
-[runtime and isolation](runtime-isolation.md#filesystem-mounts).
+[runtime and isolation](runtime-isolation.md#filesystem-grants).
 
 ### What network access does a session have?
 
-The default `public-egress` profile allows outbound public internet for packages
-and documentation. Routes to the host, private/LAN and link-local networks,
-metadata endpoints, gateways, and sibling containers are blocked. P Git, the
-private session socket, and a granted Bifrost inference route are narrow
-exceptions at explicit service boundaries. A project may instead select the
-`none` profile.
+The implementation baseline is `none`: no general network, with P Git and the
+private session socket supplied as narrow Unix endpoints. A project may select
+`public-egress` only after its Incus network/ACL/routing configuration proves
+that host, private/LAN, link-local, metadata, gateway, sibling-instance, Incus
+API, and undeclared-service access remains blocked. A granted Bifrost inference
+route is another narrow endpoint.
 
 Network isolation is one of the real-machine validations tracked in
 [development validations](development-validations.md).
@@ -320,30 +351,46 @@ internal state. See [session observability](session-observability.md).
 
 ### What happens when I enter a session?
 
-The first live attachment clears the stored unattended condition. While any
-attachment remains, semantic agent events are not retained as overview status
-and do not notify: the user is already inside the session. When the last
-attachment leaves, P starts empty and tracks the next event.
+The first confirmed live attachment clears the stored unattended condition.
+The daemon first returns a short-lived pending token. A trusted host helper
+establishes the interactive channel, confirms the token on its dedicated lease
+connection, and retains that lease through teardown while the daemon is
+reachable. Only confirmation makes P count the attachment or clear status. A
+failed attach therefore does neither. While any confirmed attachment remains,
+semantic agent events are not retained as overview status and do not notify:
+the user is already inside the session. When the last attachment leaves, P
+starts empty and tracks the next event.
+
+Attachment also checks the interactive host immediately before returning the
+attach specification. If tmux or its configured command disappeared after
+startup, P reports that current condition and recommends Stop then Start without
+rewriting startup readiness. Client crash, SIGKILL, or SSH/network loss causes
+the helper/transport to tear down without client cooperation. If daemon restart
+removes the lease first, the helper starts teardown immediately and opens no new
+lease/channel until it finishes. Tmux preserves its server/session; direct's
+runtime wrapper terminates and waits for the command.
 
 ### Why no seen/unseen state or attention history?
 
 V1 only needs to surface the latest thing reported while the user was away.
 Observation cursors, causal attention IDs, multi-participant reduction, and
 resolution history add machinery without making ambiguous agent hooks
-authoritative. Entering already provides a simple useful acknowledgement.
+authoritative. A confirmed entry already provides a simple useful
+acknowledgement.
 
 ### What if an agent has no adapter?
 
-P still reports authoritative runtime condition and attachment presence. The
-semantic condition remains empty rather than being guessed from process names,
-terminal output, or tmux panes.
+P still reports authoritative runtime condition, current-generation startup
+readiness, and confirmed attachment presence. The semantic condition remains
+empty rather than being guessed from process names, terminal output, or tmux
+panes.
 
 ### Why is tmux replaceable?
 
 P needs a safe way to start and attach to one interactive argv, not tmux's
 grouping model. Tmux is a good default because it preserves the interactive
 program across detach, but the direct host demonstrates that session identity,
-Git, readiness, and status do not depend on it.
+Git, startup readiness, and status do not depend on it.
 
 ## API and credentials
 
@@ -391,6 +438,17 @@ local-provider secret to the runtime.
 P persists that key with the session UUID and manages its lifecycle, but
 Bifrost owns configuration and policy. P does not become an inference proxy.
 
+### Can a session key call Bifrost's dashboard or management APIs?
+
+No. Bifrost's native authentication and virtual-key enforcement are the V1
+boundary. Administrative authentication is enabled, sessions receive no admin
+credential, and every inference request requires a valid session key. P tests
+the actual key against the pinned release: approved inference and filtered
+model discovery must succeed, while dashboard, management, governance, logs,
+MCP, skills, and all other non-V1 routes must reject it. Model access fails
+closed if the effective configuration or route inventory has not been
+validated; P does not rely on defaults or proxy inference in V1.
+
 ### Why OpenAI-compatible first?
 
 It provides the initial Codex path while keeping the integration small.
@@ -421,7 +479,7 @@ is in [model gateway](model-gateway.md#kubernetes-evolution).
 
 ## What remains intentionally later?
 
-Native macOS/Windows clients, Dockerfile environments, local VMs, Kubernetes
+Native macOS/Windows clients, Dockerfile/OCI environments, Incus VMs, Kubernetes
 runtimes, branch-specific grants, checks, attempts, richer MCP/skills
 integration, and multi-user operation are later capabilities. The uncertain
 parts of already-scoped development are listed separately in
