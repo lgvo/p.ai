@@ -10,17 +10,17 @@ credential facts.
 > Git, RPC, SSH, and attachment channels;
 > [environment-building.md](environment-building.md) owns cached Incus
 > environment images and activation; [runtime-isolation.md](runtime-isolation.md)
-> owns Incus placement, grants, storage, metadata, and isolated workspace
-> access; and
+> owns Incus placement, grants, storage, systemd hosting, attachment execution,
+> metadata, and isolated workspace access; and
 > [session-observability.md](session-observability.md) owns agent-event
-> reduction and presentation of runtime condition.
+> reduction and presentation of session and policy condition.
 
 ## Contents
 
 - [Purpose](#purpose)
 - [Identity and retained state](#identity-and-retained-state)
 - [Authorities](#authorities)
-- [Registry state, runtime condition, and operations](#registry-state-runtime-condition-and-operations)
+- [Registry state, session condition, and operations](#registry-state-session-condition-and-operations)
 - [Concurrency and quiescence](#concurrency-and-quiescence)
 - [Create](#create)
 - [Start](#start)
@@ -103,16 +103,21 @@ find machinery when a stored locator is missing or stale.
 The UUID-to-branch assignment begins when creation reserves the session and
 ends only when discard or delete completes. Stop and rename preserve it.
 
-Discard retains the branch as an ordinary unassigned project ref. A later
-session may select that ref as committed source, but it receives a new UUID and
-must create a distinct new branch. An unassigned ref still occupies its Git
+Discard retains the branch as an ordinary retained project branch. A later
+session may select that branch as committed source, but it receives a new UUID and
+must create a distinct new branch. A retained branch still occupies its Git
 name in that project until it is renamed or deleted.
 
-### No scratch or active base state
+### Committed source and blank bootstrap
 
 There are no scratch sessions. Creation always selects committed source and
 creates a new branch immediately. If the user supplies no branch name, P
 suggests a timestamp and adds a collision suffix when necessary.
+
+The sole exception is the first session of a blank or successfully contacted
+empty-origin project. [Project lifecycle](project-lifecycle.md#blank) reserves
+that session on unborn `main`; its first commit and push create the assigned
+ref. It is an explicit project bootstrap, not an untracked scratch mode.
 
 The selected commit is creation input, not durable `session.base_commit`
 state. Once the new branch exists, Git ancestry and its current tip are the
@@ -129,7 +134,7 @@ source authority.
 | Cached environment-image bytes | Incus image store | indexes project-scoped environment key and fingerprint |
 | P Git write permission | P Git authorization using current SQLite assignment | records principal and revocation state |
 | Bifrost policy and key validity | Bifrost | records key ID, protected token, and cleanup state |
-| Startup readiness and current failure reason | P launcher marker for current start generation | records expected generation and reconciled projection |
+| Interactive-host readiness and failure | `p-interactive.service` and persistent system journal | records only bounded operation/last-start diagnostics |
 | Pending/confirmed attachment presence | Live host RPC connection | not persisted |
 | Agent condition | Session observability reducer | stores only its defined latest unattended value |
 
@@ -138,7 +143,7 @@ observation. Conversely, discovering an Incus instance does not invent a
 session row: unmatched P metadata is orphan machinery until its UUID is
 matched to an active session or abandonment record.
 
-## Registry state, runtime condition, and operations
+## Registry state, session condition, and operations
 
 P keeps three different concepts separate.
 
@@ -149,26 +154,26 @@ The session row has one coarse registry state:
 | State | Meaning |
 |---|---|
 | `creating` | Identity and branch are reserved, but creation has not reached ready. |
-| `established` | Creation completed; runtime condition determines whether it is usable. |
-| `removing` | An authorized discard/delete is completing forward. |
+| `established` | Creation completed; reduced session condition determines whether it is usable. |
+| `removing` | Internal recovery state: an authorized discard/delete is ensuring its action-specific result. It is never the public session condition. |
 
 There is no terminal registry state. Completed discard/delete removes the
 session row. Minimal cleanup or orphan tombstones are separate records and do
 not re-create a session.
 
-### Runtime condition
+### Session condition
 
-Runtime condition reports the most recent reconciled runtime fact described in
-[session-observability.md](session-observability.md#runtime-condition). It is a
-projection, not a second independently mutable lifecycle field: `creating` and
-`removing` come directly from registry state; for an established session,
-Incus inspection yields `running`, `stopped`, `missing`, or `unreachable`.
-A running instance whose activation failed is still physically `running`, but
-its orthogonal `startup_readiness` remains `not_ready` with a durable bounded
-reason until a successful later generation. Operation diagnostics add context;
-their retention is not the readiness authority. The complete projection and
-marker rules are in
-[session observability](session-observability.md#startup-readiness).
+The public session condition is the reconciled projection defined in
+[session observability](session-observability.md#session-condition). Registry
+state supplies `creating`, `discarding`, and `deleting`; Incus plus current
+`p-interactive.service` inspection supplies `starting`, `ready`, `stopped`,
+`missing`, or `unreachable` for an established session. It is not a second
+independently mutable lifecycle field.
+
+Activation or persistent-host failure shuts the container down, so P does not
+retain a separate `running/not_ready` condition. The stopped session may carry
+a bounded latest Start diagnostic without manufacturing another lifecycle
+state.
 
 ### Operation record
 
@@ -189,9 +194,11 @@ bounded diagnostic and last error
 created and updated times
 ```
 
-Operation status is `running`, `blocked`, `failed`, `unknown`, or `completed`.
-Terminal results have bounded retention; they do not become permanent domain
-history or manufacture runtime/agent condition.
+Operation status is `running`, `blocked`, `failed`, `unknown`, `superseded`, or
+`completed`. An unresolved creation remains non-terminal `blocked` while its
+session references it. Completed, safely cancelled, and superseded results
+have bounded retention; they do not become permanent domain history or
+manufacture session/agent condition.
 
 The same idempotency key with the same request returns the existing operation.
 Reusing it with different input is rejected.
@@ -257,8 +264,8 @@ makes it attachable.
 The request names:
 
 - one existing project;
-- committed source reachable from the P repository, a refreshed origin ref, or
-  a registered source location;
+- committed source reachable from the P repository or a freshly observed
+  origin ref;
 - a new valid Git branch name, or no name to request a timestamp suggestion;
   and
 - no session-specific grant override.
@@ -268,6 +275,10 @@ selected source is a
 named branch, the new session branch name must differ from that source name;
 selecting `main` therefore creates another branch at `main`'s commit rather
 than assigning `main` itself. Dirty checkout state is never creation input.
+
+The unborn-`main` bootstrap is created only as part of explicit blank/empty-
+origin project creation. It has no source object ID, uses the P base image, and
+may create only the already reserved `refs/heads/main` on its first push.
 
 V1 has no repository-controlled P configuration. Creation snapshots the
 trusted project-scoped P configuration and evaluates only the ordinary Nix
@@ -285,9 +296,7 @@ otherwise the substrate-only environment applies.
 | `principals-ready` | Create/activate the session Git principal and optional Bifrost key. |
 | `runtime-created` | Create exactly one Incus instance named for the UUID from that image and record its locator. |
 | `workspace-ready` | Create a standalone clone of the assigned branch with its P upstream and install only session-scoped endpoints. |
-| `stopping-partial-runtime` | Recovery only: stop and observe a running partial instance before another startup generation. |
-| `activation-ready` | Start the new startup generation and activate the environment successfully inside the runtime. |
-| `interactive-ready` | Prepare the configured interactive host/command and write the generation's ready marker. |
+| `systemd-ready` | Start the container; require activation and `p-interactive.service` readiness. Failure records diagnostics and returns the container to stopped. |
 | `established` | Verify branch, workspace, runtime, credentials, and required capabilities; set registry state established. |
 
 Environment realization may be shared with another operation. Once published,
@@ -299,27 +308,30 @@ phases remain specific to its UUID.
 Before `branch-created`, cancellation may remove the reservation after imported
 temporary source material is reconciled. No session branch or runtime is lost.
 
-After `branch-created`, P never silently deletes the branch or session record.
-A failed creation remains visible in `creating` state with its failed phase.
-The user may retry the same operation, discard while retaining the branch, or
-delete after the normal loss confirmation.
+After `branch-created`, P never silently loses the request, session identity,
+or branch. A failed creation remains visible in `creating` state with one
+durable `blocked` operation. Systemd has already stopped a container whose
+activation or host startup failed.
 
-Startup readiness remains `inactive` throughout `creating`; the durable
-creation operation and its phase are the sole presentation of activation or
-interactive-preparation failure before establishment. If retry finds the
-partial Incus instance running after either phase began, the same durable
-creation operation first advances to `stopping-partial-runtime`. It asks Incus
-to stop the instance, reconciles that operation until stopped, and only then
-records a new startup generation, starts the instance, and resumes at
-`activation-ready`. A crash in this recovery phase resumes by inspecting Incus;
-creation never reruns the launcher in place or allocates a second
-operation/session.
+Retry means the exact immutable request: the same operation, UUID, branch,
+source commit, normalized policy snapshot, and idempotency key. It verifies
+the reserved branch is unchanged, ensures partial runtime/credential resources
+are absent or safe to reuse, and reconstructs the desired result without
+creating retry chains. Repeating Retry cannot accumulate instances,
+principals, operations, or refs.
 
-Reconciliation verifies each recorded result before continuing. It reuses a
-valid image, principal, or correctly labeled partial Incus instance and removes
-a conflicting partial resource only when removal cannot destroy user-created
-runtime state. Ambiguous runtime creation blocks for repair rather than
-creating a second runtime.
+If repository content or settings must change, **Try again with changes** is
+one replacement action, not Retry. It records a new request, UUID, source,
+policy snapshot, operation ID, and idempotency key; explicitly supersedes the
+failed creation; cleans its verified provisional resources and unchanged
+branch; and may reuse the desired branch name. Unexpected commits, workspace
+changes, or resource identity invoke the integrated loss review rather than
+silently deleting them. The user does not perform preparatory Discard/Delete
+bookkeeping.
+
+Reconciliation verifies every observed result. It reuses a valid immutable
+image and safely matching resources, treats absence as a clean rebuild point,
+and blocks ambiguous ownership rather than creating duplicates.
 
 Create does not implicitly open an attachment. The TUI may implement
 “create and enter” as create followed by attach after creation reaches
@@ -333,42 +345,43 @@ Start makes an established stopped Incus instance ready again. It reuses the
 same UUID, branch assignment, instance, writable filesystem, workspace, home,
 credentials, and parent environment image.
 
-Start does not reevaluate the branch's current devShell or reload changed host
-project configuration. V1 does not apply a different environment or grant
-snapshot to an existing session; any later runtime-recreation operation needs
-its own lifecycle contract rather than occurring through stop/start.
+Start does not reevaluate the branch's current devShell or apply changed host
+project configuration. It compares the immutable snapshot with current policy,
+warns when it is `outdated`, and revalidates safety-critical mount/confinement
+facts. `invalid` blocks Start. **Recreate with current policy** is a separate
+guided Discard-and-Create operation: it preserves the old assigned branch as a
+retained source, creates a new UUID and distinctly named assigned branch from
+its captured tip, and applies the current policy snapshot. It never mutates the
+old session in place or silently deletes its retained branch.
 
-Stopping a container terminates its processes. Start therefore reruns the
-runtime launcher, environment activation, shell hook, and interactive-host
-preparation. P does not promise that tmux, an agent process, terminal state, or
-in-memory conversation survives stop. Tool-owned state stored in the retained
-filesystem may allow the tool itself to resume.
+Stopping a container terminates its processes. Start therefore boots systemd,
+reruns environment activation and the shell hook, and starts a fresh
+`p-interactive.service`. P does not promise that a host process, agent process,
+terminal state, or in-memory conversation survives stop. Tool-owned state in
+the retained filesystem may let the tool resume itself.
 
 ### Rules
 
-- Starting a running runtime whose current generation is ready succeeds
-  idempotently.
-- Starting a running `not_ready` runtime fails with the stable
-  `stop_required` error. V1 never reruns the launcher in place. Recovery is an
-  explicit stop followed by start; that start records a new startup generation.
+- Starting a runtime whose systemd persistent host is already active and
+  attachable succeeds idempotently.
 - A stopped runtime must be reachable and match the session UUID labels.
 - `missing` requires repair/recreation; start does not silently construct a
   replacement.
 - `unreachable` blocks start because P cannot exclude a duplicate runtime.
-- Missing credentials block start and produce a repair plan. A missing cached
+- Missing required Git/session credentials block start and produce a repair
+  plan. Bifrost is not probed during Start; established model access degrades
+  independently. A missing cached
   parent image does not affect an existing instance; it matters only if the
   instance must be recreated.
-- Startup is attachable only after activation and interactive preparation
-  succeed and the current generation's ready marker verifies.
+- Attachability requires `p-interactive.service` active/ready and the fixed
+  attachment command present under trusted ownership.
 
-Before requesting Incus start, P records a new startup generation. Incus owns
-the start operation and instance state; the P launcher owns that generation's
-versioned `starting`/`ready`/`failed` marker. If contact is interrupted, P
-inspects both authorities. If Incus started the instance but activation failed
-or the marker is missing/invalid, the session remains durably `not_ready`.
-Another Start request returns `stop_required`; the supported recovery is Stop
-then Start. P does not maintain a second durable Incus phase workflow or an
-in-place launcher-retry operation.
+Incus owns the start operation and instance state; systemd owns activation,
+host lifetime, and diagnostics. If contact is interrupted, P inspects both.
+Activation or host failure shuts down the container and returns the session to
+`stopped` with the bounded diagnostic; another Start retries normally. P does
+not maintain a second durable Incus phase workflow or startup-generation
+marker.
 
 V1 has no separate restart operation. Restart is an explicit stop followed by
 start.
@@ -382,20 +395,17 @@ The daemon, client, and trusted host attachment helper perform a two-stage
 handshake:
 
 1. verifies an established session with no conflicting operation;
-2. starts it and waits for startup readiness when it is stopped;
-3. verifies the current startup-readiness marker, refusing a running runtime
-   whose latest activation/preparation failed;
-4. performs a fresh `InteractiveHost` check independently of startup readiness;
-   a failed check reports the current host condition and recommends Stop then
-   Start without changing startup readiness;
-5. asks the interactive host and Incus backend for fixed attachment argv;
-6. creates a short-lived, one-use pending token bound to the session and
+2. starts it when stopped and waits for `p-interactive.service` readiness;
+3. freshly verifies the systemd unit, trusted fixed attach command, and current
+   Incus ownership;
+4. asks the Incus backend for the fixed attachment argv;
+5. creates a short-lived, one-use pending token bound to the session and
    authenticated host request and returns that token plus the structured spec;
-7. the client invokes the trusted helper locally or through client-initiated
+6. the client invokes the trusted helper locally or through client-initiated
    SSH and transfers the token through its private control stream, never argv;
-8. the helper opens the dedicated attachment RPC connection, establishes the
+7. the helper opens the dedicated attachment RPC connection, establishes the
    interactive channel, and confirms the token on that connection; and
-9. the daemon atomically promotes it to an active lease owned by the helper
+8. the daemon atomically promotes it to an active lease owned by the helper
    connection, increments confirmed attachment presence, and clears the latest
    unattended condition only on the confirmed zero-to-one transition.
 
@@ -414,13 +424,10 @@ daemon restarts or the lease connection disappears first, the helper begins
 teardown immediately and establishes no new lease or channel until teardown
 finishes. V1 cannot re-register an existing channel.
 
-Tmux teardown detaches only that client and preserves the UUID-owned
-server/session. Direct uses a runtime-side attachment wrapper whose lifetime is
-bound to the exec channel; channel/helper death terminates and waits for the
-command rather than merely disconnecting its terminal. If a transport cannot
-prove this behavior, `direct` attachment is unsupported through that transport.
-Detach does not stop the runtime; persistence after detach belongs to the
-interactive host.
+Teardown ends only that temporary attach client. The systemd-owned persistent
+host and configured command remain alive, so detach and session switching do
+not stop the runtime. Clean or failed persistent-host exit, not attachment
+loss, causes systemd to shut down the container.
 
 ## Rename
 
@@ -568,7 +575,7 @@ facts.
 ## Discard
 
 Discard ends the session and removes its runtime while retaining the current P
-branch as an ordinary unassigned source ref.
+branch as an ordinary retained source branch.
 
 After a valid destructive confirmation, discard completes forward through:
 
@@ -581,8 +588,8 @@ After a valid destructive confirmation, discard completes forward through:
 6. remove other session credentials;
 7. verify that the P branch still exists at the guarded expected tip;
 8. end the UUID-to-branch assignment and remove the session row; and
-9. release the guard and leave the branch visible as an unassigned project
-   ref.
+9. release the guard and leave the branch visible as a retained project
+   branch.
 
 A stale confirmation discovered in step 2 releases the guard, resumes a runtime
 paused by the preflight, and leaves the established session and authorities
@@ -718,8 +725,8 @@ cache miss the next time P needs to create or repair an instance.
 
 | Operation | Commit point | Before commit point | At/after commit point |
 |---|---|---|---|
-| Create | New P branch created | Cancel/clean reservation when safe | Retain creating session and branch; retry uses the same operation, persists `stopping-partial-runtime` when needed, observes stopped, then records a new startup generation |
-| Start | None in P; Incus owns the operation | No duplicate P workflow | Inspect Incus/startup readiness; running-ready succeeds, running-not-ready returns `stop_required`, and only a later Stop → Start creates a new generation |
+| Create | New P branch created, or unborn bootstrap reserved | Cancel/clean reservation when safe | Retain one blocked request; Retry cleans verified partial resources and reconstructs the same immutable request; changed input explicitly supersedes it with a new creation |
+| Start | None in P; Incus/systemd own the operation | No duplicate P workflow | Inspect Incus and `p-interactive.service`; success is ready, failure returns the container to stopped and another Start retries |
 | Attach | Pending token confirmed and promoted | Expire pending token without presence/status clear | Helper retains the lease through teardown while reachable; lease loss starts immediate transport-bound teardown before that helper can attach again |
 | Rename | New P ref created | Release reservation and retain old mapping | Complete forward to new ref under guards |
 | Stop | None in P; Incus owns the operation | No duplicate P workflow | Inspect Incus; report stopped or expose retry |
@@ -739,8 +746,8 @@ same concepts:
 
 - operation and idempotency IDs;
 - current phase and bounded diagnostic;
-- registry state, observed runtime condition/startup readiness, project,
-  branch, and UUID;
+- registry state, observed session and policy condition, project, branch, and
+  UUID;
 - destructive preflight facts and confirmation fingerprint; and
 - explicit repair or retry actions permitted by the current facts.
 
@@ -753,14 +760,14 @@ The TUI does not implement lifecycle rules. It presents daemon-provided plans
 and invokes the same RPC surface available to `p api`.
 
 Transitional and failed operations remain visible. P never collapses
-`unreachable`, `missing`, failed activation, pending credential revocation, and
-orphaned machinery into a generic stopped or deleted label.
+`unreachable`, `missing`, `discarding`, `deleting`, pending credential
+revocation, and orphaned machinery into a generic stopped or deleted label.
 
 ## V1 boundary
 
 V1 includes:
 
-- committed-source creation with no scratch state;
+- committed-source creation plus the one unborn-main project bootstrap;
 - one UUID-to-project/branch assignment and one runtime per session;
 - start, attach/detach, transactional rename, and stop;
 - discard, delete, destructive preflight, repair, and abandonment;
@@ -779,9 +786,9 @@ The lifecycle design is implemented when integration tests prove:
 
 1. every crash point in create, rename, discard, and delete converges to the
    documented result without duplicate runtimes or silent ref loss;
-2. retrying creation after activation/preparation failure persists
-   `stopping-partial-runtime`, proves the partial instance stopped, and records
-   and starts a new startup generation in the same creation operation;
+2. retrying creation verifies and cleans partial resources, reconstructs the
+   same immutable request without duplicate identities, and a changed source
+   uses an explicitly superseding new request;
 3. `(project, branch)` uniqueness allows equal branch names in different
    projects and rejects collisions in one project;
 4. start preserves writable runtime state but does not claim process or tmux
@@ -792,24 +799,22 @@ The lifecycle design is implemented when integration tests prove:
    attachments, and any initially running processes while changing both Git
    refs safely;
 7. destructive confirmation becomes stale when Git or workspace facts change;
-8. discard retains an unassigned branch and delete removes only the confirmed
-   P ref;
+8. discard preserves the assigned branch as retained and delete removes only
+   the confirmed P ref;
 9. missing and unreachable runtimes take different cleanup paths;
 10. repair never creates a duplicate runtime, resets a workspace, or widens a
    credential;
 11. abandonment recognizes a later runtime by UUID, prevents adoption, and
     retains its tombstone until runtime and credential cleanup are resolved;
 12. daemon restart drops pending attachment tokens and active leases; each
-    helper immediately finishes channel teardown before establishing another
-    lease/channel, with tmux preserving its server/session and direct
-    terminating its command, while P preserves durable startup readiness and
-    resumes operation reconciliation;
-13. abrupt client death or transport loss cannot leave an uncounted live direct
-    command, and a reachable daemon retains attachment presence until teardown
+    helper finishes temporary-client teardown while systemd preserves the
+    persistent host, and operation reconciliation resumes;
+13. abrupt client death or transport loss ends only its temporary attach
+    client, while a reachable daemon retains attachment presence until teardown
     completes;
 14. no automatic cleanup deletes a branch, runtime, or orphan record based only
     on age;
-15. a running activation/preparation failure remains `not_ready` with its
-    bounded reason after daemon restart and terminal operation retention; and
-16. Start against that running `not_ready` generation returns
-    `stop_required`; Stop followed by Start creates a new startup generation.
+15. activation or persistent-host failure leaves the container stopped with a
+    bounded inspectable diagnostic and an ordinary Start retry; and
+16. host exit shuts down the container while detach or switching sessions does
+    not.

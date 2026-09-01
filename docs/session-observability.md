@@ -1,22 +1,24 @@
 # P — session observability
 
-How P reports runtime health, startup readiness, confirmed attachment presence,
+How P reports session condition, policy drift, confirmed attachment presence,
 and the latest agent signal received while a session is unattended.
 
-> **Status: design.** This document is authoritative for session status and
-> agent-event reduction. [communication-boundaries.md](communication-boundaries.md)
-> defines the RPC channels that carry these facts, while
-> [session-lifecycle.md](session-lifecycle.md) defines the operations that
-> change runtime condition and attachment eligibility.
+> **Status: design.** This document is authoritative for public session and
+> policy condition, attachment-presence meaning, agent-event reduction, and
+> typed P event emission. [Session lifecycle](session-lifecycle.md) owns the
+> operations that change these facts; [runtime isolation](runtime-isolation.md)
+> owns their Incus/systemd observations; and
+> [communication boundaries](communication-boundaries.md) owns their RPC
+> channels and audiences.
 
 ## Purpose
 
 P needs to answer four small questions:
 
-1. Does the session runtime exist and can P reach it?
-2. Is that runtime currently ready for attachment?
-3. Is the user currently attached to the session?
-4. What is the latest supported agent event received while nobody was attached?
+1. What can the user currently do with this session?
+2. Is anyone currently attached?
+3. What is the latest supported agent signal received while unattended?
+4. Does the session still use current trusted project policy?
 
 V1 does not implement a lossless activity history, read/unread state, multiple
 outstanding attention records, service supervision, or semantic inference from
@@ -24,93 +26,70 @@ terminal contents.
 
 ## Status model
 
-The persisted and live model has four independent fields:
+The public model has four independent facts:
 
 ```text
-runtime_condition             authoritative lifecycle state
-startup_readiness             reconciled current-start preparation result
+session_condition             reconciled lifecycle/Incus/systemd condition
 attached_count                confirmed live attachment count
 latest_unattended_condition   nullable last-write-wins agent signal
+policy_condition              current/outdated/invalid policy comparison
 ```
 
-### Runtime condition
+### Session condition
 
-The daemon derives runtime condition from the lifecycle registry and runtime
-backend inspection (Incus in V1). Registry states `creating` and `removing`
-project directly; an established session uses the observed runtime result:
+Session condition combines the facts needed to answer whether the session can
+be entered. It does not expose a separate runtime condition and startup-
+readiness matrix:
 
 | Condition | Meaning |
 |---|---|
-| `creating` | A persisted creation operation is incomplete. |
-| `running` | Incus reports the V1 instance running. |
-| `stopped` | The runtime is intentionally stopped and restartable. |
+| `creating` | One durable creation request owns the reserved session but has not established it. |
+| `starting` | Incus boot, endpoint/environment activation, or `p-interactive.service` startup is in progress. |
+| `ready` | Incus is running and the systemd-owned persistent host is active and attachable. |
+| `stopped` | The retained container is stopped and may receive an ordinary Start. |
 | `missing` | SQLite expects a runtime that Incus cannot find. |
-| `unreachable` | Incus cannot currently be queried. |
-| `removing` | A persisted discard/delete operation is incomplete. |
+| `unreachable` | P cannot inspect enough current Incus/runtime state to decide. |
+| `discarding` | Confirmed Discard is ending the session while retaining its assigned branch. |
+| `deleting` | Confirmed Delete is ending the session and removing its assigned branch. |
 
-Attachment never clears or rewrites runtime condition.
+Registry intent supplies `creating`, `discarding`, and `deleting`. For an
+established session P freshly inspects Incus and `p-interactive.service`.
+`ready` requires the systemd unit to have completed endpoint validation,
+environment activation, persistent-host startup, and its attachability
+contract. Incus merely reporting a running container is insufficient.
 
-### Startup readiness
+Activation or host startup failure records a bounded diagnostic and systemd
+shuts down the container. The stable result is `stopped`, not a durable
+`running/not_ready` combination. While shutdown or startup is still converging,
+the active operation and systemd diagnostic accompany `starting`; a stuck
+contract inconsistency requires repair and is never relabeled ready.
 
-Runtime condition answers what Incus is doing; startup readiness answers
-whether preparation succeeded for the current running generation. It does not
-claim that the interactive host or configured command has survived since
-startup. It is a reconciled projection:
-
-| Startup readiness | Meaning |
-|---|---|
-| `ready` | The current start generation completed endpoint validation, Nix/environment activation, and interactive-host preparation. |
-| `not_ready` | The instance is running, but the current generation is starting, failed, or has an invalid/missing marker. A bounded stable reason code and diagnostic accompany it. |
-| `inactive` | The registry/runtime condition is creating, stopped, missing, removing, or otherwise not currently attachable. |
-| `unknown` | P cannot inspect enough current runtime state to decide. |
-
-While registry state is `creating`, startup readiness is always `inactive` even
-if a partial instance is running. Creation activation/preparation failure is
-presented solely through the durable creation operation and its current phase.
-Only `established` sessions project `ready` or `not_ready` from the startup
-marker.
-
-Before asking Incus to start an instance, P records a new start generation. The
-P-owned launcher writes a versioned marker for that generation as it moves from
-`starting` to either `ready` or `failed`. Reconciliation compares the expected
-generation with that marker; a marker from an earlier start never establishes
-startup readiness.
-
-The current `not_ready` reason is durable session state, not merely an operation
-diagnostic. It remains visible while that generation is running and not ready,
-even after terminal operation records expire. A later successful start marks
-the new generation ready; stop makes startup readiness inactive;
-missing/unreachable state never becomes ready by inference.
-
-Attach requires both `runtime_condition == running` and
-`startup_readiness == ready`, then performs a fresh independent
-`InteractiveHost` check. A failed host check reports the current host condition
-and recommends stop/start; it does not rewrite startup readiness.
+Clean or failed persistent-host exit also shuts down the container. Detach,
+client loss, and switching sessions end only temporary attach clients and do
+not change a ready session's condition.
 
 ### Attachment presence
 
-`attached_count > 0` means at least one host client is currently inside the
-session. Zero means the session is unattended.
+`attached_count > 0` means at least one trusted host helper currently owns a
+confirmed live attachment lease. Zero means the session is unattended. A
+request, pending token, terminal process, or tmux client observed without its
+lease is not presence.
 
-An attach request first creates a short-lived, one-use pending token bound to
-the session and authenticated host request and returns it with the `AttachSpec`.
-Pending is not attachment presence. The client transfers that token over
-private control input to the trusted host helper. After establishing the
-interactive channel, the helper confirms the token on its dedicated attachment
-RPC connection. Only then does the daemon promote it to an active lease owned
-by that helper connection and increment `attached_count`.
+An attach request creates a short-lived, one-use pending token bound to the
+session and authenticated host request and returns it with the structured
+`AttachSpec`. The client transfers the token over private control input to the
+trusted helper. After establishing the Incus PTY and fixed attach command, the
+helper confirms the token on its dedicated attachment RPC connection. Only
+then does the daemon promote it to an active connection-owned lease and
+increment `attached_count`.
 
-Failure to launch, token expiry, or RPC closure before confirmation removes the
-pending token without clearing status. While the daemon remains reachable, the
-helper keeps its confirmed lease connection alive until channel teardown
-finishes and closes it afterward. Client crash/SIGKILL, carrier/SSH loss, or
-client-machine loss triggers helper/transport teardown without client
-cooperation. If daemon restart drops the lease first, the helper begins teardown
-immediately and establishes no new lease or channel until it finishes; neither
-pending tokens nor active leases are restored from SQLite. V1 does not
-re-register a surviving channel. Tmux teardown detaches only that client while
-preserving its server/session. Direct's runtime wrapper terminates and waits for
-the command when its exec channel disappears.
+Failure to launch, token expiry, or RPC closure before confirmation removes
+pending state without changing presence. While the daemon remains reachable,
+the helper keeps its confirmed lease until temporary-client teardown finishes.
+Client crash, SIGKILL, carrier/SSH loss, or client-machine loss starts teardown
+without client cooperation. Daemon-restart lease loss starts teardown
+immediately; pending tokens and leases are not restored or re-registered.
+Teardown preserves the systemd-owned persistent interactive host.
 
 The confirmed transition from zero to one attachment clears
 `latest_unattended_condition`. Additional simultaneous attachments do not
@@ -121,8 +100,8 @@ clear anything again.
 This nullable SQLite field is deliberately lossy. It contains:
 
 - `condition`: `running`, `attention`, `idle`, `failed`, or `unknown`;
-- short `source` and `reason` fields when supplied;
-- daemon receive time and receive sequence; and
+- short bounded `source` and `reason` fields when supplied;
+- daemon receive time and sequence; and
 - the adapter/version that produced it.
 
 Rules:
@@ -131,22 +110,45 @@ Rules:
    in daemon receive order.
 2. Confirming the first live attachment clears the field.
 3. While confirmed attached, semantic reports are validated but neither
-   retained as status nor notified.
+   retained as overview state nor emitted as unattended-change events.
 4. Returning to zero attachments leaves the field empty until a new report
    arrives.
-5. P never describes the field as current agent truth or as an unresolved
-   request set. It is only the latest unattended signal.
+5. P never describes the field as current agent truth or an unresolved request
+   set. It is only the latest unattended signal.
 
 An agent permission event may therefore be replaced by later `running`,
 `idle`, or `failed` activity. V1 does not correlate permission resolution.
 
-## Status protocol
+### Policy condition
 
-The per-session Unix socket accepts newline-delimited JSON-RPC 2.0
+Every session retains its normalized effective-policy snapshot and digest.
+P compares that digest and typed fields with current trusted project policy:
+
+| Condition | Meaning |
+|---|---|
+| `current` | The snapshot matches current normalized project policy. |
+| `outdated` | Current policy differs, but the established session continues using its immutable snapshot. |
+| `invalid` | A safety-critical external fact required by the snapshot can no longer be applied safely. |
+
+`outdated` is a warning, not a lifecycle failure. Presentation identifies the
+effective differences, such as a removed filesystem grant the old session
+still has, a new model grant it lacks, or a changed persistent host/network
+policy. Narrowing/removal receives stronger wording because the existing
+session retains authority that a new session would not.
+
+P never claims an outdated session has updated merely because configuration
+was reloaded. **Recreate with current policy** is the guided Discard-and-Create
+path: the old branch becomes a retained source and the new UUID/branch receives
+current policy. `invalid` blocks a later Start; it does not silently mutate or
+forcibly stop an already-running session.
+
+## Session status protocol
+
+The private per-session Unix socket accepts newline-delimited JSON-RPC 2.0
 notifications. Runtime binding authenticates the session UUID; a reporter
 cannot select another session.
 
-One generic event is sufficient:
+One generic report is sufficient:
 
 ```json
 {
@@ -164,23 +166,20 @@ One generic event is sufficient:
 ```
 
 The daemon assigns receive sequence and time. Reporter timestamps may be kept
-as diagnostic metadata but never control ordering.
-
-Validation is strict and bounded:
+as diagnostic metadata but never control ordering. Validation is strict and
+bounded:
 
 - unknown protocol versions or conditions are rejected;
 - strings and complete lines have configured maximum sizes;
 - per-session rate limits protect the daemon;
-- malformed events do not replace the last valid value; and
+- malformed reports do not replace the last valid value; and
 - session RPC cannot inspect or change another session.
 
 ## Agent adapters
 
-Adapters live as inspectable cookbook configuration rather than wrappers around
+Adapters are inspectable cookbook configuration rather than wrappers around
 agent execution. Their only responsibility is to map native events to the
 generic condition vocabulary.
-
-Typical mappings are:
 
 | Native meaning | P condition |
 |---|---|
@@ -191,90 +190,96 @@ Typical mappings are:
 | lifecycle event with no safe semantic mapping | omitted or `unknown` |
 
 Claude Code and Codex mappings must be validated against real versioned traces
-before support is claimed. The development evidence is tracked in
-[development-validations.md](development-validations.md#9-agent-hook-mappings).
-Unsupported versions emit no semantic condition rather than guessed status.
+before support is claimed. Unsupported versions emit no semantic condition
+rather than guessed status. Ordinary natural-language questions are not
+reliably distinguishable from turn completion unless the agent emits an
+explicit input event. P does not parse terminal output to compensate.
 
-Ordinary natural-language questions are not reliably distinguishable from
-turn completion unless the agent emits an explicit input event. P does not
-parse terminal output to compensate.
+## Typed P events
 
-## Presentation
+After committing a reduced domain transition, P may emit one versioned event
+through its common event-handler seam. The envelope contains only bounded,
+redacted domain metadata:
 
-The overview combines the independent fields without inventing a single
-durable session state:
+```text
+schema version and event ID
+event kind and daemon occurrence time
+P instance, project, session UUID, and branch when applicable
+typed reduced fields for that event kind
+```
 
-1. `missing` or `unreachable` runtime conditions remain prominent;
-2. a confirmed live attachment renders as attached and suppresses semantic
-   emphasis;
-3. a pending attachment is shown only as short-lived connection progress and
-   does not suppress unattended status;
-4. when unattended, `attention` and `failed` are urgent;
-5. other latest unattended conditions are informational; and
-6. a ready running runtime with no unattended condition is neutral, not inferred
-   idle or active.
+Initial kinds cover changes to session condition, attachment presence, latest
+unattended condition, policy condition, and operation progress. A
+`session.unattended_changed` event contains the reduced value, not the original
+arbitrary RPC line. No unattended-change event is emitted for a semantic report
+received while attached.
 
-The preview shows runtime condition and startup readiness, placement, branch,
-confirmed attachment presence, and the latest unattended condition when one
-exists. It labels the latter with its age and source. A current not-ready reason
-remains visible independently of bounded operation history. An incomplete or
-failed lifecycle operation is displayed separately with its phase; it is never
-encoded as an agent condition.
+Handler execution occurs after authoritative state changes. Handler failure is
+diagnostic only and cannot roll back domain state. P has no durable event
+outbox, acknowledgement/retry protocol, replay cursor, or authoritative event
+history. A handler must tolerate process restart and duplicate external effects
+according to its own needs.
 
-## Notifications
+V1's built-in handler appends structured events to a configured file. The
+interface, handler choice, and file implementation are owned by
+[technology stack](technology-stack.md#event-handlers). Other logging,
+notification, webhook, or metrics handlers may implement the same seam later;
+notification protocol is not session semantics.
 
-Notification sinks consume transitions written to
-`latest_unattended_condition`, normally `attention` and `failed`. P sends no
-semantic notifications while attached.
+## Presentation contract
 
-Delivery deduplication is notifier bookkeeping, not seen/unseen state. Remote
-notification bodies contain only session name and condition by default;
-including `reason` requires explicit opt-in because it may contain project
-context.
+The exact TUI layout and navigation remain deferred pending a prototype. Any
+presentation must nevertheless preserve these meanings:
+
+1. `missing`, `unreachable`, `discarding`, and `deleting` remain explicit;
+2. `starting` shows current operation/systemd progress and a bounded failure
+   when startup returns to stopped;
+3. a confirmed live attachment renders as attached and suppresses unattended
+   semantic emphasis;
+4. pending attachment is connection progress, not presence;
+5. while unattended, `attention` and `failed` are urgent and other semantic
+   values are informational;
+6. `outdated` policy shows typed drift without claiming failure; and
+7. lifecycle/operation diagnostics are never encoded as agent condition.
 
 ## Restart and failure behavior
 
-- SQLite preserves runtime records, the expected startup generation/current
-  bounded startup-readiness projection, and the latest unattended condition.
+- SQLite preserves session identity, latest bounded Start diagnostic, latest
+  unattended condition, and immutable policy snapshot/digest.
+- Incus plus current systemd unit state restore session condition; there is no
+  custom startup-readiness marker to replay.
 - Pending attachment tokens and active leases disappear on daemon restart.
-- The trusted helper retains a reachable lease until teardown completes.
-  Client/carrier loss triggers teardown independently; daemon-restart lease loss
-  triggers it immediately and permits no new helper channel before completion.
-  No existing-channel registration exists.
-- Incus plus the versioned launcher marker restore runtime condition/startup
-  readiness without manufacturing semantic agent status.
+  Helpers tear down temporary clients, while the persistent host survives.
 - A missing hook or adapter leaves the semantic field empty.
-- Duplicate reports are harmless last-write-wins events; reordered arrival is
-  ordered by daemon receive sequence.
-- A stopped runtime retains its latest unattended condition until the user
-  enters, a later report replaces it, or the session is removed.
-- Discard/delete removes the semantic field with the session row.
+- Duplicate reports are harmless last-write-wins inputs; daemon receive order
+  resolves arrival.
+- A stopped session retains its latest unattended condition until confirmed
+  entry clears it, a later valid unattended report replaces it, or session
+  removal deletes it.
+- Event-handler failure or restart does not alter or replay authoritative
+  status.
 
 ## Security boundary
 
 The session socket accepts status reports and the narrow act-on-self methods
-defined in [communication-boundaries.md](communication-boundaries.md#session-rpc-audience).
-It is not a general command channel.
+defined in [communication boundaries](communication-boundaries.md#session-rpc-audience).
+It is not a general command or event-handler channel.
 
 The daemon treats agent reports as authenticated session input, not trusted
-facts about the host. Reports affect presentation and notifications only. They
-cannot grant capabilities, mutate Git authorization, publish, create another
-session, or execute host commands.
+facts about the host. Reports affect only the reducer and derived events. They
+cannot grant capabilities, mutate policy/Git authorization, choose handlers or
+log paths, publish, create another session, or execute host commands. Event
+handlers and destinations are trusted host configuration.
 
 ## V1 boundary
 
-V1 includes:
+V1 includes one public session condition, confirmed attachment count, one
+nullable latest unattended condition, immutable-policy comparison, strict
+status reports, reduced typed events, one structured file-log handler, and
+versioned Claude Code/Codex cookbook mappings after validation.
 
-- authoritative runtime condition;
-- reconciled current-generation startup readiness with a durable bounded
-  not-ready reason;
-- connection-bound attachment count;
-- one nullable latest unattended condition per session;
-- clear-on-confirmed-entry and suppression while confirmed attached;
-- bounded session status notifications;
-- versioned Claude Code and Codex cookbook mappings after validation; and
-- overview, preview, and optional notifications derived from those fields.
-
-V1 excludes seen/unseen history, observation cursors, participant inventories,
-multiple attention records, causal permission resolution, terminal parsing,
-tmux pane inspection, and P-managed services.
+V1 excludes separate public runtime/startup-readiness fields, `not_ready`,
+startup markers, seen/unseen history, event replay, observation cursors,
+participant inventories, multiple attention records, causal permission
+resolution, terminal parsing, pane inspection, built-in notification
+protocols, and P-managed services.

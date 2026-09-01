@@ -21,7 +21,7 @@ it elsewhere.
 
 P supplies that missing control plane:
 
-- one flat TUI across registered Git projects;
+- one flat TUI across explicit Git projects;
 - one isolated runtime for each active session;
 - one real Git branch owned by each session;
 - explicit status from agent hooks rather than terminal guessing;
@@ -53,7 +53,8 @@ keyed by that project path; repositories contain no P-specific configuration.
 
 An origin is optional. A project without one is intentionally local-only; P
 bypasses fetch, comparison, and publication instead of reporting a broken sync
-state.
+state. Projects are created explicitly from an SSH origin or as blank local
+repositories. P never infers or imports the host's current checkout.
 
 ### Session
 
@@ -68,50 +69,51 @@ The session's mutable human name is the real Git branch name. Its complete
 address is `(project path, branch name)`, so two projects may use the same
 branch name. Creation accepts a name or suggests a timestamp. Common source
 names such as `main` can seed a session but cannot themselves be the new
-session branch.
+session branch outside the bootstrap exception.
 
 Renaming a session renames its actual P-server and workspace refs while keeping
 the UUID, runtime, credentials, and interactive state. The operation is
 journaled so reconciliation can finish an interrupted rename. It never renames
 or deletes an origin branch.
 
-There are no scratch sessions and no stored `base_commit` state. Every session
-starts from an existing committed source—such as a branch, tag, or reachable
-commit—and immediately owns a newly created session branch. P never snapshots
-a dirty host checkout; commit the desired state first.
+There are no scratch sessions and no stored `base_commit` state. Ordinarily a
+session starts from an existing committed source and immediately owns a newly
+created session branch. The single bootstrap exception is a new blank project
+or a successfully contacted empty origin: its first session owns an unborn
+`main`, and the first push creates that ref. Later sessions require committed
+source. P never reads or snapshots a host checkout.
 
-### Runtime and interactive command
+### Runtime and persistent interactive host
 
 A runtime is the execution machinery currently attached to a session UUID. V1
 uses one unprivileged Incus system container per session in a pre-provisioned,
 confined local Incus user project. Incus is the only V1 runtime backend. Incus
 VMs and Kubernetes placement are later options, not different session models.
 
-The program entered inside the runtime may be `bash`, Claude Code, Codex, or
-custom fixed argv. An `InteractiveHost` plugin controls how that program is
-started and attached:
+Every image implements the same systemd contract. `p-session.target` starts
+`p-interactive.service`, which launches and supervises one persistent
+interactive host; tmux is the default, while another long-running host such as
+screen or zellij can be selected by trusted configuration. The root-owned
+`/usr/libexec/p/attach` entrypoint attaches a temporary terminal channel to
+that host.
 
-- `tmux` is the default persistent implementation;
-- `direct` is the minimal non-persistent implementation; and
-- another host such as zellij can be added later.
-
-P does not model panes or infer startup readiness and agent status from tmux.
-Terminal persistence is a host capability, not session identity.
+Detach, SSH loss, and switching sessions close only the temporary attachment.
+If the persistent host exits, systemd captures its result and the container
+stops. A later Start launches the configured host again. P does not model panes
+or infer agent status from terminal contents.
 
 ## A normal workflow
 
-Register the current repository and open the overview:
+Open the overview, create a project explicitly from an SSH origin or as a blank
+repository, and then create a session. The exact TUI layout and key map will be
+chosen through a prototype rather than fixed in the architecture documents.
 
-```console
-$ p .
-$ p
-```
-
-Creating a session selects a committed source and a project. P then reserves a
-UUID and new branch name in that project, creates the P-server branch, issues its
-credentials, assembles the runtime and workspace, prepares the interactive
-host, and reports ready. The normal TUI flow then attaches as a separate
-lifecycle action.
+Creating an ordinary session selects a committed source and a project. P then
+reserves a UUID and new branch name in that project, creates the P-server
+branch, issues its credentials, assembles the runtime and workspace, prepares
+the interactive host through systemd, and reports ready. The bootstrap session
+instead begins on unborn `main`. The normal TUI flow then attaches as a
+separate lifecycle action.
 
 Inside the session, ordinary Git commits and pushes update only that assigned
 P branch. When the work matters elsewhere, publish it explicitly to a selected
@@ -134,7 +136,7 @@ P never reclaims sessions automatically. The three destructive levels are:
 | Action | Runtime | Working copy | P branch | Session record |
 |---|---|---|---|---|
 | Stop | stopped and restartable | retained | retained | retained |
-| Discard | removed | removed | retained as an unassigned source branch | removed |
+| Discard | removed | removed | retained as a project source branch | removed |
 | Delete | removed | removed | removed | removed |
 
 Before discard or delete, P inspects reachable running or stopped workspaces
@@ -156,31 +158,46 @@ Creation, start, attachment, rename, stop, destructive preflight, repair,
 abandonment, and crash recovery are specified in
 [session lifecycle](docs/session-lifecycle.md).
 
+A separate project-level operation, **Delete project and all P data**, previews
+all sessions, retained branches, credentials, runtimes, and attachments that
+will be removed. Confirmation authorizes termination of the listed live
+attachments. P records a minimal durable tombstone and idempotently ensures
+each listed resource is absent; if some cleanup fails, the user retries and P
+reports the smaller remainder. Project creation, retained branches, origins,
+and whole-project deletion are specified in
+[project lifecycle](docs/project-lifecycle.md).
+
 ## Overview and status
 
-The main UI is an fzf-shaped, filterable list of sessions across projects with
-a preview pane and keyboard actions. It is a client of the same RPC surface
-available to scripts; business logic does not live in the TUI.
+The main UI will be a thin, filterable client of the same RPC surface available
+to scripts; business logic does not live in the TUI. Exact layout, navigation,
+keys, and initial slice are deferred until a prototype can test them.
 
-Each row is derived from only four facts:
+Each session presentation is derived from only four facts:
 
-- authoritative runtime condition;
-- current-generation startup readiness;
-- confirmed live attachment count; and
-- one nullable latest condition reported while the session was unattended.
+- session condition (`creating`, `starting`, `ready`, `stopped`, `missing`,
+  `unreachable`, `discarding`, or `deleting`);
+- confirmed live attachment count;
+- one nullable latest condition reported while the session was unattended;
+  and
+- policy condition (`current`, `outdated`, or `invalid`).
 
 Successfully establishing and confirming the first attachment to a previously
 unattended session clears that latest condition. Merely requesting an attach
-does not. While the user is attached, semantic agent events are neither
-retained as status nor notified. Leaving begins empty, and the next event
-becomes the latest. V1 has no seen/unseen history, attention set, participant
-inventory, service supervision, or terminal heuristic pretending to know
-agent intent.
+does not. While the user is attached, semantic agent reports are not retained
+as status. Leaving begins empty, and the next report becomes the
+latest. V1 has no seen/unseen history, attention set, participant inventory,
+project-service orchestration, or terminal heuristic pretending to know agent
+intent.
 
 Agent integrations translate native lifecycle hooks into the generic
-`status.report` notification on the private session RPC socket. Claude Code,
-Codex, and other tools remain ordinary interactive commands; no P-specific
-agent wrapper is required.
+`status.report` JSON-RPC notification (the protocol message type) on the
+private session RPC socket. Claude Code, Codex, and other tools remain ordinary
+interactive commands; no P-specific agent wrapper is required.
+
+Separately, P exposes typed, versioned reduced events to configured handlers.
+V1 provides a redacted local NDJSON log handler. Events are an extension seam,
+not another state authority or a built-in notification protocol.
 
 See [session observability](docs/session-observability.md) for the reducer and
 adapter rules.
@@ -192,11 +209,13 @@ adapter rules.
 Each P instance has one bare Git repository per project. Session runtimes and
 ordinary host checkouts are spokes around that local hub. The session runtime
 gets a scoped SSH key that can write only its UUID-assigned current branch,
-fast-forward-only by default. Force-push is blocked unless trusted instance
-policy grants a narrow exception.
+fast-forward-only. P has no force-push exception. Rebasing unpublished local
+commits is ordinary Git; rewriting history already recorded on a P branch is
+performed outside P by fetching it to a host checkout and creating the desired
+new history.
 
 The instance's dedicated host P key is read-only: it can clone and fetch all
-user-visible branches, including retained unassigned branches, but cannot
+user-visible branches, including retained branches, but cannot
 mutate P refs. The daemon alone owns branch creation, rename, guards, and
 deletion. Host fetch and explicit publication against origin use the user's
 normal OpenSSH credentials, not P session credentials.
@@ -267,6 +286,10 @@ session UUID, exposes it only to that runtime, redacts it everywhere else, and
 revokes it when the session is discarded or deleted. Projects without model
 access do not depend on Bifrost readiness.
 
+Initial creation validates configured model access before the session becomes
+established. After that, a Bifrost outage degrades model calls only: Start and
+Attach do not probe Bifrost or prevent use of Git and the terminal.
+
 Bifrost's native authentication is the V1 enforcement boundary: administrative
 authentication remains enabled, sessions receive no administrative credential,
 and every inference request requires the session key. P validates that the key
@@ -286,19 +309,23 @@ See [model gateway](docs/model-gateway.md).
 
 V1 has one P configuration authority: trusted host configuration keyed by the
 complete project path. It supplies project-scoped session defaults and external
-grants. There is no branch/session override and no custom P repository schema
-or flake output.
+grants. Creation records an immutable policy snapshot for the session. Later
+configuration changes make that snapshot visibly `outdated`; invalid policy
+blocks Start, while an ordinary outdated snapshot remains usable with a
+warning and a guided **Recreate with current policy** action. There is no live
+grant mutation, branch/session override, or custom P repository schema/flake
+output.
 
 The repository contributes only its ordinary pure Nix devShell. P uses the
 default devShell, when present, to realize the session environment and
 dependencies; otherwise it uses the minimal substrate. The default interactive
-command is Bash through tmux. Registration never generates a project file.
+command is Bash through tmux. Project creation never generates a project file.
 
-SQLite stores mutable instance bookkeeping: project registrations, immutable
+SQLite stores mutable instance bookkeeping: projects, immutable
 session UUIDs, project/branch assignments, the configured Incus instance
-relationship, cross-authority lifecycle phases, runtime observations, latest
-startup generation/readiness projection, unattended condition, credentials,
-and small authority indexes. Git remains
+relationship, cross-authority lifecycle phases, reduced session/policy
+conditions, unattended condition, credentials, event diagnostics, and small
+authority indexes. Git remains
 authoritative for code and refs; Incus remains authoritative for instances,
 images, storage, and runtime operations; Bifrost remains
 authoritative for gateway policy.
@@ -311,11 +338,12 @@ V1 targets Linux and expects:
 - a locally initialized Incus daemon and confined user project;
 - a verified P base image containing the pinned Nix runtime/build toolchain;
   and
-- tmux for the default persistent interactive host.
+- systemd and tmux in the base image for the default persistent interactive
+  host contract.
 
 Nix executes inside isolated builder and session instances. Host Nix is not a
 runtime installation dependency; a developer or distribution process may use
-it to build the P base image. The `direct` host does not require tmux.
+it to build the P base image.
 
 ### macOS and Windows
 
@@ -342,18 +370,21 @@ and RPC protocol; they do not introduce a remote-runtime backend.
 
 V1 closes the loop for one user on Linux:
 
-- register Git projects and create sessions from committed sources;
+- create explicit SSH-origin or blank projects and create sessions from
+  committed sources, with one unborn-`main` bootstrap exception;
 - enforce immutable UUID-to-branch ownership and transactional rename;
 - build cached Nix environment images and run unprivileged local Incus
   containers;
-- enter a shell or agent through pluggable interactive hosting;
+- enter a systemd-supervised persistent interactive host through a fixed
+  attach entrypoint;
 - use a thin TUI and complete RPC lifecycle surface locally or over
   SSH-to-Unix;
-- report runtime condition, current-generation startup readiness, confirmed
-  attachment presence, and the latest unattended agent condition;
+- report session condition, confirmed attachment presence, the latest
+  unattended agent condition, and policy condition;
 - fetch from and explicitly publish to an optional origin;
 - enforce project-scoped external grants and Git credentials;
-- optionally provide model access through per-session Bifrost keys; and
+- optionally provide model access through per-session Bifrost keys;
+- emit reduced typed events to a local file handler; and
 - reconcile SQLite, Git, credentials, and runtime state after interruption.
 
 Implementation uncertainties that need real-machine evidence are tracked in
@@ -368,3 +399,5 @@ The implementation choices and build-vs-buy decisions are in
 [technology stack](docs/technology-stack.md). The [FAQ](docs/FAQ.md) explains
 the main tradeoffs, and [prior art](docs/prior-art.md) records neighboring
 projects without defining P's behavior.
+
+Repository-specific terms are defined in the [glossary](GLOSSARY.md).

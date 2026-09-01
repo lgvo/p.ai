@@ -99,30 +99,26 @@ immediately and that helper must establish no new lease/channel until it
 finishes. Verify that no existing-channel registration is accepted.
 
 Kill the ordinary client and helper with SIGKILL, sever local terminal pipes,
-drop SSH/network connections, and simulate client-machine loss. Tmux must lose
-only the affected attachment and preserve its server/session. The direct
-runtime wrapper must terminate and reap its command on exec-channel loss so no
-uncounted command survives any abrupt-client/helper case.
+drop SSH/network connections, and simulate client-machine loss. Every case
+must remove only the affected temporary attachment while preserving the tmux
+server/session and persistent host. Switching between sessions must behave the
+same way.
 
-Also prove that startup readiness is generation-bound, rejects stale or
-malformed launcher markers, retains a bounded `not_ready` reason across daemon
-restart and operation-record expiry, and becomes inactive on stop. Start on a
-running `not_ready` instance must return stable `stop_required`; Stop followed
-by Start must create a new startup generation. A fresh `InteractiveHost` check
-must detect a missing tmux target or invalid direct launch prerequisite,
-recommend stop/start, and leave startup readiness unchanged.
+Validate the base image's systemd contract: `p-session.target` starts
+`p-interactive.service`; the service applies environment activation and
+supervises the configured persistent host in its cgroup; the root-owned
+`/usr/libexec/p/attach` connects to that host with fixed structured argv; and a
+clean or failed host exit captures bounded journal diagnostics before stopping
+the container. Ordinary Start after the stop must launch the host again.
+Neither Start nor Attach depends on an attachment being retained.
 
-During creation, prove startup readiness remains `inactive` and the durable
-operation exposes activation/preparation failure. Retry must persist
-`stopping-partial-runtime` in the same operation, survive a crash in that phase,
-observe the partial instance stopped, and only then record a new startup
-generation and restart it. There is no in-place launcher retry.
-
-For every marker transition, verify a P-owned launcher writes a temporary file,
-`fsync`s it, renames it over the marker, and `fsync`s the directory. Attempt
-writes from the session user, project shell hook, and interactive command. Test
-spoofed, partial, malformed, and reordered/stale-generation files plus crashes
-before and after each write/sync/rename boundary.
+During initial creation, inject activation and host-start failures. The
+container must stop, the durable operation must identify the failed phase, and
+diagnostics must remain available after the container has stopped. Exact Retry
+must preserve its operation/session/source/policy identity, clean only verified
+partial derived resources, and rebuild without creating a retry chain. Also
+test **Try again with changes** as a new creation that supersedes and cleans the
+failed provisional creation before reusing the desired branch name.
 
 **Gate:** reliable status/control from sessions and remote Linux client support.
 
@@ -132,15 +128,28 @@ before and after each write/sync/rename boundary.
 create/rename/discard/delete converge without duplicate Incus instances or
 silent Git ref loss. Verify Incus-owned start/stop uses Incus operation/state
 without a duplicate P workflow. Test missing versus unreachable, repair,
-abandonment, orphan recognition, image cache misses, and cleanup failures.
+abandonment, orphan recognition, image cache misses, immutable-policy
+current/outdated/invalid comparison, and cleanup failures.
+
+Create projects from a reachable SSH origin and as blank repositories. Verify
+failed origin contact leaves no new association, an empty origin produces the
+single unborn-`main` bootstrap session, first push creates `main`, and later
+creation requires committed source. Exercise retained-branch list/source/fetch,
+rename, fast-forward publication, and deletion after the loss preview.
+
+For **Delete project and all P data**, confirm the aggregate preview enumerates
+and terminates listed live attachments, the minimal tombstone survives daemon
+restart, partial failures leave an idempotent ensure-absent retry with a smaller
+remainder, and unreachable resources require explicit abandonment. Verify
+there is no rollback or hidden multi-phase recovery mode.
 
 **Gate:** each lifecycle mutation as it enters the implementation.
 
 ## 7. Git and origin
 
 **Validate:** Against pinned Git/OpenSSH/Wish versions, test session/host
-principal scope, fast-forward and force-push policy, ref guards, reserved/hidden
-namespaces, arbitrary object wants, committed-source import, rename races,
+principal scope, unconditional fast-forward-only session updates, ref guards,
+reserved/hidden namespaces, arbitrary object wants, rename races,
 local-only bypass, host-SSH origin refresh, and explicit origin publication.
 
 Simulate definite and unknown publication failures. A later explicit retry must
@@ -151,8 +160,9 @@ tracking refs or a publication ledger.
 
 ## 8. Bifrost
 
-**Validate first for this milestone:** Treat a pinned Bifrost release as an independently configured
-service. Verify virtual-key ensure/persist/use/revoke, model filtering,
+**Validate first for this milestone:** Treat a pinned Bifrost release as an
+independently configured service. Verify virtual-key ensure/persist/use/revoke,
+model filtering,
 disabled content logging where configured, and P/Bifrost restarts. Enable
 administrative authentication without giving its credential to sessions and
 prove every inference request requires a valid virtual key.
@@ -166,6 +176,11 @@ upgrade and fail model access closed for an unclassified route or unvalidated
 effective configuration. Do not assume a default value of
 `disable_auth_on_inference`; validate the resulting behavior. Projects without
 model access must not depend on Bifrost.
+
+After a model-enabled session is established, take Bifrost down and prove Start
+and Attach still work without a gateway probe while inference fails clearly.
+Initial creation must still fail closed when key provisioning or boundary
+validation cannot complete.
 
 **Gate:** optional OpenAI-compatible model access. Anthropic, MCP, Skills,
 Agent Mode, and Code Mode each need later evidence before support is claimed.
@@ -182,9 +197,20 @@ absent hooks, and attach/detach timing. Confirm latest replacement,
 clear-on-confirmed-entry, and confirmed-attached suppression against each
 claimed version.
 
-**Gate:** semantic status/notification support for that agent/version.
+**Gate:** semantic status-adapter support for that agent/version.
 
-## 10. Dependency and protocol pins
+## 10. Event handler
+
+**Validate:** For every V1 reduced event kind, verify the typed versioned
+envelope, redaction, ordering at the handler call boundary, and NDJSON file
+encoding. A handler write failure must produce a bounded diagnostic without
+rolling back the lifecycle action or changing authoritative state. Restart
+must not imply replay, acknowledgement, or an outbox. Repository content must
+not be able to configure handlers.
+
+**Gate:** the V1 local event log and its extension interface.
+
+## 11. Dependency and protocol pins
 
 **Validate:** Record the exact Go, Bubble Tea ecosystem, Wish, Git, OpenSSH,
 Incus, Nix, tmux, SQLite driver, and Bifrost versions. Pin every CLI JSON/API
@@ -193,7 +219,7 @@ conformance suites before widening supported ranges.
 
 **Gate:** release support for each affected integration.
 
-## 11. Performance and capacity
+## 12. Performance and capacity
 
 **Validate:** On representative `x86_64-linux` and `aarch64-linux` machines,
 measure cold realization, substituted realization, cached-image hit, builder

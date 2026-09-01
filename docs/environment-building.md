@@ -56,7 +56,7 @@ are never part of the cached image.
 | Term | Meaning |
 |---|---|
 | **P base image** | P-owned Incus system-container image containing Nix, Git, SSH, tmux, basic userland, the fixed user, and runtime kit. |
-| **Environment selection** | The committed repository's conventional default devShell, or no project environment. |
+| **Environment selection** | The committed repository's conventional default devShell, or no project environment. A bootstrap session without a commit uses only the P base image. |
 | **Environment key** | Project-scoped reproducible identity of the base, resolved Nix environment, system, and builder contract. |
 | **Builder instance** | Disposable restricted Incus instance that evaluates and realizes one committed environment. |
 | **Environment image** | Project-scoped private immutable Incus image published from a verified builder and addressed by fingerprint. |
@@ -104,9 +104,11 @@ specified in V1.
 
 Selection for the Incus host system is deterministic:
 
-1. use `devShells.<system>.default` when it exists at the selected commit;
-2. otherwise use the P base image directly; and
-3. fail when a present default devShell is invalid rather than silently
+1. for the bootstrap session of a blank/empty project, use the P base image;
+2. otherwise use `devShells.<system>.default` when it exists at the selected
+   commit;
+3. otherwise use the P base image directly; and
+4. fail when a present default devShell is invalid rather than silently
    falling back.
 
 There is no custom P flake output, repository-controlled provider selection,
@@ -269,7 +271,7 @@ The published image contains one coherent `/nix` view:
 - all initial store paths required by the base and selected devShell;
 - the matching Nix database and trusted-key/substituter configuration;
 - the P-owned GC root; and
-- profiles/activation material required by the fixed session launcher.
+- profiles/activation material required by `p-interactive.service`.
 
 It may also contain committed source-derived store paths retained by that
 closure. These are immutable project inputs, not the session workspace, and
@@ -290,16 +292,21 @@ The design deliberately avoids:
 ## Session activation and later Nix work
 
 After Incus creates the instance, P installs only session-scoped endpoints and
-creates the standalone clone at `/workspace`. The launcher then:
+creates the standalone clone at `/workspace`. For the bootstrap exception,
+that clone has an unborn `main`. When systemd starts `p-interactive.service`,
+the unit then:
 
 1. establishes the fixed user, `HOME`, workspace, and P paths;
 2. applies the captured devShell activation;
 3. runs the shell hook inside the session;
-4. prepares tmux; and
-5. starts the configured interactive command.
+4. starts the configured persistent host (tmux by default); and
+5. keeps that host under systemd supervision.
 
-Activation failure leaves the runtime visible but not ready; P does not claim
-a successful session or run a fallback environment.
+Activation or host-start failure is captured in the container journal and
+causes the container to stop. Creation remains failed; a later exact Retry
+cleans verified partial derived resources and reruns creation. An established
+session uses ordinary Start to try activation again. P never runs a fallback
+environment.
 
 Nix remains available through the session-local Nix daemon. If `flake.nix`,
 `flake.lock`, or other inputs change, ordinary Nix commands may realize new
@@ -333,6 +340,11 @@ if it is later lost and its branch environment has changed. This warning does
 not introduce a lease or implicit retention rule. A missing externally removed
 image is a cache miss. V1 has no automatic age- or pressure-based collection.
 
+The other explicit removal path is confirmed **Delete project and all P data**.
+Its aggregate project preflight includes these project-scoped keys and images,
+and its ensure-absent retry applies the same image-authority rules. Session
+Stop, Discard, and Delete never remove a cached image.
+
 ## Security boundary
 
 The builder is a separate unprivileged Incus system container in the same
@@ -344,7 +356,7 @@ confined P execution project but is never a session. It receives:
 - no other P runtime or host authority.
 
 It receives no Incus socket, host filesystem grant, workspace, SSH agent,
-origin/P Git private key, model key, notification secret, host Nix state, or
+origin/P Git private key, model key, event-handler credential, host Nix state, or
 general host/LAN route. Public egress must pass the same destination-isolation
 evidence required by runtime policy.
 
@@ -364,8 +376,8 @@ future capabilities rather than ambient credential mounts.
 | Verification fails | Do not publish/register; retain bounded diagnostic and remove or expose builder cleanup |
 | Publish succeeds but P loses response | Inspect P-labeled images/build metadata; use exact verified match or retry without guessing |
 | Indexed fingerprint missing | Cache miss and rebuild |
-| Activation fails during creation | Startup readiness remains `inactive` while the session is `creating`; the durable creation operation owns the failed phase and retry stops the partial runtime before a new generation |
-| Activation fails during established Start | Current startup generation remains durably `not_ready` with a bounded activation reason; recovery is Stop → Start |
+| Activation fails during creation | Capture bounded systemd/journal diagnostics, stop the container, and leave the creation operation failed; exact Retry rebuilds derived resources idempotently |
+| Activation fails during established Start | Capture bounded systemd/journal diagnostics and stop the container; ordinary Start retries activation |
 | Disk exhaustion | Preserve already valid Incus/Nix data and show cleanup options |
 
 Environment building is cache work, not source authority. It may fail and be
@@ -445,8 +457,13 @@ The V1 environment path is supported when tests prove:
 7. removing or losing an image yields a rebuildable cache miss rather than
    source/session corruption;
 8. the configured Incus storage driver's actual sharing and private growth are
-   measured rather than assumed; and
+   measured rather than assumed;
 9. the homelab validation completes its accepted evaluate/build workflow with
-   no host Nix daemon, Incus socket, ambient credentials, or fleet route; and
+   no host Nix daemon, Incus socket, ambient credentials, or fleet route;
 10. every supported Nix version passes the experimental `print-dev-env --json`
-    schema/activation compatibility suite and unsupported versions fail closed.
+    schema/activation compatibility suite and unsupported versions fail
+    closed;
+11. a blank/empty-origin bootstrap without a source commit uses the P base
+    image and performs no repository evaluation; and
+12. session destruction preserves cached images while confirmed whole-project
+    deletion idempotently removes the project's cache resources.

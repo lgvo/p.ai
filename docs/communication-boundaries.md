@@ -1,6 +1,6 @@
 # P — communication boundaries
 
-What crosses Git, RPC, SSH, attachment, model-gateway, build, and notification
+What crosses Git, RPC, SSH, attachment, model-gateway, build, and event-handler
 channels.
 
 > **Status: design.** This document is authoritative for protocol division,
@@ -24,7 +24,7 @@ channels.
 - [Future attempts and Git-triggered checks](#future-attempts-and-git-triggered-checks)
 - [Attachment](#attachment)
 - [Model-gateway traffic](#model-gateway-traffic)
-- [Notification delivery](#notification-delivery)
+- [Event delivery](#event-delivery)
 - [Listeners](#listeners)
 - [Failures, retries, and versioning](#failures-retries-and-versioning)
 - [V1 boundary](#v1-boundary)
@@ -40,7 +40,7 @@ channels.
 | Attachment | one validated interactive argv and terminal byte stream | lifecycle API or source transfer |
 | Bifrost HTTP | approved model discovery and inference under a mandatory virtual key | P lifecycle; session keys are rejected by Bifrost administration and every non-V1 surface |
 | Incus builder | immutable commit input, bounded Nix capabilities, environment-image publication | ambient host authority or session identity |
-| Notification sink | selected status transition | source contents by default |
+| Event handler | typed, versioned reduced P events | source contents, credentials, or source-of-truth state |
 
 Git already defines source transfer and ref integrity. JSON-RPC expresses the
 actions and events that are not source history.
@@ -71,10 +71,10 @@ The local user, TUI, and `p api` share the complete lifecycle surface:
 | Area | Examples |
 |---|---|
 | System | hello, health, protocol and build versions |
-| Projects | register, inspect, reload trusted project configuration |
+| Projects | create, inspect, configure/remove origin, delete all P-owned data |
 | Sessions | list, create, attach, rename, stop, discard, delete, repair, abandon |
 | Remotes | configure, refresh, inspect origin state, explicitly publish |
-| Observability | runtime condition, startup readiness, confirmed attachment presence, latest unattended condition, subscriptions |
+| Observability | session condition, attachment count, latest unattended condition, policy condition, subscriptions |
 | Configuration | validated effective configuration and diagnostics |
 
 RPC accepts identifiers and structured data, not repository contents or
@@ -96,13 +96,13 @@ different session UUID.
 
 ### Observability over RPC
 
-Host clients query the four-field model from
-[session-observability.md](session-observability.md): runtime condition,
-startup readiness, confirmed attachment count, and latest unattended
-condition.
+Host clients query the four independent facts from
+[session-observability.md](session-observability.md): session condition,
+confirmed attachment count, latest unattended condition, and policy condition.
 
-Session adapters send `status.report` notifications. There is no mark-seen API,
-attention collection, participant inventory, or status history in v1.
+Session adapters send `status.report` JSON-RPC notifications (the protocol
+message type). There is no mark-seen API, attention collection, participant
+inventory, or status history in v1.
 
 ## P Git data plane
 
@@ -125,8 +125,7 @@ current ref)`.
 
 - It may read ordinary `refs/heads/*` in its project.
 - It may push only its assigned current branch.
-- Push is fast-forward-only unless trusted host policy explicitly grants a
-  narrow rewrite exception; force-push is denied by default.
+- Every push is fast-forward-only. P has no force-push exception.
 - It cannot write tags, another session branch, `refs/attempts/*`, `refs/p/*`,
   or other reserved namespaces.
 - Hidden/private namespaces are not advertised and arbitrary object-ID fetches
@@ -137,7 +136,7 @@ current ref)`.
 The per-instance host SSH key is read-only on the P Git server.
 
 - It may clone and fetch every user-visible branch, including retained
-  unassigned branches.
+  branches.
 - It cannot create, rename, update, force-push, or delete P-server refs.
 - It never enters a session runtime.
 
@@ -157,15 +156,12 @@ Creation is the lifecycle operation defined in
 committed-source selection and desired new branch; it does not carry source
 files. Git carries the commit objects and the new ref.
 
-If the committed source exists only in a registered host checkout, the create
-operation asks the daemon to import that exact commit and its required Git
-objects into the bare P repository using local Git plumbing. The RPC carries
-only the selector, not source contents; the daemon reads no working-tree state,
-and the read-only host P principal gains no write authority. An explicit commit
-must be reachable from a registered source known to the project.
-
-Dirty host-checkout state is never copied or committed by P. The user commits
-desired changes before selecting them as a source.
+Committed source comes from an ordinary P ref or from a freshly contacted
+configured origin. The bootstrap exception for a new blank/empty project has
+an unborn `main` and no source commit. P does not register, inspect, or import
+host checkouts. Project creation, origin association, bootstrap, and retained
+branch behavior are defined in
+[project-lifecycle.md](project-lifecycle.md).
 
 ## Branch rename
 
@@ -186,15 +182,12 @@ without one are local-only and bypass every origin-dependent operation.
 ### Origin identity and configuration
 
 The configured origin is a trusted host-side project setting, not a remote
-copied from a session workspace. Registration may propose a remote discovered
-in a registered checkout, but P records it only after the user selects it. Its
-identity is the recorded remote URL; `origin` is only P's presentation name.
+copied from a session workspace. Its identity is the recorded remote URL;
+`origin` is only P's presentation name.
 
 V1 accepts SSH Git URLs, including `ssh://` and conventional
 `user@host:path` forms. HTTPS credentials, embedded URL credentials, local
-filesystem remotes, and arbitrary transport helpers are not supported. A local
-repository is registered as a source location rather than disguised as an
-origin.
+filesystem remotes, and arbitrary transport helpers are not supported.
 
 Changing or removing the origin is explicit. A URL change immediately marks
 the last origin observation inapplicable; P makes no source, preservation, or
@@ -257,8 +250,8 @@ origin snapshots.
 
 V1 performs a refresh:
 
-- once when an origin is initially configured; failure does not undo project
-  registration;
+- before an origin is initially recorded for a new or existing project; a
+  failed contact leaves the project unchanged;
 - on explicit user request;
 - before resolving a source explicitly selected from current origin state;
 - before every P-managed publication; and
@@ -288,9 +281,8 @@ source input. Creation copies its exact object ID into a newly created P
 session branch. The session receives neither an origin ref nor an origin
 remote, and later origin movement does not move the P branch.
 
-P never imports dirty origin state—Git has none—and never turns a failed fetch
-into a partially created session source. Registered host checkout commits and
-ordinary P refs remain separate source paths.
+P never turns a failed fetch into a partially created session source. Ordinary
+P refs remain the other committed-source path.
 
 ### Publication preconditions
 
@@ -335,9 +327,8 @@ After the required refresh:
 
 Git on the origin is the final authority and atomically accepts or rejects the
 non-force update if the destination races after P's refresh. P never sends
-tags, multiple refs, deletion refspecs, a wildcard, or a force update. The
-trusted rewrite exception for a session's assigned P ref does not apply to
-origin.
+tags, multiple refs, deletion refspecs, a wildcard, or a force update. No
+P-controlled ref update uses force.
 
 Any definite failure is reported without another action. If transport loss
 makes the outcome unknowable, P reports `outcome unknown`; it does not retry,
@@ -361,9 +352,11 @@ is obtained through non-activating Incus inspection; branch loss comes from
 Git reachability and optionally observed origin branches. Runtime files and Git
 objects never travel inside the RPC request.
 
-Discard, delete, missing/unreachable behavior, confirmation fingerprints,
-credential cleanup, and abandonment are defined in
+Session discard/delete, missing/unreachable behavior, confirmation
+fingerprints, credential cleanup, and abandonment are defined in
 [session lifecycle](session-lifecycle.md#destructive-preflight).
+Whole-project deletion is defined in
+[project lifecycle](project-lifecycle.md#project-deletion).
 
 ## Image-build communication
 
@@ -405,10 +398,10 @@ Attachment is an RPC decision followed by client-side execution:
 
 1. the client calls the attach method;
 2. the daemon validates or starts the runtime as allowed;
-3. the configured `InteractiveHost` produces fixed inner argv for the selected
-   command only after a fresh host check succeeds independently of startup
-   readiness;
-4. the Incus backend wraps it into a structured `AttachSpec` for that runtime;
+3. the daemon verifies systemd reports `p-interactive.service` active and
+   resolves the fixed in-container `/usr/libexec/p/attach` entrypoint;
+4. the Incus backend wraps that fixed entrypoint into a structured
+   `AttachSpec` for that runtime;
 5. the daemon returns the spec with a short-lived, one-use pending attachment
    token;
 6. the local client invokes the trusted host helper directly, or a remote Linux
@@ -424,17 +417,15 @@ A failed channel establishment or expired pending token never increments
 attachment presence or clears unattended status. Only confirmation does so.
 The helper binds the channel to both lease and client carrier independently of
 client cooperation. Client crash/SIGKILL, SSH/network loss, or carrier closure
-starts teardown. If daemon restart removes the lease first, the helper starts
-teardown immediately and establishes no new lease or channel until it finishes.
-Tmux detaches only that client while retaining its server/session. Direct's
-runtime wrapper terminates and waits for the command on exec-channel loss, so
-abrupt client/helper death cannot leave an uncounted live direct command. No V1
-RPC re-registers an existing channel.
+starts teardown. If daemon restart removes the lease first, the helper tears
+down that temporary channel. No V1 RPC re-registers an existing channel.
 
-The interactive command may be `bash`, Claude Code, Codex, or custom argv.
-`tmux` is the default persistent interactive host; `direct` is the minimal
-non-persistent implementation. P never returns a shell string. Persistence
-across detach is an interactive-host capability, not session identity.
+The fixed attach program connects the terminal to the persistent host selected
+by trusted image/project configuration; tmux is the default. Attachment loss,
+detach, or switching sessions ends only the temporary client channel. The
+persistent host remains supervised by systemd, and its exit stops the
+container. P never returns a shell string. Runtime mechanics are defined in
+[runtime isolation](runtime-isolation.md#runtime-process-model), while
 Start, lease, and status-clear ordering are defined in
 [session lifecycle](session-lifecycle.md#attach-and-detach).
 
@@ -452,7 +443,10 @@ credentials, models, routing, MCP, budgets, and virtual-key policy.
   governance, logs, MCP, skills, and every other non-V1 route.
 - P verifies the pinned Bifrost route/authentication boundary and fails model
   access closed when configuration, version, positive probes, negative probes,
-  or route inventory are not validated.
+  or route inventory are not validated during initial model-enabled creation.
+- After establishment, Start and Attach perform no Bifrost probe. Gateway
+  failure degrades model discovery and inference without blocking Git,
+  terminal attachment, RPC, or runtime existence.
 - Projects without model grants receive no key and do not depend on Bifrost
   readiness.
 - Session discard or deletion follows the revocation and cleanup rules in
@@ -460,12 +454,17 @@ credentials, models, routing, MCP, budgets, and virtual-key policy.
 
 Upstream provider credentials never enter P state or session configuration.
 
-## Notification delivery
+## Event delivery
 
-Notification sinks receive selected transitions from the latest unattended
-condition. P sends no semantic notification while attached. Remote bodies are
-redacted by default and do not carry source files, Git objects, credentials, or
-arbitrary RPC payloads.
+P reduces authoritative state changes into typed, versioned events and invokes
+configured event handlers. The V1 handler appends redacted NDJSON to a local
+log file. Handler failure is diagnostic and never rolls back the operation
+that emitted the event. Event delivery is not source-of-truth state, an outbox,
+an acknowledgement protocol, or a session-facing notification contract.
+Reduction semantics are owned by
+[session-observability.md](session-observability.md#typed-p-events); the implementation
+interface is owned by
+[technology-stack.md](technology-stack.md#event-handlers).
 
 ## Listeners
 
@@ -487,11 +486,11 @@ route is mounted into a session.
 | Read-only RPC | client may retry after reconnect |
 | Cross-authority mutating RPC | operation/idempotency key plus persisted P phase |
 | Incus-owned mutation | query the Incus operation and current state; do not duplicate its phases |
-| Status notification | latest valid receive wins while unattended |
+| Agent status report | latest valid receive wins while unattended |
 | Git push | normal Git atomic/ref semantics; explicit retry |
 | Origin refresh | interrupted refresh leaves current state unknown; the next explicit operation refreshes again |
 | Origin publish | idempotent ensure operation; report failure or unknown outcome and wait for explicit retry |
-| Start on running `not_ready` | return stable `stop_required`; recovery is Stop → Start with a new startup generation |
+| Start | idempotently ensure the systemd session target is active; on failed activation preserve diagnostics and stop the container |
 | Attachment | the helper retains a reachable lease through teardown; client/carrier/lease loss triggers transport-bound teardown, and daemon-restart lease loss permits no new helper channel before completion |
 
 RPC and status payloads carry explicit version fields. Git protocol behavior is
@@ -505,9 +504,9 @@ V1 includes local Unix RPC and client-initiated SSH-to-Unix RPC for Linux
 clients, P Git over SSH, session-scoped Git principals, read-only host Git
 access, committed-state session creation, transactional branch rename,
 SSH origin refresh, explicit fast-forward-only origin publication, per-session
-status sockets, durable current-generation startup readiness, structured
+status sockets, systemd-defined host readiness, structured
 pending-to-confirmed attachment, optional Bifrost inference under the validated
-native authentication boundary, and notification sinks.
+native authentication boundary, and the local NDJSON event handler.
 
 Native macOS/Windows clients, attempts, checks, and additional network/backend
 claims remain later work or gated validations.

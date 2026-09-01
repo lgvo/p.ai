@@ -1,228 +1,134 @@
-# P — V1 missing pieces
+# P — remaining implementation work
 
-Complete tracker for work that remains before P V1 can be claimed.
+Concrete work still required to implement and validate the V1 design.
 
-> **Status: non-normative work tracker, reviewed 2026-08-20.** Subject design
-> documents remain authoritative. This file cannot introduce product rules.
+> **Status: tracker, not authority.** Subject documents own behavior. This list
+> points to them and must not introduce a competing contract.
 
-## Decisions before a complete implementation plan
+## Design readiness
 
-### Project and unassigned-ref lifecycle
+The cross-document lifecycle decisions needed to begin implementation are now
+owned by the design set:
 
-- [ ] Define what `p .` discovers before registration.
-- [ ] Define project path selection, bare-repository creation, and initial
-  committed-source seeding.
-- [ ] Define repeated registration and multiple/relocated source locations.
-- [ ] Decide whether project rename exists in V1; define project removal and
-  loss reporting.
-- [ ] Define listing, source selection, rename, deletion, and publication
-  posture for branches retained by discard.
+- [project lifecycle](project-lifecycle.md) owns explicit project creation,
+  origin association, blank/empty bootstrap, retained branches, and bulk
+  project deletion;
+- [session lifecycle](session-lifecycle.md) owns session operations, exact
+  Retry, replacement creation, destructive preflight, and recovery;
+- [runtime and isolation](runtime-isolation.md) owns Incus, systemd, the
+  persistent interactive host, attachment entrypoint, policy snapshots, and
+  grants;
+- [communication boundaries](communication-boundaries.md) owns Git, RPC, SSH,
+  origin, attachment, build, gateway, and event-handler channel division;
+- [session observability](session-observability.md) owns the four public facts,
+  status reduction, attachment presence, and typed P events;
+- [environment building](environment-building.md) owns Nix selection,
+  realization, activation, and image caching;
+- [model gateway](model-gateway.md) owns Bifrost provisioning and enforcement;
+  and
+- [technology stack](technology-stack.md) owns implementation interfaces and
+  library/tool choices.
 
-This belongs in a project/repository lifecycle authority.
+The exact TUI layout, navigation, key map, and smallest useful initial screen
+remain intentionally undecided until a prototype supplies interaction
+evidence. That prototype may change presentation, but not owner-document
+lifecycle semantics.
 
-### Initial TUI vertical slice
+## Foundation
 
-- [ ] Define project/session navigation, filtering, selection, and preview.
-- [ ] Define registration and session creation flows.
-- [ ] Define environment/lifecycle progress, failures, repair, and orphan
-  presentation.
-- [ ] Define terminal handoff/return for direct and tmux attachments.
-- [ ] Select the initial actions, key bindings, help, confirmations, and
-  smallest useful milestone.
+- [ ] Scaffold the Go module, package boundaries, daemon entrypoint, thin
+  client/TUI entrypoint, migration runner, and release metadata.
+- [ ] Implement structured configuration loading and validation with trusted
+  instance/project authority and immutable session policy snapshots.
+- [ ] Implement SQLite migrations, transaction helpers, operation/idempotency
+  records, minimal project-deletion tombstones, and restart reconciliation.
+- [ ] Implement typed errors, bounded/redacted diagnostics, structured logging,
+  and the versioned `EventHandler` interface with the NDJSON file handler.
+- [ ] Establish fake Git, runtime, environment, gateway, and clock adapters for
+  deterministic lifecycle tests.
 
-The TUI must remain a client of the same RPC surface as `p api`.
+## Projects, Git, and origin
 
-## Contracts to define with implementation
+- [ ] Implement explicit project creation from a validated SSH origin or as a
+  blank repository; never infer a host checkout.
+- [ ] Implement contact-before-commit origin association, explicit origin
+  change/removal, refresh, and local-only behavior.
+- [ ] Implement blank/empty-origin bootstrap on unborn `main`, including first
+  push and the committed-source requirement for later sessions.
+- [ ] Provision one bare repository per project, hidden/reserved namespaces,
+  per-session principals, the read-only host principal, and unconditional
+  fast-forward-only update hooks.
+- [ ] Implement retained-branch list/source/fetch/rename/fast-forward-publish/
+  loss-preview/delete operations.
+- [ ] Implement explicit origin publication with fresh observation, one
+  destination ref, no force, and unknown-outcome reporting.
+- [ ] Implement **Delete project and all P data** with aggregate preflight,
+  confirmed attachment termination, minimal tombstone, ensure-absent retry,
+  and abandonment for unreachable resources.
 
-### Trusted configuration and state
+## Runtime and environments
 
-- [ ] Choose configuration/state paths, file format, permissions, and reload
-  behavior.
-- [ ] Define instance fields: P identity, listeners, confined Incus
-  socket/project, base-image identity, Bifrost, and defaults.
-- [ ] Define project fields: interactive host/command, network, filesystem
-  grants, runtime-owned directories, resources, and optional model policy.
-- [ ] Reject repository-, branch-, and session-scoped V1 policy fields.
-- [ ] Define SQLite schema, uniqueness constraints, WAL/backup/migration, and
-  newer-schema refusal.
-- [ ] Define session, assignment, policy snapshot, operation, orphan,
-  credential, environment-index, origin-observation, expected/current
-  startup readiness, and latest-condition records. Do not add artifact leases or
-  duplicate Incus/Git state.
-- [ ] Define bounded diagnostic/log retention and copied-state safeguards.
+- [ ] Implement the confined Incus backend, deterministic labels/names,
+  non-activating inspection helper, endpoint mounts, and orphan recognition.
+- [ ] Build the pinned base image with systemd, Nix, Git/SSH, tmux, the runtime
+  kit, `p-session.target`, `p-interactive.service`, and the root-owned
+  `/usr/libexec/p/attach` entrypoint.
+- [ ] Implement systemd activation/host supervision, journal diagnostic
+  capture, and container shutdown on clean or failed persistent-host exit.
+- [ ] Implement the Nix environment builder, compatibility gate, immutable
+  image cache, private session roots, explicit cache collection, and blank
+  bootstrap base-image path.
+- [ ] Implement typed filesystem/network/model grants and policy comparison as
+  `current`, `outdated`, or `invalid`, including guided recreation.
+- [ ] Complete every relevant real-machine gate in
+  [development validations](development-validations.md).
 
-### RPC and client transport
+## Session lifecycle and observability
 
-- [ ] Define hello/version negotiation, initial host/session method catalogs,
-  schemas, stable errors, limits, and cancellation.
-- [ ] Define cross-authority operation subscriptions, reconnect, and
-  idempotency.
-- [ ] Define structured `AttachSpec`, pending-to-confirmed attachment token
-  handshake, Unix socket permissions/peer checks, and Linux SSH-to-Unix bridge.
-- [ ] Keep terminal bytes, source trees, and arbitrary commands outside
-  lifecycle RPC.
+- [ ] Implement Create with committed source plus the one bootstrap exception,
+  exact immutable Retry, and **Try again with changes** as a superseding new
+  creation.
+- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, Repair,
+  Abandon, and startup/restart reconciliation exactly as owned by
+  [session lifecycle](session-lifecycle.md).
+- [ ] Implement pending-to-confirmed attachment leases whose loss tears down
+  only the temporary transport and never the persistent host.
+- [ ] Implement the four independent public facts: `session_condition`,
+  `attached_count`, `latest_unattended_condition`, and `policy_condition`.
+- [ ] Implement versioned agent adapters and clear-on-confirmed-first-entry
+  reduction without terminal/process heuristics or retained status history.
+- [ ] Emit reduced lifecycle/status/policy events through `EventHandler`;
+  handler failure must not roll back authoritative operations.
 
-### Git server and repository plumbing
+## Gateway
 
-- [ ] Define repository layout, Wish listener/host key, P URLs, and key storage.
-- [ ] Implement fixed Git service dispatch without a shell.
-- [ ] Implement principal/ref ownership, hidden/reserved namespaces,
-  arbitrary-object restrictions, lifecycle guards, and default force-push
-  denial.
-- [ ] Implement exact committed-source import from registered locations.
-- [ ] Implement serialized origin refresh and explicit idempotent
-  create-or-fast-forward publication using host SSH credentials.
+- [ ] Pin and validate a Bifrost release and route inventory before enabling
+  model access.
+- [ ] Implement idempotent per-session key ensure/persist/deliver/revoke with
+  positive inference probes and negative administrative/non-V1 probes during
+  initial creation.
+- [ ] Preserve established Start/Attach behavior during a Bifrost outage while
+  reporting model access as degraded.
+- [ ] Validate OpenAI-compatible Codex use first; keep Anthropic-compatible
+  clients, MCP, Skills, Agent Mode, and Code Mode behind their later gates.
 
-### Incus runtime backend
+## TUI and clients
 
-- [ ] Define the confined local Incus connection/configuration contract and
-  startup verification. Reject administrative or remote authority.
-- [ ] Define the CLI JSON or official-client mapping and pinned Incus version.
-- [ ] Implement deterministic UUID instance/builder names, P metadata,
-  ownership verification, operations, events, and duplicate detection.
-- [ ] Implement private root layout, standalone clone, fixed endpoints,
-  runtime-owned directories, and named filesystem grants.
-- [ ] Implement unprivileged container baseline, resources, `none` networking,
-  and gated `public-egress`.
-- [ ] Implement start/pause/resume/stop/remove/inspect, generation-bound
-  startup-readiness markers/projection, and stable `stop_required` for Start on
-  a running `not_ready` instance.
-- [ ] Make marker transitions write-temp, file-`fsync`, atomic-rename, and
-  directory-`fsync` in a P-owned path unwritable by the session user, shell
-  hook, or interactive command.
-- [ ] Implement the closed non-activating workspace inspection/operation
-  surface used by rename, preflight, and repair.
+- [ ] Build a throwaway interaction prototype against fixture RPC data.
+- [ ] Test project/session overview density, creation and **Try again with
+  changes**, policy warnings/diffs, retained branches, destructive previews,
+  bulk project deletion progress/retry, and attach/switch/detach behavior.
+- [ ] Record the chosen initial layout/navigation/key map only after testing;
+  then implement the thin production TUI without moving business logic into it.
+- [ ] Implement local Unix and client-initiated SSH-to-Unix RPC transports plus
+  the trusted attachment helper.
 
-### Nix environment images
+## Release closure
 
-- [ ] Pin/build the Incus-native P base image per supported architecture.
-- [ ] Define and validate the per-builder/per-session local Nix daemon,
-  build-user, socket, sandbox, startup, and failure posture.
-- [ ] Define `EnvironmentRequest`, plan, project-scoped key, target, opaque
-  `EnvironmentHandle`, activation, and bounded diagnostic schemas.
-- [ ] Implement committed default-devShell discovery, pure lock posture, and
-  base-only fallback.
-- [ ] Implement a disposable restricted Incus builder with public
-  substituter/fetch policy and no ambient authority.
-- [ ] Pin and validate the experimental `nix print-dev-env --json` contract,
-  including schema, quoting/types, functions, hooks, failure behavior, and
-  equivalence fixtures.
-- [ ] Realize the devShell, capture activation, add its GC root, verify Nix
-  database/store coherence, remove the materialized checkout/unreachable build
-  paths, account for source-derived closure paths, and publish the private
-  Incus image.
-- [ ] Index project-scoped environment key to fingerprint; implement cache hit/miss,
-  in-memory concurrent build sharing, explicit collection, and labeled builder
-  cleanup. Do not add session leases.
-- [ ] Validate that sessions may add private Nix paths without modifying the
-  image or another session.
-
-### Lifecycle and recovery
-
-- [ ] Implement create/rename/discard/delete as persisted cross-authority
-  workflows with documented commit points and locks.
-- [ ] Implement start/stop by observing Incus operation/state without a second
-  P phase machine.
-- [ ] Implement pending/confirmed attach/detach leases, durable startup
-  readiness, fresh `InteractiveHost` checks, clear-on-confirmed-entry status,
-  and a trusted helper that retains the reachable lease through teardown and
-  binds tmux/direct channel lifetime to client/carrier loss.
-- [ ] Implement creation retry's persisted `stopping-partial-runtime` phase in
-  the same operation before recording and starting a new startup generation.
-- [ ] Implement destructive preflight/fingerprints, repair, abandonment,
-  orphan recognition, and credential cleanup.
-- [ ] Make missing-instance repair compare the recorded image identity with a
-  freshly resolved current-branch environment when the cached image is gone.
-- [ ] Implement explicit image-cache inspection/collection separately from
-  session lifecycle.
-
-### Interactive hosts, observability, gateway, and notifications
-
-- [ ] Implement `direct` and UUID-isolated tmux hosts.
-- [ ] Implement runtime condition, current-generation startup readiness,
-  confirmed live attachments, latest unattended condition, subscriptions, and
-  notification reduction.
-- [ ] Pin Bifrost and implement secure management credential plus per-session
-  virtual-key ensure/persist/deliver/verify/revoke/cleanup.
-- [ ] Configure and validate Bifrost's native boundary: admin authentication,
-  mandatory virtual keys for inference, approved OpenAI-compatible
-  inference/model discovery, and authorization rejection of dashboard,
-  management, governance, logs, MCP, Skills, and every other non-V1 route.
-- [ ] Pin and inventory the complete Bifrost route surface; fail model access
-  closed for unclassified routes or an unvalidated version/configuration.
-- [ ] Run native Bifrost authorization as the first model-access spike. Do not
-  implement the optional milestone unless real session keys pass every positive
-  and negative probe; failure must not block non-model P functionality.
-- [ ] Select/implement the first notification sinks and redaction behavior.
-- [ ] Version/package verified Claude Code and Codex status recipes.
-
-### Security and operations
-
-- [ ] Threat-model daemon, Git, origin, Incus, builder, session, Bifrost,
-  clients, and notification crossings.
-- [ ] Test path/symlink races, malicious refs/URLs, argument injection,
-  oversized RPC, malformed external output, and hostile repository content.
-- [ ] Verify secrets never appear in metadata, arguments, logs, RPC, TUI,
-  SQLite diagnostics, images, or support output.
-- [ ] Define resource/concurrency bounds, shutdown, disk-full/corruption,
-  upgrade, backup/restore, and external-service failures.
-
-## Required development validations
-
-The evidence plan is [development validations](development-validations.md);
-the real Nix workload is in
-[Nix project workflow validation](nix-project-workflow-validation.md).
-
-- [ ] Confined Incus access cannot reach administrative, other-project, host,
-  or disallowed device/path authority.
-- [ ] Incus instance/image/storage/operation/event behavior matches the pinned
-  adapter on supported Linux/storage-driver combinations.
-- [ ] `none` and `public-egress` enforce the documented IPv4/IPv6 destination
-  policy.
-- [ ] Nix resolution, build, activation, cached image, and private session
-  store deltas work on the homelab repository and both supported architectures.
-- [ ] Lifecycle crash tests converge without duplicate instances or ref loss.
-- [ ] Git tests cover principals, ref guards, origin races, force denial, and
-  explicit publication retry.
-- [ ] Unix and SSH-to-Unix reconnect plus pending/confirmed attachment and
-  lease-loss/client-death channel-teardown behavior passes, including helper
-  SIGKILL and direct-command termination.
-- [ ] Durable startup readiness and current-generation failure behavior pass
-  across daemon restart and operation-record expiry, including
-  `stop_required` followed by a new generation after Stop → Start.
-- [ ] Bifrost session-key lifecycle plus positive/negative route probes pass.
-- [ ] Claude Code/Codex mappings match pinned event traces.
-- [ ] Cold, substituted, image-hit, and session-start performance/storage
-  measurements are recorded without universal speed/deduplication claims.
-
-## Documentation and release work
-
-- [ ] Publish implemented RPC/configuration references and examples.
-- [ ] Document Incus prerequisite/confinement setup, installation, initial
-  setup, backup/restore, upgrades, troubleshooting, and cache management.
-- [ ] Publish security assumptions, supported versions/storage/network
-  profiles, limitations, and validation evidence.
-- [ ] Refresh dated prior art before release positioning.
-- [ ] Remove tracker entries only when design, implementation, validation, or
-  user documentation actually exists.
-
-## Explicitly outside V1
-
-- native macOS/Windows daemon/runtime support;
-- daemon federation, runtime migration, remote Incus, or Incus clustering;
-- Incus VMs, Kubernetes, raw Podman/Docker, Dockerfile/OCI/devcontainer
-  environment providers;
-- branch-specific grants or in-place policy widening;
-- services, attempts, and checks;
-- published ports, host/LAN access, privileged containers, and devices;
-- build secrets, private flake inputs, remote builders, and KVM;
-- automatic origin publication, force-publication, or automatic
-  session/branch/image/orphan reclamation;
-- multi-user scheduling/authorization; and
-- Anthropic-compatible gateway use, MCP, Skills, Agent/Code Mode, and Envoy.
-
-## Completion rule
-
-V1 is complete only when the applicable design acceptance criteria pass, every
-claimed integration has pinned validation evidence, installation and recovery
-are documented, and this tracker has no unresolved required item.
+- [ ] Turn every acceptance criterion and development validation into an
+  automated test, recorded integration result, or explicit support gate.
+- [ ] Pin dependency/protocol versions and prove upgrade behavior.
+- [ ] Add packaging, install/upgrade/rollback guidance, service definitions,
+  backup/restore, and diagnostics documentation.
+- [ ] Re-read all summaries after implementation evidence and update any claim
+  that proved narrower than the design.

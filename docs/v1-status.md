@@ -2,161 +2,137 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, reviewed 2026-08-20.** Subject design
+> **Status: non-normative snapshot, reviewed 2026-09-01.** Subject design
 > documents remain authoritative. [Missing pieces](missing-pieces.md) tracks
-> remaining work.
+> implementation work.
 
 ## Executive state
 
-P has a coherent V1 architecture but no production implementation. The former
-runtime/environment conflict is resolved: one confined local Incus project is
-the V1 runtime boundary, unprivileged Incus system containers are sessions, and
-the committed default Nix devShell becomes a cached private Incus image with a
-private writable root per session.
+P has a coherent V1 architecture and no production implementation. Project,
+session, runtime, environment, communication, observability, and gateway
+lifecycle contracts are now assigned to explicit owner documents. The only
+product interaction deliberately left open is the exact TUI layout,
+navigation, key map, and smallest initial screen; those choices require a
+prototype rather than more architecture speculation.
 
-Two product-operation areas still need bounded contracts before a complete V1
-implementation plan:
-
-1. project registration/removal and retained unassigned-ref lifecycle; and
-2. the first TUI vertical slice and interaction contract.
-
-Concrete schemas, adapters, tests, and real-machine evidence should be defined
-alongside implementation. They do not require reopening the product model.
+Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
+implementation work. They should narrow unsupported claims without reopening
+the product model unless evidence disproves an invariant.
 
 ## Settled model
 
-### Instance and machines
+### Instance, projects, and Git
 
-- One P instance owns one daemon, SQLite registry, P Git server, and one local
-  confined Incus execution project.
-- A daemon never manages Incus on another host and P instances do not
-  communicate directly.
-- Shared ordinary Git origin is the only V1 cross-machine handoff. No origin
-  means local-only and all origin behavior is bypassed.
+- One P instance owns one daemon, SQLite registry, P Git server, and confined
+  local Incus execution project. Instances do not federate.
+- Projects are created explicitly from an SSH origin or as blank local
+  repositories. P does not register/import host checkout locations.
+- Origin create/add/change commits only after successful contact. Removing an
+  origin explicitly makes the project local-only.
+- A blank project or contacted empty origin receives one bootstrap session on
+  unborn `main`; its first push creates the ref. Later sessions start from
+  committed P/origin source and own a new real branch.
+- A session has an immutable UUID and one `(project, branch)` assignment.
+  Rename changes the P/workspace branch while retaining identity.
+- Session Git updates are unconditionally fast-forward-only. The host P key is
+  read-only; the daemon alone mutates P refs. Rewriting already-recorded P
+  history is an outside host Git operation.
+- Retained branches are first-class project resources with
+  list/source/fetch/rename/fast-forward-publish/loss-preview/delete operations.
+- **Delete project and all P data** uses aggregate preflight, confirmed live-
+  attachment termination, a minimal durable tombstone, and idempotent
+  ensure-absent retry. It has no rollback/recovery-mode state machine.
 
-### Projects, sessions, and Git
+### Runtime, environment, and policy
 
-- A project is the complete repository path on the P Git server.
-- A session has an immutable UUID and owns one `(project, branch)` assignment.
-- Every session starts from committed source and immediately creates a new real
-  branch; there are no scratch sessions or durable base-commit field.
-- Rename changes the branch ref while retaining the UUID and instance.
-- A session SSH key may read project branches and update only its assigned
-  branch, fast-forward-only by default.
-- The host P key is read-only. The daemon alone creates, guards, renames, and
-  deletes P refs.
-- Origin refresh/publication uses the host user's existing SSH credentials.
-  Publication is explicit, one-ref, create-or-fast-forward, and idempotent on
-  explicit retry. P maintains no publication ledger or hidden tracking ref.
+- Incus system containers are the only V1 runtime. Each session has a private
+  root, `/nix`, workspace, home, credentials, and narrow endpoints.
+- A restricted builder realizes a committed default Nix devShell into a
+  verified project-scoped Incus image. No devShell—or bootstrap without a
+  commit—uses the P base image.
+- Every base image implements the systemd contract: `p-session.target` starts
+  `p-interactive.service`; the service activates the environment and supervises
+  one persistent host; `/usr/libexec/p/attach` connects temporary terminals.
+- Tmux is the default persistent host. Detach/switch/transport loss does not
+  affect it. Host clean/fail exit is journaled and stops the container; Start
+  launches it again.
+- Trusted project policy is snapshotted immutably at creation. Comparison is
+  `current`, `outdated`, or `invalid`; outdated warns and offers guided
+  recreation, invalid blocks Start, and P never mutates grants live.
+- Network starts at `none`; public egress and filesystem/model access require
+  typed trusted grants. Repositories cannot widen authority.
 
-### Runtime and Nix environment
+### Lifecycle, status, and events
 
-- Incus is the only V1 `RuntimeBackend`; Podman, Docker, remote Incus, Incus
-  clustering, VMs, and Kubernetes are not V1 runtime implementations.
-- Incus owns instances, runtime state/operations, storage, and cached images.
-  SQLite only owns P identity/policy/workflows and indexes Incus identifiers.
-- P uses a pre-provisioned confined Incus user project and must not receive the
-  host-root-equivalent administrative socket.
-- A disposable Incus builder realizes the committed conventional default Nix
-  devShell and publishes a verified immutable, project-scoped Incus system
-  image. V1 does not reuse it across projects because retained Nix paths may
-  contain committed source-derived content.
-- Each session receives a private writable instance root derived from that
-  image, including its own `/nix`, workspace, and home. No host or shared
-  writable Nix store/daemon is mounted.
-- Existing sessions may build additional private Nix paths. They do not mutate
-  the cached image or another session.
-- No Dockerfile/OCI environment provider is specified in V1, while the
-  `EnvironmentBuilder` interface remains reusable.
+- Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, Repair, Abandon,
+  retry, and restart reconciliation have defined outcomes.
+- Exact Retry preserves the failed creation's immutable request and operation
+  identity while cleaning verified partial derived resources. **Try again with
+  changes** is one integrated superseding Create with new identity, not retry.
+- The public status model has four independent facts:
+  `session_condition`, `attached_count`,
+  `latest_unattended_condition`, and `policy_condition`.
+- Session conditions are `creating`, `starting`, `ready`, `stopped`, `missing`,
+  `unreachable`, `discarding`, and `deleting`. There is no generic public
+  `removing` or separate runtime/startup-readiness pair.
+- Confirming the first attachment clears unattended condition. Failed attach
+  does not; reports while attached are not retained as unattended status.
+- P emits typed, versioned reduced events through one `EventHandler` seam. V1
+  appends redacted NDJSON locally. Handler failure never rolls back operations,
+  and events are not state truth, replay, acknowledgement, or notification
+  protocol.
 
-### Policy and isolation
+### Communication and gateway
 
-- Trusted host configuration is keyed by complete project path and snapshotted
-  at creation. Repository content cannot configure P or widen authority.
-- V1 policy is project-scoped. Branch-scoped grants are later.
-- `none` networking is the baseline; `public-egress` is enabled only after
-  proving host/LAN/private/metadata/sibling/Incus access remains blocked.
-- Named filesystem grants must fit within both P validation and the confined
-  Incus project's path ceiling.
-- Sessions receive only their P Git key, private session RPC endpoint, optional
-  Bifrost key/endpoint, and explicit filesystem grants. No Incus socket, host
-  SSH agent, origin credential, upstream model credential, privileged mode,
-  device, or published port enters a session.
+- Git carries source; NDJSON-RPC carries control/status; attachment carries a
+  fixed validated entrypoint and terminal bytes; Bifrost HTTP carries model
+  inference; event handlers receive reduced P events.
+- Linux clients use local Unix or client-initiated SSH-to-Unix transports. The
+  daemon never initiates SSH.
+- Bifrost remains independently configured and owns provider credentials,
+  routing, policy, and usage. Initial model-enabled creation provisions and
+  validates its per-session key. After establishment, an outage degrades model
+  access only; Start and Attach do not probe Bifrost.
+- P V1 does not orchestrate project services. Checks and attempts remain
+  reserved future concepts.
 
-### Lifecycle and communication
+## Intentionally deferred interaction decision
 
-- Create, start, attach/detach, rename, stop, discard, delete, repair, and
-  abandonment have defined outcomes.
-- Cross-authority changes use persisted P workflows. Incus-owned start/stop
-  use Incus operation/state; Git publication uses Git's atomic result and
-  explicit idempotent retry.
-- Stop retains the private instance root but terminates its processes.
-- Discard removes the session/instance but retains an unassigned P branch;
-  delete additionally deletes the confirmed P branch.
-- Git carries source. NDJSON-RPC carries control/status. Attachment carries a
-  validated command and terminal stream. Bifrost HTTP carries model traffic.
-- Linux clients support direct Unix and client-initiated SSH-to-Unix transport
-  from day one. The daemon does not initiate SSH.
+The production TUI is a thin RPC client, but its exact layout, navigation,
+keys, and initial slice will be chosen after a fixture-backed prototype tests:
 
-### Presentation and integrations
+- cross-project overview density and status/policy warnings;
+- project/session creation and changed-settings replacement;
+- attach, detach, and switching;
+- retained-branch actions; and
+- destructive previews, project-wide deletion, partial progress, and retry.
 
-- The TUI is a thin RPC client.
-- Tmux is the default interactive host; `direct` proves tmux is replaceable.
-- Observability is runtime condition, current-generation startup readiness,
-  confirmed live attachment count, and one nullable latest unattended agent
-  condition. Confirming the first attachment clears the latter; a failed attach
-  does not.
-- Bifrost remains independently configured. P persists/revokes one virtual key
-  for each enabled session; OpenAI-compatible inference is phase one and
-  Anthropic-compatible inference is later. Native Bifrost authentication must
-  require a session key for every inference request and reject that key on
-  every administrative or other non-V1 route; an unvalidated boundary fails
-  model access closed.
-- Services are removed from V1. Checks and attempts remain only future ideas at
-  the Git/RPC boundary.
-
-## Still unresolved before the complete implementation plan
-
-| Subject | Missing contract |
-|---|---|
-| Project/repository lifecycle | registration and seeding, source locations, project removal/rename posture, retained unassigned-ref selection/rename/delete/publication |
-| Initial TUI slice | first screen/navigation, creation and progress flow, terminal handoff, core actions, errors, and smallest useful milestone |
-
-The exact configuration schema, SQLite migrations, RPC catalog, `AttachSpec`,
-Incus CLI/API mapping, base-image build, state layout, dependency pins, and
-operator procedures are implementation-owned contracts tracked in
-[missing pieces](missing-pieces.md).
+This deferral covers presentation only. It does not defer the underlying RPC or
+lifecycle semantics.
 
 ## Evidence still required
 
-- confined Incus user access without administrative authority;
-- instance lifecycle, pause/inspection, metadata, storage, and orphan behavior;
-- correct cached Nix image plus private per-session store deltas on real
-  `x86_64-linux` and `aarch64-linux` hosts;
-- `none` and gated `public-egress` network policy over IPv4 and IPv6;
-- lifecycle crash recovery and Git authorization/race behavior;
-- Unix/SSH-to-Unix reconnect, pending/confirmed attachment behavior, and
-  helper-bound teardown after lease, client, helper, SSH, or network loss;
-- durable current-generation startup readiness across restart and diagnostic
-  expiry, including `stop_required` recovery for a running `not_ready` runtime;
-- creation retry recovery through persisted `stopping-partial-runtime` before
-  another startup generation, plus atomic/spoof-resistant marker writes;
-- Bifrost session-key and positive/negative route restrictions; and
-- versioned Claude Code/Codex event mapping.
+- confined Incus operation without administrative authority;
+- Nix image/private-root correctness across claimed hosts/storage drivers;
+- network isolation, filesystem-grant ceilings, and endpoint containment;
+- systemd host supervision, diagnostics, container shutdown, and attachment
+  teardown across crash/restart/SSH loss;
+- lifecycle and bulk project-deletion convergence at every crash point;
+- Git principal/ref enforcement and origin race/unknown-outcome behavior;
+- immutable-policy comparison and guided recreation;
+- Bifrost positive/negative route enforcement plus established-outage behavior;
+- agent-hook mappings and the NDJSON event handler; and
+- performance/capacity evidence for supported configurations.
 
-These validations run alongside development and block only the claims they
-cover. See [development validations](development-validations.md).
+See [development validations](development-validations.md) for the gated tests.
 
-## Recommended resume order
+## Recommended implementation order
 
-1. define project/repository lifecycle;
-2. define the first TUI vertical slice;
-3. turn the remaining implementation contracts into milestones;
-4. build state/RPC/Git skeleton plus the Incus adapter;
-5. build and validate the Nix environment-image path; and
-6. integrate the TUI, lifecycle recovery, Bifrost, and notifications in
-   progressively complete slices.
-
-P's identity, authority, runtime, environment, transport, lifecycle, and
-security posture are sufficiently clear to begin implementation. The remaining
-design gaps are bounded product workflows, not a disputed core architecture.
+1. build state, configuration, RPC, events, and fake-adapter foundations;
+2. implement project/Git/origin and session lifecycle skeletons;
+3. implement and validate Incus, the systemd base-image contract, and Nix
+   environment images;
+4. integrate attachment, observability, policy comparison, and recovery;
+5. validate Bifrost and optional model access; and
+6. prototype the TUI, record the chosen interaction contract, then implement
+   progressively complete product slices.

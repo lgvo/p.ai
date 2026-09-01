@@ -52,7 +52,7 @@ already chosen one.
 
 ### Why is there no real CLI?
 
-There is a small launcher and scripting entrypoint, but not a second flag-heavy
+There is a small client entrypoint, but not a second flag-heavy
 product surface. The TUI and `p api` are clients of the same versioned RPC
 methods, so lifecycle logic has one implementation. A thin command may open the
 TUI, attach, run the daemon, or pass a structured API request; it does not mirror
@@ -75,20 +75,12 @@ consolidate any result it wants to retain there.
 
 No, not in V1. A user or agent may run a database, server, or watcher inside the
 session, but P does not declare, supervise, health-check, restart, or model it.
-The V1 startup-readiness boundary stops at an available runtime, successful
-environment activation for the current start generation, and initial
-interactive-host preparation. Startup readiness is durable current session
-state rather than a retained operation log, so an activation failure remains
-visible until a later start succeeds or the runtime stops.
-
-A running `not_ready` runtime cannot rerun its launcher in place. Start returns
-the stable `stop_required` error; recovery is explicit Stop then Start, which
-creates a new startup generation.
-
-Before a session is established, startup readiness remains `inactive`.
-Creation-time activation failure is shown by its durable creation phase. Retry
-uses that same operation, persists `stopping-partial-runtime`, observes the
-partial instance stopped, and only then records and starts a new generation.
+Systemd does supervise P's one persistent interactive host because that is the
+container-lifetime contract, not project-service orchestration. Environment
+activation and the configured host run under `p-interactive.service`. If either
+fails or the host later exits, systemd journals the failure and the container
+stops. An established session uses ordinary Start to try again; failed initial
+creation uses exact Retry after verified partial derived resources are cleaned.
 
 ## Sessions and branches
 
@@ -136,12 +128,21 @@ Yes. `main`, another branch, a tag, or an explicit reachable commit may be the
 committed source. P creates a new session-owned branch at that commit; it never
 turns the source ref itself into the session branch.
 
+For a newly created blank project or successfully contacted empty origin, the
+bootstrap session is the exception: it directly owns an unborn `main`, and its
+first push creates that branch. After `main` has committed history, later
+sessions follow the normal new-branch rule.
+
 ### Why doesn't my dirty checkout come along?
 
 P needs a reproducible source that the local Git server, build worker, and
 runtime can all identify. Automatically committing or quarantining a dirty tree
 would make P an author of source history and introduce a second handoff path.
 Commit the desired state first, then create the session from that commit.
+
+P does not register host checkout paths at all. Create a project explicitly
+from an SSH origin or as a blank repository. This keeps project identity and
+source authority independent of where a user happens to run the client.
 
 ### What does rename do?
 
@@ -163,23 +164,25 @@ divergence rules apply when publishing.
 
 ### Can a session force-push?
 
-Not by default. Its SSH principal can write only its assigned branch, and the
-server accepts fast-forward updates. Trusted host policy may grant a narrow
-rewrite exception for that branch; repository contents and the session itself
-cannot enable it.
+No. Its SSH principal can write only its assigned branch, and every accepted
+update is fast-forward-only. Merge commits and any other new history whose tip
+descends from the recorded tip work normally. Rebasing commits that have not
+yet been pushed to P is ordinary local Git. Rewriting history already recorded
+on P is an outside operation: fetch to a host checkout and create/publish the
+intended new history without granting the session a force exception.
 
 ### What are stop, discard, and delete?
 
 - Stop preserves the runtime and working copy in restartable form.
 - Discard removes the runtime, credentials, and session record but retains the
-  P branch as an ordinary unassigned source branch.
+  P branch as a retained source branch.
 - Delete removes the runtime, session record, and session-owned P branch.
 
 Stop preserves writable files and identity, not processes: starting again
 reruns activation and interactive-host preparation.
 
-P inspects runtime-local and Git-ref loss before destructive actions. If the
-Incus cannot be reached, ordinary discard/delete is refused because P cannot
+P inspects runtime-local and Git-ref loss before destructive actions. If Incus
+cannot be reached, ordinary discard/delete is refused because P cannot
 truthfully itemize local loss. The explicit abandon path is stronger and leaves
 an orphan record. See
 [destructive preflight](session-lifecycle.md#destructive-preflight).
@@ -198,6 +201,18 @@ assignment before retaining the ref as an ordinary project branch.
 No. Automatic reclamation risks deleting uncommitted work based on an age or
 activity guess. P reports state and lets the user choose stop, discard, or
 delete.
+
+### Can I delete a whole project at once?
+
+Yes. **Delete project and all P data** performs one aggregated preflight over
+the project's sessions, retained branches, runtimes, credentials, and live
+attachments. Its confirmation explicitly authorizes termination of the listed
+attachments. P records a minimal tombstone and then idempotently ensures every
+listed P-owned resource is absent. If a subset fails, retrying repeats the same
+ensure-absent operation and shows the smaller remainder; there is no rollback
+or separate recovery-mode state machine. Unreachable machinery still requires
+the explicit abandonment posture. See
+[project lifecycle](project-lifecycle.md#project-deletion).
 
 ## Git and publication
 
@@ -306,7 +321,7 @@ specified in V1. See [environment building](environment-building.md).
 
 P uses an immutable minimal substrate with a shell, basic userland, Git and
 SSH, CA certificates, and its session helper. It does not guess a language
-toolchain or generate a config file merely to register the repository.
+toolchain or generate a config file merely to create the project.
 
 ### Where do mounts and other host grants live?
 
@@ -319,6 +334,16 @@ V1 grants are project-scoped under `{project}/*`. A future
 `{project}/{branch}` scope is reserved but not implemented, so every new
 session—including one created from an exploratory commit—receives only its
 project's policy.
+
+The selected policy is immutable for that session. If trusted configuration
+later changes, P shows `outdated` with typed differences and offers **Recreate
+with current policy** (guided discard plus create). Removed grants retained by
+an old snapshot receive especially strong wording. P does not silently add or
+revoke live authority; a snapshot that is no longer valid blocks Start.
+
+The guided recreation preserves the old branch as a retained source and
+creates a new UUID and distinctly named assigned branch at its captured tip
+with current policy. It does not rewrite the established session in place.
 
 Mount normalization, fixed targets, lifetime, and cleanup are defined in
 [runtime and isolation](runtime-isolation.md#filesystem-grants).
@@ -357,18 +382,16 @@ establishes the interactive channel, confirms the token on its dedicated lease
 connection, and retains that lease through teardown while the daemon is
 reachable. Only confirmation makes P count the attachment or clear status. A
 failed attach therefore does neither. While any confirmed attachment remains,
-semantic agent events are not retained as overview status and do not notify:
-the user is already inside the session. When the last attachment leaves, P
-starts empty and tracks the next event.
+semantic agent reports are not retained as overview status: the user is
+already inside the session. When the last attachment leaves, P starts empty
+and tracks the next report.
 
-Attachment also checks the interactive host immediately before returning the
-attach specification. If tmux or its configured command disappeared after
-startup, P reports that current condition and recommends Stop then Start without
-rewriting startup readiness. Client crash, SIGKILL, or SSH/network loss causes
-the helper/transport to tear down without client cooperation. If daemon restart
-removes the lease first, the helper starts teardown immediately and opens no new
-lease/channel until it finishes. Tmux preserves its server/session; direct's
-runtime wrapper terminates and waits for the command.
+The daemon verifies systemd still reports the persistent host active before
+returning the fixed `/usr/libexec/p/attach` entrypoint. Client crash, SIGKILL,
+detach, switching sessions, or SSH/network loss tears down only that temporary
+channel. Tmux (or the configured long-running host) remains alive. If the host
+itself exits, systemd journals the result and stops the container; ordinary
+Start launches it again.
 
 ### Why no seen/unseen state or attention history?
 
@@ -380,17 +403,16 @@ acknowledgement.
 
 ### What if an agent has no adapter?
 
-P still reports authoritative runtime condition, current-generation startup
-readiness, and confirmed attachment presence. The semantic condition remains
-empty rather than being guessed from process names, terminal output, or tmux
-panes.
+P still reports authoritative session condition, attachment presence, and
+policy condition. The semantic condition remains empty rather than being
+guessed from process names, terminal output, or tmux panes.
 
 ### Why is tmux replaceable?
 
-P needs a safe way to start and attach to one interactive argv, not tmux's
-grouping model. Tmux is a good default because it preserves the interactive
-program across detach, but the direct host demonstrates that session identity,
-Git, startup readiness, and status do not depend on it.
+P needs one long-running interactive host, not tmux's grouping model. Systemd
+owns the lifecycle contract and `/usr/libexec/p/attach` owns terminal entry.
+Tmux is the default implementation, but screen or zellij can satisfy the same
+contract without changing session identity, Git, or observability semantics.
 
 ## API and credentials
 
@@ -437,6 +459,13 @@ local-provider secret to the runtime.
 
 P persists that key with the session UUID and manages its lifecycle, but
 Bifrost owns configuration and policy. P does not become an inference proxy.
+
+### Does a Bifrost outage stop a session?
+
+Only initial creation of a model-enabled session requires successful key
+provisioning and boundary validation. Once established, a Bifrost outage
+degrades model discovery and inference only. Start and Attach do not probe the
+gateway, so Git and terminal access remain available.
 
 ### Can a session key call Bifrost's dashboard or management APIs?
 

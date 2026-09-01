@@ -4,7 +4,8 @@ How P turns a branch-backed session and a cached Nix environment image into one
 isolated Incus instance.
 
 > **Status: design.** This document is authoritative for runtime placement,
-> Incus authority, storage, grants, networking, fixed paths, and cleanup.
+> Incus authority, storage, grants, networking, fixed paths, the systemd
+> interactive-host contract, attachment execution, and runtime cleanup.
 > [Environment building](environment-building.md) owns cached environment
 > images. [Session lifecycle](session-lifecycle.md) owns user-visible
 > operations and loss decisions.
@@ -78,7 +79,7 @@ P behavior or authority.
 
 Trusted configuration may select:
 
-- the interactive command and interactive host;
+- the interactive command and persistent interactive-host implementation;
 - `none` or validated `public-egress` networking;
 - named runtime-owned data/cache directories;
 - named filesystem grants within the Incus project's pre-authorized path
@@ -90,7 +91,11 @@ base-image identity. A project cannot select a different Incus authority.
 
 Creation normalizes and validates policy, records the effective snapshot and
 digest, and uses it for the lifetime of the session. A later configuration
-change applies to new sessions. V1 has no in-place policy widening.
+change applies to new sessions and makes an older snapshot `outdated`; it does
+not mutate the established runtime. Start revalidates safety-critical external
+facts such as mount-source identity and the current Incus project ceiling. A
+snapshot that can no longer be applied safely is `invalid` and blocks Start.
+V1 has no in-place policy mutation.
 
 ## Session specification
 
@@ -101,8 +106,8 @@ schema and runtime-contract version
 P instance UUID
 session UUID
 project path and assigned branch
-initial branch object ID
-interactive command and host configuration
+initial branch object ID, absent only for a blank-project bootstrap
+interactive command and persistent-host selection
 normalized project-policy snapshot and digest
 runtime-owned directory plan
 session endpoint descriptors
@@ -114,8 +119,11 @@ credential, Incus socket, host SSH agent, upstream model credential, or
 administrative endpoint.
 
 The initial object ID prevents workspace creation from racing branch movement.
-After creation, the assigned P branch is the source authority; it is not stored
-as a durable `base_commit` concept.
+Its sole absence case is the reserved unborn `main` branch of a blank or empty-
+origin project; that workspace is initialized without a commit and only its
+assigned principal may create the first ref. After creation, the assigned P
+branch is source authority; it is not stored as a durable `base_commit`
+concept.
 
 Runtime creation receives the environment separately as an opaque
 `EnvironmentHandle`:
@@ -169,6 +177,7 @@ An Incus instance root contains all session-private writable state:
 | `/home/p` | retained | removed | instance root |
 | `/nix` database, profiles, and new store paths | retained | removed | instance root |
 | `/tmp` and runtime-local configuration | retained | removed | instance root |
+| persistent systemd journal and P-owned diagnostics | retained | removed | instance root |
 | `/var/p/<name>` runtime-owned data/cache | retained | removed | instance root |
 | Cached image base and initial Nix store | shared immutable parent | retained as cache | Incus image store |
 | External filesystem grant | remains external | never removed by P | host owner |
@@ -196,7 +205,7 @@ instance root or an explicit external grant.
 | `/home/p` | persistent session home |
 | `/nix` | cached image store plus private session additions |
 | `/run/p` | session-specific P endpoints and credential files |
-| `/opt/p` | P runtime kit and launcher |
+| `/opt/p` | P runtime kit and trusted systemd/attachment support |
 | `/mnt/p/<grant-name>` | explicit external filesystem grant |
 | `/var/p/<name>` | declared runtime-owned data/cache directory |
 
@@ -289,17 +298,17 @@ turning its runtime authority into arbitrary host-root authority.
 
 ## Runtime process model
 
-An Incus system container has a small explicit process hierarchy:
+An Incus system container boots systemd and has a small explicit hierarchy:
 
-1. the image's minimal init starts only P-owned base services;
+1. `p-session.target` orders only the P-owned base services required by a
+   session;
 2. a session-local Nix daemon owns that instance's private `/nix` database and
    store writes and accepts only the fixed session user;
-3. the fixed P launcher validates paths/endpoints, applies recorded activation,
-   runs the project shell hook as the session user, and writes a versioned
-   startup-readiness marker for the expected start generation;
-4. the selected interactive host starts the configured command as the session
+3. `p-interactive.service` validates fixed paths/endpoints, applies the
+   recorded activation, runs the project shell hook, and starts the configured
+   command inside the selected persistent interactive host as the session
    user; and
-5. the shell/agent may start its own processes inside the same instance.
+4. the shell/agent may start its own processes inside the same instance.
 
 The Nix daemon is inside the unprivileged Incus user namespace. It is not the
 host daemon, has no host store/socket, and has authority only over this
@@ -307,35 +316,32 @@ instance's private root and validated network profile. Nix build sandboxing
 remains enabled subject to the pinned Incus/Nix validation.
 
 The instance does not run the P control daemon, Git server, Bifrost, an Incus
-client/daemon, SSH server, or a P service supervisor. P Git and session RPC use
-the narrow endpoints under `/run/p`; optional model traffic reaches the
-configured Bifrost endpoint under mandatory native virtual-key authorization.
-P does not model or restart processes started by the interactive command.
+client/daemon, or SSH server. Systemd is the container's ordinary service
+manager, not a P service-orchestration feature. P V1 owns only the base units
+and the one persistent interactive host; it does not declare, health-check, restart, or
+present project services.
 
-Startup readiness means the local Nix daemon, endpoint validation, environment
-activation, and initial interactive-host preparation succeeded for the current
-start generation. It does not mean the agent is idle, a project service is
-healthy, or the interactive host or any child process survived afterward.
-Stopping the Incus instance terminates this complete process tree; starting it
-reruns the sequence against the retained private root.
+`p-interactive.service` is the runtime contract. It must:
 
-The marker records `starting`, `ready`, or `failed`, a stable bounded reason
-code/diagnostic, its schema version, and the start generation supplied by P. It
-lives in a P-owned directory; the directory and installed marker files have
-ownership and modes that deny modification by the session user, project shell
-hook, and interactive command. Only P-owned launcher code receives a writable
-descriptor or authority for that directory.
+- remain inactive until endpoint validation and environment activation
+  succeed;
+- become active only when the persistent interactive host is attachable;
+- let systemd track the real host lifetime through its service/cgroup even
+  when the host implementation forks;
+- use `Restart=no`; and
+- request normal container shutdown after clean or failed persistent-host exit.
 
-Each state transition is an atomic durable replace on one filesystem: write the
-complete bounded marker to a temporary file in the marker directory, `fsync`
-the file, rename it over the marker, then `fsync` the containing directory.
-Partial temporary files are never markers. Missing, malformed, partially written,
-spoofed, or older-generation markers never establish startup readiness;
-reconciliation accepts only the expected schema and generation and ignores
-reordered writes from earlier generations.
+The unit and its root-owned configuration come only from the P base image and
+trusted session assembly. Repository content and the session user cannot
+replace them. The unit writes bounded status and failure output to the
+persistent system journal. P observes Incus state plus current systemd unit
+state; there is no second startup-readiness marker or generation protocol.
 
-The durable projection and presentation rules are defined in
-[session observability](session-observability.md#startup-readiness).
+Starting the retained instance reruns activation and starts a fresh persistent
+host. A failure records the systemd/Incus diagnostic and shuts the container
+down, leaving the session normally `stopped` and immediately retryable. Clean
+host exit likewise shuts down every process in the container. Detachment does
+not stop the host or container.
 
 ## Credentials
 
@@ -347,47 +353,50 @@ The session receives only:
 - explicitly named secret-bearing filesystem grants.
 
 It never receives host-origin SSH authority, the Incus socket, upstream model
-keys, notification credentials, or another session's material. Secrets are
+keys, event-handler configuration, or another session's material. Secrets are
 written only under the session endpoint directory with restrictive ownership
 and are omitted from instance metadata, logs, SQLite diagnostics, and TUI
 previews.
 
 ## Attachment
 
-The Incus backend returns structured attachment argv. V1 enters the configured
-interactive host through a fixed `incus exec`/API operation addressed by the
-configured confined project and deterministic instance name. It supplies an
-explicit user, group, working directory, and argv; it never returns a shell
-string.
+Every supported persistent host supplies the same two runtime artifacts:
 
-Tmux is the default persistent interactive host. Its server/session identity
-derives from the P session UUID. Incus start/stop controls the instance;
-stopping terminates processes even though the writable root survives.
+- `p-interactive.service`, which systemd owns for startup, readiness, lifetime,
+  and logs; and
+- the fixed root-owned `/usr/libexec/p/attach`, which connects one PTY to the
+  already-running host.
+
+The attach command is a short-lived adapter, not a daemon or supervisor. P
+opens a structured Incus exec operation as the fixed session user with an
+explicit PTY, working directory, and argv containing only
+`/usr/libexec/p/attach`. The adapter replaces itself with fixed host-specific
+argv, such as a tmux attach client addressed by a root-owned socket/session
+descriptor. It accepts no client-selected command, socket, session name, or
+shell string.
+
+Tmux is the shipped V1 default. Another persistent host is supported only when
+its systemd unit and attach command pass the same conformance contract.
 
 The client never receives general Incus credentials. Remote P clients still
 initiate SSH to the P host and execute the daemon-approved attachment path;
 they do not connect to Incus directly.
 
-The returned spec is not attachment presence. Lifecycle first issues a pending
-token; the trusted host helper establishes the channel, confirms the token on
-its dedicated attachment RPC connection, and owns the resulting lease.
-
-Before returning that spec, the `InteractiveHost` performs a fresh check that
-is independent of startup readiness. For tmux it verifies the UUID-owned
-server/session and attach target; for direct it verifies the current command
-launch prerequisites. Failure reports the host condition and recommends Stop
-then Start without rewriting startup readiness.
+The returned spec is not attachment presence. Lifecycle first verifies the
+current systemd unit and fixed attach path, issues a pending token, and returns
+the structured spec. The trusted host helper establishes the channel,
+confirms the token on its dedicated attachment RPC connection, and owns the
+resulting lease.
 
 The helper binds channel lifetime to the lease and terminal carrier without
 depending on client cleanup. While the daemon is reachable, it retains the
 confirmed lease until channel teardown completes. Client crash, SIGKILL,
 terminal-carrier/SSH loss, or client-machine loss starts teardown. If daemon
 restart removes the lease first, teardown begins immediately and that helper
-establishes no new lease or channel until it finishes. Tmux loses only that
-attachment and preserves its server/session. Direct uses a runtime-side wrapper
-that terminates and waits for the command when the exec channel disappears, so
-abrupt helper/client death cannot leave an uncounted live direct command. V1
-does not re-register an already-running channel.
+establishes no new lease or channel until it finishes. Teardown ends only the
+temporary attach client; the systemd-owned persistent host and configured
+interactive command continue. V1 does not re-register an already-running
+attachment channel.
 
 ## Non-activating workspace access
 
@@ -405,6 +414,10 @@ helper attached only to the stopped/frozen instance storage. It must:
 - disable Git hooks, helpers, monitors, and ambient Git configuration;
 - accept enumerated operations with structured arguments; and
 - return bounded structured results.
+
+The same non-activating mechanism may read the fixed P-owned systemd journal
+and diagnostic paths from a stopped instance. It does not start the instance
+or treat logs as lifecycle authority.
 
 The V1 set covers Git status/ref inspection, branch/upstream rename, and the
 targeted ref operations required by lifecycle repair. It never accepts
@@ -444,9 +457,10 @@ discard.
 | Incus operation interrupted | Query Incus operation and instance state; do not duplicate its workflow |
 | Filesystem grant exceeds Incus restriction | Reject; never use administrative access as fallback |
 | `public-egress` cannot be proved | Offer `none` or fail creation; never widen connectivity |
-| Creation activation/preparation fails | Keep startup readiness `inactive` while registry state is `creating`; the durable creation phase reports failure, and retry persists `stopping-partial-runtime` before a new generation |
-| Established Start activation/preparation fails | Keep the running instance `not_ready`; Start returns `stop_required`, and recovery is Stop → Start with a new startup generation |
-| Fresh interactive-host check fails after startup | Report current host condition and recommend Stop → Start; do not rewrite startup readiness |
+| Creation activation/host startup fails | Systemd records the failure and shuts down the partial container; the durable creation request remains retryable from its immutable input |
+| Established Start activation/host startup fails | Systemd records the failure and shuts down the container; report `stopped` with the bounded diagnostic and permit an ordinary Start retry |
+| Anchor exits after readiness | Systemd shuts down the container; reconciliation reports `stopped` and never claims the vanished host remains ready |
+| Fixed attach command or unit check fails while Incus is running | Refuse attachment, report the observed unit/adapter condition, and let systemd complete shutdown or require repair when the contract is inconsistent |
 
 ## V1 boundary
 
@@ -458,9 +472,9 @@ V1 includes:
 - persistent workspace, home, and private Nix state across stop/start;
 - project-scoped filesystem grants within the Incus project ceiling;
 - `none` and validation-gated `public-egress` profiles;
-- structured tmux attachment;
-- generation-bound durable startup readiness and confirmed attachment
-  handshake; and
+- systemd-owned persistent interactive hosting with tmux as the shipped
+  default;
+- one fixed attachment command and the confirmed attachment handshake; and
 - Incus-authoritative inspection, operations, and cleanup.
 
 V1 excludes Incus administration, remote Incus servers, clustering, Incus
@@ -490,15 +504,13 @@ The backend is supported only when tests prove:
    presence;
 8. the non-activating workspace interface cannot execute repository-controlled
    hooks or arbitrary commands; and
-9. startup readiness survives daemon restart, rejects stale markers, and
-   preserves a running generation's not-ready reason independently of
-   operation retention;
-10. a fresh interactive-host check can reject attachment without changing
-    startup readiness;
-11. lease loss tears down the channel before another attach, preserving the
-    tmux server/session but terminating a direct command;
-12. client/helper crash, SIGKILL, SSH/network loss, and daemon restart cannot
-    leave an uncounted live direct command; and
-13. marker writes are write-sync-rename-directory-sync atomic and resist
-    session-user/shell-hook spoofing, partial files, and stale or reordered
-    generations.
+9. systemd reports the persistent host ready only after endpoint validation,
+   activation, and attachability succeed;
+10. activation or host failure records bounded journal diagnostics, stops the
+    container, and permits an ordinary Start retry;
+11. host exit shuts down the container even while the P daemon is restarting,
+    while detach/client/SSH loss ends only the temporary attach client;
+12. daemon restart reconstructs session condition from Incus and current
+    systemd state without a custom readiness marker; and
+13. the unit and fixed attach command cannot be replaced by the repository,
+    session user, shell hook, or interactive command.

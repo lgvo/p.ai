@@ -15,15 +15,15 @@ changeable. **Open** still needs a decision.
 | Language | Go, latest pinned stable toolchain | one daemon/client binary |
 | State | SQLite through `database/sql` and `modernc.org/sqlite` | P identity, policy snapshots, operations, and indexes only |
 | API | NDJSON-RPC 2.0 over Unix streams | direct Unix or client-initiated SSH-to-Unix |
-| TUI | Bubble Tea, Bubbles, Lip Gloss, `sahilm/fuzzy` | API client; no lifecycle rules |
+| TUI | Bubble Tea, Bubbles, Lip Gloss, `sahilm/fuzzy` after prototype validation | API client; exact interaction contract remains deferred |
 | Git server | Wish SSH middleware around real `git-upload-pack` and `git-receive-pack` | P refs remain Git authority |
 | Runtime | local Incus, one confined user project | Incus owns instances, images, storage, state, and operations |
 | Session type | unprivileged Incus system container | one instance per session UUID |
 | Environment | default Nix devShell built into a private Incus image | Nix owns realization; Incus owns cached bytes |
-| Interactive host | `tmux` by default; `direct` as the minimal alternative | selected command is configuration |
-| Session observability | runtime condition/startup readiness, confirmed attachments, latest unattended condition | reconciled authorities plus small live/persisted state |
+| Interactive host | systemd unit plus fixed attach command; tmux by default | systemd owns readiness/lifetime |
+| Session observability | session/policy condition, confirmed attachments, latest unattended condition | reconciled authorities plus small live/persisted state |
 | Model gateway | independently configured Bifrost | P owns only session-key lifecycle and endpoint grant |
-| Notifications | typed sinks; implementation set decided with the first release slice | receives reduced unattended events |
+| Events | typed handlers; V1 structured file-log handler | receives reduced P events after state changes |
 | Testing | stdlib `testing` plus `go-cmp`; real Git, Incus, Nix, and tmux integration tests | fake seams for unit tests, real authorities for conformance |
 
 Linux is the V1 daemon and runtime platform. Linux clients support local Unix
@@ -39,7 +39,8 @@ P orchestrates existing authorities instead of reproducing them:
   runtime inspection.
 - Nix owns evaluation, realization, store validity, and activation semantics.
 - Bifrost owns provider/model routing and inference protocol compatibility.
-- the selected interactive host owns terminal persistence behavior.
+- systemd and the selected persistent host own readiness, process lifetime,
+  logs, and terminal persistence behavior.
 - SQLite owns P's session identity, branch assignment, normalized policy,
   cross-authority workflow intent, and small authority indexes.
 
@@ -123,23 +124,23 @@ accepted by its runtime backend without changing project/session/Git identity.
 
 ## Other extension seams
 
-### Interactive host
+### Systemd interactive host
 
-```go
-type InteractiveHost interface {
-    Prepare(context.Context, RuntimeExecutor, RuntimeLocator, []string) error
-    Check(context.Context, RuntimeExecutor, RuntimeLocator, []string) (InteractiveHostCondition, error)
-    AttachArgv(RuntimeLocator, []string) []string
-    Capabilities() InteractiveCapabilities
-}
+V1 uses an operating-system contract rather than a Go `InteractiveHost`
+plugin. Every supported session image supplies:
+
+```text
+p-session.target
+p-interactive.service
+/usr/libexec/p/attach
 ```
 
-`tmux` is the default persistent implementation. `direct` runs the configured
-shell, agent TUI, or fixed custom argv for one attachment and proves that P does
-not depend on tmux layout or process discovery. `Check` is a fresh,
-side-effect-free attachment preflight independent of startup readiness; its
-failure reports current host condition and recommends stop/start without
-rewriting the startup marker.
+The unit owns endpoint/environment activation, the configured command,
+persistent-host readiness, cgroup lifetime, and journald diagnostics. The
+fixed attach command connects one Incus PTY to the already-running host. Tmux
+is the shipped default. Another implementation is a packaging/conformance
+choice that replaces the trusted unit and attach command without changing
+lifecycle code. There is no V1 `direct` host.
 
 ### Client transport
 
@@ -160,14 +161,12 @@ never argv. The helper opens a dedicated attachment RPC connection, establishes
 the Incus channel, confirms the token, bridges terminal bytes directly, and
 owns the confirmed lease.
 
-While the daemon remains reachable, the helper retains that lease until channel
-teardown completes. Client/SSH/carrier loss starts teardown independently of
-client cooperation. Lease loss caused by daemon restart also starts teardown
-immediately, and the helper cannot establish another lease or channel before it
-finishes. The runtime-side direct wrapper terminates and waits for its command
-when the exec channel closes; tmux detaches only the affected client. These
-properties must hold when the ordinary client or helper is killed. V1 has no
-existing-channel re-registration method.
+While the daemon remains reachable, the helper retains that lease until
+temporary-client teardown completes. Client/SSH/carrier loss starts teardown
+independently of client cooperation. Lease loss caused by daemon restart also
+starts teardown immediately, and the helper cannot establish another lease or
+channel before it finishes. The systemd-owned host persists throughout
+detachment. V1 has no existing-channel re-registration method.
 
 ### Agent status
 
@@ -188,19 +187,25 @@ boundary. Administrative authentication is enabled, every inference request
 requires a valid virtual key, and the real session key must be rejected by the
 complete inventoried non-V1 route surface. Model access fails closed until
 positive and negative probes validate the effective configuration and pinned
-version.
+version during initial session creation. After the session is established,
+Start and Attach do not probe Bifrost; gateway failure degrades only model
+discovery and inference.
 
-### Notification sink
+### Event handlers
 
 ```go
-type NotifySink interface {
-    Notify(context.Context, UnattendedCondition, bool) error
+type EventHandler interface {
+    Handle(context.Context, Event) error
 }
 ```
 
-Sinks receive reduced, redacted events. A configured command sink, if included,
-must run through an explicitly isolated trusted-host integration rather than in
-the daemon's ambient authority.
+Handlers receive versioned, bounded, redacted P events only after authoritative
+state changes. Handler failure is diagnostic and cannot roll back state. V1's
+`FileEventHandler` appends newline-delimited JSON to a trusted-host-configured
+path with restrictive permissions and ordinary bounded rotation. P does not
+persist an event outbox, retry/acknowledgement state, or a second authoritative
+event history. Future logging, notification, webhook, or metrics handlers reuse
+this interface.
 
 ### Future isolated integrations
 
@@ -223,7 +228,8 @@ attempts are future protocol ideas and do not create V1 implementation work.
 V1 uses trusted host configuration keyed by complete P project path. It owns
 project-scoped session defaults and grants. The repository contributes only its
 ordinary default Nix devShell; it does not contain a P schema, select a backend,
-or widen authority. Branch-scoped policy is reserved for later.
+configure event handlers, or widen authority. Branch-scoped policy is reserved
+for later.
 
 ## SQLite boundary
 
@@ -236,9 +242,8 @@ writer. It stores only facts P owns or needs to index, including:
 - project-scoped environment key to opaque V1 `EnvironmentHandle` index;
 - cross-authority lifecycle operations and cleanup/orphan records;
 - protected session credential material/identifiers;
-- expected startup generation plus its reconciled startup-readiness
-  projection/reason;
-- current runtime observation for presentation, never as Incus authority;
+- latest bounded Start/systemd diagnostic and current reconciled session/policy
+  projection, never as Incus/systemd authority;
 - one nullable latest unattended condition; and
 - the latest bounded origin observation, never as Git authority.
 
@@ -252,8 +257,7 @@ Wish middleware authenticates host and session SSH keys and invokes the real
 Git service commands on bare repositories. Server policy enforces:
 
 - a session principal may update only its currently assigned branch;
-- default updates are fast-forward only; force push is blocked unless later
-  trusted policy grants a narrow exception;
+- all session updates are fast-forward only; V1 has no force-push exception;
 - the per-instance host principal is read-only;
 - lifecycle ref guards temporarily deny affected refs; and
 - reserved future namespaces for attempts/checks remain denied in V1.
@@ -268,10 +272,11 @@ owns framing, method/version errors, request IDs, cancellation, notifications,
 and bounded diagnostics. The stable method/event surface is documented in
 [communication boundaries](communication-boundaries.md).
 
-The TUI is a pure client. Bubble Tea handles the event loop, Bubbles the common
-components, Lip Gloss presentation, and `sahilm/fuzzy` ranking. Lifecycle,
-authorization, and recovery decisions remain daemon-owned and are equally
-available through `p api`.
+The TUI is a pure client. Bubble Tea, Bubbles, Lip Gloss, and `sahilm/fuzzy`
+remain the preferred implementation set, but exact layout, navigation, keys,
+and the first vertical slice require a prototype before becoming a V1
+interaction contract. Lifecycle, authorization, and recovery decisions remain
+daemon-owned and equally available through `p api`.
 
 ## Testing and version policy
 
@@ -283,9 +288,9 @@ crash recovery.
 Support is claimed only after the relevant validation in
 [development validations](development-validations.md) passes. In particular,
 the configured Incus project/storage/network combination must prove confinement,
-workspace inspection, lifecycle operations, cached-image correctness, durable
-startup readiness, confirmed attachment semantics, and no host/private-network
-access.
+workspace inspection, lifecycle operations, cached-image correctness, systemd
+host readiness/exit behavior, confirmed attachment semantics, and no
+host/private-network access.
 
 ## Licensing policy
 
@@ -308,8 +313,8 @@ Planned direct dependencies:
 | `google/go-cmp` | BSD-3 | test diffs |
 | `google/go-licenses` | Apache-2.0 | CI license gate |
 
-External services/binaries are `git`, `incus`, `tmux`, `ssh`, Bifrost, and
-optional notification helpers. The pinned `nix` binary runs inside P's builder
+External services/binaries are `git`, `incus`, `systemd`, `tmux`, `ssh`, and
+Bifrost. The pinned `nix` binary runs inside P's builder
 and session images rather than being a host runtime dependency. The Incus Go
 client is not a planned direct dependency until the CLI adapter demonstrates a
 concrete limitation.

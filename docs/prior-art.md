@@ -140,9 +140,9 @@ tmux topology.
   automatic convergence model are intentionally broader than independent P
   instances joined only by ordinary Git.
 
-The lesson is direct: a multi-agent overview, notifications, and one-keystroke
-attachment are no longer differentiators. P needs them to be excellent and
-trustworthy, but should build them plainly.
+The lesson is direct: a multi-agent overview, attention delivery, and fast
+attachment are no longer differentiators. P should reuse those interaction
+lessons while testing its exact TUI contract in a prototype.
 
 ## Repository and workspace mechanisms
 
@@ -431,7 +431,7 @@ a shared external repository. It does not claim proof of human presence.
 | Coder Agents | agent + user workspace | provisioned isolated workspace | web/control-plane UI | server identity and permission policy | workflow-dependent | self-hosted/enterprise |
 | AgentsMesh | pod/runner/ticket | worktree pod scheduled across a runner fleet | web/desktop/iOS console | platform credentials/permissions, different model | workflow-dependent | self-hostable, BSL-1.1 |
 | Vendor cloud agents | task/agent | managed container/VM | web/app/mobile varies | often restricted agent authority | usually branch/PR review | managed service |
-| **P (design)** | **Git project → session UUID ↔ branch** | **one unprivileged system container in a confined local Incus project; cached Nix image + private root** | **sessions-only TUI + latest-unattended status + notifications** | **session-scoped local Git server; assigned branch only; read-only host principal; no supplied origin authority** | **explicit host push every time when an origin exists; bypassed when local-only** | **open source, user-controlled** |
+| **P (design)** | **Git project → session UUID ↔ branch** | **one unprivileged system container in a confined local Incus project; cached Nix image + private root; systemd-supervised host** | **thin TUI + four-fact status + typed event handlers** | **session-scoped local Git server; assigned branch fast-forward-only; read-only host principal; no supplied origin authority** | **explicit host push every time when an origin exists; bypassed when local-only** | **open source, user-controlled** |
 
 ## What P specifically combines
 
@@ -462,10 +462,10 @@ origin publication compose in a self-hosted tool.
 ## Implications for effort
 
 - **Reuse Agent Deck-class interface lessons.** Dense status, fast search,
-  attachment, recovery, and notifications are solved interaction problems. P's
-  screen should feel familiar even though its grouping model differs. Runtime
-  identity must remain immutable, and tmux cleanup must address one isolated
-  server/runtime identity rather than matching process names or argv globally.
+  attachment, recovery, and attention delivery are understood interaction
+  problems. P's prototype should test familiar patterns even though its
+  grouping model differs. Runtime identity must remain immutable, and temporary
+  attachment cleanup must not terminate the systemd-owned persistent host.
 - **Reuse Incus instead of rebuilding runtime mechanics.** Confined local Incus
   is V1; Incus VMs or a later Kubernetes backend can implement the retained
   runtime seam. SSH selects another P instance—it never makes that host a

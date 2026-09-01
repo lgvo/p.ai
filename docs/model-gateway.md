@@ -276,8 +276,13 @@ an explicit departure from P's privacy posture.
 ## Failure posture
 
 - Principal creation and revocation are idempotent by immutable session UUID.
-- A model-enabled session is not ready until its key is persisted and the
-  session-facing enforcement boundary is verified.
+- Initial creation of a model-enabled session succeeds only after its key is
+  persisted and the session-facing enforcement boundary is validated against
+  the pinned Bifrost integration. Failure leaves creation failed and eligible
+  for the lifecycle's exact Retry behavior.
+- Once the session is established, Bifrost unavailability degrades only model
+  discovery and inference. Start and Attach do not probe Bifrost and do not
+  reinterpret gateway health as runtime readiness.
 - A session without model access is independent of Bifrost readiness.
 - P does not replay an inference request after ambiguous delivery.
 - Gateway failure affects model access, not Git, attachment, RPC, or runtime
@@ -412,7 +417,10 @@ Phase one must prove:
    prove the allowed inference/model-discovery operations; and
 9. the real session key receives an authorization rejection—not merely a
    transport failure—from every dashboard, management, governance, logs, MCP,
-   skills, and other non-V1 route in the pinned-version inventory.
+   skills, and other non-V1 route in the pinned-version inventory; and
+10. initial model-enabled creation fails when provisioning/validation fails,
+    while an established session can Start and Attach during a Bifrost outage
+    with only model access degraded.
 
 Phase two applies the same requirements to Bifrost's Anthropic-compatible
 interface and Claude Code. Protocol correctness remains Bifrost's
