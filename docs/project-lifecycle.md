@@ -20,7 +20,7 @@ retained branches.
 - [Retained branches](#retained-branches)
 - [Project deletion](#project-deletion)
 - [Recovery and idempotency](#recovery-and-idempotency)
-- [V1 boundary](#v1-boundary)
+- [MVP boundary](#mvp-boundary)
 - [Acceptance criteria](#acceptance-criteria)
 
 ## Purpose and boundaries
@@ -37,7 +37,7 @@ Git carries the selected origin objects and later session commits.
 ## Project identity and state
 
 The project path, such as `p` or `lgvo/p`, is its identity within one P
-instance. Namespace components are path structure, not V1 accounts or policy
+instance. Namespace components are path structure, not MVP accounts or policy
 objects. A path:
 
 - must be a valid normalized P Git-server repository path;
@@ -45,7 +45,7 @@ objects. A path:
 - is selected explicitly by the user; and
 - is immutable after project creation.
 
-V1 has no project rename. A different path means a different project. An exact
+MVP has no project rename. A different path means a different project. An exact
 repeat of an already completed creation request is idempotent. Reusing a path
 with conflicting creation input is rejected rather than interpreted as rename
 or replacement. The same explicit origin may be used by another project path;
@@ -94,7 +94,7 @@ The session principal may create only its reserved `refs/heads/main`; the first
 commit and first push create that ref through ordinary `git-receive-pack`.
 P creates no artificial root commit.
 
-This is the only V1 exception to creation from committed source. Until `main`
+This is the only MVP exception to creation from committed source. Until `main`
 has a commit, another session cannot be created because no committed source
 exists. If the bootstrap session is discarded after a commit, `main` becomes a
 retained branch. If it is deleted, or is discarded before a ref exists, the
@@ -234,13 +234,13 @@ re-inspects authorities and attempts every remaining deletion. The project
 registry record and tombstone are removed last so partial external cleanup is
 never forgotten.
 
-## V1 boundary
+## MVP boundary
 
-V1 includes explicit project creation from one SSH origin or blank state,
+MVP includes explicit project creation from one SSH origin or blank state,
 atomic origin add/change, immutable project paths, one unborn-main bootstrap,
 retained-branch management, and bulk idempotent project deletion.
 
-V1 excludes `p .`, host checkout registration/import, project rename,
+MVP excludes `p .`, host checkout registration/import, project rename,
 automatic origin mirroring, automatic branch reclamation, multi-origin
 projects, and project migration between P instances.
 

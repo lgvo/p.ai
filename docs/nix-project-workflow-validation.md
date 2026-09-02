@@ -87,7 +87,7 @@ Incus administration. Verify before building:
 
 If the experiment requires the host-root-equivalent admin socket, privileged
 containers, a host `/nix` mount, or the host Nix daemon, record failure. Do not
-treat the workaround as a candidate V1 design.
+treat the workaround as a candidate MVP design.
 
 ## Phase 1: build the P base image
 
@@ -121,7 +121,8 @@ Inside the builder:
 4. capture versioned activation material with the pinned, compatibility-tested
    `nix print-dev-env --json` adapter;
 5. create a P-owned GC root for the initial environment; and
-6. smoke-activate it as the fixed session user without P Git/model credentials.
+6. smoke-activate it as the fixed session user without P Git or
+   external-service credentials.
 
 Record evaluation and realization separately. Confirm shell-hook execution
 occurs only during the smoke activation/session launch, never in the host
@@ -191,13 +192,13 @@ unchanged. Dirty workspace changes are never promoted to a new shared image.
 
 Classify failures rather than broadening authority:
 
-| Need discovered | V1 interpretation |
+| Need discovered | MVP interpretation |
 |---|---|
 | public fetch/substitution | belongs to validated public egress |
 | more CPU/memory/disk | trusted project resource policy |
 | private input/cache credential | future explicit build-secret capability |
 | SSH/deployment credential | outside environment building/session default |
-| LAN target access | outside V1 network posture |
+| LAN target access | outside MVP network posture |
 | KVM/device/nesting | future explicit capability or VM backend |
 | remote Nix builder | future design |
 
@@ -227,7 +228,7 @@ From both builder and session, attempt access to:
   ranges over IPv4/IPv6;
 - Incus APIs/sockets and other projects;
 - host SSH agent, host Nix daemon/store, and undeclared paths; and
-- Bifrost administration or P host-control endpoints.
+- external-service administration or P host-control endpoints.
 
 Under `none`, public traffic must also fail. Under `public-egress`, only the
 intended public destinations plus narrow mounted/session endpoints may work.
@@ -237,7 +238,7 @@ Inspect Incus metadata/config, image contents, processes, environment, logs,
 SQLite diagnostics, and bounded support output for credentials or unintended
 other-project material. A committed project source path required by the Nix
 closure is not itself a failure, but proves why the image must remain private
-to that project. The V1 builder receives no build secret, so finding one is a
+to that project. The MVP builder receives no build secret, so finding one is a
 failure.
 
 ## Acceptance record

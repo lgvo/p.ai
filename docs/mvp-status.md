@@ -1,23 +1,39 @@
-# P — V1 status
+# P — MVP status
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, reviewed 2026-09-01.** Subject design
-> documents remain authoritative. [Missing pieces](missing-pieces.md) tracks
-> implementation work.
+> **Status: non-normative snapshot, reviewed 2026-09-02.**
+> [Project guidance](../PROJECT.md) owns enduring direction; subject design
+> documents remain authoritative for detailed behavior.
+> [Missing pieces](missing-pieces.md) tracks implementation work.
 
 ## Executive state
 
-P has a coherent V1 architecture and no production implementation. Project,
-session, runtime, environment, communication, observability, and gateway
-lifecycle contracts are now assigned to explicit owner documents. The only
-product interaction deliberately left open is the exact TUI layout,
-navigation, key map, and smallest initial screen; those choices require a
-prototype rather than more architecture speculation.
+P has a coherent MVP behavior and lifecycle model but no production
+implementation. Project, session, runtime, environment, communication, and
+observability contracts are assigned to explicit owner documents; the gateway
+owner retains a post-MVP design. The newly confirmed plugin composition model
+requires the implementation architecture to be reconciled before work begins.
+
+The exact TUI layout, navigation, key map, and smallest initial screen remain
+open pending a prototype. Plugin authoring, installation, composition, and
+approval interactions also remain open pending their dedicated design.
 
 Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
 implementation work. They should narrow unsupported claims without reopening
 the product model unless evidence disproves an invariant.
+
+[Product direction](PRODUCT.md) requires MVP to prove P's composable plugin
+model through secure first-party defaults for Incus runtime support, the tmux
+persistent host, Git source and session access, Nix environment preparation,
+structured file-event logging, and the Codex adapter. The usable public
+interfaces and this basic composition are sufficient for MVP; a separate
+agent-authored plugin is not a release gate. The present Go interfaces,
+systemd contract, and event handler describe behavioral inputs rather than an
+approved public plugin architecture. Plugin packaging, process model,
+isolation, transport, compatibility, capabilities,
+installation/approval UX, and composition remain unresolved and require the
+technology design to be reconciled before implementation.
 
 ## Settled model
 
@@ -45,7 +61,7 @@ the product model unless evidence disproves an invariant.
 
 ### Runtime, environment, and policy
 
-- Incus system containers are the only V1 runtime. Each session has a private
+- Incus system containers are the only MVP runtime. Each session has a private
   root, `/nix`, workspace, home, credentials, and narrow endpoints.
 - A restricted builder realizes a committed default Nix devShell into a
   verified project-scoped Incus image. No devShell—or bootstrap without a
@@ -59,8 +75,8 @@ the product model unless evidence disproves an invariant.
 - Trusted project policy is snapshotted immutably at creation. Comparison is
   `current`, `outdated`, or `invalid`; outdated warns and offers guided
   recreation, invalid blocks Start, and P never mutates grants live.
-- Network starts at `none`; public egress and filesystem/model access require
-  typed trusted grants. Repositories cannot widen authority.
+- Network starts at `none`; public egress and filesystem access require typed
+  trusted grants. Repositories cannot widen authority.
 
 ### Lifecycle, status, and events
 
@@ -77,23 +93,24 @@ the product model unless evidence disproves an invariant.
   `removing` or separate runtime/startup-readiness pair.
 - Confirming the first attachment clears unattended condition. Failed attach
   does not; reports while attached are not retained as unattended status.
-- P emits typed, versioned reduced events through one `EventHandler` seam. V1
+- P emits typed, versioned reduced events through one `EventHandler` seam. MVP
   appends redacted NDJSON locally. Handler failure never rolls back operations,
   and events are not state truth, replay, acknowledgement, or notification
   protocol.
 
-### Communication and gateway
+### Communication and agent support
 
 - Git carries source; NDJSON-RPC carries control/status; attachment carries a
-  fixed validated entrypoint and terminal bytes; Bifrost HTTP carries model
-  inference; event handlers receive reduced P events.
-- Linux clients use local Unix or client-initiated SSH-to-Unix transports. The
-  daemon never initiates SSH.
-- Bifrost remains independently configured and owns provider credentials,
-  routing, policy, and usage. Initial model-enabled creation provisions and
-  validates its per-session key. After establishment, an outage degrades model
-  access only; Start and Attach do not probe Bifrost.
-- P V1 does not orchestrate project services. Checks and attempts remain
+  fixed validated entrypoint and terminal bytes; event handlers receive
+  reduced P events.
+- MVP clients use the local Unix transport. P's client-initiated SSH-to-Unix
+  transport is post-MVP; Git and origin operations may still use SSH.
+- Codex is the only supported MVP agent adapter. It runs as an ordinary command
+  and the user authenticates it within the session's private home; P does not
+  inject or manage host Codex or OpenAI credentials. Networked use requires the
+  project's validated `public-egress` grant.
+- Bifrost model-gateway integration is post-MVP.
+- P MVP does not orchestrate project services. Checks and attempts remain
   reserved future concepts.
 
 ## Intentionally deferred interaction decision
@@ -116,23 +133,26 @@ lifecycle semantics.
 - Nix image/private-root correctness across claimed hosts/storage drivers;
 - network isolation, filesystem-grant ceilings, and endpoint containment;
 - systemd host supervision, diagnostics, container shutdown, and attachment
-  teardown across crash/restart/SSH loss;
+  teardown across client crash and daemon restart;
 - lifecycle and bulk project-deletion convergence at every crash point;
 - Git principal/ref enforcement and origin race/unknown-outcome behavior;
 - immutable-policy comparison and guided recreation;
-- Bifrost positive/negative route enforcement plus established-outage behavior;
-- agent-hook mappings and the NDJSON event handler; and
+- Codex hook mappings, session-local authentication behavior, and the NDJSON
+  event handler; and
 - performance/capacity evidence for supported configurations.
 
 See [development validations](development-validations.md) for the gated tests.
 
 ## Recommended implementation order
 
-1. build state, configuration, RPC, events, and fake-adapter foundations;
-2. implement project/Git/origin and session lifecycle skeletons;
+1. reconcile and implement the trusted-core, plugin-framework, state,
+   configuration, RPC, events, and fake-plugin foundations;
+2. implement project/Git/origin and session lifecycle skeletons through the
+   selected plugin contracts;
 3. implement and validate Incus, the systemd base-image contract, and Nix
    environment images;
 4. integrate attachment, observability, policy comparison, and recovery;
-5. validate Bifrost and optional model access; and
+5. integrate and validate the Codex adapter and session-local authentication;
+   and
 6. prototype the TUI, record the chosen interaction contract, then implement
    progressively complete product slices.

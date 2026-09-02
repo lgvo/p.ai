@@ -1,6 +1,6 @@
 # P — remaining implementation work
 
-Concrete work still required to implement and validate the V1 design.
+Concrete work still required to implement and validate the MVP design.
 
 > **Status: tracker, not authority.** Subject documents own behavior. This list
 > points to them and must not introduce a competing contract.
@@ -24,8 +24,7 @@ owned by the design set:
   status reduction, attachment presence, and typed P events;
 - [environment building](environment-building.md) owns Nix selection,
   realization, activation, and image caching;
-- [model gateway](model-gateway.md) owns Bifrost provisioning and enforcement;
-  and
+- [model gateway](model-gateway.md) retains the post-MVP Bifrost design; and
 - [technology stack](technology-stack.md) owns implementation interfaces and
   library/tool choices.
 
@@ -44,7 +43,7 @@ lifecycle semantics.
   records, minimal project-deletion tombstones, and restart reconciliation.
 - [ ] Implement typed errors, bounded/redacted diagnostics, structured logging,
   and the versioned `EventHandler` interface with the NDJSON file handler.
-- [ ] Establish fake Git, runtime, environment, gateway, and clock adapters for
+- [ ] Establish fake Git, runtime, environment, agent, and clock adapters for
   deterministic lifecycle tests.
 
 ## Projects, Git, and origin
@@ -66,6 +65,32 @@ lifecycle semantics.
   confirmed attachment termination, minimal tombstone, ensure-absent retry,
   and abandonment for unreachable resources.
 
+## Plugin contract
+
+- [ ] Reconcile the technology design with the confirmed
+  [product direction](PRODUCT.md): define the trusted P-core boundary and how
+  authoritative lifecycle operations invoke plugins without delegating policy,
+  grants, recovery, or user confirmation.
+- [ ] Assign one detailed design authority for the common plugin framework and
+  its capability-specific contracts.
+- [ ] Define packaging, process/isolation model, transport, discovery,
+  installation/update/removal, compatibility/versioning, and failure behavior.
+- [ ] Define capability manifests and trusted activation so repository or
+  agent-authored code cannot grant itself host, runtime, credential, or
+  lifecycle authority.
+- [ ] Define internal session services supervised through systemd, external
+  session services provided through scoped network bindings and service-native
+  authentication, and host-side capabilities that are never exposed to the
+  session.
+- [ ] Express the MVP Incus runtime, tmux persistent host, Git source/session
+  service, Nix environment builder, structured file-event handler, and Codex
+  adapter as secure first-party plugins selected and composed automatically by
+  default setup.
+- [ ] Provide an agent-usable authoring, validation, and test workflow that
+  does not require rebuilding P core.
+- [ ] Document the usable public interfaces; a separately agent-authored
+  plugin is evidence to pursue after MVP rather than a release gate.
+
 ## Runtime and environments
 
 - [ ] Implement the confined Incus backend, deterministic labels/names,
@@ -78,7 +103,7 @@ lifecycle semantics.
 - [ ] Implement the Nix environment builder, compatibility gate, immutable
   image cache, private session roots, explicit cache collection, and blank
   bootstrap base-image path.
-- [ ] Implement typed filesystem/network/model grants and policy comparison as
+- [ ] Implement typed filesystem/network grants and policy comparison as
   `current`, `outdated`, or `invalid`, including guided recreation.
 - [ ] Complete every relevant real-machine gate in
   [development validations](development-validations.md).
@@ -95,22 +120,23 @@ lifecycle semantics.
   only the temporary transport and never the persistent host.
 - [ ] Implement the four independent public facts: `session_condition`,
   `attached_count`, `latest_unattended_condition`, and `policy_condition`.
-- [ ] Implement versioned agent adapters and clear-on-confirmed-first-entry
-  reduction without terminal/process heuristics or retained status history.
+- [ ] Implement the Codex adapter and clear-on-confirmed-first-entry reduction
+  without terminal/process heuristics or retained status history. Other agent
+  adapters are post-MVP.
 - [ ] Emit reduced lifecycle/status/policy events through `EventHandler`;
   handler failure must not roll back authoritative operations.
 
-## Gateway
+## Post-MVP model gateway
 
 - [ ] Pin and validate a Bifrost release and route inventory before enabling
   model access.
 - [ ] Implement idempotent per-session key ensure/persist/deliver/revoke with
-  positive inference probes and negative administrative/non-V1 probes during
-  initial creation.
+  positive inference probes and negative administrative/non-inference probes
+  during initial creation.
 - [ ] Preserve established Start/Attach behavior during a Bifrost outage while
   reporting model access as degraded.
-- [ ] Validate OpenAI-compatible Codex use first; keep Anthropic-compatible
-  clients, MCP, Skills, Agent Mode, and Code Mode behind their later gates.
+- [ ] Validate the retained Bifrost design before claiming managed model
+  access; it is not part of MVP Codex authentication.
 
 ## TUI and clients
 
@@ -120,8 +146,13 @@ lifecycle semantics.
   bulk project deletion progress/retry, and attach/switch/detach behavior.
 - [ ] Record the chosen initial layout/navigation/key map only after testing;
   then implement the thin production TUI without moving business logic into it.
-- [ ] Implement local Unix and client-initiated SSH-to-Unix RPC transports plus
-  the trusted attachment helper.
+- [ ] Implement the local Unix RPC transport and trusted attachment helper.
+
+## Post-MVP clients
+
+- [ ] Implement client-initiated SSH-to-Unix RPC and attachment transport.
+- [ ] Package native remote clients only after the shared transport contract is
+  validated.
 
 ## Release closure
 

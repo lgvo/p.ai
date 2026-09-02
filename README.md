@@ -1,7 +1,7 @@
 # P
 
-P is a local-first control plane for isolated development sessions, organized
-by Git projects and branches.
+P is a self-contained, extensible control plane for concurrent streams of
+agent-driven development, organized by Git projects and branches.
 
 It gives one developer a terminal overview of work across repositories, starts
 each piece of work in its own runtime, and keeps source movement explicit. P is
@@ -9,8 +9,10 @@ open source under the [Apache License 2.0](LICENSE), runs on machines the user
 controls, and can grow from a laptop to a larger Linux or Kubernetes host
 without changing its project model.
 
-> **Status: design.** The design documents under [`docs/`](docs/) are
-> authoritative for their subjects. This README is the product summary.
+> **Status: design.** [PROJECT.md](PROJECT.md) owns P's enduring project
+> guidance, and [product direction](docs/PRODUCT.md) owns P's product strategy.
+> The design documents under [`docs/`](docs/) are authoritative for their
+> subjects. This README is the product summary.
 
 ## The idea
 
@@ -48,7 +50,7 @@ shared Git origin, just as a laptop and desktop do today.
 
 A project is the complete path of one repository on the P Git server, such as
 `p` or `lgvo/p`. Optional namespace components are ordinary path structure,
-not separate accounts or policy objects in V1. Trusted host configuration is
+not separate accounts or policy objects in MVP. Trusted host configuration is
 keyed by that project path; repositories contain no P-specific configuration.
 
 An origin is optional. A project without one is intentionally local-only; P
@@ -85,9 +87,9 @@ source. P never reads or snapshots a host checkout.
 
 ### Runtime and persistent interactive host
 
-A runtime is the execution machinery currently attached to a session UUID. V1
+A runtime is the execution machinery currently attached to a session UUID. MVP
 uses one unprivileged Incus system container per session in a pre-provisioned,
-confined local Incus user project. Incus is the only V1 runtime backend. Incus
+confined local Incus user project. Incus is the only MVP runtime backend. Incus
 VMs and Kubernetes placement are later options, not different session models.
 
 Every image implements the same systemd contract. `p-session.target` starts
@@ -97,10 +99,10 @@ screen or zellij can be selected by trusted configuration. The root-owned
 `/usr/libexec/p/attach` entrypoint attaches a temporary terminal channel to
 that host.
 
-Detach, SSH loss, and switching sessions close only the temporary attachment.
-If the persistent host exits, systemd captures its result and the container
-stops. A later Start launches the configured host again. P does not model panes
-or infer agent status from terminal contents.
+Detach, attachment-transport loss, and switching sessions close only the
+temporary attachment. If the persistent host exits, systemd captures its
+result and the container stops. A later Start launches the configured host
+again. P does not model panes or infer agent status from terminal contents.
 
 ## A normal workflow
 
@@ -186,17 +188,18 @@ Successfully establishing and confirming the first attachment to a previously
 unattended session clears that latest condition. Merely requesting an attach
 does not. While the user is attached, semantic agent reports are not retained
 as status. Leaving begins empty, and the next report becomes the
-latest. V1 has no seen/unseen history, attention set, participant inventory,
+latest. MVP has no seen/unseen history, attention set, participant inventory,
 project-service orchestration, or terminal heuristic pretending to know agent
 intent.
 
-Agent integrations translate native lifecycle hooks into the generic
+The bundled Codex adapter translates native lifecycle hooks into the generic
 `status.report` JSON-RPC notification (the protocol message type) on the
-private session RPC socket. Claude Code, Codex, and other tools remain ordinary
-interactive commands; no P-specific agent wrapper is required.
+private session RPC socket. Codex remains an ordinary interactive command; no
+P-specific agent wrapper is required. Other agents may run as commands, but
+their hooks, status reporting, and compatibility are not supported in MVP.
 
 Separately, P exposes typed, versioned reduced events to configured handlers.
-V1 provides a redacted local NDJSON log handler. Events are an extension seam,
+MVP provides a redacted local NDJSON log handler. Events are an extension seam,
 not another state authority or a built-in notification protocol.
 
 See [session observability](docs/session-observability.md) for the reducer and
@@ -220,12 +223,11 @@ mutate P refs. The daemon alone owns branch creation, rename, guards, and
 deletion. Host fetch and explicit publication against origin use the user's
 normal OpenSSH credentials, not P session credentials.
 
-The control API is newline-delimited JSON-RPC 2.0 over Unix sockets. Linux
-clients support both direct local Unix connections and client-initiated
-SSH-to-Unix bridging from day one. Attachment uses a separate validated argv
-path through a trusted host helper that binds lease, terminal carrier, and
-channel lifetime; the daemon never initiates SSH and never returns a shell
-string.
+The control API is newline-delimited JSON-RPC 2.0 over Unix sockets. MVP
+clients connect directly to the local Unix socket. Attachment uses a separate
+validated argv path through a trusted host helper that binds lease, terminal
+carrier, and channel lifetime. A client-initiated SSH-to-Unix transport is
+post-MVP; the daemon never initiates SSH or returns a shell string.
 
 Git carries commits, objects, and refs. RPC carries lifecycle, configuration,
 runtime state, attachment leases, status, and subscriptions. The complete
@@ -235,12 +237,12 @@ division is in [communication boundaries](docs/communication-boundaries.md).
 
 Every session begins from a P-owned Incus base image containing Nix, a shell,
 basic userland, Git and SSH, CA certificates, tmux, and P's runtime helper. The
-project environment is selected in V1 as:
+project environment is selected in MVP as:
 
 1. the project's ordinary default Nix `devShell`, when present; or
 2. the minimal substrate alone.
 
-The V1 Nix builder consumes immutable committed source in a disposable,
+The MVP Nix builder consumes immutable committed source in a disposable,
 restricted Incus builder. It realizes the devShell and publishes a verified
 private Incus image with a coherent Nix store/database and activation material.
 Each session receives its own writable Incus root on top, including a private
@@ -250,25 +252,26 @@ survive stop/start and disappear with the session. Cache behavior, physical
 deduplication, and build time remain project/storage-driver dependent.
 
 The `EnvironmentBuilder` interface remains reusable, but Dockerfile and OCI
-providers are not specified for V1.
+providers are not specified for MVP.
 
-V1 external grants are project-scoped under `{project}/*`. The namespace
+MVP external grants are project-scoped under `{project}/*`. The namespace
 `{project}/{branch}` is reserved for later branch-specific grants. A session
-created from any source receives only its project's trusted mounts, model
-access, and network policy.
+created from any source receives only its project's trusted mounts and network
+policy.
 
 Repositories cannot configure P session behavior or request host mounts,
 devices, credentials, published ports, the Incus socket, the SSH agent, or
 routes to the host and local network. Trusted host configuration may grant
-named filesystem mounts, network posture, and model access through typed
-isolation interfaces.
+named filesystem mounts and network posture through typed isolation
+interfaces. Post-MVP external service plugins may add separately typed service
+bindings.
 
 The implementation baseline has no general network. A project may select a
 validated public-egress profile, but it still cannot reach the host,
 LAN/private or link-local networks, metadata endpoints, gateways, sibling
-instances, or Incus administration. P Git, private session RPC, and explicitly
-granted model inference use narrow session endpoints. P V1 does not declare,
-supervise, health-check, or restart project services.
+instances, or Incus administration. P Git and private session RPC use narrow
+session endpoints. P MVP does not declare, supervise, health-check, or restart
+project services.
 
 See [environment building](docs/environment-building.md) for Nix image
 building, activation, and caching, and
@@ -277,37 +280,52 @@ storage, mounts, network policy, labels, and cleanup.
 
 ## Model access
 
-Bifrost is an optional independently configured gateway. It owns provider
-credentials, models, aliases, routing, limits, usage, MCP, skills, and
-virtual-key policy. P does not proxy or reimplement model APIs.
+MVP supports Codex as its sole validated agent integration. Codex runs inside
+the isolated session as an ordinary command, and the user authenticates it
+within that session's private home. P does not copy, inject, or manage the
+host's Codex or OpenAI credentials. The session-local authentication survives
+Stop and Start and disappears with Discard or Delete.
 
-For a model-enabled project, P obtains and persists one Bifrost virtual key per
-session UUID, exposes it only to that runtime, redacts it everywhere else, and
-revokes it when the session is discarded or deleted. Projects without model
-access do not depend on Bifrost readiness.
+Codex use that requires network access uses the project's explicitly selected,
+validated `public-egress` grant. P supplies no model endpoint in MVP.
 
-Initial creation validates configured model access before the session becomes
-established. After that, a Bifrost outage degrades model calls only: Start and
-Attach do not probe Bifrost or prevent use of Git and the terminal.
+Managed, session-scoped model access through Bifrost is post-MVP. Its retained
+design is in [model gateway](docs/model-gateway.md).
 
-Bifrost's native authentication is the V1 enforcement boundary: administrative
-authentication remains enabled, sessions receive no administrative credential,
-and every inference request requires the session key. P validates that the key
-works only for approved inference/model discovery and is rejected by every
-administrative and other non-V1 route; an unvalidated version, configuration,
-or route inventory fails model access closed.
+## Extensibility
 
-V1 validates Bifrost's OpenAI-compatible surface with Codex, using OpenRouter
-and a local model as initial upstreams. Anthropic-compatible access for Claude
-Code follows in phase two. Bifrost remains suitable when a P instance moves to
-Kubernetes; Envoy AI Gateway is a later option only if cluster-native shared
-ingress, distributed policy, or inference-fleet routing justifies it.
+Plugins are how P composes replaceable capabilities, not only optional
+integrations around a fixed core. P core retains identity, durable state,
+lifecycle orchestration, policy, grants, recovery, activation, and user
+confirmation while invoking typed plugin contracts for the selected
+implementations.
 
-See [model gateway](docs/model-gateway.md).
+MVP must prove that model through secure first-party defaults, including Incus
+runtime support, a tmux persistent host, Git source and session access, Nix
+environment preparation, the structured file-event handler, and the Codex
+adapter. Ordinary setup selects and connects those defaults automatically.
+Developers and agents can author and test alternatives, but registration does
+not activate a plugin or grant it authority; trusted developer configuration
+controls both. The usable public interfaces and their basic first-party
+composition are sufficient for MVP; a separate agent-authored plugin is not a
+release gate.
+
+Internal session services run inside the session boundary under systemd.
+External session services retain their native network protocols and security
+mechanisms while P provides explicitly granted, session-scoped access.
+Host-side capabilities participate in lifecycle work without being exposed to
+the session.
+
+The concrete plugin architecture is not designed yet. Packaging, process
+model, isolation, transport, compatibility, capability manifests,
+installation, composition, and approval UX remain open. See
+[product direction](docs/PRODUCT.md),
+[project guidance](PROJECT.md#make-extension-a-product-capability), and the
+[implementation tracker](docs/missing-pieces.md#plugin-contract).
 
 ## Configuration
 
-V1 has one P configuration authority: trusted host configuration keyed by the
+MVP has one P configuration authority: trusted host configuration keyed by the
 complete project path. It supplies project-scoped session defaults and external
 grants. Creation records an immutable policy snapshot for the session. Later
 configuration changes make that snapshot visibly `outdated`; invalid policy
@@ -321,18 +339,17 @@ default devShell, when present, to realize the session environment and
 dependencies; otherwise it uses the minimal substrate. The default interactive
 command is Bash through tmux. Project creation never generates a project file.
 
-SQLite stores mutable instance bookkeeping: projects, immutable
-session UUIDs, project/branch assignments, the configured Incus instance
-relationship, cross-authority lifecycle phases, reduced session/policy
-conditions, unattended condition, credentials, event diagnostics, and small
-authority indexes. Git remains
+SQLite stores mutable instance bookkeeping: projects, immutable session UUIDs,
+project/branch assignments, the configured Incus instance relationship,
+cross-authority lifecycle phases, reduced session/policy conditions,
+unattended condition, credentials, event diagnostics, and small authority
+indexes. Git remains
 authoritative for code and refs; Incus remains authoritative for instances,
-images, storage, and runtime operations; Bifrost remains
-authoritative for gateway policy.
+images, storage, and runtime operations.
 
 ## Requirements
 
-V1 targets Linux and expects:
+MVP targets Linux and expects:
 
 - Git and OpenSSH;
 - a locally initialized Incus daemon and confined user project;
@@ -347,28 +364,31 @@ it to build the P base image.
 
 ### macOS and Windows
 
-The daemon and execution backends remain Linux-only in V1. A user can run the
-TUI on a Linux host over an ordinary SSH login, or use the Linux client's
-day-one SSH-to-Unix transport from another Linux machine. Native macOS and
-Windows client binaries are later packaging work built on the same transport
-and RPC protocol; they do not introduce a remote-runtime backend.
+The daemon, execution backends, and local client remain Linux-only in MVP. A
+user may use an ordinary SSH login to the Linux host and run the local TUI
+there, but P's client-initiated SSH-to-Unix transport and native macOS or
+Windows clients are post-MVP. They do not introduce a remote-runtime backend.
 
-## Non-goals
+## MVP boundaries
 
-- P is not a multi-user scheduler or agent orchestration framework.
+The enduring project non-goals are authoritative in
+[PROJECT.md](PROJECT.md#non-goals). MVP additionally has these current scope
+boundaries:
+
+- MVP is not a multi-user scheduler or agent orchestration framework.
 - P instances do not federate or replicate control-plane state.
-- P does not migrate running instances, terminals, processes, conversations,
+- MVP does not migrate running instances, terminals, processes, conversations,
   or uncommitted files.
 - P does not invent source commits or snapshot dirty host work.
 - P does not automatically publish to origin.
 - P does not give session runtimes origin credentials or general host/LAN
   access.
-- P does not manage application services in V1.
-- Checks and attempts are reserved future ideas, not V1 APIs.
+- P does not manage application services in MVP.
+- Checks and attempts are reserved future ideas, not MVP APIs.
 
-## V1 scope
+## MVP scope
 
-V1 closes the loop for one user on Linux:
+MVP closes the loop for one user on Linux:
 
 - create explicit SSH-origin or blank projects and create sessions from
   committed sources, with one unborn-`main` bootstrap exception;
@@ -377,13 +397,12 @@ V1 closes the loop for one user on Linux:
   containers;
 - enter a systemd-supervised persistent interactive host through a fixed
   attach entrypoint;
-- use a thin TUI and complete RPC lifecycle surface locally or over
-  SSH-to-Unix;
+- use a thin TUI and complete RPC lifecycle surface over the local Unix socket;
 - report session condition, confirmed attachment presence, the latest
   unattended agent condition, and policy condition;
 - fetch from and explicitly publish to an optional origin;
 - enforce project-scoped external grants and Git credentials;
-- optionally provide model access through per-session Bifrost keys;
+- run Codex with authentication owned by the session's private home;
 - emit reduced typed events to a local file handler; and
 - reconcile SQLite, Git, credentials, and runtime state after interruption.
 
@@ -392,7 +411,7 @@ Implementation uncertainties that need real-machine evidence are tracked in
 affected milestone or capability unless evidence disproves a core invariant.
 
 The current documentation/readiness snapshot is in
-[V1 status](docs/v1-status.md), and the complete remaining-work tracker is in
+[MVP status](docs/mvp-status.md), and the complete remaining-work tracker is in
 [missing pieces](docs/missing-pieces.md).
 
 The implementation choices and build-vs-buy decisions are in

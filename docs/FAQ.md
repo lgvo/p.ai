@@ -13,22 +13,22 @@ organizes isolated runtimes around Git projects and branches, shows them in one
 terminal UI, reports the latest agent condition received while the user is
 away, and controls how committed work leaves the local instance.
 
-It is primarily a bookkeeping and policy layer. Incus, tmux, agents, Git, Nix,
-and Bifrost keep doing their own jobs.
+It is primarily a bookkeeping and policy layer. Incus, tmux, Codex, Git, and
+Nix keep doing their own jobs through capability-specific plugin contracts.
 
 ### Who is P for?
 
-V1 is for one developer operating Linux machines they control. It favors an
+MVP is for one developer operating Linux machines they control. It favors an
 open-source workstation/laptop experience that can later expand to local VMs
 or a P instance running in Kubernetes. Multi-user scheduling, a hosted control
-plane, and instance federation are not V1 goals.
+plane, and instance federation are not MVP goals.
 
 ### Does one P instance manage another machine?
 
-No. A daemon manages only runtimes belonging to its own instance. Remote use is
-a client transport: the client initiates SSH and bridges the instance's Unix
-socket or runs its validated attachment argv. The daemon never SSHes outward to
-manage a remote runtime.
+No. A daemon manages only runtimes belonging to its own instance. MVP clients
+connect to the daemon's local Unix socket. A client-initiated SSH transport may
+bridge that socket after MVP; the daemon never SSHes outward to manage a remote
+runtime.
 
 See [communication boundaries](communication-boundaries.md#ssh-roles).
 
@@ -46,7 +46,7 @@ Refresh and publication behavior is defined in
 
 Git already solves the durable part of cross-machine work. Federation would add
 identity, availability, conflict, discovery, and security problems while still
-being unable to move processes, terminal state, or agent conversations. V1
+being unable to move processes, terminal state, or agent conversations. MVP
 keeps each failure domain local and uses a shared origin only when the user has
 already chosen one.
 
@@ -63,9 +63,10 @@ bindings into an API. See [technology stack](technology-stack.md).
 
 ### Does P launch agents?
 
-P launches the configured interactive command inside the session. That command
-may be a shell, Claude Code, Codex, or custom argv. P does not orchestrate the
-agent's conversation, tool loop, subagents, or task graph.
+P launches the configured interactive command inside the session. MVP supports
+Codex through its bundled adapter. Other agents may run as ordinary commands,
+but P does not claim their hooks, status reporting, or compatibility. P does
+not orchestrate an agent's conversation, tool loop, subagents, or task graph.
 
 An agent may create worktrees, subprocesses, or subagents inside the sandbox.
 Only the session-owned branch is P's handoff boundary, so the agent must
@@ -73,7 +74,7 @@ consolidate any result it wants to retain there.
 
 ### Does P manage development services?
 
-No, not in V1. A user or agent may run a database, server, or watcher inside the
+No, not in MVP. A user or agent may run a database, server, or watcher inside the
 session, but P does not declare, supervise, health-check, restart, or model it.
 Systemd does supervise P's one persistent interactive host because that is the
 container-lifetime contract, not project-service orchestration. Environment
@@ -266,7 +267,7 @@ rejects any required non-force push. See
 
 ### Can P force-publish to origin?
 
-No. V1 creates an absent destination or fast-forwards one explicit origin
+No. MVP creates an absent destination or fast-forwards one explicit origin
 branch. Divergence is shown and refused. An intentional origin rewrite remains
 an ordinary host Git operation followed by a P refresh; the P-branch rewrite
 exception does not grant origin authority.
@@ -286,7 +287,7 @@ events, metadata, confined user projects, system containers, and a future VM
 path. That lets P implement its project/branch/session policy without first
 building and normalizing a Podman/Docker storage and lifecycle layer.
 
-V1 uses unprivileged Incus system containers because they are practical on a
+MVP uses unprivileged Incus system containers because they are practical on a
 workstation. Incus VMs may add stronger isolation later, and Kubernetes may
 place runtimes for a cluster-hosted P instance. The backend interface keeps
 those choices outside session and Git identity.
@@ -315,7 +316,7 @@ substituted, image-hit, and session-private behavior depends on the project,
 cache, host, and storage driver.
 
 The environment builder is reusable, but Dockerfile/OCI behavior is not
-specified in V1. See [environment building](environment-building.md).
+specified in MVP. See [environment building](environment-building.md).
 
 ### What happens when a project has no default devShell?
 
@@ -330,7 +331,7 @@ Repositories contain no P-specific configuration and cannot request host
 paths, credentials, devices, published ports, local-network routes, or
 Incus/SSH-agent access.
 
-V1 grants are project-scoped under `{project}/*`. A future
+MVP grants are project-scoped under `{project}/*`. A future
 `{project}/{branch}` scope is reserved but not implemented, so every new
 session—including one created from an exploratory commit—receives only its
 project's policy.
@@ -354,8 +355,8 @@ The implementation baseline is `none`: no general network, with P Git and the
 private session socket supplied as narrow Unix endpoints. A project may select
 `public-egress` only after its Incus network/ACL/routing configuration proves
 that host, private/LAN, link-local, metadata, gateway, sibling-instance, Incus
-API, and undeclared-service access remains blocked. A granted Bifrost inference
-route is another narrow endpoint.
+API, and undeclared-service access remains blocked. Post-MVP external service
+plugins may add other explicitly granted narrow endpoints.
 
 Network isolation is one of the real-machine validations tracked in
 [development validations](development-validations.md).
@@ -388,14 +389,14 @@ and tracks the next report.
 
 The daemon verifies systemd still reports the persistent host active before
 returning the fixed `/usr/libexec/p/attach` entrypoint. Client crash, SIGKILL,
-detach, switching sessions, or SSH/network loss tears down only that temporary
+detach, switching sessions, or carrier loss tears down only that temporary
 channel. Tmux (or the configured long-running host) remains alive. If the host
 itself exits, systemd journals the result and stops the container; ordinary
 Start launches it again.
 
 ### Why no seen/unseen state or attention history?
 
-V1 only needs to surface the latest thing reported while the user was away.
+MVP only needs to surface the latest thing reported while the user was away.
 Observation cursors, causal attention IDs, multi-participant reduction, and
 resolution history add machinery without making ambiguous agent hooks
 authoritative. A confirmed entry already provides a simple useful
@@ -420,8 +421,8 @@ contract without changing session identity, Git, or observability semantics.
 
 Git carries source objects, commits, and refs. RPC carries project/session
 lifecycle, configuration results, runtime state, attachments, status, and
-subscriptions. Model inference has its own Bifrost HTTP route. Terminal bytes
-use the attachment path.
+subscriptions. Terminal bytes use the attachment path. Post-MVP external
+services retain their own protocols.
 
 The full channel table is in
 [communication boundaries](communication-boundaries.md#the-rule).
@@ -429,9 +430,9 @@ The full channel table is in
 ### Why Unix sockets instead of a network API?
 
 The control plane is instance-local. Unix permissions and peer identity protect
-local access; a remote client delegates authentication and encryption to SSH
-while bridging the same socket. P therefore does not need to expose control RPC
-on TCP or invent another remote authentication scheme in V1.
+MVP access, so P does not expose control RPC on TCP. A post-MVP remote client
+may delegate authentication and encryption to SSH while bridging the same
+socket.
 
 ### What can a session ask P to do?
 
@@ -448,7 +449,19 @@ is its identity; it cannot claim another UUID in a payload.
 
 The three paths are deliberately separate. Neither host key enters a runtime.
 
-## Model gateway
+### How does Codex authenticate in MVP?
+
+The user authenticates Codex inside each isolated session. Its private home
+retains those files across Stop and Start, and Discard or Delete removes them
+with the rest of the session. P does not copy, inject, inspect, or manage the
+host's Codex or OpenAI credentials. When Codex needs network access, the
+project must explicitly select the validated `public-egress` grant; MVP
+provides no model gateway endpoint.
+
+## Post-MVP model gateway
+
+Bifrost is not part of MVP. The answers in this section explain the retained
+design for later managed, session-scoped model access.
 
 ### Why Bifrost instead of passing provider keys into sessions?
 
@@ -469,16 +482,16 @@ gateway, so Git and terminal access remain available.
 
 ### Can a session key call Bifrost's dashboard or management APIs?
 
-No. Bifrost's native authentication and virtual-key enforcement are the V1
-boundary. Administrative authentication is enabled, sessions receive no admin
-credential, and every inference request requires a valid session key. P tests
-the actual key against the pinned release: approved inference and filtered
-model discovery must succeed, while dashboard, management, governance, logs,
-MCP, skills, and all other non-V1 routes must reject it. Model access fails
-closed if the effective configuration or route inventory has not been
-validated; P does not rely on defaults or proxy inference in V1.
+No. Bifrost's native authentication and virtual-key enforcement are the
+post-MVP boundary. Administrative authentication is enabled, sessions receive
+no admin credential, and every inference request requires a valid session key.
+P tests the actual key against the pinned release: approved inference and
+filtered model discovery must succeed, while dashboard, management,
+governance, logs, MCP, skills, and all other non-inference routes must reject
+it. Model access fails closed if the effective configuration or route inventory
+has not been validated; P does not rely on defaults or proxy inference.
 
-### Why OpenAI-compatible first?
+### Why would OpenAI-compatible access come first?
 
 It provides the initial Codex path while keeping the integration small.
 Bifrost—not P—implements the API surface. Anthropic-compatible access and
@@ -493,7 +506,7 @@ upstream, and Ollama/vLLM-like endpoints can be exposed as permitted aliases.
 The session sees only the catalog allowed by its virtual key and cannot select
 an arbitrary host/LAN URL.
 
-### Are Bifrost Skills and MCP part of V1 inference?
+### Are Bifrost Skills and MCP part of its initial integration?
 
 No. They are promising adjacent capabilities, but inference, skill serving, and
 MCP tool access require separate routes and grants. Bifrost Agent Mode and Code
@@ -508,9 +521,10 @@ is in [model gateway](model-gateway.md#kubernetes-evolution).
 
 ## What remains intentionally later?
 
-Native macOS/Windows clients, Dockerfile/OCI environments, Incus VMs, Kubernetes
-runtimes, branch-specific grants, checks, attempts, richer MCP/skills
-integration, and multi-user operation are later capabilities. The uncertain
+P's SSH client transport, native macOS/Windows clients, Bifrost, additional
+agent adapters, Dockerfile/OCI environments, Incus VMs, Kubernetes runtimes,
+branch-specific grants, checks, attempts, richer MCP/skills integration, and
+multi-user operation are later capabilities. The uncertain
 parts of already-scoped development are listed separately in
 [development validations](development-validations.md), so one spike does not
 silently block unrelated implementation.

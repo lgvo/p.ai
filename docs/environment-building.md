@@ -26,12 +26,12 @@ image without sharing writable Nix state between sessions.
 - [Failures and retry](#failures-and-retry)
 - [Performance and evidence](#performance-and-evidence)
 - [API and channel boundary](#api-and-channel-boundary)
-- [V1 boundary](#v1-boundary)
+- [MVP boundary](#mvp-boundary)
 - [Acceptance criteria](#acceptance-criteria)
 
 ## The rule
 
-V1 prepares one immutable Incus environment image for each resolved default
+MVP prepares one immutable Incus environment image for each resolved default
 Nix devShell. The image contains the P base, the realized devShell closure, a
 coherent Nix store database, and activation material. Incus supplies private
 writable instance storage on top of that image for every session.
@@ -87,18 +87,18 @@ type EnvironmentBuilder interface {
 
 `EnvironmentHandle` contains a target kind/contract version, content identity,
 and opaque immutable locator. Lifecycle and generic runtime code do not inspect
-the locator. V1 returns target kind `incus-system-image`; only the Incus adapter
+the locator. MVP returns target kind `incus-system-image`; only the Incus adapter
 interprets its locator as an image fingerprint.
 
-V1 has one implementation: default Nix devShell to an Incus system-container
+MVP has one implementation: default Nix devShell to an Incus system-container
 image. The interface preserves separation from session identity and runtime
-lifecycle; it does not require V1 capability negotiation among hypothetical
+lifecycle; it does not require MVP capability negotiation among hypothetical
 formats or additional providers.
 
 The Incus backend supplies the builder isolation and image publication target.
 A future environment provider or backend may implement another image form
 without changing Git/session identity, but no Dockerfile or OCI contract is
-specified in V1.
+specified in MVP.
 
 ## Environment selection
 
@@ -162,7 +162,7 @@ The key follows actual build identity:
 ```text
 provider and adapter version
 execution system
-P project path (V1 cache-isolation scope)
+P project path (MVP cache-isolation scope)
 P base-image fingerprint and runtime-kit contract
 committed flake/lock inputs required to resolve the default devShell
 resolved derivation identity
@@ -171,7 +171,7 @@ environment-image format version
 ```
 
 Two commits in one project may reuse an immutable image when the resolved
-derivation and all other key inputs match. V1 does not reuse images across P
+derivation and all other key inputs match. MVP does not reuse images across P
 projects, even when derivations match: a Nix closure may retain source-derived
 store paths, so cross-project reuse would widen source visibility. A
 source-only commit does not invalidate the cached image merely because its Git
@@ -275,7 +275,7 @@ The published image contains one coherent `/nix` view:
 
 It may also contain committed source-derived store paths retained by that
 closure. These are immutable project inputs, not the session workspace, and
-are one reason environment-image reuse is scoped to a P project in V1.
+are one reason environment-image reuse is scoped to a P project in MVP.
 
 When Incus creates a session instance, its private root begins from those
 bytes. The exact block sharing is Incus storage-driver behavior; logically the
@@ -338,7 +338,7 @@ before removing the index and image. The preview warns that an existing
 instance continues without the image but may no longer be exactly recreatable
 if it is later lost and its branch environment has changed. This warning does
 not introduce a lease or implicit retention rule. A missing externally removed
-image is a cache miss. V1 has no automatic age- or pressure-based collection.
+image is a cache miss. MVP has no automatic age- or pressure-based collection.
 
 The other explicit removal path is confirmed **Delete project and all P data**.
 Its aggregate project preflight includes these project-scoped keys and images,
@@ -360,7 +360,7 @@ origin/P Git private key, model key, event-handler credential, host Nix state, o
 general host/LAN route. Public egress must pass the same destination-isolation
 evidence required by runtime policy.
 
-V1 supplies no build secrets. Private flake inputs, authenticated caches,
+MVP supplies no build secrets. Private flake inputs, authenticated caches,
 remote builders, KVM devices, and deployment credentials require separate
 future capabilities rather than ambient credential mounts.
 
@@ -416,9 +416,9 @@ real homelab repository.
 Independent P instances rebuild the same environment or obtain inputs from
 ordinary Nix substituters. They do not exchange P cache metadata or images.
 
-## V1 boundary
+## MVP boundary
 
-V1 includes:
+MVP includes:
 
 - conventional default flake devShell or base-only behavior;
 - pure committed-source resolution;
@@ -432,14 +432,14 @@ V1 includes:
 - bounded progress and explicit retry; and
 - explicit cache collection.
 
-V1 excludes Dockerfile/devcontainer providers, OCI packaging, raw closure
+MVP excludes Dockerfile/devcontainer providers, OCI packaging, raw closure
 mounts, shared writable Nix stores, host Nix access, automatic promotion from
 sessions, build secrets, remote builders, automatic cache collection, and
 portable image distribution between P instances.
 
 ## Acceptance criteria
 
-The V1 environment path is supported when tests prove:
+The MVP environment path is supported when tests prove:
 
 1. resolution and realization use only immutable committed source and cannot
    reach ambient host authority;

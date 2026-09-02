@@ -23,11 +23,11 @@ channels.
 - [Image-build communication](#image-build-communication)
 - [Future attempts and Git-triggered checks](#future-attempts-and-git-triggered-checks)
 - [Attachment](#attachment)
-- [Model-gateway traffic](#model-gateway-traffic)
+- [Post-MVP model-gateway traffic](#post-mvp-model-gateway-traffic)
 - [Event delivery](#event-delivery)
 - [Listeners](#listeners)
 - [Failures, retries, and versioning](#failures-retries-and-versioning)
-- [V1 boundary](#v1-boundary)
+- [MVP boundary](#mvp-boundary)
 
 ## The rule
 
@@ -38,7 +38,7 @@ channels.
 | Host RPC | lifecycle, configuration, status, subscriptions | source trees or arbitrary command execution |
 | Session RPC | identity, capabilities, latest agent condition, narrow act-on-self calls | other sessions, publication, host control |
 | Attachment | one validated interactive argv and terminal byte stream | lifecycle API or source transfer |
-| Bifrost HTTP | approved model discovery and inference under a mandatory virtual key | P lifecycle; session keys are rejected by Bifrost administration and every non-V1 surface |
+| Bifrost HTTP (post-MVP) | approved model discovery and inference under a mandatory virtual key | P lifecycle; not an MVP session channel |
 | Incus builder | immutable commit input, bounded Nix capabilities, environment-image publication | ambient host authority or session identity |
 | Event handler | typed, versioned reduced P events | source contents, credentials, or source-of-truth state |
 
@@ -47,10 +47,10 @@ actions and events that are not source history.
 
 ## SSH roles
 
-SSH is a carrier used in three independent places:
+SSH has three independent potential roles:
 
-1. A remote Linux client initiates SSH to bridge the daemon's Unix RPC socket
-   and run a validated attachment command on that instance.
+1. After MVP, a remote Linux client may initiate SSH to bridge the daemon's
+   Unix RPC socket and run a validated attachment command on that instance.
 2. The P Git listener authenticates host and session principals before running
    fixed `git-upload-pack` or `git-receive-pack` argv.
 3. Host-side origin operations use the host user's existing OpenSSH identity.
@@ -102,7 +102,14 @@ confirmed attachment count, latest unattended condition, and policy condition.
 
 Session adapters send `status.report` JSON-RPC notifications (the protocol
 message type). There is no mark-seen API, attention collection, participant
-inventory, or status history in v1.
+inventory, or status history in MVP.
+
+MVP ships and validates only the Codex adapter. Codex runs as an ordinary
+command, and the user authenticates it within the session's private home. P
+does not carry host Codex or OpenAI credentials into the session. Other agents
+may run as commands but have no supported status adapter in MVP. Networked
+Codex use relies on the project's validated `public-egress` grant rather than a
+P-provided model endpoint.
 
 ## P Git data plane
 
@@ -185,7 +192,7 @@ The configured origin is a trusted host-side project setting, not a remote
 copied from a session workspace. Its identity is the recorded remote URL;
 `origin` is only P's presentation name.
 
-V1 accepts SSH Git URLs, including `ssh://` and conventional
+MVP accepts SSH Git URLs, including `ssh://` and conventional
 `user@host:path` forms. HTTPS credentials, embedded URL credentials, local
 filesystem remotes, and arbitrary transport helpers are not supported.
 
@@ -248,7 +255,7 @@ origin snapshots.
 
 ### Refresh triggers
 
-V1 performs a refresh:
+MVP performs a refresh:
 
 - before an origin is initially recorded for a new or existing project; a
   failed contact leaves the project unchanged;
@@ -382,7 +389,7 @@ Checks and attempts are deferred and keep separate reserved namespaces:
 | `refs/attempts/*` | session-owned approach refs, if attempts are later designed |
 | `refs/p/*` | P-owned check requests, results, and protocol metadata, if checks are later designed |
 
-V1 denies writes to both and exposes no scheduler, result protocol, promotion
+MVP denies writes to both and exposes no scheduler, result protocol, promotion
 flow, lifecycle rule, or configuration for either feature.
 
 A future design may give attempts their own immutable ID, ref, RPC status, and
@@ -404,9 +411,8 @@ Attachment is an RPC decision followed by client-side execution:
    `AttachSpec` for that runtime;
 5. the daemon returns the spec with a short-lived, one-use pending attachment
    token;
-6. the local client invokes the trusted host helper directly, or a remote Linux
-   client invokes it through client-initiated SSH, transferring the token over
-   private control input rather than argv;
+6. the local client invokes the trusted host helper directly and transfers the
+   token over private control input rather than argv;
 7. the helper opens a dedicated attachment RPC connection, establishes the
    interactive channel, and confirms the token on that connection;
 8. the daemon promotes it to a helper-owned attachment lease; and
@@ -416,9 +422,9 @@ Attachment is an RPC decision followed by client-side execution:
 A failed channel establishment or expired pending token never increments
 attachment presence or clears unattended status. Only confirmation does so.
 The helper binds the channel to both lease and client carrier independently of
-client cooperation. Client crash/SIGKILL, SSH/network loss, or carrier closure
+client cooperation. Client crash/SIGKILL or carrier closure
 starts teardown. If daemon restart removes the lease first, the helper tears
-down that temporary channel. No V1 RPC re-registers an existing channel.
+down that temporary channel. No MVP RPC re-registers an existing channel.
 
 The fixed attach program connects the terminal to the persistent host selected
 by trusted image/project configuration; tmux is the default. Attachment loss,
@@ -429,10 +435,11 @@ container. P never returns a shell string. Runtime mechanics are defined in
 Start, lease, and status-clear ordering are defined in
 [session lifecycle](session-lifecycle.md#attach-and-detach).
 
-## Model-gateway traffic
+## Post-MVP model-gateway traffic
 
-Bifrost is an independently configured service and the authority for provider
-credentials, models, routing, MCP, budgets, and virtual-key policy.
+Bifrost is outside MVP. The retained design treats it as an independently
+configured service and the authority for provider credentials, models,
+routing, MCP, budgets, and virtual-key policy.
 
 - P stores the Bifrost endpoint plus the session virtual-key ID and token.
 - P delivers that token only to its session runtime and redacts it from logs,
@@ -440,7 +447,7 @@ credentials, models, routing, MCP, budgets, and virtual-key policy.
 - The service may be network-reachable, but every inference request requires a
   valid session virtual key. That key succeeds only for approved inference and
   filtered model discovery and is rejected for dashboard, management,
-  governance, logs, MCP, skills, and every other non-V1 route.
+  governance, logs, MCP, skills, and every other non-inference route.
 - P verifies the pinned Bifrost route/authentication boundary and fails model
   access closed when configuration, version, positive probes, negative probes,
   or route inventory are not validated during initial model-enabled creation.
@@ -452,12 +459,13 @@ credentials, models, routing, MCP, budgets, and virtual-key policy.
 - Session discard or deletion follows the revocation and cleanup rules in
   [session lifecycle](session-lifecycle.md#credential-and-image-cache-cleanup).
 
-Upstream provider credentials never enter P state or session configuration.
+These rules do not describe MVP Codex authentication, which remains inside the
+session's private home and outside P's credential management.
 
 ## Event delivery
 
 P reduces authoritative state changes into typed, versioned events and invokes
-configured event handlers. The V1 handler appends redacted NDJSON to a local
+configured event handlers. The MVP handler appends redacted NDJSON to a local
 log file. Handler failure is diagnostic and never rolls back the operation
 that emitted the event. Event delivery is not source-of-truth state, an outbox,
 an acknowledgement protocol, or a session-facing notification contract.
@@ -473,8 +481,8 @@ interface is owned by
 | Host control RPC | user-owned Unix socket | TUI and `p api` |
 | Per-session RPC | private mounted Unix socket | identity and status reports |
 | P Git SSH | host loopback plus explicit runtime path | fixed Git services |
-| Bifrost inference | explicit runtime path when granted | model APIs under virtual key |
-| Bifrost administration | authenticated with a host-only credential; session keys rejected | native Bifrost configuration |
+| Bifrost inference (post-MVP) | explicit runtime path when granted | model APIs under virtual key |
+| Bifrost administration (post-MVP) | authenticated with a host-only credential; session keys rejected | native Bifrost configuration |
 
 No Incus socket, host SSH agent, host control socket, or general LAN
 route is mounted into a session.
@@ -498,15 +506,16 @@ Git's; P versions its ref-policy implementation and stored operation schema.
 Migrations are forward-only and startup fails clearly when state is newer than
 the binary.
 
-## V1 boundary
+## MVP boundary
 
-V1 includes local Unix RPC and client-initiated SSH-to-Unix RPC for Linux
-clients, P Git over SSH, session-scoped Git principals, read-only host Git
-access, committed-state session creation, transactional branch rename,
-SSH origin refresh, explicit fast-forward-only origin publication, per-session
-status sockets, systemd-defined host readiness, structured
-pending-to-confirmed attachment, optional Bifrost inference under the validated
-native authentication boundary, and the local NDJSON event handler.
+MVP includes local Unix RPC for the Linux client, P Git over SSH,
+session-scoped Git principals, read-only host Git access, committed-state
+session creation, transactional branch rename, SSH origin refresh, explicit
+fast-forward-only origin publication, per-session status sockets,
+systemd-defined host readiness, structured pending-to-confirmed attachment,
+the Codex status adapter with session-local authentication, and the local
+NDJSON event handler.
 
-Native macOS/Windows clients, attempts, checks, and additional network/backend
+Client-initiated SSH-to-Unix, native macOS/Windows clients, Bifrost integration,
+additional agent adapters, attempts, checks, and additional network/backend
 claims remain later work or gated validations.

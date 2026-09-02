@@ -20,7 +20,7 @@ P needs to answer four small questions:
 3. What is the latest supported agent signal received while unattended?
 4. Does the session still use current trusted project policy?
 
-V1 does not implement a lossless activity history, read/unread state, multiple
+MVP does not implement a lossless activity history, read/unread state, multiple
 outstanding attention records, service supervision, or semantic inference from
 terminal contents.
 
@@ -86,8 +86,8 @@ increment `attached_count`.
 Failure to launch, token expiry, or RPC closure before confirmation removes
 pending state without changing presence. While the daemon remains reachable,
 the helper keeps its confirmed lease until temporary-client teardown finishes.
-Client crash, SIGKILL, carrier/SSH loss, or client-machine loss starts teardown
-without client cooperation. Daemon-restart lease loss starts teardown
+Client crash, SIGKILL, attachment-transport loss, or client-machine loss starts
+teardown without client cooperation. Daemon-restart lease loss starts teardown
 immediately; pending tokens and leases are not restored or re-registered.
 Teardown preserves the systemd-owned persistent interactive host.
 
@@ -117,7 +117,7 @@ Rules:
    set. It is only the latest unattended signal.
 
 An agent permission event may therefore be replaced by later `running`,
-`idle`, or `failed` activity. V1 does not correlate permission resolution.
+`idle`, or `failed` activity. MVP does not correlate permission resolution.
 
 ### Policy condition
 
@@ -132,9 +132,9 @@ P compares that digest and typed fields with current trusted project policy:
 
 `outdated` is a warning, not a lifecycle failure. Presentation identifies the
 effective differences, such as a removed filesystem grant the old session
-still has, a new model grant it lacks, or a changed persistent host/network
-policy. Narrowing/removal receives stronger wording because the existing
-session retains authority that a new session would not.
+still has, a new external-service grant it lacks, or a changed persistent
+host/network policy. Narrowing/removal receives stronger wording because the
+existing session retains authority that a new session would not.
 
 P never claims an outdated session has updated merely because configuration
 was reloaded. **Recreate with current policy** is the guided Discard-and-Create
@@ -189,11 +189,12 @@ generic condition vocabulary.
 | agent/API failure | `failed` |
 | lifecycle event with no safe semantic mapping | omitted or `unknown` |
 
-Claude Code and Codex mappings must be validated against real versioned traces
-before support is claimed. Unsupported versions emit no semantic condition
-rather than guessed status. Ordinary natural-language questions are not
-reliably distinguishable from turn completion unless the agent emits an
-explicit input event. P does not parse terminal output to compensate.
+The MVP Codex mapping must be validated against real versioned traces before
+support is claimed. Claude Code and other adapters require post-MVP validation.
+Unsupported agents or versions emit no semantic condition rather than guessed
+status. Ordinary natural-language questions are not reliably distinguishable
+from turn completion unless the agent emits an explicit input event. P does
+not parse terminal output to compensate.
 
 ## Typed P events
 
@@ -220,7 +221,7 @@ outbox, acknowledgement/retry protocol, replay cursor, or authoritative event
 history. A handler must tolerate process restart and duplicate external effects
 according to its own needs.
 
-V1's built-in handler appends structured events to a configured file. The
+MVP's built-in handler appends structured events to a configured file. The
 interface, handler choice, and file implementation are owned by
 [technology stack](technology-stack.md#event-handlers). Other logging,
 notification, webhook, or metrics handlers may implement the same seam later;
@@ -271,14 +272,14 @@ cannot grant capabilities, mutate policy/Git authorization, choose handlers or
 log paths, publish, create another session, or execute host commands. Event
 handlers and destinations are trusted host configuration.
 
-## V1 boundary
+## MVP boundary
 
-V1 includes one public session condition, confirmed attachment count, one
+MVP includes one public session condition, confirmed attachment count, one
 nullable latest unattended condition, immutable-policy comparison, strict
-status reports, reduced typed events, one structured file-log handler, and
-versioned Claude Code/Codex cookbook mappings after validation.
+status reports, reduced typed events, one structured file-log handler, and a
+versioned Codex cookbook mapping after validation.
 
-V1 excludes separate public runtime/startup-readiness fields, `not_ready`,
+MVP excludes separate public runtime/startup-readiness fields, `not_ready`,
 startup markers, seen/unseen history, event replay, observation cursors,
 participant inventories, multiple attention records, causal permission
 resolution, terminal parsing, pane inspection, built-in notification

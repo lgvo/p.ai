@@ -11,14 +11,14 @@ that is actually specific to P.
 
 ## Scope and reading frame
 
-P is local-first, open-source tooling intended to run on machines the user
-controls and to expand through replaceable, instance-local execution
-mechanisms. Managed vendor platforms matter as strategic context, but they are
-not the primary comparison set. V1 selects a confined local Incus project as
-its sole runtime substrate; a future Incus VM or Kubernetes provider could
-place work for that same instance. An SSH host or a second P daemon is not a
-backend. The user selects another P instance by
-connecting its TUI to that instance, and v1 moves work between instances only
+P is self-contained, extensible, open-source tooling intended to run on
+machines the user controls and to expand through replaceable execution
+mechanisms and stable plugin contracts. Managed vendor platforms matter as
+strategic context, but they are not the primary comparison set. MVP selects a
+confined local Incus project as its sole runtime substrate; a future Incus VM
+or Kubernetes provider could place work for that same instance. An SSH host or
+a second P daemon is not a backend. The user selects another P instance by
+connecting its TUI to that instance, and MVP moves work between instances only
 through the project's ordinary shared `origin` when one is configured. Without
 one, the project is intentionally local-only.
 
@@ -44,7 +44,7 @@ fundamentally different things:
   the mutable session name is that branch's real ref name, addressed together
   with the complete project repository path.
 - A **runtime** is one unprivileged Incus system container tagged to the
-  session UUID in V1. The configured interactive command may be a shell or
+  session UUID in MVP. The configured interactive command may be a shell or
   agent; tmux is the default persistent host, not session identity.
 - Every session starts from committed source and owns a real branch
   immediately. A timestamp provides an initial name when the user has no better
@@ -261,7 +261,7 @@ them through web, desktop, and iOS clients. Its scheduling, terminal streaming,
 attention, and multi-machine control-plane/data-plane split are relevant scale
 references.
 
-It is the opposite topology from P v1: runners join a federated fleet, pods can
+It is the opposite topology from P MVP: runners join a federated fleet, pods can
 collaborate through platform channels, and a central service schedules across
 machines. P instances never communicate; projects that cross machines share
 only an ordinary upstream Git repository. AgentsMesh is also BSL-1.1 with
@@ -271,7 +271,7 @@ rather than an open-source dependency candidate for P today.
 
 ## Execution-provider references
 
-### Incus — selected V1 substrate
+### Incus — selected MVP substrate
 
 **[Incus](https://linuxcontainers.org/incus/docs/main/)** supplies the runtime
 mechanics P should reuse: system containers and VMs, images, storage pools,
@@ -283,9 +283,9 @@ documents that unrestricted administrative access is
 [host-root-equivalent](https://linuxcontainers.org/incus/docs/main/explanation/security/),
 which is why P must use only the confined user project/socket.
 
-Incus replaces V1 engine/image/storage lifecycle implementation; it does not
+Incus replaces MVP engine/image/storage lifecycle implementation; it does not
 replace P's Git project/branch identity, per-session authorization, lifecycle
-intent, status, TUI, or origin publication. P uses local Incus only in V1:
+intent, status, TUI, or origin publication. P uses local Incus only in MVP:
 remote servers and clusters do not create daemon federation.
 
 The following are design references for future isolation providers. They are
@@ -314,8 +314,9 @@ research without being eligible under those constraints.
 Model routing and protocol compatibility are commodity infrastructure, not a P
 differentiator:
 
-- **[Bifrost](https://github.com/maximhq/bifrost)** is the selected first
-  local and Kubernetes-capable implementation. Its provider integrations,
+- **[Bifrost](https://github.com/maximhq/bifrost)** is the selected post-MVP
+  model-gateway direction for local and Kubernetes-capable deployments. Its
+  provider integrations,
   virtual keys, aliases, routing, streaming, limits, accounting, dashboard,
   Skills Repository, and MCP gateway cover substantially more than P's small
   runtime-principal lifecycle seam. P uses only filtered session-facing
@@ -334,14 +335,14 @@ differentiator:
   there first, sit behind Envoy later, or be replaced only for the inference
   data plane while remaining an optional skills service.
 - **[Portkey](https://portkey.ai/docs/product/ai-gateway)** is relevant for
-  optional managed/hybrid deployments, not the local v1 default.
+  optional managed/hybrid deployments, not the local MVP default.
 
-P exposes Bifrost's OpenAI-compatible interface first and adds its
-Anthropic-compatible interface in a second phase. Bifrost owns both APIs; P
-owns only gateway-principal lifecycle, trusted model grants, attribution, and
-which independently filtered skills/MCP surfaces a runtime may reach. The
-[full gateway design](model-gateway.md) records the Bifrost capability map and
-the staged Bifrost-first/optional-Envoy Kubernetes shapes.
+The post-MVP design exposes Bifrost's OpenAI-compatible interface first and
+adds its Anthropic-compatible interface in a second phase. Bifrost owns both
+APIs; P owns only gateway-principal lifecycle, trusted model grants,
+attribution, and which independently filtered skills/MCP surfaces a runtime
+may reach. The [full gateway design](model-gateway.md) records the Bifrost
+capability map and staged Bifrost-first/optional-Envoy Kubernetes shapes.
 
 ## Vendor platforms — strategic context
 
@@ -442,13 +443,13 @@ combination:
    a sessions-only operational view over disposable runtimes.
 2. One immutable session UUID per logical branch, with one confined local Incus
    instance and a replaceable interactive host; an unprivileged system
-   container and tmux are the V1 defaults for those separate roles.
+   container and tmux are the MVP defaults for those separate roles.
 3. A local Git hub that authenticates each session and restricts it to its
    assigned branch while giving the host only read access.
 4. No `origin` credentials or path inside the runtime; when an origin is
    configured, every update to it is an explicit host-side publication.
 5. Independent P instances that never federate and use a configured ordinary
-   origin as their only v1 convergence mechanism; origin-less projects remain
+   origin as their only MVP convergence mechanism; origin-less projects remain
    local-only.
 6. Agent-agnostic latest-unattended status and credential mediation around a
    runtime in which the human or agent otherwise remains sovereign.
@@ -467,7 +468,7 @@ origin publication compose in a self-hosted tool.
   grouping model differs. Runtime identity must remain immutable, and temporary
   attachment cleanup must not terminate the systemd-owned persistent host.
 - **Reuse Incus instead of rebuilding runtime mechanics.** Confined local Incus
-  is V1; Incus VMs or a later Kubernetes backend can implement the retained
+  is MVP; Incus VMs or a later Kubernetes backend can implement the retained
   runtime seam. SSH selects another P instance—it never makes that host a
   backend of the current daemon. Third-party sandbox APIs remain research until
   they can satisfy the instance, Git, network, and credential boundaries.

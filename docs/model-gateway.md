@@ -1,12 +1,12 @@
-# P — model gateway
+# P — post-MVP model gateway
 
 How sessions reach hosted and local models without receiving upstream
 credentials or general access to the host network.
 
-> **Status: design.** This document is the authority for P's model-gateway
-> boundary. [communication-boundaries.md](communication-boundaries.md) owns the
-> channel and [technology-stack.md](technology-stack.md) owns implementation
-> choices.
+> **Status: retained post-MVP design.** Model-gateway integration is not part
+> of MVP. This document remains the authority for its future boundary.
+> [communication-boundaries.md](communication-boundaries.md) owns the channel
+> and [technology-stack.md](technology-stack.md) owns implementation choices.
 >
 > **Convention:** **Decided** — settled semantics. **Direction** — proposed
 > implementation shape. **Open** — unresolved implementation detail.
@@ -49,7 +49,7 @@ tests. They do not define an API implemented by P.
 
 | Phase | Exposed Bifrost interface | Acceptance client |
 |---|---|---|
-| **1 — v1** | OpenAI-compatible | Codex |
+| **1 — initial post-MVP integration** | OpenAI-compatible | Codex |
 | **2** | Anthropic-compatible, in addition to phase one | Claude Code |
 
 If Bifrost adds, removes, or changes endpoints inside one interface, that is a
@@ -57,9 +57,8 @@ Bifrost compatibility matter. P's integration verifies that its acceptance
 clients work; P does not promise endpoint-by-endpoint emulation.
 
 Until phase two, Claude Code uses an in-session subscription login or an
-explicit secret-bearing filesystem grant from trusted project policy. Its
-observability hooks remain a v1 integration and are independent of model
-transport.
+explicit secret-bearing filesystem grant from trusted project policy. Agent
+observability remains independent of model transport.
 
 ## First implementation: Bifrost
 
@@ -92,10 +91,11 @@ that data plane.
 
 ## Session-facing enforcement boundary
 
-**Decided.** V1 relies on the pinned Bifrost release's native authentication
-and virtual-key enforcement. The Bifrost HTTP service may be network-reachable
-from a session; the security guarantee is that session credentials are rejected
-for every non-V1 operation, not that packets cannot reach those routes.
+**Decided for post-MVP integration.** P relies on the pinned Bifrost release's
+native authentication and virtual-key enforcement. The Bifrost HTTP service
+may be network-reachable from a session; the security guarantee is that session
+credentials are rejected for every non-inference operation, not that packets
+cannot reach those routes.
 
 The effective Bifrost configuration must satisfy all of these invariants:
 
@@ -106,7 +106,7 @@ The effective Bifrost configuration must satisfy all of these invariants:
 - that key authorizes only the session's approved OpenAI-compatible inference
   operations and filtered model discovery in phase one; and
 - the same key is rejected by dashboard, management, governance, logs, MCP,
-  Skills Repository, and every other non-V1 route.
+  Skills Repository, and every other non-inference route.
 
 P does not prescribe one value for Bifrost's
 `disable_auth_on_inference` setting. Administrative authentication and
@@ -117,17 +117,17 @@ never trusts defaults.
 Before enabling model access, and after a Bifrost version or effective-
 configuration change, P validates the boundary with the real session key. It
 positively probes allowed model discovery and inference, negatively probes the
-non-V1 route inventory, and distinguishes an authorization rejection from a
-connection or server failure. Missing-key, invalid-key, and revoked-key probes
-must also fail. The validated route inventory is tied to the pinned Bifrost
-version; newly introduced routes require classification before an upgrade is
-accepted.
+non-inference route inventory, and distinguishes an authorization rejection
+from a connection or server failure. Missing-key, invalid-key, and revoked-key
+probes must also fail. The validated route inventory is tied to the pinned
+Bifrost version; newly introduced routes require classification before an
+upgrade is accepted.
 
 An unexpected success, an unclassified route, or a Bifrost version/configuration
 that P has not validated fails model access closed. It does not make projects
 without model grants, Git, RPC, or an existing runtime unavailable. An L7
 allowlisting proxy is a later fallback only if Bifrost cannot enforce this
-boundary natively; it is not part of V1.
+boundary natively; it remains outside the initial Bifrost integration.
 
 ### Native-enforcement feasibility gate
 
@@ -141,12 +141,11 @@ and [virtual-key behavior](https://docs.getbifrost.ai/features/governance/virtua
 
 The positive/negative probe suite is therefore the first implementation spike
 for optional model access. If the pinned release lets the real session key
-invoke any governance or other non-V1 operation, or cannot restrict it to the
-accepted inference/model-discovery surface, P does not ship model access with
-that release. This gate blocks only the optional model-access milestone. It
-cannot weaken the boundary or block Git, RPC, lifecycle, runtime, TUI, or
-projects without model grants. An L7 proxy remains outside V1 unless a separate
-design explicitly introduces it.
+invoke any governance or other non-inference operation, or cannot restrict it
+to the accepted inference/model-discovery surface, P does not ship model access
+with that release. This gate blocks only the optional model-access milestone.
+It cannot weaken the boundary or block Git, RPC, lifecycle, runtime, TUI, or
+projects without model grants. An L7 proxy requires a separate design.
 
 ## Bifrost capability map
 
@@ -243,10 +242,11 @@ projects["lgvo/p"].modelAccess.enabled = true
 projects["lgvo/p"].modelAccess.policy = "billing-agents"
 ```
 
-V1 grants model access only at project scope. Every session in the project uses
-the same referenced Bifrost policy but receives its own key. The general grant
+The initial Bifrost integration grants model access only at project scope.
+Every session in the project uses the same referenced Bifrost policy but
+receives its own key. The general grant
 namespace reserves `{project}/{branch}` for future granularity; P does not
-implement branch-specific model grants in v1.
+implement branch-specific model grants in that phase.
 
 How the pinned Bifrost release issues a virtual key from an existing policy
 reference is an integration validation, not a second P model schema. If the
@@ -392,13 +392,13 @@ session pods ──► Bifrost serving route     # optional skills repository
 At that point an Envoy integration must implement P's principal,
 filtered-catalog, revocation, and usage seam using Envoy/cluster identity and
 policy resources. This is a deliberate implementation change, not a reason to
-design v1 around Envoy. MCP aggregation must also have one owner; P should not
-present two overlapping tool catalogs to the same session.
+design the initial integration around Envoy. MCP aggregation must also have one
+owner; P should not present two overlapping tool catalogs to the same session.
 
 Portkey remains a possible managed/hybrid implementation. Neither Envoy nor
-Portkey is a v1 dependency.
+Portkey is an MVP dependency.
 
-## Acceptance
+## Post-MVP acceptance
 
 Phase one must prove:
 
@@ -417,7 +417,7 @@ Phase one must prove:
    prove the allowed inference/model-discovery operations; and
 9. the real session key receives an authorization rejection—not merely a
    transport failure—from every dashboard, management, governance, logs, MCP,
-   skills, and other non-V1 route in the pinned-version inventory; and
+   skills, and other non-inference route in the pinned-version inventory; and
 10. initial model-enabled creation fails when provisioning/validation fails,
     while an established session can Start and Attach during a Bifrost outage
     with only model access degraded.

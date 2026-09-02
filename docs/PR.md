@@ -1,8 +1,8 @@
 # P — every piece of work you have in flight, on one screen
 
-**Press release · working-backwards draft · target: v1**
+**Press release · working-backwards draft · target: MVP**
 
-> Written as if v1 already shipped. It is a product narrative, not an
+> Written as if MVP already shipped. It is a product narrative, not an
 > announcement or protocol authority. The subject-specific design documents are
 > authoritative; [README.md](../README.md) summarizes the current design and
 > [FAQ.md](FAQ.md) explains its tradeoffs.
@@ -22,11 +22,16 @@ Typed reduced events also feed a local log handler and leave room for other
 trusted handlers later.
 
 A project is a Git repository. A session is an immutable UUID that owns one
-real branch and has an instance-local runtime tagged with that UUID. In V1 it
+real branch and has an instance-local runtime tagged with that UUID. In MVP it
 gets its own unprivileged Incus system container, working copy, private
 writable root, and systemd-supervised persistent interactive host, built from
 committed source—not copied from the user's checkout. Tmux is the default
 host, not the grouping model.
+
+Incus, Git, tmux, Nix environment preparation, Codex status integration, and
+the local event log are bundled plugins selected automatically by secure
+defaults. They use the same public capability interfaces available for later
+replacement and adaptation while P core retains lifecycle and authorization.
 
 ## The problem
 
@@ -48,10 +53,10 @@ host—you return to the program where you left it. Answer, detach, and you are
 back in the overview.
 
 You shouldn't have needed to infer that from terminal output. A status protocol
-lets agents report their own state—Claude Code does it through hooks, no
-wrapper—so P can reduce one latest unattended condition reliably. The V1 event
-handler writes redacted structured events to a local log; another handler can
-later turn the same interface into a notification without changing session
+lets Codex report its own state through a bundled adapter, without a wrapper,
+so P can reduce one latest unattended condition reliably. The MVP event handler
+writes redacted structured events to a local log; another handler can later
+turn the same interface into a notification without changing session
 semantics.
 
 ## Sessions are cheap, and so is throwing them away
@@ -108,11 +113,11 @@ than treating their absence as an error.
 
 ## Safe enough to walk away from
 
-- **No upstream model credentials in sessions by default.** Bifrost holds them;
-  P obtains one virtual key per model-enabled session under its configured
-  Bifrost policy. P exposes Bifrost's OpenAI-compatible interface first;
-  Anthropic-compatible clients follow in a second phase. A secret-bearing
-  filesystem grant remains an explicit, itemized containment downgrade.
+- **No host Codex or OpenAI credentials are injected into sessions.** The user
+  authenticates Codex within each session's private home. That authentication
+  survives Stop and Start and disappears with Discard or Delete; P does not
+  copy, interpret, or manage it. Networked Codex use requires the project's
+  explicitly selected, validated public-egress grant.
 - **Sessions have no `origin` authority.** Their configured Git
   path is P's server, and they hold no publication credential. Public internet
   access may make a forge network-reachable, but P supplies neither an `origin`
@@ -126,8 +131,8 @@ than treating their absence as an error.
 - **Network starts closed.** The baseline has no general network. A validated
   public-egress profile may fetch public packages and documentation while still
   denying the host, LAN/private/link-local/metadata destinations, sibling
-  instances, and Incus administration. P's Git, status, and Bifrost inference
-  endpoints are narrow exceptions.
+  instances, and Incus administration. P's Git and status endpoints are narrow
+  exceptions.
 - **Incus authority stays confined.** P uses one pre-provisioned confined user
   project; builders and sessions never receive an Incus socket, and P does not
   use the host-root-equivalent administrative socket.
@@ -141,9 +146,9 @@ it.
 
 ## Illustrative quotes
 
-> "I stopped counting how many times I found an agent that had been waiting on me overnight. The overview isn't the feature — knowing I'll be told is the feature."
+> "I stopped counting how many times I found an agent that had been waiting on me overnight. The overview matters because I can see that signal without reconstructing it from terminal scrollback."
 >
-> — *P's author, on why the status protocol shipped in v1*
+> — *P's author, on why the status protocol shipped in MVP*
 
 > "Three repos, five things going at once, two of them agents. I used to lose one for a day. Now it's one screen and I can see the one that's stuck."
 >
@@ -151,24 +156,28 @@ it.
 
 ## Availability
 
-P V1 targets Linux with one local Incus runtime backend. It requires Git, an
+P MVP targets Linux with one local Incus runtime backend. It requires Git, an
 initialized Incus daemon with a confined user project, and a verified P base
 image containing the pinned Nix toolchain and systemd runtime contract. Nix
 runs inside builder and session instances rather than being a host runtime
 dependency. Tmux is the default persistent interactive host. The daemon
 manages only runtimes belonging to its own instance.
 
-On macOS or Windows, v1 means SSHing to a Linux machine and running the TUI there. Linux clients ship both local-Unix and SSH-to-Unix transports from day one; later native thin-client binaries reuse the SSH transport. The daemon never initiates SSH or treats another machine as a runtime backend.
+MVP's client runs locally on the Linux host over its Unix socket. A user may
+open an ordinary SSH login to that host and run the local TUI there, but P's
+client-initiated SSH-to-Unix transport and native remote clients are post-MVP.
+The daemon never initiates SSH or treats another machine as a runtime backend.
 
 Nix devShell is the first environment provider, not P's session configuration
 language. A repository contributes only its ordinary default devShell; all
 P-specific settings are trusted host configuration at project scope. A
 repository without a default devShell uses P's immutable minimal session
 substrate, so project creation never requires generating a file. The environment
-builder and runtime backend remain reusable interfaces, but V1 specifies only
+builder and runtime backend remain reusable interfaces, but MVP specifies only
 Nix-to-Incus-image and local Incus containers.
 
-P is single-user today. Multi-user policy is a later arc, and the runtime and authorization models leave room for it without making it a v1 claim.
+P is single-user today. Multi-user policy is a later arc, and the runtime and
+authorization models leave room for it without making it an MVP claim.
 
 ## Getting started
 

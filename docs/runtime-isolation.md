@@ -29,16 +29,16 @@ isolated Incus instance.
 - [Non-activating workspace access](#non-activating-workspace-access)
 - [Reconciliation and cleanup](#reconciliation-and-cleanup)
 - [Failure posture](#failure-posture)
-- [V1 boundary](#v1-boundary)
+- [MVP boundary](#mvp-boundary)
 - [Acceptance criteria](#acceptance-criteria)
 
 ## The rule
 
-Incus is the sole V1 runtime backend. P owns session intent and policy; Incus
+Incus is the sole MVP runtime backend. P owns session intent and policy; Incus
 owns instance existence, state, root storage, images, and runtime operations.
 P never duplicates an Incus operation state machine in SQLite.
 
-Each V1 session is one unprivileged Incus system container named from its
+Each MVP session is one unprivileged Incus system container named from its
 immutable session UUID. The instance receives only:
 
 - one immutable cached environment-image fingerprint;
@@ -67,14 +67,14 @@ the full administrative socket, which is host-root-equivalent, and it never
 passes either socket into a builder or session. Running P as a user that also
 has unrestricted Incus administration is an unsupported isolation posture.
 
-V1 uses local Incus only. Incus remote servers and clusters do not turn other
+MVP uses local Incus only. Incus remote servers and clusters do not turn other
 machines into backends of this P daemon. A future P deployment may define a
 different placement contract without changing session identity.
 
 ## Configuration authority
 
 P-specific policy is trusted host configuration keyed by the complete P
-project path. V1 grants remain project-scoped; repository files cannot request
+project path. MVP grants remain project-scoped; repository files cannot request
 P behavior or authority.
 
 Trusted configuration may select:
@@ -83,8 +83,7 @@ Trusted configuration may select:
 - `none` or validated `public-egress` networking;
 - named runtime-owned data/cache directories;
 - named filesystem grants within the Incus project's pre-authorized path
-  ceiling; and
-- optional model access through a Bifrost-owned policy reference.
+  ceiling.
 
 Instance configuration selects the confined Incus socket/project and the P
 base-image identity. A project cannot select a different Incus authority.
@@ -95,7 +94,7 @@ change applies to new sessions and makes an older snapshot `outdated`; it does
 not mutate the established runtime. Start revalidates safety-critical external
 facts such as mount-source identity and the current Incus project ceiling. A
 snapshot that can no longer be applied safely is `invalid` and blocks Start.
-V1 has no in-place policy mutation.
+MVP has no in-place policy mutation.
 
 ## Session specification
 
@@ -134,10 +133,10 @@ opaque immutable locator
 content identity/digest
 ```
 
-`SessionSpec` and lifecycle code do not interpret the locator. The V1 Incus
+`SessionSpec` and lifecycle code do not interpret the locator. The MVP Incus
 adapter accepts target kind `incus-system-image` and interprets the opaque
 locator as an Incus image fingerprint. SQLite separately indexes the
-project-scoped environment key and records the V1 handle needed for repair.
+project-scoped environment key and records the MVP handle needed for repair.
 This keeps the reusable backend seam honest without specifying formats for
 hypothetical providers.
 
@@ -159,8 +158,8 @@ display metadata, not an ownership key, because rename may change it.
 | P refs and commits | P bare repository | records expected address only |
 | Incus instance, state, root disk, image parent, and operations | Incus | records configured project and instance name |
 | Workspace files and local Git state | Incus instance root | records no duplicate file state |
-| Cached environment image bytes | Incus image store | indexes project-scoped environment key and opaque V1 handle |
-| Git/model credential validity | issuing service | records identifier and protected material needed by the session |
+| Cached environment image bytes | Incus image store | indexes project-scoped environment key and opaque MVP handle |
+| Git and selected-plugin credential validity | issuing service | records identifier and protected material needed by the session |
 
 P may cache the latest observation for presentation, but every lifecycle
 decision queries Incus. An Incus operation ID may be referenced while a P
@@ -221,14 +220,13 @@ must describe what crosses into the runtime, its access mode, revocation, and
 what survives discard. Incus project restrictions are an upper bound: a P
 project grant may narrow them but cannot widen them.
 
-V1 implements only:
+MVP implements only:
 
 - named filesystem grants;
 - fixed P Git and session-RPC endpoints;
-- optional Bifrost inference through a session-scoped endpoint; and
 - `none` or validated `public-egress` networking.
 
-No V1 grant exposes the Incus socket, host namespaces, arbitrary host
+No MVP grant exposes the Incus socket, host namespaces, arbitrary host
 services, privileged mode, raw Incus/LXC configuration, devices, published
 ports, or ambient host credentials.
 
@@ -259,7 +257,7 @@ and owned by P rather than selected by project configuration.
 
 ## Network contract
 
-V1 retains two project profiles:
+MVP retains two project profiles:
 
 | Profile | Behavior |
 |---|---|
@@ -282,7 +280,7 @@ receives no origin remote or origin credential.
 
 ## Container baseline
 
-Every V1 instance is an Incus system container that:
+Every MVP instance is an Incus system container that:
 
 - is unprivileged with an isolated user-ID mapping;
 - runs the fixed unprivileged session user for workspace and interactive work;
@@ -315,11 +313,11 @@ host daemon, has no host store/socket, and has authority only over this
 instance's private root and validated network profile. Nix build sandboxing
 remains enabled subject to the pinned Incus/Nix validation.
 
-The instance does not run the P control daemon, Git server, Bifrost, an Incus
+The instance does not run the P control daemon, Git server, an Incus
 client/daemon, or SSH server. Systemd is the container's ordinary service
-manager, not a P service-orchestration feature. P V1 owns only the base units
-and the one persistent interactive host; it does not declare, health-check, restart, or
-present project services.
+manager, not a P service-orchestration feature. P MVP owns only the base units
+and the one persistent interactive host; it does not declare, health-check,
+restart, or present project services.
 
 `p-interactive.service` is the runtime contract. It must:
 
@@ -349,14 +347,15 @@ The session receives only:
 
 - its UUID-bound P Git private key and known-host entry;
 - its private session-RPC endpoint;
-- its Bifrost virtual key when model access is enabled; and
 - explicitly named secret-bearing filesystem grants.
 
-It never receives host-origin SSH authority, the Incus socket, upstream model
-keys, event-handler configuration, or another session's material. Secrets are
-written only under the session endpoint directory with restrictive ownership
-and are omitted from instance metadata, logs, SQLite diagnostics, and TUI
-previews.
+It never receives host-origin SSH authority, the Incus socket, host Codex or
+OpenAI credentials, event-handler configuration, or another session's
+material. The user may authenticate Codex inside the session's private home;
+P does not read, copy, or manage those tool-owned files. P-provisioned secrets
+are written only under the session endpoint directory with restrictive
+ownership and are omitted from instance metadata, logs, SQLite diagnostics,
+and TUI previews.
 
 ## Attachment
 
@@ -375,12 +374,12 @@ argv, such as a tmux attach client addressed by a root-owned socket/session
 descriptor. It accepts no client-selected command, socket, session name, or
 shell string.
 
-Tmux is the shipped V1 default. Another persistent host is supported only when
+Tmux is the shipped MVP default. Another persistent host is supported only when
 its systemd unit and attach command pass the same conformance contract.
 
-The client never receives general Incus credentials. Remote P clients still
-initiate SSH to the P host and execute the daemon-approved attachment path;
-they do not connect to Incus directly.
+The client never receives general Incus credentials. A future remote P client
+may initiate SSH to the P host and execute the daemon-approved attachment path;
+it still does not connect to Incus directly.
 
 The returned spec is not attachment presence. Lifecycle first verifies the
 current systemd unit and fixed attach path, issues a pending token, and returns
@@ -391,11 +390,11 @@ resulting lease.
 The helper binds channel lifetime to the lease and terminal carrier without
 depending on client cleanup. While the daemon is reachable, it retains the
 confirmed lease until channel teardown completes. Client crash, SIGKILL,
-terminal-carrier/SSH loss, or client-machine loss starts teardown. If daemon
+attachment-transport loss, or client-machine loss starts teardown. If daemon
 restart removes the lease first, teardown begins immediately and that helper
 establishes no new lease or channel until it finishes. Teardown ends only the
 temporary attach client; the systemd-owned persistent host and configured
-interactive command continue. V1 does not re-register an already-running
+interactive command continue. MVP does not re-register an already-running
 attachment channel.
 
 ## Non-activating workspace access
@@ -419,7 +418,7 @@ The same non-activating mechanism may read the fixed P-owned systemd journal
 and diagnostic paths from a stopped instance. It does not start the instance
 or treat logs as lifecycle authority.
 
-The V1 set covers Git status/ref inspection, branch/upstream rename, and the
+The MVP set covers Git status/ref inspection, branch/upstream rename, and the
 targeted ref operations required by lifecycle repair. It never accepts
 arbitrary argv, reset, clean, automatic commit, or force-push.
 
@@ -462,9 +461,9 @@ discard.
 | Anchor exits after readiness | Systemd shuts down the container; reconciliation reports `stopped` and never claims the vanished host remains ready |
 | Fixed attach command or unit check fails while Incus is running | Refuse attachment, report the observed unit/adapter condition, and let systemd complete shutdown or require repair when the contract is inconsistent |
 
-## V1 boundary
+## MVP boundary
 
-V1 includes:
+MVP includes:
 
 - one local, confined Incus project per P instance;
 - one unprivileged Incus system container per session;
@@ -477,7 +476,7 @@ V1 includes:
 - one fixed attachment command and the confirmed attachment handshake; and
 - Incus-authoritative inspection, operations, and cleanup.
 
-V1 excludes Incus administration, remote Incus servers, clustering, Incus
+MVP excludes Incus administration, remote Incus servers, clustering, Incus
 VMs, live migration, snapshots/backups as P features, raw Podman/Docker
 backends, Kubernetes, privileged instances, devices, published ports, and
 general host/LAN access.
@@ -509,7 +508,8 @@ The backend is supported only when tests prove:
 10. activation or host failure records bounded journal diagnostics, stops the
     container, and permits an ordinary Start retry;
 11. host exit shuts down the container even while the P daemon is restarting,
-    while detach/client/SSH loss ends only the temporary attach client;
+    while detach or client/attachment-transport loss ends only the temporary
+    attach client;
 12. daemon restart reconstructs session condition from Incus and current
     systemd state without a custom readiness marker; and
 13. the unit and fixed attach command cannot be replaced by the repository,

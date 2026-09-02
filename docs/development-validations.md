@@ -81,7 +81,7 @@ Launch two sessions from one fingerprint and prove:
 Run the complete [Nix project workflow validation](nix-project-workflow-validation.md)
 against the real homelab repository.
 
-**Gate:** V1 environment building and Nix-capable sessions. Other control-plane
+**Gate:** MVP environment building and Nix-capable sessions. Other control-plane
 work may use a fixture image.
 
 ## 5. Session RPC restart and attachment
@@ -89,8 +89,8 @@ work may use a fixture image.
 **Validate:** A daemon restart does not strand runtimes on a stale Unix socket
 inode. Test the mounted per-session endpoint directory, socket recreation,
 identity binding, reconnect, loss of pending tokens and confirmed live leases,
-structured Incus attachment, multiple clients where supported, and both direct
-Unix and SSH-to-Unix client paths. Prove that a failed channel establishment or
+structured Incus attachment, multiple clients where supported, and the direct
+local Unix client path. Prove that a failed channel establishment or
 expired token never increments attachment presence or clears unattended
 status, while successful confirmation performs both. Prove the trusted helper
 retains the confirmed lease until channel teardown completes while the daemon
@@ -98,11 +98,11 @@ is reachable. If daemon restart removes the lease first, teardown must begin
 immediately and that helper must establish no new lease/channel until it
 finishes. Verify that no existing-channel registration is accepted.
 
-Kill the ordinary client and helper with SIGKILL, sever local terminal pipes,
-drop SSH/network connections, and simulate client-machine loss. Every case
-must remove only the affected temporary attachment while preserving the tmux
-server/session and persistent host. Switching between sessions must behave the
-same way.
+Kill the ordinary client and helper with SIGKILL and sever local terminal
+pipes. Every case must remove only the affected temporary attachment while
+preserving the tmux server/session and persistent host. Switching between
+sessions must behave the same way. SSH/network and remote-client-loss cases
+gate the post-MVP SSH client transport.
 
 Validate the base image's systemd contract: `p-session.target` starts
 `p-interactive.service`; the service applies environment activation and
@@ -120,7 +120,7 @@ partial derived resources, and rebuild without creating a retry chain. Also
 test **Try again with changes** as a new creation that supersedes and cleans the
 failed provisional creation before reusing the desired branch name.
 
-**Gate:** reliable status/control from sessions and remote Linux client support.
+**Gate:** reliable status/control from sessions and local Linux client support.
 
 ## 6. Lifecycle and authority recovery
 
@@ -158,10 +158,11 @@ tracking refs or a publication ledger.
 
 **Gate:** the corresponding P Git/origin feature.
 
-## 8. Bifrost
+## 8. Post-MVP Bifrost
 
-**Validate first for this milestone:** Treat a pinned Bifrost release as an
-independently configured service. Verify virtual-key ensure/persist/use/revoke,
+**Validate before enabling the post-MVP capability:** Treat a pinned Bifrost
+release as an independently configured service. Verify virtual-key
+ensure/persist/use/revoke,
 model filtering,
 disabled content logging where configured, and P/Bifrost restarts. Enable
 administrative authentication without giving its credential to sessions and
@@ -184,38 +185,43 @@ validation cannot complete.
 
 **Gate:** optional OpenAI-compatible model access. Anthropic, MCP, Skills,
 Agent Mode, and Code Mode each need later evidence before support is claimed.
-This is an early blocking spike for the optional model milestone only. Failure
+This is a blocking spike for the post-MVP model capability only. Failure
 leaves model access disabled for that pinned release; it cannot weaken the
 boundary or block Git, RPC, lifecycle, runtime, TUI, or any project without a
-model grant. An L7 proxy is outside V1 unless separately designed.
+model grant. An L7 proxy requires separate design.
 
 ## 9. Agent-hook mappings
 
-**Validate:** Capture and version real Claude Code and Codex hook traces for
+**Validate:** For MVP, capture and version real Codex hook traces for
 input/permission, activity, normal stop, failure, subagents, session end,
 absent hooks, and attach/detach timing. Confirm latest replacement,
 clear-on-confirmed-entry, and confirmed-attached suppression against each
-claimed version.
+claimed version. Validate that authentication created inside the session's
+private home survives Stop and Start, is isolated from other sessions, and is
+removed by Discard or Delete without P reading or copying host credentials.
+Claude Code and other agent mappings require post-MVP evidence.
 
 **Gate:** semantic status-adapter support for that agent/version.
 
 ## 10. Event handler
 
-**Validate:** For every V1 reduced event kind, verify the typed versioned
+**Validate:** For every MVP reduced event kind, verify the typed versioned
 envelope, redaction, ordering at the handler call boundary, and NDJSON file
 encoding. A handler write failure must produce a bounded diagnostic without
 rolling back the lifecycle action or changing authoritative state. Restart
 must not imply replay, acknowledgement, or an outbox. Repository content must
 not be able to configure handlers.
 
-**Gate:** the V1 local event log and its extension interface.
+**Gate:** the MVP local event log and its extension interface.
 
 ## 11. Dependency and protocol pins
 
 **Validate:** Record the exact Go, Bubble Tea ecosystem, Wish, Git, OpenSSH,
-Incus, Nix, tmux, SQLite driver, and Bifrost versions. Pin every CLI JSON/API
-field and protocol behavior parsed by P. Verify upgrades through the relevant
-conformance suites before widening supported ranges.
+Incus, Nix, tmux, Codex adapter, and SQLite driver versions used by MVP. Pin
+every CLI JSON/API field and protocol behavior parsed by P. Verify upgrades
+through the relevant conformance suites before widening supported ranges.
+Bifrost and the SSH client transport receive their own pins when those
+post-MVP capabilities are enabled.
 
 **Gate:** release support for each affected integration.
 

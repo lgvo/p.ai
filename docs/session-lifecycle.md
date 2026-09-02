@@ -35,7 +35,7 @@ credential facts.
 - [Credential and image-cache cleanup](#credential-and-image-cache-cleanup)
 - [Operation recovery summary](#operation-recovery-summary)
 - [RPC and presentation](#rpc-and-presentation)
-- [V1 boundary](#v1-boundary)
+- [MVP boundary](#mvp-boundary)
 - [Acceptance criteria](#acceptance-criteria)
 
 ## Purpose
@@ -45,7 +45,8 @@ A session spans authorities with different failure behavior:
 - SQLite records P's identity, intent, and progress;
 - Git owns commits and refs;
 - Incus owns instances, runtime operations, writable roots, and cached images;
-- P's Git authorization and Bifrost own separate credentials; and
+- P's Git authorization and activated external-service plugins own their
+  provider-specific credentials; and
 - live RPC connections own attachment presence.
 
 No transaction can atomically commit across all of them. P persists workflow
@@ -68,7 +69,7 @@ p
 lgvo/p
 ```
 
-Namespaces have no separate lifecycle or authorization meaning in v1. Within
+Namespaces have no separate lifecycle or authorization meaning in MVP. Within
 one project, Git identifies a branch by its normal branch name. The complete
 branch address is therefore:
 
@@ -133,7 +134,7 @@ source authority.
 | Instance existence, state, root storage, and runtime operation | Incus | records project and deterministic instance name |
 | Cached environment-image bytes | Incus image store | indexes project-scoped environment key and fingerprint |
 | P Git write permission | P Git authorization using current SQLite assignment | records principal and revocation state |
-| Bifrost policy and key validity | Bifrost | records key ID, protected token, and cleanup state |
+| Post-MVP external-service principal validity | Configured service | records only the protected binding and cleanup state required by its plugin contract |
 | Interactive-host readiness and failure | `p-interactive.service` and persistent system journal | records only bounded operation/last-start diagnostics |
 | Pending/confirmed attachment presence | Live host RPC connection | not persisted |
 | Agent condition | Session observability reducer | stores only its defined latest unattended value |
@@ -280,7 +281,7 @@ The unborn-`main` bootstrap is created only as part of explicit blank/empty-
 origin project creation. It has no source object ID, uses the P base image, and
 may create only the already reserved `refs/heads/main` on its first push.
 
-V1 has no repository-controlled P configuration. Creation snapshots the
+MVP has no repository-controlled P configuration. Creation snapshots the
 trusted project-scoped P configuration and evaluates only the ordinary Nix
 devShell from the selected commit. The default devShell is used when present;
 otherwise the substrate-only environment applies.
@@ -293,7 +294,7 @@ otherwise the substrate-only environment applies.
 | `source-ready` | Resolve/import the committed source and record its exact object ID. |
 | `branch-created` | Atomically create the absent P branch at that object ID. This is creation's commit point. |
 | `environment-ready` | Resolve or build a verified Incus environment image and record its fingerprint. |
-| `principals-ready` | Create/activate the session Git principal and optional Bifrost key. |
+| `principals-ready` | Create/activate the session Git principal and any bindings required by the selected MVP plugins. |
 | `runtime-created` | Create exactly one Incus instance named for the UUID from that image and record its locator. |
 | `workspace-ready` | Create a standalone clone of the assigned branch with its P upstream and install only session-scoped endpoints. |
 | `systemd-ready` | Start the container; require activation and `p-interactive.service` readiness. Failure records diagnostics and returns the container to stopped. |
@@ -369,8 +370,8 @@ the retained filesystem may let the tool resume itself.
   replacement.
 - `unreachable` blocks start because P cannot exclude a duplicate runtime.
 - Missing required Git/session credentials block start and produce a repair
-  plan. Bifrost is not probed during Start; established model access degrades
-  independently. A missing cached
+  plan. Post-MVP external-service plugins define their own health and
+  degradation evidence through their lifecycle contract. A missing cached
   parent image does not affect an existing instance; it matters only if the
   instance must be recreated.
 - Attachability requires `p-interactive.service` active/ready and the fixed
@@ -383,7 +384,7 @@ Activation or host failure shuts down the container and returns the session to
 not maintain a second durable Incus phase workflow or startup-generation
 marker.
 
-V1 has no separate restart operation. Restart is an explicit stop followed by
+MVP has no separate restart operation. Restart is an explicit stop followed by
 start.
 
 ## Attach and detach
@@ -417,12 +418,12 @@ the interactive host supports them.
 
 The trusted helper owns both the confirmed lease and the interactive channel;
 the ordinary client is not relied upon for cleanup. On client exit, SIGKILL,
-terminal-carrier/SSH loss, or client-machine loss, the helper/transport binding
+attachment-transport loss, or client-machine loss, the helper/transport binding
 tears down the channel. While the daemon remains reachable, the helper retains
 the confirmed lease until teardown completes and closes it afterward. If the
 daemon restarts or the lease connection disappears first, the helper begins
 teardown immediately and establishes no new lease or channel until teardown
-finishes. V1 cannot re-register an existing channel.
+finishes. MVP cannot re-register an existing channel.
 
 Teardown ends only that temporary attach client. The systemd-owned persistent
 host and configured command remain alive, so detach and session switching do
@@ -435,8 +436,8 @@ loss, causes systemd to shut down the container.
 
 Rename changes the actual session-owned Git branch while preserving the UUID,
 project, Incus instance, workspace contents, environment image, credentials,
-attachment leases, and Bifrost principal. It never renames or deletes an origin
-ref.
+attachment leases, and selected plugin bindings. It never renames or deletes
+an origin ref.
 
 The new branch name must pass Git validation and be absent from the project's
 `refs/heads/*`. The session must be established, its current P ref and runtime
@@ -484,7 +485,7 @@ retains:
 - UUID and established registry row;
 - runtime machinery and writable filesystem;
 - workspace, home, private Nix additions, and other runtime-owned data;
-- session Git and Bifrost principals; and
+- session Git principal and selected plugin bindings; and
 - latest unattended agent condition.
 
 It terminates runtime processes, including tmux and interactive agents. A
@@ -584,7 +585,8 @@ After a valid destructive confirmation, discard completes forward through:
 3. if the confirmation is still valid, mark the registry and operation
    `removing` and disable the session's P Git and session-RPC authority;
 4. persist the runtime-removal commit point, then request Incus removal;
-5. request Bifrost-key revocation when present and remove local secret copies;
+5. request each participating plugin's required credential revocation and
+   remove P-owned local secret copies;
 6. remove other session credentials;
 7. verify that the P branch still exists at the guarded expected tip;
 8. end the UUID-to-branch assignment and remove the session row; and
@@ -633,7 +635,7 @@ operation loses contact with an authority. It obtains the relevant locks and:
 - lists and inspects Incus instance metadata and locators;
 - checks a cached image only when an operation needs to create an instance;
 - validates local Git authorization state;
-- checks Bifrost principal state when required; and
+- asks participating plugins for required principal and resource state; and
 - resumes an already authorized operation according to its recorded phase.
 
 Automatic reconciliation may finish an operation the user already authorized,
@@ -647,7 +649,7 @@ runtime while the original may exist.
 Repair is an explicit mutation plan produced from current diagnostics. It is
 not a generic “make it work” command and accepts no arbitrary shell command.
 
-Supported V1 repair shapes are:
+Supported MVP repair shapes are:
 
 | Inconsistency | Repair behavior |
 |---|---|
@@ -656,7 +658,6 @@ Supported V1 repair shapes are:
 | Missing runtime, assigned P branch intact | Reuse the recorded image when present. If absent, resolve the current committed P branch and show whether its environment identity differs before the user authorizes recreation for the same UUID; disclose that prior runtime-local state is unavailable. |
 | Runtime exists, assigned P ref missing, assigned local branch intact | Offer guarded restoration of the P ref at the inspected local tip; never do it silently. |
 | Missing/revoked session Git principal | Rotate/reissue the UUID-scoped principal and update only its runtime. |
-| Missing Bifrost principal for a model-enabled session | Re-establish the UUID-scoped principal under the recorded project policy. |
 | Workspace branch/upstream mismatch | Report exact refs and require a targeted plan; never reset, clean, or force-push automatically. |
 | Session row has neither runtime nor branch | Offer removal of the unrecoverable registry record after confirmation. |
 
@@ -710,11 +711,12 @@ Local P authorization follows the SQLite assignment. Marking removal or
 abandonment immediately prevents the session key from pushing even if a private
 key file survives in unreachable machinery.
 
-Bifrost revocation is idempotent by session UUID/key ID. If Bifrost is
-unavailable, P removes the token from active session state after runtime
-removal, retains only the protected revocation handle required by Bifrost, and
-retries through a cleanup tombstone. Upstream provider credentials never enter
-this lifecycle.
+Every selected plugin's MVP lifecycle contract owns provider-specific
+revocation and ensure-absent behavior. P coordinates those operations and, if
+an external authority is unavailable, retains only the protected cleanup
+handle required for idempotent retry. A post-MVP Bifrost plugin applies that
+rule to its session virtual key. Upstream provider credentials never enter P's
+lifecycle state.
 
 Environment images are immutable Incus cache entries, not session-owned
 resources. Session lifecycle never leases or deletes them. Cache inspection and
@@ -763,9 +765,9 @@ Transitional and failed operations remain visible. P never collapses
 `unreachable`, `missing`, `discarding`, `deleting`, pending credential
 revocation, and orphaned machinery into a generic stopped or deleted label.
 
-## V1 boundary
+## MVP boundary
 
-V1 includes:
+MVP includes:
 
 - committed-source creation plus the one unborn-main project bootstrap;
 - one UUID-to-project/branch assignment and one runtime per session;
@@ -773,10 +775,10 @@ V1 includes:
 - discard, delete, destructive preflight, repair, and abandonment;
 - persisted cross-authority operations, per-session/ref locking, Incus
   quiescence, and restart reconciliation;
-- local Git-principal revocation and optional Bifrost-principal cleanup; and
+- local Git-principal and selected-plugin cleanup; and
 - orphan recognition without automatic age-based deletion.
 
-V1 does not include runtime migration, branch-specific grants, automatic
+MVP does not include runtime migration, branch-specific grants, automatic
 reclamation, service lifecycle, attempts, checks, session cloning, or recovery
 of state that never reached a retained Git ref or external mount.
 

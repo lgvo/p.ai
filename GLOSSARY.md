@@ -29,17 +29,17 @@ interactive host.
 The first session reserved on unborn `main` for a new blank project or a
 successfully contacted empty origin.
 
-- **Rules:** It is the only V1 session without a committed source. Its first
+- **Rules:** It is the only MVP session without a committed source. Its first
   push creates `main`; no artificial commit is created by P.
 
 ### Event handler
 
-A trusted P extension that receives versioned, reduced P events after domain
+A host-side capability that receives versioned, reduced P events after domain
 state has been updated.
 
 - **Boundaries:** It does not receive arbitrary raw agent payloads and is not a
   source of session truth.
-- **Rules:** Handler failure cannot roll back session state. V1 provides a
+- **Rules:** Handler failure cannot roll back session state. MVP provides a
   structured file-log handler and no durable delivery queue.
 
 ### Exact retry
@@ -50,6 +50,42 @@ branch, source, policy snapshot, and idempotency key.
 - **Rules:** P cleans or safely reuses verified partial derived resources and
   rebuilds the same request. Retry does not form a new operation chain.
 
+### External session service
+
+A service outside a session that is made available through an explicitly
+granted network endpoint and service-native, session-scoped authentication.
+
+- **Boundaries:** The service may be local to the P instance or remote;
+  external describes its position outside the session boundary.
+- **Rules:** The service retains authority over its protocol, data, and native
+  authorization. P governs provisioning, scoped binding, validation,
+  injection, and revocation of session access.
+
+### Grant
+
+A named capability authorized by trusted developer configuration and made
+available across a P isolation or extension boundary.
+
+- **Rules:** A session or plugin cannot grant itself authority. Each grant has
+  explicit scope and is enforced by the authority that owns the capability.
+
+### Host-side capability
+
+A plugin-provided capability that participates in P lifecycle work outside a
+session without being exposed to that session.
+
+- **Examples:** A runtime provider or event handler.
+- **Rules:** It receives only the authority granted for its declared role and
+  does not become a session service merely because its result affects one.
+
+### Internal session service
+
+A service that runs inside a session's isolation boundary and is supervised
+through the runtime's systemd contract.
+
+- **Rules:** It operates with the session's effective grants and receives no
+  ambient host authority from the plugin that provides it.
+
 ### Origin
 
 The optional ordinary Git remote configured for a project and accessed only by
@@ -58,6 +94,15 @@ trusted host-side P operations.
 - **Boundaries:** It is not another P instance and is never installed in a
   session workspace by P.
 - **Rules:** Origin publication is explicit and create-or-fast-forward only.
+
+### P core
+
+The trusted part of P that owns identity, durable control state, lifecycle
+orchestration, policy and grant enforcement, plugin activation, recovery, and
+user confirmation.
+
+- **Boundaries:** P core invokes plugins through typed contracts but does not
+  delegate its authoritative lifecycle or security decisions to them.
 
 ### P instance
 
@@ -69,14 +114,27 @@ projects, sessions, and configured local Incus execution project.
 
 ### Persistent interactive host
 
-The systemd-managed, attachable process that anchors a running session, such
-as tmux.
+The systemd-managed internal session service that anchors a running session
+and accepts temporary attachments, such as tmux.
 
 - **Boundaries:** A temporary attachment client is not the persistent
   interactive host.
 - **Rules:** Detachment leaves the host alive. Host exit or failure shuts down
-  the session container. V1 ships tmux as the default implementation.
-- **Avoid:** `direct`, which is not a V1 host.
+  the session container. MVP ships tmux as the default implementation.
+- **Avoid:** `direct`, which is not an MVP host.
+
+### Plugin
+
+An independently authored, installable implementation of one or more stable,
+documented P capability contracts.
+
+- **Boundaries:** A plugin may provide a first- or third-party runtime,
+  internal or external session service, host-side capability, integration, or
+  workflow. It is not P core.
+- **Rules:** Developers or agents may author, register, and test plugins.
+  Registration does not activate a plugin or grant authority. Trusted
+  developer configuration controls activation, implementation selection, and
+  grants; an activated plugin may operate autonomously only within them.
 
 ### Policy condition
 
@@ -92,9 +150,11 @@ project's current trusted policy.
 The complete path of one bare repository on a P instance's Git server,
 together with its trusted project policy and optional origin.
 
-- **Rules:** Project paths are immutable in V1. Projects are created explicitly
+- **Rules:** Project paths are immutable in MVP. Projects are created explicitly
   from an SSH origin or as blank P repositories; host checkouts are not
   registered source locations.
+- **Boundaries:** An Incus project is an infrastructure confinement boundary,
+  not a P project.
 
 ### Replacement creation
 
@@ -113,6 +173,14 @@ An ordinary unassigned P branch preserved after its session is discarded.
 - **Rules:** It may be listed, renamed, published, deleted after loss review,
   or selected as committed source for a new session.
 - **Avoid:** `unassigned ref` when the user-facing concept is a branch.
+
+### Runtime
+
+The replaceable execution machinery associated with a session.
+
+- **Boundaries:** A runtime is not session identity, an attachment, or an
+  agent. MVP realizes it as one Incus system container, but the concept does not
+  depend on that implementation.
 
 ### Session
 
