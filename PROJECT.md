@@ -7,16 +7,22 @@ the subject owners in the [authority map](#authority-map).
 
 ## Purpose
 
-P is a self-contained, extensible control plane for running and governing
-concurrent streams of agent-driven software development. Each instance
-composes familiar developer interfaces—such as Git, containers, terminals,
-and service protocols—and exposes stable plugin contracts so developers and
-agents can inspect, adapt, and extend it without depending on a centralized P
-service or replacing existing tools.
+P is an open-source, self-contained, extensible control plane for running and
+governing concurrent streams of agent-driven software development. Each
+instance composes familiar developer interfaces—such as Git, containers,
+terminals, and service protocols—and exposes stable plugin contracts so
+developers and agents can inspect, adapt, and extend it without depending on a
+centralized P service or replacing existing tools.
 
 Self-contained means that an instance independently owns its control state and
 core lifecycle. It may use optional external integrations, but it does not
 require another P instance or a mandatory P-hosted service.
+
+Open-source means that P core and the bundled first-party implementations
+required for a complete, independently operable instance remain available
+under an open-source license. Optional proprietary integrations may add
+capabilities, but they cannot become prerequisites for P's core lifecycle.
+[The repository license](LICENSE) owns the current license terms.
 
 ## Goals
 
@@ -136,6 +142,7 @@ The canonical terms below are defined in the [glossary](GLOSSARY.md).
 | Subject | Authority | Scope |
 |---|---|---|
 | Project guidance | This document | Enduring purpose, goals, non-goals, tenet status, project model, and authority ownership |
+| Licensing | [LICENSE](LICENSE) | Current license terms for P's source distribution |
 | Product direction | [docs/PRODUCT.md](docs/PRODUCT.md) | Product vision, target users, value, strategy, bets, outcomes, strategic boundaries, assumptions, risks, and open strategic questions |
 | Domain language | [GLOSSARY.md](GLOSSARY.md) | Canonical P terms and boundaries |
 | Product summary | [README.md](README.md) | Human-facing summary; not a competing contract |

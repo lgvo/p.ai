@@ -9,10 +9,10 @@ with the subject authorities mapped there.
 
 ## Product identity and scope
 
-P is a self-contained, security-first control plane for an individual
-developer running concurrent streams of agent-driven software development.
-It governs those streams and lets the developer adapt P itself through
-plugins and integrations authored by developers or agents.
+P is an open-source, self-contained, security-first control plane for an
+individual developer running concurrent streams of agent-driven software
+development. It governs those streams and lets the developer adapt P itself
+through plugins and integrations authored by developers or agents.
 
 The developer is the governing user. Agents may operate development streams
 and author or test extensions, but they do not acquire authority to activate
@@ -56,6 +56,12 @@ P preserves the familiar interfaces of the systems it composes. The user gets
 adaptability without making a P-specific representation, an unrestricted
 extension process, or a centralized P service the price of adoption.
 
+Because the core product and bundled defaults are open source, developers can
+inspect and modify the control plane without vendor permission and retain a
+path to operate it if its original distributor disappears. This is a
+meaningful difference from proprietary control planes, but source availability
+alone does not supply P's governance or security.
+
 ## Product strategy
 
 P pursues that value through an integrated set of choices:
@@ -72,6 +78,9 @@ P pursues that value through an integrated set of choices:
   implementations. MVP's defaults include Incus runtime support, a tmux
   persistent host, Git source and session access, Nix environment preparation,
   structured file-event logging, and a Codex agent adapter.
+- Keep P core and the bundled first-party implementations required for a
+  complete, independently operable installation open source. Optional
+  proprietary capabilities remain integrations rather than prerequisites.
 - Make agent authoring, testing, validation, and explanation of plugins a
   primary product workflow. Registration alone never activates a plugin or
   grants it authority.
@@ -180,6 +189,9 @@ evidence to set truthful numerical targets.
   user authorization do not become replaceable plugin policy.
 - Generic network access is not a substitute for declared external service
   bindings.
+- Optional proprietary plugins, services, and integrations may extend P, but
+  the complete core product does not depend on them or on a proprietary hosted
+  service.
 - Team and enterprise administration do not drive current product choices over
   the individual-developer experience.
 
@@ -191,10 +203,16 @@ concurrent-stream governance, explicit authority, isolation, and familiar
 interfaces. It does not yet provide usage evidence for the proposed adaptation
 experience.
 
+Open-source status is confirmed direction and is already reflected by the
+repository's Apache 2.0 license and product summary. Whether source availability
+materially changes adoption or trust remains unobserved.
+
 The direction therefore retains these assumptions:
 
 - individual developers have meaningful workflow differences that plugins can
   address better than scripts, forks, or fixed configuration;
+- access to P's source and permission to modify it materially improve trust,
+  adaptability, and continuity for target users;
 - coding agents can author reliable extensions against stable, inspectable
   contracts;
 - users can make informed activation decisions when capability requests and
@@ -219,6 +237,9 @@ feature comparison.
 - Requiring every first-party capability to prove a public contract could
   create premature abstractions or lowest-common-denominator behavior.
 - Compatibility obligations could make P difficult to evolve.
+- Open-source availability may be easy for alternatives to match and may not
+  differentiate P unless its governance and adaptation model is meaningfully
+  better.
 - Incus and other underlying security prerequisites could remain difficult to
   operate despite a guided experience.
 - Agent-generated plugins could be difficult for users to evaluate, debug, or
