@@ -157,7 +157,7 @@ The canonical terms below are defined in the [glossary](GLOSSARY.md).
 | Implementation choices | [docs/technology-stack.md](docs/technology-stack.md) | Stack choices, internal seams, dependencies, and unresolved plugin contract |
 | Validation | [docs/development-validations.md](docs/development-validations.md) | Evidence gates; product behavior remains with its subject owner |
 | Current state and work | [docs/mvp-status.md](docs/mvp-status.md) and [docs/missing-pieces.md](docs/missing-pieces.md) | Non-normative snapshot and implementation tracker |
-| Explanation and context | [docs/FAQ.md](docs/FAQ.md), [docs/PR.md](docs/PR.md), and [docs/prior-art.md](docs/prior-art.md) | Tradeoffs, product narrative, and external landscape; non-normative |
+| Explanation and context | [docs/FAQ.md](docs/FAQ.md), [docs/PR.md](docs/PR.md), and [docs/design-space.md](docs/design-space.md) | Tradeoffs, product narrative, external landscape, positioning, and validation wedges; non-normative |
 
 ## Open directions
 

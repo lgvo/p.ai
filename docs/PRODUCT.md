@@ -9,10 +9,12 @@ with the subject authorities mapped there.
 
 ## Product identity and scope
 
-P is an open-source, self-contained, security-first control plane for an
-individual developer running concurrent streams of agent-driven software
-development. It governs those streams and lets the developer adapt P itself
-through plugins and integrations authored by developers or agents.
+P is an open-source, self-contained, extensible control plane for an individual
+developer running concurrent streams of agent-driven software development. It
+makes those streams governable and lets the developer reshape P's workflows
+through plugins and integrations authored by developers or agents. Security
+and explicit authority make both forms of value trustworthy rather than
+constituting a separate product category.
 
 The developer is the governing user. Agents may operate development streams
 and author or test extensions, but they do not acquire authority to activate
@@ -49,8 +51,8 @@ not yet observed behavior from a broader user population.
 
 Compared with manually combining terminals, containers, source control,
 services, scripts, and credentials—or modifying the orchestrator itself—P
-provides one governable control plane that a developer can safely personalize
-through agent-authored plugins.
+provides one place to govern concurrent development streams and change how
+that control plane works through agent-authored plugins.
 
 P preserves the familiar interfaces of the systems it composes. The user gets
 adaptability without making a P-specific representation, an unrestricted
@@ -75,9 +77,8 @@ P pursues that value through an integrated set of choices:
   and lifecycle participation, with capability-specific contracts rather than
   pretending every implementation has the same authority or behavior.
 - Make first-party functionality prove the same contracts available to other
-  implementations. MVP's defaults include Incus runtime support, a tmux
-  persistent host, Git source and session access, Nix environment preparation,
-  structured file-event logging, and a Codex agent adapter.
+  implementations. The current bundled composition and implementation scope
+  remain in the [MVP snapshot](mvp-status.md), not in product direction.
 - Keep P core and the bundled first-party implementations required for a
   complete, independently operable installation open source. Optional
   proprietary capabilities remain integrations rather than prerequisites.
@@ -123,50 +124,55 @@ use remains possible without silent containment downgrades.
 
 The current direction rests on four ordered bets:
 
-1. A security-enforcing core and composable plugin model can be designed
-   together without weakening either.
-2. First-party capabilities built through public plugin contracts will keep
-   those contracts useful and honest.
+1. A developer who uses P for real concurrent work can make those streams more
+   governable than the terminal, process, and worktree status quo.
+2. First-party capabilities built through public plugin contracts can keep the
+   extension model useful and honest without making normal setup feel assembled
+   from parts.
 3. An agent can turn a developer's workflow request into a reviewable,
    maintainable plugin more easily than the developer can maintain a fork or
    bespoke automation.
-4. Guided setup and clear capability explanations can make secure operation
-   easier than configuring the underlying authorities manually.
+4. Security enforcement, guided setup, and clear capability explanations can
+   make concurrent work and adaptation trustworthy without requiring the user
+   to assemble the underlying authorities manually.
 
-Security and a truthful composition boundary therefore take priority over the
-breadth of plugin types or integrations. The initial product proof is a secure
-default system composed from usable public plugin interfaces and basic
-first-party implementations. A separately authored plugin is not an MVP
-release gate.
+Concurrent-stream governance and agent-driven adaptation are both central to
+the product direction. Security and a truthful composition boundary constrain
+how P delivers them and take priority over the breadth of plugin types or
+integrations.
 
-### Initial product proof
+### Validation sequence
 
-MVP supports one local developer on Linux through the local Unix client
-transport. It composes the first-party Incus, Git, tmux, Nix, file-event, and
-Codex implementations automatically. The included plugins must implement the
-lifecycle operations and inspection evidence their interfaces require; P core
-coordinates cleanup across them and requires confirmation for destructive
-outcomes.
+The first evidence comes from the governing user operating P for sustained real
+work. The personal MVP may be rough or specific to that workflow, but it must
+exercise the secure first-party composition and reveal whether concurrent
+sessions and the plugin contracts remain useful under ordinary use. Detailed
+MVP scope and implementation state remain in the
+[MVP snapshot](mvp-status.md).
 
-Codex is the only agent integration validated for MVP. It runs as an ordinary
-command inside the isolated session, and the user authenticates it within that
-session's private home. P does not inject or manage host Codex or OpenAI
-credentials. Session-local authentication persists across Stop and Start and
-is removed with Discard or Delete. Codex use that requires network access uses
-the project's explicitly selected, validated public-egress grant; P supplies no
-special model endpoint in MVP.
+The first coherent version shared publicly centers on the concurrent-session
+experience and includes an end-to-end guide for changing a real P workflow
+through a plugin. The guide uses the supported authoring path and an agent to
+create or adapt the plugin, then covers testing, developer review, activation,
+bounded use, and validation of the resulting workflow change. The validated
+path becomes the documentation another user can follow.
 
-Bifrost model-gateway integration, P's SSH client transport, native remote
-clients, additional supported agent adapters, and a separate agent-authored
-plugin proof remain after MVP. Git transport and host-side origin access may
-still use SSH; that is distinct from a remote P client transport.
+Completing that guide demonstrates technical viability, useful public
+contracts, and documentability. It does not by itself demonstrate external
+demand, ease for unfamiliar users, or long-term maintainability. Those claims
+require later evidence from people who reproduce, retain, and adapt the
+workflow without depending on the governing user's knowledge.
 
 ## Product outcomes and success signals
 
 The strategy is working when:
 
-- developers adapt P through plugins instead of maintaining forks or private
-  patches;
+- the governing user repeatedly relies on P for real concurrent work rather
+  than returning to manual terminal and process reconstruction;
+- another developer can follow the public guide to produce and validate a real
+  workflow change through a plugin without modifying P core;
+- developers continue adapting P through plugins instead of maintaining forks
+  or private patches after the first guided example;
 - agent-authored plugins remain within user-approved capabilities and can be
   disabled or replaced without compromising P's authoritative state;
 - a default installation becomes operational securely without requiring the
@@ -178,8 +184,10 @@ The strategy is working when:
 - external services remain usable through familiar protocols without gaining
   ambient access to the session or host.
 
-These are initially qualitative signals. There is not yet enough usage
-evidence to set truthful numerical targets.
+The first signal is sustained personal use. Reproduction by unfamiliar users
+is stronger evidence for the public experience and plugin promise. These are
+initially qualitative signals; there is not yet enough usage evidence to set
+truthful numerical targets.
 
 ## Strategic boundaries
 
@@ -199,9 +207,17 @@ evidence to set truthful numerical targets.
 
 Confirmed direction comes from the governing user's decisions and the
 established project guidance. Existing design work supports the need for
-concurrent-stream governance, explicit authority, isolation, and familiar
-interfaces. It does not yet provide usage evidence for the proposed adaptation
+concurrent-stream governance, explicit authority, isolation, familiar
+interfaces, and agent-driven adaptation. The external landscape shows that
+basic concurrency mechanics and extension mechanisms are crowded while their
+composition remains fragmented. It does not establish demand for P's combined
 experience.
+
+There is not yet product-usage evidence. Sustained use by the governing user is
+the first intended evidence and can invalidate workflow and implementation
+assumptions. It cannot establish broader demand. A reproducible public plugin
+guide can then test whether the adaptation path is transferable before wider
+behavioral evidence exists.
 
 Open-source status is confirmed direction and is already reflected by the
 repository's Apache 2.0 license and product summary. Whether source availability
@@ -244,12 +260,22 @@ feature comparison.
   operate despite a guided experience.
 - Agent-generated plugins could be difficult for users to evaluate, debug, or
   maintain.
+- A successful plugin tutorial could be mistaken for evidence of recurring
+  user value when it proves only that one documented path works.
+- A public version centered on concurrent sessions could be perceived as
+  another cockpit if the workflow-adaptation value remains difficult to
+  discover or reproduce.
 
 ## Open strategic questions
 
-- Which user-authored capability best demonstrates that agent-driven
-  adaptation produces value beyond the bundled defaults? Resolving this will
-  focus the initial product proof and requires observed authoring and use.
+- Which real workflow change makes the public plugin guide useful enough to
+  demonstrate value beyond bundled defaults without predetermining the plugin
+  architecture? Resolving this requires pressure from personal use followed by
+  observed authoring and validation.
+- Can an unfamiliar developer reproduce the guide, understand the resulting
+  change and authority, and continue using or modifying the plugin without the
+  governing user's help? Resolving this will strengthen or weaken the public
+  adaptation promise.
 - What behavior demonstrates that users prefer adaptation over scripts, forks,
   or abandoning the tool? Resolving this will strengthen or weaken the value
   proposition and requires usage evidence.

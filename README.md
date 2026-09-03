@@ -416,7 +416,8 @@ The current documentation/readiness snapshot is in
 
 The implementation choices and build-vs-buy decisions are in
 [technology stack](docs/technology-stack.md). The [FAQ](docs/FAQ.md) explains
-the main tradeoffs, and [prior art](docs/prior-art.md) records neighboring
-projects without defining P's behavior.
+the main tradeoffs, and the [product landscape and design space](docs/design-space.md)
+maps neighboring projects, differentiation, and validation wedges without
+defining P's behavior.
 
 Repository-specific terms are defined in the [glossary](GLOSSARY.md).
