@@ -31,7 +31,7 @@ func (m app) matrixCompactDetail() string {
 	}
 	s := m.sessions[idx]
 	presence, agent := sessionSignals(s)
-	result := titleStyle.Render("Selected cell") + "  " + truncate(s.Project+" / "+s.Branch, 38) +
+	result := titleStyle.Render("Selected cell · "+s.ID) + "  " + truncate(s.Project+" / "+s.Branch, 30) +
 		"\n" + strings.Join([]string{s.Lifecycle, presence, agent, s.Policy}, " · ") +
 		"\nactions  " + strings.Join(availableActions(s), " · ")
 	if s.Operation != "" {

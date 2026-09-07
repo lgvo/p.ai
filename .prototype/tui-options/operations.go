@@ -84,7 +84,7 @@ func (m app) operationsCompactDetail() string {
 	}
 	s := m.sessions[idx]
 	presence, agent := sessionSignals(s)
-	result := titleStyle.Render("Selected operation context") + "  " + truncate(s.Project+" / "+s.Branch, 34) +
+	result := titleStyle.Render("Selected operation context · "+s.ID) + "  " + truncate(s.Project+" / "+s.Branch, 25) +
 		"\n" + strings.Join([]string{s.Lifecycle, presence, agent, s.Policy}, " · ") +
 		"\nactions  " + strings.Join(availableActions(s), " · ") + " · r recovery plan"
 	if s.Operation != "" {

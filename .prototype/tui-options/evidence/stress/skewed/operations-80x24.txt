@@ -12,7 +12,7 @@ P / probe · STRESS:skewed · view 09 Operations console · Tab cycle · v galle
 │   20:38:28  s-skewed-0296 stable ready · current                           │
 │   20:37:35  s-skewed-0295 stable ready · current                           │
 │                                                                            │
-│ Selected operation context  project-001 / work/0001-agent/oau…             │
+│ Selected operation context · s-skewed-0001  project-001 / work/0001-…      │
 │ ready · unattended · attention · current                                   │
 │ actions  inspect · attach · r recovery plan                                │
 ╰────────────────────────────────────────────────────────────────────────────╯

@@ -1,0 +1,18 @@
+P / probe · STRESS:ambiguous-identities · view 08 Project status matrix · Tab c…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Project × intervention matrix  ·  24 sessions  ·  attached 2               │
+│ Columns answer where attention, routine work, recovery, and removal        │
+│ accumulate.                                                                │
+│                                                                            │
+│   PROJECT           INSPECT   WORK   RECOVER   REMOVE                      │
+│   platfor…-currant       1      3         1        1                       │
+│ › platfor…-current       2      1         1        2                       │
+│   platfor…urrent-2       2      2         2        0                       │
+│   platfor…rent-old       1      3         1        1                       │
+│                                                                            │
+│ Selected cell · s-ambiguous-id-000001  platform-api-current / featur…      │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

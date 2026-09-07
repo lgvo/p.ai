@@ -12,7 +12,7 @@ P / probe · STRESS:baseline · view 09 Operations console · Tab cycle · v gal
 │   20:38:28  s-plugin      Incus inspection timed out                       │
 │   20:37:35  s-cli         activating environment · phase 3/5               │
 │                                                                            │
-│ Selected operation context  forge / agent/oauth-device-flow                │
+│ Selected operation context · s-auth  forge / agent/oauth-devi…             │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate · r recovery plan       │
 ╰────────────────────────────────────────────────────────────────────────────╯

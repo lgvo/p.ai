@@ -11,7 +11,7 @@ P / probe · STRESS:skewed · view 10 Task workspace · Tab cycle · v gallery
 │   project-005 / recover/0005… ready      unattended · attention / current  │
 │   … 295 more                                                               │
 │                                                                            │
-│ Persistent selection  project-001 / work/0001-agent/oauth…                 │
+│ Persistent selection · s-skewed-0001  project-001 / work/0001-ag…          │
 │ ready · unattended · attention · current                                   │
 │ actions  inspect · attach                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯

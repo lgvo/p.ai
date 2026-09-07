@@ -1,0 +1,22 @@
+P / probe · STRESS:high-attachments · view 01 Fleet table · Tab cycle · v galle…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│ › project-001 / work/0001-ag… ready      unattended · attention / outdated │
+│   project-002 / work/0002-do… ready      attached:1 · — / current          │
+│   project-003 / work/0003-fi… stopped    attached:2 · — / current          │
+│   project-004 / boot/0004-fe… starting   attached:12 · — / current         │
+│   … 16 more                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-presence-0001                                                       │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

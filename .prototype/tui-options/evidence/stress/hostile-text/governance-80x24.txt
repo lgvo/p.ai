@@ -13,7 +13,7 @@ P / probe · STRESS:hostile-text · view 14 Governance dashboard · Tab cycle ·
 │ 4 · What could be unsafe?                                                  │
 │   3 policy risks · forge<ESC>[31m-red/agent/oauth<LF…                      │
 │                                                                            │
-│ Selected evidence  forge<ESC>[31m-red / agent/oauth<LF>spo…                │
+│ Selected evidence · s-auth  forge<ESC>[31m-red / agent/oau…                │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

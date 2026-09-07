@@ -12,8 +12,8 @@ P / probe · STRESS:unicode · view 04 Command center · Tab cycle · v gallery
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Act on the highlighted result                                              │
-│ Selected  工房・東京/機能/認証フロー  ·  actions: inspect / attach /       │
-│ policy diff / recreate                                                     │
+│ Selected s-auth  工房・東京/機能/認証フロー  ·  actions: inspect / attach  │
+│ / policy diff / recreate                                                   │
 │                                                                            │
 │ The palette never invents eligibility; every action shown comes from the   │
 │ fixture's daemon plan.                                                     │

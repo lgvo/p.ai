@@ -10,7 +10,7 @@ P / probe · view 08 Project status matrix · fixture:standard · Tab cycle · v
 │   orbit                  1      1         0        0                                           │
 │   p.ai                   0      1         1        0                                           │
 │                                                                                                │
-│ Selected cell  forge / agent/oauth-device-flow                                                 │
+│ Selected cell · s-auth  forge / agent/oauth-device-fl…                                         │
 │ ready · unattended · attention · outdated                                                      │
 │ actions  inspect · attach · policy diff · recreate                                             │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯

@@ -351,7 +351,7 @@ func (m app) compactSelectionView() string {
 		return mutedStyle.Render("No session selected")
 	}
 	s := m.sessions[idx]
-	result := titleStyle.Render("Selected") + "  " + truncate(s.Project+"/"+s.Branch, 34) + "  ·  actions: " + strings.Join(availableActions(s), " / ")
+	result := titleStyle.Render("Selected "+s.ID) + "  " + truncate(s.Project+"/"+s.Branch, 28) + "  ·  actions: " + strings.Join(availableActions(s), " / ")
 	if s.Operation != "" {
 		result += "\nprogress  " + s.Operation
 	}
@@ -466,12 +466,12 @@ func (m app) lanesView(width, _ int) string {
 		}
 	}
 	if width < 100 {
-		panels := make([]string, 0, len(lanes))
+		sections := make([]string, 0, len(lanes)+1)
 		for _, lane := range lanes {
-			content := titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices))) + "\n" + m.laneRows(lane.indices, true, 1)
-			panels = append(panels, renderPanel(width, content))
+			sections = append(sections, titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices)))+"\n"+m.laneRows(lane.indices, true, 1))
 		}
-		return lipgloss.JoinVertical(lipgloss.Left, panels...)
+		sections = append(sections, m.laneSelectionSummary())
+		return renderPanel(width, strings.Join(sections, "\n"))
 	}
 	available := width - (len(lanes) - 1)
 	base := available / len(lanes)
@@ -492,7 +492,20 @@ func (m app) lanesView(width, _ int) string {
 			panels = append(panels, " ")
 		}
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, panels...)
+	board := lipgloss.JoinHorizontal(lipgloss.Top, panels...)
+	return lipgloss.JoinVertical(lipgloss.Left, board, renderPanel(width, m.laneSelectionSummary()))
+}
+
+func (m app) laneSelectionSummary() string {
+	idx, ok := m.selectedSessionIndex()
+	if !ok {
+		return mutedStyle.Render("Selected: none")
+	}
+	s := m.sessions[idx]
+	presence, agent := sessionSignals(s)
+	return titleStyle.Render("Selected "+s.ID) + "  " + truncate(s.Project+"/"+s.Branch, 28) + "\n" +
+		strings.Join([]string{s.Lifecycle, presence, agent, s.Policy}, " · ") + "\n" +
+		"actions  " + strings.Join(availableActions(s), " · ")
 }
 
 func laneFor(s session) int {

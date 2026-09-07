@@ -11,7 +11,7 @@ P / probe · STRESS:hostile-text · view 10 Task workspace · Tab cycle · v gal
 │   isolate-<BIDI>left<BIDI>-p… unreachab… unattended · unknown / invalid    │
 │   … 4 more                                                                 │
 │                                                                            │
-│ Persistent selection  forge<ESC>[31m-red / agent/oauth<LF…                 │
+│ Persistent selection · s-auth  forge<ESC>[31m-red / agent…                 │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

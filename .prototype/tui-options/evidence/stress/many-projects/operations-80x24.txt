@@ -13,7 +13,7 @@ P / probe · STRESS:many-projects · view 09 Operations console · Tab cycle · 
 │   20:38:28  s-many-0176   Incus inspection timed out                       │
 │   20:37:35  s-many-0175   activating environment · phase 3/5               │
 │                                                                            │
-│ Selected operation context  project-001 / work/0001-agent/oau…             │
+│ Selected operation context · s-many-0001  project-001 / work/0001-…        │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate · r recovery plan       │
 ╰────────────────────────────────────────────────────────────────────────────╯

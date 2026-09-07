@@ -13,7 +13,7 @@ P / probe · STRESS:unicode · view 14 Governance dashboard · Tab cycle · v ga
 │ 4 · What could be unsafe?                                                  │
 │   3 policy risks · 工房・東京/機能/認証フロー · outd…                      │
 │                                                                            │
-│ Selected evidence  工房・東京 / 機能/認証フロー                            │
+│ Selected evidence · s-auth  工房・東京 / 機能/認証フロー                   │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

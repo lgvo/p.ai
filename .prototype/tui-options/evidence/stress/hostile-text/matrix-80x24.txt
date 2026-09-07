@@ -11,7 +11,7 @@ P / probe · STRESS:hostile-text · view 08 Project status matrix · Tab cycle �
 │   labs                   0      0         1        0                       │
 │   … 3 projects below                                                       │
 │                                                                            │
-│ Selected cell  forge<ESC>[31m-red / agent/oauth<LF>s…                      │
+│ Selected cell · s-auth  forge<ESC>[31m-red / agent/oa…                     │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

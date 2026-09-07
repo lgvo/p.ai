@@ -1,0 +1,27 @@
+P / probe · STRESS:ambiguous-identities · view 04 Command center · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
+│ Search-first command center                                     │ │ Act on the highlighted result                │
+│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected s-ambiguous-id-000001  platform-    │
+│ agent, or policy fact                                           │ │ api-current/featur…  ·  actions: inspect /   │
+│                                                                 │ │ attach / policy diff / recreate              │
+│ › platform-api-current/f… ready      unattended attention       │ │                                              │
+│ outdated                                                        │ │ The palette never invents eligibility; every │
+│   platform-api-currant/f… ready      attached:1 —               │ │ action shown comes from the fixture's daemon │
+│ current                                                         │ │ plan.                                        │
+│   platform-api-current-2… stopped    unattended failed          │ │                                              │
+│ current                                                         │ │ Inspector                                    │
+│   platform-api-current-o… starting   unattended running         │ │ platform-api-current / feature/session-      │
+│ current                                                         │ │ synchronizat…                                │
+│   platform-api-current/f… unreachab… unattended unknown         │ │ UUID s-ambiguous-id-000001                   │
+│ invalid                                                         │ │ lifecycle  ready                             │
+│   platform-api-currant/f… creating   unattended idle            │ │ presence   unattended                        │
+│ current                                                         │ │ agent      attention                         │
+│   platform-api-current-2… missing    unattended —               │ │ policy     outdated                          │
+│ outdated                                                        │ │ actions    inspect · attach · policy diff ·  │
+│   platform-api-current-o… discarding unattended —               │ │ recreate                                     │
+│ current                                                         │ ╰──────────────────────────────────────────────╯
+│ … 16 more matches                                               │
+╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

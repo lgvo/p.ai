@@ -12,7 +12,7 @@ P / probe · STRESS:unicode · view 09 Operations console · Tab cycle · v gall
 │   20:38:28  s-plugin      Incus inspection timed out · مرحلة تجريبية       │
 │   20:37:35  s-cli         activating environment · phase 3/5 · مرحلة تج…   │
 │                                                                            │
-│ Selected operation context  工房・東京 / 機能/認証フロー                   │
+│ Selected operation context · s-auth  工房・東京 / 機能/認証フ…             │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate · r recovery plan       │
 ╰────────────────────────────────────────────────────────────────────────────╯

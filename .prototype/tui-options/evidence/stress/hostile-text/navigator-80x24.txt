@@ -6,8 +6,8 @@ P / probe · STRESS:hostile-text · view 02 Project navigator · Tab cycle · v 
 │ Sessions in selected project                                               │
 │ › agent/oauth<LF>spoofed-row<… ready      unattended  attention outdated   │
 │                                                                            │
-│ Selected  forge<ESC>[31m-red/agent/oauth<LF…  ·  actions: inspect / attach │
-│ / policy diff / recreate                                                   │
+│ Selected s-auth  forge<ESC>[31m-red/agent/oa…  ·  actions: inspect /       │
+│ attach / policy diff / recreate                                            │
 ╰────────────────────────────────────────────────────────────────────────────╯
 j/k move · a attach · d detach · c create · b branches · p policy · X delete
 / filter · Tab cycle · v gallery · ? help · q quit

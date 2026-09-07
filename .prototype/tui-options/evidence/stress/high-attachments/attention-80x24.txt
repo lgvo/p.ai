@@ -1,0 +1,20 @@
+P / probe · STRESS:high-attachments · view 03 Attention workspace · Tab cycle ·…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 5                                                      │
+│ › project-001/work/0001-agen… ready       unattended  attention outdated   │
+│   project-005/recover/0005-d… unreachable attached:9… —         invalid    │
+│   project-004/recover/0014-d… unreachable attached:12 —         invalid    │
+│ … 2 more                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Everything else                                                            │
+│   project-005/work/0010-agen… ready       attached:9… —         outdated   │
+│   project-004/work/0019-agen… ready       attached:12 —         outdated   │
+│   project-004/boot/0004-feat… starting    attached:12 —         current    │
+│ … 12 more                                                                  │
+│                                                                            │
+│ Selected s-presence-0001  project-001/work/0001-agent…  ·  actions:        │
+│ inspect / attach / policy diff / recreate                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

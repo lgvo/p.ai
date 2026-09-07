@@ -14,6 +14,11 @@ P / probe · STRESS:hostile-text · view 06 Actionability lanes · Tab cycle · 
                              │ … 1 below               │ │     expected runtime    │ │     credentials         │
                              ╰─────────────────────────╯ │ no…                     │ │ deleted…                │
                                                          ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-auth  forge<ESC>[31m-red/agent/oa…                                                                      │
+│ ready · unattended · attention · outdated                                                                          │
+│ actions  inspect · attach · policy diff · recreate                                                                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 Fixture data only — no daemon or project state is connected.
 j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
 · q quit

@@ -15,6 +15,11 @@ P / probe · STRESS:many-projects · view 06 Actionability lanes · Tab cycle ·
                              ╰─────────────────────────╯ │ no…                     │ │ deleted…                │
                                                          │ … 38 below              │ │ … 38 below              │
                                                          ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-many-0001  project-001/work/0001-agent…                                                                 │
+│ ready · unattended · attention · outdated                                                                          │
+│ actions  inspect · attach · policy diff · recreate                                                                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 Fixture data only — no daemon or project state is connected.
 j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
 · q quit

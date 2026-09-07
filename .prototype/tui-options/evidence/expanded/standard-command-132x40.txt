@@ -1,7 +1,7 @@
 P / probe · view 04 Command center · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────╮
 │ Search-first command center                                            │ │ Act on the highlighted result                     │
-│ Press / and type any project, branch, lifecycle, presence, agent, or   │ │ Selected  forge/agent/oauth-device-flow  ·        │
+│ Press / and type any project, branch, lifecycle, presence, agent, or   │ │ Selected s-auth  forge/agent/oauth-device-fl…  ·  │
 │ policy fact                                                            │ │ actions: inspect / attach / policy diff /         │
 │                                                                        │ │ recreate                                          │
 │ › forge/agent/oauth-devi… ready      unattended attention outdated     │ │                                                   │

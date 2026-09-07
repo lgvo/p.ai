@@ -12,7 +12,7 @@ P / probe · STRESS:skewed · view 14 Governance dashboard · Tab cycle · v gal
 │ state.                                                │ │ and fingerprint.                                      │
 ╰───────────────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Selected evidence  project-001 / work/0001-agent/oauth-dev…                                                        │
+│ Selected evidence · s-skewed-0001  project-001 / work/0001-agent/…                                                 │
 │ ready · unattended · attention · current                                                                           │
 │ actions  inspect · attach                                                                                          │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

@@ -11,7 +11,7 @@ P / probe · STRESS:many-projects · view 10 Task workspace · Tab cycle · v ga
 │   project-005 / recover/0005… unreachab… unattended · unknown / invalid    │
 │   … 175 more                                                               │
 │                                                                            │
-│ Persistent selection  project-001 / work/0001-agent/oauth…                 │
+│ Persistent selection · s-many-0001  project-001 / work/0001-ag…            │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

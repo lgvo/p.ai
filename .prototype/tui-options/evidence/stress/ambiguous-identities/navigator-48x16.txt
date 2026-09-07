@@ -1,0 +1,13 @@
+P / probe · STRESS:ambiguous-identities · view …
+╭────────────────────────────────────────────╮
+│ Project navigator · compact disclosure     │
+│ platform-api-currant / feature/session-…   │
+│ UUID s-ambiguous-id-000002                 │
+│ lifecycle  ready                           │
+│ presence   attached:1                      │
+│ agent      —                               │
+│ policy     current                         │
+│ actions    inspect · attach · detach this  │
+│ client                                     │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

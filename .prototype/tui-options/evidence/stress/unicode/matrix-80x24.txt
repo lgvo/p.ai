@@ -12,7 +12,7 @@ P / probe · STRESS:unicode · view 08 Project status matrix · Tab cycle · v g
 │   데이터-연구소          0      0         1        0                       │
 │   … 2 projects below                                                       │
 │                                                                            │
-│ Selected cell  工房・東京 / 機能/認証フロー                                │
+│ Selected cell · s-auth  工房・東京 / 機能/認証フロー                       │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

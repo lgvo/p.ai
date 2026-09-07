@@ -12,7 +12,7 @@ P / probe · STRESS:hostile-text · view 09 Operations console · Tab cycle · v
 │   20:38:28  s-plugin      Incus inspection timed out                       │
 │   20:37:35  s-cli         activating environment · phase 3/5               │
 │                                                                            │
-│ Selected operation context  forge<ESC>[31m-red / agent/oauth<…             │
+│ Selected operation context · s-auth  forge<ESC>[31m-red / age…             │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate · r recovery plan       │
 ╰────────────────────────────────────────────────────────────────────────────╯

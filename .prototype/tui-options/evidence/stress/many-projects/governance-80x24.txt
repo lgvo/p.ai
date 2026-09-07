@@ -13,7 +13,7 @@ P / probe · STRESS:many-projects · view 14 Governance dashboard · Tab cycle �
 │ 4 · What could be unsafe?                                                  │
 │   60 policy risks · project-001/work/0001-agent/oauth…                     │
 │                                                                            │
-│ Selected evidence  project-001 / work/0001-agent/oauth-dev…                │
+│ Selected evidence · s-many-0001  project-001 / work/0001-agent/…           │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

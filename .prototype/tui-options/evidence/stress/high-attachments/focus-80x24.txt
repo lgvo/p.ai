@@ -1,0 +1,21 @@
+P / probe · STRESS:high-attachments · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Focus deck · 1/20                                                          │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-presence-0001                                                       │
+│                                                                            │
+│ Lifecycle  ready         Presence  unattended                              │
+│ Agent      attention     Policy    outdated                                │
+│                                                                            │
+│ Primary actions  inspect · attach · policy diff · recreate                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Stream radar · context without leaving focus                               │
+│ › project-001/work/0001-… ready      unattended attention outdated         │
+│   project-002/work/0002-… ready      attached:1 —         current          │
+│   project-003/work/0003-… stopped    attached:2 —         current          │
+│   project-004/boot/0004-… starting   attached:… —         current          │
+│ … 16 more                                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

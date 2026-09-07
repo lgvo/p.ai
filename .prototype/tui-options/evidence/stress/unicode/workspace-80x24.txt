@@ -11,7 +11,7 @@ P / probe · STRESS:unicode · view 10 Task workspace · Tab cycle · v gallery
 │   מעבדת-תל-אביב / תיקון/חוזה… unreachab… unattended · unknown / invalid    │
 │   … 4 more                                                                 │
 │                                                                            │
-│ Persistent selection  工房・東京 / 機能/認証フロー                         │
+│ Persistent selection · s-auth  工房・東京 / 機能/認証フロ…                 │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

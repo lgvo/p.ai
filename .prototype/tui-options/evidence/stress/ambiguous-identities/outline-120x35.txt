@@ -1,0 +1,30 @@
+P / probe · STRESS:ambiguous-identities · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│ › ▾ platform-api-currant 6 sessions · 2 urgent           │ │ platform-api-current / feature/session-             │
+│       └─ feature/session-synchronization-worke…          │ │ synchronizat…                                       │
+│          ready · attached:1 · — · current                │ │ UUID s-ambiguous-id-000001                          │
+│       └─ feature/session-synchronization-worke…          │ │ lifecycle  ready                                    │
+│          creating · unattended · idle · current          │ │ presence   unattended                               │
+│       └─ feature/session-synchronization-worke…          │ │ agent      attention                                │
+│          ready · unattended · attention · outdated       │ │ policy     outdated                                 │
+│       └─ feature/session-synchronization-worke…          │ │ actions    inspect · attach · policy diff ·         │
+│          unreachable · unattended · unknown · invalid    │ │ recreate                                            │
+│       └─ feature/session-synchronization-worke…          │ ╰─────────────────────────────────────────────────────╯
+│          deleting · unattended · — · current             │
+│       └─ feature/session-synchronization-worke…          │
+│          starting · unattended · running · current       │
+│   ▾ platform-api-current 6 sessions · 3 urgent           │
+│       └─ feature/session-synchronization-worke…          │
+│          ready · unattended · attention · outdated       │
+│       └─ feature/session-synchronization-worke…          │
+│          unreachable · unattended · unknown · invalid    │
+│       └─ feature/session-synchronization-worke…          │
+│          deleting · unattended · — · current             │
+│       └─ feature/session-synchronization-worke…          │
+│          starting · attached:1 · — · current             │
+│   … 16 nodes below                                       │
+╰──────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

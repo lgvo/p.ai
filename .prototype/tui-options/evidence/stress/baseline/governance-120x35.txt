@@ -13,7 +13,7 @@ P / probe · STRESS:baseline · view 14 Governance dashboard · Tab cycle · v g
 │ state.                                                │ ╰───────────────────────────────────────────────────────╯
 ╰───────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Selected evidence  forge / agent/oauth-device-flow                                                                 │
+│ Selected evidence · s-auth  forge / agent/oauth-device-flow                                                        │
 │ ready · unattended · attention · outdated                                                                          │
 │ actions  inspect · attach · policy diff · recreate                                                                 │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

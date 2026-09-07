@@ -11,7 +11,7 @@ P / probe · STRESS:massive · view 08 Project status matrix · Tab cycle · v g
 │   project-004            8     14         9        9                       │
 │   … 21 projects below                                                      │
 │                                                                            │
-│ Selected cell  project-001 / work/0001-agent/oauth-d…                      │
+│ Selected cell · s-massive-0001  project-001 / work/0001-agent…             │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

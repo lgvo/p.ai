@@ -1,0 +1,22 @@
+P / probe · STRESS:ambiguous-identities · view 01 Fleet table · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│ › platform-api-current / fea… ready      unattended · attention / outdated │
+│   platform-api-currant / fea… ready      attached:1 · — / current          │
+│   platform-api-current-2 / f… stopped    unattended · failed / current     │
+│   platform-api-current-old /… starting   unattended · running / current    │
+│   … 20 more                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ platform-api-current / feature/session-synchronizat…                       │
+│ UUID s-ambiguous-id-000001                                                 │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

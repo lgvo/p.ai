@@ -1,8 +1,8 @@
 P / probe · view 04 Command center · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────╮
 │ Search-first command center                                                            │ │ Act on the highlighted result                                 │
-│ Press / and type any project, branch, lifecycle, presence, agent, or policy fact       │ │ Selected  forge/agent/oauth-device-flow  ·  actions: inspect  │
-│                                                                                        │ │ / attach / policy diff / recreate                             │
+│ Press / and type any project, branch, lifecycle, presence, agent, or policy fact       │ │ Selected s-auth  forge/agent/oauth-device-fl…  ·  actions:    │
+│                                                                                        │ │ inspect / attach / policy diff / recreate                     │
 │ › forge/agent/oauth-devi… ready      unattended attention outdated                     │ │                                                               │
 │   forge/docs/plugin-guide ready      attached:1 —         current                      │ │ The palette never invents eligibility; every action shown     │
 │   orbit/fix/cache-race    stopped    unattended failed    current                      │ │ comes from the fixture's daemon plan.                         │

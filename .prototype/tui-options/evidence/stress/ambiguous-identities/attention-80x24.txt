@@ -1,0 +1,20 @@
+P / probe · STRESS:ambiguous-identities · view 03 Attention workspace · Tab cyc…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 11                                                     │
+│ › platform-api-current/featu… ready       unattended  attention outdated   │
+│   platform-api-currant/featu… ready       unattended  attention outdated   │
+│   platform-api-current-2/fea… ready       unattended  attention outdated   │
+│ … 8 more                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Everything else                                                            │
+│   platform-api-current-old/f… starting    unattended  running   current    │
+│   platform-api-currant/featu… creating    unattended  idle      current    │
+│   platform-api-current/featu… starting    attached:1  —         current    │
+│ … 10 more                                                                  │
+│                                                                            │
+│ Selected s-ambiguous-id-000001  platform-api-current/featur…  ·  actions:  │
+│ inspect / attach / policy diff / recreate                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

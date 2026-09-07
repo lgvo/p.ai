@@ -11,7 +11,7 @@ P / probe · view 10 Task workspace · fixture:standard · Tab cycle · v galler
 │   p.ai / design/plugin-contr… unreachab… unattended · unknown / invalid    │
 │   … 4 more                                                                 │
 │                                                                            │
-│ Persistent selection  forge / agent/oauth-device-flow                      │
+│ Persistent selection · s-auth  forge / agent/oauth-device…                 │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

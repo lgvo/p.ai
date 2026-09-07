@@ -15,7 +15,8 @@ P / probe · view 04 Command center · fixture:standard · Tab cycle · v galler
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ Act on the highlighted result                                                                  │
-│ Selected  forge/agent/oauth-device-flow  ·  actions: inspect / attach / policy diff / recreate │
+│ Selected s-auth  forge/agent/oauth-device-fl…  ·  actions: inspect / attach / policy diff /    │
+│ recreate                                                                                       │
 │                                                                                                │
 │ The palette never invents eligibility; every action shown comes from the fixture's daemon      │
 │ plan.                                                                                          │

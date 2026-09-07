@@ -13,7 +13,7 @@ P / probe · STRESS:massive · view 09 Operations console · Tab cycle · v gall
 │   20:38:28  s-massive-09… building project environment · phase 2/6         │
 │   20:37:35  s-massive-09… Incus inspection timed out                       │
 │                                                                            │
-│ Selected operation context  project-001 / work/0001-agent/oau…             │
+│ Selected operation context · s-massive-0001  project-001 / work/0001-…     │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate · r recovery plan       │
 ╰────────────────────────────────────────────────────────────────────────────╯

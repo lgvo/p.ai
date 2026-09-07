@@ -1,9 +1,9 @@
 P / probe · STRESS:hostile-text · view 04 Command center · Tab cycle · v gallery
 ╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
 │ Search-first command center                                     │ │ Act on the highlighted result                │
-│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected  forge<ESC>[31m-red/agent/oauth<LF… │
-│ agent, or policy fact                                           │ │ ·  actions: inspect / attach / policy diff / │
-│                                                                 │ │ recreate                                     │
+│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected s-auth  forge<ESC>[31m-             │
+│ agent, or policy fact                                           │ │ red/agent/oa…  ·  actions: inspect / attach  │
+│                                                                 │ │ / policy diff / recreate                     │
 │ › forge<ESC>[31m-red/age… ready      unattended attention       │ │                                              │
 │ outdated                                                        │ │ The palette never invents eligibility; every │
 │   link<ESC>]8;;https://i… ready      attached:1 —               │ │ action shown comes from the fixture's daemon │

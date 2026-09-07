@@ -87,7 +87,7 @@ func (m app) governanceSelection() string {
 	}
 	s := m.sessions[idx]
 	presence, agent := sessionSignals(s)
-	result := titleStyle.Render("Selected evidence") + "  " + truncate(s.Project+" / "+s.Branch, 40) + "\n" +
+	result := titleStyle.Render("Selected evidence · "+s.ID) + "  " + truncate(s.Project+" / "+s.Branch, 31) + "\n" +
 		strings.Join([]string{s.Lifecycle, presence, agent, s.Policy}, " · ") +
 		"\nactions  " + strings.Join(availableActions(s), " · ")
 	if s.Operation != "" {

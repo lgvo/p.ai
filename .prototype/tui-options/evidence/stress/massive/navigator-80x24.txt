@@ -10,8 +10,8 @@ P / probe · STRESS:massive · view 02 Project navigator · Tab cycle · v galle
 │   boot/0051-prototype/tui-opt… creating   unattended  idle      current    │
 │ … 37 sessions below                                                        │
 │                                                                            │
-│ Selected  project-001/work/0001-agent/oauth…  ·  actions: inspect / attach │
-│ / policy diff / recreate                                                   │
+│ Selected s-massive-0001  project-001/work/0001-agent…  ·  actions: inspect │
+│ / attach / policy diff / recreate                                          │
 ╰────────────────────────────────────────────────────────────────────────────╯
 j/k move · a attach · d detach · c create · b branches · p policy · X delete
 / filter · Tab cycle · v gallery · ? help · q quit

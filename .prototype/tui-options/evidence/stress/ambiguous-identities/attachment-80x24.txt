@@ -1,0 +1,21 @@
+P / probe · STRESS:ambiguous-identities · view 13 Attachment dock · Tab cycle ·…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Attachment dock                                                            │
+│ This client may occupy one persistent session host; switching does not …   │
+│                                                                            │
+│ CLIENT  attached → s-ambiguous-id-000002                                   │
+│ platform-api-currant / feature/session-sy…                                 │
+│ ready · attached:1 · — · current                                           │
+│ d detaches this client; host remains ready                                 │
+│                                                                            │
+│ Switch targets                                                             │
+│ › platform-api-curren… ready       unattended   a attach/switch            │
+│   platform-api-curran… ready       attached:1   a attach/switch            │
+│   … 22 more targets                                                        │
+│                                                                            │
+│ Candidate facts  s-ambiguous-id-000001                                     │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

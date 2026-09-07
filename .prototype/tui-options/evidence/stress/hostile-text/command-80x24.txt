@@ -12,8 +12,8 @@ P / probe · STRESS:hostile-text · view 04 Command center · Tab cycle · v gal
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Act on the highlighted result                                              │
-│ Selected  forge<ESC>[31m-red/agent/oauth<LF…  ·  actions: inspect / attach │
-│ / policy diff / recreate                                                   │
+│ Selected s-auth  forge<ESC>[31m-red/agent/oa…  ·  actions: inspect /       │
+│ attach / policy diff / recreate                                            │
 │                                                                            │
 │ The palette never invents eligibility; every action shown comes from the   │
 │ fixture's daemon plan.                                                     │

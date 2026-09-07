@@ -1,8 +1,8 @@
 P / probe · STRESS:unicode · view 04 Command center · Tab cycle · v gallery
 ╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
 │ Search-first command center                                     │ │ Act on the highlighted result                │
-│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected  工房・東京/機能/認証フロー  ·      │
-│ agent, or policy fact                                           │ │ actions: inspect / attach / policy diff /    │
+│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected s-auth  工房・東京/機能/認証フロー  │
+│ agent, or policy fact                                           │ │ ·  actions: inspect / attach / policy diff / │
 │                                                                 │ │ recreate                                     │
 │ › 工房・東京/機能/認証フ… ready      unattended attention       │ │                                              │
 │ outdated                                                        │ │ The palette never invents eligibility; every │

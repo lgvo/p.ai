@@ -71,7 +71,7 @@ func (m app) workspaceCompactDetail() string {
 	}
 	s := m.sessions[idx]
 	presence, agent := sessionSignals(s)
-	result := titleStyle.Render("Persistent selection") + "  " + truncate(s.Project+" / "+s.Branch, 36) +
+	result := titleStyle.Render("Persistent selection · "+s.ID) + "  " + truncate(s.Project+" / "+s.Branch, 27) +
 		"\n" + strings.Join([]string{s.Lifecycle, presence, agent, s.Policy}, " · ") +
 		"\nactions  " + strings.Join(availableActions(s), " · ")
 	if s.Operation != "" {

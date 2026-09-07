@@ -13,7 +13,7 @@ P / probe · STRESS:hostile-text · view 14 Governance dashboard · Tab cycle ·
 │ state.                                                │ ╰───────────────────────────────────────────────────────╯
 ╰───────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│ Selected evidence  forge<ESC>[31m-red / agent/oauth<LF>spo…                                                        │
+│ Selected evidence · s-auth  forge<ESC>[31m-red / agent/oau…                                                        │
 │ ready · unattended · attention · outdated                                                                          │
 │ actions  inspect · attach · policy diff · recreate                                                                 │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

@@ -13,7 +13,7 @@ P / probe · STRESS:skewed · view 14 Governance dashboard · Tab cycle · v gal
 │ 4 · What could be unsafe?                                                  │
 │   0 policy risks · none                                                    │
 │                                                                            │
-│ Selected evidence  project-001 / work/0001-agent/oauth-dev…                │
+│ Selected evidence · s-skewed-0001  project-001 / work/0001-agent/…         │
 │ ready · unattended · attention · current                                   │
 │ actions  inspect · attach                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯

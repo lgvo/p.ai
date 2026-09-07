@@ -27,6 +27,8 @@ func datasetCatalog() []datasetDefinition {
 		{modeStress, "skewed", "three hundred sessions dominated by one urgent condition", skewedSessions},
 		{modeStress, "unicode", "wide glyphs, combining marks, emoji, and natural right-to-left names", unicodeSessions},
 		{modeStress, "hostile-text", "ANSI, bidi controls, embedded control bytes, and oversized diagnostics", hostileTextSessions},
+		{modeStress, "ambiguous-identities", "near-identical project, branch, and session labels", ambiguousIdentitySessions},
+		{modeStress, "high-attachments", "simultaneous attachment counts from one through four digits", highAttachmentSessions},
 	}
 }
 
@@ -209,6 +211,31 @@ func hostileTextSessions() []session {
 	result[2].Operation = strings.Repeat("diagnostic-segment-", 400)
 	result[3].Branch = "feature/zero\x00byte-and-del\x7f"
 	result[4].Project = "isolate-\u2066left\u2069-project"
+	return result
+}
+
+func ambiguousIdentitySessions() []session {
+	result := scaledSessions(24, 4, "ambiguous")
+	projects := []string{"platform-api-current", "platform-api-currant", "platform-api-current-2", "platform-api-current-old"}
+	for i := range result {
+		result[i].Project = projects[i%len(projects)]
+		result[i].Branch = fmt.Sprintf("feature/session-synchronization-worker-%03d", i%3+1)
+		result[i].ID = fmt.Sprintf("s-ambiguous-id-%06d", i+1)
+	}
+	result[1].AttachedCount = 1
+	result[1].Agent, result[1].AgentReason = "", ""
+	return result
+}
+
+func highAttachmentSessions() []session {
+	result := scaledSessions(20, 5, "presence")
+	counts := []int{0, 1, 2, 12, 9999}
+	for i := range result {
+		result[i].AttachedCount = counts[i%len(counts)]
+		if result[i].AttachedCount > 0 {
+			result[i].Agent, result[i].AgentReason = "", ""
+		}
+	}
 	return result
 }
 

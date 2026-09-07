@@ -13,7 +13,7 @@ P / probe · view 14 Governance dashboard · fixture:standard · Tab cycle · v 
 │ 4 · What could be unsafe?                                                  │
 │   3 policy risks · forge/agent/oauth-device-flow · o…                      │
 │                                                                            │
-│ Selected evidence  forge / agent/oauth-device-flow                         │
+│ Selected evidence · s-auth  forge / agent/oauth-device-flow                │
 │ ready · unattended · attention · outdated                                  │
 │ actions  inspect · attach · policy diff · recreate                         │
 ╰────────────────────────────────────────────────────────────────────────────╯

@@ -14,6 +14,11 @@ P / probe · STRESS:unicode · view 06 Actionability lanes · Tab cycle · v gal
                              │ … 1 below               │ │     expected runtime    │ │     credentials         │
                              ╰─────────────────────────╯ │ no…                     │ │ deleted…                │
                                                          ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-auth  工房・東京/機能/認証フロー                                                                        │
+│ ready · unattended · attention · outdated                                                                          │
+│ actions  inspect · attach · policy diff · recreate                                                                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 Fixture data only — no daemon or project state is connected.
 j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
 · q quit

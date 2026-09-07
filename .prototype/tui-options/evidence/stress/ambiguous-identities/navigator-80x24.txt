@@ -1,0 +1,16 @@
+P / probe · STRESS:ambiguous-identities · view 02 Project navigator · Tab cycle…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects   plat…rrant   plat…rrent  plat…ent-2  plat…t-old                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│ › feature/session-synchroniza… ready      attached:1  —         current    │
+│   feature/session-synchroniza… creating   unattended  idle      current    │
+│   feature/session-synchroniza… ready      unattended  attention outdated   │
+│ … 3 sessions below                                                         │
+│                                                                            │
+│ Selected s-ambiguous-id-000002  platform-api-currant/featur…  ·  actions:  │
+│ inspect / attach / detach this client                                      │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

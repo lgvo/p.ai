@@ -1,0 +1,16 @@
+P / probe · STRESS:high-attachments · view 08 Project status matrix · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────╮
+│ Project × intervention matrix  ·  20 sessions  ·  attached 40056            │ │ Inspector                        │
+│ Columns answer where attention, routine work, recovery, and removal         │ │ project-001 / work/0001-         │
+│ accumulate.                                                                 │ │ agent/oauth-device-flow          │
+│                                                                             │ │ UUID s-presence-0001             │
+│   PROJECT     INSPECT       WORK          RECOVER       REMOVE              │ │ lifecycle  ready                 │
+│ › proj…t-001 work/0001-a…  boot/0006-p…  recover/001…  —                    │ │ presence   unattended            │
+│   proj…t-002 —             work/0002-d…  recover/000…  retire/0017…         │ │ agent      attention             │
+│   proj…t-003 —             work/0003-f…  —             retire/0008…         │ │ policy     outdated              │
+│   proj…t-004 —             boot/0004-f…  recover/001…  retire/0009…         │ │ actions    inspect · attach ·    │
+│   proj…t-005 —             work/0010-a…  recover/000…  —                    │ │ policy diff · recreate           │
+╰─────────────────────────────────────────────────────────────────────────────╯ ╰──────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

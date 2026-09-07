@@ -1,9 +1,9 @@
 P / probe · STRESS:many-projects · view 04 Command center · Tab cycle · v gallery
 ╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
 │ Search-first command center                                     │ │ Act on the highlighted result                │
-│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected  project-001/work/0001-agent/oauth… │
-│ agent, or policy fact                                           │ │ ·  actions: inspect / attach / policy diff / │
-│                                                                 │ │ recreate                                     │
+│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected s-many-0001  project-001/work/0001- │
+│ agent, or policy fact                                           │ │ agent…  ·  actions: inspect / attach /       │
+│                                                                 │ │ policy diff / recreate                       │
 │ › project-001/work/0001-… ready      unattended attention       │ │                                              │
 │ outdated                                                        │ │ The palette never invents eligibility; every │
 │   project-002/work/0002-… ready      unattended —               │ │ action shown comes from the fixture's daemon │

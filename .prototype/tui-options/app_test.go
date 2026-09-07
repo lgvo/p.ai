@@ -408,7 +408,7 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 
 func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
-	if len(explore) != 5 || len(stress) != 6 {
+	if len(explore) != 5 || len(stress) != 8 {
 		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
 	}
 	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
@@ -421,6 +421,48 @@ func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	view := stressApp.View()
 	if !strings.Contains(view, "STRESS:baseline") {
 		t.Fatalf("stress surface is not clearly labeled:\n%s", view)
+	}
+}
+
+func TestIdentityAndPresenceStressAcrossEveryVariantAndTargetViewport(t *testing.T) {
+	for _, dataset := range []string{"ambiguous-identities", "high-attachments"} {
+		for _, v := range allVariants() {
+			for _, size := range stressViewportMatrix() {
+				m, err := newAppForModeDataset(modeStress, dataset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.variant, m.width, m.height = v, size.width, size.height
+				assertBoundedSupportedView(t, m, dataset, v, size.width, size.height)
+				idx, ok := m.selectedSessionIndex()
+				if !ok || !strings.Contains(m.View(), m.sessions[idx].ID) {
+					selectedID := "none"
+					if ok {
+						selectedID = m.sessions[idx].ID
+					}
+					t.Errorf("%s/%s at %dx%d hides selected stable UUID %q", dataset, v, size.width, size.height, selectedID)
+				}
+			}
+		}
+	}
+}
+
+func TestHighAttachmentCountsPreserveOtherClientsOnSwitch(t *testing.T) {
+	m, _ := newAppForModeDataset(modeStress, "high-attachments")
+	previousID := m.clientAttach
+	previous, _ := m.sessionWithID(previousID)
+	if previous.AttachedCount != 1 {
+		t.Fatalf("fixture client anchor count=%d", previous.AttachedCount)
+	}
+	m.attachSelected()
+	previous, _ = m.sessionWithID(previousID)
+	if previous.AttachedCount != 0 || m.sessions[0].AttachedCount != 1 {
+		t.Fatalf("switch changed wrong leases: previous=%d target=%d", previous.AttachedCount, m.sessions[0].AttachedCount)
+	}
+	for _, s := range m.sessions {
+		if s.AttachedCount < 0 {
+			t.Fatalf("negative attachment count for %s", s.ID)
+		}
 	}
 }
 

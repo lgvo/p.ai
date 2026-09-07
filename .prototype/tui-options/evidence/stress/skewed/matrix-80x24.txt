@@ -11,7 +11,7 @@ P / probe · STRESS:skewed · view 08 Project status matrix · Tab cycle · v ga
 │   project-004           25      0         0        0                       │
 │   … 8 projects below                                                       │
 │                                                                            │
-│ Selected cell  project-001 / work/0001-agent/oauth-d…                      │
+│ Selected cell · s-skewed-0001  project-001 / work/0001-agent…              │
 │ ready · unattended · attention · current                                   │
 │ actions  inspect · attach                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
