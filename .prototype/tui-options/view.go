@@ -62,6 +62,8 @@ func (m app) View() string {
 			body = m.cardsView(width, height)
 		case variantAttachment:
 			body = m.attachmentView(width, height)
+		case variantGovernance:
+			body = m.governanceView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)

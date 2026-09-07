@@ -91,9 +91,20 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
+		}
+	}
+}
+
+func TestGovernanceDashboardAnswersFourUserQuestions(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantGovernance, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"What needs attention?", "Where am I attached?", "What is changing?", "What could be unsafe?", "attached →"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("governance dashboard omitted %q", fragment)
 		}
 	}
 }

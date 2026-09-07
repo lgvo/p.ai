@@ -7,12 +7,12 @@ expanded=evidence/expanded
 mkdir -p "$out"
 mkdir -p "$expanded"
 
-for variant in table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment; do
+for variant in table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance; do
   "$bin" --snapshot --variant "$variant" --width 80 --height 24 | sed 's/[[:space:]]*$//' >"$out/$variant-80x24.txt"
   "$bin" --snapshot --variant "$variant" --width 120 --height 35 | sed 's/[[:space:]]*$//' >"$out/$variant-120x35.txt"
 done
 
-for variant in table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment; do
+for variant in table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance; do
   for size in 160x50 132x40 120x35 100x30 80x24 60x20 48x16 40x12; do
     width=${size%x*}
     height=${size#*x}

@@ -1,0 +1,22 @@
+P / probe · view 14 Governance dashboard · fixture:standard · Tab cycle · v gallery
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ 1 · What needs attention?                             │ │ 2 · Where am I attached?                              │
+│ 4 urgent · forge/agent/oauth-device-flow              │ │ attached → forge/docs/plugin-guide                    │
+│ Independent agent and lifecycle conditions determine  │ │ Detach removes only this client; host remains ready.  │
+│ this answer.                                          │ ╰───────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────╯
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ 3 · What is changing?                                 │ │ 4 · What could be unsafe?                             │
+│ 7 observed operations · last start: host exited;      │ │ 3 policy risks · forge/agent/oauth-device-flow · o…   │
+│ bounded …                                             │ │ Destructive work still requires an aggregate preview  │
+│ Progress is observation, never a guessed decision     │ │ and fingerprint.                                      │
+│ state.                                                │ ╰───────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected evidence  forge / agent/oauth-device-flow                                                                 │
+│ ready · unattended · attention · outdated                                                                          │
+│ actions  inspect · attach · policy diff · recreate                                                                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

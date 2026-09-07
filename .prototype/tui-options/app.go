@@ -29,11 +29,12 @@ const (
 	variantMinimal
 	variantCards
 	variantAttachment
+	variantGovernance
 	variantCount
 )
 
 func (v variant) String() string {
-	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console", "Task workspace", "Minimal stream ledger", "Responsive card grid", "Attachment dock"}[v]
+	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console", "Task workspace", "Minimal stream ledger", "Responsive card grid", "Attachment dock", "Governance dashboard"}[v]
 }
 
 func parseVariant(s string) (variant, bool) {
@@ -64,6 +65,8 @@ func parseVariant(s string) (variant, bool) {
 		return variantCards, true
 	case "attachment", "dock", "switcher":
 		return variantAttachment, true
+	case "governance", "dashboard", "questions":
+		return variantGovernance, true
 	default:
 		return 0, false
 	}
