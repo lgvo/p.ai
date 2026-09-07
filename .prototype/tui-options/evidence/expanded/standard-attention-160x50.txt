@@ -1,0 +1,30 @@
+P / probe · 03/06 Attention workspace · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 4                                          │ │ Everything else                                                                       │
+│ › forge      agent/oauth-device-flow                           │ │   orbit      feature/interactive-cli                                                  │
+│     ready · unattended                                         │ │     starting · unattended                                                             │
+│     attention · outdated · permission required                 │ │     running · current · activating environmen…                                        │
+│   orbit      fix/cache-race                                    │ │   p.ai       prototype/tui-options-with…                                              │
+│     stopped · unattended                                       │ │     creating · unattended                                                             │
+│     failed · current · tests exited 1                          │ │     idle · current · building project envi…                                           │
+│   p.ai       design/plugin-contract-rec…                       │ │   forge      docs/plugin-guide                                                        │
+│     unreachable · unattended                                   │ │     ready · attached:1                                                                │
+│     unknown · invalid · Incus inspection time…                 │ │     no signal · current ·                                                             │
+│   labs       cleanup/retained-state                            │ │   demo       discard/temporary-spike                                                  │
+│     missing · unattended                                       │ │     discarding · unattended                                                           │
+│     no signal · outdated · expected runtime not …              │ │     no signal · current · tearing down runtime …                                      │
+╰────────────────────────────────────────────────────────────────╯ │   demo       archive/old-experiment                                                   │
+                                                                   │     deleting · unattended                                                             │
+                                                                   │     no signal · current · credentials deleted ·…                                      │
+                                                                   │                                                                                       │
+                                                                   │ Inspector                                                                             │
+                                                                   │ forge / agent/oauth-device-flow                                                       │
+                                                                   │ UUID s-auth                                                                           │
+                                                                   │ lifecycle  ready                                                                      │
+                                                                   │ presence   unattended                                                                 │
+                                                                   │ agent      attention                                                                  │
+                                                                   │ policy     outdated                                                                   │
+                                                                   │ actions    inspect · attach · policy diff · recreate                                  │
+                                                                   ╰───────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

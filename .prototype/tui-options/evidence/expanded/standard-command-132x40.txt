@@ -1,0 +1,23 @@
+P / probe · 04/06 Command center · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────╮
+│ Search-first command center                                            │ │ Act on the highlighted result                     │
+│ Press / and type any project, branch, lifecycle, presence, agent, or   │ │ Selected  forge/agent/oauth-device-flow  ·        │
+│ policy fact                                                            │ │ actions: inspect / attach / policy diff /         │
+│                                                                        │ │ recreate                                          │
+│ › forge/agent/oauth-devi… ready      unattended attention outdated     │ │                                                   │
+│   forge/docs/plugin-guide ready      attached:1 —        current       │ │ The palette never invents eligibility; every      │
+│   orbit/fix/cache-race    stopped    unattended failed   current       │ │ action shown comes from the fixture's daemon      │
+│   orbit/feature/interact… starting   unattended running  current       │ │ plan.                                             │
+│   p.ai/design/plugin-con… unreachable unattended unknown  invalid      │ │                                                   │
+│   p.ai/prototype/tui-opt… creating   unattended idle     current       │ │ Inspector                                         │
+│   labs/cleanup/retained-… missing    unattended —        outdated      │ │ forge / agent/oauth-device-flow                   │
+│   demo/discard/temporary… discarding unattended —        current       │ │ UUID s-auth                                       │
+│ … 1 more matches                                                       │ │ lifecycle  ready                                  │
+╰────────────────────────────────────────────────────────────────────────╯ │ presence   unattended                             │
+                                                                           │ agent      attention                              │
+                                                                           │ policy     outdated                               │
+                                                                           │ actions    inspect · attach · policy diff ·       │
+                                                                           │ recreate                                          │
+                                                                           ╰───────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

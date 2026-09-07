@@ -1,0 +1,22 @@
+P / probe · 01/06 Fleet table · fixture:dense · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│ › forge / work/01-agent/oaut… ready      unattended · attention / outdated │
+│   orbit / work/02-docs/plugi… ready      unattended · — / current          │
+│   p.ai / work/03-fix/cache-r… stopped    unattended · failed / current     │
+│   labs / boot/04-feature/int… starting   unattended · running / current    │
+│   … 36 more                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ forge / work/01-agent/oauth-device-flow                                    │
+│ UUID s-dense-01                                                            │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

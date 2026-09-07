@@ -59,6 +59,7 @@ const (
 	screenDeletePreview
 	screenDeleteProgress
 	screenHelp
+	screenVariantGallery
 )
 
 type session struct {
@@ -98,6 +99,8 @@ type deleteTarget struct {
 type app struct {
 	width, height int
 	variant       variant
+	galleryChoice variant
+	dataset       string
 	screen        screen
 	previous      screen
 	selected      int
@@ -114,23 +117,34 @@ type app struct {
 }
 
 func newApp() app {
+	m, _ := newAppForDataset("standard")
+	return m
+}
+
+func newAppForDataset(dataset string) (app, error) {
 	filter := textinput.New()
 	filter.Placeholder = "filter project, branch, or status"
 	filter.CharLimit = 48
 	filter.Width = 34
 
-	return app{
-		width:        120,
-		height:       35,
-		variant:      variantTable,
-		screen:       screenOverview,
-		project:      1, // "forge" exposes attention, attachment, and policy drift together.
-		filter:       filter,
-		sessions:     fixtureSessions(),
-		branches:     fixtureBranches(),
-		clientAttach: "s-docs",
-		message:      fixtureNotice,
+	m := app{
+		width:         120,
+		height:        35,
+		variant:       variantTable,
+		galleryChoice: variantTable,
+		dataset:       dataset,
+		screen:        screenOverview,
+		project:       1, // "forge" exposes attention, attachment, and policy drift together.
+		filter:        filter,
+		sessions:      fixtureSessions(),
+		branches:      fixtureBranches(),
+		clientAttach:  "s-docs",
+		message:       fixtureNotice,
 	}
+	if err := m.applyDataset(dataset); err != nil {
+		return app{}, err
+	}
+	return m, nil
 }
 
 func fixtureSessions() []session {
@@ -205,6 +219,9 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.variant, m.selected = variantFocus, 0
 		case "6":
 			m.variant, m.selected = variantLanes, 0
+		case "v":
+			m.galleryChoice = m.variant
+			m.previous, m.screen = m.screen, screenVariantGallery
 		case "j", "down":
 			m.moveSelection(1)
 		case "k", "up":
@@ -249,6 +266,17 @@ func (m app) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.screen {
+	case screenVariantGallery:
+		switch key {
+		case "j", "down":
+			m.galleryChoice = (m.galleryChoice + 1) % variantCount
+		case "k", "up":
+			m.galleryChoice = (m.galleryChoice + variantCount - 1) % variantCount
+		case "enter":
+			m.variant, m.selected = m.galleryChoice, 0
+			m.screen = screenOverview
+			m.message = fmt.Sprintf("Exploring %s with the %s fixture.", m.variant, m.dataset)
+		}
 	case screenCreate:
 		if key == "enter" {
 			m.submitCreate()

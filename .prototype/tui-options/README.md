@@ -28,8 +28,8 @@ go run . --variant focus
 go run . --variant lanes
 ```
 
-Use `1`–`6` or `Tab` to switch between the structurally distinct
-comparison surfaces. Press `?` for the complete key map.
+Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
+scalable variant gallery. Press `?` for the complete key map.
 
 The alternatives deliberately organize the same facts differently:
 
@@ -44,10 +44,18 @@ Deterministic frames can be generated without an interactive terminal:
 
 ```sh
 go run . --snapshot --variant table --width 120 --height 35
+go run . --snapshot --dataset dense --variant table --width 60 --height 20
+go run . --snapshot --dataset empty --variant table --width 48 --height 16
 go run . --snapshot --scenario create-failed --width 80 --height 24
 go run . --snapshot --scenario attached-switch --width 120 --height 35
 go run . --snapshot --scenario delete-complete --width 80 --height 24
 ```
+
+The responsive evidence matrix covers 160×50, 132×40, 120×35, 100×30,
+80×24, 60×20, 48×16, and 40×12. At 48×16 the selected stream keeps all four
+independent status facts and its actions. Below that, the prototype explicitly
+reports the unsupported size instead of pretending a clipped frame is usable.
+Fixtures cover `standard`, `dense`, `empty`, `single`, and `long` datasets.
 
 Regenerate the complete evidence set after building the binary:
 

@@ -24,11 +24,11 @@ var (
 
 func (m app) View() string {
 	width, height := m.width, m.height
-	if width < 60 {
-		width = 60
+	if width < 48 || height < 16 {
+		return m.tooSmallView(width, height)
 	}
-	if height < 18 {
-		height = 18
+	if m.screen == screenOverview && (width < 72 || height < 22) {
+		return m.compactResponsiveView(width, height)
 	}
 
 	header := m.header(width)
@@ -63,45 +63,98 @@ func (m app) View() string {
 		body = m.deleteProgressView(width)
 	case screenHelp:
 		body = m.helpView(width)
+	case screenVariantGallery:
+		body = m.variantGalleryView(width)
 	}
 	footer := m.footer(width)
 	return fitLines(strings.Join([]string{header, body, footer}, "\n"), height)
 }
 
 func (m app) header(width int) string {
-	labels := []string{"1 Fleet", "2 Projects", "3 Attention", "4 Search", "5 Focus", "6 Lanes"}
-	for i := range labels {
-		if variant(i) == m.variant {
-			labels[i] = selectedStyle.Render(" " + labels[i] + " ")
-		} else {
-			labels[i] = mutedStyle.Render(labels[i])
-		}
-	}
-	brand := titleStyle.Render("P / probe")
-	line := brand + " · " + strings.Join(labels, " ")
+	line := fmt.Sprintf("P / probe · %02d/%02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, variantCount, m.variant, m.dataset)
 	if m.filtering || m.filter.Value() != "" {
-		line += "   / " + m.filter.View()
+		line += " · / " + m.filter.Value()
 	}
-	return lipgloss.NewStyle().Width(width).Render(line)
+	return titleStyle.Copy().Width(width).Render(truncate(line, width))
 }
 
 func (m app) footer(width int) string {
 	message := m.message
 	if m.screen == screenOverview {
 		if width < 100 {
-			keys := mutedStyle.Render("j/k move · a attach · d detach · c create · b branches · p policy · X delete") + "\n" + mutedStyle.Render("/ filter · Tab variant · ? help · q quit")
+			keys := mutedStyle.Render("j/k move · a attach · d detach · c create · b branches · p policy · X delete") + "\n" + mutedStyle.Render("/ filter · Tab cycle · v gallery · ? help · q quit")
 			if message == fixtureNotice {
 				message = keys
 			} else {
 				message = truncate(message, width) + "\n" + keys
 			}
 		} else {
-			message += "\n" + mutedStyle.Render("j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab variant · ? help · q quit")
+			message += "\n" + mutedStyle.Render("j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit")
 		}
 	} else {
 		message += "\n" + mutedStyle.Render("esc returns without mutating real state")
 	}
 	return lipgloss.NewStyle().Width(width).Render(message)
+}
+
+func (m app) tooSmallView(width, height int) string {
+	lines := []string{
+		"P / probe",
+		"Terminal too small",
+		fmt.Sprintf("received %dx%d", width, height),
+		"minimum 48x16",
+		"No facts are hidden behind a clipped view.",
+	}
+	for i := range lines {
+		lines[i] = truncate(lines[i], maxInt(width, 1))
+	}
+	return fitLines(strings.Join(lines, "\n"), maxInt(height, 1))
+}
+
+func (m app) compactResponsiveView(width, height int) string {
+	header := m.header(width)
+	idx, ok := m.selectedSessionIndex()
+	content := titleStyle.Render(fmt.Sprintf("%s · compact disclosure", m.variant))
+	if !ok {
+		content += "\n" + mutedStyle.Render("No sessions in this fixture.") +
+			"\n\nDataset " + m.dataset + " · use v to compare views"
+	} else {
+		s := m.sessions[idx]
+		presence, agent := sessionSignals(s)
+		identityWidth := maxInt(width-8, 8)
+		lines := []string{
+			truncate(s.Project+" / "+s.Branch, identityWidth),
+			mutedStyle.Render("UUID " + s.ID),
+			"lifecycle  " + styledFact(s.Lifecycle),
+			"presence   " + presence,
+			"agent      " + styledFact(agent),
+			"policy     " + styledFact(s.Policy),
+			"actions    " + strings.Join(availableActions(s), " · "),
+		}
+		if s.Operation != "" && height >= 18 {
+			lines = append(lines, "progress   "+s.Operation)
+		}
+		content += "\n" + strings.Join(lines, "\n")
+	}
+	body := renderPanel(width, content)
+	footer := mutedStyle.Render("j/k move · a attach · Tab cycle · v views")
+	if height >= 18 {
+		footer += "\n" + mutedStyle.Render("? help · q quit · compact mode below 72x22")
+	}
+	return fitLines(strings.Join([]string{header, body, footer}, "\n"), height)
+}
+
+func (m app) variantGalleryView(width int) string {
+	rows := []string{titleStyle.Render("UX exploration gallery"), mutedStyle.Render("Each entry changes the organizing model, not the underlying fixture facts."), ""}
+	for v := variant(0); v < variantCount; v++ {
+		line := fmt.Sprintf("  %02d  %-24s", v+1, v.String())
+		if v == m.galleryChoice {
+			line = selectedStyle.Render("› " + strings.TrimPrefix(line, "  "))
+		}
+		rows = append(rows, line)
+	}
+	rows = append(rows, "", "j/k choose · enter open · esc return")
+	return centeredPanel(width, strings.Join(rows, "\n"))
 }
 
 func (m app) tableView(width, height int) string {
@@ -713,8 +766,10 @@ func (m app) deleteProgressView(width int) string {
 func (m app) helpView(width int) string {
 	content := strings.Join([]string{
 		titleStyle.Render("Prototype controls"),
+		mutedStyle.Render("Compare and switch structural variants without changing fixture state."),
 		"",
-		"1–6 or Tab     switch structural variants",
+		"1–6            direct shortcuts for initial variants",
+		"Tab / v        cycle variants / open full gallery",
 		"j/k            move between sessions",
 		"h/l            move projects in navigator",
 		"/              fuzzy filter using sahilm/fuzzy",
@@ -748,8 +803,8 @@ func centeredPanel(width int, content string) string {
 	if panelWidth > 92 {
 		panelWidth = 92
 	}
-	if panelWidth < 50 {
-		panelWidth = 50
+	if panelWidth < 4 {
+		panelWidth = 4
 	}
 	return renderPanel(panelWidth+4, content)
 }
@@ -823,4 +878,11 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

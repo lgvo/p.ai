@@ -41,7 +41,7 @@ func TestFixtureCoversPresentationContract(t *testing.T) {
 
 func TestViewsStayWithinRequestedWidth(t *testing.T) {
 	for _, v := range allVariants() {
-		for _, size := range []struct{ width, height int }{{80, 24}, {120, 35}} {
+		for _, size := range viewportMatrix() {
 			m := newApp()
 			m.variant, m.width, m.height = v, size.width, size.height
 			lines := strings.Split(m.View(), "\n")
@@ -57,9 +57,9 @@ func TestViewsStayWithinRequestedWidth(t *testing.T) {
 	}
 }
 
-func TestVariantsRenderIndependentFactsAtBothWidths(t *testing.T) {
+func TestVariantsRenderIndependentFactsAtSupportedWidths(t *testing.T) {
 	for _, v := range allVariants() {
-		for _, size := range []struct{ width, height int }{{80, 24}, {120, 35}} {
+		for _, size := range []struct{ width, height int }{{80, 24}, {120, 35}, {160, 50}} {
 			m := newApp()
 			m.variant, m.width, m.height = v, size.width, size.height
 			view := m.View()
@@ -70,6 +70,21 @@ func TestVariantsRenderIndependentFactsAtBothWidths(t *testing.T) {
 			}
 			if strings.Contains(view, "frame clipped") {
 				t.Errorf("variant %s at %dx%d clipped its primary surface", v, size.width, size.height)
+			}
+		}
+	}
+}
+
+func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) {
+	for _, v := range allVariants() {
+		for _, size := range []struct{ width, height int }{{48, 16}, {60, 20}} {
+			m := newApp()
+			m.variant, m.width, m.height = v, size.width, size.height
+			view := m.View()
+			for _, fact := range []string{"lifecycle", "presence", "agent", "policy", "actions"} {
+				if !strings.Contains(view, fact) {
+					t.Errorf("variant %s at %dx%d omitted selected-session %q", v, size.width, size.height, fact)
+				}
 			}
 		}
 	}
@@ -124,7 +139,7 @@ func TestEveryVariantCanExposeStartingProgress(t *testing.T) {
 
 func TestKeyRoutingReachesComparisonAndLifecyclePaths(t *testing.T) {
 	m := newApp()
-	for i, want := range allVariants() {
+	for i, want := range allVariants()[:6] {
 		m = pressRune(t, m, rune('1'+i))
 		if m.variant != want {
 			t.Fatalf("key %d selected %s, want %s", i+1, m.variant, want)
@@ -184,7 +199,54 @@ func pressKey(t *testing.T, m app, key tea.KeyMsg) app {
 }
 
 func allVariants() []variant {
-	return []variant{variantTable, variantNavigator, variantAttention, variantCommand, variantFocus, variantLanes}
+	result := make([]variant, 0, variantCount)
+	for v := variant(0); v < variantCount; v++ {
+		result = append(result, v)
+	}
+	return result
+}
+
+func viewportMatrix() []struct{ width, height int } {
+	return []struct{ width, height int }{{40, 12}, {48, 16}, {60, 20}, {80, 24}, {100, 30}, {120, 35}, {132, 40}, {160, 50}}
+}
+
+func TestMinimumSizeBehaviorIsExplicit(t *testing.T) {
+	m := newApp()
+	m.width, m.height = 40, 12
+	view := m.View()
+	if !strings.Contains(view, "Terminal too small") || !strings.Contains(view, "40x12") || !strings.Contains(view, "minimum 48x16") {
+		t.Fatalf("unsupported viewport is not truthful:\n%s", view)
+	}
+}
+
+func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
+	for _, dataset := range []string{"standard", "dense", "empty", "single", "long"} {
+		m, err := newAppForDataset(dataset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, size := range []struct{ width, height int }{{48, 16}, {60, 20}, {80, 24}, {160, 50}} {
+			m.width, m.height = size.width, size.height
+			view := m.View()
+			for lineNo, line := range strings.Split(view, "\n") {
+				if got := lipgloss.Width(line); got > size.width {
+					t.Errorf("dataset %s at %dx%d line %d rendered %d cells", dataset, size.width, size.height, lineNo+1, got)
+				}
+			}
+		}
+	}
+}
+
+func TestVariantGallerySelectsWithoutConsumingNumericSpace(t *testing.T) {
+	m := pressRune(t, newApp(), 'v')
+	if m.screen != screenVariantGallery {
+		t.Fatal("v did not open variant gallery")
+	}
+	m = pressRune(t, m, 'j')
+	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.screen != screenOverview || m.variant != variantNavigator {
+		t.Fatalf("gallery selected screen=%v variant=%v", m.screen, m.variant)
+	}
 }
 
 func TestAttachSwitchAndDetachPreserveHostSemantics(t *testing.T) {

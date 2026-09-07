@@ -9,14 +9,19 @@ import (
 )
 
 func main() {
-	variantFlag := flag.String("variant", "table", "initial variant: table, navigator, attention, command, focus, or lanes")
+	variantFlag := flag.String("variant", "table", "initial UX variant")
+	dataset := flag.String("dataset", "standard", "fixture: standard, dense, empty, single, or long")
 	snapshot := flag.Bool("snapshot", false, "render one deterministic frame and exit")
 	scenario := flag.String("scenario", "overview", "snapshot scenario: overview, attached-switch, create-failed, replacement-create, branches, policy, delete-preview, delete-progress, delete-complete, or help")
 	width := flag.Int("width", 120, "snapshot width")
 	height := flag.Int("height", 35, "snapshot height")
 	flag.Parse()
 
-	m := newApp()
+	m, err := newAppForDataset(*dataset)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	if v, ok := parseVariant(*variantFlag); ok {
 		m.variant = v
 	} else {

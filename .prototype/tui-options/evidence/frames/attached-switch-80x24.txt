@@ -1,4 +1,4 @@
-P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+P / probe · 01/06 Fleet table · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ All active sessions · cross-project                                        │
 │   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
@@ -20,4 +20,4 @@ P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
 ╰────────────────────────────────────────────────────────────────────────────╯
 Persistent hosts remain alive; switched forge/docs/plugin-guide → forge/agent/o…
 j/k move · a attach · d detach · c create · b branches · p policy · X delete
-/ filter · Tab variant · ? help · q quit
+/ filter · Tab cycle · v gallery · ? help · q quit

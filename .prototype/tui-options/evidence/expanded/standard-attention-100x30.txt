@@ -1,0 +1,30 @@
+P / probe · 03/06 Attention workspace · fixture:standard · Tab cycle · v gallery
+╭───────────────────────────────────────╮ ╭────────────────────────────────────────────────────╮
+│ Urgent to inspect · 4                 │ │ Everything else                                    │
+│ › forge      agent/oauth-device-flow  │ │   orbit      feature/interactive-cli               │
+│     ready · unattended                │ │     starting · unattended                          │
+│     attention · outdated · permission │ │     running · current · activating environmen…     │
+│ required                              │ │   p.ai       prototype/tui-options-with…           │
+│   orbit      fix/cache-race           │ │     creating · unattended                          │
+│     stopped · unattended              │ │     idle · current · building project envi…        │
+│     failed · current · tests exited 1 │ │   forge      docs/plugin-guide                     │
+│   p.ai       design/plugin-contract-  │ │     ready · attached:1                             │
+│ rec…                                  │ │     no signal · current ·                          │
+│     unreachable · unattended          │ │   demo       discard/temporary-spike               │
+│     unknown · invalid · Incus         │ │     discarding · unattended                        │
+│ inspection time…                      │ │     no signal · current · tearing down runtime …   │
+│   labs       cleanup/retained-state   │ │   demo       archive/old-experiment                │
+│     missing · unattended              │ │     deleting · unattended                          │
+│     no signal · outdated · expected   │ │     no signal · current · credentials deleted ·…   │
+│ runtime not …                         │ │                                                    │
+╰───────────────────────────────────────╯ │ Inspector                                          │
+                                          │ forge / agent/oauth-device-flow                    │
+                                          │ UUID s-auth                                        │
+                                          │ lifecycle  ready                                   │
+                                          │ presence   unattended                              │
+                                          │ agent      attention                               │
+                                          │ policy     outdated                                │
+                                          │ actions    inspect · attach · policy diff ·        │
+                                          │ recreate                                           │
+                                          ╰────────────────────────────────────────────────────╯
+… frame clipped; enlarge terminal to inspect remaining content

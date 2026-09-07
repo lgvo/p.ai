@@ -1,0 +1,20 @@
+P / probe · 02/06 Project navigator · fixture:standard · Tab cycle · v gallery
+╭──────────────────────────╮ ╭─────────────────────────────────────────────────────────────────╮
+│ Projects                 │ │ Sessions in selected project                                    │
+│   demo       2 sess · 0  │ │ › agent/oauth-device-flow                                       │
+│ urgent                   │ │     ready · unattended · attention · outdated                   │
+│ › forge      2 sess · 1  │ │   docs/plugin-guide                                             │
+│ urgent                   │ │     ready · attached:1 · — · current                            │
+│   labs       1 sess · 1  │ │                                                                 │
+│ urgent                   │ │ Inspector                                                       │
+│   orbit      2 sess · 1  │ │ forge / agent/oauth-device-flow                                 │
+│ urgent                   │ │ UUID s-auth                                                     │
+│   p.ai       2 sess · 1  │ │ lifecycle  ready                                                │
+│ urgent                   │ │ presence   unattended                                           │
+╰──────────────────────────╯ │ agent      attention                                            │
+                             │ policy     outdated                                             │
+                             │ actions    inspect · attach · policy diff · recreate            │
+                             ╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle
+· v gallery · ? help · q quit

@@ -1,0 +1,30 @@
+P / probe · 05/06 Focus deck · fixture:standard · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────╮ ╭──────────────────────────────────────╮
+│ Focus deck · 1/9                                    │ │ Stream radar · context without       │
+│ forge / agent/oauth-device-flow                     │ │ leaving focus                        │
+│ UUID s-auth                                         │ │ › forge/agent/oauth-device-flow      │
+│                                                     │ │     ready · unattended · attention · │
+│ Lifecycle  ready         Presence  unattended       │ │ outdated                             │
+│ Agent      attention     Policy    outdated         │ │   forge/docs/plugin-guide            │
+│                                                     │ │     ready · attached:1 · — · current │
+│ Primary actions  inspect · attach · policy diff ·   │ │   orbit/fix/cache-race               │
+│ recreate                                            │ │     stopped · unattended · failed ·  │
+╰─────────────────────────────────────────────────────╯ │ current                              │
+                                                        │   orbit/feature/interactive-cli      │
+                                                        │     starting · unattended · running  │
+                                                        │ · current                            │
+                                                        │   p.ai/design/plugin-contract-       │
+                                                        │ reconc…                              │
+                                                        │     unreachable · unattended ·       │
+                                                        │ unknown · invalid                    │
+                                                        │   p.ai/prototype/tui-options-with-a- │
+                                                        │ …                                    │
+                                                        │     creating · unattended · idle ·   │
+                                                        │ current                              │
+                                                        │   labs/cleanup/retained-state        │
+                                                        │     missing · unattended · — ·       │
+                                                        │ outdated                             │
+                                                        │   demo/discard/temporary-spike       │
+                                                        │     discarding · unattended · — ·    │
+                                                        │ current                              │
+… frame clipped; enlarge terminal to inspect remaining content

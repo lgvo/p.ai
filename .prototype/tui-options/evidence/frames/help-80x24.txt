@@ -1,8 +1,10 @@
-P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+P / probe · 01/06 Fleet table · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Prototype controls                                                         │
+│ Compare and switch structural variants without changing fixture state.     │
 │                                                                            │
-│ 1–6 or Tab     switch structural variants                                  │
+│ 1–6            direct shortcuts for initial variants                       │
+│ Tab / v        cycle variants / open full gallery                          │
 │ j/k            move between sessions                                       │
 │ h/l            move projects in navigator                                  │
 │ /              fuzzy filter using sahilm/fuzzy                             │
