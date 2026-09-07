@@ -91,9 +91,20 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
+		}
+	}
+}
+
+func TestMatrixExposesProjectByInterventionComparison(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantMatrix, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"Project × intervention matrix", "INSPECT", "WORK", "RECOVER", "REMOVE", "attached 1"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("matrix omitted %q", fragment)
 		}
 	}
 }
@@ -168,9 +179,11 @@ func TestKeyRoutingReachesComparisonAndLifecyclePaths(t *testing.T) {
 			t.Fatalf("key %d selected %s, want %s", i+1, m.variant, want)
 		}
 	}
-	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
-	if m.variant != variantOutline {
-		t.Fatalf("Tab did not reach the next gallery variant: %s", m.variant)
+	for _, want := range allVariants()[6:] {
+		m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
+		if m.variant != want {
+			t.Fatalf("Tab reached %s, want %s", m.variant, want)
+		}
 	}
 	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
 	if m.variant != variantTable {

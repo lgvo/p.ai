@@ -50,6 +50,8 @@ func (m app) View() string {
 			body = m.lanesView(width, height)
 		case variantOutline:
 			body = m.outlineView(width, height)
+		case variantMatrix:
+			body = m.matrixView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)

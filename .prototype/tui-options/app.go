@@ -23,11 +23,12 @@ const (
 	variantFocus
 	variantLanes
 	variantOutline
+	variantMatrix
 	variantCount
 )
 
 func (v variant) String() string {
-	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline"}[v]
+	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix"}[v]
 }
 
 func parseVariant(s string) (variant, bool) {
@@ -46,6 +47,8 @@ func parseVariant(s string) (variant, bool) {
 		return variantLanes, true
 	case "outline", "tree":
 		return variantOutline, true
+	case "matrix", "status-matrix":
+		return variantMatrix, true
 	default:
 		return 0, false
 	}

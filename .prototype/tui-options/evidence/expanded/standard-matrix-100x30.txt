@@ -1,0 +1,19 @@
+P / probe · view 08 Project status matrix · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Project × intervention matrix  ·  9 sessions  ·  attached 1                                    │
+│ Columns answer where attention, routine work, recovery, and removal accumulate.                │
+│                                                                                                │
+│   PROJECT           INSPECT   WORK   RECOVER   REMOVE                                          │
+│   demo                   0      0         0        2                                           │
+│ › forge                  1      1         0        0                                           │
+│   labs                   0      0         1        0                                           │
+│   orbit                  1      1         0        0                                           │
+│   p.ai                   0      1         1        0                                           │
+│                                                                                                │
+│ Selected cell  forge / agent/oauth-device-flow                                                 │
+│ ready · unattended · attention · outdated                                                      │
+│ actions  inspect · attach · policy diff · recreate                                             │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle
+· v gallery · ? help · q quit
