@@ -1,0 +1,17 @@
+P / probe · STRESS:massive · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects   proj…t-001   proj…t-002  proj…t-003  proj…t-004  proj…t-005     │
+│ …20                                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│ › work/0001-agent/oauth-devic… ready      unattended  attention outdated   │
+│   retire/0026-discard/tempora… discarding unattended  —         current    │
+│   boot/0051-prototype/tui-opt… creating   unattended  idle      current    │
+│ … 37 sessions below                                                        │
+│                                                                            │
+│ Selected  project-001/work/0001-agent/oauth…  ·  actions: inspect / attach │
+│ / policy diff / recreate                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,18 @@
+P / probe · STRESS:massive · view 17 Action eligibility sheet · Tab cycle · v gallery
+╭──────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────────────────╮
+│ Choose an object  ·  attached 1              │ │ Eligibility · s-massive-0001                                    │
+│ › project-001/work/0001-ag… ready ·          │ │ project-001 / work/0001-agent/oauth-device-flow                 │
+│ unattended · attention · outdated            │ │                                                                 │
+│   project-002/work/0002-do… ready ·          │ │ AVAILABLE NOW                                                   │
+│ unattended · — · current                     │ │   ✓ inspect — read-only facts are always available              │
+│   project-003/work/0003-fi… stopped ·        │ │   ✓ attach / switch — host accepts a client                     │
+│ unattended · failed · current                │ │   ✓ policy diff — snapshot differs from current policy          │
+│   project-004/boot/0004-fe… starting ·       │ │   ✓ recreate — new identity can adopt current policy            │
+│ unattended · running · current               │ │                                                                 │
+│   … 996 more objects                         │ │ UNAVAILABLE · EXPLAINED                                         │
+╰──────────────────────────────────────────────╯ │   × detach this client — this client is attached elsewhere      │
+                                                 │   × recovery plan — runtime is already observed                 │
+                                                 ╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

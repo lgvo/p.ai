@@ -20,6 +20,9 @@ func datasetCatalog() []datasetDefinition {
 		{modeExplore, "single", "one unattended session", func() []session { return []session{fixtureSessions()[0]} }},
 		{modeExplore, "long", "representative sessions with deliberately long names", longNameSessions},
 		{modeStress, "baseline", "stress harness control using the curated standard fixture", fixtureSessions},
+		{modeStress, "massive", "one thousand sessions across twenty-five projects", massiveSessions},
+		{modeStress, "many-projects", "one hundred eighty projects with one session each", manyProjectSessions},
+		{modeStress, "skewed", "three hundred sessions dominated by one urgent condition", skewedSessions},
 	}
 }
 
@@ -127,6 +130,47 @@ func longNameSessions() []session {
 		result[i].Project = fmt.Sprintf("project-with-a-deliberately-long-owner-and-name-%02d", i+1)
 		result[i].Branch = "feature/a-deeply-nested-workstream-name-that-must-truncate-without-hiding-status/" + result[i].Branch
 	}
+	return result
+}
+
+func massiveSessions() []session {
+	return scaledSessions(1000, 25, "massive")
+}
+
+func manyProjectSessions() []session {
+	return scaledSessions(180, 180, "many")
+}
+
+func scaledSessions(count, projectCount int, prefix string) []session {
+	base := fixtureSessions()
+	result := make([]session, 0, count)
+	for i := 0; i < count; i++ {
+		s := base[i%len(base)]
+		s.ID = fmt.Sprintf("s-%s-%04d", prefix, i+1)
+		s.Project = fmt.Sprintf("project-%03d", i%projectCount+1)
+		s.Branch = fmt.Sprintf("%s/%04d-%s", branchPrefix(s.Lifecycle), i+1, s.Branch)
+		s.AttachedCount = 0
+		if i == count/2 {
+			s.AttachedCount = 1
+			s.Agent, s.AgentReason = "", ""
+		}
+		result = append(result, s)
+	}
+	return result
+}
+
+func skewedSessions() []session {
+	result := scaledSessions(300, 12, "skewed")
+	for i := range result {
+		result[i].Lifecycle = "ready"
+		result[i].Agent = "attention"
+		result[i].AgentReason = "permission required in a deliberately skewed queue"
+		result[i].Policy = "current"
+		result[i].Operation = ""
+		result[i].AttachedCount = 0
+	}
+	result[len(result)/2].AttachedCount = 1
+	result[len(result)/2].Agent, result[len(result)/2].AgentReason = "", ""
 	return result
 }
 

@@ -1,0 +1,18 @@
+P / probe · STRESS:skewed · view 17 Action eligibility sheet · Tab cycle · v gallery
+╭──────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────────────────╮
+│ Choose an object  ·  attached 1              │ │ Eligibility · s-skewed-0001                                     │
+│ › project-001/work/0001-ag… ready ·          │ │ project-001 / work/0001-agent/oauth-device-flow                 │
+│ unattended · attention · current             │ │                                                                 │
+│   project-002/work/0002-do… ready ·          │ │ AVAILABLE NOW                                                   │
+│ unattended · attention · current             │ │   ✓ inspect — read-only facts are always available              │
+│   project-003/work/0003-fi… ready ·          │ │   ✓ attach / switch — host accepts a client                     │
+│ unattended · attention · current             │ │                                                                 │
+│   project-004/boot/0004-fe… ready ·          │ │ UNAVAILABLE · EXPLAINED                                         │
+│ unattended · attention · current             │ │   × detach this client — this client is attached elsewhere      │
+│   … 296 more objects                         │ │   × recovery plan — runtime is already observed                 │
+╰──────────────────────────────────────────────╯ │   × policy diff — snapshot is current                           │
+                                                 │   × recreate — no eligible policy drift                         │
+                                                 ╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

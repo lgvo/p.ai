@@ -1,0 +1,22 @@
+P / probe · STRESS:massive · view 08 Project status matrix · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────╮
+│ Project × intervention matrix  ·  1000 sessions  ·  attached 1              │ │ Inspector                        │
+│ Columns answer where attention, routine work, recovery, and removal         │ │ project-001 / work/0001-         │
+│ accumulate.                                                                 │ │ agent/oauth-device-flow          │
+│                                                                             │ │ UUID s-massive-0001              │
+│   PROJECT     INSPECT       WORK          RECOVER       REMOVE              │ │ lifecycle  ready                 │
+│ › proj…t-001 work/0001-a…  boot/0051-p…  recover/015…  retire/0026…         │ │ presence   unattended            │
+│   proj…t-002 work/0102-f…  work/0002-d…  recover/005…  retire/0027…         │ │ agent      attention             │
+│   proj…t-003 work/0003-f…  boot/0078-p…  recover/017…  retire/0053…         │ │ policy     outdated              │
+│   proj…t-004 work/0129-f…  boot/0004-f…  recover/007…  retire/0054…         │ │ actions    inspect · attach ·    │
+│   proj…t-005 work/0030-f…  boot/0105-p…  recover/000…  retire/0080…         │ │ policy diff · recreate           │
+│   proj…t-006 work/0156-f…  boot/0006-p…  recover/010…  retire/0081…         │ ╰──────────────────────────────────╯
+│   proj…t-007 work/0057-f…  boot/0132-p…  recover/000…  retire/0107…         │
+│   proj…t-008 work/0183-f…  boot/0033-p…  recover/013…  retire/0008…         │
+│   proj…t-009 work/0084-f…  boot/0159-p…  recover/003…  retire/0009…         │
+│   proj…t-010 work/0010-a…  boot/0060-p…  recover/016…  retire/0035…         │
+│   … 15 projects below                                                       │
+╰─────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

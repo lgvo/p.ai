@@ -1,0 +1,19 @@
+P / probe · STRESS:skewed · view 10 Task workspace · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Task-oriented workspace   Sessions   Activity  Policy  Resources           │
+│ t changes work mode while session selection and identity remain stable.    │
+│                                                                            │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│ › project-001 / work/0001-ag… ready      unattended · attention / current  │
+│   project-002 / work/0002-do… ready      unattended · attention / current  │
+│   project-003 / work/0003-fi… ready      unattended · attention / current  │
+│   project-004 / boot/0004-fe… ready      unattended · attention / current  │
+│   project-005 / recover/0005… ready      unattended · attention / current  │
+│   … 295 more                                                               │
+│                                                                            │
+│ Persistent selection  project-001 / work/0001-agent/oauth…                 │
+│ ready · unattended · attention · current                                   │
+│ actions  inspect · attach                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

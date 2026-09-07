@@ -1,0 +1,22 @@
+P / probe · STRESS:massive · view 04 Command center · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Search-first command center                                                │
+│ Press / and type any project, branch, lifecycle, presence, agent, or       │
+│ policy fact                                                                │
+│                                                                            │
+│ › project-001/work/0001-… ready      unattended attention outdated         │
+│   project-002/work/0002-… ready      unattended —        current           │
+│   project-003/work/0003-… stopped    unattended failed   current           │
+│   project-004/boot/0004-… starting   unattended running  current           │
+│ … 996 more matches                                                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Act on the highlighted result                                              │
+│ Selected  project-001/work/0001-agent/oauth…  ·  actions: inspect / attach │
+│ / policy diff / recreate                                                   │
+│                                                                            │
+│ The palette never invents eligibility; every action shown comes from the   │
+│ fixture's daemon plan.                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

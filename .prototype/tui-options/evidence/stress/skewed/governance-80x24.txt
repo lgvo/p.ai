@@ -1,0 +1,21 @@
+P / probe · STRESS:skewed · view 14 Governance dashboard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Four-question governance dashboard                                         │
+│ Navigate sessions normally; the dashboard continuously recomputes its      │
+│ answers.                                                                   │
+│                                                                            │
+│ 1 · What needs attention?                                                  │
+│   299 urgent · project-001/work/0001-agent/oauth-d…                        │
+│ 2 · Where am I attached?                                                   │
+│   attached → project-007/recover/0151-cleanup/ret…                         │
+│ 3 · What is changing?                                                      │
+│   0 observed operations · none                                             │
+│ 4 · What could be unsafe?                                                  │
+│   0 policy risks · none                                                    │
+│                                                                            │
+│ Selected evidence  project-001 / work/0001-agent/oauth-dev…                │
+│ ready · unattended · attention · current                                   │
+│ actions  inspect · attach                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,23 @@
+P / probe · STRESS:massive · view 06 Actionability lanes · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 223                                                        │
+│ › project-001… ready       unattended  attention outdated                  │
+│ … 222 below                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ In progress · 333                                                          │
+│   project-002… ready       unattended  —         current                   │
+│ … 332 below                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Recover · 222                                                              │
+│   project-005… unreachable unattended  unknown   invalid  Incus inspe…     │
+│ … 221 below                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Removing · 222                                                             │
+│   project-008… discarding  unattended  —         current  tearing dow…     │
+│ … 221 below                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

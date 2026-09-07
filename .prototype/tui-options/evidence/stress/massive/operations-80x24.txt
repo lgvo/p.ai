@@ -1,0 +1,21 @@
+P / probe · STRESS:massive · view 09 Operations console · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 777  ·  degraded 333  ·         │
+│ attached 1                                                                 │
+│ Newest fixture observations first; recovery never implies hidden automatic │
+│ mutation.                                                                  │
+│                                                                            │
+│   TIME      SESSION        OBSERVATION                                     │
+│   20:42:00  s-massive-10… stable ready · outdated                          │
+│   20:41:07  s-massive-09… credentials deleted · runtime remaining          │
+│   20:40:14  s-massive-09… tearing down runtime · branch will be retained   │
+│   20:39:21  s-massive-09… expected runtime not found                       │
+│   20:38:28  s-massive-09… building project environment · phase 2/6         │
+│   20:37:35  s-massive-09… Incus inspection timed out                       │
+│                                                                            │
+│ Selected operation context  project-001 / work/0001-agent/oau…             │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate · r recovery plan       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

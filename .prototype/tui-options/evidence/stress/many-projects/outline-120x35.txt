@@ -1,0 +1,26 @@
+P / probe · STRESS:many-projects · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│ › ▾ project-001          1 sessions · 1 urgent           │ │ project-001 / work/0001-agent/oauth-device-flow     │
+│       └─ work/0001-agent/oauth-device-flow               │ │ UUID s-many-0001                                    │
+│          ready · unattended · attention · outdated       │ │ lifecycle  ready                                    │
+│   ▾ project-002          1 sessions · 0 urgent           │ │ presence   unattended                               │
+│       └─ work/0002-docs/plugin-guide                     │ │ agent      attention                                │
+│          ready · unattended · — · current                │ │ policy     outdated                                 │
+│   ▾ project-003          1 sessions · 1 urgent           │ │ actions    inspect · attach · policy diff ·         │
+│       └─ work/0003-fix/cache-race                        │ │ recreate                                            │
+│          stopped · unattended · failed · current         │ ╰─────────────────────────────────────────────────────╯
+│   ▾ project-004          1 sessions · 0 urgent           │
+│       └─ boot/0004-feature/interactive-cli               │
+│          starting · unattended · running · current       │
+│   ▾ project-005          1 sessions · 1 urgent           │
+│       └─ recover/0005-design/plugin-contract-r…          │
+│          unreachable · unattended · unknown · invalid    │
+│   ▾ project-006          1 sessions · 0 urgent           │
+│       └─ boot/0006-prototype/tui-options-with-…          │
+│          creating · unattended · idle · current          │
+│   … 348 nodes below                                      │
+╰──────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -16,7 +16,7 @@ func (m app) matrixView(width, _ int) string {
 	summary := titleStyle.Render("Project × intervention matrix") +
 		fmt.Sprintf("  ·  %d sessions  ·  attached %d", len(indices), attached) + "\n" +
 		mutedStyle.Render("Columns answer where attention, routine work, recovery, and removal accumulate.") + "\n\n" +
-		m.matrixRows(width >= 115)
+		m.matrixRows(width >= 115, matrixProjectLimit(width))
 	if width >= 115 {
 		matrixWidth := width * 68 / 100
 		return lipgloss.JoinHorizontal(lipgloss.Top, renderPanel(matrixWidth, summary), " ", renderPanel(width-matrixWidth-1, m.detailView()))
@@ -40,15 +40,39 @@ func (m app) matrixCompactDetail() string {
 	return result
 }
 
-func (m app) matrixRows(expanded bool) string {
+func matrixProjectLimit(width int) int {
+	if width >= 115 {
+		return 10
+	}
+	return 4
+}
+
+func (m app) matrixRows(expanded bool, limit int) string {
 	projects := m.projects()
 	if len(projects) == 0 {
 		return mutedStyle.Render("No projects to place in the matrix.")
 	}
+	if len(projects) <= 5 {
+		limit = len(projects)
+	}
 	selectedIndex, selected := m.selectedSessionIndex()
+	projectCursor := 0
+	if selected {
+		selectedProject := m.sessions[selectedIndex].Project
+		for i, project := range projects {
+			if project == selectedProject {
+				projectCursor = i
+				break
+			}
+		}
+	}
+	start, end := windowBounds(len(projects), projectCursor, limit)
 	if !expanded {
 		rows := []string{mutedStyle.Render("  PROJECT           INSPECT   WORK   RECOVER   REMOVE")}
-		for _, project := range projects {
+		if start > 0 {
+			rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d projects above", start)))
+		}
+		for _, project := range projects[start:end] {
 			counts := [4]int{}
 			marker := " "
 			for i, s := range m.sessions {
@@ -59,12 +83,18 @@ func (m app) matrixRows(expanded bool) string {
 					}
 				}
 			}
-			rows = append(rows, fmt.Sprintf("%s %-16s %7d %6d %9d %8d", marker, truncate(project, 16), counts[0], counts[1], counts[2], counts[3]))
+			rows = append(rows, fmt.Sprintf("%s %-16s %7d %6d %9d %8d", marker, middleTruncate(project, 16), counts[0], counts[1], counts[2], counts[3]))
+		}
+		if end < len(projects) {
+			rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d projects below", len(projects)-end)))
 		}
 		return strings.Join(rows, "\n")
 	}
 	rows := []string{mutedStyle.Render("  PROJECT     INSPECT       WORK          RECOVER       REMOVE")}
-	for _, project := range projects {
+	if start > 0 {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d projects above", start)))
+	}
+	for _, project := range projects[start:end] {
 		cells := [4]string{"—", "—", "—", "—"}
 		counts := [4]int{}
 		marker := " "
@@ -83,7 +113,10 @@ func (m app) matrixRows(expanded bool) string {
 				marker = "›"
 			}
 		}
-		rows = append(rows, fmt.Sprintf("%s %-10s %-13s %-13s %-13s %s", marker, truncate(project, 10), cells[0], cells[1], cells[2], cells[3]))
+		rows = append(rows, fmt.Sprintf("%s %-10s %-13s %-13s %-13s %s", marker, middleTruncate(project, 10), cells[0], cells[1], cells[2], cells[3]))
+	}
+	if end < len(projects) {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d projects below", len(projects)-end)))
 	}
 	return strings.Join(rows, "\n")
 }

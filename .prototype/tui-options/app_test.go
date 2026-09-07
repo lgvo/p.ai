@@ -408,7 +408,7 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 
 func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
-	if len(explore) != 5 || len(stress) != 1 {
+	if len(explore) != 5 || len(stress) != 4 {
 		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
 	}
 	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
@@ -421,6 +421,76 @@ func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	view := stressApp.View()
 	if !strings.Contains(view, "STRESS:baseline") {
 		t.Fatalf("stress surface is not clearly labeled:\n%s", view)
+	}
+}
+
+func TestScaleStressFixturesHaveDistinctShapes(t *testing.T) {
+	massive, _ := newAppForModeDataset(modeStress, "massive")
+	many, _ := newAppForModeDataset(modeStress, "many-projects")
+	skewed, _ := newAppForModeDataset(modeStress, "skewed")
+	if len(massive.sessions) != 1000 || len(massive.projects()) != 25 {
+		t.Fatalf("massive shape is sessions=%d projects=%d", len(massive.sessions), len(massive.projects()))
+	}
+	if len(many.sessions) != 180 || len(many.projects()) != 180 {
+		t.Fatalf("many-projects shape is sessions=%d projects=%d", len(many.sessions), len(many.projects()))
+	}
+	urgent := 0
+	for _, s := range skewed.sessions {
+		if s.AttachedCount == 0 && s.Agent == "attention" {
+			urgent++
+		}
+	}
+	if urgent != 299 {
+		t.Fatalf("skewed fixture has %d urgent sessions", urgent)
+	}
+}
+
+func TestScaleStressAcrossEveryVariantAndTargetViewport(t *testing.T) {
+	for _, dataset := range []string{"massive", "many-projects", "skewed"} {
+		for _, v := range allVariants() {
+			for _, size := range stressViewportMatrix() {
+				m, err := newAppForModeDataset(modeStress, dataset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.variant, m.width, m.height = v, size.width, size.height
+				assertBoundedSupportedView(t, m, dataset, v, size.width, size.height)
+			}
+		}
+	}
+}
+
+func TestManyProjectWindowsKeepDistinguishingSuffixes(t *testing.T) {
+	for _, v := range []variant{variantNavigator, variantMatrix} {
+		m, _ := newAppForModeDataset(modeStress, "many-projects")
+		m.variant, m.width, m.height = v, 120, 35
+		view := m.View()
+		for _, identity := range []string{"proj…t-001", "proj…t-002"} {
+			if !strings.Contains(view, identity) {
+				t.Errorf("%s collapsed distinguishing project suffix %q", v, identity)
+			}
+		}
+	}
+}
+
+func stressViewportMatrix() []struct{ width, height int } {
+	return []struct{ width, height int }{{48, 16}, {60, 20}, {80, 24}, {120, 35}}
+}
+
+func assertBoundedSupportedView(t *testing.T, m app, dataset string, v variant, width, height int) {
+	t.Helper()
+	view := m.View()
+	lines := strings.Split(view, "\n")
+	if len(lines) > height {
+		t.Errorf("%s/%s at %dx%d rendered %d lines", dataset, v, width, height, len(lines))
+	}
+	for lineNo, line := range lines {
+		if got := lipgloss.Width(line); got > width {
+			t.Errorf("%s/%s at %dx%d line %d rendered %d cells", dataset, v, width, height, lineNo+1, got)
+		}
+	}
+	if strings.Contains(view, "frame clipped") {
+		t.Errorf("%s/%s at %dx%d clipped", dataset, v, width, height)
 	}
 }
 

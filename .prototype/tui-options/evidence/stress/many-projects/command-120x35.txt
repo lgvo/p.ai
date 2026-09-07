@@ -1,0 +1,27 @@
+P / probe · STRESS:many-projects · view 04 Command center · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
+│ Search-first command center                                     │ │ Act on the highlighted result                │
+│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected  project-001/work/0001-agent/oauth… │
+│ agent, or policy fact                                           │ │ ·  actions: inspect / attach / policy diff / │
+│                                                                 │ │ recreate                                     │
+│ › project-001/work/0001-… ready      unattended attention       │ │                                              │
+│ outdated                                                        │ │ The palette never invents eligibility; every │
+│   project-002/work/0002-… ready      unattended —               │ │ action shown comes from the fixture's daemon │
+│ current                                                         │ │ plan.                                        │
+│   project-003/work/0003-… stopped    unattended failed          │ │                                              │
+│ current                                                         │ │ Inspector                                    │
+│   project-004/boot/0004-… starting   unattended running         │ │ project-001 / work/0001-agent/oauth-device-  │
+│ current                                                         │ │ flow                                         │
+│   project-005/recover/00… unreachable unattended unknown        │ │ UUID s-many-0001                             │
+│ invalid                                                         │ │ lifecycle  ready                             │
+│   project-006/boot/0006-… creating   unattended idle            │ │ presence   unattended                        │
+│ current                                                         │ │ agent      attention                         │
+│   project-007/recover/00… missing    unattended —               │ │ policy     outdated                          │
+│ outdated                                                        │ │ actions    inspect · attach · policy diff ·  │
+│   project-008/retire/000… discarding unattended —               │ │ recreate                                     │
+│ current                                                         │ ╰──────────────────────────────────────────────╯
+│ … 172 more matches                                              │
+╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

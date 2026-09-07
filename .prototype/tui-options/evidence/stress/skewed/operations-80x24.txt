@@ -1,0 +1,20 @@
+P / probe · STRESS:skewed · view 09 Operations console · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 0  ·  degraded 0  ·  attached 1 │
+│ Newest fixture observations first; recovery never implies hidden automatic │
+│ mutation.                                                                  │
+│                                                                            │
+│   TIME      SESSION        OBSERVATION                                     │
+│   20:42:00  s-skewed-0300 stable ready · current                           │
+│   20:41:07  s-skewed-0299 stable ready · current                           │
+│   20:40:14  s-skewed-0298 stable ready · current                           │
+│   20:39:21  s-skewed-0297 stable ready · current                           │
+│   20:38:28  s-skewed-0296 stable ready · current                           │
+│   20:37:35  s-skewed-0295 stable ready · current                           │
+│                                                                            │
+│ Selected operation context  project-001 / work/0001-agent/oau…             │
+│ ready · unattended · attention · current                                   │
+│ actions  inspect · attach · r recovery plan                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,26 @@
+P / probe · STRESS:many-projects · view 03 Attention workspace · Tab cycle · v gallery
+╭───────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 79                        │ │ Everything else                                                │
+│ › project-0… work/0001-agent/oauth-devi…      │ │   project-0… work/0091-agent/oauth-devi…                       │
+│     ready · unattended                        │ │     ready · attached:1                                         │
+│     attention · outdated · permission         │ │     no signal · outdated ·                                     │
+│ required                                      │ │   project-0… boot/0004-feature/interact…                       │
+│   project-0… work/0010-agent/oauth-devi…      │ │     starting · unattended                                      │
+│     ready · unattended                        │ │     running · current · activating environmen…                 │
+│     attention · outdated · permission         │ │   project-0… boot/0006-prototype/tui-op…                       │
+│ required                                      │ │     creating · unattended                                      │
+│   project-0… work/0019-agent/oauth-devi…      │ │     idle · current · building project envi…                    │
+│     ready · unattended                        │ │ … 98 more                                                      │
+│     attention · outdated · permission         │ │                                                                │
+│ required                                      │ │ Inspector                                                      │
+│ … 76 more                                     │ │ project-001 / work/0001-agent/oauth-device-flow                │
+╰───────────────────────────────────────────────╯ │ UUID s-many-0001                                               │
+                                                  │ lifecycle  ready                                               │
+                                                  │ presence   unattended                                          │
+                                                  │ agent      attention                                           │
+                                                  │ policy     outdated                                            │
+                                                  │ actions    inspect · attach · policy diff · recreate           │
+                                                  ╰────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

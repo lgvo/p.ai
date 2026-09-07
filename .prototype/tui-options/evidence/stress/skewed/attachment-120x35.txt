@@ -1,0 +1,17 @@
+P / probe · STRESS:skewed · view 13 Attachment dock · Tab cycle · v gallery
+╭────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────╮
+│ Attachment dock                            │ │ Switch targets                                                    │
+│ This client may occupy one persistent      │ │ › project-001 / work/… ready       unattended   a attach/switch   │
+│ session host; switching does not stop      │ │   project-002 / work/… ready       unattended   a attach/switch   │
+│ either host.                               │ │   project-003 / work/… ready       unattended   a attach/switch   │
+│                                            │ │   project-004 / boot/… ready       unattended   a attach/switch   │
+│ CLIENT  attached → s-skewed-0151           │ │   project-005 / recov… ready       unattended   a attach/switch   │
+│ project-007 / recover/0151-cleanup/retain… │ │   … 295 more targets                                              │
+│ ready · attached:1 · — · current           │ │                                                                   │
+│ d detaches this client; host remains ready │ │ Candidate facts  s-skewed-0001                                    │
+╰────────────────────────────────────────────╯ │ ready · unattended · attention · current                          │
+                                               │ actions  inspect · attach                                         │
+                                               ╰───────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

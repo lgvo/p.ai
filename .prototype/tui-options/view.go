@@ -197,8 +197,17 @@ func (m app) tableView(width, height int) string {
 
 func (m app) navigatorView(width, height int) string {
 	projects := m.projects()
+	projectLimit := 5
+	if width >= 90 {
+		projectLimit = 10
+	}
+	projectStart, projectEnd := windowBounds(len(projects), m.project, projectLimit)
 	var projectRows []string
-	for i, p := range projects {
+	if projectStart > 0 {
+		projectRows = append(projectRows, mutedStyle.Render(fmt.Sprintf("  … %d projects above", projectStart)))
+	}
+	for i := projectStart; i < projectEnd; i++ {
+		p := projects[i]
 		count, urgentCount := 0, 0
 		for _, s := range m.sessions {
 			if s.Project == p {
@@ -208,13 +217,16 @@ func (m app) navigatorView(width, height int) string {
 				}
 			}
 		}
-		line := fmt.Sprintf("%-10s %d sess · %d urgent", truncate(p, 10), count, urgentCount)
+		line := fmt.Sprintf("%-10s %d sess · %d urgent", middleTruncate(p, 10), count, urgentCount)
 		if i == m.project {
 			line = selectedStyle.Render("› " + line)
 		} else {
 			line = "  " + line
 		}
 		projectRows = append(projectRows, line)
+	}
+	if projectEnd < len(projects) {
+		projectRows = append(projectRows, mutedStyle.Render(fmt.Sprintf("  … %d projects below", len(projects)-projectEnd)))
 	}
 	indices := m.visibleIndices()
 	rightContent := titleStyle.Render("Sessions in selected project") + "\n" + m.cardRows(indices, maxRows(height, width))
@@ -228,16 +240,23 @@ func (m app) navigatorView(width, height int) string {
 		right := renderPanel(width-navigatorWidth(width)-1, rightContent+"\n\n"+m.detailView())
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
 	}
-	projectNames := make([]string, len(projects))
-	for i, project := range projects {
+	projectNames := make([]string, 0, projectEnd-projectStart+2)
+	if projectStart > 0 {
+		projectNames = append(projectNames, fmt.Sprintf("…%d", projectStart))
+	}
+	for i := projectStart; i < projectEnd; i++ {
+		project := projects[i]
 		if i == m.project {
-			projectNames[i] = selectedStyle.Render(" " + project + " ")
+			projectNames = append(projectNames, selectedStyle.Render(" "+middleTruncate(project, 10)+" "))
 		} else {
-			projectNames[i] = project
+			projectNames = append(projectNames, middleTruncate(project, 10))
 		}
 	}
+	if projectEnd < len(projects) {
+		projectNames = append(projectNames, fmt.Sprintf("…%d", len(projects)-projectEnd))
+	}
 	left := renderPanel(width, titleStyle.Render("Projects")+"  "+strings.Join(projectNames, "  "))
-	rightContent = titleStyle.Render("Sessions in selected project") + "\n" + m.compactCardRows(indices)
+	rightContent = titleStyle.Render("Sessions in selected project") + "\n" + m.compactCardRows(indices, 3)
 	right := renderPanel(width, rightContent+"\n\n"+m.compactSelectionView())
 	return lipgloss.JoinVertical(lipgloss.Left, left, right)
 }
@@ -265,12 +284,17 @@ func (m app) attentionView(width, height int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, queue, workspace)
 }
 
-func (m app) compactCardRows(indices []int) string {
+func (m app) compactCardRows(indices []int, limit int) string {
 	if len(indices) == 0 {
 		return mutedStyle.Render("No sessions in this project")
 	}
+	start, end := windowBounds(len(indices), m.selected, limit)
 	var rows []string
-	for pos, idx := range indices {
+	if start > 0 {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d sessions above", start)))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
 		s := m.sessions[idx]
 		presence := "unattended"
 		if s.AttachedCount > 0 {
@@ -282,6 +306,9 @@ func (m app) compactCardRows(indices []int) string {
 		}
 		line := fmt.Sprintf("  %-28s %-10s %-11s %-9s %s", truncate(s.Branch, 28), s.Lifecycle, presence, agent, s.Policy)
 		rows = append(rows, m.selectableLine(pos, line, s))
+	}
+	if end < len(indices) {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d sessions below", len(indices)-end)))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -937,6 +964,19 @@ func truncate(s string, max int) string {
 	return string(runes[:max-1]) + "…"
 }
 
+func middleTruncate(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	if max <= 1 {
+		return truncate(s, max)
+	}
+	left := (max - 1) / 2
+	right := max - 1 - left
+	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value != "" {
@@ -951,4 +991,28 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func windowBounds(length, cursor, limit int) (start, end int) {
+	if length <= 0 || limit <= 0 {
+		return 0, 0
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= length {
+		cursor = length - 1
+	}
+	start = cursor - limit/2
+	if start < 0 {
+		start = 0
+	}
+	if start+limit > length {
+		start = maxInt(0, length-limit)
+	}
+	end = start + limit
+	if end > length {
+		end = length
+	}
+	return start, end
 }

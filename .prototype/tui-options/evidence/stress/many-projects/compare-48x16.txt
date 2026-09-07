@@ -1,0 +1,13 @@
+P / probe · STRESS:many-projects · view 15 Sess…
+╭────────────────────────────────────────────╮
+│ Session comparison · compact disclosure    │
+│ project-001 / work/0001-agent/oauth-dev…   │
+│ UUID s-many-0001                           │
+│ lifecycle  ready                           │
+│ presence   unattended                      │
+│ agent      attention                       │
+│ policy     outdated                        │
+│ actions    inspect · attach · policy diff  │
+│ · recreate                                 │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

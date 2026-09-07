@@ -1,0 +1,31 @@
+P / probe · STRESS:massive · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│ › ▾ project-001          40 sessions · 17 urgent         │ │ project-001 / work/0001-agent/oauth-device-flow     │
+│       └─ work/0001-agent/oauth-device-flow               │ │ UUID s-massive-0001                                 │
+│          ready · unattended · attention · outdated       │ │ lifecycle  ready                                    │
+│       └─ retire/0026-discard/temporary-spike             │ │ presence   unattended                               │
+│          discarding · unattended · — · current           │ │ agent      attention                                │
+│       └─ boot/0051-prototype/tui-options-with-…          │ │ policy     outdated                                 │
+│          creating · unattended · idle · current          │ │ actions    inspect · attach · policy diff ·         │
+│       └─ boot/0076-feature/interactive-cli               │ │ recreate                                            │
+│          starting · unattended · running · current       │ ╰─────────────────────────────────────────────────────╯
+│       └─ work/0101-docs/plugin-guide                     │
+│          ready · unattended · — · current                │
+│       └─ retire/0126-archive/old-experiment              │
+│          deleting · unattended · — · current             │
+│       └─ recover/0151-cleanup/retained-state             │
+│          missing · unattended · — · outdated             │
+│       └─ recover/0176-design/plugin-contract-r…          │
+│          unreachable · unattended · unknown · invalid    │
+│       └─ work/0201-fix/cache-race                        │
+│          stopped · unattended · failed · current         │
+│       └─ work/0226-agent/oauth-device-flow               │
+│          ready · unattended · attention · outdated       │
+│       └─ retire/0251-discard/temporary-spike             │
+│          discarding · unattended · — · current           │
+│   … 1013 nodes below                                     │
+╰──────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

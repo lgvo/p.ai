@@ -1,0 +1,22 @@
+P / probe · STRESS:many-projects · view 09 Operations console · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 140  ·  degraded 60  ·   │ │ Inspector                                │
+│ attached 1                                                          │ │ project-001 / work/0001-agent/oauth-     │
+│ Newest fixture observations first; recovery never implies hidden    │ │ device-flow                              │
+│ automatic mutation.                                                 │ │ UUID s-many-0001                         │
+│                                                                     │ │ lifecycle  ready                         │
+│   TIME      SESSION        OBSERVATION                              │ │ presence   unattended                    │
+│   20:42:00  s-many-0180   credentials deleted · runtime remaining   │ │ agent      attention                     │
+│   20:41:07  s-many-0179   tearing down runtime · branch will be r…  │ │ policy     outdated                      │
+│   20:40:14  s-many-0178   expected runtime not found                │ │ actions    inspect · attach · policy     │
+│   20:39:21  s-many-0177   building project environment · phase 2/6  │ │ diff · recreate                          │
+│   20:38:28  s-many-0176   Incus inspection timed out                │ │                                          │
+│   20:37:35  s-many-0175   activating environment · phase 3/5        │ │ Recovery contract                        │
+╰─────────────────────────────────────────────────────────────────────╯ │ r previews a bounded plan                │
+                                                                        │ retry preserves request identity         │
+                                                                        │ partial deletion only converges toward   │
+                                                                        │ absent                                   │
+                                                                        ╰──────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit
