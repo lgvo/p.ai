@@ -406,6 +406,24 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 	}
 }
 
+func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
+	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
+	if len(explore) != 5 || len(stress) != 1 {
+		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
+	}
+	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
+		t.Fatal("stress mode accepted an explore-only dataset")
+	}
+	stressApp, err := newAppForModeDataset(modeStress, "baseline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := stressApp.View()
+	if !strings.Contains(view, "STRESS:baseline") {
+		t.Fatalf("stress surface is not clearly labeled:\n%s", view)
+	}
+}
+
 func TestEveryVariantAcrossEveryDatasetAndViewport(t *testing.T) {
 	for _, dataset := range []string{"standard", "dense", "empty", "single", "long"} {
 		for _, v := range allVariants() {

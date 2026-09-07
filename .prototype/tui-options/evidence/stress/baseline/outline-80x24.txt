@@ -1,0 +1,23 @@
+P / probe · STRESS:baseline · view 07 Expandable outline · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy                                 │
+│   … 3 nodes above                                                          │
+│   ▾ forge                2 sessions · 1 urgent                             │
+│ ›     └─ agent/oauth-device-flow                                           │
+│          ready · unattended · attention · outdated                         │
+│       └─ docs/plugin-guide                                                 │
+│          ready · attached:1 · — · current                                  │
+│   … 8 nodes below                                                          │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ forge / agent/oauth-device-flow                                            │
+│ UUID s-auth                                                                │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

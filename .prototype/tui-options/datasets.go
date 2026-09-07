@@ -1,24 +1,77 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
+
+type datasetDefinition struct {
+	mode        experienceMode
+	name        string
+	description string
+	build       func() []session
+}
+
+func datasetCatalog() []datasetDefinition {
+	return []datasetDefinition{
+		{modeExplore, "standard", "nine sessions covering the presentation contract", fixtureSessions},
+		{modeExplore, "dense", "forty representative sessions across eight projects", denseSessions},
+		{modeExplore, "empty", "no projects or sessions", func() []session { return nil }},
+		{modeExplore, "single", "one unattended session", func() []session { return []session{fixtureSessions()[0]} }},
+		{modeExplore, "long", "representative sessions with deliberately long names", longNameSessions},
+		{modeStress, "baseline", "stress harness control using the curated standard fixture", fixtureSessions},
+	}
+}
+
+func datasetsForMode(mode experienceMode) []datasetDefinition {
+	var result []datasetDefinition
+	for _, definition := range datasetCatalog() {
+		if definition.mode == mode {
+			result = append(result, definition)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].name < result[j].name })
+	return result
+}
+
+func parseExperienceMode(value string) (experienceMode, bool) {
+	switch experienceMode(value) {
+	case modeExplore:
+		return modeExplore, true
+	case modeStress:
+		return modeStress, true
+	default:
+		return "", false
+	}
+}
+
+func defaultDatasetForMode(mode experienceMode) string {
+	if mode == modeStress {
+		return "baseline"
+	}
+	return "standard"
+}
 
 func (m *app) applyDataset(name string) error {
-	var sessions []session
-	switch name {
-	case "standard":
-		sessions = fixtureSessions()
-	case "dense":
-		sessions = denseSessions()
-	case "empty":
-		sessions = nil
-	case "single":
-		sessions = []session{fixtureSessions()[0]}
-	case "long":
-		sessions = longNameSessions()
-	default:
-		return fmt.Errorf("unknown dataset %q", name)
+	return m.applyDatasetForMode(modeExplore, name)
+}
+
+func (m *app) applyDatasetForMode(mode experienceMode, name string) error {
+	var definition *datasetDefinition
+	for _, candidate := range datasetCatalog() {
+		if candidate.mode == mode && candidate.name == name {
+			copy := candidate
+			definition = &copy
+			break
+		}
 	}
+	if definition == nil {
+		return fmt.Errorf("unknown %s dataset %q", mode, name)
+	}
+	sessions := definition.build()
+	m.mode = mode
 	m.dataset = name
+	m.datasetNote = definition.description
 	m.sessions = sessions
 	m.selected, m.project = 0, 0
 	m.clientAttach = ""

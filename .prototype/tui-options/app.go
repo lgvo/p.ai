@@ -13,6 +13,13 @@ import (
 
 type variant int
 
+type experienceMode string
+
+const (
+	modeExplore experienceMode = "explore"
+	modeStress  experienceMode = "stress"
+)
+
 const fixtureNotice = "Fixture data only — no daemon or project state is connected."
 
 const (
@@ -133,7 +140,9 @@ type app struct {
 	width, height int
 	variant       variant
 	galleryChoice variant
+	mode          experienceMode
 	dataset       string
+	datasetNote   string
 	screen        screen
 	previous      screen
 	selected      int
@@ -159,6 +168,10 @@ func newApp() app {
 }
 
 func newAppForDataset(dataset string) (app, error) {
+	return newAppForModeDataset(modeExplore, dataset)
+}
+
+func newAppForModeDataset(mode experienceMode, dataset string) (app, error) {
 	filter := textinput.New()
 	filter.Placeholder = "filter project, branch, or status"
 	filter.CharLimit = 48
@@ -169,6 +182,7 @@ func newAppForDataset(dataset string) (app, error) {
 		height:        35,
 		variant:       variantTable,
 		galleryChoice: variantTable,
+		mode:          mode,
 		dataset:       dataset,
 		collapsed:     map[string]bool{},
 		screen:        screenOverview,
@@ -179,7 +193,7 @@ func newAppForDataset(dataset string) (app, error) {
 		clientAttach:  "s-docs",
 		message:       fixtureNotice,
 	}
-	if err := m.applyDataset(dataset); err != nil {
+	if err := m.applyDatasetForMode(mode, dataset); err != nil {
 		return app{}, err
 	}
 	return m, nil

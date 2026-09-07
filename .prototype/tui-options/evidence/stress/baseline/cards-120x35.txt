@@ -1,0 +1,24 @@
+P / probe · STRESS:baseline · view 12 Responsive card grid · Tab cycle · v gallery
+Responsive session cards  ·  2 columns at 120 cells
+Identity, four independent facts, and eligible actions travel together as cards reflow.
+
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ forge / agent/oauth-device-flow                       │ │ forge / docs/plugin-guide                             │
+│ UUID s-auth                                           │ │ UUID s-docs                                           │
+│ life ready       presence unattended                  │ │ life ready       presence attached:1                  │
+│ agent attention  policy outdated                      │ │ agent —          policy current                       │
+│ actions inspect · attach · policy diff · recreate     │ │ actions inspect · attach · detach this client         │
+╰───────────────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ orbit / fix/cache-race                                │ │ orbit / feature/interactive-cli                       │
+│ UUID s-cache                                          │ │ UUID s-cli                                            │
+│ life stopped     presence unattended                  │ │ life starting    presence unattended                  │
+│ agent failed     policy current                       │ │ agent running    policy current                       │
+│ actions inspect · start · attach                      │ │ actions inspect                                       │
+│ progress last start: host exited; bounded diagnostic  │ │ progress activating environment · phase 3/5           │
+│ available                                             │ ╰───────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────╯
+cards 1–4 of 9 · j/k moves and turns pages
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

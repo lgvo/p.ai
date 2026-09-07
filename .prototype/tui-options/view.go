@@ -94,6 +94,9 @@ func (m app) View() string {
 
 func (m app) header(width int) string {
 	line := fmt.Sprintf("P / probe · view %02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, m.variant, m.dataset)
+	if m.mode == modeStress {
+		line = fmt.Sprintf("P / probe · STRESS:%s · view %02d %s · Tab cycle · v gallery", m.dataset, m.variant+1, m.variant)
+	}
 	if m.filtering || m.filter.Value() != "" {
 		line += " · / " + m.filter.Value()
 	}

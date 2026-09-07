@@ -1,0 +1,13 @@
+P / probe · STRESS:baseline · view 03 Attention workspace ·…
+╭────────────────────────────────────────────────────────╮
+│ Attention workspace · compact disclosure               │
+│ forge / agent/oauth-device-flow                        │
+│ UUID s-auth                                            │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     outdated                                    │
+│ actions    inspect · attach · policy diff · recreate   │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

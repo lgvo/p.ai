@@ -39,6 +39,19 @@ go run . --variant topology
 go run . --variant actions
 ```
 
+Interface exploration and data stress are separate experiences:
+
+```sh
+go run . --mode explore
+go run . --mode explore --list-datasets
+go run . --mode stress --list-datasets
+go run . --mode stress --dataset baseline
+```
+
+The active mode and fixture are always shown at the start of the header. Stress
+captures are stored separately under `evidence/stress` and generated with
+`sh capture-stress.sh`.
+
 Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
 scalable variant gallery. Press `?` for the complete key map.
 
