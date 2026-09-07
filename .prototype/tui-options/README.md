@@ -34,6 +34,7 @@ go run . --variant minimal
 go run . --variant cards
 go run . --variant attachment
 go run . --variant governance
+go run . --variant compare
 ```
 
 Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
@@ -55,6 +56,7 @@ The alternatives deliberately organize the same facts differently:
 12. **Responsive card grid** reflows complete session cards across one, two, or three columns.
 13. **Attachment dock** centers the current client attachment and explicit host-preserving switches.
 14. **Governance dashboard** continuously answers attention, attachment, change, and risk questions.
+15. **Session comparison** pins one stable identity and exposes a four-fact A/B delta.
 
 Deterministic frames can be generated without an interactive terminal:
 

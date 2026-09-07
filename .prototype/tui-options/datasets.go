@@ -28,6 +28,10 @@ func (m *app) applyDataset(name string) error {
 			break
 		}
 	}
+	m.compareAnchor = m.clientAttach
+	if m.compareAnchor == "" && len(sessions) > 0 {
+		m.compareAnchor = sessions[0].ID
+	}
 	for projectIndex, project := range m.projects() {
 		for _, s := range sessions {
 			if s.ID == "s-auth" && s.Project == project {

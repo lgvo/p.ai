@@ -64,6 +64,8 @@ func (m app) View() string {
 			body = m.attachmentView(width, height)
 		case variantGovernance:
 			body = m.governanceView(width, height)
+		case variantCompare:
+			body = m.comparisonView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)

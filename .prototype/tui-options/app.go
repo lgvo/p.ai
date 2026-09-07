@@ -30,11 +30,12 @@ const (
 	variantCards
 	variantAttachment
 	variantGovernance
+	variantCompare
 	variantCount
 )
 
 func (v variant) String() string {
-	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console", "Task workspace", "Minimal stream ledger", "Responsive card grid", "Attachment dock", "Governance dashboard"}[v]
+	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console", "Task workspace", "Minimal stream ledger", "Responsive card grid", "Attachment dock", "Governance dashboard", "Session comparison"}[v]
 }
 
 func parseVariant(s string) (variant, bool) {
@@ -67,6 +68,8 @@ func parseVariant(s string) (variant, bool) {
 		return variantAttachment, true
 	case "governance", "dashboard", "questions":
 		return variantGovernance, true
+	case "compare", "comparison", "diff":
+		return variantCompare, true
 	default:
 		return 0, false
 	}
@@ -141,6 +144,7 @@ type app struct {
 	outlineCursor int
 	collapsed     map[string]bool
 	workspaceTab  int
+	compareAnchor string
 }
 
 func newApp() app {
@@ -301,6 +305,10 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.variant == variantWorkspace {
 				m.workspaceTab = (m.workspaceTab + 1) % 4
 				m.message = fmt.Sprintf("Workspace mode: %s.", workspaceTabNames[m.workspaceTab])
+			}
+		case "s":
+			if m.variant == variantCompare {
+				m.pinComparisonAnchor()
 			}
 		case "X":
 			m.startDeletePreview()

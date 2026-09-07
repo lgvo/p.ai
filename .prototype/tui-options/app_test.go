@@ -91,10 +91,25 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance", "compare"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
 		}
+	}
+}
+
+func TestSessionComparisonPinsStableIdentityAndShowsDelta(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantCompare, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"A · pinned baseline", "s-docs", "B · current candidate", "s-auth", "A → B delta"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("comparison omitted %q", fragment)
+		}
+	}
+	m.pinComparisonAnchor()
+	if m.compareAnchor != "s-auth" {
+		t.Fatalf("comparison pin stored %q", m.compareAnchor)
 	}
 }
 
