@@ -1,0 +1,17 @@
+P / probe · view 17 Action eligibility sheet · fixture:standard · Tab cycle · v gallery
+╭───────────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────────────╮
+│ Choose an object  ·  attached 1                   │ │ Eligibility · s-auth                                                   │
+│ › forge/agent/oauth-device… ready · unattended ·  │ │ forge / agent/oauth-device-flow                                        │
+│ attention · outdated                              │ │                                                                        │
+│   forge/docs/plugin-guide   ready · attached:1 ·  │ │ AVAILABLE NOW                                                          │
+│ — · current                                       │ │   ✓ inspect — read-only facts are always available                     │
+│   orbit/fix/cache-race      stopped · unattended  │ │   ✓ attach / switch — host accepts a client                            │
+│ · failed · current                                │ │   ✓ policy diff — snapshot differs from current policy                 │
+│   orbit/feature/interactiv… starting · unattended │ │   ✓ recreate — new identity can adopt current policy                   │
+│ · running · current                               │ │                                                                        │
+│   … 5 more objects                                │ │ UNAVAILABLE · EXPLAINED                                                │
+╰───────────────────────────────────────────────────╯ │   × detach this client — this client is attached elsewhere             │
+                                                      │   × recovery plan — runtime is already observed                        │
+                                                      ╰────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

@@ -36,6 +36,7 @@ go run . --variant attachment
 go run . --variant governance
 go run . --variant compare
 go run . --variant topology
+go run . --variant actions
 ```
 
 Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
@@ -59,6 +60,7 @@ The alternatives deliberately organize the same facts differently:
 14. **Governance dashboard** continuously answers attention, attachment, change, and risk questions.
 15. **Session comparison** pins one stable identity and exposes a four-fact A/B delta.
 16. **Resource topology** maps project, ref, session, host, client, agent, and policy lifetimes.
+17. **Action eligibility sheet** keeps unavailable actions visible with fact-based reasons.
 
 Deterministic frames can be generated without an interactive terminal:
 

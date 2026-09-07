@@ -91,9 +91,20 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance", "compare", "topology"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance", "compare", "topology", "actions"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
+		}
+	}
+}
+
+func TestActionSheetExplainsUnavailableActions(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantActions, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"AVAILABLE NOW", "UNAVAILABLE · EXPLAINED", "attach / switch", "detach this client", "attached elsewhere"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("action sheet omitted %q", fragment)
 		}
 	}
 }

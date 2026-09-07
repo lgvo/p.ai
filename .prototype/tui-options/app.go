@@ -32,11 +32,12 @@ const (
 	variantGovernance
 	variantCompare
 	variantTopology
+	variantActions
 	variantCount
 )
 
 func (v variant) String() string {
-	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console", "Task workspace", "Minimal stream ledger", "Responsive card grid", "Attachment dock", "Governance dashboard", "Session comparison", "Resource topology"}[v]
+	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console", "Task workspace", "Minimal stream ledger", "Responsive card grid", "Attachment dock", "Governance dashboard", "Session comparison", "Resource topology", "Action eligibility sheet"}[v]
 }
 
 func parseVariant(s string) (variant, bool) {
@@ -73,6 +74,8 @@ func parseVariant(s string) (variant, bool) {
 		return variantCompare, true
 	case "topology", "map", "resources":
 		return variantTopology, true
+	case "actions", "eligibility", "action-sheet":
+		return variantActions, true
 	default:
 		return 0, false
 	}
