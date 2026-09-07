@@ -25,11 +25,12 @@ const (
 	variantOutline
 	variantMatrix
 	variantOperations
+	variantWorkspace
 	variantCount
 )
 
 func (v variant) String() string {
-	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console"}[v]
+	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console", "Task workspace"}[v]
 }
 
 func parseVariant(s string) (variant, bool) {
@@ -52,6 +53,8 @@ func parseVariant(s string) (variant, bool) {
 		return variantMatrix, true
 	case "operations", "ops", "recovery":
 		return variantOperations, true
+	case "workspace", "tabs", "task-tabs":
+		return variantWorkspace, true
 	default:
 		return 0, false
 	}
@@ -125,6 +128,7 @@ type app struct {
 	deleteTargets []deleteTarget
 	outlineCursor int
 	collapsed     map[string]bool
+	workspaceTab  int
 }
 
 func newApp() app {
@@ -280,6 +284,11 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			if m.variant == variantOperations {
 				m.previewRecoveryPlan()
+			}
+		case "t":
+			if m.variant == variantWorkspace {
+				m.workspaceTab = (m.workspaceTab + 1) % 4
+				m.message = fmt.Sprintf("Workspace mode: %s.", workspaceTabNames[m.workspaceTab])
 			}
 		case "X":
 			m.startDeletePreview()

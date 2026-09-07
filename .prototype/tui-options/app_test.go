@@ -91,10 +91,29 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
 		}
+	}
+}
+
+func TestTaskWorkspaceCyclesModesWithoutLosingSelection(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantWorkspace, 120, 35
+	m.selectSession("s-auth")
+	for tab, fragment := range []string{"PROJECT / BRANCH", "OBSERVATION", "SNAPSHOT", "RETAINED BRANCH"} {
+		view := m.View()
+		if !strings.Contains(view, fragment) {
+			t.Errorf("workspace tab %d omitted %q", tab, fragment)
+		}
+		if tab < 3 {
+			m = pressRune(t, m, 't')
+		}
+	}
+	idx, ok := m.selectedSessionIndex()
+	if !ok || m.sessions[idx].ID != "s-auth" {
+		t.Fatal("workspace mode switch lost persistent selection")
 	}
 }
 
