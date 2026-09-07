@@ -1,5 +1,9 @@
 # Prototype evidence record
 
+> Checkpoint scope: this file records the first responsive exploration through
+> commit `cbd3c8d`. The separate data-stress round, later 18th candidate, and
+> current totals are recorded in `stress/observations.md`.
+
 Date: 2026-09-06
 
 ## Owner, question, and contract

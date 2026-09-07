@@ -30,10 +30,10 @@ func (m app) comparisonView(width, _ int) string {
 		columnWidth := (width - 1) / 2
 		left := renderPanel(columnWidth, m.comparisonCard("A · pinned baseline", anchor))
 		right := renderPanel(columnWidth, m.comparisonCard("B · current candidate", candidate))
-		return heading + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right) + "\n" + m.comparisonDelta(anchor, candidate)
+		return heading + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right) + "\n" + m.comparisonDelta(anchor, candidate, width)
 	}
 	content := heading + "\n\n" + m.comparisonCompactCard("A · pinned", anchor) + "\n\n" +
-		m.comparisonCompactCard("B · current", candidate) + "\n\n" + m.comparisonDelta(anchor, candidate)
+		m.comparisonCompactCard("B · current", candidate) + "\n\n" + m.comparisonDelta(anchor, candidate, width-4)
 	return renderPanel(width, content)
 }
 
@@ -66,14 +66,14 @@ func (m app) comparisonCompactCard(label string, s session) string {
 	return result
 }
 
-func (m app) comparisonDelta(a, b session) string {
+func (m app) comparisonDelta(a, b session, width int) string {
 	fields := []string{
 		"life " + deltaValue(a.Lifecycle, b.Lifecycle),
 		"presence " + deltaValue(presenceValue(a), presenceValue(b)),
 		"agent " + deltaValue(agentValue(a), agentValue(b)),
 		"policy " + deltaValue(a.Policy, b.Policy),
 	}
-	return titleStyle.Render("A → B delta") + "  " + strings.Join(fields, "  ·  ")
+	return truncate(titleStyle.Render("A → B delta")+"  "+strings.Join(fields, "  ·  "), width)
 }
 
 func deltaValue(a, b string) string {

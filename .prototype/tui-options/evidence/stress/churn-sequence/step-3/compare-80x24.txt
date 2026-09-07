@@ -15,7 +15,7 @@ P / probe · STRESS:churn@3 · view 15 Session comparison · Tab cycle · v gall
 │ actions  inspect · attach                                                  │
 │                                                                            │
 │ A → B delta  life missing→ready  ·  presence attached:1→unattended  ·      │
-│ agent =—  ·  policy outdated→current                                       │
+│ agen…                                                                      │
 ╰────────────────────────────────────────────────────────────────────────────╯
 Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
 j/k move · Tab cycle · v gallery · ? help · q quit

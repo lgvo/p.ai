@@ -12,7 +12,7 @@ P / probe · view 15 Session comparison · fixture:standard · Tab cycle · v ga
 │ actions  inspect · attach · policy diff · recreate                                             │
 │                                                                                                │
 │ A → B delta  life =ready  ·  presence attached:1→unattended  ·  agent —→attention  ·  policy   │
-│ current→outdated                                                                               │
+│ cu…                                                                                            │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯
 Fixture data only — no daemon or project state is connected.
 j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle

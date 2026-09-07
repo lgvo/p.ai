@@ -15,7 +15,7 @@ P / probe · STRESS:churn@1 · view 15 Session comparison · Tab cycle · v gall
 │ actions  inspect · attach · policy diff · recreate                         │
 │                                                                            │
 │ A → B delta  life missing→ready  ·  presence attached:1→unattended  ·      │
-│ agent —→attention  ·  policy =outdated                                     │
+│ agen…                                                                      │
 ╰────────────────────────────────────────────────────────────────────────────╯
 Churn step 1: selection preserved by UUID s-churn-focus.
 j/k move · Tab cycle · v gallery · ? help · q quit

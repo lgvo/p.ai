@@ -1,5 +1,8 @@
 # Data-stress evidence
 
+See `observations.md` for the reviewed findings and candidate-by-candidate
+interpretation.
+
 This directory is deliberately separate from the curated interface-comparison
 frames in `evidence/expanded` and `evidence/frames`.
 

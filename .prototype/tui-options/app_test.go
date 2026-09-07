@@ -580,6 +580,21 @@ func TestObservationIntegrityMakesEvidenceQualityThePrimaryAxis(t *testing.T) {
 	}
 }
 
+func TestEveryStressDatasetAcrossEveryVariantAndTargetViewport(t *testing.T) {
+	for _, definition := range datasetsForMode(modeStress) {
+		for _, v := range allVariants() {
+			for _, size := range stressViewportMatrix() {
+				m, err := newAppForModeDataset(modeStress, definition.name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.variant, m.width, m.height = v, size.width, size.height
+				assertBoundedSupportedView(t, m, definition.name, v, size.width, size.height)
+			}
+		}
+	}
+}
+
 func TestIdentityAndPresenceStressAcrossEveryVariantAndTargetViewport(t *testing.T) {
 	for _, dataset := range []string{"ambiguous-identities", "high-attachments"} {
 		for _, v := range allVariants() {
