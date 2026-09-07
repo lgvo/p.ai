@@ -92,7 +92,7 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance", "compare", "topology", "actions"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance", "compare", "topology", "actions", "integrity"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
 		}
@@ -409,7 +409,7 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 
 func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
-	if len(explore) != 5 || len(stress) != 11 {
+	if len(explore) != 5 || len(stress) != 12 {
 		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
 	}
 	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
@@ -559,6 +559,24 @@ func TestStressStepIsScopedToChurn(t *testing.T) {
 	churn, _ := newAppForModeDataset(modeStress, "churn")
 	if err := churn.applyStressStep(maxStressStep + 1); err == nil {
 		t.Fatal("churn accepted an out-of-range step")
+	}
+}
+
+func TestObservationIntegrityMakesEvidenceQualityThePrimaryAxis(t *testing.T) {
+	m, err := newAppForModeDataset(modeStress, "mixed-observations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.variant, m.width, m.height = variantIntegrity, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"Observation integrity", "CURRENT 9", "PARTIAL 9", "STALE 9", "Selected evidence · PARTIAL", "refresh PARTIAL facts"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("observation integrity view omitted %q", fragment)
+		}
+	}
+	for _, size := range stressViewportMatrix() {
+		m.width, m.height = size.width, size.height
+		assertBoundedSupportedView(t, m, "mixed-observations", variantIntegrity, size.width, size.height)
 	}
 }
 

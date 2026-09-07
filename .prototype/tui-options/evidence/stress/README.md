@@ -3,7 +3,7 @@
 This directory is deliberately separate from the curated interface-comparison
 frames in `evidence/expanded` and `evidence/frames`.
 
-Each child directory is one generated stress family. Frames cover all 17
+Each child directory is one generated stress family. Frames cover all 18
 interfaces at 120×35, 80×24, 60×20, and 48×16. Regenerate them with:
 
 ```sh

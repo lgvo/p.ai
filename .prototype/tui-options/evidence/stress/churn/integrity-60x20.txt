@@ -1,0 +1,13 @@
+P / probe · STRESS:churn@0 · view 18 Observation integrity …
+╭────────────────────────────────────────────────────────╮
+│ Observation integrity · compact disclosure             │
+│ project-001 / agent/stable-selection-target            │
+│ UUID s-churn-focus                                     │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     outdated                                    │
+│ actions    inspect · attach · policy diff · recreate   │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

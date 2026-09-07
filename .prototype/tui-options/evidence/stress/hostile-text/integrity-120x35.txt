@@ -1,0 +1,20 @@
+P / probe · STRESS:hostile-text · view 18 Observation integrity · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────╮
+│ Observation integrity                                      │ │ Selected evidence · CURRENT                       │
+│ Completeness and freshness are first-class; derived        │ │ forge<ESC>[31m-red / agent/oauth<LF>spoofed-      │
+│ urgency never hides evidence quality.                      │ │ row<T…                                            │
+│                                                            │ │ UUID s-auth                                       │
+│ CURRENT 9  ·  PARTIAL 0  ·  STALE 0                        │ │ ready · unattended · attention · outdated         │
+│                                                            │ │ actions  inspect · attach · policy diff ·         │
+│ › CURRENT    s-auth           ready       unattended       │ │ recreate                                          │
+│   CURRENT    s-docs           ready       attached:1       │ ╰───────────────────────────────────────────────────╯
+│   CURRENT    s-cache          stopped     unattended       │
+│   CURRENT    s-cli            starting    unattended       │
+│   CURRENT    s-plugin         unreachable unattended       │
+│   CURRENT    s-tui            creating    unattended       │
+│   CURRENT    s-clean          missing     unattended       │
+│   … 2 more observations                                    │
+╰────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

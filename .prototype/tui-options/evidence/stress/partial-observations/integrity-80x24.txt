@@ -1,0 +1,23 @@
+P / probe · STRESS:partial-observations · view 18 Observation integrity · Tab c…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Observation integrity                                                      │
+│ Completeness and freshness are first-class; derived urgency never hides    │
+│ evidence quality.                                                          │
+│                                                                            │
+│ CURRENT 0  ·  PARTIAL 18  ·  STALE 0                                       │
+│                                                                            │
+│ › PARTIAL    s-partial-0001   unreachable unknown                          │
+│   PARTIAL    s-partial-0002   ready       unknown                          │
+│   PARTIAL    s-partial-0003   stopped     unattended                       │
+│   PARTIAL    s-partial-0004   starting    unknown                          │
+│   … 14 more observations                                                   │
+│                                                                            │
+│ Selected evidence · PARTIAL                                                │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-partial-0001                                                        │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ actions  inspect · refresh PARTIAL facts                                   │
+│ progress runtime probe returned an incomplete response                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

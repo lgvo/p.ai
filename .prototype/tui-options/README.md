@@ -75,6 +75,7 @@ The alternatives deliberately organize the same facts differently:
 15. **Session comparison** pins one stable identity and exposes a four-fact A/B delta.
 16. **Resource topology** maps project, ref, session, host, client, agent, and policy lifetimes.
 17. **Action eligibility sheet** keeps unavailable actions visible with fact-based reasons.
+18. **Observation integrity** makes current, partial, and stale evidence a primary navigation axis.
 
 Deterministic frames can be generated without an interactive terminal:
 

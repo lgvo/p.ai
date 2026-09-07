@@ -1,0 +1,26 @@
+P / probe · STRESS:mixed-observations · view 06 Actionability lanes · Tab cycle · v gallery
+╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
+│ Inspect first · 3        │ │ In progress · 12        │ │ Recover · 6             │ │ Removing · 6            │
+│   project-003/work/00…   │ │ › project-001/work/00…  │ │   project-005/recover…  │ │   project-008/retire/…  │
+│     stopped              │ │     ready               │ │     unreachable         │ │     discarding          │
+│     unattended           │ │     unknown             │ │     unattended          │ │     unattended          │
+│     failed · current     │ │     not evaluated ·     │ │     unknown · invalid   │ │     — · current         │
+│     last start: host ex… │ │ outdated                │ │     last observation    │ │     last observation    │
+│   project-003/work/00…   │ │   project-002/work/00…  │ │ is…                     │ │ is…                     │
+│     stopped              │ │     ready               │ │   project-007/recover…  │ │   project-009/retire/…  │
+│     unattended           │ │     unattended          │ │     missing             │ │     deleting            │
+│     failed · current     │ │     — · current         │ │     unknown             │ │     unattended          │
+│     last start: host ex… │ │     last observation    │ │     not evaluated ·     │ │     — · current         │
+│ … 1 below                │ │ is…                     │ │ outdated                │ │     credentials         │
+╰──────────────────────────╯ │ … 10 below              │ │     expected runtime    │ │ deleted…                │
+                             ╰─────────────────────────╯ │ no…                     │ │ … 4 below               │
+                                                         │ … 4 below               │ ╰─────────────────────────╯
+                                                         ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-mixed-0001  project-001/work/0001-agent…                                                                │
+│ ready · unknown · not evaluated · outdated                                                                         │
+│ actions  inspect · refresh PARTIAL facts                                                                           │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

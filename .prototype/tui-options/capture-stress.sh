@@ -11,7 +11,7 @@ fi
 out=evidence/stress
 mkdir -p "$out"
 
-variants="table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance compare topology actions"
+variants="table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance compare topology actions integrity"
 datasets=$($bin --mode stress --list-datasets | awk '{print $1}')
 
 for dataset in $datasets; do

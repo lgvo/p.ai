@@ -1,0 +1,21 @@
+P / probe · STRESS:mixed-observations · view 15 Session comparison · Tab cycle · v gallery
+Session comparison
+s pins the current session as A; j/k chooses B. Differences never merge identities.
+
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ A · pinned baseline                                   │ │ B · current candidate                                 │
+│ project-005 / recover/0014-design/plugin-contract-    │ │ project-001 / work/0001-agent/oauth-device-flow       │
+│ reconciliation                                        │ │ UUID s-mixed-0001                                     │
+│ UUID s-mixed-0014                                     │ │ lifecycle  ready                                      │
+│ lifecycle  unreachable                                │ │ presence   unknown                                    │
+│ presence   attached:1                                 │ │ agent      not evaluated                              │
+│ agent      —                                          │ │ policy     outdated                                   │
+│ policy     invalid                                    │ │ actions    inspect · refresh PARTIAL facts            │
+│ actions    inspect · refresh STALE 51m facts          │ ╰───────────────────────────────────────────────────────╯
+│ progress   last observation is outside the trusted    │
+│ freshness window                                      │
+╰───────────────────────────────────────────────────────╯
+A → B delta  life unreachable→ready  ·  presence attached:1→unknown  ·  agent —→not evaluated  ·  policy invalid→outdated
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

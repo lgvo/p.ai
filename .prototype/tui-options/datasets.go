@@ -32,6 +32,7 @@ func datasetCatalog() []datasetDefinition {
 		{modeStress, "partial-observations", "incomplete responses with explicitly unknown presence facts", partialObservationSessions},
 		{modeStress, "stale-observations", "complete but outdated responses that require refresh before mutation", staleObservationSessions},
 		{modeStress, "churn", "reorder, insertion, update, removal, and empty live-data transitions", churnSessions},
+		{modeStress, "mixed-observations", "current, partial, and stale observations in one fleet", mixedObservationSessions},
 	}
 }
 
@@ -277,6 +278,26 @@ func churnSessions() []session {
 	result[0].Branch = "agent/stable-selection-target"
 	result[1].ID = "s-churn-neighbor"
 	result[1].Branch = "docs/deterministic-fallback"
+	return result
+}
+
+func mixedObservationSessions() []session {
+	result := scaledSessions(27, 9, "mixed")
+	ages := []string{"19m", "51m", "3h"}
+	for i := range result {
+		switch i % 3 {
+		case 0:
+			result[i].Observation = "partial"
+			result[i].PresenceUnknown = true
+			result[i].AttachedCount = 0
+			result[i].Agent = "unknown"
+			result[i].AgentReason = "presence response was unavailable; unattended state was not inferred"
+		case 1:
+			result[i].Observation = "stale"
+			result[i].ObservationAge = ages[(i/3)%len(ages)]
+			result[i].Operation = "last observation is outside the trusted freshness window"
+		}
+	}
 	return result
 }
 

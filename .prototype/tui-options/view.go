@@ -71,6 +71,8 @@ func (m app) View() string {
 			body = m.topologyView(width, height)
 		case variantActions:
 			body = m.actionSheetView(width, height)
+		case variantIntegrity:
+			body = m.integrityView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)

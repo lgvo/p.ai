@@ -1,0 +1,24 @@
+P / probe · STRESS:mixed-observations · view 17 Action eligibility sheet · Tab cycle · v gallery
+╭──────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────────────────╮
+│ Choose an object  ·  attached 1              │ │ Eligibility · s-mixed-0001                                      │
+│ › project-001/work/0001-ag… ready · unknown  │ │ project-001 / work/0001-agent/oauth-device-flow                 │
+│ · not evaluated · outdated                   │ │                                                                 │
+│   project-002/work/0002-do… ready ·          │ │ AVAILABLE NOW                                                   │
+│ unattended · — · current                     │ │   ✓ inspect — read-only facts remain available                  │
+│   project-003/work/0003-fi… stopped ·        │ │   ✓ refresh PARTIAL facts — obtain a current complete           │
+│ unattended · failed · current                │ │ observation                                                     │
+│   project-004/boot/0004-fe… starting ·       │ │                                                                 │
+│ unknown · not evaluated · current            │ │ UNAVAILABLE · EXPLAINED                                         │
+│   … 23 more objects                          │ │   × attach / switch — partial observations cannot authorize     │
+╰──────────────────────────────────────────────╯ │ mutation                                                        │
+                                                 │   × detach this client — partial observations cannot authorize  │
+                                                 │ mutation                                                        │
+                                                 │   × recovery plan — partial observations cannot authorize       │
+                                                 │ mutation                                                        │
+                                                 │   × policy diff — partial observations cannot authorize         │
+                                                 │ mutation                                                        │
+                                                 │   × recreate — partial observations cannot authorize mutation   │
+                                                 ╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

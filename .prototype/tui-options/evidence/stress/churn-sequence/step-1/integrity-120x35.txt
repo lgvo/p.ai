@@ -1,0 +1,20 @@
+P / probe · STRESS:churn@1 · view 18 Observation integrity · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────╮
+│ Observation integrity                                      │ │ Selected evidence · CURRENT                       │
+│ Completeness and freshness are first-class; derived        │ │ project-001 / agent/stable-selection-target       │
+│ urgency never hides evidence quality.                      │ │ UUID s-churn-focus                                │
+│                                                            │ │ ready · unattended · attention · outdated         │
+│ CURRENT 12  ·  PARTIAL 0  ·  STALE 0                       │ │ actions  inspect · attach · policy diff ·         │
+│                                                            │ │ recreate                                          │
+│   CURRENT    s-churn-0012     stopped     unattended       │ ╰───────────────────────────────────────────────────╯
+│   CURRENT    s-churn-0011     ready       unattended       │
+│   CURRENT    s-churn-0010     ready       unattended       │
+│   CURRENT    s-churn-0009     deleting    unattended       │
+│   CURRENT    s-churn-0008     discarding  unattended       │
+│   CURRENT    s-churn-0007     missing     attached:1       │
+│   CURRENT    s-churn-0006     creating    unattended       │
+│   … 5 more observations                                    │
+╰────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

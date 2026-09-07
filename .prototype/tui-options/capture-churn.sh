@@ -10,7 +10,7 @@ else
 fi
 
 out=evidence/stress/churn-sequence
-variants="table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance compare topology actions"
+variants="table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance compare topology actions integrity"
 
 for step in 0 1 2 3 4; do
   mkdir -p "$out/step-$step"

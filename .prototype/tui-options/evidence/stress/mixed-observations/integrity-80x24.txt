@@ -1,0 +1,22 @@
+P / probe · STRESS:mixed-observations · view 18 Observation integrity · Tab cyc…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Observation integrity                                                      │
+│ Completeness and freshness are first-class; derived urgency never hides    │
+│ evidence quality.                                                          │
+│                                                                            │
+│ CURRENT 9  ·  PARTIAL 9  ·  STALE 9                                        │
+│                                                                            │
+│ › PARTIAL    s-mixed-0001     ready       unknown                          │
+│   PARTIAL    s-mixed-0004     starting    unknown                          │
+│   PARTIAL    s-mixed-0007     missing     unknown                          │
+│   PARTIAL    s-mixed-0010     ready       unknown                          │
+│   … 23 more observations                                                   │
+│                                                                            │
+│ Selected evidence · PARTIAL                                                │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-mixed-0001                                                          │
+│ ready · unknown · not evaluated · outdated                                 │
+│ actions  inspect · refresh PARTIAL facts                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

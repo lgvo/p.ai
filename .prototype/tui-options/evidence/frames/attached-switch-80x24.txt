@@ -19,5 +19,4 @@ P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
 │ actions    inspect · attach · detach this client · policy diff · recreate  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 Persistent hosts remain alive; switched forge/docs/plugin-guide → forge/agent/o…
-j/k move · a attach · d detach · c create · b branches · p policy · X delete
-/ filter · Tab cycle · v gallery · ? help · q quit
+j/k move · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,20 @@
+P / probe · STRESS:high-attachments · view 18 Observation integrity · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────╮
+│ Observation integrity                                      │ │ Selected evidence · CURRENT                       │
+│ Completeness and freshness are first-class; derived        │ │ project-001 / work/0001-agent/oauth-device-flow   │
+│ urgency never hides evidence quality.                      │ │ UUID s-presence-0001                              │
+│                                                            │ │ ready · unattended · attention · outdated         │
+│ CURRENT 20  ·  PARTIAL 0  ·  STALE 0                       │ │ actions  inspect · attach · policy diff ·         │
+│                                                            │ │ recreate                                          │
+│ › CURRENT    s-presence-0001  ready       unattended       │ ╰───────────────────────────────────────────────────╯
+│   CURRENT    s-presence-0002  ready       attached:1       │
+│   CURRENT    s-presence-0003  stopped     attached:2       │
+│   CURRENT    s-presence-0004  starting    attached:12      │
+│   CURRENT    s-presence-0005  unreachable attached:9999    │
+│   CURRENT    s-presence-0006  creating    unattended       │
+│   CURRENT    s-presence-0007  missing     attached:1       │
+│   … 13 more observations                                   │
+╰────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

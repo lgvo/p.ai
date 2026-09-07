@@ -1,0 +1,12 @@
+P / probe · STRESS:mixed-observations · view 03…
+╭────────────────────────────────────────────╮
+│ Attention workspace · compact disclosure   │
+│ project-003 / work/0003-fix/cache-race     │
+│ UUID s-mixed-0003                          │
+│ lifecycle  stopped                         │
+│ presence   unattended                      │
+│ agent      failed                          │
+│ policy     current                         │
+│ actions    inspect · start · attach        │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

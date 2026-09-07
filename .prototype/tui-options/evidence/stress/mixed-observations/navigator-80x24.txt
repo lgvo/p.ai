@@ -1,0 +1,15 @@
+P / probe · STRESS:mixed-observations · view 02 Project navigator · Tab cycle ·…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects   proj…t-001   proj…t-002  proj…t-003  proj…t-004  proj…t-005  …4 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│ › work/0001-agent/oauth-devic… ready      unattended  unknown   outdated   │
+│   work/0010-agent/oauth-devic… ready      unattended  unknown   outdated   │
+│   work/0019-agent/oauth-devic… ready      unattended  unknown   outdated   │
+│                                                                            │
+│ Selected s-mixed-0001  project-001/work/0001-agent…  ·  actions: inspect / │
+│ refresh PARTIAL facts                                                      │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

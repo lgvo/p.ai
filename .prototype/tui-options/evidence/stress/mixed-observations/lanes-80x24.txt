@@ -1,0 +1,20 @@
+P / probe · STRESS:mixed-observations · view 06 Actionability lanes · Tab cycle…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 3                                                          │
+│   project-003… stopped     unattended  failed    current  last start:…     │
+│ … 2 below                                                                  │
+│ In progress · 12                                                           │
+│ › project-001… ready       unknown     not eval… outdated                  │
+│ … 11 below                                                                 │
+│ Recover · 6                                                                │
+│   project-005… unreachable unattended  unknown   invalid  last observ…     │
+│ … 5 below                                                                  │
+│ Removing · 6                                                               │
+│   project-008… discarding  unattended  —         current  last observ…     │
+│ … 5 below                                                                  │
+│ Selected s-mixed-0001  project-001/work/0001-agent…                        │
+│ ready · unknown · not evaluated · outdated                                 │
+│ actions  inspect · refresh PARTIAL facts                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

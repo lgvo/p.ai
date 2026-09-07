@@ -1,0 +1,28 @@
+P / probe · STRESS:mixed-observations · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────╮
+│ Focus deck · 1/27                                              │ │ Stream radar · context without leaving focus  │
+│ project-001 / work/0001-agent/oauth-device-flow                │ │ › project-001/work/0001-agent/oauth-…         │
+│ UUID s-mixed-0001                                              │ │     ready · unknown · not evaluated ·         │
+│                                                                │ │ outdated                                      │
+│ Lifecycle  ready         Presence  unknown                     │ │   project-002/work/0002-docs/plugin-…         │
+│ Agent      not evaluat…  Policy    outdated                    │ │     ready · unattended · — · current          │
+│                                                                │ │   project-003/work/0003-fix/cache-ra…         │
+│ Primary actions  inspect · refresh PARTIAL facts               │ │     stopped · unattended · failed · current   │
+╰────────────────────────────────────────────────────────────────╯ │   project-004/boot/0004-feature/inte…         │
+                                                                   │     starting · unknown · not evaluated ·      │
+                                                                   │ current                                       │
+                                                                   │   project-005/recover/0005-design/pl…         │
+                                                                   │     unreachable · unattended · unknown ·      │
+                                                                   │ invalid                                       │
+                                                                   │   project-006/boot/0006-prototype/tu…         │
+                                                                   │     creating · unattended · idle · current    │
+                                                                   │   project-007/recover/0007-cleanup/r…         │
+                                                                   │     missing · unknown · not evaluated ·       │
+                                                                   │ outdated                                      │
+                                                                   │   project-008/retire/0008-discard/te…         │
+                                                                   │     discarding · unattended · — · current     │
+                                                                   │ … 19 more                                     │
+                                                                   ╰───────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit
