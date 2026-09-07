@@ -66,6 +66,8 @@ func (m app) View() string {
 			body = m.governanceView(width, height)
 		case variantCompare:
 			body = m.comparisonView(width, height)
+		case variantTopology:
+			body = m.topologyView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)

@@ -1,0 +1,18 @@
+P / probe · view 16 Resource topology · fixture:standard · Tab cycle · v gallery
+Resource topology
+Edges expose ownership and lifetime; adjacent resources are not collapsed into session state.
+
+╭───────────────────────────────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────────────────────╮
+│ Portfolio edges · attached 1                                          │ │ Selected relationship · explicit lifetimes                                     │
+│ › forge      ├─ s-auth      host:ready       client:unattended  ag…   │ │ PROJECT  forge                                                                 │
+│   forge      ├─ s-docs      host:ready       client:attached:1  ag…   │ │   ├─ GIT REF  agent/oauth-device-flow                                          │
+│   orbit      ├─ s-cache     host:stopped     client:unattended  ag…   │ │   │    retained independently                                                  │
+│   orbit      ├─ s-cli       host:starting    client:unattended  ag…   │ │   └─ SESSION  s-auth  (stable identity)                                        │
+│   p.ai       ├─ s-plugin    host:unreachable client:unattended  ag…   │ │        ├─ HOST       ready  (persistent)                                       │
+│   p.ai       ├─ s-tui       host:creating    client:unattended  ag…   │ │        ├─ CLIENTS    unattended  (temporary)                                   │
+│    … 3 more session edges                                             │ │        ├─ AGENT      attention  (unattended-only)                              │
+╰───────────────────────────────────────────────────────────────────────╯ │        └─ POLICY     outdated  (immutable snapshot)                            │
+                                                                          │ actions  inspect · attach · policy diff · recreate                             │
+                                                                          ╰────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

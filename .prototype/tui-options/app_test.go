@@ -91,9 +91,20 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance", "compare"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment", "governance", "compare", "topology"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
+		}
+	}
+}
+
+func TestTopologyKeepsResourceLifetimesSeparate(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantTopology, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"Resource topology", "GIT REF", "HOST", "CLIENTS", "AGENT", "POLICY", "retained independently", "immutable snapshot"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("topology omitted %q", fragment)
 		}
 	}
 }
