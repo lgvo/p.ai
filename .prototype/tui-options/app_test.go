@@ -91,9 +91,23 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
+		}
+	}
+}
+
+func TestCardsReflowAtThreeBreakpoints(t *testing.T) {
+	for _, tc := range []struct {
+		width, height int
+		want          string
+	}{{80, 24, "1 columns"}, {120, 35, "2 columns"}, {160, 50, "3 columns"}} {
+		m := newApp()
+		m.variant, m.width, m.height = variantCards, tc.width, tc.height
+		view := m.View()
+		if !strings.Contains(view, tc.want) || !strings.Contains(view, "four independent facts") {
+			t.Errorf("card grid at %dx%d did not reflow to %q", tc.width, tc.height, tc.want)
 		}
 	}
 }

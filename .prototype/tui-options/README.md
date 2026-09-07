@@ -31,6 +31,7 @@ go run . --variant matrix
 go run . --variant operations
 go run . --variant workspace
 go run . --variant minimal
+go run . --variant cards
 ```
 
 Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
@@ -49,6 +50,7 @@ The alternatives deliberately organize the same facts differently:
 9. **Operations console** makes activity history and bounded recovery primary.
 10. **Task workspace** separates sessions, activity, policy, and resources into stable modes.
 11. **Minimal stream ledger** removes panel chrome and expands the current row inline.
+12. **Responsive card grid** reflows complete session cards across one, two, or three columns.
 
 Deterministic frames can be generated without an interactive terminal:
 

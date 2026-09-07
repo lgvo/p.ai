@@ -58,6 +58,8 @@ func (m app) View() string {
 			body = m.workspaceView(width, height)
 		case variantMinimal:
 			body = m.minimalView(width, height)
+		case variantCards:
+			body = m.cardsView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)
