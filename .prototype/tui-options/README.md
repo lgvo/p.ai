@@ -28,6 +28,7 @@ go run . --variant focus
 go run . --variant lanes
 go run . --variant outline
 go run . --variant matrix
+go run . --variant operations
 ```
 
 Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
@@ -43,6 +44,7 @@ The alternatives deliberately organize the same facts differently:
 6. **Actionability lanes** groups streams by the kind of intervention needed.
 7. **Expandable outline** places projects and sessions in one collapsible tree.
 8. **Project status matrix** compares intervention load across the whole portfolio.
+9. **Operations console** makes activity history and bounded recovery primary.
 
 Deterministic frames can be generated without an interactive terminal:
 

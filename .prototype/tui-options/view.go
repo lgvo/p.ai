@@ -52,6 +52,8 @@ func (m app) View() string {
 			body = m.outlineView(width, height)
 		case variantMatrix:
 			body = m.matrixView(width, height)
+		case variantOperations:
+			body = m.operationsView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)

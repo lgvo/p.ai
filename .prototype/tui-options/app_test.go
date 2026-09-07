@@ -91,10 +91,28 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
 		}
+	}
+}
+
+func TestOperationsConsoleExposesActivityAndBoundedRecovery(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantOperations, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"Operations / recovery console", "activating environment", "degraded", "Recovery contract"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("operations console omitted %q", fragment)
+		}
+	}
+	if !m.selectSession("s-plugin") {
+		t.Fatal("recovery fixture unavailable")
+	}
+	m.previewRecoveryPlan()
+	if !strings.Contains(m.message, "inspect runtime") || !strings.Contains(m.message, "authorized action") {
+		t.Fatalf("recovery plan lost its boundary: %q", m.message)
 	}
 }
 

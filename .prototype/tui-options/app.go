@@ -24,11 +24,12 @@ const (
 	variantLanes
 	variantOutline
 	variantMatrix
+	variantOperations
 	variantCount
 )
 
 func (v variant) String() string {
-	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix"}[v]
+	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline", "Project status matrix", "Operations console"}[v]
 }
 
 func parseVariant(s string) (variant, bool) {
@@ -49,6 +50,8 @@ func parseVariant(s string) (variant, bool) {
 		return variantOutline, true
 	case "matrix", "status-matrix":
 		return variantMatrix, true
+	case "operations", "ops", "recovery":
+		return variantOperations, true
 	default:
 		return 0, false
 	}
@@ -274,6 +277,10 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.previous, m.screen = m.screen, screenBranches
 		case "p":
 			m.previous, m.screen = m.screen, screenPolicy
+		case "r":
+			if m.variant == variantOperations {
+				m.previewRecoveryPlan()
+			}
 		case "X":
 			m.startDeletePreview()
 		case "?":
