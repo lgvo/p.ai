@@ -1,0 +1,16 @@
+P / probe · view 13 Attachment dock · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────╮
+│ Attachment dock                                │ │ Switch targets                                                            │
+│ This client may occupy one persistent session  │ │ › forge / agent/oauth… ready       unattended   a attach/switch           │
+│ host; switching does not stop either host.     │ │   forge / docs/plugin… ready       attached:1   a attach/switch           │
+│                                                │ │   orbit / fix/cache-r… stopped     unattended   a attach/switch           │
+│ CLIENT  attached → s-docs                      │ │   orbit / feature/int… starting    unattended   inspect only              │
+│ forge / docs/plugin-guide                      │ │   p.ai / design/plugi… unreachable unattended   inspect only              │
+│ ready · attached:1 · — · current               │ │   … 4 more targets                                                        │
+│ d detaches this client; host remains ready     │ │                                                                           │
+╰────────────────────────────────────────────────╯ │ Candidate facts  s-auth                                                   │
+                                                   │ ready · unattended · attention · outdated                                 │
+                                                   │ actions  inspect · attach · policy diff · recreate                        │
+                                                   ╰───────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

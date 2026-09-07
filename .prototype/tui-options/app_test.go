@@ -91,10 +91,26 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal", "cards", "attachment"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
 		}
+	}
+}
+
+func TestAttachmentDockMakesClientSwitchBoundaryPrimary(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantAttachment, 120, 35
+	view := m.View()
+	for _, fragment := range []string{"Attachment dock", "attached → s-docs", "switching does not stop", "a attach/switch"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("attachment dock omitted %q", fragment)
+		}
+	}
+	m.attachSelected()
+	view = m.View()
+	if !strings.Contains(view, "attached → s-auth") || !strings.Contains(view, "host remains") {
+		t.Fatal("attachment dock lost switch/detach durability semantics")
 	}
 }
 
