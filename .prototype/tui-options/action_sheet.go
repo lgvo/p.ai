@@ -79,7 +79,7 @@ func (m app) actionObjectRows(limit int) string {
 	for position := start; position < end; position++ {
 		s := m.sessions[indices[position]]
 		presence, agent := sessionSignals(s)
-		line := fmt.Sprintf("  %-25s %s · %s · %s · %s", truncate(s.Project+"/"+s.Branch, 25), s.Lifecycle, presence, agent, s.Policy)
+		line := fmt.Sprintf("  %s %s · %s · %s · %s", padRight(s.Project+"/"+s.Branch, 25), s.Lifecycle, presence, agent, s.Policy)
 		rows = append(rows, m.selectableLine(position, line, s))
 	}
 	if end < len(indices) {

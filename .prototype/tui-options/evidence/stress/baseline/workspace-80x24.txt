@@ -8,7 +8,7 @@ P / probe · STRESS:baseline · view 10 Task workspace · Tab cycle · v gallery
 │   forge / docs/plugin-guide   ready      attached:1 · — / current          │
 │   orbit / fix/cache-race      stopped    unattended · failed / current     │
 │   orbit / feature/interactiv… starting   unattended · running / current    │
-│   p.ai / design/plugin-contr… unreachable unattended · unknown / invalid   │
+│   p.ai / design/plugin-contr… unreachab… unattended · unknown / invalid    │
 │   … 4 more                                                                 │
 │                                                                            │
 │ Persistent selection  forge / agent/oauth-device-flow                      │

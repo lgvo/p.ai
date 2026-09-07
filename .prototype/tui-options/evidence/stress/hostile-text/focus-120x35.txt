@@ -1,0 +1,25 @@
+P / probe · STRESS:hostile-text · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────╮
+│ Focus deck · 1/9                                               │ │ Stream radar · context without leaving focus  │
+│ forge<ESC>[31m-red / agent/oauth<LF>spoofed-row<TAB>column     │ │ › forge<ESC>[31m-red/agent/oauth<LF>…         │
+│ UUID s-auth                                                    │ │     ready · unattended · attention · outdated │
+│                                                                │ │   link<ESC>]8;;https://invalid.examp…         │
+│ Lifecycle  ready         Presence  unattended                  │ │     ready · attached:1 · — · current          │
+│ Agent      attention     Policy    outdated                    │ │   orbit/fix/cache-race                        │
+│                                                                │ │     stopped · unattended · failed · current   │
+│ Primary actions  inspect · attach · policy diff · recreate     │ │   orbit/feature/zero<U+0000>byte-and…         │
+╰────────────────────────────────────────────────────────────────╯ │     starting · unattended · running · current │
+                                                                   │   isolate-<BIDI>left<BIDI>-project/d…         │
+                                                                   │     unreachable · unattended · unknown ·      │
+                                                                   │ invalid                                       │
+                                                                   │   p.ai/prototype/tui-options-with-a-…         │
+                                                                   │     creating · unattended · idle · current    │
+                                                                   │   labs/cleanup/retained-state                 │
+                                                                   │     missing · unattended · — · outdated       │
+                                                                   │   demo/discard/temporary-spike                │
+                                                                   │     discarding · unattended · — · current     │
+                                                                   │ … 1 more                                      │
+                                                                   ╰───────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

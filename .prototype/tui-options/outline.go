@@ -151,7 +151,7 @@ func (m app) outlineRows(limit int) string {
 					}
 				}
 			}
-			line = fmt.Sprintf("  %s %-20s %d sessions · %d urgent", marker, truncate(node.project, 20), count, urgentCount)
+			line = fmt.Sprintf("  %s %s %d sessions · %d urgent", marker, padRight(node.project, 20), count, urgentCount)
 		} else {
 			s := m.sessions[node.sessionIndex]
 			presence, agent := sessionSignals(s)

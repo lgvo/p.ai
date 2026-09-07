@@ -8,7 +8,7 @@ P / probe · STRESS:many-projects · view 10 Task workspace · Tab cycle · v ga
 │   project-002 / work/0002-do… ready      unattended · — / current          │
 │   project-003 / work/0003-fi… stopped    unattended · failed / current     │
 │   project-004 / boot/0004-fe… starting   unattended · running / current    │
-│   project-005 / recover/0005… unreachable unattended · unknown / invalid   │
+│   project-005 / recover/0005… unreachab… unattended · unknown / invalid    │
 │   … 175 more                                                               │
 │                                                                            │
 │ Persistent selection  project-001 / work/0001-agent/oauth…                 │

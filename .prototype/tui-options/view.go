@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 var (
@@ -217,7 +218,7 @@ func (m app) navigatorView(width, height int) string {
 				}
 			}
 		}
-		line := fmt.Sprintf("%-10s %d sess · %d urgent", middleTruncate(p, 10), count, urgentCount)
+		line := fmt.Sprintf("%s %d sess · %d urgent", padRight(middleTruncate(p, 10), 10), count, urgentCount)
 		if i == m.project {
 			line = selectedStyle.Render("› " + line)
 		} else {
@@ -304,7 +305,7 @@ func (m app) compactCardRows(indices []int, limit int) string {
 		if s.AttachedCount > 0 {
 			agent = "—"
 		}
-		line := fmt.Sprintf("  %-28s %-10s %-11s %-9s %s", truncate(s.Branch, 28), s.Lifecycle, presence, agent, s.Policy)
+		line := fmt.Sprintf("  %s %s %s %s %s", padRight(s.Branch, 28), padRight(s.Lifecycle, 10), padRight(presence, 11), padRight(agent, 9), s.Policy)
 		rows = append(rows, m.selectableLine(pos, line, s))
 	}
 	if end < len(indices) {
@@ -338,7 +339,7 @@ func (m app) compactAttentionRows(indices []int, limit int) string {
 			agent = "—"
 		}
 		name := truncate(s.Project+"/"+s.Branch, 27)
-		line := fmt.Sprintf("  %-27s %-11s %-11s %-9s %s", name, s.Lifecycle, presence, agent, s.Policy)
+		line := fmt.Sprintf("  %s %s %s %s %s", padRight(name, 27), padRight(s.Lifecycle, 11), padRight(presence, 11), padRight(agent, 9), s.Policy)
 		rows = append(rows, m.selectableLine(position[idx], line, s))
 	}
 	return strings.Join(rows, "\n")
@@ -385,7 +386,7 @@ func (m app) commandRows(indices []int, limit int) string {
 		}
 		s := m.sessions[idx]
 		presence, agent := sessionSignals(s)
-		line := fmt.Sprintf("  %-23s %-10s %-10s %-8s %s", truncate(s.Project+"/"+s.Branch, 23), s.Lifecycle, presence, agent, s.Policy)
+		line := fmt.Sprintf("  %s %s %s %s %s", padRight(s.Project+"/"+s.Branch, 23), padRight(s.Lifecycle, 10), padRight(presence, 10), padRight(agent, 9), s.Policy)
 		rows = append(rows, m.selectableLine(pos, line, s))
 	}
 	return strings.Join(rows, "\n")
@@ -414,8 +415,8 @@ func (m app) focusCard(s session) string {
 		fmt.Sprintf("%s / %s", s.Project, s.Branch),
 		mutedStyle.Render("UUID " + s.ID),
 		"",
-		fmt.Sprintf("Lifecycle  %-12s  Presence  %s", styledFact(s.Lifecycle), presence),
-		fmt.Sprintf("Agent      %-12s  Policy    %s", styledFact(agent), styledFact(s.Policy)),
+		fmt.Sprintf("Lifecycle  %s  Presence  %s", padRight(styledFact(s.Lifecycle), 12), presence),
+		fmt.Sprintf("Agent      %s  Policy    %s", padRight(styledFact(agent), 12), styledFact(s.Policy)),
 		"",
 		"Primary actions  " + strings.Join(availableActions(s), " · "),
 	}
@@ -436,7 +437,7 @@ func (m app) radarRows(indices []int, limit int, compact bool) string {
 		presence, agent := sessionSignals(s)
 		var line string
 		if compact {
-			line = fmt.Sprintf("  %-23s %-10s %-10s %-8s %s", truncate(s.Project+"/"+s.Branch, 23), s.Lifecycle, presence, agent, s.Policy)
+			line = fmt.Sprintf("  %s %s %s %s %s", padRight(s.Project+"/"+s.Branch, 23), padRight(s.Lifecycle, 10), padRight(presence, 10), padRight(agent, 9), s.Policy)
 		} else {
 			line = fmt.Sprintf("  %s\n    %s · %s · %s · %s", truncate(s.Project+"/"+s.Branch, 35), s.Lifecycle, presence, agent, s.Policy)
 		}
@@ -547,7 +548,7 @@ func (m app) laneRows(indices []int, compact bool, limit int) string {
 		presence, agent := sessionSignals(s)
 		var line string
 		if compact {
-			line = fmt.Sprintf("  %-12s %-11s %-11s %-9s %-8s %s", truncate(s.Project+"/"+s.Branch, 12), s.Lifecycle, presence, agent, s.Policy, truncate(s.Operation, 12))
+			line = fmt.Sprintf("  %s %s %s %s %s %s", padRight(s.Project+"/"+s.Branch, 12), padRight(s.Lifecycle, 11), padRight(presence, 11), padRight(agent, 9), padRight(s.Policy, 8), truncate(s.Operation, 12))
 		} else {
 			line = fmt.Sprintf("  %s\n    %s\n    %s\n    %s · %s", truncate(s.Project+"/"+s.Branch, 20), s.Lifecycle, presence, agent, s.Policy)
 			if s.Operation != "" {
@@ -602,10 +603,10 @@ func (m app) sessionRows(indices []int, wide bool, limit int) string {
 		name := truncate(s.Project+" / "+s.Branch, 31)
 		var line string
 		if wide {
-			line = fmt.Sprintf("  %-24s %-10s %-10s %-8s %s", truncate(name, 24), s.Lifecycle, presence, agent, s.Policy)
+			line = fmt.Sprintf("  %s %s %s %s %s", padRight(name, 24), padRight(s.Lifecycle, 10), padRight(presence, 10), padRight(agent, 9), s.Policy)
 		} else {
 			signal := presence + " · " + agent + " / " + s.Policy
-			line = fmt.Sprintf("  %-27s %-10s %s", truncate(name, 27), s.Lifecycle, signal)
+			line = fmt.Sprintf("  %s %s %s", padRight(name, 27), padRight(s.Lifecycle, 10), signal)
 		}
 		rows = append(rows, m.selectableLine(pos, line, s))
 	}
@@ -631,7 +632,7 @@ func (m app) cardRows(indices []int, limit int) string {
 		if agent == "" || s.AttachedCount > 0 {
 			agent = "—"
 		}
-		line := fmt.Sprintf("  %-32s\n    %s · %s · %s · %s", truncate(s.Branch, 32), s.Lifecycle, presence, agent, s.Policy)
+		line := fmt.Sprintf("  %s\n    %s · %s · %s · %s", padRight(s.Branch, 32), s.Lifecycle, presence, agent, s.Policy)
 		rows = append(rows, m.selectableLine(pos, line, s))
 	}
 	return strings.Join(rows, "\n")
@@ -661,7 +662,7 @@ func (m app) attentionRows(indices []int, limit int) string {
 		if reason == "" {
 			reason = s.Operation
 		}
-		line := fmt.Sprintf("  %-10s %s\n    %s · %s\n    %s · %s · %s", truncate(s.Project, 10), truncate(s.Branch, 27), s.Lifecycle, presence, firstNonEmpty(s.Agent, "no signal"), s.Policy, truncate(reason, 22))
+		line := fmt.Sprintf("  %s %s\n    %s · %s\n    %s · %s · %s", padRight(s.Project, 10), truncate(s.Branch, 27), s.Lifecycle, presence, firstNonEmpty(s.Agent, "no signal"), s.Policy, truncate(reason, 22))
 		rows = append(rows, m.selectableLine(position[idx], line, s))
 	}
 	return strings.Join(rows, "\n")
@@ -778,7 +779,7 @@ func (m app) createFailedView(width int) string {
 func (m app) branchesView(width int) string {
 	rows := []string{titleStyle.Render("Retained branches · Git resources, not sessions"), ""}
 	for _, b := range m.branches {
-		rows = append(rows, fmt.Sprintf("%-10s  %-30s  %s", b.Project, b.Name, b.Tip))
+		rows = append(rows, fmt.Sprintf("%s  %s  %s", padRight(b.Project, 10), padRight(b.Name, 30), b.Tip))
 	}
 	rows = append(rows, "", "They have no UUID, runtime, attachment, agent condition, or policy condition.", "n new session from selected source · r rename · p publish · x loss preview · esc back")
 	return centeredPanel(width, strings.Join(rows, "\n"))
@@ -954,19 +955,27 @@ func fitLines(s string, height int) string {
 }
 
 func truncate(s string, max int) string {
-	runes := []rune(s)
-	if len(runes) <= max {
+	if max <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(s) <= max {
 		return s
 	}
-	if max <= 1 {
-		return string(runes[:max])
+	return ansi.Truncate(s, max, "…")
+}
+
+func padRight(s string, width int) string {
+	value := truncate(s, width)
+	padding := width - ansi.StringWidth(value)
+	if padding <= 0 {
+		return value
 	}
-	return string(runes[:max-1]) + "…"
+	return value + strings.Repeat(" ", padding)
 }
 
 func middleTruncate(s string, max int) string {
-	runes := []rune(s)
-	if len(runes) <= max {
+	width := ansi.StringWidth(s)
+	if width <= max {
 		return s
 	}
 	if max <= 1 {
@@ -974,7 +983,7 @@ func middleTruncate(s string, max int) string {
 	}
 	left := (max - 1) / 2
 	right := max - 1 - left
-	return string(runes[:left]) + "…" + string(runes[len(runes)-right:])
+	return ansi.Cut(s, 0, left) + "…" + ansi.Cut(s, width-right, width)
 }
 
 func firstNonEmpty(values ...string) string {

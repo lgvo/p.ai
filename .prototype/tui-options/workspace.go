@@ -46,7 +46,7 @@ func (m app) workspaceTabContent(width, _ int) string {
 			} else if s.Policy == "invalid" {
 				next = "inspect constraint"
 			}
-			rows = append(rows, fmt.Sprintf("  %-13s %-11s %s", truncate(s.ID, 13), s.Policy, next))
+			rows = append(rows, fmt.Sprintf("  %s %s %s", padRight(s.ID, 13), padRight(s.Policy, 11), next))
 			if len(rows) == 7 {
 				break
 			}
@@ -55,7 +55,7 @@ func (m app) workspaceTabContent(width, _ int) string {
 	case 3:
 		rows := []string{mutedStyle.Render("  PROJECT      RETAINED BRANCH                 TIP")}
 		for _, branch := range m.branches {
-			rows = append(rows, fmt.Sprintf("  %-12s %-31s %s", truncate(branch.Project, 12), truncate(branch.Name, 31), branch.Tip))
+			rows = append(rows, fmt.Sprintf("  %s %s %s", padRight(branch.Project, 12), padRight(branch.Name, 31), branch.Tip))
 		}
 		rows = append(rows, "", "Branches are Git resources, not sessions; they have no runtime or attachment.")
 		return strings.Join(rows, "\n")

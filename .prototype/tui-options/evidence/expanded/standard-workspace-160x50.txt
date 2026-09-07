@@ -5,10 +5,10 @@ P / probe · view 10 Task workspace · fixture:standard · Tab cycle · v galler
 │                                                                                             │ │ UUID s-auth                                              │
 │   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY                             │ │ lifecycle  ready                                         │
 │ › forge / agent/oauth-dev… ready      unattended attention outdated                         │ │ presence   unattended                                    │
-│   forge / docs/plugin-gui… ready      attached:1 —        current                           │ │ agent      attention                                     │
-│   orbit / fix/cache-race   stopped    unattended failed   current                           │ │ policy     outdated                                      │
-│   orbit / feature/interac… starting   unattended running  current                           │ │ actions    inspect · attach · policy diff · recreate     │
-│   p.ai / design/plugin-co… unreachable unattended unknown  invalid                          │ ╰──────────────────────────────────────────────────────────╯
+│   forge / docs/plugin-gui… ready      attached:1 —         current                          │ │ agent      attention                                     │
+│   orbit / fix/cache-race   stopped    unattended failed    current                          │ │ policy     outdated                                      │
+│   orbit / feature/interac… starting   unattended running   current                          │ │ actions    inspect · attach · policy diff · recreate     │
+│   p.ai / design/plugin-co… unreachab… unattended unknown   invalid                          │ ╰──────────────────────────────────────────────────────────╯
 │   … 4 more                                                                                  │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────╯
 Fixture data only — no daemon or project state is connected.

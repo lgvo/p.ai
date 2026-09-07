@@ -12,9 +12,9 @@ P / probe · STRESS:baseline · view 05 Focus deck · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Stream radar · context without leaving focus                               │
 │ › forge/agent/oauth-devi… ready      unattended attention outdated         │
-│   forge/docs/plugin-guide ready      attached:1 —        current           │
-│   orbit/fix/cache-race    stopped    unattended failed   current           │
-│   orbit/feature/interact… starting   unattended running  current           │
+│   forge/docs/plugin-guide ready      attached:1 —         current          │
+│   orbit/fix/cache-race    stopped    unattended failed    current          │
+│   orbit/feature/interact… starting   unattended running   current          │
 │ … 5 more                                                                   │
 ╰────────────────────────────────────────────────────────────────────────────╯
 j/k move · a attach · d detach · c create · b branches · p policy · X delete

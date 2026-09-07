@@ -53,7 +53,7 @@ func (m app) minimalView(width, height int) string {
 			}
 			continue
 		}
-		line := fmt.Sprintf("  %-31s %s · %s · %s · %s", truncate(s.Project+" / "+s.Branch, 31), s.Lifecycle, presence, agent, s.Policy)
+		line := fmt.Sprintf("  %s %s · %s · %s · %s", padRight(s.Project+" / "+s.Branch, 31), s.Lifecycle, presence, agent, s.Policy)
 		rows = append(rows, truncate(line, width))
 	}
 	if end < len(indices) {

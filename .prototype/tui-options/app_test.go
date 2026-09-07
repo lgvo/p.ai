@@ -408,7 +408,7 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 
 func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
-	if len(explore) != 5 || len(stress) != 4 {
+	if len(explore) != 5 || len(stress) != 6 {
 		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
 	}
 	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
@@ -421,6 +421,51 @@ func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	view := stressApp.View()
 	if !strings.Contains(view, "STRESS:baseline") {
 		t.Fatalf("stress surface is not clearly labeled:\n%s", view)
+	}
+}
+
+func TestTerminalTextStressAcrossEveryVariantAndTargetViewport(t *testing.T) {
+	for _, dataset := range []string{"unicode", "hostile-text"} {
+		for _, v := range allVariants() {
+			for _, size := range stressViewportMatrix() {
+				m, err := newAppForModeDataset(modeStress, dataset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.variant, m.width, m.height = v, size.width, size.height
+				assertBoundedSupportedView(t, m, dataset, v, size.width, size.height)
+			}
+		}
+	}
+}
+
+func TestHostileTextIsRenderedAsVisibleBoundedData(t *testing.T) {
+	m, _ := newAppForModeDataset(modeStress, "hostile-text")
+	allFields := ""
+	for _, s := range m.sessions {
+		for _, value := range []string{s.ID, s.Project, s.Branch, s.AgentReason, s.Operation} {
+			if strings.ContainsAny(value, "\x00\x07\x1b\r\n\t\x7f") {
+				t.Fatalf("unsafe control survived fixture boundary: %q", value)
+			}
+			allFields += value
+		}
+	}
+	for _, visible := range []string{"<ESC>", "<LF>", "<TAB>", "<BIDI>"} {
+		if !strings.Contains(allFields, visible) {
+			t.Errorf("sanitized marker %q was discarded instead of made inspectable", visible)
+		}
+	}
+	if len([]rune(m.sessions[2].Operation)) > 520 {
+		t.Fatal("oversized diagnostic was not bounded at the fixture boundary")
+	}
+}
+
+func TestTruncateUsesTerminalCellsAndGraphemeClusters(t *testing.T) {
+	for _, value := range []string{"開発🚀alpha", "cafe\u0301-equipe", "👨‍👩‍👧‍👦-family"} {
+		got := truncate(value, 6)
+		if width := lipgloss.Width(got); width > 6 {
+			t.Errorf("truncate(%q) rendered %d cells: %q", value, width, got)
+		}
 	}
 }
 

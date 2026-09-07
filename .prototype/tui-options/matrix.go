@@ -83,7 +83,7 @@ func (m app) matrixRows(expanded bool, limit int) string {
 					}
 				}
 			}
-			rows = append(rows, fmt.Sprintf("%s %-16s %7d %6d %9d %8d", marker, middleTruncate(project, 16), counts[0], counts[1], counts[2], counts[3]))
+			rows = append(rows, fmt.Sprintf("%s %s %7d %6d %9d %8d", marker, padRight(middleTruncate(project, 16), 16), counts[0], counts[1], counts[2], counts[3]))
 		}
 		if end < len(projects) {
 			rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d projects below", len(projects)-end)))
@@ -113,7 +113,7 @@ func (m app) matrixRows(expanded bool, limit int) string {
 				marker = "›"
 			}
 		}
-		rows = append(rows, fmt.Sprintf("%s %-10s %-13s %-13s %-13s %s", marker, middleTruncate(project, 10), cells[0], cells[1], cells[2], cells[3]))
+		rows = append(rows, fmt.Sprintf("%s %s %s %s %s %s", marker, padRight(middleTruncate(project, 10), 10), padRight(cells[0], 13), padRight(cells[1], 13), padRight(cells[2], 13), cells[3]))
 	}
 	if end < len(projects) {
 		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d projects below", len(projects)-end)))

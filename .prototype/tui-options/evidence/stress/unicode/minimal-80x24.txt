@@ -1,0 +1,15 @@
+P / probe · STRESS:unicode · view 11 Minimal stream ledger · Tab cycle · v gall…
+Stream ledger  9 streams · attached 1
+One reading axis; the current row expands in place. No panel boundary carries m…
+
+› 工房・東京 / 機能/認証フロー
+    s-auth · ready · unattended · attention · outdated
+    actions  inspect · attach · policy diff · recreate
+  مختبر-القاهرة / ميزة/دليل-الإض… ready · attached:1 · — · current
+  café-equipe / correção/cache-c… stopped · unattended · failed · current
+  🚀-launch-pad / 🚀/interactive… starting · unattended · running · current
+  מעבדת-תל-אביב / תיקון/חוזה-תוסף unreachable · unattended · unknown · invalid
+  naïve-über / prototype/界面-🧪  creating · unattended · idle · current
+  … 3 later streams
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

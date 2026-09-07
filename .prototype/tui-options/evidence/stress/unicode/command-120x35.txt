@@ -1,0 +1,27 @@
+P / probe · STRESS:unicode · view 04 Command center · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
+│ Search-first command center                                     │ │ Act on the highlighted result                │
+│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected  工房・東京/機能/認証フロー  ·      │
+│ agent, or policy fact                                           │ │ actions: inspect / attach / policy diff /    │
+│                                                                 │ │ recreate                                     │
+│ › 工房・東京/機能/認証フ… ready      unattended attention       │ │                                              │
+│ outdated                                                        │ │ The palette never invents eligibility; every │
+│   مختبر-القاهرة/ميزة/دلي… ready      attached:1 —               │ │ action shown comes from the fixture's daemon │
+│ current                                                         │ │ plan.                                        │
+│   café-equipe/correção/c… stopped    unattended failed          │ │                                              │
+│ current                                                         │ │ Inspector                                    │
+│   🚀-launch-pad/🚀/inter… starting   unattended running         │ │ 工房・東京 / 機能/認証フロー                 │
+│ current                                                         │ │ UUID s-auth                                  │
+│   מעבדת-תל-אביב/תיקון/חו… unreachab… unattended unknown         │ │ lifecycle  ready                             │
+│ invalid                                                         │ │ presence   unattended                        │
+│   naïve-über/prototype/…  creating   unattended idle            │ │ agent      attention                         │
+│ current                                                         │ │ policy     outdated                          │
+│   데이터-연구소/정리/보…  missing    unattended —               │ │ actions    inspect · attach · policy diff ·  │
+│ outdated                                                        │ │ recreate                                     │
+│   👩🏽‍💻-agents/essai/emoji-… discarding unattended —               │ ╰──────────────────────────────────────────────╯
+│ current                                                         │
+│ … 1 more matches                                                │
+╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -64,7 +64,7 @@ func (m app) operationRows(limit, observationWidth int) string {
 		if observation == "" {
 			observation = fmt.Sprintf("stable %s · %s", s.Lifecycle, s.Policy)
 		}
-		line := fmt.Sprintf("  20:%02d:%02d  %-13s %s", 42-shown, shown*7, truncate(s.ID, 13), truncate(observation, observationWidth))
+		line := fmt.Sprintf("  20:%02d:%02d  %s %s", 42-shown, shown*7, padRight(s.ID, 13), truncate(observation, observationWidth))
 		if indices[offset] == selectedSessionIndexOr(m, -1) {
 			line = selectedStyle.Render("› " + strings.TrimPrefix(line, "  "))
 		}

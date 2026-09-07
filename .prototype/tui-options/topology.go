@@ -40,7 +40,7 @@ func (m app) topologyRows(limit, lineWidth int) string {
 		if position == len(indices)-1 {
 			connector = "└─"
 		}
-		line := fmt.Sprintf("  %-10s %s %-11s host:%-11s client:%-11s agent:%s", truncate(s.Project, 10), connector, s.ID, s.Lifecycle, presence, agent)
+		line := fmt.Sprintf("  %s %s %s host:%s client:%s agent:%s", padRight(s.Project, 10), connector, padRight(s.ID, 11), padRight(s.Lifecycle, 11), padRight(presence, 11), agent)
 		line = truncate(line, lineWidth)
 		if position == m.selected {
 			line = selectedStyle.Render("› " + strings.TrimPrefix(line, "  "))

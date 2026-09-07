@@ -5,13 +5,13 @@ P / probe · view 04 Command center · fixture:standard · Tab cycle · v galler
 │ policy fact                                                            │ │ actions: inspect / attach / policy diff /         │
 │                                                                        │ │ recreate                                          │
 │ › forge/agent/oauth-devi… ready      unattended attention outdated     │ │                                                   │
-│   forge/docs/plugin-guide ready      attached:1 —        current       │ │ The palette never invents eligibility; every      │
-│   orbit/fix/cache-race    stopped    unattended failed   current       │ │ action shown comes from the fixture's daemon      │
-│   orbit/feature/interact… starting   unattended running  current       │ │ plan.                                             │
-│   p.ai/design/plugin-con… unreachable unattended unknown  invalid      │ │                                                   │
-│   p.ai/prototype/tui-opt… creating   unattended idle     current       │ │ Inspector                                         │
-│   labs/cleanup/retained-… missing    unattended —        outdated      │ │ forge / agent/oauth-device-flow                   │
-│   demo/discard/temporary… discarding unattended —        current       │ │ UUID s-auth                                       │
+│   forge/docs/plugin-guide ready      attached:1 —         current      │ │ The palette never invents eligibility; every      │
+│   orbit/fix/cache-race    stopped    unattended failed    current      │ │ action shown comes from the fixture's daemon      │
+│   orbit/feature/interact… starting   unattended running   current      │ │ plan.                                             │
+│   p.ai/design/plugin-con… unreachab… unattended unknown   invalid      │ │                                                   │
+│   p.ai/prototype/tui-opt… creating   unattended idle      current      │ │ Inspector                                         │
+│   labs/cleanup/retained-… missing    unattended —         outdated     │ │ forge / agent/oauth-device-flow                   │
+│   demo/discard/temporary… discarding unattended —         current      │ │ UUID s-auth                                       │
 │ … 1 more matches                                                       │ │ lifecycle  ready                                  │
 ╰────────────────────────────────────────────────────────────────────────╯ │ presence   unattended                             │
                                                                            │ agent      attention                              │

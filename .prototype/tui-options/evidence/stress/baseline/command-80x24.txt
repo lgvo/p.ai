@@ -5,9 +5,9 @@ P / probe · STRESS:baseline · view 04 Command center · Tab cycle · v gallery
 │ policy fact                                                                │
 │                                                                            │
 │ › forge/agent/oauth-devi… ready      unattended attention outdated         │
-│   forge/docs/plugin-guide ready      attached:1 —        current           │
-│   orbit/fix/cache-race    stopped    unattended failed   current           │
-│   orbit/feature/interact… starting   unattended running  current           │
+│   forge/docs/plugin-guide ready      attached:1 —         current          │
+│   orbit/fix/cache-race    stopped    unattended failed    current          │
+│   orbit/feature/interact… starting   unattended running   current          │
 │ … 5 more matches                                                           │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮

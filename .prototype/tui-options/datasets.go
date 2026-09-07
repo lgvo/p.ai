@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"sort"
+	"strings"
+	"unicode"
 )
 
 type datasetDefinition struct {
@@ -23,6 +25,8 @@ func datasetCatalog() []datasetDefinition {
 		{modeStress, "massive", "one thousand sessions across twenty-five projects", massiveSessions},
 		{modeStress, "many-projects", "one hundred eighty projects with one session each", manyProjectSessions},
 		{modeStress, "skewed", "three hundred sessions dominated by one urgent condition", skewedSessions},
+		{modeStress, "unicode", "wide glyphs, combining marks, emoji, and natural right-to-left names", unicodeSessions},
+		{modeStress, "hostile-text", "ANSI, bidi controls, embedded control bytes, and oversized diagnostics", hostileTextSessions},
 	}
 }
 
@@ -71,7 +75,7 @@ func (m *app) applyDatasetForMode(mode experienceMode, name string) error {
 	if definition == nil {
 		return fmt.Errorf("unknown %s dataset %q", mode, name)
 	}
-	sessions := definition.build()
+	sessions := sanitizeSessions(definition.build())
 	m.mode = mode
 	m.dataset = name
 	m.datasetNote = definition.description
@@ -172,6 +176,87 @@ func skewedSessions() []session {
 	result[len(result)/2].AttachedCount = 1
 	result[len(result)/2].Agent, result[len(result)/2].AgentReason = "", ""
 	return result
+}
+
+func unicodeSessions() []session {
+	result := fixtureSessions()
+	projects := []string{"工房・東京", "مختبر-القاهرة", "cafe\u0301-equipe", "🚀-launch-pad", "מעבדת-תל-אביב", "naïve-über", "데이터-연구소", "👩🏽‍💻-agents", "Δοκιμή"}
+	branches := []string{
+		"機能/認証フロー", "ميزة/دليل-الإضافة", "correção/cache-concorrente",
+		"🚀/interactive-cli", "תיקון/חוזה-תוסף", "prototype/界面-🧪",
+		"정리/보존된-상태", "essai/emoji-👨‍👩‍👧‍👦", "αρχειο/παλιό-πείραμα",
+	}
+	for i := range result {
+		result[i].Project = projects[i]
+		result[i].Branch = branches[i]
+		if result[i].AgentReason != "" {
+			result[i].AgentReason += " · 사용자 확인 필요"
+		}
+		if result[i].Operation != "" {
+			result[i].Operation += " · مرحلة تجريبية"
+		}
+	}
+	return result
+}
+
+func hostileTextSessions() []session {
+	result := fixtureSessions()
+	result[0].Project = "forge\x1b[31m-red"
+	result[0].Branch = "agent/oauth\nspoofed-row\tcolumn"
+	result[0].AgentReason = "permission\a required\rreplace"
+	result[1].Project = "link\x1b]8;;https://invalid.example\x1b\\project"
+	result[1].Branch = "docs/\u202Eevil-bidi\u202C-guide"
+	result[2].Operation = strings.Repeat("diagnostic-segment-", 400)
+	result[3].Branch = "feature/zero\x00byte-and-del\x7f"
+	result[4].Project = "isolate-\u2066left\u2069-project"
+	return result
+}
+
+func sanitizeSessions(input []session) []session {
+	result := make([]session, len(input))
+	for i, s := range input {
+		s.ID = sanitizeField(s.ID, 64)
+		s.Project = sanitizeField(s.Project, 128)
+		s.Branch = sanitizeField(s.Branch, 256)
+		s.AgentReason = sanitizeField(s.AgentReason, 256)
+		s.Operation = sanitizeField(s.Operation, 512)
+		for j := range s.PolicyDiff {
+			s.PolicyDiff[j] = sanitizeField(s.PolicyDiff[j], 512)
+		}
+		result[i] = s
+	}
+	return result
+}
+
+func sanitizeField(value string, maxRunes int) string {
+	var builder strings.Builder
+	count := 0
+	for _, r := range value {
+		if count >= maxRunes {
+			builder.WriteRune('…')
+			break
+		}
+		switch r {
+		case '\n':
+			builder.WriteString("<LF>")
+		case '\r':
+			builder.WriteString("<CR>")
+		case '\t':
+			builder.WriteString("<TAB>")
+		case '\x1b':
+			builder.WriteString("<ESC>")
+		default:
+			if unicode.IsControl(r) {
+				builder.WriteString(fmt.Sprintf("<U+%04X>", r))
+			} else if (r >= '\u202A' && r <= '\u202E') || (r >= '\u2066' && r <= '\u2069') {
+				builder.WriteString("<BIDI>")
+			} else {
+				builder.WriteRune(r)
+			}
+		}
+		count++
+	}
+	return builder.String()
 }
 
 func branchPrefix(lifecycle string) string {

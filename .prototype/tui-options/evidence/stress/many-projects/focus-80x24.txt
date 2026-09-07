@@ -12,9 +12,9 @@ P / probe · STRESS:many-projects · view 05 Focus deck · Tab cycle · v galler
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Stream radar · context without leaving focus                               │
 │ › project-001/work/0001-… ready      unattended attention outdated         │
-│   project-002/work/0002-… ready      unattended —        current           │
-│   project-003/work/0003-… stopped    unattended failed   current           │
-│   project-004/boot/0004-… starting   unattended running  current           │
+│   project-002/work/0002-… ready      unattended —         current          │
+│   project-003/work/0003-… stopped    unattended failed    current          │
+│   project-004/boot/0004-… starting   unattended running   current          │
 │ … 176 more                                                                 │
 ╰────────────────────────────────────────────────────────────────────────────╯
 j/k move · a attach · d detach · c create · b branches · p policy · X delete

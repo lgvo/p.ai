@@ -55,7 +55,7 @@ func (m app) attachmentCandidateRows(limit int) string {
 		if s.Lifecycle == "ready" || (s.Lifecycle == "stopped" && s.Policy != "invalid") {
 			eligibility = "a attach/switch"
 		}
-		line := fmt.Sprintf("  %-20s %-11s %-12s %s", truncate(s.Project+" / "+s.Branch, 20), s.Lifecycle, presence, eligibility)
+		line := fmt.Sprintf("  %s %s %s %s", padRight(s.Project+" / "+s.Branch, 20), padRight(s.Lifecycle, 11), padRight(presence, 12), eligibility)
 		rows = append(rows, m.selectableLine(position, line, s))
 	}
 	return strings.Join(rows, "\n")

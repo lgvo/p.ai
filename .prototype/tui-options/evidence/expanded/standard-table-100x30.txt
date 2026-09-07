@@ -3,13 +3,13 @@ P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
 │ All active sessions · cross-project                                                            │
 │   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY                                │
 │ › forge / agent/oauth-dev… ready      unattended attention outdated                            │
-│   forge / docs/plugin-gui… ready      attached:1 —        current                              │
-│   orbit / fix/cache-race   stopped    unattended failed   current                              │
-│   orbit / feature/interac… starting   unattended running  current                              │
-│   p.ai / design/plugin-co… unreachable unattended unknown  invalid                             │
-│   p.ai / prototype/tui-op… creating   unattended idle     current                              │
-│   labs / cleanup/retained… missing    unattended —        outdated                             │
-│   demo / discard/temporar… discarding unattended —        current                              │
+│   forge / docs/plugin-gui… ready      attached:1 —         current                             │
+│   orbit / fix/cache-race   stopped    unattended failed    current                             │
+│   orbit / feature/interac… starting   unattended running   current                             │
+│   p.ai / design/plugin-co… unreachab… unattended unknown   invalid                             │
+│   p.ai / prototype/tui-op… creating   unattended idle      current                             │
+│   labs / cleanup/retained… missing    unattended —         outdated                            │
+│   demo / discard/temporar… discarding unattended —         current                             │
 │   … 1 more                                                                                     │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────────────────────────╮

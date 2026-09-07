@@ -1,0 +1,22 @@
+P / probe · STRESS:unicode · view 01 Fleet table · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│ › 工房・東京 / 機能/認証フロ… ready      unattended · attention / outdated │
+│   مختبر-القاهرة / ميزة/دليل-… ready      attached:1 · — / current          │
+│   café-equipe / correção/cac… stopped    unattended · failed / current     │
+│   🚀-launch-pad / 🚀/interac… starting   unattended · running / current    │
+│   … 5 more                                                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ 工房・東京 / 機能/認証フロー                                               │
+│ UUID s-auth                                                                │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

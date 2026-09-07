@@ -5,8 +5,8 @@ P / probe · STRESS:skewed · view 16 Resource topology · Tab cycle · v galler
 │ into session state.                                                        │
 │                                                                            │
 │ Portfolio edges · attached 1                                               │
-│ › project-0… ├─ s-skewed-0001 host:ready       client:unattended  agent…   │
-│   project-0… ├─ s-skewed-0002 host:ready       client:unattended  agent…   │
+│ › project-0… ├─ s-skewed-0… host:ready       client:unattended  agent:a…   │
+│   project-0… ├─ s-skewed-0… host:ready       client:unattended  agent:a…   │
 │    … 298 more session edges                                                │
 │                                                                            │
 │ Selected relationship · explicit lifetimes                                 │

@@ -12,7 +12,7 @@ P / probe · STRESS:baseline · view 04 Command center · Tab cycle · v gallery
 │ current                                                         │ │ Inspector                                    │
 │   orbit/feature/interact… starting   unattended running         │ │ forge / agent/oauth-device-flow              │
 │ current                                                         │ │ UUID s-auth                                  │
-│   p.ai/design/plugin-con… unreachable unattended unknown        │ │ lifecycle  ready                             │
+│   p.ai/design/plugin-con… unreachab… unattended unknown         │ │ lifecycle  ready                             │
 │ invalid                                                         │ │ presence   unattended                        │
 │   p.ai/prototype/tui-opt… creating   unattended idle            │ │ agent      attention                         │
 │ current                                                         │ │ policy     outdated                          │

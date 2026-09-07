@@ -12,13 +12,13 @@ P / probe · view 05 Focus deck · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ Stream radar · context without leaving focus                                                   │
 │ › forge/agent/oauth-devi… ready      unattended attention outdated                             │
-│   forge/docs/plugin-guide ready      attached:1 —        current                               │
-│   orbit/fix/cache-race    stopped    unattended failed   current                               │
-│   orbit/feature/interact… starting   unattended running  current                               │
-│   p.ai/design/plugin-con… unreachable unattended unknown  invalid                              │
-│   p.ai/prototype/tui-opt… creating   unattended idle     current                               │
-│   labs/cleanup/retained-… missing    unattended —        outdated                              │
-│   demo/discard/temporary… discarding unattended —        current                               │
+│   forge/docs/plugin-guide ready      attached:1 —         current                              │
+│   orbit/fix/cache-race    stopped    unattended failed    current                              │
+│   orbit/feature/interact… starting   unattended running   current                              │
+│   p.ai/design/plugin-con… unreachab… unattended unknown   invalid                              │
+│   p.ai/prototype/tui-opt… creating   unattended idle      current                              │
+│   labs/cleanup/retained-… missing    unattended —         outdated                             │
+│   demo/discard/temporary… discarding unattended —         current                              │
 │ … 1 more                                                                                       │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯
 Fixture data only — no daemon or project state is connected.

@@ -12,7 +12,7 @@ P / probe · STRESS:massive · view 04 Command center · Tab cycle · v gallery
 │ current                                                         │ │ Inspector                                    │
 │   project-004/boot/0004-… starting   unattended running         │ │ project-001 / work/0001-agent/oauth-device-  │
 │ current                                                         │ │ flow                                         │
-│   project-005/recover/00… unreachable unattended unknown        │ │ UUID s-massive-0001                          │
+│   project-005/recover/00… unreachab… unattended unknown         │ │ UUID s-massive-0001                          │
 │ invalid                                                         │ │ lifecycle  ready                             │
 │   project-006/boot/0006-… creating   unattended idle            │ │ presence   unattended                        │
 │ current                                                         │ │ agent      attention                         │

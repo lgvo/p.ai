@@ -4,13 +4,13 @@ P / probe · view 04 Command center · fixture:standard · Tab cycle · v galler
 │ Press / and type any project, branch, lifecycle, presence, agent, or policy fact               │
 │                                                                                                │
 │ › forge/agent/oauth-devi… ready      unattended attention outdated                             │
-│   forge/docs/plugin-guide ready      attached:1 —        current                               │
-│   orbit/fix/cache-race    stopped    unattended failed   current                               │
-│   orbit/feature/interact… starting   unattended running  current                               │
-│   p.ai/design/plugin-con… unreachable unattended unknown  invalid                              │
-│   p.ai/prototype/tui-opt… creating   unattended idle     current                               │
-│   labs/cleanup/retained-… missing    unattended —        outdated                              │
-│   demo/discard/temporary… discarding unattended —        current                               │
+│   forge/docs/plugin-guide ready      attached:1 —         current                              │
+│   orbit/fix/cache-race    stopped    unattended failed    current                              │
+│   orbit/feature/interact… starting   unattended running   current                              │
+│   p.ai/design/plugin-con… unreachab… unattended unknown   invalid                              │
+│   p.ai/prototype/tui-opt… creating   unattended idle      current                              │
+│   labs/cleanup/retained-… missing    unattended —         outdated                             │
+│   demo/discard/temporary… discarding unattended —         current                              │
 │ … 1 more matches                                                                               │
 ╰────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────────────────────────╮
