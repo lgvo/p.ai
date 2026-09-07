@@ -1,0 +1,24 @@
+P / probe · STRESS:stale-observations · view 16 Resource topology · Tab cycle ·…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Resource topology                                                          │
+│ Edges expose ownership and lifetime; adjacent resources are not collapsed  │
+│ into session state.                                                        │
+│                                                                            │
+│ Portfolio edges · attached 1                                               │
+│ › project-0… ├─ s-stale-00… host:ready       client:unattended  agent:a…   │
+│    … 17 more session edges                                                 │
+│                                                                            │
+│ Selected relationship · explicit lifetimes                                 │
+│ PROJECT  project-001                                                       │
+│   ├─ GIT REF  work/0001-agent/oauth-device-flow                            │
+│   │    retained independently                                              │
+│   └─ SESSION  s-stale-0001  (stable identity)                              │
+│        ├─ HOST       ready  (persistent)                                   │
+│        ├─ CLIENTS    unattended  (temporary)                               │
+│        ├─ AGENT      attention  (unattended-only)                          │
+│        └─ POLICY     outdated  (immutable snapshot)                        │
+│ actions  inspect · refresh STALE 37m facts                                 │
+│ progress last observation is outside the trusted freshness window          │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

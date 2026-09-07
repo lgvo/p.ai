@@ -1,0 +1,22 @@
+P / probe · STRESS:partial-observations · view 09 Operations console · Tab cycl…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 15  ·  degraded 10  ·  attached │
+│ 0                                                                          │
+│ Newest fixture observations first; recovery never implies hidden automatic │
+│ mutation.                                                                  │
+│                                                                            │
+│   TIME      SESSION        OBSERVATION                                     │
+│   20:42:00  s-partial-00… credentials deleted · runtime remaining          │
+│   20:41:07  s-partial-00… runtime probe returned an incomplete response    │
+│   20:40:14  s-partial-00… expected runtime not found                       │
+│   20:39:21  s-partial-00… building project environment · phase 2/6         │
+│   20:38:28  s-partial-00… Incus inspection timed out                       │
+│   20:37:35  s-partial-00… runtime probe returned an incomplete response    │
+│                                                                            │
+│ Selected operation context · s-partial-0001  project-001 / work/0001-…     │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ actions  inspect · refresh PARTIAL facts · r recovery plan                 │
+│ progress runtime probe returned an incomplete response                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

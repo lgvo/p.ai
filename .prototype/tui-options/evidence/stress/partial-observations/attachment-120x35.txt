@@ -1,0 +1,18 @@
+P / probe · STRESS:partial-observations · view 13 Attachment dock · Tab cycle · v gallery
+╭────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────╮
+│ Attachment dock                            │ │ Switch targets                                                    │
+│ This client may occupy one persistent      │ │ › project-001 / work/… unreachable unknown      inspect only      │
+│ session host; switching does not stop      │ │   project-002 / work/… ready       unknown      a attach/switch   │
+│ either host.                               │ │   project-003 / work/… stopped     unattended   a attach/switch   │
+│                                            │ │   project-004 / boot/… starting    unknown      inspect only      │
+│ CLIENT  detached                           │ │   project-005 / recov… unreachable unknown      inspect only      │
+│ No session host was stopped; select a      │ │   … 13 more targets                                               │
+│ target and press a.                        │ │                                                                   │
+╰────────────────────────────────────────────╯ │ Candidate facts  s-partial-0001                                   │
+                                               │ unreachable · unknown · not evaluated · outdated                  │
+                                               │ actions  inspect · refresh PARTIAL facts                          │
+                                               │ progress runtime probe returned an incomplete response            │
+                                               ╰───────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

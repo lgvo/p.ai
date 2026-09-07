@@ -118,6 +118,18 @@ func (m app) selectedActionSheet() string {
 }
 
 func eligibilityFor(s session, clientAttach string) []actionEligibility {
+	if warning := observationWarning(s); warning != "" {
+		reason := strings.ToLower(warning) + " observations cannot authorize mutation"
+		return []actionEligibility{
+			{"inspect", true, "read-only facts remain available"},
+			{"refresh " + warning + " facts", true, "obtain a current complete observation"},
+			{"attach / switch", false, reason},
+			{"detach this client", false, reason},
+			{"recovery plan", false, reason},
+			{"policy diff", false, reason},
+			{"recreate", false, reason},
+		}
+	}
 	attachable := s.Lifecycle == "ready" || (s.Lifecycle == "stopped" && s.Policy != "invalid")
 	detachable := s.ID == clientAttach
 	recoverable := s.Lifecycle == "missing" || s.Lifecycle == "unreachable" || s.Lifecycle == "stopped"

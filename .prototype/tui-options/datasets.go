@@ -29,6 +29,8 @@ func datasetCatalog() []datasetDefinition {
 		{modeStress, "hostile-text", "ANSI, bidi controls, embedded control bytes, and oversized diagnostics", hostileTextSessions},
 		{modeStress, "ambiguous-identities", "near-identical project, branch, and session labels", ambiguousIdentitySessions},
 		{modeStress, "high-attachments", "simultaneous attachment counts from one through four digits", highAttachmentSessions},
+		{modeStress, "partial-observations", "incomplete responses with explicitly unknown presence facts", partialObservationSessions},
+		{modeStress, "stale-observations", "complete but outdated responses that require refresh before mutation", staleObservationSessions},
 	}
 }
 
@@ -235,6 +237,35 @@ func highAttachmentSessions() []session {
 		if result[i].AttachedCount > 0 {
 			result[i].Agent, result[i].AgentReason = "", ""
 		}
+	}
+	return result
+}
+
+func partialObservationSessions() []session {
+	result := scaledSessions(18, 6, "partial")
+	for i := range result {
+		result[i].Observation = "partial"
+		result[i].PresenceUnknown = i%3 != 2
+		if result[i].PresenceUnknown {
+			result[i].AttachedCount = 0
+			result[i].Agent = "unknown"
+			result[i].AgentReason = "presence response was unavailable; unattended agent state was not inferred"
+		}
+		if i%4 == 0 {
+			result[i].Lifecycle = "unreachable"
+			result[i].Operation = "runtime probe returned an incomplete response"
+		}
+	}
+	return result
+}
+
+func staleObservationSessions() []session {
+	result := scaledSessions(18, 6, "stale")
+	ages := []string{"37m", "2h", "1d"}
+	for i := range result {
+		result[i].Observation = "stale"
+		result[i].ObservationAge = ages[i%len(ages)]
+		result[i].Operation = "last observation is outside the trusted freshness window"
 	}
 	return result
 }

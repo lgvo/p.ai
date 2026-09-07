@@ -1,0 +1,20 @@
+P / probe · STRESS:partial-observations · view 17 Action eligibility sheet · Ta…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Action eligibility sheet                                                   │
+│ Available and unavailable actions stay visible together; reasons come f…   │
+│                                                                            │
+│ object 1/18 · attached 0 · j/k changes object                              │
+│                                                                            │
+│ Eligibility · s-partial-0001  project-001 / work/0001-agent/oauth…         │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ AVAILABLE NOW  inspect · refresh PARTIAL facts                             │
+│ UNAVAILABLE · EXPLAINED                                                    │
+│   attach / switch (partial observations cannot authorize mutation) ·       │
+│ detach this client (partial observations cannot authorize mutation) ·      │
+│ recovery plan (partial observations cannot authorize mutation) · policy    │
+│ diff (partial observations cannot authorize mutation) · recreate (partial  │
+│ observations cannot authorize mutation)                                    │
+│ progress  runtime probe returned an incomplete response                    │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

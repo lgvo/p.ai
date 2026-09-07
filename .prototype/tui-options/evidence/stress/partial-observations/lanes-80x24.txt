@@ -1,0 +1,20 @@
+P / probe · STRESS:partial-observations · view 06 Actionability lanes · Tab cyc…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 2                                                          │
+│   project-003… stopped     unattended  failed    current  last start:…     │
+│ … 1 below                                                                  │
+│ In progress · 6                                                            │
+│   project-002… ready       unknown     not eval… current                   │
+│ … 5 below                                                                  │
+│ Recover · 8                                                                │
+│ › project-001… unreachable unknown     not eval… outdated runtime pro…     │
+│ … 7 below                                                                  │
+│ Removing · 2                                                               │
+│   project-002… discarding  unknown     not eval… current  tearing dow…     │
+│ … 1 below                                                                  │
+│ Selected s-partial-0001  project-001/work/0001-agent…                      │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ actions  inspect · refresh PARTIAL facts                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

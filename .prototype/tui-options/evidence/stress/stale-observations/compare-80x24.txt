@@ -1,0 +1,21 @@
+P / probe · STRESS:stale-observations · view 15 Session comparison · Tab cycle …
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  project-004 / work/0010-agent/oau…  ·  s-stale-0010            │
+│ ready · attached:1 · — · outdated                                          │
+│ actions  inspect · refresh STALE 37m facts                                 │
+│ progress last observation is outside the trusted freshness window          │
+│                                                                            │
+│ B · current  project-001 / work/0001-agent/oau…  ·  s-stale-0001           │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · refresh STALE 37m facts                                 │
+│ progress last observation is outside the trusted freshness window          │
+│                                                                            │
+│ A → B delta  life =ready  ·  presence attached:1→unattended  ·  agent      │
+│ —→attention  ·  policy =outdated                                           │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

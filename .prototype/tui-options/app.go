@@ -103,16 +103,19 @@ const (
 )
 
 type session struct {
-	ID            string
-	Project       string
-	Branch        string
-	Lifecycle     string
-	AttachedCount int
-	Agent         string
-	AgentReason   string
-	Policy        string
-	PolicyDiff    []string
-	Operation     string
+	ID              string
+	Project         string
+	Branch          string
+	Lifecycle       string
+	AttachedCount   int
+	PresenceUnknown bool
+	Agent           string
+	AgentReason     string
+	Policy          string
+	PolicyDiff      []string
+	Operation       string
+	Observation     string
+	ObservationAge  string
 }
 
 type retainedBranch struct {
@@ -509,6 +512,10 @@ func (m *app) attachSelected() {
 		return
 	}
 	target := &m.sessions[idx]
+	if warning := observationWarning(*target); warning != "" {
+		m.message = fmt.Sprintf("Attach unavailable: refresh %s facts before mutation.", warning)
+		return
+	}
 	if target.Lifecycle != "ready" && target.Lifecycle != "stopped" {
 		m.message = fmt.Sprintf("Attach unavailable while %s; the daemon plan remains authoritative.", target.Lifecycle)
 		return
@@ -541,6 +548,12 @@ func (m *app) attachSelected() {
 
 func (m *app) detachSelected() {
 	idx, ok := m.selectedSessionIndex()
+	if ok {
+		if warning := observationWarning(m.sessions[idx]); warning != "" {
+			m.message = fmt.Sprintf("Detach unavailable: refresh %s facts before mutation.", warning)
+			return
+		}
+	}
 	if !ok || m.sessions[idx].ID != m.clientAttach {
 		m.message = "This prototype client has no attachment to detach from the selected session."
 		return

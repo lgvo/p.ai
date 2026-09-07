@@ -1,0 +1,21 @@
+P / probe · STRESS:partial-observations · view 15 Session comparison · Tab cycl…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  project-001 / work/0001-agent/oau…  ·  s-partial-0001          │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ actions  inspect · refresh PARTIAL facts                                   │
+│ progress runtime probe returned an incomplete response                     │
+│                                                                            │
+│ B · current  project-001 / work/0001-agent/oau…  ·  s-partial-0001         │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ actions  inspect · refresh PARTIAL facts                                   │
+│ progress runtime probe returned an incomplete response                     │
+│                                                                            │
+│ A → B delta  life =unreachable  ·  presence =unknown  ·  agent =not        │
+│ evaluated  ·  policy =outdated                                             │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

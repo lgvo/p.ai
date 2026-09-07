@@ -1,0 +1,23 @@
+P / probe · STRESS:partial-observations · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│ › proj…t-001 3 sess · 3 urgent │ │ › work/0001-agent/oauth-device-fl…                                            │
+│   proj…t-002 3 sess · 1 urgent │ │     unreachable · unattended · unknown · outdated                             │
+│   proj…t-003 3 sess · 2 urgent │ │   recover/0007-cleanup/retained-s…                                            │
+│   proj…t-004 3 sess · 1 urgent │ │     missing · unattended · unknown · outdated                                 │
+│   proj…t-005 3 sess · 2 urgent │ │   boot/0013-feature/interactive-c…                                            │
+│   proj…t-006 3 sess · 1 urgent │ │     unreachable · unattended · unknown · current                              │
+╰────────────────────────────────╯ │                                                                               │
+                                   │ Inspector                                                                     │
+                                   │ project-001 / work/0001-agent/oauth-device-flow                               │
+                                   │ UUID s-partial-0001                                                           │
+                                   │ lifecycle  unreachable                                                        │
+                                   │ presence   unattended                                                         │
+                                   │ agent      unknown                                                            │
+                                   │ policy     outdated                                                           │
+                                   │ operation  runtime probe returned an incomplete response                      │
+                                   │ actions    inspect · refresh PARTIAL facts                                    │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

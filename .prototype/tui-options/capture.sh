@@ -1,7 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
-bin=${1:-.cache/bin/p-tui-probe}
+if [ "$#" -eq 0 ]; then
+  bin=.cache/bin/p-tui-probe
+  mkdir -p "$(dirname "$bin")"
+  go build -o "$bin" .
+else
+  bin=$1
+fi
 out=evidence/frames
 expanded=evidence/expanded
 mkdir -p "$out"

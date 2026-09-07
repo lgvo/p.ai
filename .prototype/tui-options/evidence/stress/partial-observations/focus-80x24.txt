@@ -1,0 +1,22 @@
+P / probe · STRESS:partial-observations · view 05 Focus deck · Tab cycle · v ga…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Focus deck · 1/18                                                          │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-partial-0001                                                        │
+│                                                                            │
+│ Lifecycle  unreachable   Presence  unknown                                 │
+│ Agent      not evaluat…  Policy    outdated                                │
+│                                                                            │
+│ Primary actions  inspect · refresh PARTIAL facts                           │
+│ Progress  runtime probe returned an incomplete response                    │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Stream radar · context without leaving focus                               │
+│ › project-001/work/0001-… unreachab… unknown    not eval… outdated         │
+│   project-002/work/0002-… ready      unknown    not eval… current          │
+│   project-003/work/0003-… stopped    unattended failed    current          │
+│   project-004/boot/0004-… starting   unknown    not eval… current          │
+│ … 14 more                                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

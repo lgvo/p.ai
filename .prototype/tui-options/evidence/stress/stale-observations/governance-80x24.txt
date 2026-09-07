@@ -1,0 +1,22 @@
+P / probe · STRESS:stale-observations · view 14 Governance dashboard · Tab cycl…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Four-question governance dashboard                                         │
+│ Navigate sessions normally; the dashboard continuously recomputes its      │
+│ answers.                                                                   │
+│                                                                            │
+│ 1 · What needs attention?                                                  │
+│   7 urgent · project-001/work/0001-agent/oauth-d…                          │
+│ 2 · Where am I attached?                                                   │
+│   attached → project-004/work/0010-agent/oauth-de…                         │
+│ 3 · What is changing?                                                      │
+│   18 observed operations · last observation is outside the t…              │
+│ 4 · What could be unsafe?                                                  │
+│   6 policy risks · project-001/work/0001-agent/oauth…                      │
+│                                                                            │
+│ Selected evidence · s-stale-0001  project-001 / work/0001-agent/…          │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · refresh STALE 37m facts                                 │
+│ progress last observation is outside the trusted freshness window          │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

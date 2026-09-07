@@ -408,7 +408,7 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 
 func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
-	if len(explore) != 5 || len(stress) != 8 {
+	if len(explore) != 5 || len(stress) != 10 {
 		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
 	}
 	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
@@ -421,6 +421,53 @@ func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	view := stressApp.View()
 	if !strings.Contains(view, "STRESS:baseline") {
 		t.Fatalf("stress surface is not clearly labeled:\n%s", view)
+	}
+}
+
+func TestIncompleteObservationsStayQualifiedAcrossEveryVariant(t *testing.T) {
+	for _, dataset := range []string{"partial-observations", "stale-observations"} {
+		for _, v := range allVariants() {
+			for _, size := range stressViewportMatrix() {
+				m, err := newAppForModeDataset(modeStress, dataset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.variant, m.width, m.height = v, size.width, size.height
+				assertBoundedSupportedView(t, m, dataset, v, size.width, size.height)
+				warning := observationWarning(m.sessions[0])
+				if !strings.Contains(m.View(), warning) {
+					t.Errorf("%s/%s at %dx%d hides observation qualifier %q", dataset, v, size.width, size.height, warning)
+				}
+			}
+		}
+	}
+}
+
+func TestPartialAndStaleFactsCannotAuthorizeAttachment(t *testing.T) {
+	for _, dataset := range []string{"partial-observations", "stale-observations"} {
+		m, err := newAppForModeDataset(modeStress, dataset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := m.sessions[0].AttachedCount
+		m.attachSelected()
+		if m.sessions[0].AttachedCount != before || m.clientAttach == m.sessions[0].ID {
+			t.Errorf("%s observation authorized attachment", dataset)
+		}
+		if !strings.Contains(m.message, "refresh") {
+			t.Errorf("%s attachment refusal lacks a refresh path: %q", dataset, m.message)
+		}
+	}
+}
+
+func TestPartialPresenceDoesNotInferUnattendedAgentState(t *testing.T) {
+	m, _ := newAppForModeDataset(modeStress, "partial-observations")
+	presence, agent := sessionSignals(m.sessions[0])
+	if presence != "unknown" || agent != "not evaluated" {
+		t.Fatalf("partial presence was guessed: presence=%q agent=%q", presence, agent)
+	}
+	if strings.Contains(strings.Join(availableActions(m.sessions[0]), " "), "attach") {
+		t.Fatal("partial presence exposed attach as available")
 	}
 }
 

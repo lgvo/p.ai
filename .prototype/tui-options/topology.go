@@ -20,7 +20,11 @@ func (m app) topologyView(width, _ int) string {
 		fleet := titleStyle.Render(fmt.Sprintf("Portfolio edges · attached %d", attached)) + "\n" + m.topologyRows(6, leftWidth-8)
 		return heading + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, renderPanel(leftWidth, fleet), " ", renderPanel(width-leftWidth-1, selected))
 	}
-	return renderPanel(width, heading+"\n\n"+titleStyle.Render(fmt.Sprintf("Portfolio edges · attached %d", attached))+"\n"+m.topologyRows(2, width-8)+"\n\n"+selected)
+	rowLimit := 2
+	if idx, ok := m.selectedSessionIndex(); ok && m.sessions[idx].Operation != "" {
+		rowLimit = 1
+	}
+	return renderPanel(width, heading+"\n\n"+titleStyle.Render(fmt.Sprintf("Portfolio edges · attached %d", attached))+"\n"+m.topologyRows(rowLimit, width-8)+"\n\n"+selected)
 }
 
 func (m app) topologyRows(limit, lineWidth int) string {

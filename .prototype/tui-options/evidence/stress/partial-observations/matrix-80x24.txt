@@ -1,0 +1,20 @@
+P / probe · STRESS:partial-observations · view 08 Project status matrix · Tab c…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Project × intervention matrix  ·  18 sessions  ·  attached 0               │
+│ Columns answer where attention, routine work, recovery, and removal        │
+│ accumulate.                                                                │
+│                                                                            │
+│   PROJECT           INSPECT   WORK   RECOVER   REMOVE                      │
+│ › project-001            0      0         3        0                       │
+│   project-002            0      1         1        1                       │
+│   project-003            1      1         1        0                       │
+│   project-004            0      2         1        0                       │
+│   … 2 projects below                                                       │
+│                                                                            │
+│ Selected cell · s-partial-0001  project-001 / work/0001-agent…             │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ actions  inspect · refresh PARTIAL facts                                   │
+│ progress runtime probe returned an incomplete response                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

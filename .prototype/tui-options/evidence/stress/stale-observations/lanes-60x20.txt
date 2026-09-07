@@ -1,0 +1,15 @@
+P / probe · STRESS:stale-observations · view 06 Actionabili…
+╭────────────────────────────────────────────────────────╮
+│ Actionability lanes · compact disclosure               │
+│ project-001 / work/0001-agent/oauth-device-flow        │
+│ UUID s-stale-0001                                      │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     outdated                                    │
+│ actions    inspect · refresh STALE 37m facts           │
+│ progress   last observation is outside the trusted     │
+│ freshness window                                       │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

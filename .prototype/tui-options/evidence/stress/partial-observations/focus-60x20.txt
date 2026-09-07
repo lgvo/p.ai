@@ -1,0 +1,15 @@
+P / probe · STRESS:partial-observations · view 05 Focus dec…
+╭────────────────────────────────────────────────────────╮
+│ Focus deck · compact disclosure                        │
+│ project-001 / work/0001-agent/oauth-device-flow        │
+│ UUID s-partial-0001                                    │
+│ lifecycle  unreachable                                 │
+│ presence   unknown                                     │
+│ agent      not evaluated                               │
+│ policy     outdated                                    │
+│ actions    inspect · refresh PARTIAL facts             │
+│ progress   runtime probe returned an incomplete        │
+│ response                                               │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

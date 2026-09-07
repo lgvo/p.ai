@@ -1,0 +1,23 @@
+P / probe · STRESS:stale-observations · view 07 Expandable outline · Tab cycle …
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy                                 │
+│ › ▾ project-001          3 sessions · 2 urgent                             │
+│       └─ work/0001-agent/oauth-device-flow                                 │
+│          ready · unattended · attention · outdated                         │
+│       └─ recover/0007-cleanup/retained-state                               │
+│          missing · unattended · — · outdated                               │
+│   … 21 nodes below                                                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-stale-0001                                                          │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ operation  last observation is outside the trusted freshness window        │
+│ actions    inspect · refresh STALE 37m facts                               │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

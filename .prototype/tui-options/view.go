@@ -577,6 +577,9 @@ func (m app) laneRows(indices []int, compact bool, limit int) string {
 }
 
 func sessionSignals(s session) (presence, agent string) {
+	if s.PresenceUnknown {
+		return "unknown", "not evaluated"
+	}
 	presence = "unattended"
 	if s.AttachedCount > 0 {
 		presence = fmt.Sprintf("attached:%d", s.AttachedCount)
@@ -731,6 +734,9 @@ func (m app) detailView() string {
 }
 
 func availableActions(s session) []string {
+	if warning := observationWarning(s); warning != "" {
+		return []string{"inspect", "refresh " + warning + " facts"}
+	}
 	actions := []string{"inspect"}
 	switch s.Lifecycle {
 	case "ready":
@@ -749,6 +755,20 @@ func availableActions(s session) []string {
 		actions = append(actions, "policy diff", "recreate")
 	}
 	return actions
+}
+
+func observationWarning(s session) string {
+	switch s.Observation {
+	case "partial":
+		return "PARTIAL"
+	case "stale":
+		if s.ObservationAge != "" {
+			return "STALE " + s.ObservationAge
+		}
+		return "STALE"
+	default:
+		return ""
+	}
 }
 
 func (m app) createView(width int) string {
