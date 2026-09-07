@@ -1,0 +1,14 @@
+P / probe · STRESS:churn@1 · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects   proj…t-001   proj…t-002  proj…t-003  proj…t-004  proj…t-005  …1 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│   recover/0007-cleanup/retain… missing    attached:1  —         outdated   │
+│ › agent/stable-selection-targ… ready      unattended  attention outdated   │
+│                                                                            │
+│ Selected s-churn-focus  project-001/agent/stable-se…  ·  actions: inspect  │
+│ / attach / policy diff / recreate                                          │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

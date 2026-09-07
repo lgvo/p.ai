@@ -97,6 +97,9 @@ func (m app) header(width int) string {
 	line := fmt.Sprintf("P / probe · view %02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, m.variant, m.dataset)
 	if m.mode == modeStress {
 		line = fmt.Sprintf("P / probe · STRESS:%s · view %02d %s · Tab cycle · v gallery", m.dataset, m.variant+1, m.variant)
+		if m.dataset == "churn" {
+			line = fmt.Sprintf("P / probe · STRESS:%s@%d · view %02d %s · Tab cycle · v gallery", m.dataset, m.stressStep, m.variant+1, m.variant)
+		}
 	}
 	if m.filtering || m.filter.Value() != "" {
 		line += " · / " + m.filter.Value()
@@ -111,6 +114,8 @@ func (m app) footer(width int) string {
 			keys := mutedStyle.Render("j/k move · a attach · d detach · c create · b branches · p policy · X delete") + "\n" + mutedStyle.Render("/ filter · Tab cycle · v gallery · ? help · q quit")
 			if message == fixtureNotice {
 				message = keys
+			} else if m.height < 28 {
+				message = truncate(message, width) + "\n" + mutedStyle.Render("j/k move · Tab cycle · v gallery · ? help · q quit")
 			} else {
 				message = truncate(message, width) + "\n" + keys
 			}

@@ -1,0 +1,23 @@
+P / probe · STRESS:churn@3 · view 07 Expandable outline · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy                                 │
+│   … 5 nodes above                                                          │
+│       └─ retire/0008-discard/temporary-spike                               │
+│          discarding · unattended · — · current                             │
+│ ›     └─ docs/deterministic-fallback                                       │
+│          ready · unattended · — · current                                  │
+│   ▾ project-003          2 sessions · 1 urgent                             │
+│   … 11 nodes below                                                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-002 / docs/deterministic-fallback                                  │
+│ UUID s-churn-neighbor                                                      │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      no unattended signal                                            │
+│ policy     current                                                         │
+│ actions    inspect · attach                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

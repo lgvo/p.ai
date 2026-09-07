@@ -1,0 +1,22 @@
+P / probe · STRESS:churn@2 · view 15 Session comparison · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  project-001 / recover/0007-cleanu…  ·  s-churn-0007            │
+│ missing · attached:1 · — · outdated                                        │
+│ actions  inspect · repair plan · detach this client · policy diff ·        │
+│ recreate                                                                   │
+│ progress expected runtime not found                                        │
+│                                                                            │
+│ B · current  project-001 / agent/stable-select…  ·  s-churn-focus          │
+│ stopped · unattended · failed · outdated                                   │
+│ actions  inspect · start · attach · policy diff · recreate                 │
+│ progress observation revision 2 replaced revision 1                        │
+│                                                                            │
+│ A → B delta  life missing→stopped  ·  presence attached:1→unattended  ·    │
+│ agent —→failed  ·  policy =outdated                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

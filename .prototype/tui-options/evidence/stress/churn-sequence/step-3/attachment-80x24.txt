@@ -1,0 +1,21 @@
+P / probe · STRESS:churn@3 · view 13 Attachment dock · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Attachment dock                                                            │
+│ This client may occupy one persistent session host; switching does not …   │
+│                                                                            │
+│ CLIENT  attached → s-churn-0007                                            │
+│ project-001 / recover/0007-cleanup/retain…                                 │
+│ missing · attached:1 · — · outdated                                        │
+│ d detaches this client; host remains missing                               │
+│                                                                            │
+│ Switch targets                                                             │
+│   project-000 / agent… stopped     unattended   a attach/switch            │
+│   project-006 / work/… stopped     unattended   a attach/switch            │
+│   … 10 more targets                                                        │
+│                                                                            │
+│ Candidate facts  s-churn-neighbor                                          │
+│ ready · unattended · — · current                                           │
+│ actions  inspect · attach                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

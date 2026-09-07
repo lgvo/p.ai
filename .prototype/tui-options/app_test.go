@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -408,7 +409,7 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 
 func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
-	if len(explore) != 5 || len(stress) != 10 {
+	if len(explore) != 5 || len(stress) != 11 {
 		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
 	}
 	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
@@ -468,6 +469,96 @@ func TestPartialPresenceDoesNotInferUnattendedAgentState(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(availableActions(m.sessions[0]), " "), "attach") {
 		t.Fatal("partial presence exposed attach as available")
+	}
+}
+
+func TestChurnPreservesStableSelectionThenUsesExplicitFallback(t *testing.T) {
+	m, err := newAppForModeDataset(modeStress, "churn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []int{1, 2} {
+		if err := m.applyStressStep(step); err != nil {
+			t.Fatal(err)
+		}
+		idx, ok := m.selectedSessionIndex()
+		if !ok || m.sessions[idx].ID != "s-churn-focus" {
+			t.Fatalf("step %d lost stable selection", step)
+		}
+	}
+	if err := m.applyStressStep(3); err != nil {
+		t.Fatal(err)
+	}
+	idx, ok := m.selectedSessionIndex()
+	if !ok || m.sessions[idx].ID != "s-churn-neighbor" {
+		t.Fatalf("removal fallback selected %#v", m.sessions[idx])
+	}
+	if !strings.Contains(m.message, "s-churn-focus disappeared") || !strings.Contains(m.message, "neighbor") {
+		t.Fatalf("removal fallback was not explained: %q", m.message)
+	}
+	if err := m.applyStressStep(4); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.selectedSessionIndex(); ok || !strings.Contains(m.message, "no sessions remain") {
+		t.Fatalf("empty transition was not explicit: %q", m.message)
+	}
+}
+
+func TestChurnSequenceAcrossEveryVariantAndTargetViewport(t *testing.T) {
+	for step := 0; step <= maxStressStep; step++ {
+		for _, v := range allVariants() {
+			for _, size := range stressViewportMatrix() {
+				m, err := newAppForModeDataset(modeStress, "churn")
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.variant, m.width, m.height = v, size.width, size.height
+				if err := m.applyStressStep(step); err != nil {
+					t.Fatal(err)
+				}
+				assertBoundedSupportedView(t, m, fmt.Sprintf("churn@%d", step), v, size.width, size.height)
+				view := m.View()
+				if !strings.Contains(view, fmt.Sprintf("churn@%d", step)) {
+					t.Errorf("%s at %dx%d hides churn revision", v, size.width, size.height)
+				}
+				if idx, ok := m.selectedSessionIndex(); ok && !strings.Contains(view, m.sessions[idx].ID) {
+					t.Errorf("churn@%d/%s at %dx%d hides selected UUID", step, v, size.width, size.height)
+				}
+			}
+		}
+	}
+}
+
+func TestChurnClearsOnlyAttachmentsWhoseSessionDisappears(t *testing.T) {
+	m, _ := newAppForModeDataset(modeStress, "churn")
+	attached := m.clientAttach
+	if attached == "" {
+		t.Fatal("churn fixture lacks a client attachment")
+	}
+	for _, step := range []int{1, 2, 3} {
+		if err := m.applyStressStep(step); err != nil {
+			t.Fatal(err)
+		}
+		if m.clientAttach != attached {
+			t.Fatalf("step %d lost surviving attachment %q", step, attached)
+		}
+	}
+	if err := m.applyStressStep(4); err != nil {
+		t.Fatal(err)
+	}
+	if m.clientAttach != "" {
+		t.Fatalf("empty step retained phantom attachment %q", m.clientAttach)
+	}
+}
+
+func TestStressStepIsScopedToChurn(t *testing.T) {
+	m := newApp()
+	if err := m.applyStressStep(1); err == nil {
+		t.Fatal("exploration dataset accepted a churn step")
+	}
+	churn, _ := newAppForModeDataset(modeStress, "churn")
+	if err := churn.applyStressStep(maxStressStep + 1); err == nil {
+		t.Fatal("churn accepted an out-of-range step")
 	}
 }
 

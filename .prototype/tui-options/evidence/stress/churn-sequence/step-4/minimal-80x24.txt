@@ -1,0 +1,7 @@
+P / probe · STRESS:churn@4 · view 11 Minimal stream ledger · Tab cycle · v gall…
+Stream ledger  0 streams · attached 0
+One reading axis; the current row expands in place. No panel boundary carries m…
+
+No streams in this fixture.
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

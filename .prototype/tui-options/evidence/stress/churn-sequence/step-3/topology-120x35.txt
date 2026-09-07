@@ -1,0 +1,19 @@
+P / probe · STRESS:churn@3 · view 16 Resource topology · Tab cycle · v gallery
+Resource topology
+Edges expose ownership and lifetime; adjacent resources are not collapsed into session state.
+
+╭────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────╮
+│ Portfolio edges · attached 1                       │ │ Selected relationship · explicit lifetimes                │
+│   project-0… ├─ s-churn-in… host:stopped     cl…   │ │ PROJECT  project-002                                      │
+│   project-0… ├─ s-churn-00… host:stopped     cl…   │ │   ├─ GIT REF  docs/deterministic-fallback                 │
+│   project-0… ├─ s-churn-00… host:ready       cl…   │ │   │    retained independently                             │
+│   project-0… ├─ s-churn-00… host:ready       cl…   │ │   └─ SESSION  s-churn-neighbor  (stable identity)         │
+│   project-0… ├─ s-churn-00… host:deleting    cl…   │ │        ├─ HOST       ready  (persistent)                  │
+│   project-0… ├─ s-churn-00… host:discarding  cl…   │ │        ├─ CLIENTS    unattended  (temporary)              │
+│    … 6 more session edges                          │ │        ├─ AGENT      —  (unattended-only)                 │
+╰────────────────────────────────────────────────────╯ │        └─ POLICY     current  (immutable snapshot)        │
+                                                       │ actions  inspect · attach                                 │
+                                                       ╰───────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -1,0 +1,24 @@
+P / probe · STRESS:churn@2 · view 09 Operations console · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 10  ·  degraded 6  ·     │ │ Inspector                                │
+│ attached 1                                                          │ │ project-001 / agent/stable-selection-    │
+│ Newest fixture observations first; recovery never implies hidden    │ │ target                                   │
+│ automatic mutation.                                                 │ │ UUID s-churn-focus                       │
+│                                                                     │ │ lifecycle  stopped                       │
+│   TIME      SESSION        OBSERVATION                              │ │ presence   unattended                    │
+│ › 20:42:00  s-churn-focus observation revision 2 replaced revisio…  │ │ agent      failed                        │
+│   20:41:07  s-churn-neig… stable ready · current                    │ │ policy     outdated                      │
+│   20:40:14  s-churn-0003  last start: host exited; bounded diagno…  │ │ operation  observation revision 2        │
+│   20:39:21  s-churn-0004  activating environment · phase 3/5        │ │ replaced revision 1                      │
+│   20:38:28  s-churn-0005  Incus inspection timed out                │ │ actions    inspect · start · attach ·    │
+│   20:37:35  s-churn-0006  building project environment · phase 2/6  │ │ policy diff · recreate                   │
+╰─────────────────────────────────────────────────────────────────────╯ │                                          │
+                                                                        │ Recovery contract                        │
+                                                                        │ r previews a bounded plan                │
+                                                                        │ retry preserves request identity         │
+                                                                        │ partial deletion only converges toward   │
+                                                                        │ absent                                   │
+                                                                        ╰──────────────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

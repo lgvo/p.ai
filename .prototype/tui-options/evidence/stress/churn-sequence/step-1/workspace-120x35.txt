@@ -1,0 +1,17 @@
+P / probe · STRESS:churn@1 · view 10 Task workspace · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────╮
+│ Task-oriented workspace   Sessions   Activity  Policy  Resources    │ │ Inspector                                │
+│ t changes work mode while session selection and identity remain     │ │ project-001 / agent/stable-selection-    │
+│ stable.                                                             │ │ target                                   │
+│                                                                     │ │ UUID s-churn-focus                       │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY     │ │ lifecycle  ready                         │
+│   project-006 / work/0012… stopped    unattended failed    current  │ │ presence   unattended                    │
+│   project-005 / work/0011… ready      unattended —         current  │ │ agent      attention                     │
+│   project-004 / work/0010… ready      unattended attention outdated │ │ policy     outdated                      │
+│   project-003 / retire/00… deleting   unattended —         current  │ │ actions    inspect · attach · policy     │
+│   project-002 / retire/00… discarding unattended —         current  │ │ diff · recreate                          │
+│   … 7 more                                                          │ ╰──────────────────────────────────────────╯
+╰─────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -1,0 +1,21 @@
+P / probe · STRESS:churn@3 · view 14 Governance dashboard · Tab cycle · v galle…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Four-question governance dashboard                                         │
+│ Navigate sessions normally; the dashboard continuously recomputes its      │
+│ answers.                                                                   │
+│                                                                            │
+│ 1 · What needs attention?                                                  │
+│   6 urgent · project-000/agent/arrived-during-re…                          │
+│ 2 · Where am I attached?                                                   │
+│   attached → project-001/recover/0007-cleanup/ret…                         │
+│ 3 · What is changing?                                                      │
+│   9 observed operations · last start: host exited; bounded …               │
+│ 4 · What could be unsafe?                                                  │
+│   3 policy risks · project-004/work/0010-agent/oauth…                      │
+│                                                                            │
+│ Selected evidence · s-churn-neighbor  project-002 / docs/determinist…      │
+│ ready · unattended · — · current                                           │
+│ actions  inspect · attach                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

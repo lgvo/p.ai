@@ -46,6 +46,7 @@ go run . --mode explore
 go run . --mode explore --list-datasets
 go run . --mode stress --list-datasets
 go run . --mode stress --dataset baseline
+go run . --mode stress --dataset churn --stress-step 3
 ```
 
 The active mode and fixture are always shown at the start of the header. Stress
@@ -97,6 +98,8 @@ Regenerate the complete evidence set after building the binary:
 ```sh
 go build -o .cache/bin/p-tui-probe .
 sh capture.sh
+sh capture-stress.sh
+sh capture-churn.sh
 ```
 
 ## Comparison task

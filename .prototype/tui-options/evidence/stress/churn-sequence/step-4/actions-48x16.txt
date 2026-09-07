@@ -1,0 +1,9 @@
+P / probe · STRESS:churn@4 · view 17 Action eli…
+╭────────────────────────────────────────────╮
+│ Action eligibility sheet · compact         │
+│ disclosure                                 │
+│ No sessions in this fixture.               │
+│                                            │
+│ Dataset churn · use v to compare views     │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

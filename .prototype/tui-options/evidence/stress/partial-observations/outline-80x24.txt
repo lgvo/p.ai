@@ -4,9 +4,7 @@ P / probe · STRESS:partial-observations · view 07 Expandable outline · Tab cy
 │ › ▾ project-001          3 sessions · 3 urgent                             │
 │       └─ work/0001-agent/oauth-device-flow                                 │
 │          unreachable · unknown · not evaluated · outdated                  │
-│       └─ recover/0007-cleanup/retained-state                               │
-│          missing · unknown · not evaluated · outdated                      │
-│   … 21 nodes below                                                         │
+│   … 22 nodes below                                                         │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Inspector                                                                  │

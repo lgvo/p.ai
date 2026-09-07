@@ -1,0 +1,23 @@
+P / probe · STRESS:churn@1 · view 07 Expandable outline · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy                                 │
+│   … 1 nodes above                                                          │
+│       └─ recover/0007-cleanup/retained-state                               │
+│          missing · attached:1 · — · outdated                               │
+│ ›     └─ agent/stable-selection-target                                     │
+│          ready · unattended · attention · outdated                         │
+│   ▾ project-002          2 sessions · 0 urgent                             │
+│   … 14 nodes below                                                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-001 / agent/stable-selection-target                                │
+│ UUID s-churn-focus                                                         │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

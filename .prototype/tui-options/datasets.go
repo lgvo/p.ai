@@ -31,6 +31,7 @@ func datasetCatalog() []datasetDefinition {
 		{modeStress, "high-attachments", "simultaneous attachment counts from one through four digits", highAttachmentSessions},
 		{modeStress, "partial-observations", "incomplete responses with explicitly unknown presence facts", partialObservationSessions},
 		{modeStress, "stale-observations", "complete but outdated responses that require refresh before mutation", staleObservationSessions},
+		{modeStress, "churn", "reorder, insertion, update, removal, and empty live-data transitions", churnSessions},
 	}
 }
 
@@ -267,6 +268,15 @@ func staleObservationSessions() []session {
 		result[i].ObservationAge = ages[i%len(ages)]
 		result[i].Operation = "last observation is outside the trusted freshness window"
 	}
+	return result
+}
+
+func churnSessions() []session {
+	result := scaledSessions(12, 6, "churn")
+	result[0].ID = "s-churn-focus"
+	result[0].Branch = "agent/stable-selection-target"
+	result[1].ID = "s-churn-neighbor"
+	result[1].Branch = "docs/deterministic-fallback"
 	return result
 }
 

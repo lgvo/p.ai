@@ -1,0 +1,20 @@
+P / probe · STRESS:churn@2 · view 17 Action eligibility sheet · Tab cycle · v gallery
+╭──────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────────────────╮
+│ Choose an object  ·  attached 1              │ │ Eligibility · s-churn-focus                                     │
+│   project-004/boot/0004-fe… starting ·       │ │ project-001 / agent/stable-selection-target                     │
+│ unattended · running · current               │ │                                                                 │
+│   project-003/work/0003-fi… stopped ·        │ │ AVAILABLE NOW                                                   │
+│ unattended · failed · current                │ │   ✓ inspect — read-only facts are always available              │
+│   project-002/docs/determi… ready ·          │ │   ✓ attach / switch — host accepts a client                     │
+│ unattended · — · current                     │ │   ✓ recovery plan — runtime needs bounded reconciliation        │
+│ › project-001/agent/stable… stopped ·        │ │   ✓ policy diff — snapshot differs from current policy          │
+│ unattended · failed · outdated               │ │   ✓ recreate — new identity can adopt current policy            │
+╰──────────────────────────────────────────────╯ │                                                                 │
+                                                 │ UNAVAILABLE · EXPLAINED                                         │
+                                                 │   × detach this client — this client is attached elsewhere      │
+                                                 │                                                                 │
+                                                 │ progress  observation revision 2 replaced revision 1            │
+                                                 ╰─────────────────────────────────────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

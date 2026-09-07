@@ -1,0 +1,13 @@
+P / probe · STRESS:churn@1 · view 03 Attention workspace · …
+╭────────────────────────────────────────────────────────╮
+│ Attention workspace · compact disclosure               │
+│ project-001 / agent/stable-selection-target            │
+│ UUID s-churn-focus                                     │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     outdated                                    │
+│ actions    inspect · attach · policy diff · recreate   │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

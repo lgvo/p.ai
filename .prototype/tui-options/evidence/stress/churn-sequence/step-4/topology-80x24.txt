@@ -1,0 +1,14 @@
+P / probe · STRESS:churn@4 · view 16 Resource topology · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Resource topology                                                          │
+│ Edges expose ownership and lifetime; adjacent resources are not collapsed  │
+│ into session state.                                                        │
+│                                                                            │
+│ Portfolio edges · attached 0                                               │
+│ ∅  no project, ref, session, host, or client edges                         │
+│                                                                            │
+│ Selected relationship                                                      │
+│ No session relationship selected.                                          │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

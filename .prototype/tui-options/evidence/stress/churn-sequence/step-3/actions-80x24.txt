@@ -1,0 +1,17 @@
+P / probe · STRESS:churn@3 · view 17 Action eligibility sheet · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Action eligibility sheet                                                   │
+│ Available and unavailable actions stay visible together; reasons come f…   │
+│                                                                            │
+│ object 12/12 · attached 1 · j/k changes object                             │
+│                                                                            │
+│ Eligibility · s-churn-neighbor  project-002 / docs/deterministic-fa…       │
+│ ready · unattended · — · current                                           │
+│ AVAILABLE NOW  inspect · attach / switch                                   │
+│ UNAVAILABLE · EXPLAINED                                                    │
+│   detach this client (this client is attached elsewhere) · recovery plan   │
+│ (runtime is already observed) · policy diff (snapshot is current) ·        │
+│ recreate (no eligible policy drift)                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

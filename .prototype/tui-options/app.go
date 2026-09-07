@@ -146,6 +146,7 @@ type app struct {
 	mode          experienceMode
 	dataset       string
 	datasetNote   string
+	stressStep    int
 	screen        screen
 	previous      screen
 	selected      int

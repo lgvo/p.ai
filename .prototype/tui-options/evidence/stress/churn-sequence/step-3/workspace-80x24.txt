@@ -1,0 +1,19 @@
+P / probe · STRESS:churn@3 · view 10 Task workspace · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Task-oriented workspace   Sessions   Activity  Policy  Resources           │
+│ t changes work mode while session selection and identity remain stable.    │
+│                                                                            │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│   project-000 / agent/arrive… stopped    unattended · failed / current     │
+│   project-006 / work/0012-fi… stopped    unattended · failed / current     │
+│   project-005 / work/0011-do… ready      unattended · — / current          │
+│   project-004 / work/0010-ag… ready      unattended · attention / outdated │
+│   project-003 / retire/0009-… deleting   unattended · — / current          │
+│   … 7 more                                                                 │
+│                                                                            │
+│ Persistent selection · s-churn-neighbor  project-002 / docs/determi…       │
+│ ready · unattended · — · current                                           │
+│ actions  inspect · attach                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

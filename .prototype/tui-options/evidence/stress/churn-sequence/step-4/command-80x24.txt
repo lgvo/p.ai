@@ -1,0 +1,17 @@
+P / probe · STRESS:churn@4 · view 04 Command center · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Search-first command center                                                │
+│ Press / and type any project, branch, lifecycle, presence, agent, or       │
+│ policy fact                                                                │
+│                                                                            │
+│ No match. Clear the query to recover the full session set.                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Act on the highlighted result                                              │
+│ No session selected                                                        │
+│                                                                            │
+│ The palette never invents eligibility; every action shown comes from the   │
+│ fixture's daemon plan.                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

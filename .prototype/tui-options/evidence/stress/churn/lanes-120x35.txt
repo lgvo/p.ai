@@ -1,0 +1,24 @@
+P / probe · STRESS:churn@0 · view 06 Actionability lanes · Tab cycle · v gallery
+╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
+│ Inspect first · 4        │ │ In progress · 4         │ │ Recover · 2             │ │ Removing · 2            │
+│ › project-001/agent/s…   │ │   project-002/docs/de…  │ │   project-005/recover…  │ │   project-002/retire/…  │
+│     ready                │ │     ready               │ │     unreachable         │ │     discarding          │
+│     unattended           │ │     unattended          │ │     unattended          │ │     unattended          │
+│     attention · outdated │ │     — · current         │ │     unknown · invalid   │ │     — · current         │
+│   project-003/work/00…   │ │   project-004/boot/00…  │ │     Incus inspection    │ │     tearing down        │
+│     stopped              │ │     starting            │ │ ti…                     │ │ runtim…                 │
+│     unattended           │ │     unattended          │ │   project-001/recover…  │ │   project-003/retire/…  │
+│     failed · current     │ │     running · current   │ │     missing             │ │     deleting            │
+│     last start: host ex… │ │     activating          │ │     attached:1          │ │     unattended          │
+│ … 2 below                │ │ environm…               │ │     — · outdated        │ │     — · current         │
+╰──────────────────────────╯ │ … 2 below               │ │     expected runtime    │ │     credentials         │
+                             ╰─────────────────────────╯ │ no…                     │ │ deleted…                │
+                                                         ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-churn-focus  project-001/agent/stable-se…                                                               │
+│ ready · unattended · attention · outdated                                                                          │
+│ actions  inspect · attach · policy diff · recreate                                                                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -1,0 +1,14 @@
+P / probe · STRESS:churn@1 · view 17 Action eli…
+╭────────────────────────────────────────────╮
+│ Action eligibility sheet · compact         │
+│ disclosure                                 │
+│ project-001 / agent/stable-selection-ta…   │
+│ UUID s-churn-focus                         │
+│ lifecycle  ready                           │
+│ presence   unattended                      │
+│ agent      attention                       │
+│ policy     outdated                        │
+│ actions    inspect · attach · policy diff  │
+│ · recreate                                 │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

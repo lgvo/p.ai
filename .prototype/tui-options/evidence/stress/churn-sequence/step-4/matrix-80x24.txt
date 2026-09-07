@@ -1,0 +1,12 @@
+P / probe · STRESS:churn@4 · view 08 Project status matrix · Tab cycle · v gall…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Project × intervention matrix  ·  0 sessions  ·  attached 0                │
+│ Columns answer where attention, routine work, recovery, and removal        │
+│ accumulate.                                                                │
+│                                                                            │
+│ No projects to place in the matrix.                                        │
+│                                                                            │
+│ No session selected                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

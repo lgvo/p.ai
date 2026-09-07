@@ -1,0 +1,27 @@
+P / probe · STRESS:churn@2 · view 03 Attention workspace · Tab cycle · v gallery
+╭───────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 7                         │ │ Everything else                                                │
+│   project-0… work/0010-agent/oauth-devi…      │ │   project-0… boot/0006-prototype/tui-op…                       │
+│     ready · unattended                        │ │     creating · unattended                                      │
+│     attention · outdated · permission         │ │     idle · current · building project envi…                    │
+│ required                                      │ │   project-0… boot/0004-feature/interact…                       │
+│   project-0… agent/arrived-during-refre…      │ │     starting · unattended                                      │
+│     stopped · unattended                      │ │     running · current · activating environmen…                 │
+│     failed · current · tests exited 1         │ │   project-0… work/0011-docs/plugin-guide                       │
+│   project-0… work/0012-fix/cache-race         │ │     ready · unattended                                         │
+│     stopped · unattended                      │ │     no signal · current ·                                      │
+│     failed · current · tests exited 1         │ │ … 3 more                                                       │
+│ … 4 more                                      │ │                                                                │
+╰───────────────────────────────────────────────╯ │ Inspector                                                      │
+                                                  │ project-001 / agent/stable-selection-target                    │
+                                                  │ UUID s-churn-focus                                             │
+                                                  │ lifecycle  stopped                                             │
+                                                  │ presence   unattended                                          │
+                                                  │ agent      failed                                              │
+                                                  │ policy     outdated                                            │
+                                                  │ operation  observation revision 2 replaced revision 1          │
+                                                  │ actions    inspect · start · attach · policy diff · recreate   │
+                                                  ╰────────────────────────────────────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

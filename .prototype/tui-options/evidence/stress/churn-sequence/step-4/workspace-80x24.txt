@@ -1,0 +1,11 @@
+P / probe · STRESS:churn@4 · view 10 Task workspace · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Task-oriented workspace   Sessions   Activity  Policy  Resources           │
+│ t changes work mode while session selection and identity remain stable.    │
+│                                                                            │
+│ No matching sessions                                                       │
+│                                                                            │
+│ No session selected                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

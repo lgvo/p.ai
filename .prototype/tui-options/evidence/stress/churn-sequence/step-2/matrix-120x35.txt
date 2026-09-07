@@ -1,0 +1,18 @@
+P / probe · STRESS:churn@2 · view 08 Project status matrix · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────╮
+│ Project × intervention matrix  ·  13 sessions  ·  attached 1                │ │ Inspector                        │
+│ Columns answer where attention, routine work, recovery, and removal         │ │ project-001 / agent/stable-      │
+│ accumulate.                                                                 │ │ selection-target                 │
+│                                                                             │ │ UUID s-churn-focus               │
+│   PROJECT     INSPECT       WORK          RECOVER       REMOVE              │ │ lifecycle  stopped               │
+│   proj…t-000 agent/arriv…  —             —             —                    │ │ presence   unattended            │
+│ › proj…t-001 agent/stabl…  —             recover/000…  —                    │ │ agent      failed                │
+│   proj…t-002 —             docs/determ…  —             retire/0008…         │ │ policy     outdated              │
+│   proj…t-003 work/0003-f…  —             —             retire/0009…         │ │ operation  observation revision  │
+│   proj…t-004 work/0010-a…  boot/0004-f…  —             —                    │ │ 2 replaced revision 1            │
+│   proj…t-005 —             work/0011-d…  recover/000…  —                    │ │ actions    inspect · start ·     │
+│   proj…t-006 work/0012-f…  boot/0006-p…  —             —                    │ │ attach · policy diff · recreate  │
+╰─────────────────────────────────────────────────────────────────────────────╯ ╰──────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

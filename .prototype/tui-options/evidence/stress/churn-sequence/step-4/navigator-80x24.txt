@@ -1,0 +1,12 @@
+P / probe · STRESS:churn@4 · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│ No sessions in this project                                                │
+│                                                                            │
+│ No session selected                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

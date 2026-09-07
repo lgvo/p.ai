@@ -1,0 +1,24 @@
+P / probe · STRESS:churn@3 · view 16 Resource topology · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Resource topology                                                          │
+│ Edges expose ownership and lifetime; adjacent resources are not collapsed  │
+│ into session state.                                                        │
+│                                                                            │
+│ Portfolio edges · attached 1                                               │
+│   project-0… ├─ s-churn-in… host:stopped     client:unattended  agent:f…   │
+│   project-0… ├─ s-churn-00… host:stopped     client:unattended  agent:f…   │
+│    … 10 more session edges                                                 │
+│                                                                            │
+│ Selected relationship · explicit lifetimes                                 │
+│ PROJECT  project-002                                                       │
+│   ├─ GIT REF  docs/deterministic-fallback                                  │
+│   │    retained independently                                              │
+│   └─ SESSION  s-churn-neighbor  (stable identity)                          │
+│        ├─ HOST       ready  (persistent)                                   │
+│        ├─ CLIENTS    unattended  (temporary)                               │
+│        ├─ AGENT      —  (unattended-only)                                  │
+│        └─ POLICY     current  (immutable snapshot)                         │
+│ actions  inspect · attach                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

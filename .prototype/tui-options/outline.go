@@ -98,6 +98,9 @@ func (m app) outlineView(width, height int) string {
 	limit := 7
 	if width < 110 {
 		limit = 3
+		if idx, ok := m.selectedSessionIndex(); ok && m.sessions[idx].Operation != "" {
+			limit = 2
+		}
 	}
 	if height >= 35 {
 		limit = 12

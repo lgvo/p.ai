@@ -1,0 +1,27 @@
+P / probe · STRESS:churn@3 · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│   ▾ project-000          1 sessions · 1 urgent           │ │ project-002 / docs/deterministic-fallback           │
+│       └─ agent/arrived-during-refresh                    │ │ UUID s-churn-neighbor                               │
+│          stopped · unattended · failed · current         │ │ lifecycle  ready                                    │
+│   ▾ project-001          1 sessions · 1 urgent           │ │ presence   unattended                               │
+│       └─ recover/0007-cleanup/retained-state             │ │ agent      no unattended signal                     │
+│          missing · attached:1 · — · outdated             │ │ policy     current                                  │
+│   ▾ project-002          2 sessions · 0 urgent           │ │ actions    inspect · attach                         │
+│       └─ retire/0008-discard/temporary-spike             │ ╰─────────────────────────────────────────────────────╯
+│          discarding · unattended · — · current           │
+│ ›     └─ docs/deterministic-fallback                     │
+│          ready · unattended · — · current                │
+│   ▾ project-003          2 sessions · 1 urgent           │
+│       └─ retire/0009-archive/old-experiment              │
+│          deleting · unattended · — · current             │
+│       └─ work/0003-fix/cache-race                        │
+│          stopped · unattended · failed · current         │
+│   ▾ project-004          2 sessions · 1 urgent           │
+│       └─ work/0010-agent/oauth-device-flow               │
+│          ready · unattended · attention · outdated       │
+│   … 7 nodes below                                        │
+╰──────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

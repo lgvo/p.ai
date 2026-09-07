@@ -1,0 +1,22 @@
+P / probe · STRESS:churn@1 · view 01 Fleet table · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│   project-006 / work/0012-fi… stopped    unattended · failed / current     │
+│   project-005 / work/0011-do… ready      unattended · — / current          │
+│   project-004 / work/0010-ag… ready      unattended · attention / outdated │
+│   project-003 / retire/0009-… deleting   unattended · — / current          │
+│   … 8 more                                                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-001 / agent/stable-selection-target                                │
+│ UUID s-churn-focus                                                         │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

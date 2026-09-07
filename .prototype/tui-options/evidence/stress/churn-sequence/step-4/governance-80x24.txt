@@ -1,0 +1,19 @@
+P / probe · STRESS:churn@4 · view 14 Governance dashboard · Tab cycle · v galle…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Four-question governance dashboard                                         │
+│ Navigate sessions normally; the dashboard continuously recomputes its      │
+│ answers.                                                                   │
+│                                                                            │
+│ 1 · What needs attention?                                                  │
+│   0 urgent · none                                                          │
+│ 2 · Where am I attached?                                                   │
+│   detached                                                                 │
+│ 3 · What is changing?                                                      │
+│   0 observed operations · none                                             │
+│ 4 · What could be unsafe?                                                  │
+│   0 policy risks · none                                                    │
+│                                                                            │
+│ No selected session; questions remain valid for the empty fixture.         │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

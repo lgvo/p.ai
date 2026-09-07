@@ -1,0 +1,14 @@
+P / probe · STRESS:churn@0 · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects   proj…t-001   proj…t-002  proj…t-003  proj…t-004  proj…t-005  …1 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│ › agent/stable-selection-targ… ready      unattended  attention outdated   │
+│   recover/0007-cleanup/retain… missing    attached:1  —         outdated   │
+│                                                                            │
+│ Selected s-churn-focus  project-001/agent/stable-se…  ·  actions: inspect  │
+│ / attach / policy diff / recreate                                          │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

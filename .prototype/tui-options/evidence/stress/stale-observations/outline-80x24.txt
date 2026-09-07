@@ -4,9 +4,7 @@ P / probe · STRESS:stale-observations · view 07 Expandable outline · Tab cycl
 │ › ▾ project-001          3 sessions · 2 urgent                             │
 │       └─ work/0001-agent/oauth-device-flow                                 │
 │          ready · unattended · attention · outdated                         │
-│       └─ recover/0007-cleanup/retained-state                               │
-│          missing · unattended · — · outdated                               │
-│   … 21 nodes below                                                         │
+│   … 22 nodes below                                                         │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Inspector                                                                  │

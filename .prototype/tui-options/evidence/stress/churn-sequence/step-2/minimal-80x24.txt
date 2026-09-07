@@ -1,0 +1,16 @@
+P / probe · STRESS:churn@2 · view 11 Minimal stream ledger · Tab cycle · v gall…
+Stream ledger  13 streams · attached 1
+One reading axis; the current row expands in place. No panel boundary carries m…
+
+  … 7 earlier streams
+  project-006 / boot/0006-protot… creating · unattended · idle · current
+  project-005 / recover/0005-des… unreachable · unattended · unknown · invalid
+  project-004 / boot/0004-featur… starting · unattended · running · current
+  project-003 / work/0003-fix/ca… stopped · unattended · failed · current
+  project-002 / docs/determinist… ready · unattended · — · current
+› project-001 / agent/stable-selection-target
+    s-churn-focus · stopped · unattended · failed · outdated
+    actions  inspect · start · attach · policy diff · recreate
+    progress observation revision 2 replaced revision 1
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

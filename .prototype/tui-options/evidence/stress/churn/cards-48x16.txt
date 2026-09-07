@@ -1,0 +1,13 @@
+P / probe · STRESS:churn@0 · view 12 Responsive…
+╭────────────────────────────────────────────╮
+│ Responsive card grid · compact disclosure  │
+│ project-001 / agent/stable-selection-ta…   │
+│ UUID s-churn-focus                         │
+│ lifecycle  ready                           │
+│ presence   unattended                      │
+│ agent      attention                       │
+│ policy     outdated                        │
+│ actions    inspect · attach · policy diff  │
+│ · recreate                                 │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

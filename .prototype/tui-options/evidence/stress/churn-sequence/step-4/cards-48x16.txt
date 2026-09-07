@@ -1,0 +1,8 @@
+P / probe · STRESS:churn@4 · view 12 Responsive…
+╭────────────────────────────────────────────╮
+│ Responsive card grid · compact disclosure  │
+│ No sessions in this fixture.               │
+│                                            │
+│ Dataset churn · use v to compare views     │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

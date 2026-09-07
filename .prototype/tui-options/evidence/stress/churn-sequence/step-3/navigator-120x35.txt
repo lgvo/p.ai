@@ -1,0 +1,20 @@
+P / probe · STRESS:churn@3 · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│   proj…t-000 1 sess · 1 urgent │ │   retire/0008-discard/temporary-s…                                            │
+│   proj…t-001 1 sess · 1 urgent │ │     discarding · unattended · — · current                                     │
+│ › proj…t-002 2 sess · 0 urgent │ │ › docs/deterministic-fallback                                                 │
+│   proj…t-003 2 sess · 1 urgent │ │     ready · unattended · — · current                                          │
+│   proj…t-004 2 sess · 1 urgent │ │                                                                               │
+│   proj…t-005 2 sess · 1 urgent │ │ Inspector                                                                     │
+│   proj…t-006 2 sess · 1 urgent │ │ project-002 / docs/deterministic-fallback                                     │
+╰────────────────────────────────╯ │ UUID s-churn-neighbor                                                         │
+                                   │ lifecycle  ready                                                              │
+                                   │ presence   unattended                                                         │
+                                   │ agent      no unattended signal                                               │
+                                   │ policy     current                                                            │
+                                   │ actions    inspect · attach                                                   │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit
