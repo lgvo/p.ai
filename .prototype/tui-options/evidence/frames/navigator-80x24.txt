@@ -1,4 +1,4 @@
-P / probe · 02/06 Project navigator · fixture:standard · Tab cycle · v gallery
+P / probe · view 02 Project navigator · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Projects  demo   forge   labs  orbit  p.ai                                 │
 ╰────────────────────────────────────────────────────────────────────────────╯

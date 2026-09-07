@@ -1,4 +1,4 @@
-P / probe · 05/06 Focus deck · fixture:standard · Tab cycle · v gallery
+P / probe · view 05 Focus deck · fixture:standard · Tab cycle · v gallery
 ╭───────────────────────────────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────╮
 │ Focus deck · 1/9                                                      │ │ Stream radar · context without leaving focus       │
 │ forge / agent/oauth-device-flow                                       │ │ › forge/agent/oauth-device-flow                    │

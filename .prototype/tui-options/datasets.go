@@ -36,6 +36,12 @@ func (m *app) applyDataset(name string) error {
 			}
 		}
 	}
+	for nodeIndex, node := range m.outlineNodes() {
+		if !node.isProject && sessions[node.sessionIndex].ID == "s-auth" {
+			m.outlineCursor = nodeIndex
+			break
+		}
+	}
 	return nil
 }
 

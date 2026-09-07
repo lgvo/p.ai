@@ -1,4 +1,4 @@
-P / probe · 01/06 Fleet table · fixture:standard · Tab cycle · v gallery
+P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────────────────────╮
 │ Prototype controls                                                                         │
 │ Compare and switch structural variants without changing fixture state.                     │
@@ -6,7 +6,7 @@ P / probe · 01/06 Fleet table · fixture:standard · Tab cycle · v gallery
 │ 1–6            direct shortcuts for initial variants                                       │
 │ Tab / v        cycle variants / open full gallery                                          │
 │ j/k            move between sessions                                                       │
-│ h/l            move projects in navigator                                                  │
+│ h/l            move projects, or collapse/expand outline groups                            │
 │ /              fuzzy filter using sahilm/fuzzy                                             │
 │ a or Enter     attach, or switch this prototype client                                     │
 │ d              detach this prototype client only                                           │

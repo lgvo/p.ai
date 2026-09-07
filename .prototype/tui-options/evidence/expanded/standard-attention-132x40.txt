@@ -1,4 +1,4 @@
-P / probe · 03/06 Attention workspace · fixture:standard · Tab cycle · v gallery
+P / probe · view 03 Attention workspace · fixture:standard · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────╮
 │ Urgent to inspect · 4                              │ │ Everything else                                                       │
 │ › forge      agent/oauth-device-flow               │ │   orbit      feature/interactive-cli                                  │

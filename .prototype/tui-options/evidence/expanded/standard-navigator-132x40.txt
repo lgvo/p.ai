@@ -1,4 +1,4 @@
-P / probe · 02/06 Project navigator · fixture:standard · Tab cycle · v gallery
+P / probe · view 02 Project navigator · fixture:standard · Tab cycle · v gallery
 ╭───────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────────────────────────────╮
 │ Projects                          │ │ Sessions in selected project                                                           │
 │   demo       2 sess · 0 urgent    │ │ › agent/oauth-device-flow                                                              │

@@ -1,4 +1,4 @@
-P / probe · 06/06 Actionability lanes · fixture:standard · Tab cycle · v gallery
+P / probe · view 06 Actionability lanes · fixture:standard · Tab cycle · v gall…
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Inspect first · 2                                                          │
 │ › forge/agent… ready       unattended  attention outdated                  │

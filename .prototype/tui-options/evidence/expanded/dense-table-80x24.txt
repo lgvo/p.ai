@@ -1,4 +1,4 @@
-P / probe · 01/06 Fleet table · fixture:dense · Tab cycle · v gallery
+P / probe · view 01 Fleet table · fixture:dense · Tab cycle · v gallery
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ All active sessions · cross-project                                        │
 │   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │

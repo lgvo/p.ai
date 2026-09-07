@@ -1,4 +1,4 @@
-P / probe · 06/06 Actionability lanes · fixture:standard · Tab cycle · v gallery
+P / probe · view 06 Actionability lanes · fixture:standard · Tab cycle · v gallery
 ╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
 │ Inspect first · 2        │ │ In progress · 3         │ │ Recover · 2             │ │ Removing · 2            │
 │ › forge/agent/oauth-d…   │ │   forge/docs/plugin-g…  │ │   p.ai/design/plugin-…  │ │   demo/discard/tempor…  │

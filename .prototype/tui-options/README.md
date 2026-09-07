@@ -26,6 +26,7 @@ go run . --variant attention
 go run . --variant command
 go run . --variant focus
 go run . --variant lanes
+go run . --variant outline
 ```
 
 Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
@@ -39,6 +40,7 @@ The alternatives deliberately organize the same facts differently:
 4. **Command center** makes fuzzy search and action dispatch primary.
 5. **Focus deck** emphasizes one stream while retaining a compact radar.
 6. **Actionability lanes** groups streams by the kind of intervention needed.
+7. **Expandable outline** places projects and sessions in one collapsible tree.
 
 Deterministic frames can be generated without an interactive terminal:
 

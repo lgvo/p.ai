@@ -1,4 +1,4 @@
-P / probe · 04/06 Command center · fixture:standard · Tab cycle · v gallery
+P / probe · view 04 Command center · fixture:standard · Tab cycle · v gallery
 ╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
 │ Search-first command center                                     │ │ Act on the highlighted result                │
 │ Press / and type any project, branch, lifecycle, presence,      │ │ Selected  forge/agent/oauth-device-flow  ·   │

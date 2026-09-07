@@ -48,6 +48,8 @@ func (m app) View() string {
 			body = m.focusView(width, height)
 		case variantLanes:
 			body = m.lanesView(width, height)
+		case variantOutline:
+			body = m.outlineView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)
@@ -71,7 +73,7 @@ func (m app) View() string {
 }
 
 func (m app) header(width int) string {
-	line := fmt.Sprintf("P / probe · %02d/%02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, variantCount, m.variant, m.dataset)
+	line := fmt.Sprintf("P / probe · view %02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, m.variant, m.dataset)
 	if m.filtering || m.filter.Value() != "" {
 		line += " · / " + m.filter.Value()
 	}
@@ -771,7 +773,7 @@ func (m app) helpView(width int) string {
 		"1–6            direct shortcuts for initial variants",
 		"Tab / v        cycle variants / open full gallery",
 		"j/k            move between sessions",
-		"h/l            move projects in navigator",
+		"h/l            move projects, or collapse/expand outline groups",
 		"/              fuzzy filter using sahilm/fuzzy",
 		"a or Enter     attach, or switch this prototype client",
 		"d              detach this prototype client only",

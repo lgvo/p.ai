@@ -91,10 +91,33 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
 		}
+	}
+}
+
+func TestOutlineNavigatesAndCollapsesProjectNodes(t *testing.T) {
+	m := newApp()
+	m.variant = variantOutline
+	nodes := m.outlineNodes()
+	if len(nodes) <= len(m.sessions) || !strings.Contains(m.View(), "Projects / sessions") {
+		t.Fatal("outline did not add hierarchical project nodes")
+	}
+	for m.outlineCursor > 0 && !nodes[m.outlineCursor].isProject {
+		m.moveOutline(-1)
+		nodes = m.outlineNodes()
+	}
+	project := nodes[m.outlineCursor].project
+	before := len(nodes)
+	m.setOutlineCollapsed(true)
+	if !m.collapsed[project] || len(m.outlineNodes()) >= before {
+		t.Fatalf("project %q did not collapse", project)
+	}
+	m.setOutlineCollapsed(false)
+	if m.collapsed[project] || len(m.outlineNodes()) != before {
+		t.Fatalf("project %q did not expand", project)
 	}
 }
 
@@ -144,6 +167,10 @@ func TestKeyRoutingReachesComparisonAndLifecyclePaths(t *testing.T) {
 		if m.variant != want {
 			t.Fatalf("key %d selected %s, want %s", i+1, m.variant, want)
 		}
+	}
+	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.variant != variantOutline {
+		t.Fatalf("Tab did not reach the next gallery variant: %s", m.variant)
 	}
 	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
 	if m.variant != variantTable {

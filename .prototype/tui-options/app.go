@@ -22,11 +22,12 @@ const (
 	variantCommand
 	variantFocus
 	variantLanes
+	variantOutline
 	variantCount
 )
 
 func (v variant) String() string {
-	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes"}[v]
+	return [...]string{"Fleet table", "Project navigator", "Attention workspace", "Command center", "Focus deck", "Actionability lanes", "Expandable outline"}[v]
 }
 
 func parseVariant(s string) (variant, bool) {
@@ -43,6 +44,8 @@ func parseVariant(s string) (variant, bool) {
 		return variantFocus, true
 	case "lanes", "board":
 		return variantLanes, true
+	case "outline", "tree":
+		return variantOutline, true
 	default:
 		return 0, false
 	}
@@ -114,6 +117,8 @@ type app struct {
 	draft         createDraft
 	deleteProject string
 	deleteTargets []deleteTarget
+	outlineCursor int
+	collapsed     map[string]bool
 }
 
 func newApp() app {
@@ -133,6 +138,7 @@ func newAppForDataset(dataset string) (app, error) {
 		variant:       variantTable,
 		galleryChoice: variantTable,
 		dataset:       dataset,
+		collapsed:     map[string]bool{},
 		screen:        screenOverview,
 		project:       1, // "forge" exposes attention, attachment, and policy drift together.
 		filter:        filter,
@@ -223,22 +229,39 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.galleryChoice = m.variant
 			m.previous, m.screen = m.screen, screenVariantGallery
 		case "j", "down":
-			m.moveSelection(1)
+			if m.variant == variantOutline {
+				m.moveOutline(1)
+			} else {
+				m.moveSelection(1)
+			}
 		case "k", "up":
-			m.moveSelection(-1)
+			if m.variant == variantOutline {
+				m.moveOutline(-1)
+			} else {
+				m.moveSelection(-1)
+			}
 		case "h", "left":
 			if m.variant == variantNavigator {
 				m.moveProject(-1)
+			} else if m.variant == variantOutline {
+				m.setOutlineCollapsed(true)
 			}
 		case "l", "right":
 			if m.variant == variantNavigator {
 				m.moveProject(1)
+			} else if m.variant == variantOutline {
+				m.setOutlineCollapsed(false)
 			}
 		case "/":
 			m.filtering = true
 			m.filter.Focus()
 			return m, textinput.Blink
-		case "a", "enter":
+		case "a":
+			m.attachSelected()
+		case "enter", " ":
+			if m.variant == variantOutline && m.toggleOutlineNode() {
+				break
+			}
 			m.attachSelected()
 		case "d":
 			m.detachSelected()
