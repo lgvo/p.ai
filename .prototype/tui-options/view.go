@@ -56,6 +56,8 @@ func (m app) View() string {
 			body = m.operationsView(width, height)
 		case variantWorkspace:
 			body = m.workspaceView(width, height)
+		case variantMinimal:
+			body = m.minimalView(width, height)
 		}
 	case screenCreate:
 		body = m.createView(width)

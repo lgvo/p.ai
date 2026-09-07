@@ -30,6 +30,7 @@ go run . --variant outline
 go run . --variant matrix
 go run . --variant operations
 go run . --variant workspace
+go run . --variant minimal
 ```
 
 Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
@@ -47,6 +48,7 @@ The alternatives deliberately organize the same facts differently:
 8. **Project status matrix** compares intervention load across the whole portfolio.
 9. **Operations console** makes activity history and bounded recovery primary.
 10. **Task workspace** separates sessions, activity, policy, and resources into stable modes.
+11. **Minimal stream ledger** removes panel chrome and expands the current row inline.
 
 Deterministic frames can be generated without an interactive terminal:
 

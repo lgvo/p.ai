@@ -91,10 +91,24 @@ func TestCompactDisclosurePreservesSelectedSessionFactsAndActions(t *testing.T) 
 }
 
 func TestAllVariantNamesParse(t *testing.T) {
-	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace"} {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes", "outline", "matrix", "operations", "workspace", "minimal"} {
 		if _, ok := parseVariant(name); !ok {
 			t.Errorf("variant %q is not addressable from the CLI", name)
 		}
+	}
+}
+
+func TestMinimalLedgerUsesInlineExpansionWithoutPanels(t *testing.T) {
+	m := newApp()
+	m.variant, m.width, m.height = variantMinimal, 80, 24
+	view := m.View()
+	for _, fragment := range []string{"Stream ledger", "current row expands in place", "actions", "attached:1"} {
+		if !strings.Contains(view, fragment) {
+			t.Errorf("minimal ledger omitted %q", fragment)
+		}
+	}
+	if strings.Contains(view, "╭") || strings.Contains(view, "Inspector") {
+		t.Fatal("minimal ledger reintroduced panel chrome")
 	}
 }
 
