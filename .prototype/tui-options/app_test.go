@@ -1,0 +1,299 @@
+package main
+
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+func TestFixtureCoversPresentationContract(t *testing.T) {
+	gotLifecycle := map[string]bool{}
+	gotAgent := map[string]bool{}
+	gotPolicy := map[string]bool{}
+	attached := false
+	for _, s := range fixtureSessions() {
+		gotLifecycle[s.Lifecycle] = true
+		gotAgent[s.Agent] = true
+		gotPolicy[s.Policy] = true
+		attached = attached || s.AttachedCount > 0
+	}
+	for _, condition := range []string{"creating", "starting", "ready", "stopped", "missing", "unreachable", "discarding", "deleting"} {
+		if !gotLifecycle[condition] {
+			t.Errorf("fixture missing lifecycle condition %q", condition)
+		}
+	}
+	for _, condition := range []string{"attention", "failed", "running", "idle", "unknown"} {
+		if !gotAgent[condition] {
+			t.Errorf("fixture missing agent condition %q", condition)
+		}
+	}
+	for _, condition := range []string{"current", "outdated", "invalid"} {
+		if !gotPolicy[condition] {
+			t.Errorf("fixture missing policy condition %q", condition)
+		}
+	}
+	if !attached {
+		t.Error("fixture missing confirmed attachment")
+	}
+}
+
+func TestViewsStayWithinRequestedWidth(t *testing.T) {
+	for _, v := range allVariants() {
+		for _, size := range []struct{ width, height int }{{80, 24}, {120, 35}} {
+			m := newApp()
+			m.variant, m.width, m.height = v, size.width, size.height
+			lines := strings.Split(m.View(), "\n")
+			if len(lines) > size.height {
+				t.Errorf("variant %s at %dx%d rendered %d lines", v, size.width, size.height, len(lines))
+			}
+			for lineNo, line := range lines {
+				if got := lipgloss.Width(line); got > size.width {
+					t.Errorf("variant %s width %d line %d rendered %d cells", v, size.width, lineNo+1, got)
+				}
+			}
+		}
+	}
+}
+
+func TestVariantsRenderIndependentFactsAtBothWidths(t *testing.T) {
+	for _, v := range allVariants() {
+		for _, size := range []struct{ width, height int }{{80, 24}, {120, 35}} {
+			m := newApp()
+			m.variant, m.width, m.height = v, size.width, size.height
+			view := m.View()
+			for _, fact := range []string{"ready", "attached", "attention", "outdated"} {
+				if !strings.Contains(view, fact) {
+					t.Errorf("variant %s at %dx%d omitted %q", v, size.width, size.height, fact)
+				}
+			}
+			if strings.Contains(view, "frame clipped") {
+				t.Errorf("variant %s at %dx%d clipped its primary surface", v, size.width, size.height)
+			}
+		}
+	}
+}
+
+func TestAllVariantNamesParse(t *testing.T) {
+	for _, name := range []string{"table", "navigator", "attention", "command", "focus", "lanes"} {
+		if _, ok := parseVariant(name); !ok {
+			t.Errorf("variant %q is not addressable from the CLI", name)
+		}
+	}
+}
+
+func TestFuzzyFilterUsesAllIndependentFacts(t *testing.T) {
+	m := newApp()
+	m.variant = variantCommand
+	m.filter.SetValue("invalid")
+	visible := m.visibleIndices()
+	if len(visible) != 1 || m.sessions[visible[0]].ID != "s-plugin" {
+		t.Fatalf("invalid-policy search returned %#v", visible)
+	}
+	m.filter.SetValue("attached")
+	visible = m.visibleIndices()
+	if len(visible) == 0 || m.sessions[visible[0]].ID != "s-docs" {
+		t.Fatalf("attachment-presence search returned %#v", visible)
+	}
+}
+
+func TestEveryVariantCanExposeStartingProgress(t *testing.T) {
+	for _, v := range allVariants() {
+		m := newApp()
+		m.variant, m.width, m.height = v, 80, 24
+		if v == variantNavigator {
+			for i, project := range m.projects() {
+				if project == "orbit" {
+					m.project = i
+				}
+			}
+		}
+		if !m.selectSession("s-cli") {
+			t.Fatalf("variant %s cannot select the starting fixture", v)
+		}
+		view := m.View()
+		if !strings.Contains(view, "activating") {
+			t.Errorf("variant %s hides current startup progress", v)
+		}
+		if strings.Contains(view, "Needs a decision") || strings.Contains(view, "Decide ·") {
+			t.Errorf("variant %s presents a lossy signal as an unresolved decision", v)
+		}
+	}
+}
+
+func TestKeyRoutingReachesComparisonAndLifecyclePaths(t *testing.T) {
+	m := newApp()
+	for i, want := range allVariants() {
+		m = pressRune(t, m, rune('1'+i))
+		if m.variant != want {
+			t.Fatalf("key %d selected %s, want %s", i+1, m.variant, want)
+		}
+	}
+	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.variant != variantTable {
+		t.Fatalf("Tab did not wrap variant comparison: %s", m.variant)
+	}
+
+	m = pressRune(t, m, 'c')
+	if m.screen != screenCreate {
+		t.Fatal("create key did not open creation probe")
+	}
+	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.screen != screenCreateFailed {
+		t.Fatal("fixture submission did not expose failed creation")
+	}
+	m = pressRune(t, m, 't')
+	if m.screen != screenCreate || !m.draft.Replacing {
+		t.Fatal("Try again with changes did not open replacement request")
+	}
+	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.screen != screenOverview {
+		t.Fatal("replacement request did not return to overview")
+	}
+
+	m = pressRune(t, m, 'X')
+	if m.screen != screenDeletePreview {
+		t.Fatal("destructive key bypassed or failed to open preview")
+	}
+	m = pressRune(t, m, 'y')
+	if m.screen != screenDeleteProgress {
+		t.Fatal("confirmed deletion did not expose partial progress")
+	}
+	m = pressRune(t, m, 'r')
+	for _, target := range m.deleteTargets {
+		if target.State != "deleted" {
+			t.Fatalf("key-routed retry left %s in %s", target.Name, target.State)
+		}
+	}
+}
+
+func pressRune(t *testing.T, m app, key rune) app {
+	t.Helper()
+	return pressKey(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+}
+
+func pressKey(t *testing.T, m app, key tea.KeyMsg) app {
+	t.Helper()
+	updated, _ := m.Update(key)
+	result, ok := updated.(app)
+	if !ok {
+		t.Fatalf("Update returned %T, want app", updated)
+	}
+	return result
+}
+
+func allVariants() []variant {
+	return []variant{variantTable, variantNavigator, variantAttention, variantCommand, variantFocus, variantLanes}
+}
+
+func TestAttachSwitchAndDetachPreserveHostSemantics(t *testing.T) {
+	m := newApp()
+	if !m.selectSession("s-auth") {
+		t.Fatal("fixture session not selectable")
+	}
+	m.attachSelected()
+	if m.clientAttach != "s-auth" {
+		t.Fatalf("client attached to %q, want s-auth", m.clientAttach)
+	}
+	auth, docs := sessionByID(t, m.sessions, "s-auth"), sessionByID(t, m.sessions, "s-docs")
+	if auth.AttachedCount != 1 || docs.AttachedCount != 0 {
+		t.Fatalf("unexpected presence after switch: auth=%d docs=%d", auth.AttachedCount, docs.AttachedCount)
+	}
+	if auth.Agent != "" {
+		t.Fatalf("first confirmed attachment did not clear unattended signal: %q", auth.Agent)
+	}
+	if !strings.Contains(m.message, "Persistent hosts remain alive") {
+		t.Fatalf("switch message lost persistent-host boundary: %q", m.message)
+	}
+	m.detachSelected()
+	auth = sessionByID(t, m.sessions, "s-auth")
+	if auth.AttachedCount != 0 || auth.Lifecycle != "ready" {
+		t.Fatalf("detach changed durable session semantics: count=%d lifecycle=%s", auth.AttachedCount, auth.Lifecycle)
+	}
+}
+
+func TestExactRetryPreservesIdentity(t *testing.T) {
+	m := newApp()
+	m.startCreate()
+	wantID, wantOperation := m.draft.ReservedID, m.draft.OperationID
+	m.submitCreate()
+	if m.screen != screenCreateFailed {
+		t.Fatal("fixture create did not reach failed observation state")
+	}
+	m.exactRetry()
+	created := sessionByID(t, m.sessions, wantID)
+	if created.ID != wantID || !strings.Contains(m.message, wantOperation) {
+		t.Fatalf("exact retry identity drifted: session=%q message=%q", created.ID, m.message)
+	}
+}
+
+func TestTryAgainWithChangesUsesNewIdentity(t *testing.T) {
+	m := newApp()
+	m.startCreate()
+	oldID := m.draft.ReservedID
+	m.submitCreate()
+	m.tryAgainWithChanges()
+	if !m.draft.Replacing || m.draft.ReservedID == oldID {
+		t.Fatalf("replacement did not establish new request identity: %#v", m.draft)
+	}
+	m.submitCreate()
+	if sessionByID(t, m.sessions, "s-new-020").ID == oldID {
+		t.Fatal("replacement reused failed identity")
+	}
+}
+
+func TestDeletionRetryConvergesOnlyTowardAbsent(t *testing.T) {
+	m := newApp()
+	m.deleteProject = "forge"
+	m.beginDelete()
+	m.retryDelete()
+	for _, target := range m.deleteTargets {
+		if target.State != "deleted" {
+			t.Fatalf("target %q did not converge: %s", target.Name, target.State)
+		}
+	}
+}
+
+func TestSnapshotScenariosRenderDecisionBoundaries(t *testing.T) {
+	checks := map[string][]string{
+		"attached-switch":    {"attached:1", "Persistent hosts remain alive"},
+		"create-failed":      {"Exact Retry", "Try again with changes", "same UUID"},
+		"replacement-create": {"NEW UUID", "supersedes failed"},
+		"branches":           {"Git resources, not sessions", "no UUID"},
+		"policy":             {"still effective", "immutable"},
+		"delete-preview":     {"DELETE PROJECT AND ALL P DATA", "Not deleted", "fingerprint"},
+		"delete-progress":    {"remaining", "unreachable", "ensure absent"},
+		"delete-complete":    {"confirmed absent", "tombstone"},
+		"help":               {"switch structural variants", "attach, or switch"},
+	}
+	for scenario, fragments := range checks {
+		for _, size := range []struct{ width, height int }{{80, 24}, {120, 35}} {
+			m := newApp()
+			m.width, m.height = size.width, size.height
+			if err := m.applyScenario(scenario); err != nil {
+				t.Fatal(err)
+			}
+			view := m.View()
+			for _, fragment := range fragments {
+				if !strings.Contains(view, fragment) {
+					t.Errorf("scenario %s at %dx%d omitted %q", scenario, size.width, size.height, fragment)
+				}
+			}
+			if strings.Contains(view, "frame clipped") {
+				t.Errorf("scenario %s at %dx%d clipped", scenario, size.width, size.height)
+			}
+		}
+	}
+}
+
+func sessionByID(t *testing.T, sessions []session, id string) session {
+	t.Helper()
+	for _, s := range sessions {
+		if s.ID == id {
+			return s
+		}
+	}
+	t.Fatalf("session %q not found", id)
+	return session{}
+}

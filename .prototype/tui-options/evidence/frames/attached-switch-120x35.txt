@@ -1,0 +1,16 @@
+P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+╭──────────────────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────╮
+│ All active sessions · cross-project                                  │ │ Inspector                               │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY      │ │ forge / agent/oauth-device-flow         │
+│ › forge / agent/oauth-dev… ready      attached:1 —        outdated   │ │ UUID s-auth                             │
+│   forge / docs/plugin-gui… ready      unattended —        current    │ │ lifecycle  ready                        │
+│   orbit / fix/cache-race   stopped    unattended failed   current    │ │ presence   attached (1 confirmed)       │
+│   orbit / feature/interac… starting   unattended running  current    │ │ agent      suppressed while attached    │
+│   p.ai / design/plugin-co… unreachable unattended unknown  invalid   │ │ policy     outdated                     │
+│   p.ai / prototype/tui-op… creating   unattended idle     current    │ │ actions    inspect · attach · detach    │
+│   labs / cleanup/retained… missing    unattended —        outdated   │ │ this client · policy diff · recreate    │
+│   demo / discard/temporar… discarding unattended —        current    │ ╰─────────────────────────────────────────╯
+│   … 1 more                                                           │
+╰──────────────────────────────────────────────────────────────────────╯
+Persistent hosts remain alive; switched forge/docs/plugin-guide → forge/agent/oauth-device-flow.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab variant · ? help · q quit

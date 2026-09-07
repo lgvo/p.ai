@@ -1,0 +1,22 @@
+P / probe · 1 Fleet 2 Projects 3 Attention  4 Search  5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Search-first command center                                                │
+│ Press / and type any project, branch, lifecycle, presence, agent, or       │
+│ policy fact                                                                │
+│                                                                            │
+│ › forge/agent/oauth-devi… ready      unattended attention outdated         │
+│   forge/docs/plugin-guide ready      attached:1 —        current           │
+│   orbit/fix/cache-race    stopped    unattended failed   current           │
+│   orbit/feature/interact… starting   unattended running  current           │
+│ … 5 more matches                                                           │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Act on the highlighted result                                              │
+│ Selected  forge/agent/oauth-device-flow  ·  actions: inspect / attach /    │
+│ policy diff / recreate                                                     │
+│                                                                            │
+│ The palette never invents eligibility; every action shown comes from the   │
+│ fixture's daemon plan.                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab variant · ? help · q quit

@@ -1,0 +1,21 @@
+P / probe · 1 Fleet 2 Projects 3 Attention 4 Search  5 Focus  6 Lanes
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Focus deck · 1/9                                                           │
+│ forge / agent/oauth-device-flow                                            │
+│ UUID s-auth                                                                │
+│                                                                            │
+│ Lifecycle  ready         Presence  unattended                              │
+│ Agent      attention     Policy    outdated                                │
+│                                                                            │
+│ Primary actions  inspect · attach · policy diff · recreate                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Stream radar · context without leaving focus                               │
+│ › forge/agent/oauth-devi… ready      unattended attention outdated         │
+│   forge/docs/plugin-guide ready      attached:1 —        current           │
+│   orbit/fix/cache-race    stopped    unattended failed   current           │
+│   orbit/feature/interact… starting   unattended running  current           │
+│ … 5 more                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab variant · ? help · q quit

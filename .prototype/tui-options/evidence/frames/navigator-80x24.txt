@@ -1,0 +1,14 @@
+P / probe · 1 Fleet  2 Projects  3 Attention 4 Search 5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects  demo   forge   labs  orbit  p.ai                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│ › agent/oauth-device-flow      ready      unattended  attention outdated   │
+│   docs/plugin-guide            ready      attached:1  —         current    │
+│                                                                            │
+│ Selected  forge/agent/oauth-device-flow  ·  actions: inspect / attach /    │
+│ policy diff / recreate                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab variant · ? help · q quit

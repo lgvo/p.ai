@@ -1,0 +1,19 @@
+P / probe · 1 Fleet  2 Projects  3 Attention 4 Search 5 Focus 6 Lanes
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│   demo       2 sess · 0 urgent │ │ › agent/oauth-device-flow                                                     │
+│ › forge      2 sess · 1 urgent │ │     ready · unattended · attention · outdated                                 │
+│   labs       1 sess · 1 urgent │ │   docs/plugin-guide                                                           │
+│   orbit      2 sess · 1 urgent │ │     ready · attached:1 · — · current                                          │
+│   p.ai       2 sess · 1 urgent │ │                                                                               │
+╰────────────────────────────────╯ │ Inspector                                                                     │
+                                   │ forge / agent/oauth-device-flow                                               │
+                                   │ UUID s-auth                                                                   │
+                                   │ lifecycle  ready                                                              │
+                                   │ presence   unattended                                                         │
+                                   │ agent      attention                                                          │
+                                   │ policy     outdated                                                           │
+                                   │ actions    inspect · attach · policy diff · recreate                          │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab variant · ? help · q quit

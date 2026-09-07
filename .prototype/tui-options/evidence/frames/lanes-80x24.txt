@@ -1,0 +1,24 @@
+P / probe · 1 Fleet 2 Projects 3 Attention 4 Search 5 Focus  6 Lanes
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 2                                                          │
+│ › forge/agent… ready       unattended  attention outdated                  │
+│   orbit/fix/c… stopped     unattended  failed    current  last start:…     │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ In progress · 3                                                            │
+│   forge/docs/… ready       attached:1  —         current                   │
+│   orbit/featu… starting    unattended  running   current  activating …     │
+│   p.ai/protot… creating    unattended  idle      current  building pr…     │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Recover · 2                                                                │
+│   p.ai/design… unreachable unattended  unknown   invalid  Incus inspe…     │
+│   labs/cleanu… missing     unattended  —         outdated expected ru…     │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Removing · 2                                                               │
+│   demo/discar… discarding  unattended  —         current  tearing dow…     │
+│   demo/archiv… deleting    unattended  —         current  credentials…     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab variant · ? help · q quit

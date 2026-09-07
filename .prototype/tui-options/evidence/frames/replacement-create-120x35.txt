@@ -1,0 +1,15 @@
+P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ TRY AGAIN WITH CHANGES · REPLACEMENT CREATE                                                │
+│                                                                                            │
+│ Project     forge                                                                          │
+│ Source      main@4e27a91                                                                   │
+│ Branch      feature/revised-stream                                                         │
+│ Policy      current project policy                                                         │
+│                                                                                            │
+│ NEW UUID s-new-020 · NEW operation op-create-78 · supersedes failed request                │
+│                                                                                            │
+│ enter submits fixture request · esc cancels                                                │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Editing a replacement request; submitting creates a new identity and supersedes the failed request.
+esc returns without mutating real state

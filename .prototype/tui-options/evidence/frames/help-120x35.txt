@@ -1,0 +1,19 @@
+P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Prototype controls                                                                         │
+│                                                                                            │
+│ 1–6 or Tab     switch structural variants                                                  │
+│ j/k            move between sessions                                                       │
+│ h/l            move projects in navigator                                                  │
+│ /              fuzzy filter using sahilm/fuzzy                                             │
+│ a or Enter     attach, or switch this prototype client                                     │
+│ d              detach this prototype client only                                           │
+│ c              creation and retry/replacement probe                                        │
+│ b              retained branches                                                           │
+│ p              typed policy comparison                                                     │
+│ X              aggregate project deletion preview                                          │
+│ esc            return/cancel                                                               │
+│ q              quit from overview                                                          │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+esc returns without mutating real state

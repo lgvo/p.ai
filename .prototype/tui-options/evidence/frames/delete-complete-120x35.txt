@@ -1,0 +1,16 @@
+P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Project deletion · ensure absent                                                           │
+│                                                                                            │
+│ Every retry re-inspects all targets; completed deletion is never rolled back.              │
+│                                                                                            │
+│ session credentials                deleted                                                 │
+│ assigned and retained refs         deleted                                                 │
+│ runtime s-auth                     deleted                                                 │
+│ environment image cache            deleted                                                 │
+│ registry tombstone                 deleted                                                 │
+│                                                                                            │
+│ All owned targets are confirmed absent; registry tombstone can be removed.                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Retry re-inspected every target and reached the same monotonic result: absent.
+esc returns without mutating real state

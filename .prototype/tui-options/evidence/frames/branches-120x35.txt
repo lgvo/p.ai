@@ -1,0 +1,13 @@
+P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Retained branches · Git resources, not sessions                                            │
+│                                                                                            │
+│ forge       spike/token-cache               8f21b4a                                        │
+│ orbit       fix/old-parser                  9c17d20                                        │
+│ p.ai        design/status-reducer           1ab830e                                        │
+│                                                                                            │
+│ They have no UUID, runtime, attachment, agent condition, or policy condition.              │
+│ n new session from selected source · r rename · p publish · x loss preview · esc back      │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+esc returns without mutating real state

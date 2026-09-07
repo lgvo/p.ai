@@ -1,0 +1,22 @@
+P / probe ·  1 Fleet  2 Projects 3 Attention 4 Search 5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│ › forge / agent/oauth-device… ready      unattended · attention / outdated │
+│   forge / docs/plugin-guide   ready      attached:1 · — / current          │
+│   orbit / fix/cache-race      stopped    unattended · failed / current     │
+│   orbit / feature/interactiv… starting   unattended · running / current    │
+│   … 5 more                                                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ forge / agent/oauth-device-flow                                            │
+│ UUID s-auth                                                                │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab variant · ? help · q quit

@@ -1,0 +1,22 @@
+P / probe · 1 Fleet 2 Projects 3 Attention 4 Search 5 Focus  6 Lanes
+╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
+│ Inspect first · 2        │ │ In progress · 3         │ │ Recover · 2             │ │ Removing · 2            │
+│ › forge/agent/oauth-d…   │ │   forge/docs/plugin-g…  │ │   p.ai/design/plugin-…  │ │   demo/discard/tempor…  │
+│     ready                │ │     ready               │ │     unreachable         │ │     discarding          │
+│     unattended           │ │     attached:1          │ │     unattended          │ │     unattended          │
+│     attention · outdated │ │     — · current         │ │     unknown · invalid   │ │     — · current         │
+│   orbit/fix/cache-race   │ │   orbit/feature/inter…  │ │     Incus inspection    │ │     tearing down        │
+│     stopped              │ │     starting            │ │ ti…                     │ │ runtim…                 │
+│     unattended           │ │     unattended          │ │   labs/cleanup/retain…  │ │   demo/archive/old-ex…  │
+│     failed · current     │ │     running · current   │ │     missing             │ │     deleting            │
+│     last start: host ex… │ │     activating          │ │     unattended          │ │     unattended          │
+╰──────────────────────────╯ │ environm…               │ │     — · outdated        │ │     — · current         │
+                             │   p.ai/prototype/tui-…  │ │     expected runtime    │ │     credentials         │
+                             │     creating            │ │ no…                     │ │ deleted…                │
+                             │     unattended          │ ╰─────────────────────────╯ ╰─────────────────────────╯
+                             │     idle · current      │
+                             │     building project    │
+                             │ en…                     │
+                             ╰─────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab variant · ? help · q quit

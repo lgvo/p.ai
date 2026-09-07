@@ -1,0 +1,21 @@
+P / probe · 1 Fleet 2 Projects  3 Attention  4 Search 5 Focus 6 Lanes
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 4                                                      │
+│ › forge/agent/oauth-device-f… ready       unattended  attention outdated   │
+│   orbit/fix/cache-race        stopped     unattended  failed    current    │
+│   p.ai/design/plugin-contrac… unreachable unattended  unknown   invalid    │
+│   labs/cleanup/retained-state missing     unattended  —         outdated   │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Everything else                                                            │
+│   orbit/feature/interactive-… starting    unattended  running   current    │
+│   p.ai/prototype/tui-options… creating    unattended  idle      current    │
+│   forge/docs/plugin-guide     ready       attached:1  —         current    │
+│   demo/discard/temporary-spi… discarding  unattended  —         current    │
+│   demo/archive/old-experiment deleting    unattended  —         current    │
+│                                                                            │
+│ Selected  forge/agent/oauth-device-flow  ·  actions: inspect / attach /    │
+│ policy diff / recreate                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab variant · ? help · q quit
