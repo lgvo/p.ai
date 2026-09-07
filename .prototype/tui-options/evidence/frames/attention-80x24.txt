@@ -4,15 +4,14 @@ P / probe · view 03 Attention workspace · fixture:standard · Tab cycle · v g
 │ › forge/agent/oauth-device-f… ready       unattended  attention outdated   │
 │   orbit/fix/cache-race        stopped     unattended  failed    current    │
 │   p.ai/design/plugin-contrac… unreachable unattended  unknown   invalid    │
-│   labs/cleanup/retained-state missing     unattended  —         outdated   │
+│ … 1 more                                                                   │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Everything else                                                            │
 │   orbit/feature/interactive-… starting    unattended  running   current    │
 │   p.ai/prototype/tui-options… creating    unattended  idle      current    │
 │   forge/docs/plugin-guide     ready       attached:1  —         current    │
-│   demo/discard/temporary-spi… discarding  unattended  —         current    │
-│   demo/archive/old-experiment deleting    unattended  —         current    │
+│ … 2 more                                                                   │
 │                                                                            │
 │ Selected  forge/agent/oauth-device-flow  ·  actions: inspect / attach /    │
 │ policy diff / recreate                                                     │

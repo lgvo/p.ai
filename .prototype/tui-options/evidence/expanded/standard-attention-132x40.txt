@@ -10,13 +10,8 @@ P / probe · view 03 Attention workspace · fixture:standard · Tab cycle · v g
 │   p.ai       design/plugin-contract-rec…           │ │   forge      docs/plugin-guide                                        │
 │     unreachable · unattended                       │ │     ready · attached:1                                                │
 │     unknown · invalid · Incus inspection time…     │ │     no signal · current ·                                             │
-│   labs       cleanup/retained-state                │ │   demo       discard/temporary-spike                                  │
-│     missing · unattended                           │ │     discarding · unattended                                           │
-│     no signal · outdated · expected runtime not …  │ │     no signal · current · tearing down runtime …                      │
-╰────────────────────────────────────────────────────╯ │   demo       archive/old-experiment                                   │
-                                                       │     deleting · unattended                                             │
-                                                       │     no signal · current · credentials deleted ·…                      │
-                                                       │                                                                       │
+│ … 1 more                                           │ │ … 2 more                                                              │
+╰────────────────────────────────────────────────────╯ │                                                                       │
                                                        │ Inspector                                                             │
                                                        │ forge / agent/oauth-device-flow                                       │
                                                        │ UUID s-auth                                                           │

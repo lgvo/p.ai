@@ -406,6 +406,33 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 	}
 }
 
+func TestEveryVariantAcrossEveryDatasetAndViewport(t *testing.T) {
+	for _, dataset := range []string{"standard", "dense", "empty", "single", "long"} {
+		for _, v := range allVariants() {
+			for _, size := range viewportMatrix() {
+				m, err := newAppForDataset(dataset)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.variant, m.width, m.height = v, size.width, size.height
+				view := m.View()
+				lines := strings.Split(view, "\n")
+				if len(lines) > size.height {
+					t.Errorf("%s/%s at %dx%d rendered %d lines", dataset, v, size.width, size.height, len(lines))
+				}
+				for lineNo, line := range lines {
+					if got := lipgloss.Width(line); got > size.width {
+						t.Errorf("%s/%s at %dx%d line %d rendered %d cells", dataset, v, size.width, size.height, lineNo+1, got)
+					}
+				}
+				if size.width >= 48 && size.height >= 16 && strings.Contains(view, "frame clipped") {
+					t.Errorf("%s/%s at supported %dx%d clipped", dataset, v, size.width, size.height)
+				}
+			}
+		}
+	}
+}
+
 func TestVariantGallerySelectsWithoutConsumingNumericSpace(t *testing.T) {
 	m := pressRune(t, newApp(), 'v')
 	if m.screen != screenVariantGallery {

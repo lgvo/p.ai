@@ -2,23 +2,22 @@ P / probe · view 06 Actionability lanes · fixture:standard · Tab cycle · v g
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Inspect first · 2                                                          │
 │ › forge/agent… ready       unattended  attention outdated                  │
-│   orbit/fix/c… stopped     unattended  failed    current  last start:…     │
+│ … 1 below                                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ In progress · 3                                                            │
 │   forge/docs/… ready       attached:1  —         current                   │
-│   orbit/featu… starting    unattended  running   current  activating …     │
-│   p.ai/protot… creating    unattended  idle      current  building pr…     │
+│ … 2 below                                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Recover · 2                                                                │
 │   p.ai/design… unreachable unattended  unknown   invalid  Incus inspe…     │
-│   labs/cleanu… missing     unattended  —         outdated expected ru…     │
+│ … 1 below                                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 ╭────────────────────────────────────────────────────────────────────────────╮
 │ Removing · 2                                                               │
 │   demo/discar… discarding  unattended  —         current  tearing dow…     │
-│   demo/archiv… deleting    unattended  —         current  credentials…     │
+│ … 1 below                                                                  │
 ╰────────────────────────────────────────────────────────────────────────────╯
 j/k move · a attach · d detach · c create · b branches · p policy · X delete
 / filter · Tab cycle · v gallery · ? help · q quit

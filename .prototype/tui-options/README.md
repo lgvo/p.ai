@@ -99,3 +99,5 @@ For each variant, identify:
    design.
 
 This artifact is not a production candidate and owns no product decision.
+The full validation results, tradeoffs, and suggested review order are in
+[`evidence/observations.md`](evidence/observations.md).

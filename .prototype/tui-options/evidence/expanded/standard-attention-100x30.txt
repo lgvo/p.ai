@@ -10,16 +10,11 @@ P / probe · view 03 Attention workspace · fixture:standard · Tab cycle · v g
 │     failed · current · tests exited 1 │ │   forge      docs/plugin-guide                     │
 │   p.ai       design/plugin-contract-  │ │     ready · attached:1                             │
 │ rec…                                  │ │     no signal · current ·                          │
-│     unreachable · unattended          │ │   demo       discard/temporary-spike               │
-│     unknown · invalid · Incus         │ │     discarding · unattended                        │
-│ inspection time…                      │ │     no signal · current · tearing down runtime …   │
-│   labs       cleanup/retained-state   │ │   demo       archive/old-experiment                │
-│     missing · unattended              │ │     deleting · unattended                          │
-│     no signal · outdated · expected   │ │     no signal · current · credentials deleted ·…   │
-│ runtime not …                         │ │                                                    │
-╰───────────────────────────────────────╯ │ Inspector                                          │
-                                          │ forge / agent/oauth-device-flow                    │
-                                          │ UUID s-auth                                        │
+│     unreachable · unattended          │ │ … 2 more                                           │
+│     unknown · invalid · Incus         │ │                                                    │
+│ inspection time…                      │ │ Inspector                                          │
+│ … 1 more                              │ │ forge / agent/oauth-device-flow                    │
+╰───────────────────────────────────────╯ │ UUID s-auth                                        │
                                           │ lifecycle  ready                                   │
                                           │ presence   unattended                              │
                                           │ agent      attention                               │
@@ -27,4 +22,6 @@ P / probe · view 03 Attention workspace · fixture:standard · Tab cycle · v g
                                           │ actions    inspect · attach · policy diff ·        │
                                           │ recreate                                           │
                                           ╰────────────────────────────────────────────────────╯
-… frame clipped; enlarge terminal to inspect remaining content
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle
+· v gallery · ? help · q quit

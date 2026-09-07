@@ -205,7 +205,7 @@ func (m app) navigatorView(width, height int) string {
 				}
 			}
 		}
-		line := fmt.Sprintf("%-10s %d sess · %d urgent", p, count, urgentCount)
+		line := fmt.Sprintf("%-10s %d sess · %d urgent", truncate(p, 10), count, urgentCount)
 		if i == m.project {
 			line = selectedStyle.Render("› " + line)
 		} else {
@@ -216,6 +216,11 @@ func (m app) navigatorView(width, height int) string {
 	indices := m.visibleIndices()
 	rightContent := titleStyle.Render("Sessions in selected project") + "\n" + m.cardRows(indices, maxRows(height, width))
 	if width >= 90 {
+		rowLimit := 4
+		if height >= 35 {
+			rowLimit = 7
+		}
+		rightContent = titleStyle.Render("Sessions in selected project") + "\n" + m.cardRows(indices, rowLimit)
 		left := renderPanel(navigatorWidth(width), titleStyle.Render("Projects")+"\n"+strings.Join(projectRows, "\n"))
 		right := renderPanel(width-navigatorWidth(width)-1, rightContent+"\n\n"+m.detailView())
 		return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
@@ -245,14 +250,14 @@ func (m app) attentionView(width, height int) string {
 			steadyIndices = append(steadyIndices, idx)
 		}
 	}
-	workspaceContent := titleStyle.Render("Everything else") + "\n" + m.attentionRows(steadyIndices, maxRows(height, width)) + "\n\n" + m.detailView()
+	workspaceContent := titleStyle.Render("Everything else") + "\n" + m.attentionRows(steadyIndices, 3) + "\n\n" + m.detailView()
 	if width >= 100 {
-		queue := renderPanel(attentionWidth(width), titleStyle.Render(fmt.Sprintf("Urgent to inspect · %d", len(urgentIndices)))+"\n"+m.attentionRows(urgentIndices, maxRows(height, width)))
+		queue := renderPanel(attentionWidth(width), titleStyle.Render(fmt.Sprintf("Urgent to inspect · %d", len(urgentIndices)))+"\n"+m.attentionRows(urgentIndices, 3))
 		workspace := renderPanel(width-attentionWidth(width)-1, workspaceContent)
 		return lipgloss.JoinHorizontal(lipgloss.Top, queue, " ", workspace)
 	}
-	queue := renderPanel(width, titleStyle.Render(fmt.Sprintf("Urgent to inspect · %d", len(urgentIndices)))+"\n"+m.compactAttentionRows(urgentIndices))
-	workspaceContent = titleStyle.Render("Everything else") + "\n" + m.compactAttentionRows(steadyIndices) + "\n\n" + m.compactSelectionView()
+	queue := renderPanel(width, titleStyle.Render(fmt.Sprintf("Urgent to inspect · %d", len(urgentIndices)))+"\n"+m.compactAttentionRows(urgentIndices, 3))
+	workspaceContent = titleStyle.Render("Everything else") + "\n" + m.compactAttentionRows(steadyIndices, 3) + "\n\n" + m.compactSelectionView()
 	workspace := renderPanel(width, workspaceContent)
 	return lipgloss.JoinVertical(lipgloss.Left, queue, workspace)
 }
@@ -278,7 +283,7 @@ func (m app) compactCardRows(indices []int) string {
 	return strings.Join(rows, "\n")
 }
 
-func (m app) compactAttentionRows(indices []int) string {
+func (m app) compactAttentionRows(indices []int, limit int) string {
 	if len(indices) == 0 {
 		return mutedStyle.Render("Nothing in this group")
 	}
@@ -288,7 +293,11 @@ func (m app) compactAttentionRows(indices []int) string {
 		position[idx] = pos
 	}
 	var rows []string
-	for _, idx := range indices {
+	for row, idx := range indices {
+		if row >= limit {
+			rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d more", len(indices)-row)))
+			break
+		}
 		s := m.sessions[idx]
 		presence := "unattended"
 		if s.AttachedCount > 0 {
@@ -361,8 +370,8 @@ func (m app) focusView(width, height int) string {
 	s := m.sessions[idx]
 	position := m.selected + 1
 	focus := titleStyle.Render(fmt.Sprintf("Focus deck · %d/%d", position, len(indices))) + "\n" + m.focusCard(s)
-	radar := titleStyle.Render("Stream radar · context without leaving focus") + "\n" + m.radarRows(indices, maxRows(height, width), width < 100)
-	if width >= 100 {
+	radar := titleStyle.Render("Stream radar · context without leaving focus") + "\n" + m.radarRows(indices, maxRows(height, width), width < 110)
+	if width >= 110 {
 		focusWidth := width * 57 / 100
 		return lipgloss.JoinHorizontal(lipgloss.Top, renderPanel(focusWidth, focus), " ", renderPanel(width-focusWidth-1, radar))
 	}
@@ -428,7 +437,7 @@ func (m app) lanesView(width, _ int) string {
 	if width < 100 {
 		panels := make([]string, 0, len(lanes))
 		for _, lane := range lanes {
-			content := titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices))) + "\n" + m.laneRows(lane.indices, true)
+			content := titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices))) + "\n" + m.laneRows(lane.indices, true, 1)
 			panels = append(panels, renderPanel(width, content))
 		}
 		return lipgloss.JoinVertical(lipgloss.Left, panels...)
@@ -442,7 +451,11 @@ func (m app) lanesView(width, _ int) string {
 		if i < remainder {
 			laneWidth++
 		}
-		content := titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices))) + "\n" + m.laneRows(lane.indices, false)
+		limit := 2
+		if width >= 132 {
+			limit = 4
+		}
+		content := titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices))) + "\n" + m.laneRows(lane.indices, false, limit)
 		panels = append(panels, renderPanel(laneWidth, content))
 		if i != len(lanes)-1 {
 			panels = append(panels, " ")
@@ -464,7 +477,7 @@ func laneFor(s session) int {
 	return 1
 }
 
-func (m app) laneRows(indices []int, compact bool) string {
+func (m app) laneRows(indices []int, compact bool, limit int) string {
 	if len(indices) == 0 {
 		return mutedStyle.Render("No streams")
 	}
@@ -473,8 +486,33 @@ func (m app) laneRows(indices []int, compact bool) string {
 	for pos, idx := range visible {
 		position[idx] = pos
 	}
+	selectedIndex, selected := m.selectedSessionIndex()
+	selectedRow := 0
+	if selected {
+		for row, idx := range indices {
+			if idx == selectedIndex {
+				selectedRow = row
+				break
+			}
+		}
+	}
+	start := selectedRow - limit/2
+	if start < 0 {
+		start = 0
+	}
+	if start+limit > len(indices) {
+		start = maxInt(0, len(indices)-limit)
+	}
+	end := start + limit
+	if end > len(indices) {
+		end = len(indices)
+	}
 	var rows []string
-	for _, idx := range indices {
+	if start > 0 {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d above", start)))
+	}
+	for row := start; row < end; row++ {
+		idx := indices[row]
 		s := m.sessions[idx]
 		presence, agent := sessionSignals(s)
 		var line string
@@ -487,6 +525,9 @@ func (m app) laneRows(indices []int, compact bool) string {
 			}
 		}
 		rows = append(rows, m.selectableLine(position[idx], line, s))
+	}
+	if end < len(indices) {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d below", len(indices)-end)))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -590,7 +631,7 @@ func (m app) attentionRows(indices []int, limit int) string {
 		if reason == "" {
 			reason = s.Operation
 		}
-		line := fmt.Sprintf("  %-10s %s\n    %s · %s\n    %s · %s · %s", s.Project, truncate(s.Branch, 27), s.Lifecycle, presence, firstNonEmpty(s.Agent, "no signal"), s.Policy, truncate(reason, 22))
+		line := fmt.Sprintf("  %-10s %s\n    %s · %s\n    %s · %s · %s", truncate(s.Project, 10), truncate(s.Branch, 27), s.Lifecycle, presence, firstNonEmpty(s.Agent, "no signal"), s.Policy, truncate(reason, 22))
 		rows = append(rows, m.selectableLine(position[idx], line, s))
 	}
 	return strings.Join(rows, "\n")
@@ -631,7 +672,7 @@ func (m app) detailView() string {
 	actions := availableActions(s)
 	lines := []string{
 		titleStyle.Render("Inspector"),
-		fmt.Sprintf("%s / %s", s.Project, s.Branch),
+		truncate(fmt.Sprintf("%s / %s", s.Project, s.Branch), 52),
 		mutedStyle.Render("UUID " + s.ID),
 		"lifecycle  " + styledFact(s.Lifecycle),
 		"presence   " + presence,

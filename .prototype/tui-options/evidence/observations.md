@@ -2,20 +2,29 @@
 
 Date: 2026-09-06
 
-## Owner and empirical question
+## Owner, question, and contract
 
 The governing user owns the deferred TUI interaction decision identified by
 `PROJECT.md`, `docs/mvp-status.md`, and `docs/technology-stack.md`.
 
-Question: which top-level TUI organization best lets one developer govern
-concurrent cross-project sessions while preserving lifecycle, confirmed
-attachment presence, latest unattended agent signal, policy condition, and
-daemon-provided actions?
+Empirical question: which information architecture and responsive behavior
+best lets one developer govern concurrent cross-project sessions while keeping
+lifecycle, confirmed attachment presence, latest unattended agent signal,
+policy condition, and daemon-provided actions distinct?
 
-The six candidates are a fleet table, project navigator, attention workspace,
-search-first command center, single-session focus deck, and actionability
-lanes. This artifact supplies evidence; it does not own or record the product
-decision.
+The confirmed exploration contract covered:
+
+- seventeen structurally distinct interfaces;
+- 160×50, 132×40, 120×35, 100×30, 80×24, 60×20, 48×16, and 40×12;
+- standard, dense (40 sessions), empty, single-session, and long-name fixtures;
+- complete selected-session facts and actions at supported sizes;
+- progressive disclosure at 60×20 and 48×16; and
+- an explicit unsupported-size response below 48×16 rather than a fabricated
+  or clipped interface.
+
+All state is generated in memory. Nothing connects to a daemon, repository,
+Incus, tmux, credentials, or real project/session data. The artifact supplies
+evidence; it does not own or record the product decision.
 
 ## Artifact and exact run path
 
@@ -37,16 +46,13 @@ nix develop path:.
 go run .
 ```
 
-Use `1`–`6` or `Tab` to switch candidates. `?` shows the action map. The
-deterministic evidence frames can be regenerated with:
+Use `1`–`6` for the original shortcuts, `Tab` to cycle all candidates, or `v`
+for the scalable gallery. The deterministic evidence can be regenerated with:
 
 ```sh
 go build -o .cache/bin/p-tui-probe .
 sh capture.sh
 ```
-
-The artifact is disposable but intentionally preserved for inspection. It is
-not staged, committed, promoted, or connected to production behavior.
 
 ## Environment and inputs
 
@@ -59,118 +65,131 @@ not staged, committed, promoted, or connected to production behavior.
 - Lip Gloss 1.1.0
 - `sahilm/fuzzy` 0.1.3
 - xterm-256color terminfo and tmux 3.7c available
-- nine generated sessions across five projects, three generated retained
-  branches, and local in-memory state only
+- nine-session standard fixture, forty-session dense fixture, empty fixture,
+  single-session fixture, long-name fixture, and three retained branches
 
-The fixture covers `creating`, `starting`, `ready`, `stopped`, `missing`,
+The fixtures cover `creating`, `starting`, `ready`, `stopped`, `missing`,
 `unreachable`, `discarding`, and `deleting`; confirmed attachment and
-unattended states; `running`, `attention`, `idle`, `failed`, `unknown`,
-and empty agent signals; and `current`, `outdated`, and `invalid` policy.
+unattended states; `running`, `attention`, `idle`, `failed`, `unknown`, and
+empty agent signals; and `current`, `outdated`, and `invalid` policy.
 
-## Cases exercised
+## Evidence and validation
 
-- all six candidates at 120×35 and 80×24;
-- long project/branch names and dense cross-project state;
-- fuzzy search over project, branch, lifecycle, presence, agent, and policy;
-- attach, client switch, detach, and first-confirmed-entry signal clearing;
-- failed Create, exact Retry, and **Try again with changes** replacement;
-- retained branches as Git resources rather than sessions;
-- typed outdated-policy comparison;
-- aggregate project-deletion preview;
-- partial ensure-absent progress and successful retry; and
-- real Bubble Tea event-loop launch/input/clean exit for every initial variant.
+- 152 responsive overview frames are preserved under `evidence/expanded`:
+  every candidate at all eight sizes on the standard fixture, plus four sizes
+  for each non-standard table fixture.
+- 52 interaction and compatibility frames are preserved under
+  `evidence/frames`: two ordinary sizes for all candidates and nine material
+  lifecycle scenarios.
+- The automated cross-product renders every one of the 17 candidates against
+  all five datasets at all eight viewport classes: 680 combinations.
+- Unit tests, race-enabled tests, `go vet`, deterministic capture, and real
+  Bubble Tea pseudo-terminal launch/input/clean-exit checks pass.
+- Direnv resolves the repository-local `.envrc`, which delegates to the locked
+  Nix shell; no host Go installation is required.
+
+The tests assert fixture coverage, maximum width and height, truthful minimum
+size behavior, absence of clipped supported frames, selected fact visibility,
+fuzzy search, gallery and keyboard routing, outline collapse, workspace modes,
+responsive card breakpoints, attachment switching, comparison pinning,
+recovery plans, action eligibility, retry identity, replacement identity, and
+monotonic deletion retry.
 
 ## Direct observations
 
-1. All six final variants launched in pseudo-terminals, accepted `q`, and
-   exited with status 0.
-2. `go test -count=1 ./...`, `go test -race -count=1 ./...`, and `go vet ./...`
-   passed. The tests check fixture coverage, both target sizes, maximum width
-   and height, absence of clipped primary frames, independent fact visibility,
-   search, keyboard routing, attach semantics, retry identity, replacement
-   identity, and monotonic deletion retry.
-3. Thirty final text frames are preserved under `evidence/frames`: two sizes
-   for six overview candidates and two sizes for nine material interaction
-   states. None contains the prototype's clipping marker.
-4. The first rendering pass exposed accidental wide-column wrapping and
-   narrow-screen loss of action help. Deliberate compact rows, vertical fact
-   inspectors, and narrow layouts removed those failures in the preserved
-   frames.
-5. A confirmed switch decremented only this fixture client's prior attachment,
-   incremented the target, cleared the target's unattended signal on the
-   zero-to-one transition, and explicitly reported that persistent hosts
-   remained alive. Detach left the session `ready`.
-6. Exact Retry retained UUID `s-new-019` and operation `op-create-77`.
-   **Try again with changes** presented UUID `s-new-020` and operation
-   `op-create-78` as a superseding creation.
-7. Project deletion first exposed `deleted`, `remaining`, and `unreachable`
-   targets. Retry moved every fixture-owned target toward `deleted` without
-   reconstructing prior targets.
-8. Fuzzy search ranked the confirmed attached session first for `attached`,
-   but also admitted a weaker fuzzy candidate. Search ranking is useful for
-   navigation but is not exact filtering evidence.
-9. The attention and lane labels had to be changed from decision-like wording
-   to “Urgent to inspect” and “Inspect first.” The underlying agent field is a
-   lossy latest unattended signal, not proof of an unresolved request.
+1. The responsive shell is **supported**. At 48×16 it preserves identity,
+   lifecycle, presence, agent, policy, and actions. At 40×12 it explicitly
+   reports the minimum instead of rendering an oversized virtual frame.
+2. Dataset generality is **supported** for rendering safety. The final audit
+   initially found dense attention/lanes overflow, a premature 100-column
+   focus split, and long-name inspector expansion; bounded windows, later
+   split thresholds, and explicit truncation removed all cross-product
+   failures.
+3. Attachment semantics are **supported** in the fixture: switching decrements
+   only this client's prior attachment, increments the target, clears an
+   unattended signal only on the zero-to-one confirmed-entry transition, and
+   leaves both persistent hosts alive. Detach leaves the session `ready`.
+4. Retry identity is **supported**: Exact Retry retains UUID `s-new-019` and
+   operation `op-create-77`; **Try again with changes** creates UUID
+   `s-new-020` and operation `op-create-78` as a superseding request.
+5. Monotonic deletion is **supported**: partial `deleted`, `remaining`, and
+   `unreachable` targets converge only toward confirmed absence on retry.
+6. Fuzzy search is useful but **partly refuted as an exact filter**: it ranks
+   the confirmed attached session first for `attached` while admitting weaker
+   fuzzy matches. Search is navigation evidence, not exact query evidence.
+7. Attention wording remains a risk. “Urgent to inspect” and “Inspect first”
+   are accurate; decision-like labels are refuted because the latest
+   unattended agent signal is lossy and not proof of an unresolved request.
+8. Card reflow is **supported**, but uniform visual rhythm is refuted when
+   operation-rich cards grow taller. That visible cost is intentionally
+   preserved for comparison.
 
 ## Candidate interpretation
 
 | Candidate | Strongest observed property | Material observed cost |
 |---|---|---|
-| Fleet table | Highest simultaneous cross-project fact density; works at both target sizes with an inspector | Dense rows require truncating long branch names |
-| Project navigator | Clearest project context and smallest per-project working set | Other projects expose counts rather than their session details |
-| Attention workspace | Fastest route to urgent unattended, failed, invalid, missing, and unreachable facts | A derived urgency order can be mistaken for durable task state unless wording stays precise |
-| Command center | Fast known-target lookup and action dispatch | Fuzzy results can include weak matches and passive overview is secondary |
-| Focus deck | Clearest comprehension of one session's identity, facts, and available actions | Lowest simultaneous overview density; relies on the radar for context |
-| Actionability lanes | Makes intervention categories spatially obvious while retaining raw conditions | Introduces derived categories, heavily truncates names at 80 columns, and resembles the generic cockpit/board pattern P does not want to lead with |
+| Fleet table | Highest simultaneous fact density | Long identities must truncate |
+| Project navigator | Clearest project context | Cross-project detail becomes counts |
+| Attention workspace | Fast route to degraded and unattended signals | Derived urgency can look more authoritative than it is |
+| Command center | Fast known-target lookup and dispatch | Passive overview is secondary; fuzzy matches are inexact |
+| Focus deck | Best single-session comprehension | Lowest simultaneous overview density |
+| Actionability lanes | Intervention categories are spatially obvious | Derived categories and board-like framing |
+| Expandable outline | Projects and sessions share one navigable hierarchy | Collapsed groups conceal detail by design |
+| Project status matrix | Portfolio imbalance is immediately comparable | Individual identity is compressed into cells |
+| Operations console | Progress, failure, and recovery are chronological | Stable sessions receive less emphasis |
+| Task workspace | Sessions, activity, policy, and resources stay separated | Mode switching hides non-active domains |
+| Minimal stream ledger | Fast reading with almost no chrome | Sparse structure offers fewer orientation cues |
+| Responsive card grid | Complete facts travel together across breakpoints | Variable card height weakens grid rhythm |
+| Attachment dock | Client location and host-preserving switches are explicit | Other governance questions become secondary |
+| Governance dashboard | Directly answers attention, attachment, change, and risk | Summaries depend on carefully named derived counts |
+| Session comparison | Removes memory burden from pairwise fact comparison | Requires pinning and managing a second selection role |
+| Resource topology | Makes resource ownership and lifetime boundaries explicit | Lower operational density; best as explanation/inspection |
+| Action eligibility sheet | Explains both available and unavailable actions | Inventory scanning is deliberately subordinate |
 
 ## Interpretation and result
 
 Result: **inconclusive** for the user-owned preference question until the
-governing user drives the candidates. The artifact successfully discriminates
-the alternatives and supports a narrower recommendation for that review:
+governing user drives the candidates. The technical feasibility and responsive
+safety claims above are supported.
 
-- evaluate the fleet table first as the default overview candidate;
-- evaluate attention ordering and project grouping as alternate views or
-  facets rather than separate sources of truth;
-- evaluate command search as a global overlay/action path;
-- reuse the focus deck's explicit fact treatment for a detail surface; and
-- treat lanes as a control candidate, not the presumptive direction.
+A productive review order is:
 
-That recommendation follows the documented priority on a cross-project view of
-concurrent streams and the requirement that P not lead as a generic Kanban
-cockpit. It is not a substitute for the governing user's observable response.
+1. start with **Governance dashboard**, **Fleet table**, and **Minimal ledger**
+   as competing default-overview philosophies;
+2. compare **Project navigator**, **Expandable outline**, and **Project status
+   matrix** for project-oriented work;
+3. compare **Attention workspace** and **Operations console** for interruption
+   and recovery work;
+4. inspect **Attachment dock**, **Session comparison**, **Resource topology**,
+   and **Action eligibility sheet** as specialized secondary surfaces; and
+5. treat **Command center**, **Focus deck**, **Task workspace**, **Cards**, and
+   **Lanes** as interaction controls or composable patterns.
+
+The exploration loop stopped after candidate 17 because remaining obvious
+ideas were rearrangements of tested models: another Kanban/pipeline duplicates
+lanes and matrix; another picker duplicates command search and the gallery;
+another master-detail layout duplicates table, navigator, focus, or cards.
 
 ## Limitations
 
-- Fixture RPC-shaped data replaces a real daemon and real latency, refresh,
-  partial response, and concurrent-update behavior.
+- Fixture RPC-shaped data replaces real daemon latency, refresh, partial
+  response, and concurrent-update behavior.
 - Attach uses in-memory state; no Incus, tmux, terminal handoff, or attachment
   helper is exercised.
-- Captured text frames preserve content and geometry but not interactive color
+- Text frames preserve content and geometry but not interactive color
   perception. The live program supplies adaptive color.
-- Only 120×35 and 80×24 are decision surfaces. Widths below 60 are clamped and
-  are not supported evidence.
-- No external user study, behavioral comparison, accessibility audit, or
+- No external user study, accessibility audit, screen-reader evaluation, or
   production performance benchmark was performed.
+- The 40×12 response proves truthful degradation, not application usability.
 
 ## Mutation, cleanup, and handback
 
-Every mutation is under `.prototype/tui-options`:
+Every mutation is under `.prototype/tui-options`. The branch
+`prototype/initial-tui-options` preserves a separate commit for the responsive
+foundation and every subsequent exploration. Production design documents and
+runtime code were not changed, and nothing was pushed or published.
 
-- environment: `.envrc`, `flake.nix`, `flake.lock`;
-- Go module: `go.mod`, `go.sum`;
-- artifact source: `main.go`, `app.go`, `view.go`, `app_test.go`;
-- use and capture instructions: `README.md`, `capture.sh`, `.gitignore`;
-- evidence: `evidence/observations.md` and `evidence/frames/*.txt`; and
-- ignored disposable material: `.cache/**`, including module/build caches and
-  `.cache/bin/p-tui-probe`.
-
-No external resources require cleanup. The repository index and project design
-documents were not changed. Preserve the artifact until the governing user has
-completed comparison; deletion, staging, committing, or promotion requires a
-separate decision.
-
-After user observation, a design workflow should record the chosen interaction
-contract in the implementation authority or assign a dedicated TUI authority
-through `PROJECT.md` before production implementation.
+Ignored `.cache/**` material is disposable. Preserve the committed artifact
+until the governing user completes comparison. After observation, record the
+chosen interaction contract in the appropriate implementation authority (or
+assign a dedicated TUI authority through `PROJECT.md`) before production work.

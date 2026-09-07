@@ -1,16 +1,16 @@
 P / probe · view 01 Fleet table · fixture:long · Tab cycle · v gallery
 ╭───────────────────────────────────────────────────────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────╮
 │ All active sessions · cross-project                                                           │ │ Inspector                                              │
-│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY                               │ │ project-with-a-deliberately-long-owner-and-name-01 /   │
-│ › project-with-a-delibera… ready      unattended attention outdated                           │ │ feature/a-deeply-nested-workstream-name-that-must-     │
-│   project-with-a-delibera… ready      attached:1 —        current                             │ │ truncate-without-hiding-status/agent/oauth-device-flow │
-│   project-with-a-delibera… stopped    unattended failed   current                             │ │ UUID s-auth                                            │
-│   project-with-a-delibera… starting   unattended running  current                             │ │ lifecycle  ready                                       │
-│   project-with-a-delibera… unreachable unattended unknown  invalid                            │ │ presence   unattended                                  │
-│   project-with-a-delibera… creating   unattended idle     current                             │ │ agent      attention                                   │
-│   project-with-a-delibera… missing    unattended —        outdated                            │ │ policy     outdated                                    │
-│   project-with-a-delibera… discarding unattended —        current                             │ │ actions    inspect · attach · policy diff · recreate   │
-│   … 1 more                                                                                    │ ╰────────────────────────────────────────────────────────╯
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY                               │ │ project-with-a-deliberately-long-owner-and-name-01 …   │
+│ › project-with-a-delibera… ready      unattended attention outdated                           │ │ UUID s-auth                                            │
+│   project-with-a-delibera… ready      attached:1 —        current                             │ │ lifecycle  ready                                       │
+│   project-with-a-delibera… stopped    unattended failed   current                             │ │ presence   unattended                                  │
+│   project-with-a-delibera… starting   unattended running  current                             │ │ agent      attention                                   │
+│   project-with-a-delibera… unreachable unattended unknown  invalid                            │ │ policy     outdated                                    │
+│   project-with-a-delibera… creating   unattended idle     current                             │ │ actions    inspect · attach · policy diff · recreate   │
+│   project-with-a-delibera… missing    unattended —        outdated                            │ ╰────────────────────────────────────────────────────────╯
+│   project-with-a-delibera… discarding unattended —        current                             │
+│   … 1 more                                                                                    │
 ╰───────────────────────────────────────────────────────────────────────────────────────────────╯
 Fixture data only — no daemon or project state is connected.
 j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

@@ -10,15 +10,10 @@ P / probe · view 03 Attention workspace · fixture:standard · Tab cycle · v g
 │     failed · current · tests exited 1         │ │   forge      docs/plugin-guide                                 │
 │   p.ai       design/plugin-contract-rec…      │ │     ready · attached:1                                         │
 │     unreachable · unattended                  │ │     no signal · current ·                                      │
-│     unknown · invalid · Incus inspection      │ │   demo       discard/temporary-spike                           │
-│ time…                                         │ │     discarding · unattended                                    │
-│   labs       cleanup/retained-state           │ │     no signal · current · tearing down runtime …               │
-│     missing · unattended                      │ │   demo       archive/old-experiment                            │
-│     no signal · outdated · expected runtime   │ │     deleting · unattended                                      │
-│ not …                                         │ │     no signal · current · credentials deleted ·…               │
-╰───────────────────────────────────────────────╯ │                                                                │
-                                                  │ Inspector                                                      │
-                                                  │ forge / agent/oauth-device-flow                                │
+│     unknown · invalid · Incus inspection      │ │ … 2 more                                                       │
+│ time…                                         │ │                                                                │
+│ … 1 more                                      │ │ Inspector                                                      │
+╰───────────────────────────────────────────────╯ │ forge / agent/oauth-device-flow                                │
                                                   │ UUID s-auth                                                    │
                                                   │ lifecycle  ready                                               │
                                                   │ presence   unattended                                          │
