@@ -100,14 +100,14 @@ func (m *app) applyDatasetForMode(mode experienceMode, name string) error {
 	}
 	for projectIndex, project := range m.projects() {
 		for _, s := range sessions {
-			if s.ID == "s-auth" && s.Project == project {
+			if s.ID == "dfcd667b-70e0-43b3-8607-4035f35a32e8" && s.Project == project {
 				m.project = projectIndex
 				break
 			}
 		}
 	}
 	for nodeIndex, node := range m.outlineNodes() {
-		if !node.isProject && sessions[node.sessionIndex].ID == "s-auth" {
+		if !node.isProject && sessions[node.sessionIndex].ID == "dfcd667b-70e0-43b3-8607-4035f35a32e8" {
 			m.outlineCursor = nodeIndex
 			break
 		}

@@ -49,11 +49,12 @@ func (m app) integrityRows(limit int) string {
 		}
 	}
 	rows := make([]string, 0, limit+1)
-	for row, idx := range ordered {
-		if row >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d more observations", len(ordered)-row)))
-			break
-		}
+	start, end := m.sessionWindow(ordered, limit)
+	if len(ordered) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(ordered))))
+	}
+	for row := start; row < end; row++ {
+		idx := ordered[row]
 		s := m.sessions[idx]
 		presence, _ := sessionSignals(s)
 		line := fmt.Sprintf("  %s %s %s %s", padRight(observationQuality(s), 10), padRight(s.ID, 16), padRight(s.Lifecycle, 11), presence)

@@ -28,7 +28,8 @@ func (m app) currentAttachmentView() string {
 		if s.ID == m.clientAttach {
 			presence, agent := sessionSignals(s)
 			return strings.Join([]string{
-				"CLIENT  attached → " + s.ID,
+				"CLIENT  attached →",
+				s.ID,
 				truncate(s.Project+" / "+s.Branch, 42),
 				strings.Join([]string{s.Lifecycle, presence, agent, s.Policy}, " · "),
 				"d detaches this client; host remains " + s.Lifecycle,
@@ -44,11 +45,12 @@ func (m app) attachmentCandidateRows(limit int) string {
 		return mutedStyle.Render("No switch targets.")
 	}
 	rows := make([]string, 0, limit+1)
-	for position, idx := range indices {
-		if position >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d more targets", len(indices)-position)))
-			break
-		}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for position := start; position < end; position++ {
+		idx := indices[position]
 		s := m.sessions[idx]
 		presence, _ := sessionSignals(s)
 		eligibility := "inspect only"

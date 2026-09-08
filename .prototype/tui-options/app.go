@@ -103,9 +103,34 @@ const (
 	screenDeleteProgress
 	screenHelp
 	screenVariantGallery
+	screenProjectFilter
+	screenTerminal
+	screenBoot
+	screenServices
+	screenAgents
+	screenJournal
 )
 
+// Prototype-only process observations; independent of unattended agent signals.
+type sessionProcess struct {
+	Preview              []string
+	ID                   string
+	Description          string
+	Journal              []string
+	Internal             bool
+	Label                string
+	LastSignal           string
+	LastReason           string
+	ReportsSessionSignal bool
+	Name                 string
+	State                string
+	Endpoint             string
+}
+
 type session struct {
+	Agents          []sessionProcess
+	Services        []sessionProcess
+	ProcessesKnown  bool
 	ID              string
 	Project         string
 	Branch          string
@@ -143,30 +168,54 @@ type deleteTarget struct {
 }
 
 type app struct {
-	width, height int
-	variant       variant
-	galleryChoice variant
-	mode          experienceMode
-	dataset       string
-	datasetNote   string
-	stressStep    int
-	screen        screen
-	previous      screen
-	selected      int
-	project       int
-	filter        textinput.Model
-	filtering     bool
-	sessions      []session
-	branches      []retainedBranch
-	clientAttach  string
-	message       string
-	draft         createDraft
-	deleteProject string
-	deleteTargets []deleteTarget
-	outlineCursor int
-	collapsed     map[string]bool
-	workspaceTab  int
-	compareAnchor string
+	terminalInspector  bool
+	agentPreviewOffset int
+	journalUnitName    string
+	journalFollow      bool
+	journalColumn      int
+	journalQuery       string
+	journalEditing     bool
+	journalMatch       int
+	journalNotice      string
+	agentsSessionID    string
+	agentChoice        int
+	serviceNotice      string
+	servicesSessionID  string
+	serviceChoice      int
+	journalOffset      int
+	boots              map[string]bootProgress
+	bootSequence       int
+	bootViewID         string
+	sessionBarFields   []string
+	terminals          map[string]fakeTerminal
+	terminalPrefix     bool
+	browser            bool
+	width, height      int
+	variant            variant
+	galleryChoice      variant
+	mode               experienceMode
+	dataset            string
+	datasetNote        string
+	stressStep         int
+	screen             screen
+	previous           screen
+	selected           int
+	project            int
+	topologyProject    string
+	projectChoice      int
+	filter             textinput.Model
+	filtering          bool
+	sessions           []session
+	branches           []retainedBranch
+	clientAttach       string
+	message            string
+	draft              createDraft
+	deleteProject      string
+	deleteTargets      []deleteTarget
+	outlineCursor      int
+	collapsed          map[string]bool
+	workspaceTab       int
+	compareAnchor      string
 }
 
 func newApp() app {
@@ -197,7 +246,7 @@ func newAppForModeDataset(mode experienceMode, dataset string) (app, error) {
 		filter:        filter,
 		sessions:      fixtureSessions(),
 		branches:      fixtureBranches(),
-		clientAttach:  "s-docs",
+		clientAttach:  "23103d34-3e04-4071-9acf-3625490aea88",
 		message:       fixtureNotice,
 	}
 	if err := m.applyDatasetForMode(mode, dataset); err != nil {
@@ -208,15 +257,15 @@ func newAppForModeDataset(mode experienceMode, dataset string) (app, error) {
 
 func fixtureSessions() []session {
 	return []session{
-		{ID: "s-auth", Project: "forge", Branch: "agent/oauth-device-flow", Lifecycle: "ready", Agent: "attention", AgentReason: "permission required", Policy: "outdated", PolicyDiff: []string{"- filesystem:secrets (still effective)", "+ service:issue-tracker (not available)"}},
-		{ID: "s-docs", Project: "forge", Branch: "docs/plugin-guide", Lifecycle: "ready", AttachedCount: 1, Policy: "current"},
-		{ID: "s-cache", Project: "orbit", Branch: "fix/cache-race", Lifecycle: "stopped", Agent: "failed", AgentReason: "tests exited 1", Policy: "current", Operation: "last start: host exited; bounded diagnostic available"},
-		{ID: "s-cli", Project: "orbit", Branch: "feature/interactive-cli", Lifecycle: "starting", Agent: "running", Policy: "current", Operation: "activating environment · phase 3/5"},
-		{ID: "s-plugin", Project: "p.ai", Branch: "design/plugin-contract-reconciliation", Lifecycle: "unreachable", Agent: "unknown", Policy: "invalid", PolicyDiff: []string{"! external endpoint binding can no longer be enforced"}, Operation: "Incus inspection timed out"},
-		{ID: "s-tui", Project: "p.ai", Branch: "prototype/tui-options-with-a-deliberately-long-name", Lifecycle: "creating", Agent: "idle", Policy: "current", Operation: "building project environment · phase 2/6"},
-		{ID: "s-clean", Project: "labs", Branch: "cleanup/retained-state", Lifecycle: "missing", Policy: "outdated", PolicyDiff: []string{"- public-egress (still effective if runtime returns)"}, Operation: "expected runtime not found"},
-		{ID: "s-discard", Project: "demo", Branch: "discard/temporary-spike", Lifecycle: "discarding", Policy: "current", Operation: "tearing down runtime · branch will be retained"},
-		{ID: "s-retire", Project: "demo", Branch: "archive/old-experiment", Lifecycle: "deleting", Policy: "current", Operation: "credentials deleted · runtime remaining"},
+		{ID: "dfcd667b-70e0-43b3-8607-4035f35a32e8", Project: "forge", Branch: "agent/oauth-device-flow", ProcessesKnown: true, Agents: []sessionProcess{{Name: "Codex", ID: "40e93cb8-a84e-4dc6-8852-13de6527e8cc", Description: "Implement OAuth device authorization", Preview: []string{"You: Implement device authorization.", "Codex: Added device-code polling and expiry checks.", "Codex: May I run the integration tests?"}, Label: "API work", ReportsSessionSignal: true, State: "running"}, {Name: "Codex", ID: "56cc3c2a-d1d6-450d-9d74-501caed1b87b", Description: "Run OAuth regression tests", Preview: []string{"You: Check the OAuth changes for regressions.", "Codex: Reviewing token expiry cases.", "Codex: Running the focused OAuth tests."}, Label: "Tests", LastSignal: "running", LastReason: "checking OAuth tests", State: "running"}}, Services: []sessionProcess{{Name: "api.service", Description: "Project API server", State: "running", Endpoint: ":3000", Journal: []string{"10:42:01 systemd: Starting project API server", "10:42:02 api: Listening on 0.0.0.0:3000", "10:42:03 api: Connected to database", "10:43:12 api: GET /health 200"}}, {Name: "postgresql.service", Description: "PostgreSQL project database", State: "running", Endpoint: ":5432", Journal: []string{"10:41:58 systemd: Starting PostgreSQL", "10:41:59 postgres: Listening on port 5432", "10:42:00 postgres: Database system ready to accept connections"}}}, Lifecycle: "ready", Agent: "attention", AgentReason: "permission required", Policy: "outdated", PolicyDiff: []string{"- filesystem:secrets (still effective)", "+ service:issue-tracker (not available)"}},
+		{ID: "23103d34-3e04-4071-9acf-3625490aea88", Project: "forge", Branch: "docs/plugin-guide", ProcessesKnown: true, Agents: []sessionProcess{{Name: "Codex", ID: "df01b065-a3fb-4e33-8e15-732c3dc19426", Label: "Documentation", Description: "Update the plugin guide", Preview: []string{"You: Update the plugin documentation.", "Codex: Reviewing the existing examples."}, ReportsSessionSignal: true, State: "running"}}, Services: []sessionProcess{{Name: "docs-preview.service", Description: "Documentation preview server", State: "running", Endpoint: ":4321", Journal: []string{"10:40:01 preview: Built documentation", "10:40:02 preview: Listening on port 4321"}}}, Lifecycle: "ready", AttachedCount: 1, Policy: "current"},
+		{ID: "b6944b3a-dbdd-4791-84d2-fa6936f52c5c", Project: "orbit", Branch: "fix/cache-race", ProcessesKnown: true, Agents: []sessionProcess{{Name: "Codex", ID: "a5cd7638-41e7-4d9e-b042-cc949ddfdd88", Label: "Cache fix", Description: "Investigate the cache race", ReportsSessionSignal: true, State: "stopped"}}, Services: []sessionProcess{{Name: "redis.service", Description: "Project cache", State: "stopped", Endpoint: ":6379", Journal: []string{"10:35:00 redis: User requested shutdown", "10:35:01 systemd: Stopped project cache"}}}, Lifecycle: "stopped", Agent: "failed", AgentReason: "tests exited 1", Policy: "current", Operation: "last start: host exited; bounded diagnostic available"},
+		{ID: "69cfad8f-d131-4b02-bc60-acf2d27dfb1e", Project: "orbit", Branch: "feature/interactive-cli", Lifecycle: "starting", Agent: "running", Policy: "current", Operation: "activating environment · phase 3/5"},
+		{ID: "2e735f7a-6feb-43cb-aef0-ec05af7ea59b", Project: "p.ai", Branch: "design/plugin-contract-reconciliation", Lifecycle: "unreachable", Agent: "unknown", Policy: "invalid", PolicyDiff: []string{"! external endpoint binding can no longer be enforced"}, Operation: "Incus inspection timed out"},
+		{ID: "97d438c2-6f33-47b1-9d0f-043fbdc1576b", Project: "p.ai", Branch: "prototype/tui-options-with-a-deliberately-long-name", Lifecycle: "creating", Agent: "idle", Policy: "current", Operation: "building project environment · phase 2/6"},
+		{ID: "6abf77d4-ce38-42e9-9f7c-77e692c6458b", Project: "labs", Branch: "cleanup/retained-state", Lifecycle: "missing", Policy: "outdated", PolicyDiff: []string{"- public-egress (still effective if runtime returns)"}, Operation: "expected runtime not found"},
+		{ID: "e39d089b-fc98-40f6-a4ea-1efaf0ce58a6", Project: "demo", Branch: "discard/temporary-spike", Lifecycle: "discarding", Policy: "current", Operation: "tearing down runtime · branch will be retained"},
+		{ID: "6c44c201-83d9-4378-8f33-3b73250e99a3", Project: "demo", Branch: "archive/old-experiment", Lifecycle: "deleting", Policy: "current", Operation: "credentials deleted · runtime remaining"},
 	}
 }
 
@@ -232,16 +281,28 @@ func (m app) Init() tea.Cmd { return nil }
 
 func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case bootTick:
+		return m.updateBoot(msg)
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
-			return m, tea.Quit
+		if m.screen == screenTerminal {
+			return m.updateTerminal(msg)
+		}
+		if msg.String() == "ctrl+c" || msg.String() == "esc" || msg.String() == "q" {
+			return m.cancelInteraction(true)
+		}
+		if m.screen == screenJournal {
+			m.updateJournal(msg)
+			return m, nil
 		}
 		if m.filtering {
 			switch msg.String() {
 			case "esc", "enter":
+				if msg.String() == "esc" {
+					m.filter.SetValue("")
+				}
 				m.filtering = false
 				m.filter.Blur()
 				m.selected = 0
@@ -257,6 +318,12 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateOverlay(msg)
 		}
 
+		if m.browser {
+			switch msg.String() {
+			case "tab", "shift+tab", "[", "]", "1", "2", "3", "4", "5", "6", "v":
+				return m, nil
+			}
+		}
 		switch msg.String() {
 		case "q":
 			return m, tea.Quit
@@ -305,23 +372,48 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.variant == variantOutline {
 				m.setOutlineCollapsed(false)
 			}
+		case "esc":
+			m.filter.SetValue("")
+			m.selected = 0
 		case "/":
 			m.filtering = true
 			m.filter.Focus()
 			return m, textinput.Blink
 		case "a":
-			m.attachSelected()
+			if m.browser {
+				cmd := m.enterTerminal()
+				return m, cmd
+			} else {
+				m.attachSelected()
+			}
 		case "enter", " ":
 			if m.variant == variantOutline && m.toggleOutlineNode() {
 				break
 			}
-			m.attachSelected()
+			if m.browser {
+				cmd := m.enterTerminal()
+				return m, cmd
+			} else {
+				m.attachSelected()
+			}
 		case "d":
-			m.detachSelected()
+			if !m.browser {
+				m.detachSelected()
+			}
 		case "c":
 			m.startCreate()
 		case "b":
 			m.previous, m.screen = m.screen, screenBranches
+		case "P":
+			if m.variant == variantTopology {
+				m.projectChoice = 0
+				for i, project := range m.projects() {
+					if project == m.topologyProject {
+						m.projectChoice = i + 1
+					}
+				}
+				m.screen = screenProjectFilter
+			}
 		case "p":
 			m.previous, m.screen = m.screen, screenPolicy
 		case "r":
@@ -334,8 +426,20 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.message = fmt.Sprintf("Workspace mode: %s.", workspaceTabNames[m.workspaceTab])
 			}
 		case "s":
+			if m.browser {
+				m.stopSelected()
+				break
+			}
 			if m.variant == variantCompare {
 				m.pinComparisonAnchor()
+			}
+		case "A":
+			if m.browser {
+				m.openAgents()
+			}
+		case "S":
+			if m.browser {
+				m.openServices()
 			}
 		case "X":
 			m.startDeletePreview()
@@ -355,6 +459,41 @@ func (m app) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.screen {
+	case screenAgents:
+		m.updateAgents(key)
+	case screenServices:
+		m.updateServices(key)
+	case screenBoot:
+		if key == "enter" {
+			for _, s := range m.sessions {
+				if s.ID == m.bootViewID && s.Lifecycle == "ready" {
+					m.selectSession(s.ID)
+					cmd := m.enterTerminal()
+					return m, cmd
+				}
+			}
+		}
+	case screenProjectFilter:
+		projects := append([]string{""}, m.projects()...)
+		switch key {
+		case "j", "down":
+			m.projectChoice = (m.projectChoice + 1) % len(projects)
+		case "k", "up":
+			m.projectChoice = (m.projectChoice + len(projects) - 1) % len(projects)
+		case "enter":
+			selectedID := ""
+			if idx, ok := m.selectedSessionIndex(); ok {
+				selectedID = m.sessions[idx].ID
+			}
+			m.topologyProject = projects[m.projectChoice]
+			m.selected = 0
+			for pos, idx := range m.visibleIndices() {
+				if m.sessions[idx].ID == selectedID {
+					m.selected = pos
+				}
+			}
+			m.screen = screenOverview
+		}
 	case screenVariantGallery:
 		switch key {
 		case "j", "down":
@@ -428,6 +567,9 @@ func (m app) visibleIndices() []int {
 	indices := make([]int, 0, len(m.sessions))
 	projects := m.projects()
 	activeProject := ""
+	if m.variant == variantTopology {
+		activeProject = m.topologyProject
+	}
 	if m.variant == variantNavigator && len(projects) > 0 {
 		if m.project >= len(projects) {
 			m.project = 0
@@ -456,6 +598,9 @@ func (m app) visibleIndices() []int {
 			presence = "attached"
 		}
 		haystack[i] = strings.Join([]string{s.Project, s.Branch, s.Lifecycle, presence, s.Agent, s.Policy}, " ")
+		for _, agent := range activeAgentProcesses(s, s.Agents) {
+			haystack[i] += " " + agentSummary(s, agent)
+		}
 	}
 	matches := fuzzy.Find(query, haystack)
 	filtered := make([]int, 0, len(matches))
@@ -541,6 +686,10 @@ func (m *app) attachSelected() {
 	target.AttachedCount++
 	if wasUnattended {
 		target.Agent, target.AgentReason = "", ""
+		target.Agents = append([]sessionProcess(nil), target.Agents...)
+		for i := range target.Agents {
+			target.Agents[i].LastSignal, target.Agents[i].LastReason = "", ""
+		}
 	}
 	m.clientAttach = target.ID
 	if previous == "" {
@@ -617,7 +766,7 @@ func (m *app) beginDelete() {
 	m.deleteTargets = []deleteTarget{
 		{Name: "session credentials", State: "deleted"},
 		{Name: "assigned and retained refs", State: "deleted"},
-		{Name: "runtime s-auth", State: "remaining"},
+		{Name: "runtime dfcd667b-70e0-43b3-8607-4035f35a32e8", State: "remaining"},
 		{Name: "environment image cache", State: "unreachable"},
 		{Name: "registry tombstone", State: "remaining"},
 	}
@@ -645,11 +794,11 @@ func (m *app) applyScenario(name string) error {
 		m.screen = screenBranches
 	case "policy":
 		m.variant = variantTable
-		m.selectSession("s-auth")
+		m.selectSession("dfcd667b-70e0-43b3-8607-4035f35a32e8")
 		m.screen = screenPolicy
 	case "delete-preview":
 		m.variant = variantTable
-		m.selectSession("s-auth")
+		m.selectSession("dfcd667b-70e0-43b3-8607-4035f35a32e8")
 		m.startDeletePreview()
 	case "delete-progress":
 		m.deleteProject = "forge"
@@ -660,7 +809,7 @@ func (m *app) applyScenario(name string) error {
 		m.retryDelete()
 	case "attached-switch":
 		m.variant = variantTable
-		m.selectSession("s-auth")
+		m.selectSession("dfcd667b-70e0-43b3-8607-4035f35a32e8")
 		m.attachSelected()
 	case "help":
 		m.screen = screenHelp

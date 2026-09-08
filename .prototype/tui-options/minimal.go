@@ -45,7 +45,8 @@ func (m app) minimalView(width, height int) string {
 			nameWidth := maxInt(18, width-8)
 			rows = append(rows,
 				selectedStyle.Render("› "+truncate(s.Project+" / "+s.Branch, nameWidth)),
-				fmt.Sprintf("    %s · %s · %s · %s · %s", s.ID, s.Lifecycle, presence, agent, s.Policy),
+				"    "+s.ID,
+				fmt.Sprintf("    %s · %s · %s · %s", s.Lifecycle, presence, agent, s.Policy),
 				"    actions  "+strings.Join(availableActions(s), " · "),
 			)
 			if s.Operation != "" {

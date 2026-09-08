@@ -20,7 +20,7 @@ for dataset in $datasets; do
     for size in 120x35 80x24 60x20 48x16; do
       width=${size%x*}
       height=${size#*x}
-      "$bin" --mode stress --dataset "$dataset" --snapshot --variant "$variant" --width "$width" --height "$height" |
+      "$bin" --mode stress --dataset "$dataset" --gallery --snapshot --variant "$variant" --width "$width" --height "$height" |
         sed 's/[[:space:]]*$//' >"$out/$dataset/$variant-$size.txt"
     done
   done

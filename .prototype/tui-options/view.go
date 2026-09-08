@@ -23,7 +23,35 @@ var (
 	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(panelEdge).Padding(0, 1)
 )
 
-func (m app) View() string {
+func (m app) View() (frame string) {
+	// Bound physical terminal rows as well as logical lines: wrapping would
+	// invalidate the renderer's cursor accounting and leave previous frames.
+	defer func() {
+		width, height := maxInt(m.width, 1), maxInt(m.height, 1)
+		lines := strings.Split(fitLines(frame, height), "\n")
+		for i := range lines {
+			lines[i] = padRight(lines[i], width)
+		}
+		for len(lines) < height {
+			lines = append(lines, strings.Repeat(" ", width))
+		}
+		frame = strings.Join(lines, "\n")
+	}()
+	if m.screen == screenJournal {
+		return m.journalView()
+	}
+	if m.screen == screenAgents {
+		return m.agentsView()
+	}
+	if m.screen == screenServices {
+		return m.servicesView()
+	}
+	if m.screen == screenBoot {
+		return m.bootView()
+	}
+	if m.screen == screenTerminal {
+		return m.terminalView()
+	}
 	width, height := m.width, m.height
 	if width < 48 || height < 16 {
 		return m.tooSmallView(width, height)
@@ -88,6 +116,8 @@ func (m app) View() string {
 		body = m.deleteProgressView(width)
 	case screenHelp:
 		body = m.helpView(width)
+	case screenProjectFilter:
+		body = m.projectFilterView(width, height)
 	case screenVariantGallery:
 		body = m.variantGalleryView(width)
 	}
@@ -96,6 +126,10 @@ func (m app) View() string {
 }
 
 func (m app) header(width int) string {
+	if m.browser {
+		line := "P · Sessions"
+		return titleStyle.Render(truncate(line, width))
+	}
 	line := fmt.Sprintf("P / probe · view %02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, m.variant, m.dataset)
 	if m.mode == modeStress {
 		line = fmt.Sprintf("P / probe · STRESS:%s · view %02d %s · Tab cycle · v gallery", m.dataset, m.variant+1, m.variant)
@@ -110,6 +144,16 @@ func (m app) header(width int) string {
 }
 
 func (m app) footer(width int) string {
+	if m.browser {
+		keys := "j/k move · Enter session · s stop · c create · b branches · p policy · X delete\nP project · A agents · S services · / search · ? help · q | Esc | Ctrl-C back/quit"
+		if m.screen != screenOverview {
+			keys = "q | Esc | Ctrl-C back"
+		}
+		if m.message != "" && m.message != fixtureNotice {
+			keys = truncate(m.message, width) + "\n" + keys
+		}
+		return lipgloss.NewStyle().Width(width).Render(mutedStyle.Render(keys))
+	}
 	message := m.message
 	if m.screen == screenOverview {
 		if width < 100 {
@@ -126,6 +170,9 @@ func (m app) footer(width int) string {
 		}
 	} else {
 		message += "\n" + mutedStyle.Render("esc returns without mutating real state")
+	}
+	if m.variant == variantTopology && m.screen == screenOverview {
+		message = strings.ReplaceAll(message, "Tab cycle · v gallery", "P project")
 	}
 	return lipgloss.NewStyle().Width(width).Render(message)
 }
@@ -158,16 +205,28 @@ func (m app) compactResponsiveView(width, height int) string {
 		lines := []string{
 			truncate(s.Project+" / "+s.Branch, identityWidth),
 			mutedStyle.Render("UUID " + s.ID),
-			"lifecycle  " + styledFact(s.Lifecycle),
+			"lifecycle  " + styledFact(m.lifecycleLabel(s.Lifecycle)),
 			"presence   " + presence,
 			"agent      " + styledFact(agent),
 			"policy     " + styledFact(s.Policy),
 			"actions    " + strings.Join(availableActions(s), " · "),
 		}
+		if m.browser {
+			lines[4] = sessionStats(s)
+		}
 		if s.Operation != "" && height >= 18 {
 			lines = append(lines, "progress   "+s.Operation)
 		}
 		content += "\n" + strings.Join(lines, "\n")
+	}
+	if m.browser {
+		content = strings.ReplaceAll(content, fmt.Sprintf("%s · compact disclosure", m.variant), m.projectSessionsHeading())
+		content = strings.ReplaceAll(content, "No sessions in this fixture.\n\nDataset "+m.dataset+" · use v to compare views", "No matching sessions.")
+		panel := renderPanel(width, content)
+		if search := m.listSearch(width); search != "" {
+			panel += "\n" + search
+		}
+		return fitLines(strings.Join([]string{header, panel, mutedStyle.Render("P project · A agents · S services · / search\nj/k move · Enter session · s stop\n? help · q | Esc | Ctrl-C back/quit")}, "\n"), height)
 	}
 	body := renderPanel(width, content)
 	footer := mutedStyle.Render("j/k move · a attach · Tab cycle · v views")
@@ -331,11 +390,12 @@ func (m app) compactAttentionRows(indices []int, limit int) string {
 		position[idx] = pos
 	}
 	var rows []string
-	for row, idx := range indices {
-		if row >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d more", len(indices)-row)))
-			break
-		}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for row := start; row < end; row++ {
+		idx := indices[row]
 		s := m.sessions[idx]
 		presence := "unattended"
 		if s.AttachedCount > 0 {
@@ -386,11 +446,12 @@ func (m app) commandRows(indices []int, limit int) string {
 		return mutedStyle.Render("No match. Clear the query to recover the full session set.")
 	}
 	var rows []string
-	for pos, idx := range indices {
-		if pos >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d more matches", len(indices)-pos)))
-			break
-		}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
 		s := m.sessions[idx]
 		presence, agent := sessionSignals(s)
 		line := fmt.Sprintf("  %s %s %s %s %s", padRight(s.Project+"/"+s.Branch, 23), padRight(s.Lifecycle, 10), padRight(presence, 10), padRight(agent, 9), s.Policy)
@@ -422,7 +483,7 @@ func (m app) focusCard(s session) string {
 		fmt.Sprintf("%s / %s", s.Project, s.Branch),
 		mutedStyle.Render("UUID " + s.ID),
 		"",
-		fmt.Sprintf("Lifecycle  %s  Presence  %s", padRight(styledFact(s.Lifecycle), 12), presence),
+		fmt.Sprintf("Lifecycle  %s  Presence  %s", padRight(styledFact(m.lifecycleLabel(s.Lifecycle)), 12), presence),
 		fmt.Sprintf("Agent      %s  Policy    %s", padRight(styledFact(agent), 12), styledFact(s.Policy)),
 		"",
 		"Primary actions  " + strings.Join(availableActions(s), " · "),
@@ -435,11 +496,12 @@ func (m app) focusCard(s session) string {
 
 func (m app) radarRows(indices []int, limit int, compact bool) string {
 	var rows []string
-	for pos, idx := range indices {
-		if pos >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d more", len(indices)-pos)))
-			break
-		}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
 		s := m.sessions[idx]
 		presence, agent := sessionSignals(s)
 		var line string
@@ -607,11 +669,12 @@ func (m app) sessionRows(indices []int, wide bool, limit int) string {
 		header = "  PROJECT / BRANCH              LIFE       SIGNAL / POLICY"
 	}
 	rows := []string{mutedStyle.Render(header)}
-	for pos, idx := range indices {
-		if pos >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("  … %d more", len(indices)-pos)))
-			break
-		}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
 		s := m.sessions[idx]
 		presence := "unattended"
 		if s.AttachedCount > 0 {
@@ -641,11 +704,12 @@ func (m app) cardRows(indices []int, limit int) string {
 		return mutedStyle.Render("No sessions in this project")
 	}
 	var rows []string
-	for pos, idx := range indices {
-		if pos >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d more", len(indices)-pos)))
-			break
-		}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
 		s := m.sessions[idx]
 		presence := "unattended"
 		if s.AttachedCount > 0 {
@@ -671,11 +735,12 @@ func (m app) attentionRows(indices []int, limit int) string {
 		position[idx] = pos
 	}
 	var rows []string
-	for n, idx := range indices {
-		if n >= limit {
-			rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d more", len(indices)-n)))
-			break
-		}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for n := start; n < end; n++ {
+		idx := indices[n]
 		s := m.sessions[idx]
 		presence := "unattended"
 		if s.AttachedCount > 0 {
@@ -728,7 +793,7 @@ func (m app) detailView() string {
 		titleStyle.Render("Inspector"),
 		truncate(fmt.Sprintf("%s / %s", s.Project, s.Branch), 52),
 		mutedStyle.Render("UUID " + s.ID),
-		"lifecycle  " + styledFact(s.Lifecycle),
+		"lifecycle  " + styledFact(m.lifecycleLabel(s.Lifecycle)),
 		"presence   " + presence,
 		"agent      " + styledFact(agent),
 		"policy     " + styledFact(s.Policy),
@@ -898,6 +963,24 @@ func (m app) deleteProgressView(width int) string {
 }
 
 func (m app) helpView(width int) string {
+	if m.browser {
+		return centeredPanel(width, strings.Join([]string{
+			titleStyle.Render("Keyboard shortcuts"), "",
+			"j/k or ↑/↓     Select a session",
+			"P              Select a project",
+			"/              Search sessions",
+			"Enter          Enter the session terminal",
+			"s              Stop the selected session",
+			"S              Inspect project services and journal",
+			"A              Inspect agent instances and reports",
+			"c              Create a session",
+			"b              Browse retained branches",
+			"p              Inspect policy",
+			"X              Review project deletion",
+			"q | Esc | Ctrl-C  Back/cancel; quit when idle", "",
+			"Demo data; actions are simulated.",
+		}, "\n"))
+	}
 	content := strings.Join([]string{
 		titleStyle.Render("Prototype controls"),
 		mutedStyle.Render("Compare and switch structural variants without changing fixture state."),
@@ -912,6 +995,7 @@ func (m app) helpView(width int) string {
 		"c              creation and retry/replacement probe",
 		"b              retained branches",
 		"p              typed policy comparison",
+		"P              Select a project (Resource topology)",
 		"X              aggregate project deletion preview",
 		"esc            return/cancel",
 		"q              quit from overview",
@@ -920,13 +1004,18 @@ func (m app) helpView(width int) string {
 }
 
 func styledFact(value string) string {
+	if value == "running" || value == "working" || strings.HasPrefix(value, "attached:") {
+		return lipgloss.NewStyle().Foreground(accent).Render(value)
+	}
 	switch value {
 	case "attention", "failed", "invalid", "unreachable", "missing", "remaining":
 		return lipgloss.NewStyle().Foreground(urgent).Render(value)
-	case "outdated", "starting", "creating", "unknown":
+	case "waiting", "!", "outdated", "starting", "creating", "unknown", "discarding", "deleting", "activating":
 		return lipgloss.NewStyle().Foreground(warning).Render(value)
-	case "ready", "current", "deleted", "already_absent":
+	case "ready", "active", "current", "deleted", "already_absent":
 		return lipgloss.NewStyle().Foreground(positive).Render(value)
+	case "stopped", "inactive", "idle", "unattended", "—", "not evaluated":
+		return mutedStyle.Render(value)
 	default:
 		return value
 	}
@@ -1064,4 +1153,18 @@ func windowBounds(length, cursor, limit int) (start, end int) {
 		end = length
 	}
 	return start, end
+}
+
+// Resolve the cursor by identity so grouped and reordered lists scroll too.
+func (m app) sessionWindow(indices []int, limit int) (int, int) {
+	cursor := 0
+	if selected, ok := m.selectedSessionIndex(); ok {
+		for pos, idx := range indices {
+			if idx == selected {
+				cursor = pos
+				break
+			}
+		}
+	}
+	return windowBounds(len(indices), cursor, limit)
 }

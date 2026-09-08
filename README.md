@@ -172,8 +172,10 @@ and whole-project deletion are specified in
 ## Overview and status
 
 The main UI will be a thin, filterable client of the same RPC surface available
-to scripts; business logic does not live in the TUI. Exact layout, navigation,
-keys, and initial slice are deferred until a prototype can test them.
+to scripts; business logic does not live in the TUI. A
+[session-browser prototype](.prototype/tui-options/README.md) now records the
+[current interaction decisions](.prototype/tui-options/DECISIONS.md).
+Production implementation and integration boundaries remain open.
 
 Each session presentation is derived from only four facts:
 

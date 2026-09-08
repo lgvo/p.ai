@@ -4,13 +4,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 func main() {
 	modeFlag := flag.String("mode", "explore", "experience: explore or stress")
-	variantFlag := flag.String("variant", "table", "initial UX variant")
+	barFields := flag.String("session-bar", "project,branch,status", "terminal bar fields, in order: project, branch, status, id (comma separated)")
+	gallery := flag.Bool("gallery", false, "enable the layout comparison gallery")
+	variantFlag := flag.String("variant", "topology", "initial UX variant")
 	dataset := flag.String("dataset", "", "fixture name for the selected mode")
 	listDatasets := flag.Bool("list-datasets", false, "list fixture names for the selected mode and exit")
 	stressStep := flag.Int("stress-step", 0, "churn transition step (0 through 4; stress/churn only)")
@@ -38,6 +41,24 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	for _, field := range strings.Split(*barFields, ",") {
+		field = strings.TrimSpace(field)
+		switch field {
+		case "project", "branch", "status", "id":
+			m.sessionBarFields = append(m.sessionBarFields, field)
+		case "":
+		default:
+			fmt.Fprintf(os.Stderr, "unknown session-bar field %q\n", field)
+			os.Exit(2)
+		}
+	}
+	if m.sessionBarFields == nil {
+		m.sessionBarFields = []string{}
+	}
+	m.browser = !*gallery
+	if m.browser {
+		m.clientAttach = ""
 	}
 	if v, ok := parseVariant(*variantFlag); ok {
 		m.variant = v

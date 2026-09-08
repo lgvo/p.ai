@@ -1,120 +1,117 @@
-# P TUI interaction options
+# P session browser prototype
 
-Disposable, fixture-backed Bubble Tea prototypes for the interaction decision
-deferred by `PROJECT.md`. Nothing here connects to a daemon, Git repository,
-Incus, tmux, credentials, or real project/session data.
+A disposable Bubble Tea application with simulated sessions, agent instances,
+project services, terminal contents, boot logs, and journals. It does not
+connect to real runtimes, agents, services, repositories, or credentials.
 
-## Enter the prototype environment
+[Current interaction decisions](DECISIONS.md) record the user-reviewed direction,
+key maps, behavior, and remaining integration questions. Start there when
+continuing this prototype; the older gallery observations are historical.
+
+## Run the current browser
+
+From the repository root:
 
 ```sh
 cd .prototype/tui-options
-direnv allow
-```
-
-`direnv allow` is intentionally left to the developer. Without direnv:
-
-```sh
 nix develop path:.
-```
-
-## Run
-
-```sh
 go run .
-go run . --variant navigator
-go run . --variant attention
-go run . --variant command
-go run . --variant focus
-go run . --variant lanes
-go run . --variant outline
-go run . --variant matrix
-go run . --variant operations
-go run . --variant workspace
-go run . --variant minimal
-go run . --variant cards
-go run . --variant attachment
-go run . --variant governance
-go run . --variant compare
-go run . --variant topology
-go run . --variant actions
 ```
 
-Interface exploration and data stress are separate experiences:
+Alternatively, use the existing `.envrc` with `direnv allow` yourself. The
+default view is Resource topology, refined into the session browser. Gallery
+controls are disabled by default.
+
+| Key | Picker action |
+|---|---|
+| `j/k`, arrows | Select session |
+| Enter | Enter session, showing boot logs first if stopped |
+| `s` | Stop session |
+| `P` | Select project |
+| `/` | Fuzzy search below the list |
+| `A` | Agents and conversation previews |
+| `S` | Project services |
+| `?` | Help |
+| `q`, Esc, Ctrl-C | Back/cancel; quit when idle |
+
+Inside the fake terminal, **Ctrl+B** opens **[D]etach / [A]gents / [S]ervices**.
+Those inspection pages return to the same attached terminal. Ordinary terminal
+keys do not navigate away. Detaching silently returns to the picker and
+preserves the fake terminal buffer; stopping discards it.
+
+Configure the terminal bar's context fields and order:
 
 ```sh
-go run . --mode explore
+go run . --session-bar project,branch,status
+go run . --session-bar branch,project
+go run . --session-bar id,status
+```
+
+The prefix hint remains visible. Supported fields are `project`, `branch`,
+`status`, and `id`; an empty value omits context fields.
+
+On Services, `s` toggles start/stop, `r` restarts, and Enter opens the full
+journal. In the journal, use arrows/Page Up/Down, `g/G`, `h/l`, `/`, `n/N`, and
+`f`; the on-screen help explains each. All actions and journal entries are
+simulated. On Agents, `j/k` selects an instance and Page Up/Down browses its
+recorded mock preview.
+
+## Validate and build
+
+Inside the development shell:
+
+```sh
+go test ./...
+go vet ./...
+go build -o .cache/bin/p-sessions .
+```
+
+Generate a deterministic browser frame without an interactive terminal:
+
+```sh
+go run . --snapshot --width 120 --height 35
+go run . --snapshot --dataset dense --width 160 --height 50
+```
+
+The standard fixture uses fixed random UUIDs and named Codex instances.
+Specialized stress data retain synthetic identities. The picker has a compact
+presentation below 72×22 and an explicit too-small view below 48×16; inspect
+new pages and unusually small terminal sizes separately before support claims.
+
+## Retained comparison gallery and stress fixtures
+
+The earlier layouts remain available for comparison:
+
+```sh
+go run . --gallery --variant table
+go run . --gallery --variant topology
+go run . --gallery --mode stress --dataset baseline
+go run . --gallery --mode stress --dataset churn --stress-step 3
 go run . --mode explore --list-datasets
 go run . --mode stress --list-datasets
-go run . --mode stress --dataset baseline
-go run . --mode stress --dataset churn --stress-step 3
 ```
 
-The active mode and fixture are always shown at the start of the header. Stress
-captures are stored separately under `evidence/stress` and generated with
-`sh capture-stress.sh`.
+Only gallery mode exposes `Tab` to cycle layouts, `v` for the variant picker,
+and the original `1`–`6` shortcuts. Gallery headers show fixture/stress context.
+The browser deliberately omits that comparison chrome. `--variant` can also
+select an initial alternative explicitly, but the reviewed browser direction
+is topology.
 
-Use `1`–`6` for the original shortcuts, `Tab` to cycle, or `v` to open the
-scalable variant gallery. Press `?` for the complete key map.
+The 18 comparison variants are table, navigator, attention, command, focus,
+lanes, outline, matrix, operations, workspace, minimal, cards, attachment,
+governance, compare, topology, actions, and integrity. Previous tradeoffs and
+captures are in [observations](evidence/observations.md) and
+[stress observations](evidence/stress/observations.md). They are not current
+browser baselines and do not override [the decision record](DECISIONS.md).
 
-The alternatives deliberately organize the same facts differently:
-
-1. **Fleet table** optimizes cross-project density and comparison.
-2. **Project navigator** makes project hierarchy the primary navigation.
-3. **Attention workspace** separates decisions from steady work.
-4. **Command center** makes fuzzy search and action dispatch primary.
-5. **Focus deck** emphasizes one stream while retaining a compact radar.
-6. **Actionability lanes** groups streams by the kind of intervention needed.
-7. **Expandable outline** places projects and sessions in one collapsible tree.
-8. **Project status matrix** compares intervention load across the whole portfolio.
-9. **Operations console** makes activity history and bounded recovery primary.
-10. **Task workspace** separates sessions, activity, policy, and resources into stable modes.
-11. **Minimal stream ledger** removes panel chrome and expands the current row inline.
-12. **Responsive card grid** reflows complete session cards across one, two, or three columns.
-13. **Attachment dock** centers the current client attachment and explicit host-preserving switches.
-14. **Governance dashboard** continuously answers attention, attachment, change, and risk questions.
-15. **Session comparison** pins one stable identity and exposes a four-fact A/B delta.
-16. **Resource topology** maps project, ref, session, host, client, agent, and policy lifetimes.
-17. **Action eligibility sheet** keeps unavailable actions visible with fact-based reasons.
-18. **Observation integrity** makes current, partial, and stale evidence a primary navigation axis.
-
-Deterministic frames can be generated without an interactive terminal:
+Regenerate gallery evidence only when intentionally reviewing those captures:
 
 ```sh
-go run . --snapshot --variant table --width 120 --height 35
-go run . --snapshot --dataset dense --variant table --width 60 --height 20
-go run . --snapshot --dataset empty --variant table --width 48 --height 16
-go run . --snapshot --scenario create-failed --width 80 --height 24
-go run . --snapshot --scenario attached-switch --width 120 --height 35
-go run . --snapshot --scenario delete-complete --width 80 --height 24
-```
-
-The responsive evidence matrix covers 160×50, 132×40, 120×35, 100×30,
-80×24, 60×20, 48×16, and 40×12. At 48×16 the selected stream keeps all four
-independent status facts and its actions. Below that, the prototype explicitly
-reports the unsupported size instead of pretending a clipped frame is usable.
-Fixtures cover `standard`, `dense`, `empty`, `single`, and `long` datasets.
-
-Regenerate the complete evidence set after building the binary:
-
-```sh
-go build -o .cache/bin/p-tui-probe .
 sh capture.sh
 sh capture-stress.sh
 sh capture-churn.sh
 ```
 
-## Comparison task
-
-For each variant, identify:
-
-1. which stream most urgently needs attention;
-2. whether that stream is attached and whether its policy is current;
-3. which lifecycle action is available;
-4. what changes when attaching, switching, and detaching; and
-5. whether creation retry, replacement creation, retained branches, policy
-   drift, and project deletion preserve the meanings described by the project
-   design.
-
-This artifact is not a production candidate and owns no product decision.
-The full validation results, tradeoffs, and suggested review order are in
-[`evidence/observations.md`](evidence/observations.md).
+These scripts build the comparison executable and render deterministic
+fixtures. Generated binaries, Go caches, and module downloads stay in ignored
+`.cache/`; do not commit them.
