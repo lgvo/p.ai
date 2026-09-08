@@ -7,6 +7,18 @@ connect to real runtimes, agents, services, repositories, or credentials.
 [Current interaction decisions](DECISIONS.md) record the user-reviewed direction,
 key maps, behavior, and remaining integration questions. Start there when
 continuing this prototype; the older gallery observations are historical.
+The [iteration history](ITERATIONS.md) explains the earlier exploration and
+links its preserved evidence. Continue from the default browser below;
+`--gallery` is for revisiting alternatives.
+
+## Next iteration
+
+Resource topology is the selected layout. Continue from its current browser
+and focus the next review on **creation and policy workflows**. The existing
+`c` creation and `p` policy screens are earlier fixture probes; they still need
+to become coherent workflows within the selected interface. Detailed changes
+will be decided in that review, using the current lifecycle and policy
+contracts.
 
 ## Run the current browser
 

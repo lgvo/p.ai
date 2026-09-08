@@ -14,6 +14,33 @@ without changing its project model.
 > The design documents under [`docs/`](docs/) are authoritative for their
 > subjects. This README is the product summary.
 
+## Start from the current prototype
+
+The latest reviewed UI is the **Resource topology session browser**. Start with
+the [current decisions](.prototype/tui-options/DECISIONS.md) when continuing the
+work, then use the [prototype run guide](.prototype/tui-options/README.md) to try
+it:
+
+```sh
+cd .prototype/tui-options
+nix develop path:.
+go run .
+```
+
+The browser has a project-filtered session list, fuzzy search, a simulated
+terminal with a Ctrl+B action popup, and dedicated Agents and Services pages.
+Everything runs on fixtures; production integration remains open. See
+[MVP status](docs/mvp-status.md) for the implementation boundary.
+
+The [iteration history](.prototype/tui-options/ITERATIONS.md) preserves the
+earlier comparison gallery and explains how it led to this starting point.
+Use it for context; the current decisions guide further UI work.
+
+**Next prototype iteration: creation and policy workflows.** Continue within
+the chosen browser, improving the existing creation/retry and policy probes
+into coherent workflows. Layout selection is settled for this iteration;
+the gallery remains historical reference.
+
 ## The idea
 
 Agentic development creates more concurrent workspaces than a person can track
@@ -107,8 +134,10 @@ again. P does not model panes or infer agent status from terminal contents.
 ## A normal workflow
 
 Open the overview, create a project explicitly from an SSH origin or as a blank
-repository, and then create a session. The exact TUI layout and key map will be
-chosen through a prototype rather than fixed in the architecture documents.
+repository, and then create a session. The
+[prototype decisions](.prototype/tui-options/DECISIONS.md) record the reviewed
+layout and key map; connecting those interactions to the lifecycle below is
+still implementation work.
 
 Creating an ordinary session selects a committed source and a project. P then
 reserves a UUID and new branch name in that project, creates the P-server

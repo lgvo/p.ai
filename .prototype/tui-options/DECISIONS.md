@@ -183,6 +183,12 @@ is no live journal stream in the prototype.
 
 ## Implementation boundary and remaining work
 
+The next prototype iteration focuses on **creation and policy workflows**
+within the selected Resource topology browser. Layout selection is settled
+for this iteration; the comparison gallery remains historical reference.
+The existing creation/retry and policy probes are the starting material, not
+finished workflows. Detailed interaction changes remain to be reviewed.
+
 The checked-in Go application is a disposable Bubble Tea simulation. It does
 not run a daemon, Incus, systemd, tmux, real commands, Codex conversations, or
 service discovery. State lasts only for the application process. Previews,
