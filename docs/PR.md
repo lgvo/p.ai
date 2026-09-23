@@ -63,10 +63,10 @@ semantics.
 
 Create a session and P prepares or reuses a private Incus environment image
 from your project's Nix `devShell`—or its base image when the project has
-none—creates a new session-owned branch at the committed source you picked,
+none—assigns the existing branch you picked or creates a new branch from source,
 assembles an isolated working copy, and starts the persistent host through
-systemd. Attach is a separate lifecycle action; the prototype will decide
-whether the initial TUI combines them as one flow. A disposable Incus builder
+systemd. Attach is a separate lifecycle action; the reviewed prototype
+combines creation, simulated startup, and entry into one flow. A disposable Incus builder
 realizes committed Nix inputs;
 each session starts with that immutable store and receives its own writable
 Nix/workspace/home delta.

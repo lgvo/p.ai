@@ -170,8 +170,9 @@ creation.
 An ordinary unassigned P branch preserved after its session is discarded.
 
 - **Boundaries:** It has no runtime, attachment, policy, or agent status.
-- **Rules:** It may be listed, renamed, published, deleted after loss review,
-  or selected as committed source for a new session.
+- **Rules:** It may be assigned to a new session on that same branch, or used
+  as source when creating a different new branch. It may also be listed,
+  renamed, published, or deleted after loss review.
 - **Avoid:** `unassigned ref` when the user-facing concept is a branch.
 
 ### Runtime

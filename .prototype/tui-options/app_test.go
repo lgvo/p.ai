@@ -328,7 +328,7 @@ func TestKeyRoutingReachesComparisonAndLifecyclePaths(t *testing.T) {
 	if m.screen != screenCreate {
 		t.Fatal("create key did not open creation probe")
 	}
-	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = pressRune(t, m, 'y')
 	if m.screen != screenCreateFailed {
 		t.Fatal("fixture submission did not expose failed creation")
 	}
@@ -336,7 +336,7 @@ func TestKeyRoutingReachesComparisonAndLifecyclePaths(t *testing.T) {
 	if m.screen != screenCreate || !m.draft.Replacing {
 		t.Fatal("Try again with changes did not open replacement request")
 	}
-	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	m = pressRune(t, m, 'y')
 	if m.screen != screenOverview {
 		t.Fatal("replacement request did not return to overview")
 	}
@@ -413,7 +413,7 @@ func TestDatasetFixturesRenderAcrossResponsiveBoundaries(t *testing.T) {
 
 func TestExploreAndStressDatasetCatalogsAreSeparated(t *testing.T) {
 	explore, stress := datasetsForMode(modeExplore), datasetsForMode(modeStress)
-	if len(explore) != 5 || len(stress) != 12 {
+	if len(explore) != 6 || len(stress) != 12 {
 		t.Fatalf("unexpected catalog sizes: explore=%d stress=%d", len(explore), len(stress))
 	}
 	if _, err := newAppForModeDataset(modeStress, "standard"); err == nil {
@@ -990,9 +990,9 @@ func TestTopologyProjectFilter(t *testing.T) {
 	if m.screen != screenProjectFilter {
 		t.Fatal("P did not open project picker")
 	}
-	for i, project := range m.projects() {
+	for i, project := range m.orderedFilterProjects() {
 		if project == "forge" {
-			m.projectChoice = i + 1
+			m.projectChoice = i
 		}
 	}
 	key("enter")
@@ -1094,7 +1094,7 @@ func TestFakeTerminalRoundTrip(t *testing.T) {
 	}
 }
 
-func TestBrowserSearchPromptBelowList(t *testing.T) {
+func TestBrowserSearchPromptInFirstListRow(t *testing.T) {
 	m := newApp()
 	m.browser, m.variant = true, variantTopology
 	m = pressRune(t, m, '/')
@@ -1107,8 +1107,9 @@ func TestBrowserSearchPromptBelowList(t *testing.T) {
 		if strings.Contains(m.header(m.width), "oauth") {
 			t.Fatal("query remains in header")
 		}
-		if !strings.Contains(view, "fuzzy search> oauth") || strings.Index(view, "fuzzy search> oauth") < strings.Index(view, "All project sessions") {
-			t.Fatal("query is not below session list")
+		lines := strings.Split(view, "\n")
+		if len(lines) < 3 || !strings.HasPrefix(lines[2], "│ fuzzy search> oauth") {
+			t.Fatal("query is not in first list row")
 		}
 		if strings.Contains(view, "frame clipped") {
 			t.Fatalf("search clips %dx%d frame", m.width, m.height)
@@ -1251,6 +1252,7 @@ func TestStopPreservesSessionAndRejectsAttachments(t *testing.T) {
 	m = detachFakeTerminal(t, m)
 	original := m.sessions[0]
 	m = pressRune(t, m, 's')
+	m = confirmAndFinishStop(t, m)
 	s := m.sessions[0]
 	if s.Lifecycle != "stopped" || s.ID != original.ID || s.Branch != original.Branch || s.Policy != original.Policy {
 		t.Fatal("stop did not preserve identity and policy")
@@ -1307,8 +1309,8 @@ func finishFakeBoot(m app, id string) app {
 func TestBootLogContinuesOutsideViewerAndIgnoresStoppedTicks(t *testing.T) {
 	m := newApp()
 	m.browser, m.variant, m.clientAttach = true, variantTopology, ""
-	m.selected = 2
 	id := m.sessions[2].ID
+	m.selectSession(id)
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(app)
 	if cmd == nil || m.screen != screenBoot || !strings.Contains(m.View(), "Checking retained runtime") {
@@ -1323,11 +1325,13 @@ func TestBootLogContinuesOutsideViewerAndIgnoresStoppedTicks(t *testing.T) {
 		t.Fatal("background boot did not complete in picker")
 	}
 	m = pressRune(t, m, 's')
+	m = confirmAndFinishStop(t, m)
 	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	progress := m.boots[id]
 	stale := bootTick{id, progress.Generation, progress.Step}
 	m = pressKey(t, m, tea.KeyMsg{Type: tea.KeyEsc})
 	m = pressRune(t, m, 's')
+	m = confirmAndFinishStop(t, m)
 	next, cmd = m.Update(stale)
 	m = next.(app)
 	if cmd != nil || m.sessions[2].Lifecycle != "stopped" {
@@ -1522,6 +1526,7 @@ func TestJournalFullPageNavigationAndSearch(t *testing.T) {
 	if m.screen != screenJournal || !strings.Contains(m.View(), "event 59") {
 		t.Fatal("journal did not open at latest entries")
 	}
+	m = pressRune(t, m, 'g')
 	m = pressRune(t, m, 'g')
 	if m.journalFollow || m.journalOffset != 0 || !strings.Contains(m.View(), "event 00") {
 		t.Fatal("top navigation failed")

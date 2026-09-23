@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func agentReport(s session, p sessionProcess) (string, string) {
@@ -99,6 +101,22 @@ func (m *app) updateAgents(key string) {
 		m.agentChoice = len(agents) - 1
 	}
 	switch key {
+	case "home":
+		m.agentChoice = 0
+		m.agentPreviewOffset = 0
+		return
+	case "end":
+		m.agentChoice = len(agents) - 1
+		m.agentPreviewOffset = 0
+		return
+	case "ctrl+u":
+		m.agentPreviewOffset = min(len(agents[m.agentChoice].Preview), m.agentPreviewOffset+max(1, (m.height-14)/2))
+		return
+	case "ctrl+d":
+		m.agentPreviewOffset = max(0, m.agentPreviewOffset-max(1, (m.height-14)/2))
+		return
+	}
+	switch key {
 	case "j", "down":
 		m.agentChoice = (m.agentChoice + 1) % len(agents)
 		m.agentPreviewOffset = 0
@@ -106,12 +124,12 @@ func (m *app) updateAgents(key string) {
 		m.agentChoice = (m.agentChoice + len(agents) - 1) % len(agents)
 		m.agentPreviewOffset = 0
 	case "pgup", "K":
-		m.agentPreviewOffset++
+		m.agentPreviewOffset += max(1, m.height-14)
 		if m.agentPreviewOffset > len(agents[m.agentChoice].Preview) {
 			m.agentPreviewOffset = len(agents[m.agentChoice].Preview)
 		}
 	case "pgdown", "J":
-		m.agentPreviewOffset = maxInt(0, m.agentPreviewOffset-1)
+		m.agentPreviewOffset = maxInt(0, m.agentPreviewOffset-max(1, m.height-14))
 	}
 }
 
@@ -121,7 +139,7 @@ func (m app) agentsView() string {
 	if !ok {
 		return "Agents\nSession is no longer available.\nq | Esc | Ctrl-C back"
 	}
-	rows := []string{titleStyle.Render("Agents · " + s.Project + " / " + s.Branch), ""}
+	rows := []string{titleStyle.Render("Agents · " + sessionDisplayName(s)), ""}
 	if len(agents) == 0 {
 		message := "No active agents observed."
 		if !s.ProcessesKnown || observationWarning(s) != "" || s.Lifecycle == "missing" || s.Lifecycle == "unreachable" {
@@ -137,14 +155,13 @@ func (m app) agentsView() string {
 	if limit > 6 {
 		limit = 6
 	}
-	start, end := windowBounds(len(agents), choice, limit)
-	for i := start; i < end; i++ {
-		line := "  " + agentName(agents[i]) + " · " + styledFact(agentSummary(s, agents[i]))
-		if i == choice {
-			line = selectedStyle.Render("› " + strings.TrimPrefix(line, "  "))
-		}
-		rows = append(rows, line)
+	items := make([]selectorItem, 0, len(agents))
+	for i, agent := range agents {
+		items = append(items, selectorItem{index: i, text: "  " + agentName(agent) + " · " + styledFact(agentSummary(s, agent)), search: agentName(agent)})
 	}
+	choices := newSelector(items, "", choice, m.width, min(limit, len(agents)))
+	rows = append(rows, choices.rows("No agents observed.", len(agents) > limit))
+	rows = append(rows, commandBlock(m.width, fmt.Sprintf("j/k agent (%d/%d) · PgUp/PgDn preview\n%s", choice+1, len(agents), backCommands)))
 	p := agents[choice]
 	_, reason := agentReport(s, p)
 	rows = append(rows, "", titleStyle.Render(agentName(p)),
@@ -153,7 +170,7 @@ func (m app) agentsView() string {
 		"Status   "+styledFact(agentSummary(s, p)),
 		"Context  "+firstNonEmpty(reason, "No additional context reported"))
 	rows = append(rows, titleStyle.Render("Recorded preview · simulated"))
-	available := maxInt(0, m.height-len(rows)-2)
+	available := maxInt(0, m.height-lipgloss.Height(strings.Join(rows, "\n")))
 	count := len(p.Preview)
 	if count > available {
 		count = available
@@ -164,9 +181,6 @@ func (m app) agentsView() string {
 	} else {
 		rows = append(rows, p.Preview[startPreview:startPreview+count]...)
 	}
-	for len(rows) < m.height-2 {
-		rows = append(rows, "")
-	}
-	rows = append(rows, fmt.Sprintf("j/k agent (%d/%d) · PgUp/PgDn preview", choice+1, len(agents)), "q | Esc | Ctrl-C back")
+
 	return strings.Join(rows, "\n")
 }

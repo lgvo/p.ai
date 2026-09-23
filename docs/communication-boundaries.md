@@ -160,8 +160,11 @@ duplicate Git objects in SQLite.
 
 Creation is the lifecycle operation defined in
 [session-lifecycle.md](session-lifecycle.md#create). RPC carries a structured
-committed-source selection and desired new branch; it does not carry source
-files. Git carries the commit objects and the new ref.
+project and branch choice: either an existing unassigned P branch, with no
+separate source, or a new branch name plus committed-source selection. It does
+not carry source files. Git carries commit objects and refs; only the
+new-branch path creates a ref. The existing-branch path captures the branch's
+tip and assigns it without rewriting Git history.
 
 Committed source comes from an ordinary P ref or from a freshly contacted
 configured origin. The bootstrap exception for a new blank/empty project has

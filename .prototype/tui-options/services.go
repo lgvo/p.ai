@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 func projectServices(s session) []sessionProcess {
@@ -67,6 +69,12 @@ func (m *app) updateServices(key string) {
 	if len(units) == 0 {
 		return
 	}
+	if selected, handled := selectorNavigation(key, m.serviceChoice, len(units), min(6, max(1, m.height/5))); handled {
+		m.serviceChoice = selected
+		m.journalOffset = 0
+		m.serviceNotice = ""
+		return
+	}
 	switch key {
 	case "enter", "J":
 		m.openJournal(units[m.serviceChoice].Name)
@@ -94,7 +102,7 @@ func (m app) servicesView() string {
 	if !ok {
 		return "Project services\nSession is no longer available.\nq | Esc | Ctrl-C back"
 	}
-	rows := []string{titleStyle.Render("Project services · " + s.Project + " / " + s.Branch), truncate(m.serviceNotice, m.width)}
+	rows := []string{titleStyle.Render("Project services · " + sessionDisplayName(s)), truncate(m.serviceNotice, m.width)}
 	units := projectServices(s)
 	if !s.ProcessesKnown || observationWarning(s) != "" || s.Lifecycle == "missing" || s.Lifecycle == "unreachable" {
 		rows = append(rows, "Current service inventory unknown; observations unavailable.")
@@ -113,23 +121,22 @@ func (m app) servicesView() string {
 	if limit > 6 {
 		limit = 6
 	}
-	start, end := windowBounds(len(units), choice, limit)
-	for i := start; i < end; i++ {
-		active, sub := unitState(s, units[i])
-		line := "  " + units[i].Name + " · " + styledFact(active) + " (" + sub + ")"
-		if i == choice {
-			line = selectedStyle.Render("› " + strings.TrimPrefix(line, "  "))
-		}
-		rows = append(rows, line)
+	items := make([]selectorItem, 0, len(units))
+	for i, unit := range units {
+		active, sub := unitState(s, unit)
+		items = append(items, selectorItem{index: i, text: "  " + unit.Name + " · " + styledFact(active) + " (" + sub + ")", search: unit.Name})
 	}
+	choices := newSelector(items, "", choice, m.width, min(limit, len(units)))
+	rows = append(rows, choices.rows("No units observed.", len(units) > limit))
 	unit := units[choice]
+	rows = append(rows, commandBlock(m.width, serviceActionHints(s, unit)+"\n"+fmt.Sprintf("j/k unit (%d/%d) · Enter logs\n%s", choice+1, len(units), backCommands)))
 	active, sub := unitState(s, unit)
 	rows = append(rows, "", titleStyle.Render(unit.Name), unit.Description, "State  "+styledFact(active)+" ("+sub+")")
 	if unit.Endpoint != "" && active == "active" {
 		rows = append(rows, "Listen "+unit.Endpoint+" (inside session)")
 	}
-	rows = append(rows, "", titleStyle.Render("Recent journal · Enter opens full log"))
-	available := maxInt(0, m.height-len(rows)-3)
+	rows = append(rows, "", titleStyle.Render("Recent journal"))
+	available := maxInt(0, m.height-lipgloss.Height(strings.Join(rows, "\n")))
 	count := len(unit.Journal)
 	if count > 3 {
 		count = 3
@@ -143,10 +150,7 @@ func (m app) servicesView() string {
 	} else {
 		rows = append(rows, unit.Journal[offset:offset+count]...)
 	}
-	for len(rows) < m.height-3 {
-		rows = append(rows, "")
-	}
-	rows = append(rows, serviceActionHints(s, unit), fmt.Sprintf("j/k unit (%d/%d) · Enter logs\nq | Esc | Ctrl-C back", choice+1, len(units)))
+
 	return strings.Join(rows, "\n")
 }
 

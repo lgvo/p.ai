@@ -41,6 +41,7 @@ func (m *app) enterTerminal() tea.Cmd {
 	if _, exists := m.terminals[s.ID]; !exists {
 		m.terminals[s.ID] = fakeTerminal{Lines: []string{"Simulated terminal — commands are not executed.", "Type anything and press Enter."}}
 	}
+	m.recordInteraction(s.ID)
 	m.terminalPrefix = false
 	m.screen = screenTerminal
 	return nil

@@ -24,6 +24,8 @@ var (
 )
 
 func (m app) View() (frame string) {
+	terminalWidth := m.width
+	m.width = m.viewportWidth()
 	// Bound physical terminal rows as well as logical lines: wrapping would
 	// invalidate the renderer's cursor accounting and leave previous frames.
 	defer func() {
@@ -35,8 +37,11 @@ func (m app) View() (frame string) {
 		for len(lines) < height {
 			lines = append(lines, strings.Repeat(" ", width))
 		}
-		frame = strings.Join(lines, "\n")
+		frame = lipgloss.PlaceHorizontal(max(1, terminalWidth), lipgloss.Center, strings.Join(lines, "\n"))
 	}()
+	if m.screen == screenStopConfirm || m.screen == screenStopping {
+		return m.stopView()
+	}
 	if m.screen == screenJournal {
 		return m.journalView()
 	}
@@ -53,6 +58,9 @@ func (m app) View() (frame string) {
 		return m.terminalView()
 	}
 	width, height := m.width, m.height
+	if m.screen != screenOverview {
+		width = min(width, selectorMaxWidth)
+	}
 	if width < 48 || height < 16 {
 		return m.tooSmallView(width, height)
 	}
@@ -121,13 +129,23 @@ func (m app) View() (frame string) {
 	case screenVariantGallery:
 		body = m.variantGalleryView(width)
 	}
+	if m.browser && m.screen == screenOverview && m.variant == variantTopology {
+		return fitLines(header+"\n"+body, height)
+	}
 	footer := m.footer(width)
+	if m.screen != screenOverview {
+		card := strings.Join([]string{body, footer}, "\n")
+		return header + "\n" + lipgloss.PlaceHorizontal(m.width, lipgloss.Center, card)
+	}
 	return fitLines(strings.Join([]string{header, body, footer}, "\n"), height)
 }
 
 func (m app) header(width int) string {
 	if m.browser {
 		line := "P · Sessions"
+		if m.screen == screenOverview {
+			line += " · waiting → running → other"
+		}
 		return titleStyle.Render(truncate(line, width))
 	}
 	line := fmt.Sprintf("P / probe · view %02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, m.variant, m.dataset)
@@ -144,15 +162,18 @@ func (m app) header(width int) string {
 }
 
 func (m app) footer(width int) string {
+	if m.screen != screenOverview {
+		return m.overlayCommands(width)
+	}
 	if m.browser {
-		keys := "j/k move · Enter session · s stop · c create · b branches · p policy · X delete\nP project · A agents · S services · / search · ? help · q | Esc | Ctrl-C back/quit"
+		keys := "j/k move · Enter session · s stop · c create · b branches · p policy · X delete\nP project · A agents · S services · / search · ? help · q | Esc | Ctrl-C back/quit\nPgUp/PgDn · ^B/^F page · ^U/^D half · gg/G ends"
 		if m.screen != screenOverview {
 			keys = "q | Esc | Ctrl-C back"
 		}
 		if m.message != "" && m.message != fixtureNotice {
 			keys = truncate(m.message, width) + "\n" + keys
 		}
-		return lipgloss.NewStyle().Width(width).Render(mutedStyle.Render(keys))
+		return commandBlock(width, keys)
 	}
 	message := m.message
 	if m.screen == screenOverview {
@@ -222,11 +243,19 @@ func (m app) compactResponsiveView(width, height int) string {
 	if m.browser {
 		content = strings.ReplaceAll(content, fmt.Sprintf("%s · compact disclosure", m.variant), m.projectSessionsHeading())
 		content = strings.ReplaceAll(content, "No sessions in this fixture.\n\nDataset "+m.dataset+" · use v to compare views", "No matching sessions.")
-		panel := renderPanel(width, content)
-		if search := m.listSearch(width); search != "" {
-			panel += "\n" + search
+		rows := strings.Split(content, "\n")
+		if search := m.listSearch(width - 6); search != "" {
+			rows[0] = search
 		}
-		return fitLines(strings.Join([]string{header, panel, mutedStyle.Render("P project · A agents · S services · / search\nj/k move · Enter session · s stop\n? help · q | Esc | Ctrl-C back/quit")}, "\n"), height)
+		contentHeight := height - 7
+		if len(rows) > contentHeight {
+			rows = rows[:contentHeight]
+		}
+		for i := range rows {
+			rows[i] = truncate(rows[i], width-6)
+		}
+		panel := renderPanel(width, padContentRows(strings.Join(rows, "\n"), contentHeight))
+		return fitLines(strings.Join([]string{header, panel, mutedStyle.Render("P project · / search · PgUp/PgDn page\nj/k move · Enter session · s stop\ngg/G ends · A agents · S services · ?\nq | Esc | Ctrl-C back/quit")}, "\n"), height)
 	}
 	body := renderPanel(width, content)
 	footer := mutedStyle.Render("j/k move · a attach · Tab cycle · v views")
@@ -245,7 +274,7 @@ func (m app) variantGalleryView(width int) string {
 		}
 		rows = append(rows, line)
 	}
-	rows = append(rows, "", "j/k choose · enter open · esc return")
+
 	return centeredPanel(width, strings.Join(rows, "\n"))
 }
 
@@ -844,6 +873,9 @@ func observationWarning(s session) string {
 }
 
 func (m app) createView(width int) string {
+	if m.browser {
+		return m.creationView(width)
+	}
 	kind := "NEW CREATE"
 	identity := "reserves UUID s-new-019 · operation op-create-77"
 	if m.draft.Replacing {
@@ -860,8 +892,8 @@ func (m app) createView(width int) string {
 		"",
 		lipgloss.NewStyle().Foreground(warning).Render(identity),
 		"",
-		"enter submits fixture request · esc cancels",
 	}, "\n")
+	content += "\n\n" + confirmationPrompt("Submit creation?", false)
 	return centeredPanel(width, content)
 }
 
@@ -874,9 +906,8 @@ func (m app) createFailedView(width int) string {
 		fmt.Sprintf("Operation      %s", m.draft.OperationID),
 		fmt.Sprintf("Immutable      %s · %s · %s", m.draft.Project, m.draft.Source, m.draft.Branch),
 		"",
-		lipgloss.NewStyle().Foreground(positive).Render("r  Exact Retry") + " — same UUID, operation, source, branch, and policy",
-		lipgloss.NewStyle().Foreground(warning).Render("t  Try again with changes") + " — integrated replacement with new identity",
-		"esc  leave the failed operation visible",
+		lipgloss.NewStyle().Foreground(positive).Render("Exact Retry") + " — same UUID, operation, source, branch, and policy",
+		lipgloss.NewStyle().Foreground(warning).Render("Try again with changes") + " — integrated replacement with new identity",
 	}, "\n")
 	return centeredPanel(width, content)
 }
@@ -886,7 +917,7 @@ func (m app) branchesView(width int) string {
 	for _, b := range m.branches {
 		rows = append(rows, fmt.Sprintf("%s  %s  %s", padRight(b.Project, 10), padRight(b.Name, 30), b.Tip))
 	}
-	rows = append(rows, "", "They have no UUID, runtime, attachment, agent condition, or policy condition.", "n new session from selected source · r rename · p publish · x loss preview · esc back")
+	rows = append(rows, "", "They have no UUID, runtime, attachment, agent condition, or policy condition.")
 	return centeredPanel(width, strings.Join(rows, "\n"))
 }
 
@@ -938,7 +969,7 @@ func (m app) deletePreviewView(width int) string {
 		"Not deleted             external mount contents · delivered event logs",
 		"",
 		"Confirmation fingerprint: fp:forge:8d7f (fixture)",
-		lipgloss.NewStyle().Foreground(urgent).Render("y confirms exact reviewed facts") + " · esc cancels",
+		"", confirmationPrompt("Delete project?", true),
 	}, "\n")
 	return centeredPanel(width, content)
 }
@@ -957,7 +988,7 @@ func (m app) deleteProgressView(width int) string {
 	if complete {
 		rows = append(rows, lipgloss.NewStyle().Foreground(positive).Render("All owned targets are confirmed absent; registry tombstone can be removed."))
 	} else {
-		rows = append(rows, lipgloss.NewStyle().Foreground(warning).Render("Partial success is expected. r retries only the same authorized ensure-absent outcome."))
+		rows = append(rows, lipgloss.NewStyle().Foreground(warning).Render("Partial success; remaining resources can be retried."))
 	}
 	return centeredPanel(width, strings.Join(rows, "\n"))
 }
@@ -966,21 +997,20 @@ func (m app) helpView(width int) string {
 	if m.browser {
 		return centeredPanel(width, strings.Join([]string{
 			titleStyle.Render("Keyboard shortcuts"), "",
-			"j/k or ↑/↓     Select a session",
-			"P              Select a project",
-			"/              Search sessions",
-			"Enter          Enter the session terminal",
-			"s              Stop the selected session",
-			"S              Inspect project services and journal",
-			"A              Inspect agent instances and reports",
-			"c              Create a session",
-			"b              Browse retained branches",
-			"p              Inspect policy",
-			"X              Review project deletion",
-			"q | Esc | Ctrl-C  Back/cancel; quit when idle", "",
+			"j/k or ↑/↓ move · Enter session · s stop",
+			"c create · P project · / fuzzy search",
+			"A agents · S services · b branches · p policy",
+			"X review project deletion",
+			"PgUp/PgDn or Ctrl+B/F · previous/next page",
+			"Ctrl+U/D · half page up/down",
+			"Home/End or gg/G · first/last item",
+			"",
+			"In session: Ctrl+B opens the action menu.",
+			"Exit keys quit only from the idle session picker.",
 			"Demo data; actions are simulated.",
 		}, "\n"))
 	}
+
 	content := strings.Join([]string{
 		titleStyle.Render("Prototype controls"),
 		mutedStyle.Render("Compare and switch structural variants without changing fixture state."),

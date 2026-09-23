@@ -74,6 +74,12 @@ func (m *app) updateJournal(key tea.KeyMsg) {
 	case "k", "up":
 		m.journalFollow = false
 		m.journalOffset--
+	case "ctrl+d":
+		m.journalFollow = false
+		m.journalOffset += max(1, m.journalCapacity()/2)
+	case "ctrl+u":
+		m.journalFollow = false
+		m.journalOffset -= max(1, m.journalCapacity()/2)
 	case "pgdown", "ctrl+f":
 		m.journalFollow = false
 		m.journalOffset += m.journalCapacity()
@@ -201,13 +207,10 @@ func (m app) journalView() string {
 	if len(unit.Journal) == 0 {
 		rows = append(rows, "No journal entries recorded.")
 	}
-	for len(rows) < m.height-3 {
-		rows = append(rows, "")
-	}
-	controls := "j/k scroll · PgUp/PgDn · g/G top/end"
+	controls := "j/k scroll · PgUp/PgDn · gg/G top/end"
 	if m.journalEditing {
 		controls = "find> " + m.journalQuery + "█"
 	}
-	rows = append(rows, controls, "h/l pan · / find · n/N match · f follow", "q | Esc | Ctrl-C back")
+	rows = append(rows, commandBlock(m.width, controls+"\n"+"h/l pan · / find · n/N match · f follow\n"+backCommands))
 	return strings.Join(rows, "\n")
 }

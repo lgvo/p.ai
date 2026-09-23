@@ -130,7 +130,9 @@ owned by [communication boundaries](communication-boundaries.md#origin-communica
 ## Sources and session creation
 
 After project creation, ordinary session creation is a separate lifecycle
-operation. Its committed source may be:
+operation. Select an existing unassigned P branch to create a session on that
+same branch, without selecting a source. Alternatively, create a new branch
+and select its committed source from:
 
 - an existing assigned or retained P branch;
 - another permitted P commit selector; or
@@ -155,8 +157,8 @@ condition.
 P lists each retained branch with its name and tip. Under the project/ref lock,
 host actions may:
 
-- select it as committed source for a new session, which receives a new UUID
-  and a distinct new assigned branch;
+- create a session on that same branch with a new UUID and no separate source;
+- use it as committed source when creating a different new branch for a session;
 - fetch it through the read-only host P credential;
 - rename it by atomically creating the absent destination at the expected tip
   and deleting the expected source;

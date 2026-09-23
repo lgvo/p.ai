@@ -2,7 +2,7 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, updated 2026-09-08.**
+> **Status: non-normative snapshot, updated 2026-09-09.**
 > [Project guidance](../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
@@ -51,7 +51,8 @@ technology design to be reconciled before implementation.
   origin explicitly makes the project local-only.
 - A blank project or contacted empty origin receives one bootstrap session on
   unborn `main`; its first push creates the ref. Later sessions start from
-  committed P/origin source and own a new real branch.
+  an existing unassigned P branch, or create a new branch from committed
+  P/origin source. Only new-branch creation asks for a source.
 - A session has an immutable UUID and one `(project, branch)` assignment.
   Rename changes the P/workspace branch while retaining identity.
 - Session Git updates are unconditionally fast-forward-only. The host P key is
@@ -121,7 +122,7 @@ technology design to be reconciled before implementation.
 
 The [runnable prototype](../.prototype/tui-options/README.md) and
 [decision record](../.prototype/tui-options/DECISIONS.md) capture the reviewed
-layout and controls as of 2026-09-08. The browser uses branch labels, a roughly
+layout and controls as of 2026-09-09. The browser uses branch labels, a roughly
 65% session-list split, exact project selection, fuzzy search, a prefix popup
 inside fake terminals, and dedicated Agents/Services/journal pages.
 
@@ -132,8 +133,11 @@ retains a single unattended agent signal and excludes project-service
 orchestration. The prototype's presentation does not silently revise those
 boundaries.
 
-Creation/replacement, policy, retained-branch, and destructive-operation
-screens remain older probes requiring further review in the new browser.
+Creation now follows Project → Branch → Policy. An existing unassigned branch
+goes directly to Policy; creating a new branch asks for its source and then its name.
+The mock then boots and enters the session. Replacement/retry, policy,
+retained-branch, and destructive-operation screens remain older probes
+requiring further review in the new browser.
 The production TUI must remain a thin client of the subject-owned RPC and
 lifecycle semantics.
 

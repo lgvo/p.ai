@@ -55,6 +55,10 @@ func (m *app) beginBoot(id string) tea.Cmd {
 }
 
 func (m app) updateBoot(msg bootTick) (tea.Model, tea.Cmd) {
+	selectedID := ""
+	if idx, ok := m.selectedSessionIndex(); ok {
+		selectedID = m.sessions[idx].ID
+	}
 	progress, ok := m.boots[msg.ID]
 	if !ok || progress.Generation != msg.Generation || progress.Step != msg.Step || progress.Step >= len(bootLines) {
 		return m, nil
@@ -72,6 +76,9 @@ func (m app) updateBoot(msg bootTick) (tea.Model, tea.Cmd) {
 		if progress.Step == len(bootLines) {
 			m.sessions[i].Lifecycle = "ready"
 			m.sessions[i].Operation = ""
+			if selectedID != "" {
+				m.selectSession(selectedID)
+			}
 			if m.screen == screenBoot && m.bootViewID == msg.ID && m.selectSession(msg.ID) {
 				cmd := m.enterTerminal()
 				return m, cmd
@@ -89,7 +96,7 @@ func (m app) bootView() string {
 	name := m.bootViewID
 	for _, s := range m.sessions {
 		if s.ID == m.bootViewID {
-			name = s.Project + " / " + s.Branch
+			name = sessionDisplayName(s)
 			break
 		}
 	}
@@ -104,9 +111,9 @@ func (m app) bootView() string {
 		}
 	}
 	if progress.Step >= len(bootLines) {
-		rows = append(rows, "", "Opening terminal · q | Esc | Ctrl-C back to sessions")
+		rows = append(rows, commandBlock(m.width, "Opening terminal · "+backCommands))
 	} else {
-		rows = append(rows, "", "q | Esc | Ctrl-C back to sessions · startup continues")
+		rows = append(rows, commandBlock(m.width, backCommands+" · startup continues"))
 	}
 	return strings.Join(rows, "\n")
 }

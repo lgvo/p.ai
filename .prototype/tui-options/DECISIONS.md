@@ -11,6 +11,13 @@ model. The integration questions below remain open.
 
 ## Starting point and layout
 
+- The default browser fixture is `portfolio`: 24 projects, 120 sessions, and
+  124 unassigned branches. `--dataset standard` retains the smaller fixture;
+  gallery defaults remain unchanged. The mix is 112 stopped sessions, 8 running,
+  including 2 waiting sessions. Active work is concentrated in forge (4),
+  orbit (2), and p.ai (2), with project-specific branches and agent tasks.
+  The branch picker has 32 unassigned forge branches and 4 per other project.
+  These are all simulated data.
 - Resource topology is the preferred direction. The default launch is a
   session browser, without gallery names, layout numbers, comparison copy,
   or gallery navigation keys. The older alternatives remain behind `--gallery`.
@@ -19,6 +26,10 @@ model. The integration questions below remain open.
 - The normal wide layout gives approximately 65% of the width to the project
   sessions list and the remainder to selected-session details. Smaller
   terminals use stacked or compact presentation.
+- Keep session-list commands directly below the list.
+  In the wide layout they belong to the list column, so taller session details
+  do not move them. The stacked layout also keeps commands before details and
+  reserves a consistent list height across selections.
 - Keep one line per session. Show project, branch name, and runtime state.
   Do not restore the second statistics line. UUIDs are reference information
   in details, not the primary list label. The standard fixture uses fixed,
@@ -42,7 +53,9 @@ model. The integration questions below remain open.
 - `P project` opens an exact project selector close in meaning to the list it
   controls. Choose with `j/k` or arrows and apply with Enter. `All projects`
   removes the scope; cancelling the selector does not change the scope.
-- `/` opens `fuzzy search> query` immediately below the list, not in the header.
+- `/` replaces the first line inside the list panel with `fuzzy search> query`.
+  Search does not add an external row or resize the panel; reserve the list
+  area and pad missing matches so its border and commands remain stable.
   Results update while typing. Enter retains the query and restores navigation.
 - Search is fuzzy across the existing project/branch and status fields, plus
   the displayed activity labels of active agents. It composes with the exact
@@ -52,20 +65,54 @@ model. The integration questions below remain open.
 
 ## Outside-session navigation
 
+Each interaction has one command block immediately below the list or content
+it controls. Panel-based pages (including every creation step) put commands
+outside the panel, without a second generic footer. Agents and Services put
+commands after their lists and before selected-item details/previews. Journals
+and boot logs put controls after their displayed entries, without empty rows
+pushing them to the bottom. The attached terminal retains its prefix popup
+and bottom status bar.
+
 Use consistent short action labels. Uppercase letters are distinct shortcuts.
 
 | Context | Key | Action |
 |---|---|---|
 | Picker | `j/k`, arrows | Select a session |
+| Session/project/creation lists | PgUp/PgDn | Move by visible capacity, clamped at ends |
+| Session/project/creation lists | Home/End or `gg`/`G` | First/last result |
+| Browsing lists/logs | Ctrl+B/F | Previous/next page; terminal keeps its prefix |
+| Browsing lists/logs | Ctrl+U/D | Half page up/down |
 | Picker | Enter | Enter a running session; start a stopped session |
-| Picker | `s` | Stop the selected session |
+| Picker | `s` | Confirm stopping the selected session |
 | Picker | `P` | Select project |
 | Picker | `/` | Fuzzy search |
 | Picker | `A` | Agents page |
 | Picker | `S` | Project services page |
-| Picker | `c`, `b`, `p`, `X` | Existing creation, retained-branch, policy, and deletion probes |
+| Picker | `c` | Create: Project → Branch → Policy |
+| Picker | `b`, `p`, `X` | Existing retained-branch, policy, and deletion probes |
 | Picker | `?` | Help |
 | Outside-session pages | `q`, Esc, Ctrl-C | Back/cancel one interaction |
+
+A shared Bubbles list adapter owns selector filtering, paging, and row
+rendering. Domain selection is retained by the app; the adapter derives its
+view from it, without a second independently stored cursor. A shared layout
+plan supplies sizing. `gg` is a two-key sequence scoped to the current browsing
+context; another key cancels it. Input fields receive literal `g`/`G`.
+
+Session ordering is always **waiting → other running → all remaining states**.
+Priority applies globally before project grouping. A project may therefore
+appear in multiple priority bands; within each band its sessions stay together.
+Waiting in one project must never be hidden behind stopped work from another.
+This replaces the earlier selectable ordering modes; their shortcuts are removed.
+Project scope and fuzzy filtering remain active. Within the same project and
+priority, recent interaction then branch/UUID provide deterministic tie-breaking.
+Interaction timestamps are explicit fixture data updated on entry and stop,
+not inferred agent activity. Lifecycle reordering preserves selected identity.
+
+List capacity is derived from terminal dimensions and used by both rendering
+and page navigation. Long lists show visible range, total, and selected
+position. Resize preserves selection and adjusts the window to keep it visible.
+Creation selectors use available height instead of a fixed five-row window.
 
 Back closes a popup/page before clearing an enclosing search or project scope.
 At the idle all-project picker, all three exit keys quit. Journal navigation
@@ -110,13 +157,43 @@ cancels fake command input without navigating or quitting. Do not advertise
 
 ## Creating, starting, stopping, and detaching
 
-- Creating establishes a new session identity, branch, environment, and
-  runtime; first startup is part of that flow. The existing creation/retry
-  screens are still earlier fixture probes, not a newly completed workflow.
+- Creating establishes a new session identity and branch assignment,
+  environment, and runtime; first startup is part of that flow. The reviewed
+  order is Project → Branch → Policy.
+- **Existing branch:** select an unassigned branch and go directly to Policy.
+  The session uses that same branch; no source is requested and no new branch
+  is created. Branches already assigned to a session are excluded.
+- **Create new branch:** select its source within the chosen project, then
+  enter the new branch name before proceeding to Policy. This path creates a branch;
+  it is the only path that asks for a source. These two paths were clarified
+  on 2026-09-09 and replace the initial source-only Branch step.
+- Project, Branch, and Source selectors support `/` fuzzy search with the
+  prompt replacing the first line inside the panel, matching the session
+  picker. Filtering and no-match results preserve the panel height; commands
+  remain below the panel. Enter applies the query; arrows or
+  `j/k` navigate results, then Enter selects. While typing, arrows navigate
+  and letters remain query text. Back clears active/applied search before
+  leaving the step; queries reset between steps. Leaving creation returns
+  silently without a “Cancelled” message. New-branch Back follows
+  Policy → Branch name → Source → Branch → Project.
+- Policy currently offers only the current project configuration. Confirming
+  it allocates a random UUID, shows simulated boot logs, and enters the
+  terminal. Back unwinds each substep before cancelling; changing project
+  clears dependent choices. Name validation rejects invalid or conflicting
+  names. The old failure/retry probes remain in the gallery; richer policy
+  selection remains open.
+- Branch inventories use fixture `main`, session, and retained branches; no
+  Git refs or policy configuration are read. A retained branch selected for
+  a session leaves the retained-branch list when it is assigned.
 - Starting boots an existing stopped runtime. Show a progressively updating
   machine-like boot log, then automatically enter its terminal on completion.
 - Leaving the boot viewer returns to the picker while startup continues.
   Completion must not pull the user back into the terminal after leaving it.
+- Picker `s` opens a confirmation for the captured session identity; `y`
+  confirms and `q` / `Esc` / `Ctrl-C` cancels without changing the session.
+  Confirmation rechecks stop preconditions. Show a simulated shutdown log for
+  agents, project services, terminal host, and container, then return to the
+  picker. Leaving the viewer lets shutdown continue without reopening it.
 - Stop ends processes, including the persistent terminal, while preserving
   session identity, branch, policy, and files in the product model. The fake
   implementation changes lifecycle/process fixtures and discards its terminal
@@ -171,7 +248,7 @@ cancels fake command input without navigating or quitting. Do not advertise
 |---|---|
 | `j/k`, arrows | Scroll lines |
 | Page Up/Down | Page through entries |
-| `g/G`, Home/End | Beginning/end |
+| `gg/G`, Home/End | Beginning/end |
 | `h/l`, left/right | Pan long lines |
 | `/`, Enter | Case-insensitive text find; this is not fuzzy filtering |
 | `n/N` | Next/previous match |
@@ -214,3 +291,34 @@ Existing and added Go tests cover layout bounds, selection windows, filtering,
 terminal navigation, prefix popup return paths, boot/cancellation races,
 stop/start semantics, agent reporting/previews, service actions, and journal
 paging/find. These checks validate the simulation, not real-machine behavior.
+
+Confirmation prompts use highlighted `[y/N]` inside the relevant panel.
+`y` / `Y` accepts; `n` / `N` / `Enter` declines (No is the default).
+This applies to session stop, final creation, and project deletion.
+Destructive confirmations are red; creation confirmations are amber.
+Ordinary selection still uses Enter; back controls remain below the panel.
+
+The `P project` selector supports `/` fuzzy search in the first list row,
+without resizing the panel. Enter applies the query, then Enter selects a
+project. Esc clears the search before leaving the selector.
+
+Each project row shows right-aligned `!waiting · running · stopped * total`
+counts. Projects sort descending by waiting, then other running, then total;
+name breaks ties. All projects stays first with inventory totals. Fuzzy search
+preserves this ordering among matches. Narrow terminals abbreviate the labels
+as `!w`, `r`, `s`, and `t`. Total includes transitional and other lifecycle states.
+
+Selector cards and their controls are centered, with a 96-column maximum
+width. Project names use at most 28 columns and branch choices 48; full names
+remain searchable. State count columns reserve consistent numeric widths
+across all project rows, so labels and totals align.
+
+Management screens share a horizontally centered, bounded viewport, including
+inspectors, journal, startup/shutdown views, and historical layouts.
+Single-column pages cap at 96 columns; the wide session browser caps at 148
+columns to preserve its approximately 65/35 list/detail split. Controls and
+status bars align with that viewport. Narrow terminals still use their
+available width, and paging uses the same layout dimensions as rendering.
+The in-session terminal fills the entire terminal width and height, like tmux
+inside the container. Its status bar spans the full width; management views
+opened through the prefix remain centered.

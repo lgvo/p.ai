@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 func (m app) sessionActivityDetails(s session) string {
 	presence, _ := sessionSignals(s)
@@ -10,6 +13,10 @@ func (m app) sessionActivityDetails(s session) string {
 		mutedStyle.Render("UUID " + s.ID),
 		"Runtime " + styledFact(m.lifecycleLabel(s.Lifecycle)) + " · Policy " + styledFact(s.Policy),
 		"Terminals " + presence,
+	}
+	if m.width < 110 {
+		lines[3] += " · " + lines[4]
+		lines = append(lines[:4], lines[5:]...)
 	}
 	lines = append(lines, processTreeRows("Agents", s.Agents, s, m.width < 110)...)
 	lines = append(lines, processRows("Services", projectServices(s), s)...)
@@ -21,7 +28,26 @@ func (m app) sessionActivityDetails(s session) string {
 		actions += " · stop"
 	}
 	actions = strings.ReplaceAll(actions, "attach", "enter")
+	if s.LastInteraction != 0 && m.width >= 110 {
+		lines = append(lines, "Last interaction "+time.Unix(s.LastInteraction, 0).UTC().Format("Jan 02 15:04 UTC"))
+	}
 	lines = append(lines, "Actions "+actions)
+	if m.width < 110 {
+		compact := make([]string, 0, len(lines))
+		for i := 0; i < len(lines); i++ {
+			line := lines[i]
+			if strings.HasPrefix(line, "Actions ") {
+				continue
+			}
+			if (line == "├─ Agents [A]" || line == "└─ Project services [S]") && i+1 < len(lines) {
+				i++
+				child := strings.TrimLeft(lines[i], " │├└─")
+				line += " · " + child
+			}
+			compact = append(compact, line)
+		}
+		lines = compact
+	}
 	return strings.Join(lines, "\n")
 }
 

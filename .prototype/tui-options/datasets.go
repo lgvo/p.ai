@@ -16,6 +16,7 @@ type datasetDefinition struct {
 
 func datasetCatalog() []datasetDefinition {
 	return []datasetDefinition{
+		{modeExplore, "portfolio", "24 projects, 120 sessions (8 running, 112 stopped), 124 unassigned branches", portfolioSessions},
 		{modeExplore, "standard", "nine sessions covering the presentation contract", fixtureSessions},
 		{modeExplore, "dense", "forty representative sessions across eight projects", denseSessions},
 		{modeExplore, "empty", "no projects or sessions", func() []session { return nil }},
@@ -86,6 +87,9 @@ func (m *app) applyDatasetForMode(mode experienceMode, name string) error {
 	m.dataset = name
 	m.datasetNote = definition.description
 	m.sessions = sessions
+	if name == "portfolio" && mode == modeExplore {
+		m.branches = portfolioBranches()
+	}
 	m.selected, m.project = 0, 0
 	m.clientAttach = ""
 	for _, s := range sessions {

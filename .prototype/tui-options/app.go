@@ -109,6 +109,8 @@ const (
 	screenServices
 	screenAgents
 	screenJournal
+	screenStopConfirm
+	screenStopping
 )
 
 // Prototype-only process observations; independent of unattended agent signals.
@@ -128,6 +130,7 @@ type sessionProcess struct {
 }
 
 type session struct {
+	LastInteraction int64
 	Agents          []sessionProcess
 	Services        []sessionProcess
 	ProcessesKnown  bool
@@ -153,6 +156,7 @@ type retainedBranch struct {
 }
 
 type createDraft struct {
+	NewBranch   bool
 	Project     string
 	Source      string
 	Branch      string
@@ -168,54 +172,66 @@ type deleteTarget struct {
 }
 
 type app struct {
-	terminalInspector  bool
-	agentPreviewOffset int
-	journalUnitName    string
-	journalFollow      bool
-	journalColumn      int
-	journalQuery       string
-	journalEditing     bool
-	journalMatch       int
-	journalNotice      string
-	agentsSessionID    string
-	agentChoice        int
-	serviceNotice      string
-	servicesSessionID  string
-	serviceChoice      int
-	journalOffset      int
-	boots              map[string]bootProgress
-	bootSequence       int
-	bootViewID         string
-	sessionBarFields   []string
-	terminals          map[string]fakeTerminal
-	terminalPrefix     bool
-	browser            bool
-	width, height      int
-	variant            variant
-	galleryChoice      variant
-	mode               experienceMode
-	dataset            string
-	datasetNote        string
-	stressStep         int
-	screen             screen
-	previous           screen
-	selected           int
-	project            int
-	topologyProject    string
-	projectChoice      int
-	filter             textinput.Model
-	filtering          bool
-	sessions           []session
-	branches           []retainedBranch
-	clientAttach       string
-	message            string
-	draft              createDraft
-	deleteProject      string
-	deleteTargets      []deleteTarget
-	outlineCursor      int
-	collapsed          map[string]bool
-	workspaceTab       int
-	compareAnchor      string
+	vimPending               string
+	createSearch             textinput.Model
+	createSearching          bool
+	createBranchStep         string
+	createName               textinput.Model
+	createNotice             string
+	createStep, createChoice int
+	terminalInspector        bool
+	agentPreviewOffset       int
+	journalUnitName          string
+	journalFollow            bool
+	journalColumn            int
+	journalQuery             string
+	journalEditing           bool
+	journalMatch             int
+	journalNotice            string
+	agentsSessionID          string
+	agentChoice              int
+	serviceNotice            string
+	servicesSessionID        string
+	serviceChoice            int
+	journalOffset            int
+	boots                    map[string]bootProgress
+	bootSequence             int
+	bootViewID               string
+	stopViewID               string
+	stops                    map[string]bootProgress
+	stopSequence             int
+	sessionBarFields         []string
+	terminals                map[string]fakeTerminal
+	terminalPrefix           bool
+	browser                  bool
+	width, height            int
+	variant                  variant
+	galleryChoice            variant
+	mode                     experienceMode
+	dataset                  string
+	datasetNote              string
+	stressStep               int
+	screen                   screen
+	previous                 screen
+	selected                 int
+	project                  int
+	topologyProject          string
+	projectChoice            int
+	projectSearch            textinput.Model
+	projectSearching         bool
+	filter                   textinput.Model
+	filtering                bool
+	sessions                 []session
+	branches                 []retainedBranch
+	clientAttach             string
+	message                  string
+	draft                    createDraft
+	deleteProject            string
+	deleteTargets            []deleteTarget
+	outlineCursor            int
+	collapsed                map[string]bool
+	workspaceTab             int
+	compareAnchor            string
 }
 
 func newApp() app {
@@ -281,14 +297,43 @@ func (m app) Init() tea.Cmd { return nil }
 
 func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case stopTick:
+		return m.updateStop(msg)
 	case bootTick:
 		return m.updateBoot(msg)
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.vimPending = ""
 		return m, nil
 	case tea.KeyMsg:
 		if m.screen == screenTerminal {
 			return m.updateTerminal(msg)
+		}
+		if m.confirmationActive() {
+			switch msg.String() {
+			case "n", "N", "enter":
+				if m.screen == screenCreate && m.browser {
+					m.backCreation()
+				} else {
+					m.screen = screenOverview
+				}
+				m.message = ""
+				return m, nil
+			case "y", "Y":
+				if m.screen == screenCreate {
+					if m.browser {
+						return m.updateCreation(tea.KeyMsg{Type: tea.KeyEnter})
+					}
+					m.submitCreate()
+					return m, nil
+				}
+				return m.updateOverlay(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+			}
+		}
+		var consumed bool
+		msg, consumed = m.vimKey(msg)
+		if consumed {
+			return m, nil
 		}
 		if msg.String() == "ctrl+c" || msg.String() == "esc" || msg.String() == "q" {
 			return m.cancelInteraction(true)
@@ -318,6 +363,12 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateOverlay(msg)
 		}
 
+		if m.browser && m.variant == variantTopology {
+			if selected, handled := selectorNavigation(msg.String(), m.selected, len(m.visibleIndices()), m.browserSessionCapacity()); handled {
+				m.selected = selected
+				return m, nil
+			}
+		}
 		if m.browser {
 			switch msg.String() {
 			case "tab", "shift+tab", "[", "]", "1", "2", "3", "4", "5", "6", "v":
@@ -407,11 +458,14 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "P":
 			if m.variant == variantTopology {
 				m.projectChoice = 0
-				for i, project := range m.projects() {
+				for i, project := range m.orderedFilterProjects() {
 					if project == m.topologyProject {
-						m.projectChoice = i + 1
+						m.projectChoice = i
 					}
 				}
+				m.projectSearch = textinput.New()
+				m.projectSearch.CharLimit = 120
+				m.projectSearching = false
 				m.screen = screenProjectFilter
 			}
 		case "p":
@@ -459,6 +513,12 @@ func (m app) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.screen {
+	case screenStopConfirm:
+		if key == "y" {
+			cmd := m.beginStop()
+			return m, cmd
+		}
+	case screenStopping:
 	case screenAgents:
 		m.updateAgents(key)
 	case screenServices:
@@ -474,26 +534,7 @@ func (m app) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case screenProjectFilter:
-		projects := append([]string{""}, m.projects()...)
-		switch key {
-		case "j", "down":
-			m.projectChoice = (m.projectChoice + 1) % len(projects)
-		case "k", "up":
-			m.projectChoice = (m.projectChoice + len(projects) - 1) % len(projects)
-		case "enter":
-			selectedID := ""
-			if idx, ok := m.selectedSessionIndex(); ok {
-				selectedID = m.sessions[idx].ID
-			}
-			m.topologyProject = projects[m.projectChoice]
-			m.selected = 0
-			for pos, idx := range m.visibleIndices() {
-				if m.sessions[idx].ID == selectedID {
-					m.selected = pos
-				}
-			}
-			m.screen = screenOverview
-		}
+		return m.updateProjectFilter(msg)
 	case screenVariantGallery:
 		switch key {
 		case "j", "down":
@@ -506,6 +547,9 @@ func (m app) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.message = fmt.Sprintf("Exploring %s with the %s fixture.", m.variant, m.dataset)
 		}
 	case screenCreate:
+		if m.browser {
+			return m.updateCreation(msg)
+		}
 		if key == "enter" {
 			m.submitCreate()
 		}
@@ -588,7 +632,7 @@ func (m app) visibleIndices() []int {
 	}
 	query := strings.TrimSpace(m.filter.Value())
 	if query == "" {
-		return indices
+		return m.orderSessionIndices(indices)
 	}
 	haystack := make([]string, len(indices))
 	for i, idx := range indices {
@@ -602,12 +646,20 @@ func (m app) visibleIndices() []int {
 			haystack[i] += " " + agentSummary(s, agent)
 		}
 	}
+	if m.browser {
+		selector := newSelector(stringItems(haystack), query, 0, 1, 1)
+		filtered := make([]int, 0, len(indices))
+		for _, i := range selector.indices() {
+			filtered = append(filtered, indices[i])
+		}
+		return m.orderSessionIndices(filtered)
+	}
 	matches := fuzzy.Find(query, haystack)
 	filtered := make([]int, 0, len(matches))
 	for _, match := range matches {
 		filtered = append(filtered, indices[match.Index])
 	}
-	return filtered
+	return m.orderSessionIndices(filtered)
 }
 
 func urgency(s session) int {
@@ -719,6 +771,10 @@ func (m *app) detachSelected() {
 }
 
 func (m *app) startCreate() {
+	if m.browser {
+		m.startCreationWizard()
+		return
+	}
 	m.screen = screenCreate
 	m.draft = createDraft{
 		Project: "forge", Source: "main@4e27a91", Branch: "feature/new-stream",

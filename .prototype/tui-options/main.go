@@ -36,6 +36,9 @@ func main() {
 	}
 	if *dataset == "" {
 		*dataset = defaultDatasetForMode(mode)
+		if !*gallery && mode == modeExplore {
+			*dataset = "portfolio"
+		}
 	}
 	m, err := newAppForModeDataset(mode, *dataset)
 	if err != nil {
