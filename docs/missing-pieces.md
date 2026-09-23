@@ -28,10 +28,10 @@ owned by the design set:
 - [technology stack](technology-stack.md) owns implementation interfaces and
   library/tool choices.
 
-The exact TUI layout, navigation, key map, and smallest useful initial screen
-remain intentionally undecided until a prototype supplies interaction
-evidence. That prototype may change presentation, but not owner-document
-lifecycle semantics.
+The [current prototype decisions](../.prototype/tui-options/DECISIONS.md)
+record the reviewed session-browser layout and controls. Production integration
+and the agent/service extensions remain unresolved; prototype presentation
+does not change owner-document lifecycle semantics.
 
 ## Foundation
 
@@ -140,12 +140,15 @@ lifecycle semantics.
 
 ## TUI and clients
 
-- [ ] Build a throwaway interaction prototype against fixture RPC data.
+- [x] Build a throwaway interaction prototype using local fixture data; no live
+  RPC transport is connected.
 - [ ] Test project/session overview density, creation and **Try again with
   changes**, policy warnings/diffs, retained branches, destructive previews,
   bulk project deletion progress/retry, and attach/switch/detach behavior.
-- [ ] Record the chosen initial layout/navigation/key map only after testing;
-  then implement the thin production TUI without moving business logic into it.
+- [x] Record the reviewed prototype layout/navigation/key map in the
+  [current decision record](../.prototype/tui-options/DECISIONS.md).
+- [ ] Resolve real attachment, agent inventory/preview, and project-service
+  integration boundaries before implementing the thin production TUI.
 - [ ] Implement the local Unix RPC transport and trusted attachment helper.
 
 ## Post-MVP clients

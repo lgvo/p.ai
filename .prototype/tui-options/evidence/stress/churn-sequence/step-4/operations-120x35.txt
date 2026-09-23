@@ -1,0 +1,14 @@
+P / probe · STRESS:churn@4 · view 09 Operations console · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 0  ·  degraded 0  ·      │ │ Inspector                                │
+│ attached 0                                                          │ │ No session selected                      │
+│ Newest fixture observations first; recovery never implies hidden    │ │                                          │
+│ automatic mutation.                                                 │ │ Recovery contract                        │
+│                                                                     │ │ r previews a bounded plan                │
+│   TIME      SESSION        OBSERVATION                              │ │ retry preserves request identity         │
+│ No operations or stable observations in this fixture.               │ │ partial deletion only converges toward   │
+╰─────────────────────────────────────────────────────────────────────╯ │ absent                                   │
+                                                                        ╰──────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

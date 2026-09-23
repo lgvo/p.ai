@@ -1,0 +1,21 @@
+P / probe · STRESS:churn@3 · view 15 Session comparison · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  project-001 / recover/0007-cleanu…  ·  s-churn-0007            │
+│ missing · attached:1 · — · outdated                                        │
+│ actions  inspect · repair plan · detach this client · policy diff ·        │
+│ recreate                                                                   │
+│ progress expected runtime not found                                        │
+│                                                                            │
+│ B · current  project-002 / docs/deterministic-…  ·  s-churn-neighbor       │
+│ ready · unattended · — · current                                           │
+│ actions  inspect · attach                                                  │
+│                                                                            │
+│ A → B delta  life missing→ready  ·  presence attached:1→unattended  ·      │
+│ agen…                                                                      │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

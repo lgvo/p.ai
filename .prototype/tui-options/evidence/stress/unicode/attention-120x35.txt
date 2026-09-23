@@ -1,0 +1,26 @@
+P / probe · STRESS:unicode · view 03 Attention workspace · Tab cycle · v gallery
+╭───────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 4                         │ │ Everything else                                                │
+│ › 工房・東京 機能/認証フロー                  │ │   🚀-launch… 🚀/interactive-cli                                │
+│     ready · unattended                        │ │     starting · unattended                                      │
+│     attention · outdated · permission         │ │     running · current · activating environmen…                 │
+│ required ·…                                   │ │   naïve-über prototype/界面-🧪                                 │
+│   café-equi… correção/cache-concorrente       │ │     creating · unattended                                      │
+│     stopped · unattended                      │ │     idle · current · building project envi…                    │
+│     failed · current · tests exited 1 · 사용… │ │   مختبر-الق… ميزة/دليل-الإضافة                                 │
+│   מעבדת-תל-… תיקון/חוזה-תוסף                  │ │     ready · attached:1                                         │
+│     unreachable · unattended                  │ │     no signal · current ·                                      │
+│     unknown · invalid · Incus inspection      │ │ … 2 more                                                       │
+│ time…                                         │ │                                                                │
+│ … 1 more                                      │ │ Inspector                                                      │
+╰───────────────────────────────────────────────╯ │ 工房・東京 / 機能/認証フロー                                   │
+                                                  │ UUID s-auth                                                    │
+                                                  │ lifecycle  ready                                               │
+                                                  │ presence   unattended                                          │
+                                                  │ agent      attention                                           │
+                                                  │ policy     outdated                                            │
+                                                  │ actions    inspect · attach · policy diff · recreate           │
+                                                  ╰────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

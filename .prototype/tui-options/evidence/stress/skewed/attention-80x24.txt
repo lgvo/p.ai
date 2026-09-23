@@ -1,0 +1,17 @@
+P / probe · STRESS:skewed · view 03 Attention workspace · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 299                                                    │
+│ › project-001/work/0001-agen… ready       unattended  attention current    │
+│   project-002/work/0002-docs… ready       unattended  attention current    │
+│   project-003/work/0003-fix/… ready       unattended  attention current    │
+│ … 296 more                                                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Everything else                                                            │
+│   project-007/recover/0151-c… ready       attached:1  —         current    │
+│                                                                            │
+│ Selected s-skewed-0001  project-001/work/0001-agent…  ·  actions: inspect  │
+│ / attach                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,29 @@
+P / probe · view 06 Actionability lanes · fixture:standard · Tab cycle · v gallery
+╭─────────────────────╮ ╭────────────────────╮ ╭────────────────────╮ ╭────────────────────╮
+│ Inspect first · 2   │ │ In progress · 3    │ │ Recover · 2        │ │ Removing · 2       │
+│ ›                   │ │                    │ │                    │ │                    │
+│ forge/agent/oauth-d │ │ forge/docs/plugin- │ │ p.ai/design/plugin │ │ demo/discard/tempo │
+│ …                   │ │ g…                 │ │ -…                 │ │ r…                 │
+│     ready           │ │     ready          │ │     unreachable    │ │     discarding     │
+│     unattended      │ │     attached:1     │ │     unattended     │ │     unattended     │
+│     attention ·     │ │     — · current    │ │     unknown ·      │ │     — · current    │
+│ outdated            │ │                    │ │ invalid            │ │     tearing down   │
+│   orbit/fix/cache-  │ │ orbit/feature/inte │ │     Incus          │ │ runtim…            │
+│ race                │ │ r…                 │ │ inspection ti…     │ │                    │
+│     stopped         │ │     starting       │ │                    │ │ demo/archive/old-e │
+│     unattended      │ │     unattended     │ │ labs/cleanup/retai │ │ x…                 │
+│     failed ·        │ │     running ·      │ │ n…                 │ │     deleting       │
+│ current             │ │ current            │ │     missing        │ │     unattended     │
+│     last start:     │ │     activating     │ │     unattended     │ │     — · current    │
+│ host ex…            │ │ environm…          │ │     — · outdated   │ │     credentials    │
+╰─────────────────────╯ │ … 1 below          │ │     expected       │ │ deleted…           │
+                        ╰────────────────────╯ │ runtime no…        │ ╰────────────────────╯
+                                               ╰────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-auth  forge/agent/oauth-device-fl…                                                  │
+│ ready · unattended · attention · outdated                                                      │
+│ actions  inspect · attach · policy diff · recreate                                             │
+╰────────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle
+· v gallery · ? help · q quit

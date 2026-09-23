@@ -1,0 +1,21 @@
+P / probe · STRESS:high-attachments · view 12 Responsive card grid · Tab cycle …
+Responsive session cards  ·  1 columns at 80 cells
+Identity, four independent facts, and eligible actions travel together as cards…
+
+╭────────────────────────────────────────────────────────────────────────────╮
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-presence-0001                                                       │
+│ life ready       presence unattended                                       │
+│ agent attention  policy outdated                                           │
+│ actions inspect · attach · policy diff · recreate                          │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ project-002 / work/0002-docs/plugin-guide                                  │
+│ UUID s-presence-0002                                                       │
+│ life ready       presence attached:1                                       │
+│ agent —          policy current                                            │
+│ actions inspect · attach · detach this client                              │
+╰────────────────────────────────────────────────────────────────────────────╯
+cards 1–2 of 20 · j/k moves and turns pages
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

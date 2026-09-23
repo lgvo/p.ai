@@ -1,0 +1,13 @@
+P / probe · STRESS:unicode · view 13 Attachment dock · Tab …
+╭────────────────────────────────────────────────────────╮
+│ Attachment dock · compact disclosure                   │
+│ 工房・東京 / 機能/認証フロー                           │
+│ UUID s-auth                                            │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     outdated                                    │
+│ actions    inspect · attach · policy diff · recreate   │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

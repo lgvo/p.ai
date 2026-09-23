@@ -1,0 +1,22 @@
+P / probe · STRESS:churn@3 · view 01 Fleet table · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│   project-000 / agent/arrive… stopped    unattended · failed / current     │
+│   project-006 / work/0012-fi… stopped    unattended · failed / current     │
+│   project-005 / work/0011-do… ready      unattended · — / current          │
+│   project-004 / work/0010-ag… ready      unattended · attention / outdated │
+│   … 8 more                                                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-002 / docs/deterministic-fallback                                  │
+│ UUID s-churn-neighbor                                                      │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      no unattended signal                                            │
+│ policy     current                                                         │
+│ actions    inspect · attach                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

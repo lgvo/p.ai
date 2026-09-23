@@ -1,0 +1,17 @@
+P / probe · STRESS:skewed · view 01 Fleet table · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────╮
+│ All active sessions · cross-project                                  │ │ Inspector                               │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY      │ │ project-001 / work/0001-agent/oauth-    │
+│ › project-001 / work/0001… ready      unattended attention current   │ │ device-flow                             │
+│   project-002 / work/0002… ready      unattended attention current   │ │ UUID s-skewed-0001                      │
+│   project-003 / work/0003… ready      unattended attention current   │ │ lifecycle  ready                        │
+│   project-004 / boot/0004… ready      unattended attention current   │ │ presence   unattended                   │
+│   project-005 / recover/0… ready      unattended attention current   │ │ agent      attention                    │
+│   project-006 / boot/0006… ready      unattended attention current   │ │ policy     current                      │
+│   project-007 / recover/0… ready      unattended attention current   │ │ actions    inspect · attach             │
+│   project-008 / retire/00… ready      unattended attention current   │ ╰─────────────────────────────────────────╯
+│   … 292 more                                                         │
+╰──────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

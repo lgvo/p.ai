@@ -1,0 +1,24 @@
+P / probe · STRESS:mixed-observations · view 16 Resource topology · Tab cycle ·…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Resource topology                                                          │
+│ Edges expose ownership and lifetime; adjacent resources are not collapsed  │
+│ into session state.                                                        │
+│                                                                            │
+│ Portfolio edges · attached 1                                               │
+│ › project-0… ├─ s-mixed-00… host:ready       client:unknown     agent:n…   │
+│   project-0… ├─ s-mixed-00… host:ready       client:unattended  agent:—    │
+│    … 25 more session edges                                                 │
+│                                                                            │
+│ Selected relationship · explicit lifetimes                                 │
+│ PROJECT  project-001                                                       │
+│   ├─ GIT REF  work/0001-agent/oauth-device-flow                            │
+│   │    retained independently                                              │
+│   └─ SESSION  s-mixed-0001  (stable identity)                              │
+│        ├─ HOST       ready  (persistent)                                   │
+│        ├─ CLIENTS    unknown  (temporary)                                  │
+│        ├─ AGENT      not evaluated  (unattended-only)                      │
+│        └─ POLICY     outdated  (immutable snapshot)                        │
+│ actions  inspect · refresh PARTIAL facts                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

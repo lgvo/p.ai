@@ -1,0 +1,13 @@
+P / probe · STRESS:churn@4 · view 09 Operations console · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 0  ·  degraded 0  ·  attached 0 │
+│ Newest fixture observations first; recovery never implies hidden automatic │
+│ mutation.                                                                  │
+│                                                                            │
+│   TIME      SESSION        OBSERVATION                                     │
+│ No operations or stable observations in this fixture.                      │
+│                                                                            │
+│ No session selected                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,17 @@
+P / probe · STRESS:high-attachments · view 13 Attachment dock · Tab cycle · v gallery
+╭────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────╮
+│ Attachment dock                            │ │ Switch targets                                                    │
+│ This client may occupy one persistent      │ │ › project-001 / work/… ready       unattended   a attach/switch   │
+│ session host; switching does not stop      │ │   project-002 / work/… ready       attached:1   a attach/switch   │
+│ either host.                               │ │   project-003 / work/… stopped     attached:2   a attach/switch   │
+│                                            │ │   project-004 / boot/… starting    attached:12  inspect only      │
+│ CLIENT  attached → s-presence-0002         │ │   project-005 / recov… unreachable attached:99… inspect only      │
+│ project-002 / work/0002-docs/plugin-guide  │ │   … 15 more targets                                               │
+│ ready · attached:1 · — · current           │ │                                                                   │
+│ d detaches this client; host remains ready │ │ Candidate facts  s-presence-0001                                  │
+╰────────────────────────────────────────────╯ │ ready · unattended · attention · outdated                         │
+                                               │ actions  inspect · attach · policy diff · recreate                │
+                                               ╰───────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

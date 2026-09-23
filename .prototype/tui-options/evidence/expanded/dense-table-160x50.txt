@@ -1,0 +1,16 @@
+P / probe · view 01 Fleet table · fixture:dense · Tab cycle · v gallery
+╭───────────────────────────────────────────────────────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                                           │ │ Inspector                                              │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY                               │ │ forge / work/01-agent/oauth-device-flow                │
+│ › forge / work/01-agent/o… ready      unattended attention outdated                           │ │ UUID s-dense-01                                        │
+│   orbit / work/02-docs/pl… ready      unattended —         current                            │ │ lifecycle  ready                                       │
+│   p.ai / work/03-fix/cach… stopped    unattended failed    current                            │ │ presence   unattended                                  │
+│   labs / boot/04-feature/… starting   unattended running   current                            │ │ agent      attention                                   │
+│   demo / recover/05-desig… unreachab… unattended unknown   invalid                            │ │ policy     outdated                                    │
+│   relay / boot/06-prototy… creating   unattended idle      current                            │ │ actions    inspect · attach · policy diff · recreate   │
+│   quartz / recover/07-cle… missing    unattended —         outdated                           │ ╰────────────────────────────────────────────────────────╯
+│   harbor / retire/08-disc… discarding unattended —         current                            │
+│   … 32 more                                                                                   │
+╰───────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

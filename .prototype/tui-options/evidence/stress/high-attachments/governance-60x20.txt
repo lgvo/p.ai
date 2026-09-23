@@ -1,0 +1,13 @@
+P / probe · STRESS:high-attachments · view 14 Governance da…
+╭────────────────────────────────────────────────────────╮
+│ Governance dashboard · compact disclosure              │
+│ project-001 / work/0001-agent/oauth-device-flow        │
+│ UUID s-presence-0001                                   │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     outdated                                    │
+│ actions    inspect · attach · policy diff · recreate   │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

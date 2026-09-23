@@ -1,0 +1,21 @@
+P / probe · STRESS:churn@3 · view 11 Minimal stream ledger · Tab cycle · v gallery
+Stream ledger  12 streams · attached 1
+One reading axis; the current row expands in place. No panel boundary carries meaning.
+
+  project-000 / agent/arrived-du… stopped · unattended · failed · current
+  project-006 / work/0012-fix/ca… stopped · unattended · failed · current
+  project-005 / work/0011-docs/p… ready · unattended · — · current
+  project-004 / work/0010-agent/… ready · unattended · attention · outdated
+  project-003 / retire/0009-arch… deleting · unattended · — · current
+  project-002 / retire/0008-disc… discarding · unattended · — · current
+  project-001 / recover/0007-cle… missing · attached:1 · — · outdated
+  project-006 / boot/0006-protot… creating · unattended · idle · current
+  project-005 / recover/0005-des… unreachable · unattended · unknown · invalid
+  project-004 / boot/0004-featur… starting · unattended · running · current
+  project-003 / work/0003-fix/ca… stopped · unattended · failed · current
+› project-002 / docs/deterministic-fallback
+    s-churn-neighbor · ready · unattended · — · current
+    actions  inspect · attach
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

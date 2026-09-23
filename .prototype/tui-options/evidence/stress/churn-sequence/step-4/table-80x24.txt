@@ -1,0 +1,11 @@
+P / probe · STRESS:churn@4 · view 01 Fleet table · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│ No matching sessions                                                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ No session selected                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

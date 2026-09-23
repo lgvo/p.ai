@@ -1,0 +1,24 @@
+P / probe · STRESS:stale-observations · view 09 Operations console · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 18  ·  degraded 6  ·     │ │ Inspector                                │
+│ attached 1                                                          │ │ project-001 / work/0001-agent/oauth-     │
+│ Newest fixture observations first; recovery never implies hidden    │ │ device-flow                              │
+│ automatic mutation.                                                 │ │ UUID s-stale-0001                        │
+│                                                                     │ │ lifecycle  ready                         │
+│   TIME      SESSION        OBSERVATION                              │ │ presence   unattended                    │
+│   20:42:00  s-stale-0018  last observation is outside the trusted…  │ │ agent      attention                     │
+│   20:41:07  s-stale-0017  last observation is outside the trusted…  │ │ policy     outdated                      │
+│   20:40:14  s-stale-0016  last observation is outside the trusted…  │ │ operation  last observation is outside   │
+│   20:39:21  s-stale-0015  last observation is outside the trusted…  │ │ the trusted freshness window             │
+│   20:38:28  s-stale-0014  last observation is outside the trusted…  │ │ actions    inspect · refresh STALE 37m   │
+│   20:37:35  s-stale-0013  last observation is outside the trusted…  │ │ facts                                    │
+╰─────────────────────────────────────────────────────────────────────╯ │                                          │
+                                                                        │ Recovery contract                        │
+                                                                        │ r previews a bounded plan                │
+                                                                        │ retry preserves request identity         │
+                                                                        │ partial deletion only converges toward   │
+                                                                        │ absent                                   │
+                                                                        ╰──────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

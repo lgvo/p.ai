@@ -1,0 +1,11 @@
+P / probe · STRESS:churn@4 · view 17 Action eligibility sheet · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Action eligibility sheet                                                   │
+│ Available and unavailable actions stay visible together; reasons come f…   │
+│                                                                            │
+│ object 0/0 · attached 0 · j/k changes object                               │
+│                                                                            │
+│ No selected object, so no action is implied.                               │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

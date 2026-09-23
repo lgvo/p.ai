@@ -1,0 +1,19 @@
+P / probe · STRESS:high-attachments · view 16 Resource topology · Tab cycle · v gallery
+Resource topology
+Edges expose ownership and lifetime; adjacent resources are not collapsed into session state.
+
+╭────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────╮
+│ Portfolio edges · attached 40056                   │ │ Selected relationship · explicit lifetimes                │
+│ › project-0… ├─ s-presence… host:ready       cl…   │ │ PROJECT  project-001                                      │
+│   project-0… ├─ s-presence… host:ready       cl…   │ │   ├─ GIT REF  work/0001-agent/oauth-device-flow           │
+│   project-0… ├─ s-presence… host:stopped     cl…   │ │   │    retained independently                             │
+│   project-0… ├─ s-presence… host:starting    cl…   │ │   └─ SESSION  s-presence-0001  (stable identity)          │
+│   project-0… ├─ s-presence… host:unreachable cl…   │ │        ├─ HOST       ready  (persistent)                  │
+│   project-0… ├─ s-presence… host:creating    cl…   │ │        ├─ CLIENTS    unattended  (temporary)              │
+│    … 14 more session edges                         │ │        ├─ AGENT      attention  (unattended-only)         │
+╰────────────────────────────────────────────────────╯ │        └─ POLICY     outdated  (immutable snapshot)       │
+                                                       │ actions  inspect · attach · policy diff · recreate        │
+                                                       ╰───────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

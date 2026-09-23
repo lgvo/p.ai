@@ -1,0 +1,24 @@
+P / probe · STRESS:hostile-text · view 06 Actionability lanes · Tab cycle · v gallery
+╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
+│ Inspect first · 2        │ │ In progress · 3         │ │ Recover · 2             │ │ Removing · 2            │
+│ › forge<ESC>[31m-red/…   │ │   link<ESC>]8;;https:…  │ │   isolate-<BIDI>left<…  │ │   demo/discard/tempor…  │
+│     ready                │ │     ready               │ │     unreachable         │ │     discarding          │
+│     unattended           │ │     attached:1          │ │     unattended          │ │     unattended          │
+│     attention · outdated │ │     — · current         │ │     unknown · invalid   │ │     — · current         │
+│   orbit/fix/cache-race   │ │   orbit/feature/zero<…  │ │     Incus inspection    │ │     tearing down        │
+│     stopped              │ │     starting            │ │ ti…                     │ │ runtim…                 │
+│     unattended           │ │     unattended          │ │   labs/cleanup/retain…  │ │   demo/archive/old-ex…  │
+│     failed · current     │ │     running · current   │ │     missing             │ │     deleting            │
+│     diagnostic-segment-… │ │     activating          │ │     unattended          │ │     unattended          │
+╰──────────────────────────╯ │ environm…               │ │     — · outdated        │ │     — · current         │
+                             │ … 1 below               │ │     expected runtime    │ │     credentials         │
+                             ╰─────────────────────────╯ │ no…                     │ │ deleted…                │
+                                                         ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-auth  forge<ESC>[31m-red/agent/oa…                                                                      │
+│ ready · unattended · attention · outdated                                                                          │
+│ actions  inspect · attach · policy diff · recreate                                                                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -1,0 +1,21 @@
+P / probe · STRESS:high-attachments · view 14 Governance dashboard · Tab cycle …
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Four-question governance dashboard                                         │
+│ Navigate sessions normally; the dashboard continuously recomputes its      │
+│ answers.                                                                   │
+│                                                                            │
+│ 1 · What needs attention?                                                  │
+│   5 urgent · project-001/work/0001-agent/oauth-d…                          │
+│ 2 · Where am I attached?                                                   │
+│   attached → project-002/work/0002-docs/plugin-gu…                         │
+│ 3 · What is changing?                                                      │
+│   14 observed operations · last start: host exited; bounded …              │
+│ 4 · What could be unsafe?                                                  │
+│   7 policy risks · project-001/work/0001-agent/oauth…                      │
+│                                                                            │
+│ Selected evidence · s-presence-0001  project-001 / work/0001-agent/…       │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

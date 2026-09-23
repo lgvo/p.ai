@@ -1,0 +1,15 @@
+P / probe · STRESS:churn@4 · view 13 Attachment dock · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Attachment dock                                                            │
+│ This client may occupy one persistent session host; switching does not …   │
+│                                                                            │
+│ CLIENT  detached                                                           │
+│ No session host was stopped; select a target and press a.                  │
+│                                                                            │
+│ Switch targets                                                             │
+│ No switch targets.                                                         │
+│                                                                            │
+│ No candidate selected                                                      │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

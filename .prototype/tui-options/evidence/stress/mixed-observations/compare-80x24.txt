@@ -1,0 +1,20 @@
+P / probe · STRESS:mixed-observations · view 15 Session comparison · Tab cycle …
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  project-005 / recover/0014-design…  ·  s-mixed-0014            │
+│ unreachable · attached:1 · — · invalid                                     │
+│ actions  inspect · refresh STALE 51m facts                                 │
+│ progress last observation is outside the trusted freshness window          │
+│                                                                            │
+│ B · current  project-001 / work/0001-agent/oau…  ·  s-mixed-0001           │
+│ ready · unknown · not evaluated · outdated                                 │
+│ actions  inspect · refresh PARTIAL facts                                   │
+│                                                                            │
+│ A → B delta  life unreachable→ready  ·  presence attached:1→unknown  ·     │
+│ age…                                                                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

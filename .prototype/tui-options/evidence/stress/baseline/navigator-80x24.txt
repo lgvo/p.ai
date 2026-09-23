@@ -1,0 +1,14 @@
+P / probe · STRESS:baseline · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects  demo   forge   labs  orbit  p.ai                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│ › agent/oauth-device-flow      ready      unattended  attention outdated   │
+│   docs/plugin-guide            ready      attached:1  —         current    │
+│                                                                            │
+│ Selected s-auth  forge/agent/oauth-device-fl…  ·  actions: inspect /       │
+│ attach / policy diff / recreate                                            │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

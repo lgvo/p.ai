@@ -1,0 +1,23 @@
+P / probe · STRESS:stale-observations · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│ › proj…t-001 3 sess · 2 urgent │ │ › work/0001-agent/oauth-device-fl…                                            │
+│   proj…t-002 3 sess · 1 urgent │ │     ready · unattended · attention · outdated                                 │
+│   proj…t-003 3 sess · 1 urgent │ │   recover/0007-cleanup/retained-s…                                            │
+│   proj…t-004 3 sess · 1 urgent │ │     missing · unattended · — · outdated                                       │
+│   proj…t-005 3 sess · 1 urgent │ │   boot/0013-feature/interactive-c…                                            │
+│   proj…t-006 3 sess · 1 urgent │ │     starting · unattended · running · current                                 │
+╰────────────────────────────────╯ │                                                                               │
+                                   │ Inspector                                                                     │
+                                   │ project-001 / work/0001-agent/oauth-device-flow                               │
+                                   │ UUID s-stale-0001                                                             │
+                                   │ lifecycle  ready                                                              │
+                                   │ presence   unattended                                                         │
+                                   │ agent      attention                                                          │
+                                   │ policy     outdated                                                           │
+                                   │ operation  last observation is outside the trusted freshness window           │
+                                   │ actions    inspect · refresh STALE 37m facts                                  │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

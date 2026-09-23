@@ -1,0 +1,20 @@
+P / probe · STRESS:churn@1 · view 09 Operations console · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 8  ·  degraded 4  ·  attached 1 │
+│ Newest fixture observations first; recovery never implies hidden automatic │
+│ mutation.                                                                  │
+│                                                                            │
+│   TIME      SESSION        OBSERVATION                                     │
+│ › 20:42:00  s-churn-focus stable ready · outdated                          │
+│   20:41:07  s-churn-neig… stable ready · current                           │
+│   20:40:14  s-churn-0003  last start: host exited; bounded diagnostic a…   │
+│   20:39:21  s-churn-0004  activating environment · phase 3/5               │
+│   20:38:28  s-churn-0005  Incus inspection timed out                       │
+│   20:37:35  s-churn-0006  building project environment · phase 2/6         │
+│                                                                            │
+│ Selected operation context · s-churn-focus  project-001 / agent/stab…      │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate · r recovery plan       │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

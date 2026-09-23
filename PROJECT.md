@@ -168,8 +168,9 @@ or approved plans.
   composition of secure first-party implementations. Packaging, process
   model, transport, compatibility, capability manifests, installation, and
   approval UX remain unresolved.
-- Exact TUI layout, navigation, keys, and initial slice remain pending a
-  prototype.
+- The [session-browser prototype](.prototype/tui-options/DECISIONS.md) records
+  the current reviewed layout and controls. Production TUI integration and
+  scope reconciliation remain open.
 - Additional runtime environments, multi-user operation, service
   orchestration, richer event handlers, and optional multi-instance
   coordination may be explored while preserving the confirmed guidance.

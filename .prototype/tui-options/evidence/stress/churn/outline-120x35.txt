@@ -1,0 +1,28 @@
+P / probe · STRESS:churn@0 · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│ › ▾ project-001          2 sessions · 2 urgent           │ │ project-001 / agent/stable-selection-target         │
+│       └─ agent/stable-selection-target                   │ │ UUID s-churn-focus                                  │
+│          ready · unattended · attention · outdated       │ │ lifecycle  ready                                    │
+│       └─ recover/0007-cleanup/retained-state             │ │ presence   unattended                               │
+│          missing · attached:1 · — · outdated             │ │ agent      attention                                │
+│   ▾ project-002          2 sessions · 0 urgent           │ │ policy     outdated                                 │
+│       └─ docs/deterministic-fallback                     │ │ actions    inspect · attach · policy diff ·         │
+│          ready · unattended · — · current                │ │ recreate                                            │
+│       └─ retire/0008-discard/temporary-spike             │ ╰─────────────────────────────────────────────────────╯
+│          discarding · unattended · — · current           │
+│   ▾ project-003          2 sessions · 1 urgent           │
+│       └─ work/0003-fix/cache-race                        │
+│          stopped · unattended · failed · current         │
+│       └─ retire/0009-archive/old-experiment              │
+│          deleting · unattended · — · current             │
+│   ▾ project-004          2 sessions · 1 urgent           │
+│       └─ boot/0004-feature/interactive-cli               │
+│          starting · unattended · running · current       │
+│       └─ work/0010-agent/oauth-device-flow               │
+│          ready · unattended · attention · outdated       │
+│   … 6 nodes below                                        │
+╰──────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

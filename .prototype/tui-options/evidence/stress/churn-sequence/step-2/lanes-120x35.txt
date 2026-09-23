@@ -1,0 +1,24 @@
+P / probe · STRESS:churn@2 · view 06 Actionability lanes · Tab cycle · v gallery
+╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
+│ Inspect first · 5        │ │ In progress · 4         │ │ Recover · 2             │ │ Removing · 2            │
+│ … 3 above                │ │   project-005/work/00…  │ │   project-001/recover…  │ │   project-003/retire/…  │
+│   project-003/work/00…   │ │     ready               │ │     missing             │ │     deleting            │
+│     stopped              │ │     unattended          │ │     attached:1          │ │     unattended          │
+│     unattended           │ │     — · current         │ │     — · outdated        │ │     — · current         │
+│     failed · current     │ │   project-006/boot/00…  │ │     expected runtime    │ │     credentials         │
+│     last start: host ex… │ │     creating            │ │ no…                     │ │ deleted…                │
+│ › project-001/agent/s…   │ │     unattended          │ │   project-005/recover…  │ │   project-002/retire/…  │
+│     stopped              │ │     idle · current      │ │     unreachable         │ │     discarding          │
+│     unattended           │ │     building project    │ │     unattended          │ │     unattended          │
+│     failed · outdated    │ │ en…                     │ │     unknown · invalid   │ │     — · current         │
+│     observation revisio… │ │ … 2 below               │ │     Incus inspection    │ │     tearing down        │
+╰──────────────────────────╯ ╰─────────────────────────╯ │ ti…                     │ │ runtim…                 │
+                                                         ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-churn-focus  project-001/agent/stable-se…                                                               │
+│ stopped · unattended · failed · outdated                                                                           │
+│ actions  inspect · start · attach · policy diff · recreate                                                         │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

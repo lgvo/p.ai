@@ -1,0 +1,21 @@
+P / probe · STRESS:churn@1 · view 14 Governance dashboard · Tab cycle · v galle…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Four-question governance dashboard                                         │
+│ Navigate sessions normally; the dashboard continuously recomputes its      │
+│ answers.                                                                   │
+│                                                                            │
+│ 1 · What needs attention?                                                  │
+│   6 urgent · project-006/work/0012-fix/cache-race                          │
+│ 2 · Where am I attached?                                                   │
+│   attached → project-001/recover/0007-cleanup/ret…                         │
+│ 3 · What is changing?                                                      │
+│   8 observed operations · last start: host exited; bounded …               │
+│ 4 · What could be unsafe?                                                  │
+│   4 policy risks · project-004/work/0010-agent/oauth…                      │
+│                                                                            │
+│ Selected evidence · s-churn-focus  project-001 / agent/stable-sel…         │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

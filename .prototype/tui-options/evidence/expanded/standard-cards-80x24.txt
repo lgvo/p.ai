@@ -1,0 +1,21 @@
+P / probe · view 12 Responsive card grid · fixture:standard · Tab cycle · v gal…
+Responsive session cards  ·  1 columns at 80 cells
+Identity, four independent facts, and eligible actions travel together as cards…
+
+╭────────────────────────────────────────────────────────────────────────────╮
+│ forge / agent/oauth-device-flow                                            │
+│ UUID s-auth                                                                │
+│ life ready       presence unattended                                       │
+│ agent attention  policy outdated                                           │
+│ actions inspect · attach · policy diff · recreate                          │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ forge / docs/plugin-guide                                                  │
+│ UUID s-docs                                                                │
+│ life ready       presence attached:1                                       │
+│ agent —          policy current                                            │
+│ actions inspect · attach · detach this client                              │
+╰────────────────────────────────────────────────────────────────────────────╯
+cards 1–2 of 9 · j/k moves and turns pages
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

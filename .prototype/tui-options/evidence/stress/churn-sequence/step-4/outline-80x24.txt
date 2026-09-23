@@ -1,0 +1,11 @@
+P / probe · STRESS:churn@4 · view 07 Expandable outline · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy                                 │
+│ No projects or sessions match this fixture.                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ No session selected                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

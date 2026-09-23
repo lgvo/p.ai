@@ -1,0 +1,14 @@
+P / probe · STRESS:churn@3 · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects  proj…t-000  proj…t-001   proj…t-002   proj…t-003  proj…t-004  …2 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Sessions in selected project                                               │
+│   retire/0008-discard/tempora… discarding unattended  —         current    │
+│ › docs/deterministic-fallback  ready      unattended  —         current    │
+│                                                                            │
+│ Selected s-churn-neighbor  project-002/docs/determinis…  ·  actions:       │
+│ inspect / attach                                                           │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

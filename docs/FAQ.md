@@ -103,9 +103,9 @@ duplicate branch refs within one project. The TUI and RPC therefore keep the
 project and branch as separate structured fields instead of relying on a
 globally unique branch name.
 
-Ordinary source branches such as `main` are inputs to session creation, not the
-new session-owned branch. Users can provide a different meaningful name or
-accept a timestamp suggestion.
+Select an existing unassigned branch to use it directly, including `main`.
+Only **Create new branch** asks for a source and a new name (or a timestamp
+suggestion). Creating a session and creating a branch are separate choices.
 
 ### Why is there no scratch session?
 
@@ -113,26 +113,33 @@ A separate scratch identity created a promotion protocol, different Git
 permissions, and awkward rename semantics. It also made the runtime's durable
 identity depend on whether the user had named an exploration yet.
 
-Instead, every creation allocates a UUID and real branch immediately. A
-timestamp is enough when the work has no good name yet, and a later rename
+Instead, every creation allocates a UUID and assigns a real branch, either
+existing or newly created. For a new branch, a timestamp is enough when the
+work has no good name yet, and a later rename
 changes the Git ref without replacing the session.
 
 ### Why isn't `session.base_commit` stored?
 
-The selected commit matters only while creating the branch. Once the branch
-exists, Git already records its complete ancestry and current tip. Retaining a
+The captured existing-branch tip or selected new-branch source matters while
+creating the session. Git records the assigned branch's ancestry and current tip. Retaining a
 second active base field would create an authority that could drift from Git.
 
 ### Can P start from `main`?
 
-Yes. `main`, another branch, a tag, or an explicit reachable commit may be the
-committed source. P creates a new session-owned branch at that commit; it never
-turns the source ref itself into the session branch.
+Yes, in either of two ways:
+
+- Select an existing unassigned P `main` branch to create a session directly
+  on `main`. There is no separate source question.
+- Choose **Create new branch**, choose `main` as source, and then enter a
+  name such as `feature/login`. The session uses `feature/login`; `main` remains
+  unchanged. Another branch, tag, or reachable commit may also be source.
+
+If `main` already has a session, open that session to work on `main`.
 
 For a newly created blank project or successfully contacted empty origin, the
 bootstrap session is the exception: it directly owns an unborn `main`, and its
 first push creates that branch. After `main` has committed history, later
-sessions follow the normal new-branch rule.
+sessions use an existing unassigned branch or create a new branch from source.
 
 ### Why doesn't my dirty checkout come along?
 
@@ -158,8 +165,9 @@ separate choice. The transaction and crash recovery are defined in
 
 Not within the same project on one P instance. An assigned project/branch has
 exactly one UUID owner. Different projects may use the same branch name, and a
-discarded branch has no UUID owner. It may seed a new session, but that session
-owns a different newly created branch. Independent instances may each create
+discarded branch has no UUID owner. A new session can claim that same branch
+without selecting a source. Alternatively, it may seed a different new branch
+for a new session. Independent instances may each create
 work from the same origin branch because they do not coordinate; ordinary Git
 divergence rules apply when publishing.
 
@@ -190,8 +198,9 @@ an orphan record. See
 
 ### How do I continue after discard?
 
-Create a new session from the retained branch, with a new UUID and a new
-session-owned branch name. The old runtime, uncommitted files, terminal state,
+Select the retained branch to create a new session with a new UUID on that
+same branch. No source is required. Choosing to create a different new branch
+from it is also available. The old runtime, uncommitted files, terminal state,
 and agent conversation are not restored.
 
 Discard therefore does not violate UUID↔branch ownership: it ends the

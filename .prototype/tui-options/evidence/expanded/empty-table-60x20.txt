@@ -1,0 +1,9 @@
+P / probe · view 01 Fleet table · fixture:empty · Tab cycle…
+╭────────────────────────────────────────────────────────╮
+│ Fleet table · compact disclosure                       │
+│ No sessions in this fixture.                           │
+│                                                        │
+│ Dataset empty · use v to compare views                 │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

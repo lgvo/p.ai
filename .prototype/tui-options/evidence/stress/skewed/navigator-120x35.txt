@@ -1,0 +1,31 @@
+P / probe · STRESS:skewed · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│ › proj…t-001 25 sess · 25      │ │ › work/0001-agent/oauth-device-fl…                                            │
+│ urgent                         │ │     ready · unattended · attention · current                                  │
+│   proj…t-002 25 sess · 25      │ │   boot/0013-feature/interactive-c…                                            │
+│ urgent                         │ │     ready · unattended · attention · current                                  │
+│   proj…t-003 25 sess · 25      │ │   recover/0025-cleanup/retained-s…                                            │
+│ urgent                         │ │     ready · unattended · attention · current                                  │
+│   proj…t-004 25 sess · 25      │ │   work/0037-agent/oauth-device-fl…                                            │
+│ urgent                         │ │     ready · unattended · attention · current                                  │
+│   proj…t-005 25 sess · 25      │ │   boot/0049-feature/interactive-c…                                            │
+│ urgent                         │ │     ready · unattended · attention · current                                  │
+│   proj…t-006 25 sess · 25      │ │   recover/0061-cleanup/retained-s…                                            │
+│ urgent                         │ │     ready · unattended · attention · current                                  │
+│   proj…t-007 25 sess · 24      │ │   work/0073-agent/oauth-device-fl…                                            │
+│ urgent                         │ │     ready · unattended · attention · current                                  │
+│   proj…t-008 25 sess · 25      │ │ … 18 more                                                                     │
+│ urgent                         │ │                                                                               │
+│   proj…t-009 25 sess · 25      │ │ Inspector                                                                     │
+│ urgent                         │ │ project-001 / work/0001-agent/oauth-device-flow                               │
+│   proj…t-010 25 sess · 25      │ │ UUID s-skewed-0001                                                            │
+│ urgent                         │ │ lifecycle  ready                                                              │
+│   … 2 projects below           │ │ presence   unattended                                                         │
+╰────────────────────────────────╯ │ agent      attention                                                          │
+                                   │ policy     current                                                            │
+                                   │ actions    inspect · attach                                                   │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

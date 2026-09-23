@@ -1,0 +1,17 @@
+P / probe · STRESS:hostile-text · view 01 Fleet table · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────╮
+│ All active sessions · cross-project                                  │ │ Inspector                               │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY      │ │ forge<ESC>[31m-red /                    │
+│ › forge<ESC>[31m-red / ag… ready      unattended attention outdated  │ │ agent/oauth<LF>spoofed-row<TAB…         │
+│   link<ESC>]8;;https://in… ready      attached:1 —         current   │ │ UUID s-auth                             │
+│   orbit / fix/cache-race   stopped    unattended failed    current   │ │ lifecycle  ready                        │
+│   orbit / feature/zero<U+… starting   unattended running   current   │ │ presence   unattended                   │
+│   isolate-<BIDI>left<BIDI… unreachab… unattended unknown   invalid   │ │ agent      attention                    │
+│   p.ai / prototype/tui-op… creating   unattended idle      current   │ │ policy     outdated                     │
+│   labs / cleanup/retained… missing    unattended —         outdated  │ │ actions    inspect · attach · policy    │
+│   demo / discard/temporar… discarding unattended —         current   │ │ diff · recreate                         │
+│   … 1 more                                                           │ ╰─────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

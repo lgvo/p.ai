@@ -1,0 +1,19 @@
+P / probe · STRESS:churn@3 · view 08 Project status matrix · Tab cycle · v gall…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Project × intervention matrix  ·  12 sessions  ·  attached 1               │
+│ Columns answer where attention, routine work, recovery, and removal        │
+│ accumulate.                                                                │
+│                                                                            │
+│   PROJECT           INSPECT   WORK   RECOVER   REMOVE                      │
+│   project-000            1      0         0        0                       │
+│   project-001            0      0         1        0                       │
+│ › project-002            0      1         0        1                       │
+│   project-003            1      0         0        1                       │
+│   … 3 projects below                                                       │
+│                                                                            │
+│ Selected cell · s-churn-neighbor  project-002 / docs/determinis…           │
+│ ready · unattended · — · current                                           │
+│ actions  inspect · attach                                                  │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

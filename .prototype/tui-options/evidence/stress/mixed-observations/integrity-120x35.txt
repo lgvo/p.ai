@@ -1,0 +1,20 @@
+P / probe · STRESS:mixed-observations · view 18 Observation integrity · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────╮
+│ Observation integrity                                      │ │ Selected evidence · PARTIAL                       │
+│ Completeness and freshness are first-class; derived        │ │ project-001 / work/0001-agent/oauth-device-flow   │
+│ urgency never hides evidence quality.                      │ │ UUID s-mixed-0001                                 │
+│                                                            │ │ ready · unknown · not evaluated · outdated        │
+│ CURRENT 9  ·  PARTIAL 9  ·  STALE 9                        │ │ actions  inspect · refresh PARTIAL facts          │
+│                                                            │ ╰───────────────────────────────────────────────────╯
+│ › PARTIAL    s-mixed-0001     ready       unknown          │
+│   PARTIAL    s-mixed-0004     starting    unknown          │
+│   PARTIAL    s-mixed-0007     missing     unknown          │
+│   PARTIAL    s-mixed-0010     ready       unknown          │
+│   PARTIAL    s-mixed-0013     starting    unknown          │
+│   PARTIAL    s-mixed-0016     missing     unknown          │
+│   PARTIAL    s-mixed-0019     ready       unknown          │
+│   … 20 more observations                                   │
+╰────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

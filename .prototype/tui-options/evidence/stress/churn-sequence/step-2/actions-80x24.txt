@@ -1,0 +1,17 @@
+P / probe · STRESS:churn@2 · view 17 Action eligibility sheet · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Action eligibility sheet                                                   │
+│ Available and unavailable actions stay visible together; reasons come f…   │
+│                                                                            │
+│ object 13/13 · attached 1 · j/k changes object                             │
+│                                                                            │
+│ Eligibility · s-churn-focus  project-001 / agent/stable-selectio…          │
+│ stopped · unattended · failed · outdated                                   │
+│ AVAILABLE NOW  inspect · attach / switch · recovery plan · policy diff ·   │
+│ recreate                                                                   │
+│ UNAVAILABLE · EXPLAINED                                                    │
+│   detach this client (this client is attached elsewhere)                   │
+│ progress  observation revision 2 replaced revision 1                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

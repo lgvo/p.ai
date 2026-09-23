@@ -1,0 +1,22 @@
+P / probe · STRESS:churn@3 · view 12 Responsive card grid · Tab cycle · v galle…
+Responsive session cards  ·  1 columns at 80 cells
+Identity, four independent facts, and eligible actions travel together as cards…
+
+╭────────────────────────────────────────────────────────────────────────────╮
+│ project-003 / work/0003-fix/cache-race                                     │
+│ UUID s-churn-0003                                                          │
+│ life stopped     presence unattended                                       │
+│ agent failed     policy current                                            │
+│ actions inspect · start · attach                                           │
+│ progress last start: host exited; bounded diagnostic available             │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ project-002 / docs/deterministic-fallback                                  │
+│ UUID s-churn-neighbor                                                      │
+│ life ready       presence unattended                                       │
+│ agent —          policy current                                            │
+│ actions inspect · attach                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+cards 11–12 of 12 · j/k moves and turns pages
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

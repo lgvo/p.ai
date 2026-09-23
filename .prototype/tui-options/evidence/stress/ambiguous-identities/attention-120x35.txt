@@ -1,0 +1,26 @@
+P / probe · STRESS:ambiguous-identities · view 03 Attention workspace · Tab cycle · v gallery
+╭───────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 11                        │ │ Everything else                                                │
+│ › platform-… feature/session-synchroniz…      │ │   platform-… feature/session-synchroniz…                       │
+│     ready · unattended                        │ │     starting · unattended                                      │
+│     attention · outdated · permission         │ │     running · current · activating environmen…                 │
+│ required                                      │ │   platform-… feature/session-synchroniz…                       │
+│   platform-… feature/session-synchroniz…      │ │     creating · unattended                                      │
+│     ready · unattended                        │ │     idle · current · building project envi…                    │
+│     attention · outdated · permission         │ │   platform-… feature/session-synchroniz…                       │
+│ required                                      │ │     starting · attached:1                                      │
+│   platform-… feature/session-synchroniz…      │ │     no signal · current · activating environmen…               │
+│     ready · unattended                        │ │ … 10 more                                                      │
+│     attention · outdated · permission         │ │                                                                │
+│ required                                      │ │ Inspector                                                      │
+│ … 8 more                                      │ │ platform-api-current / feature/session-synchronizat…           │
+╰───────────────────────────────────────────────╯ │ UUID s-ambiguous-id-000001                                     │
+                                                  │ lifecycle  ready                                               │
+                                                  │ presence   unattended                                          │
+                                                  │ agent      attention                                           │
+                                                  │ policy     outdated                                            │
+                                                  │ actions    inspect · attach · policy diff · recreate           │
+                                                  ╰────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

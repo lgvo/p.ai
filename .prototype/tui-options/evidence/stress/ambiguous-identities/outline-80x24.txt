@@ -1,0 +1,22 @@
+P / probe · STRESS:ambiguous-identities · view 07 Expandable outline · Tab cycl…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy                                 │
+│ › ▾ platform-api-currant 6 sessions · 2 urgent                             │
+│       └─ feature/session-synchronization-worke…                            │
+│          ready · attached:1 · — · current                                  │
+│       └─ feature/session-synchronization-worke…                            │
+│          creating · unattended · idle · current                            │
+│   … 25 nodes below                                                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ platform-api-current / feature/session-synchronizat…                       │
+│ UUID s-ambiguous-id-000001                                                 │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

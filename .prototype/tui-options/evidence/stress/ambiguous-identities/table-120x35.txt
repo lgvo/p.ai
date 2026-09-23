@@ -1,0 +1,17 @@
+P / probe · STRESS:ambiguous-identities · view 01 Fleet table · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────╮
+│ All active sessions · cross-project                                  │ │ Inspector                               │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY      │ │ platform-api-current / feature/session- │
+│ › platform-api-current / … ready      unattended attention outdated  │ │ synchronizat…                           │
+│   platform-api-currant / … ready      attached:1 —         current   │ │ UUID s-ambiguous-id-000001              │
+│   platform-api-current-2 … stopped    unattended failed    current   │ │ lifecycle  ready                        │
+│   platform-api-current-ol… starting   unattended running   current   │ │ presence   unattended                   │
+│   platform-api-current / … unreachab… unattended unknown   invalid   │ │ agent      attention                    │
+│   platform-api-currant / … creating   unattended idle      current   │ │ policy     outdated                     │
+│   platform-api-current-2 … missing    unattended —         outdated  │ │ actions    inspect · attach · policy    │
+│   platform-api-current-ol… discarding unattended —         current   │ │ diff · recreate                         │
+│   … 16 more                                                          │ ╰─────────────────────────────────────────╯
+╰──────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

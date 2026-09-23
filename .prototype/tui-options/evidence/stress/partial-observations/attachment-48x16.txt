@@ -1,0 +1,12 @@
+P / probe · STRESS:partial-observations · view …
+╭────────────────────────────────────────────╮
+│ Attachment dock · compact disclosure       │
+│ project-001 / work/0001-agent/oauth-dev…   │
+│ UUID s-partial-0001                        │
+│ lifecycle  unreachable                     │
+│ presence   unknown                         │
+│ agent      not evaluated                   │
+│ policy     outdated                        │
+│ actions    inspect · refresh PARTIAL facts │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

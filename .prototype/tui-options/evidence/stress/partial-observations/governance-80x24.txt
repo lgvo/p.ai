@@ -1,0 +1,22 @@
+P / probe · STRESS:partial-observations · view 14 Governance dashboard · Tab cy…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Four-question governance dashboard                                         │
+│ Navigate sessions normally; the dashboard continuously recomputes its      │
+│ answers.                                                                   │
+│                                                                            │
+│ 1 · What needs attention?                                                  │
+│   10 urgent · project-001/work/0001-agent/oauth-d…                         │
+│ 2 · Where am I attached?                                                   │
+│   detached                                                                 │
+│ 3 · What is changing?                                                      │
+│   15 observed operations · runtime probe returned an incompl…              │
+│ 4 · What could be unsafe?                                                  │
+│   6 policy risks · project-001/work/0001-agent/oauth…                      │
+│                                                                            │
+│ Selected evidence · s-partial-0001  project-001 / work/0001-agent/…        │
+│ unreachable · unknown · not evaluated · outdated                           │
+│ actions  inspect · refresh PARTIAL facts                                   │
+│ progress runtime probe returned an incomplete response                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

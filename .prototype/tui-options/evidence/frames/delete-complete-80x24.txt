@@ -1,0 +1,17 @@
+P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Project deletion · ensure absent                                           │
+│                                                                            │
+│ Every retry re-inspects all targets; completed deletion is never rolled    │
+│ back.                                                                      │
+│                                                                            │
+│ session credentials                deleted                                 │
+│ assigned and retained refs         deleted                                 │
+│ runtime s-auth                     deleted                                 │
+│ environment image cache            deleted                                 │
+│ registry tombstone                 deleted                                 │
+│                                                                            │
+│ All owned targets are confirmed absent; registry tombstone can be removed. │
+╰────────────────────────────────────────────────────────────────────────────╯
+Retry re-inspected every target and reached the same monotonic result: absent.
+esc returns without mutating real state

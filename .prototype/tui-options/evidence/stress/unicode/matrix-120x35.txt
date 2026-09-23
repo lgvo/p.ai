@@ -1,0 +1,20 @@
+P / probe · STRESS:unicode · view 08 Project status matrix · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────╮
+│ Project × intervention matrix  ·  9 sessions  ·  attached 1                 │ │ Inspector                        │
+│ Columns answer where attention, routine work, recovery, and removal         │ │ 工房・東京 / 機能/認証フロー     │
+│ accumulate.                                                                 │ │ UUID s-auth                      │
+│                                                                             │ │ lifecycle  ready                 │
+│   PROJECT     INSPECT       WORK          RECOVER       REMOVE              │ │ presence   unattended            │
+│   café…quipe correção/ca…  —             —             —                    │ │ agent      attention             │
+│   naïve-über —             prototype/…   —             —                    │ │ policy     outdated              │
+│   Δοκιμή     —             —             —             αρχειο/παλι…         │ │ actions    inspect · attach ·    │
+│   מעבד…-אביב —             —             תיקון/חוזה-…  —                    │ │ policy diff · recreate           │
+│   مختب…قاهرة —             ميزة/دليل-ا…  —             —                    │ ╰──────────────────────────────────╯
+│ › 工房・東京 機能/認証フ…  —             —             —                    │
+│   데이…연구… —             —             정리/보존된…  —                    │
+│   👩🏽‍💻-agents  —             —             —             essai/emoji…         │
+│   🚀-l…h-pad —             🚀/interact…  —             —                    │
+╰─────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

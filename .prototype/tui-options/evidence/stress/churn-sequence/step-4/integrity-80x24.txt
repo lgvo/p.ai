@@ -1,0 +1,15 @@
+P / probe · STRESS:churn@4 · view 18 Observation integrity · Tab cycle · v gall…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Observation integrity                                                      │
+│ Completeness and freshness are first-class; derived urgency never hides    │
+│ evidence quality.                                                          │
+│                                                                            │
+│ CURRENT 0  ·  PARTIAL 0  ·  STALE 0                                        │
+│                                                                            │
+│ No observations are available.                                             │
+│                                                                            │
+│ Selected evidence                                                          │
+│ No observation is selected.                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

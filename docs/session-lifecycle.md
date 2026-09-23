@@ -105,24 +105,27 @@ The UUID-to-branch assignment begins when creation reserves the session and
 ends only when discard or delete completes. Stop and rename preserve it.
 
 Discard retains the branch as an ordinary retained project branch. A later
-session may select that branch as committed source, but it receives a new UUID and
-must create a distinct new branch. A retained branch still occupies its Git
-name in that project until it is renamed or deleted.
+session may claim that same branch with a new UUID, or use it as the source for
+a different new branch. A branch already assigned to any session, including a
+stopped or failed session, cannot be assigned to a second session. Open or
+start the existing session to continue its branch.
 
 ### Committed source and blank bootstrap
 
-There are no scratch sessions. Creation always selects committed source and
-creates a new branch immediately. If the user supplies no branch name, P
-suggests a timestamp and adds a collision suffix when necessary.
+There are no scratch sessions. An ordinary session either uses an existing
+unassigned branch at its committed tip, or creates a new branch from selected
+committed source. Only the new-branch path asks for a source. If a new branch
+name is omitted, P suggests a timestamp and adds a collision suffix when
+necessary.
 
 The sole exception is the first session of a blank or successfully contacted
 empty-origin project. [Project lifecycle](project-lifecycle.md#blank) reserves
 that session on unborn `main`; its first commit and push create the assigned
 ref. It is an explicit project bootstrap, not an untracked scratch mode.
 
-The selected commit is creation input, not durable `session.base_commit`
-state. Once the new branch exists, Git ancestry and its current tip are the
-source authority.
+The existing branch's captured tip or the new branch's selected source commit
+is creation input, not durable `session.base_commit` state. Git ancestry and
+the assigned branch's current tip remain the source authority.
 
 ## Authorities
 
@@ -258,24 +261,39 @@ destructive preflight, or the corresponding repairs.
 
 ### Create meaning and preconditions
 
-Create allocates a new UUID, creates a new session-owned branch at committed
-source, prepares its environment and credentials, assembles one runtime, and
-makes it attachable.
+Create allocates a new UUID, assigns one branch, prepares its environment and
+credentials, assembles one runtime, and makes it attachable. **Creating a
+session does not necessarily create a branch.**
 
-The request names:
+The user flow is **Project → Branch → Policy**. The Branch step has two paths:
 
-- one existing project;
-- committed source reachable from the P repository or a freshly observed
-  origin ref;
-- a new valid Git branch name, or no name to request a timestamp suggestion;
-  and
-- no session-specific grant override.
+| Branch choice | User supplies | Result |
+|---|---|---|
+| Use an existing branch | The branch name; no separate source | Assign that same unassigned P branch to the new session, starting at its captured tip |
+| Create a new branch | A new branch name and a committed source | Create the new P branch at that source commit and assign it to the new session |
 
-The target `refs/heads/<branch>` must not exist in that project. When the
-selected source is a
-named branch, the new session branch name must differ from that source name;
-selecting `main` therefore creates another branch at `main`'s commit rather
-than assigning `main` itself. Dirty checkout state is never creation input.
+For example, selecting an unassigned `feature/login` creates a session on
+`feature/login`. It does not create a second branch or ask what to start from.
+Selecting **Create new branch**, choosing `main` as source, and then naming
+the branch `feature/logout` creates a session on `feature/logout` at `main`'s
+captured tip. The new-branch interaction order is Source → Branch name → Policy.
+
+Both paths name one existing project and use its trusted policy. They do not
+accept session-specific grant overrides. Their branch preconditions differ:
+
+- **Existing branch:** the P branch must exist, have a committed tip, and have
+  no session assignment or competing reservation. `main` is eligible under
+  the same rules as any other branch. A branch with a session must be opened
+  through that session, even if the session is stopped. No source parameter
+  is needed: P captures the chosen branch's tip under the project/ref lock.
+- **New branch:** the destination must be a valid, absent Git branch name,
+  or the user may request a timestamp suggestion. Source must resolve to a
+  committed object reachable from the P repository or a freshly observed
+  origin ref. When source is a named branch, the destination must differ from
+  it. Only this path creates a branch ref.
+
+Dirty checkout state is never creation input. Claiming an existing branch does
+not reset its tip, rewrite its history, or restore an old session's runtime.
 
 The unborn-`main` bootstrap is created only as part of explicit blank/empty-
 origin project creation. It has no source object ID, uses the P base image, and
@@ -291,8 +309,8 @@ otherwise the substrate-only environment applies.
 | Phase | Required result |
 |---|---|
 | `reserved` | Persist operation, UUID, project, branch assignment, and trusted project-configuration snapshot. |
-| `source-ready` | Resolve/import the committed source and record its exact object ID. |
-| `branch-created` | Atomically create the absent P branch at that object ID. This is creation's commit point. |
+| `source-ready` | Existing branch: capture and verify its committed tip. New branch: resolve/import the selected source. Record the exact object ID and whether the ref predates this request. |
+| `branch-assigned` | Existing branch: verify its expected tip and exclusive assignment without changing the ref. New branch: atomically create the absent ref at the captured object ID and assign it. This is creation's commit point. |
 | `environment-ready` | Resolve or build a verified Incus environment image and record its fingerprint. |
 | `principals-ready` | Create/activate the session Git principal and any bindings required by the selected MVP plugins. |
 | `runtime-created` | Create exactly one Incus instance named for the UUID from that image and record its locator. |
@@ -306,16 +324,18 @@ phases remain specific to its UUID.
 
 ### Failure, cancellation, and retry
 
-Before `branch-created`, cancellation may remove the reservation after imported
-temporary source material is reconciled. No session branch or runtime is lost.
+Before `branch-assigned`, cancellation may remove the reservation after imported
+temporary source material is reconciled. A pre-existing branch is always
+preserved; releasing its reservation does not delete or reset the ref.
 
-After `branch-created`, P never silently loses the request, session identity,
+After `branch-assigned`, P never silently loses the request, session identity,
 or branch. A failed creation remains visible in `creating` state with one
 durable `blocked` operation. Systemd has already stopped a container whose
 activation or host startup failed.
 
-Retry means the exact immutable request: the same operation, UUID, branch,
-source commit, normalized policy snapshot, and idempotency key. It verifies
+Retry means the exact immutable request: the same operation, UUID, branch
+choice (existing or new), captured tip/source commit, normalized policy
+snapshot, and idempotency key. It verifies
 the reserved branch is unchanged, ensures partial runtime/credential resources
 are absent or safe to reuse, and reconstructs the desired result without
 creating retry chains. Repeating Retry cannot accumulate instances,
@@ -324,8 +344,10 @@ principals, operations, or refs.
 If repository content or settings must change, **Try again with changes** is
 one replacement action, not Retry. It records a new request, UUID, source,
 policy snapshot, operation ID, and idempotency key; explicitly supersedes the
-failed creation; cleans its verified provisional resources and unchanged
-branch; and may reuse the desired branch name. Unexpected commits, workspace
+failed creation; cleans its verified provisional resources; and may reuse the
+desired branch name. Cleanup may remove an unchanged branch created by the
+failed request, but must preserve a pre-existing branch and only release its
+old assignment before the replacement claims it. Unexpected commits, workspace
 changes, or resource identity invoke the integrated loss review rather than
 silently deleting them. The user does not perform preparatory Discard/Delete
 bookkeeping.
@@ -727,7 +749,7 @@ cache miss the next time P needs to create or repair an instance.
 
 | Operation | Commit point | Before commit point | At/after commit point |
 |---|---|---|---|
-| Create | New P branch created, or unborn bootstrap reserved | Cancel/clean reservation when safe | Retain one blocked request; Retry cleans verified partial resources and reconstructs the same immutable request; changed input explicitly supersedes it with a new creation |
+| Create | Existing P branch assigned, new branch created and assigned, or unborn bootstrap reserved | Cancel/clean reservation when safe; preserve pre-existing branch | Retain one blocked request; Retry cleans verified partial resources and reconstructs the same immutable request; changed input explicitly supersedes it with a new creation |
 | Start | None in P; Incus/systemd own the operation | No duplicate P workflow | Inspect Incus and `p-interactive.service`; success is ready, failure returns the container to stopped and another Start retries |
 | Attach | Pending token confirmed and promoted | Expire pending token without presence/status clear | Helper retains the lease through teardown while reachable; lease loss starts immediate transport-bound teardown before that helper can attach again |
 | Rename | New P ref created | Release reservation and retain old mapping | Complete forward to new ref under guards |
@@ -790,7 +812,8 @@ The lifecycle design is implemented when integration tests prove:
    documented result without duplicate runtimes or silent ref loss;
 2. retrying creation verifies and cleans partial resources, reconstructs the
    same immutable request without duplicate identities, and a changed source
-   uses an explicitly superseding new request;
+   uses an explicitly superseding new request. Both existing-branch and
+   new-branch paths are covered; cleanup never deletes a pre-existing branch;
 3. `(project, branch)` uniqueness allows equal branch names in different
    projects and rejects collisions in one project;
 4. start preserves writable runtime state but does not claim process or tmux

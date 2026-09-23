@@ -1,0 +1,14 @@
+P / probe · STRESS:churn@4 · view 06 Actionability lanes · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 0                                                          │
+│ No streams                                                                 │
+│ In progress · 0                                                            │
+│ No streams                                                                 │
+│ Recover · 0                                                                │
+│ No streams                                                                 │
+│ Removing · 0                                                               │
+│ No streams                                                                 │
+│ Selected: none                                                             │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

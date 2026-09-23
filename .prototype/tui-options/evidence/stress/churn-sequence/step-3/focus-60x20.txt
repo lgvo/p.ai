@@ -1,0 +1,13 @@
+P / probe · STRESS:churn@3 · view 05 Focus deck · Tab cycle…
+╭────────────────────────────────────────────────────────╮
+│ Focus deck · compact disclosure                        │
+│ project-002 / docs/deterministic-fallback              │
+│ UUID s-churn-neighbor                                  │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      —                                           │
+│ policy     current                                     │
+│ actions    inspect · attach                            │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

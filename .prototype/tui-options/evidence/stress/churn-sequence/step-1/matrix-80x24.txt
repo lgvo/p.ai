@@ -1,0 +1,19 @@
+P / probe · STRESS:churn@1 · view 08 Project status matrix · Tab cycle · v gall…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Project × intervention matrix  ·  12 sessions  ·  attached 1               │
+│ Columns answer where attention, routine work, recovery, and removal        │
+│ accumulate.                                                                │
+│                                                                            │
+│   PROJECT           INSPECT   WORK   RECOVER   REMOVE                      │
+│ › project-001            1      0         1        0                       │
+│   project-002            0      1         0        1                       │
+│   project-003            1      0         0        1                       │
+│   project-004            1      1         0        0                       │
+│   … 2 projects below                                                       │
+│                                                                            │
+│ Selected cell · s-churn-focus  project-001 / agent/stable-se…              │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

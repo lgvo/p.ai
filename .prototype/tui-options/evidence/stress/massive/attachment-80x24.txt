@@ -1,0 +1,21 @@
+P / probe · STRESS:massive · view 13 Attachment dock · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Attachment dock                                                            │
+│ This client may occupy one persistent session host; switching does not …   │
+│                                                                            │
+│ CLIENT  attached → s-massive-0501                                          │
+│ project-001 / boot/0501-prototype/tui-opt…                                 │
+│ creating · attached:1 · — · current                                        │
+│ d detaches this client; host remains creating                              │
+│                                                                            │
+│ Switch targets                                                             │
+│ › project-001 / work/… ready       unattended   a attach/switch            │
+│   project-002 / work/… ready       unattended   a attach/switch            │
+│   … 998 more targets                                                       │
+│                                                                            │
+│ Candidate facts  s-massive-0001                                            │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

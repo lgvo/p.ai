@@ -1,0 +1,6 @@
+P / probe · STRESS:churn@4 · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ No matching sessions                                                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

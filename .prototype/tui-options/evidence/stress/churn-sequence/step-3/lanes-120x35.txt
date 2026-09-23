@@ -1,0 +1,24 @@
+P / probe · STRESS:churn@3 · view 06 Actionability lanes · Tab cycle · v gallery
+╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
+│ Inspect first · 4        │ │ In progress · 4         │ │ Recover · 2             │ │ Removing · 2            │
+│   project-000/agent/a…   │ │ … 2 above               │ │   project-001/recover…  │ │   project-003/retire/…  │
+│     stopped              │ │   project-004/boot/00…  │ │     missing             │ │     deleting            │
+│     unattended           │ │     starting            │ │     attached:1          │ │     unattended          │
+│     failed · current     │ │     unattended          │ │     — · outdated        │ │     — · current         │
+│     last start: host ex… │ │     running · current   │ │     expected runtime    │ │     credentials         │
+│   project-006/work/00…   │ │     activating          │ │ no…                     │ │ deleted…                │
+│     stopped              │ │ environm…               │ │   project-005/recover…  │ │   project-002/retire/…  │
+│     unattended           │ │ › project-002/docs/de…  │ │     unreachable         │ │     discarding          │
+│     failed · current     │ │     ready               │ │     unattended          │ │     unattended          │
+│     last start: host ex… │ │     unattended          │ │     unknown · invalid   │ │     — · current         │
+│ … 2 below                │ │     — · current         │ │     Incus inspection    │ │     tearing down        │
+╰──────────────────────────╯ ╰─────────────────────────╯ │ ti…                     │ │ runtim…                 │
+                                                         ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-churn-neighbor  project-002/docs/determinis…                                                            │
+│ ready · unattended · — · current                                                                                   │
+│ actions  inspect · attach                                                                                          │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

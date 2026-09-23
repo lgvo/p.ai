@@ -1,0 +1,17 @@
+P / probe · STRESS:hostile-text · view 10 Task workspace · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────╮
+│ Task-oriented workspace   Sessions   Activity  Policy  Resources    │ │ Inspector                                │
+│ t changes work mode while session selection and identity remain     │ │ forge<ESC>[31m-red /                     │
+│ stable.                                                             │ │ agent/oauth<LF>spoofed-row<TAB…          │
+│                                                                     │ │ UUID s-auth                              │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY     │ │ lifecycle  ready                         │
+│ › forge<ESC>[31m-red / ag… ready      unattended attention outdated │ │ presence   unattended                    │
+│   link<ESC>]8;;https://in… ready      attached:1 —         current  │ │ agent      attention                     │
+│   orbit / fix/cache-race   stopped    unattended failed    current  │ │ policy     outdated                      │
+│   orbit / feature/zero<U+… starting   unattended running   current  │ │ actions    inspect · attach · policy     │
+│   isolate-<BIDI>left<BIDI… unreachab… unattended unknown   invalid  │ │ diff · recreate                          │
+│   … 4 more                                                          │ ╰──────────────────────────────────────────╯
+╰─────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

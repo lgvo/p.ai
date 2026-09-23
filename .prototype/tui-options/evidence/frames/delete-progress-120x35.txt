@@ -1,0 +1,16 @@
+P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Project deletion · ensure absent                                                           │
+│                                                                                            │
+│ Every retry re-inspects all targets; completed deletion is never rolled back.              │
+│                                                                                            │
+│ session credentials                deleted                                                 │
+│ assigned and retained refs         deleted                                                 │
+│ runtime s-auth                     remaining                                               │
+│ environment image cache            unreachable                                             │
+│ registry tombstone                 remaining                                               │
+│                                                                                            │
+│ Partial success is expected. r retries only the same authorized ensure-absent outcome.     │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+esc returns without mutating real state

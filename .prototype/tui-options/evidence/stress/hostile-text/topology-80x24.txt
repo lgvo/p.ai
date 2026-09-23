@@ -1,0 +1,24 @@
+P / probe · STRESS:hostile-text · view 16 Resource topology · Tab cycle · v gal…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Resource topology                                                          │
+│ Edges expose ownership and lifetime; adjacent resources are not collapsed  │
+│ into session state.                                                        │
+│                                                                            │
+│ Portfolio edges · attached 1                                               │
+│ › forge<ESC… ├─ s-auth      host:ready       client:unattended  agent:a…   │
+│   link<ESC>… ├─ s-docs      host:ready       client:attached:1  agent:—    │
+│    … 7 more session edges                                                  │
+│                                                                            │
+│ Selected relationship · explicit lifetimes                                 │
+│ PROJECT  forge<ESC>[31m-red                                                │
+│   ├─ GIT REF  agent/oauth<LF>spoofed-row<TAB>column                        │
+│   │    retained independently                                              │
+│   └─ SESSION  s-auth  (stable identity)                                    │
+│        ├─ HOST       ready  (persistent)                                   │
+│        ├─ CLIENTS    unattended  (temporary)                               │
+│        ├─ AGENT      attention  (unattended-only)                          │
+│        └─ POLICY     outdated  (immutable snapshot)                        │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

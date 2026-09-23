@@ -1,0 +1,19 @@
+P / probe · view 09 Operations console · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 7  ·  degraded 3  ·  attached 1 │ │ Inspector                                     │
+│ Newest fixture observations first; recovery never implies hidden automatic │ │ forge / agent/oauth-device-flow               │
+│ mutation.                                                                  │ │ UUID s-auth                                   │
+│                                                                            │ │ lifecycle  ready                              │
+│   TIME      SESSION        OBSERVATION                                     │ │ presence   unattended                         │
+│   20:42:00  s-retire      credentials deleted · runtime remaining          │ │ agent      attention                          │
+│   20:41:07  s-discard     tearing down runtime · branch will be r…         │ │ policy     outdated                           │
+│   20:40:14  s-clean       expected runtime not found                       │ │ actions    inspect · attach · policy diff ·   │
+│   20:39:21  s-tui         building project environment · phase 2/6         │ │ recreate                                      │
+│   20:38:28  s-plugin      Incus inspection timed out                       │ │                                               │
+│   20:37:35  s-cli         activating environment · phase 3/5               │ │ Recovery contract                             │
+╰────────────────────────────────────────────────────────────────────────────╯ │ r previews a bounded plan                     │
+                                                                               │ retry preserves request identity              │
+                                                                               │ partial deletion only converges toward absent │
+                                                                               ╰───────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit

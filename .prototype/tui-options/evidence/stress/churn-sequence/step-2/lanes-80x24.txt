@@ -1,0 +1,20 @@
+P / probe · STRESS:churn@2 · view 06 Actionability lanes · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 5                                                          │
+│ … 4 above                                                                  │
+│ › project-001… stopped     unattended  failed    outdated observation…     │
+│ In progress · 4                                                            │
+│   project-005… ready       unattended  —         current                   │
+│ … 3 below                                                                  │
+│ Recover · 2                                                                │
+│   project-001… missing     attached:1  —         outdated expected ru…     │
+│ … 1 below                                                                  │
+│ Removing · 2                                                               │
+│   project-003… deleting    unattended  —         current  credentials…     │
+│ … 1 below                                                                  │
+│ Selected s-churn-focus  project-001/agent/stable-se…                       │
+│ stopped · unattended · failed · outdated                                   │
+│ actions  inspect · start · attach · policy diff · recreate                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 2: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

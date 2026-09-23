@@ -1,0 +1,18 @@
+P / probe · STRESS:hostile-text · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│   demo       2 sess · 0 urgent │ │ › agent/oauth<LF>spoofed-row<TAB>…                                            │
+│ › forg…m-red 1 sess · 1 urgent │ │     ready · unattended · attention · outdated                                 │
+│   isol…oject 1 sess · 1 urgent │ │                                                                               │
+│   labs       1 sess · 1 urgent │ │ Inspector                                                                     │
+│   link…oject 1 sess · 0 urgent │ │ forge<ESC>[31m-red / agent/oauth<LF>spoofed-row<TAB…                          │
+│   orbit      2 sess · 1 urgent │ │ UUID s-auth                                                                   │
+│   p.ai       1 sess · 0 urgent │ │ lifecycle  ready                                                              │
+╰────────────────────────────────╯ │ presence   unattended                                                         │
+                                   │ agent      attention                                                          │
+                                   │ policy     outdated                                                           │
+                                   │ actions    inspect · attach · policy diff · recreate                          │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

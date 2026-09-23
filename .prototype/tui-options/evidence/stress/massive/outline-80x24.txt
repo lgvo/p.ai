@@ -1,0 +1,22 @@
+P / probe · STRESS:massive · view 07 Expandable outline · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy                                 │
+│ › ▾ project-001          40 sessions · 17 urgent                           │
+│       └─ work/0001-agent/oauth-device-flow                                 │
+│          ready · unattended · attention · outdated                         │
+│       └─ retire/0026-discard/temporary-spike                               │
+│          discarding · unattended · — · current                             │
+│   … 1022 nodes below                                                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-massive-0001                                                        │
+│ lifecycle  ready                                                           │
+│ presence   unattended                                                      │
+│ agent      attention                                                       │
+│ policy     outdated                                                        │
+│ actions    inspect · attach · policy diff · recreate                       │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

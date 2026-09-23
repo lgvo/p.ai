@@ -1,0 +1,13 @@
+P / probe · STRESS:churn@4 · view 03 Attention workspace · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 0                                                      │
+│ Nothing in this group                                                      │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Everything else                                                            │
+│ Nothing in this group                                                      │
+│                                                                            │
+│ No session selected                                                        │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,27 @@
+P / probe · STRESS:high-attachments · view 04 Command center · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────────╮
+│ Search-first command center                                     │ │ Act on the highlighted result                │
+│ Press / and type any project, branch, lifecycle, presence,      │ │ Selected s-presence-0001  project-           │
+│ agent, or policy fact                                           │ │ 001/work/0001-agent…  ·  actions: inspect /  │
+│                                                                 │ │ attach / policy diff / recreate              │
+│ › project-001/work/0001-… ready      unattended attention       │ │                                              │
+│ outdated                                                        │ │ The palette never invents eligibility; every │
+│   project-002/work/0002-… ready      attached:1 —               │ │ action shown comes from the fixture's daemon │
+│ current                                                         │ │ plan.                                        │
+│   project-003/work/0003-… stopped    attached:2 —               │ │                                              │
+│ current                                                         │ │ Inspector                                    │
+│   project-004/boot/0004-… starting   attached:… —               │ │ project-001 / work/0001-agent/oauth-device-  │
+│ current                                                         │ │ flow                                         │
+│   project-005/recover/00… unreachab… attached:… —               │ │ UUID s-presence-0001                         │
+│ invalid                                                         │ │ lifecycle  ready                             │
+│   project-001/boot/0006-… creating   unattended idle            │ │ presence   unattended                        │
+│ current                                                         │ │ agent      attention                         │
+│   project-002/recover/00… missing    attached:1 —               │ │ policy     outdated                          │
+│ outdated                                                        │ │ actions    inspect · attach · policy diff ·  │
+│   project-003/retire/000… discarding attached:2 —               │ │ recreate                                     │
+│ current                                                         │ ╰──────────────────────────────────────────────╯
+│ … 12 more matches                                               │
+╰─────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

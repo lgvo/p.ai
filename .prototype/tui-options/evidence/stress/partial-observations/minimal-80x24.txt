@@ -1,0 +1,16 @@
+P / probe · STRESS:partial-observations · view 11 Minimal stream ledger · Tab c…
+Stream ledger  18 streams · attached 0
+One reading axis; the current row expands in place. No panel boundary carries m…
+
+› project-001 / work/0001-agent/oauth-device-flow
+    s-partial-0001 · unreachable · unknown · not evaluated · outdated
+    actions  inspect · refresh PARTIAL facts
+    progress runtime probe returned an incomplete response
+  project-002 / work/0002-docs/p… ready · unknown · not evaluated · current
+  project-003 / work/0003-fix/ca… stopped · unattended · failed · current
+  project-004 / boot/0004-featur… starting · unknown · not evaluated · current
+  project-005 / recover/0005-des… unreachable · unknown · not evaluated · inval…
+  project-006 / boot/0006-protot… creating · unattended · idle · current
+  … 12 later streams
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

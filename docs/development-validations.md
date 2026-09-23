@@ -134,7 +134,12 @@ current/outdated/invalid comparison, and cleanup failures.
 Create projects from a reachable SSH origin and as blank repositories. Verify
 failed origin contact leaves no new association, an empty origin produces the
 single unborn-`main` bootstrap session, first push creates `main`, and later
-creation requires committed source. Exercise retained-branch list/source/fetch,
+creation requires committed history. Test both creation paths: selecting an
+existing unassigned branch requires no source and leaves its ref unchanged;
+creating a new branch requires a source and creates only the named destination.
+An already assigned branch must not acquire a second session. Cancel, fail,
+retry, and replace each path, verifying that cleanup preserves pre-existing
+refs. Exercise retained-branch assignment/list/source/fetch,
 rename, fast-forward publication, and deletion after the loss preview.
 
 For **Delete project and all P data**, confirm the aggregate preview enumerates

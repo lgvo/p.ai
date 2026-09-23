@@ -1,0 +1,20 @@
+P / probe · STRESS:ambiguous-identities · view 06 Actionability lanes · Tab cyc…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 6                                                          │
+│ › platform-ap… ready       unattended  attention outdated                  │
+│ … 5 below                                                                  │
+│ In progress · 9                                                            │
+│   platform-ap… ready       attached:1  —         current                   │
+│ … 8 below                                                                  │
+│ Recover · 5                                                                │
+│   platform-ap… unreachable unattended  unknown   invalid  Incus inspe…     │
+│ … 4 below                                                                  │
+│ Removing · 4                                                               │
+│   platform-ap… discarding  unattended  —         current  tearing dow…     │
+│ … 3 below                                                                  │
+│ Selected s-ambiguous-id-000001  platform-api-current/featur…               │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

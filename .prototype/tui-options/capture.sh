@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+set -eu
+
+if [ "$#" -eq 0 ]; then
+  bin=.cache/bin/p-tui-probe
+  mkdir -p "$(dirname "$bin")"
+  go build -o "$bin" .
+else
+  bin=$1
+fi
+out=evidence/frames
+expanded=evidence/expanded
+mkdir -p "$out"
+mkdir -p "$expanded"
+
+for variant in table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance compare topology actions integrity; do
+  "$bin" --gallery --snapshot --variant "$variant" --width 80 --height 24 | sed 's/[[:space:]]*$//' >"$out/$variant-80x24.txt"
+  "$bin" --gallery --snapshot --variant "$variant" --width 120 --height 35 | sed 's/[[:space:]]*$//' >"$out/$variant-120x35.txt"
+done
+
+for variant in table navigator attention command focus lanes outline matrix operations workspace minimal cards attachment governance compare topology actions integrity; do
+  for size in 160x50 132x40 120x35 100x30 80x24 60x20 48x16 40x12; do
+    width=${size%x*}
+    height=${size#*x}
+    "$bin" --gallery --snapshot --dataset standard --variant "$variant" --width "$width" --height "$height" | sed 's/[[:space:]]*$//' >"$expanded/standard-$variant-$size.txt"
+  done
+done
+
+for dataset in dense empty single long; do
+  for size in 160x50 80x24 60x20 48x16; do
+    width=${size%x*}
+    height=${size#*x}
+    "$bin" --gallery --snapshot --dataset "$dataset" --variant table --width "$width" --height "$height" | sed 's/[[:space:]]*$//' >"$expanded/$dataset-table-$size.txt"
+  done
+done
+
+for scenario in attached-switch create-failed replacement-create branches policy delete-preview delete-progress delete-complete help; do
+  "$bin" --gallery --snapshot --scenario "$scenario" --width 80 --height 24 | sed 's/[[:space:]]*$//' >"$out/$scenario-80x24.txt"
+  "$bin" --gallery --snapshot --scenario "$scenario" --width 120 --height 35 | sed 's/[[:space:]]*$//' >"$out/$scenario-120x35.txt"
+done

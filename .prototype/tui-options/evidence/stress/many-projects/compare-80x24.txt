@@ -1,0 +1,19 @@
+P / probe · STRESS:many-projects · view 15 Session comparison · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  project-091 / work/0091-agent/oau…  ·  s-many-0091             │
+│ ready · attached:1 · — · outdated                                          │
+│ actions  inspect · attach · detach this client · policy diff · recreate    │
+│                                                                            │
+│ B · current  project-001 / work/0001-agent/oau…  ·  s-many-0001            │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+│                                                                            │
+│ A → B delta  life =ready  ·  presence attached:1→unattended  ·  agent      │
+│ —→att…                                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

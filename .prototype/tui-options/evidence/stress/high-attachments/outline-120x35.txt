@@ -1,0 +1,29 @@
+P / probe · STRESS:high-attachments · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│ › ▾ project-001          4 sessions · 2 urgent           │ │ project-001 / work/0001-agent/oauth-device-flow     │
+│       └─ work/0001-agent/oauth-device-flow               │ │ UUID s-presence-0001                                │
+│          ready · unattended · attention · outdated       │ │ lifecycle  ready                                    │
+│       └─ boot/0006-prototype/tui-options-with-…          │ │ presence   unattended                               │
+│          creating · unattended · idle · current          │ │ agent      attention                                │
+│       └─ work/0011-docs/plugin-guide                     │ │ policy     outdated                                 │
+│          ready · unattended · — · current                │ │ actions    inspect · attach · policy diff ·         │
+│       └─ recover/0016-cleanup/retained-state             │ │ recreate                                            │
+│          missing · unattended · — · outdated             │ ╰─────────────────────────────────────────────────────╯
+│   ▾ project-002          4 sessions · 1 urgent           │
+│       └─ work/0002-docs/plugin-guide                     │
+│          ready · attached:1 · — · current                │
+│       └─ recover/0007-cleanup/retained-state             │
+│          missing · attached:1 · — · outdated             │
+│       └─ work/0012-fix/cache-race                        │
+│          stopped · attached:1 · — · current              │
+│       └─ retire/0017-discard/temporary-spike             │
+│          discarding · attached:1 · — · current           │
+│   ▾ project-003          4 sessions · 0 urgent           │
+│       └─ work/0003-fix/cache-race                        │
+│          stopped · attached:2 · — · current              │
+│   … 13 nodes below                                       │
+╰──────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

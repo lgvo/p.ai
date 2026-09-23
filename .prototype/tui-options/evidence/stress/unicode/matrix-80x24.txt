@@ -1,0 +1,20 @@
+P / probe · STRESS:unicode · view 08 Project status matrix · Tab cycle · v gall…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Project × intervention matrix  ·  9 sessions  ·  attached 1                │
+│ Columns answer where attention, routine work, recovery, and removal        │
+│ accumulate.                                                                │
+│                                                                            │
+│   PROJECT           INSPECT   WORK   RECOVER   REMOVE                      │
+│   … 3 projects above                                                       │
+│   מעבדת-תל-אביב          0      0         1        0                       │
+│   مختبر-القاهرة          0      1         0        0                       │
+│ › 工房・東京             1      0         0        0                       │
+│   데이터-연구소          0      0         1        0                       │
+│   … 2 projects below                                                       │
+│                                                                            │
+│ Selected cell · s-auth  工房・東京 / 機能/認証フロー                       │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

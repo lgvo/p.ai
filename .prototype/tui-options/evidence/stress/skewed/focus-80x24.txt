@@ -1,0 +1,21 @@
+P / probe · STRESS:skewed · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Focus deck · 1/300                                                         │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-skewed-0001                                                         │
+│                                                                            │
+│ Lifecycle  ready         Presence  unattended                              │
+│ Agent      attention     Policy    current                                 │
+│                                                                            │
+│ Primary actions  inspect · attach                                          │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Stream radar · context without leaving focus                               │
+│ › project-001/work/0001-… ready      unattended attention current          │
+│   project-002/work/0002-… ready      unattended attention current          │
+│   project-003/work/0003-… ready      unattended attention current          │
+│   project-004/boot/0004-… ready      unattended attention current          │
+│ … 296 more                                                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

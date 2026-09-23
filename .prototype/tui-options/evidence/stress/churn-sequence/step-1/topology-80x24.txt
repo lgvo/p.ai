@@ -1,0 +1,24 @@
+P / probe · STRESS:churn@1 · view 16 Resource topology · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Resource topology                                                          │
+│ Edges expose ownership and lifetime; adjacent resources are not collapsed  │
+│ into session state.                                                        │
+│                                                                            │
+│ Portfolio edges · attached 1                                               │
+│   project-0… ├─ s-churn-00… host:stopped     client:unattended  agent:f…   │
+│   project-0… ├─ s-churn-00… host:ready       client:unattended  agent:—    │
+│    … 10 more session edges                                                 │
+│                                                                            │
+│ Selected relationship · explicit lifetimes                                 │
+│ PROJECT  project-001                                                       │
+│   ├─ GIT REF  agent/stable-selection-target                                │
+│   │    retained independently                                              │
+│   └─ SESSION  s-churn-focus  (stable identity)                             │
+│        ├─ HOST       ready  (persistent)                                   │
+│        ├─ CLIENTS    unattended  (temporary)                               │
+│        ├─ AGENT      attention  (unattended-only)                          │
+│        └─ POLICY     outdated  (immutable snapshot)                        │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

@@ -1,0 +1,17 @@
+P / probe · STRESS:ambiguous-identities · view 10 Task workspace · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────────────╮
+│ Task-oriented workspace   Sessions   Activity  Policy  Resources    │ │ Inspector                                │
+│ t changes work mode while session selection and identity remain     │ │ platform-api-current / feature/session-  │
+│ stable.                                                             │ │ synchronizat…                            │
+│                                                                     │ │ UUID s-ambiguous-id-000001               │
+│   PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY     │ │ lifecycle  ready                         │
+│ › platform-api-current / … ready      unattended attention outdated │ │ presence   unattended                    │
+│   platform-api-currant / … ready      attached:1 —         current  │ │ agent      attention                     │
+│   platform-api-current-2 … stopped    unattended failed    current  │ │ policy     outdated                      │
+│   platform-api-current-ol… starting   unattended running   current  │ │ actions    inspect · attach · policy     │
+│   platform-api-current / … unreachab… unattended unknown   invalid  │ │ diff · recreate                          │
+│   … 19 more                                                         │ ╰──────────────────────────────────────────╯
+╰─────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

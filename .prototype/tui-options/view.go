@@ -1,0 +1,1200 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+)
+
+var (
+	ink       = lipgloss.AdaptiveColor{Light: "#15202B", Dark: "#E6EDF3"}
+	muted     = lipgloss.AdaptiveColor{Light: "#52606D", Dark: "#8B949E"}
+	accent    = lipgloss.AdaptiveColor{Light: "#5B21B6", Dark: "#C4A7FF"}
+	urgent    = lipgloss.AdaptiveColor{Light: "#B42318", Dark: "#FF7B72"}
+	warning   = lipgloss.AdaptiveColor{Light: "#9A6700", Dark: "#E3B341"}
+	positive  = lipgloss.AdaptiveColor{Light: "#137333", Dark: "#56D364"}
+	panelEdge = lipgloss.AdaptiveColor{Light: "#CBD5E1", Dark: "#30363D"}
+
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	mutedStyle    = lipgloss.NewStyle().Foreground(muted)
+	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(ink).Background(lipgloss.AdaptiveColor{Light: "#EDE9FE", Dark: "#312E81"})
+	panelStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(panelEdge).Padding(0, 1)
+)
+
+func (m app) View() (frame string) {
+	terminalWidth := m.width
+	m.width = m.viewportWidth()
+	// Bound physical terminal rows as well as logical lines: wrapping would
+	// invalidate the renderer's cursor accounting and leave previous frames.
+	defer func() {
+		width, height := maxInt(m.width, 1), maxInt(m.height, 1)
+		lines := strings.Split(fitLines(frame, height), "\n")
+		for i := range lines {
+			lines[i] = padRight(lines[i], width)
+		}
+		for len(lines) < height {
+			lines = append(lines, strings.Repeat(" ", width))
+		}
+		frame = lipgloss.PlaceHorizontal(max(1, terminalWidth), lipgloss.Center, strings.Join(lines, "\n"))
+	}()
+	if m.screen == screenStopConfirm || m.screen == screenStopping {
+		return m.stopView()
+	}
+	if m.screen == screenJournal {
+		return m.journalView()
+	}
+	if m.screen == screenAgents {
+		return m.agentsView()
+	}
+	if m.screen == screenServices {
+		return m.servicesView()
+	}
+	if m.screen == screenBoot {
+		return m.bootView()
+	}
+	if m.screen == screenTerminal {
+		return m.terminalView()
+	}
+	width, height := m.width, m.height
+	if m.screen != screenOverview {
+		width = min(width, selectorMaxWidth)
+	}
+	if width < 48 || height < 16 {
+		return m.tooSmallView(width, height)
+	}
+	if m.screen == screenOverview && (width < 72 || height < 22) {
+		return m.compactResponsiveView(width, height)
+	}
+
+	header := m.header(width)
+	var body string
+	switch m.screen {
+	case screenOverview:
+		switch m.variant {
+		case variantTable:
+			body = m.tableView(width, height)
+		case variantNavigator:
+			body = m.navigatorView(width, height)
+		case variantAttention:
+			body = m.attentionView(width, height)
+		case variantCommand:
+			body = m.commandView(width, height)
+		case variantFocus:
+			body = m.focusView(width, height)
+		case variantLanes:
+			body = m.lanesView(width, height)
+		case variantOutline:
+			body = m.outlineView(width, height)
+		case variantMatrix:
+			body = m.matrixView(width, height)
+		case variantOperations:
+			body = m.operationsView(width, height)
+		case variantWorkspace:
+			body = m.workspaceView(width, height)
+		case variantMinimal:
+			body = m.minimalView(width, height)
+		case variantCards:
+			body = m.cardsView(width, height)
+		case variantAttachment:
+			body = m.attachmentView(width, height)
+		case variantGovernance:
+			body = m.governanceView(width, height)
+		case variantCompare:
+			body = m.comparisonView(width, height)
+		case variantTopology:
+			body = m.topologyView(width, height)
+		case variantActions:
+			body = m.actionSheetView(width, height)
+		case variantIntegrity:
+			body = m.integrityView(width, height)
+		}
+	case screenCreate:
+		body = m.createView(width)
+	case screenCreateFailed:
+		body = m.createFailedView(width)
+	case screenBranches:
+		body = m.branchesView(width)
+	case screenPolicy:
+		body = m.policyView(width)
+	case screenDeletePreview:
+		body = m.deletePreviewView(width)
+	case screenDeleteProgress:
+		body = m.deleteProgressView(width)
+	case screenHelp:
+		body = m.helpView(width)
+	case screenProjectFilter:
+		body = m.projectFilterView(width, height)
+	case screenVariantGallery:
+		body = m.variantGalleryView(width)
+	}
+	if m.browser && m.screen == screenOverview && m.variant == variantTopology {
+		return fitLines(header+"\n"+body, height)
+	}
+	footer := m.footer(width)
+	if m.screen != screenOverview {
+		card := strings.Join([]string{body, footer}, "\n")
+		return header + "\n" + lipgloss.PlaceHorizontal(m.width, lipgloss.Center, card)
+	}
+	return fitLines(strings.Join([]string{header, body, footer}, "\n"), height)
+}
+
+func (m app) header(width int) string {
+	if m.browser {
+		line := "P · Sessions"
+		if m.screen == screenOverview {
+			line += " · waiting → running → other"
+		}
+		return titleStyle.Render(truncate(line, width))
+	}
+	line := fmt.Sprintf("P / probe · view %02d %s · fixture:%s · Tab cycle · v gallery", m.variant+1, m.variant, m.dataset)
+	if m.mode == modeStress {
+		line = fmt.Sprintf("P / probe · STRESS:%s · view %02d %s · Tab cycle · v gallery", m.dataset, m.variant+1, m.variant)
+		if m.dataset == "churn" {
+			line = fmt.Sprintf("P / probe · STRESS:%s@%d · view %02d %s · Tab cycle · v gallery", m.dataset, m.stressStep, m.variant+1, m.variant)
+		}
+	}
+	if m.filtering || m.filter.Value() != "" {
+		line += " · / " + m.filter.Value()
+	}
+	return titleStyle.Copy().Width(width).Render(truncate(line, width))
+}
+
+func (m app) footer(width int) string {
+	if m.screen != screenOverview {
+		return m.overlayCommands(width)
+	}
+	if m.browser {
+		keys := "j/k move · Enter session · s stop · c create · b branches · p policy · X delete\nP project · A agents · S services · / search · ? help · q | Esc | Ctrl-C back/quit\nPgUp/PgDn · ^B/^F page · ^U/^D half · gg/G ends"
+		if m.screen != screenOverview {
+			keys = "q | Esc | Ctrl-C back"
+		}
+		if m.message != "" && m.message != fixtureNotice {
+			keys = truncate(m.message, width) + "\n" + keys
+		}
+		return commandBlock(width, keys)
+	}
+	message := m.message
+	if m.screen == screenOverview {
+		if width < 100 {
+			keys := mutedStyle.Render("j/k move · a attach · d detach · c create · b branches · p policy · X delete") + "\n" + mutedStyle.Render("/ filter · Tab cycle · v gallery · ? help · q quit")
+			if message == fixtureNotice {
+				message = keys
+			} else if m.height < 28 {
+				message = truncate(message, width) + "\n" + mutedStyle.Render("j/k move · Tab cycle · v gallery · ? help · q quit")
+			} else {
+				message = truncate(message, width) + "\n" + keys
+			}
+		} else {
+			message += "\n" + mutedStyle.Render("j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help · q quit")
+		}
+	} else {
+		message += "\n" + mutedStyle.Render("esc returns without mutating real state")
+	}
+	if m.variant == variantTopology && m.screen == screenOverview {
+		message = strings.ReplaceAll(message, "Tab cycle · v gallery", "P project")
+	}
+	return lipgloss.NewStyle().Width(width).Render(message)
+}
+
+func (m app) tooSmallView(width, height int) string {
+	lines := []string{
+		"P / probe",
+		"Terminal too small",
+		fmt.Sprintf("received %dx%d", width, height),
+		"minimum 48x16",
+		"No facts are hidden behind a clipped view.",
+	}
+	for i := range lines {
+		lines[i] = truncate(lines[i], maxInt(width, 1))
+	}
+	return fitLines(strings.Join(lines, "\n"), maxInt(height, 1))
+}
+
+func (m app) compactResponsiveView(width, height int) string {
+	header := m.header(width)
+	idx, ok := m.selectedSessionIndex()
+	content := titleStyle.Render(fmt.Sprintf("%s · compact disclosure", m.variant))
+	if !ok {
+		content += "\n" + mutedStyle.Render("No sessions in this fixture.") +
+			"\n\nDataset " + m.dataset + " · use v to compare views"
+	} else {
+		s := m.sessions[idx]
+		presence, agent := sessionSignals(s)
+		identityWidth := maxInt(width-8, 8)
+		lines := []string{
+			truncate(s.Project+" / "+s.Branch, identityWidth),
+			mutedStyle.Render("UUID " + s.ID),
+			"lifecycle  " + styledFact(m.lifecycleLabel(s.Lifecycle)),
+			"presence   " + presence,
+			"agent      " + styledFact(agent),
+			"policy     " + styledFact(s.Policy),
+			"actions    " + strings.Join(availableActions(s), " · "),
+		}
+		if m.browser {
+			lines[4] = sessionStats(s)
+		}
+		if s.Operation != "" && height >= 18 {
+			lines = append(lines, "progress   "+s.Operation)
+		}
+		content += "\n" + strings.Join(lines, "\n")
+	}
+	if m.browser {
+		content = strings.ReplaceAll(content, fmt.Sprintf("%s · compact disclosure", m.variant), m.projectSessionsHeading())
+		content = strings.ReplaceAll(content, "No sessions in this fixture.\n\nDataset "+m.dataset+" · use v to compare views", "No matching sessions.")
+		rows := strings.Split(content, "\n")
+		if search := m.listSearch(width - 6); search != "" {
+			rows[0] = search
+		}
+		contentHeight := height - 7
+		if len(rows) > contentHeight {
+			rows = rows[:contentHeight]
+		}
+		for i := range rows {
+			rows[i] = truncate(rows[i], width-6)
+		}
+		panel := renderPanel(width, padContentRows(strings.Join(rows, "\n"), contentHeight))
+		return fitLines(strings.Join([]string{header, panel, mutedStyle.Render("P project · / search · PgUp/PgDn page\nj/k move · Enter session · s stop\ngg/G ends · A agents · S services · ?\nq | Esc | Ctrl-C back/quit")}, "\n"), height)
+	}
+	body := renderPanel(width, content)
+	footer := mutedStyle.Render("j/k move · a attach · Tab cycle · v views")
+	if height >= 18 {
+		footer += "\n" + mutedStyle.Render("? help · q quit · compact mode below 72x22")
+	}
+	return fitLines(strings.Join([]string{header, body, footer}, "\n"), height)
+}
+
+func (m app) variantGalleryView(width int) string {
+	rows := []string{titleStyle.Render("UX exploration gallery"), mutedStyle.Render("Each entry changes the organizing model, not the underlying fixture facts."), ""}
+	for v := variant(0); v < variantCount; v++ {
+		line := fmt.Sprintf("  %02d  %-24s", v+1, v.String())
+		if v == m.galleryChoice {
+			line = selectedStyle.Render("› " + strings.TrimPrefix(line, "  "))
+		}
+		rows = append(rows, line)
+	}
+
+	return centeredPanel(width, strings.Join(rows, "\n"))
+}
+
+func (m app) tableView(width, height int) string {
+	indices := m.visibleIndices()
+	rows := m.sessionRows(indices, width >= 100, maxRows(height, width))
+	if width >= 110 {
+		table := renderPanel(tableWidth(width), titleStyle.Render("All active sessions · cross-project")+"\n"+rows)
+		detail := renderPanel(detailWidth(width), m.detailView())
+		return lipgloss.JoinHorizontal(lipgloss.Top, table, " ", detail)
+	}
+	table := renderPanel(width, titleStyle.Render("All active sessions · cross-project")+"\n"+rows)
+	detail := renderPanel(width, m.detailView())
+	return lipgloss.JoinVertical(lipgloss.Left, table, detail)
+}
+
+func (m app) navigatorView(width, height int) string {
+	projects := m.projects()
+	projectLimit := 5
+	if width >= 90 {
+		projectLimit = 10
+	}
+	projectStart, projectEnd := windowBounds(len(projects), m.project, projectLimit)
+	var projectRows []string
+	if projectStart > 0 {
+		projectRows = append(projectRows, mutedStyle.Render(fmt.Sprintf("  … %d projects above", projectStart)))
+	}
+	for i := projectStart; i < projectEnd; i++ {
+		p := projects[i]
+		count, urgentCount := 0, 0
+		for _, s := range m.sessions {
+			if s.Project == p {
+				count++
+				if urgency(s) < 4 {
+					urgentCount++
+				}
+			}
+		}
+		line := fmt.Sprintf("%s %d sess · %d urgent", padRight(middleTruncate(p, 10), 10), count, urgentCount)
+		if i == m.project {
+			line = selectedStyle.Render("› " + line)
+		} else {
+			line = "  " + line
+		}
+		projectRows = append(projectRows, line)
+	}
+	if projectEnd < len(projects) {
+		projectRows = append(projectRows, mutedStyle.Render(fmt.Sprintf("  … %d projects below", len(projects)-projectEnd)))
+	}
+	indices := m.visibleIndices()
+	rightContent := titleStyle.Render("Sessions in selected project") + "\n" + m.cardRows(indices, maxRows(height, width))
+	if width >= 90 {
+		rowLimit := 4
+		if height >= 35 {
+			rowLimit = 7
+		}
+		rightContent = titleStyle.Render("Sessions in selected project") + "\n" + m.cardRows(indices, rowLimit)
+		left := renderPanel(navigatorWidth(width), titleStyle.Render("Projects")+"\n"+strings.Join(projectRows, "\n"))
+		right := renderPanel(width-navigatorWidth(width)-1, rightContent+"\n\n"+m.detailView())
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, " ", right)
+	}
+	projectNames := make([]string, 0, projectEnd-projectStart+2)
+	if projectStart > 0 {
+		projectNames = append(projectNames, fmt.Sprintf("…%d", projectStart))
+	}
+	for i := projectStart; i < projectEnd; i++ {
+		project := projects[i]
+		if i == m.project {
+			projectNames = append(projectNames, selectedStyle.Render(" "+middleTruncate(project, 10)+" "))
+		} else {
+			projectNames = append(projectNames, middleTruncate(project, 10))
+		}
+	}
+	if projectEnd < len(projects) {
+		projectNames = append(projectNames, fmt.Sprintf("…%d", len(projects)-projectEnd))
+	}
+	left := renderPanel(width, titleStyle.Render("Projects")+"  "+strings.Join(projectNames, "  "))
+	rightContent = titleStyle.Render("Sessions in selected project") + "\n" + m.compactCardRows(indices, 3)
+	right := renderPanel(width, rightContent+"\n\n"+m.compactSelectionView())
+	return lipgloss.JoinVertical(lipgloss.Left, left, right)
+}
+
+func (m app) attentionView(width, height int) string {
+	indices := m.visibleIndices()
+	urgentIndices := make([]int, 0)
+	steadyIndices := make([]int, 0)
+	for _, idx := range indices {
+		if urgency(m.sessions[idx]) < 4 {
+			urgentIndices = append(urgentIndices, idx)
+		} else {
+			steadyIndices = append(steadyIndices, idx)
+		}
+	}
+	workspaceContent := titleStyle.Render("Everything else") + "\n" + m.attentionRows(steadyIndices, 3) + "\n\n" + m.detailView()
+	if width >= 100 {
+		queue := renderPanel(attentionWidth(width), titleStyle.Render(fmt.Sprintf("Urgent to inspect · %d", len(urgentIndices)))+"\n"+m.attentionRows(urgentIndices, 3))
+		workspace := renderPanel(width-attentionWidth(width)-1, workspaceContent)
+		return lipgloss.JoinHorizontal(lipgloss.Top, queue, " ", workspace)
+	}
+	queue := renderPanel(width, titleStyle.Render(fmt.Sprintf("Urgent to inspect · %d", len(urgentIndices)))+"\n"+m.compactAttentionRows(urgentIndices, 3))
+	workspaceContent = titleStyle.Render("Everything else") + "\n" + m.compactAttentionRows(steadyIndices, 3) + "\n\n" + m.compactSelectionView()
+	workspace := renderPanel(width, workspaceContent)
+	return lipgloss.JoinVertical(lipgloss.Left, queue, workspace)
+}
+
+func (m app) compactCardRows(indices []int, limit int) string {
+	if len(indices) == 0 {
+		return mutedStyle.Render("No sessions in this project")
+	}
+	start, end := windowBounds(len(indices), m.selected, limit)
+	var rows []string
+	if start > 0 {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d sessions above", start)))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
+		s := m.sessions[idx]
+		presence := "unattended"
+		if s.AttachedCount > 0 {
+			presence = fmt.Sprintf("attached:%d", s.AttachedCount)
+		}
+		agent := firstNonEmpty(s.Agent, "—")
+		if s.AttachedCount > 0 {
+			agent = "—"
+		}
+		line := fmt.Sprintf("  %s %s %s %s %s", padRight(s.Branch, 28), padRight(s.Lifecycle, 10), padRight(presence, 11), padRight(agent, 9), s.Policy)
+		rows = append(rows, m.selectableLine(pos, line, s))
+	}
+	if end < len(indices) {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d sessions below", len(indices)-end)))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m app) compactAttentionRows(indices []int, limit int) string {
+	if len(indices) == 0 {
+		return mutedStyle.Render("Nothing in this group")
+	}
+	visible := m.visibleIndices()
+	position := map[int]int{}
+	for pos, idx := range visible {
+		position[idx] = pos
+	}
+	var rows []string
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for row := start; row < end; row++ {
+		idx := indices[row]
+		s := m.sessions[idx]
+		presence := "unattended"
+		if s.AttachedCount > 0 {
+			presence = fmt.Sprintf("attached:%d", s.AttachedCount)
+		}
+		agent := firstNonEmpty(s.Agent, "—")
+		if s.AttachedCount > 0 {
+			agent = "—"
+		}
+		name := truncate(s.Project+"/"+s.Branch, 27)
+		line := fmt.Sprintf("  %s %s %s %s %s", padRight(name, 27), padRight(s.Lifecycle, 11), padRight(presence, 11), padRight(agent, 9), s.Policy)
+		rows = append(rows, m.selectableLine(position[idx], line, s))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m app) compactSelectionView() string {
+	idx, ok := m.selectedSessionIndex()
+	if !ok {
+		return mutedStyle.Render("No session selected")
+	}
+	s := m.sessions[idx]
+	result := titleStyle.Render("Selected "+s.ID) + "  " + truncate(s.Project+"/"+s.Branch, 28) + "  ·  actions: " + strings.Join(availableActions(s), " / ")
+	if s.Operation != "" {
+		result += "\nprogress  " + s.Operation
+	}
+	return result
+}
+
+func (m app) commandView(width, height int) string {
+	indices := m.visibleIndices()
+	query := strings.TrimSpace(m.filter.Value())
+	prompt := "Press / and type any project, branch, lifecycle, presence, agent, or policy fact"
+	if query != "" {
+		prompt = fmt.Sprintf("Query %q · %d matches", query, len(indices))
+	}
+	results := titleStyle.Render("Search-first command center") + "\n" + mutedStyle.Render(prompt) + "\n\n" + m.commandRows(indices, maxRows(height, width))
+	commands := titleStyle.Render("Act on the highlighted result") + "\n" + m.compactSelectionView() + "\n\n" + mutedStyle.Render("The palette never invents eligibility; every action shown comes from the fixture's daemon plan.")
+	if width >= 105 {
+		leftWidth := width * 58 / 100
+		return lipgloss.JoinHorizontal(lipgloss.Top, renderPanel(leftWidth, results), " ", renderPanel(width-leftWidth-1, commands+"\n\n"+m.detailView()))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, renderPanel(width, results), renderPanel(width, commands))
+}
+
+func (m app) commandRows(indices []int, limit int) string {
+	if len(indices) == 0 {
+		return mutedStyle.Render("No match. Clear the query to recover the full session set.")
+	}
+	var rows []string
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
+		s := m.sessions[idx]
+		presence, agent := sessionSignals(s)
+		line := fmt.Sprintf("  %s %s %s %s %s", padRight(s.Project+"/"+s.Branch, 23), padRight(s.Lifecycle, 10), padRight(presence, 10), padRight(agent, 9), s.Policy)
+		rows = append(rows, m.selectableLine(pos, line, s))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m app) focusView(width, height int) string {
+	indices := m.visibleIndices()
+	idx, ok := m.selectedSessionIndex()
+	if !ok {
+		return renderPanel(width, "No matching sessions")
+	}
+	s := m.sessions[idx]
+	position := m.selected + 1
+	focus := titleStyle.Render(fmt.Sprintf("Focus deck · %d/%d", position, len(indices))) + "\n" + m.focusCard(s)
+	radar := titleStyle.Render("Stream radar · context without leaving focus") + "\n" + m.radarRows(indices, maxRows(height, width), width < 110)
+	if width >= 110 {
+		focusWidth := width * 57 / 100
+		return lipgloss.JoinHorizontal(lipgloss.Top, renderPanel(focusWidth, focus), " ", renderPanel(width-focusWidth-1, radar))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, renderPanel(width, focus), renderPanel(width, radar))
+}
+
+func (m app) focusCard(s session) string {
+	presence, agent := sessionSignals(s)
+	lines := []string{
+		fmt.Sprintf("%s / %s", s.Project, s.Branch),
+		mutedStyle.Render("UUID " + s.ID),
+		"",
+		fmt.Sprintf("Lifecycle  %s  Presence  %s", padRight(styledFact(m.lifecycleLabel(s.Lifecycle)), 12), presence),
+		fmt.Sprintf("Agent      %s  Policy    %s", padRight(styledFact(agent), 12), styledFact(s.Policy)),
+		"",
+		"Primary actions  " + strings.Join(availableActions(s), " · "),
+	}
+	if s.Operation != "" {
+		lines = append(lines, "Progress  "+s.Operation)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m app) radarRows(indices []int, limit int, compact bool) string {
+	var rows []string
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
+		s := m.sessions[idx]
+		presence, agent := sessionSignals(s)
+		var line string
+		if compact {
+			line = fmt.Sprintf("  %s %s %s %s %s", padRight(s.Project+"/"+s.Branch, 23), padRight(s.Lifecycle, 10), padRight(presence, 10), padRight(agent, 9), s.Policy)
+		} else {
+			line = fmt.Sprintf("  %s\n    %s · %s · %s · %s", truncate(s.Project+"/"+s.Branch, 35), s.Lifecycle, presence, agent, s.Policy)
+		}
+		rows = append(rows, m.selectableLine(pos, line, s))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m app) lanesView(width, _ int) string {
+	indices := m.visibleIndices()
+	type lane struct {
+		title   string
+		indices []int
+	}
+	lanes := []lane{{title: "Inspect first"}, {title: "In progress"}, {title: "Recover"}, {title: "Removing"}}
+	for _, idx := range indices {
+		switch laneFor(m.sessions[idx]) {
+		case 0:
+			lanes[0].indices = append(lanes[0].indices, idx)
+		case 1:
+			lanes[1].indices = append(lanes[1].indices, idx)
+		case 2:
+			lanes[2].indices = append(lanes[2].indices, idx)
+		case 3:
+			lanes[3].indices = append(lanes[3].indices, idx)
+		}
+	}
+	if width < 100 {
+		sections := make([]string, 0, len(lanes)+1)
+		for _, lane := range lanes {
+			sections = append(sections, titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices)))+"\n"+m.laneRows(lane.indices, true, 1))
+		}
+		sections = append(sections, m.laneSelectionSummary())
+		return renderPanel(width, strings.Join(sections, "\n"))
+	}
+	available := width - (len(lanes) - 1)
+	base := available / len(lanes)
+	remainder := available % len(lanes)
+	panels := make([]string, 0, len(lanes)*2-1)
+	for i, lane := range lanes {
+		laneWidth := base
+		if i < remainder {
+			laneWidth++
+		}
+		limit := 2
+		if width >= 132 {
+			limit = 4
+		}
+		content := titleStyle.Render(fmt.Sprintf("%s · %d", lane.title, len(lane.indices))) + "\n" + m.laneRows(lane.indices, false, limit)
+		panels = append(panels, renderPanel(laneWidth, content))
+		if i != len(lanes)-1 {
+			panels = append(panels, " ")
+		}
+	}
+	board := lipgloss.JoinHorizontal(lipgloss.Top, panels...)
+	return lipgloss.JoinVertical(lipgloss.Left, board, renderPanel(width, m.laneSelectionSummary()))
+}
+
+func (m app) laneSelectionSummary() string {
+	idx, ok := m.selectedSessionIndex()
+	if !ok {
+		return mutedStyle.Render("Selected: none")
+	}
+	s := m.sessions[idx]
+	presence, agent := sessionSignals(s)
+	return titleStyle.Render("Selected "+s.ID) + "  " + truncate(s.Project+"/"+s.Branch, 28) + "\n" +
+		strings.Join([]string{s.Lifecycle, presence, agent, s.Policy}, " · ") + "\n" +
+		"actions  " + strings.Join(availableActions(s), " · ")
+}
+
+func laneFor(s session) int {
+	if s.Lifecycle == "deleting" || s.Lifecycle == "discarding" {
+		return 3
+	}
+	if s.Lifecycle == "missing" || s.Lifecycle == "unreachable" {
+		return 2
+	}
+	if (s.AttachedCount == 0 && (s.Agent == "attention" || s.Agent == "failed")) || s.Policy == "invalid" {
+		return 0
+	}
+	return 1
+}
+
+func (m app) laneRows(indices []int, compact bool, limit int) string {
+	if len(indices) == 0 {
+		return mutedStyle.Render("No streams")
+	}
+	visible := m.visibleIndices()
+	position := map[int]int{}
+	for pos, idx := range visible {
+		position[idx] = pos
+	}
+	selectedIndex, selected := m.selectedSessionIndex()
+	selectedRow := 0
+	if selected {
+		for row, idx := range indices {
+			if idx == selectedIndex {
+				selectedRow = row
+				break
+			}
+		}
+	}
+	start := selectedRow - limit/2
+	if start < 0 {
+		start = 0
+	}
+	if start+limit > len(indices) {
+		start = maxInt(0, len(indices)-limit)
+	}
+	end := start + limit
+	if end > len(indices) {
+		end = len(indices)
+	}
+	var rows []string
+	if start > 0 {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d above", start)))
+	}
+	for row := start; row < end; row++ {
+		idx := indices[row]
+		s := m.sessions[idx]
+		presence, agent := sessionSignals(s)
+		var line string
+		if compact {
+			line = fmt.Sprintf("  %s %s %s %s %s %s", padRight(s.Project+"/"+s.Branch, 12), padRight(s.Lifecycle, 11), padRight(presence, 11), padRight(agent, 9), padRight(s.Policy, 8), truncate(s.Operation, 12))
+		} else {
+			line = fmt.Sprintf("  %s\n    %s\n    %s\n    %s · %s", truncate(s.Project+"/"+s.Branch, 20), s.Lifecycle, presence, agent, s.Policy)
+			if s.Operation != "" {
+				line += "\n    " + truncate(s.Operation, 20)
+			}
+		}
+		rows = append(rows, m.selectableLine(position[idx], line, s))
+	}
+	if end < len(indices) {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("… %d below", len(indices)-end)))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func sessionSignals(s session) (presence, agent string) {
+	if s.PresenceUnknown {
+		return "unknown", "not evaluated"
+	}
+	presence = "unattended"
+	if s.AttachedCount > 0 {
+		presence = fmt.Sprintf("attached:%d", s.AttachedCount)
+	}
+	agent = firstNonEmpty(s.Agent, "—")
+	if s.AttachedCount > 0 {
+		agent = "—"
+	}
+	return presence, agent
+}
+
+func (m app) sessionRows(indices []int, wide bool, limit int) string {
+	if len(indices) == 0 {
+		return mutedStyle.Render("No matching sessions")
+	}
+	header := "  PROJECT / BRANCH        LIFE       PRESENCE   AGENT    POLICY"
+	if !wide {
+		header = "  PROJECT / BRANCH              LIFE       SIGNAL / POLICY"
+	}
+	rows := []string{mutedStyle.Render(header)}
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
+		s := m.sessions[idx]
+		presence := "unattended"
+		if s.AttachedCount > 0 {
+			presence = fmt.Sprintf("attached:%d", s.AttachedCount)
+		}
+		agent := s.Agent
+		if s.AttachedCount > 0 {
+			agent = "—"
+		} else if agent == "" {
+			agent = "—"
+		}
+		name := truncate(s.Project+" / "+s.Branch, 31)
+		var line string
+		if wide {
+			line = fmt.Sprintf("  %s %s %s %s %s", padRight(name, 24), padRight(s.Lifecycle, 10), padRight(presence, 10), padRight(agent, 9), s.Policy)
+		} else {
+			signal := presence + " · " + agent + " / " + s.Policy
+			line = fmt.Sprintf("  %s %s %s", padRight(name, 27), padRight(s.Lifecycle, 10), signal)
+		}
+		rows = append(rows, m.selectableLine(pos, line, s))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m app) cardRows(indices []int, limit int) string {
+	if len(indices) == 0 {
+		return mutedStyle.Render("No sessions in this project")
+	}
+	var rows []string
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for pos := start; pos < end; pos++ {
+		idx := indices[pos]
+		s := m.sessions[idx]
+		presence := "unattended"
+		if s.AttachedCount > 0 {
+			presence = fmt.Sprintf("attached:%d", s.AttachedCount)
+		}
+		agent := s.Agent
+		if agent == "" || s.AttachedCount > 0 {
+			agent = "—"
+		}
+		line := fmt.Sprintf("  %s\n    %s · %s · %s · %s", padRight(s.Branch, 32), s.Lifecycle, presence, agent, s.Policy)
+		rows = append(rows, m.selectableLine(pos, line, s))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m app) attentionRows(indices []int, limit int) string {
+	if len(indices) == 0 {
+		return mutedStyle.Render("Nothing in this group")
+	}
+	visible := m.visibleIndices()
+	position := map[int]int{}
+	for pos, idx := range visible {
+		position[idx] = pos
+	}
+	var rows []string
+	start, end := m.sessionWindow(indices, limit)
+	if len(indices) > limit {
+		rows = append(rows, mutedStyle.Render(fmt.Sprintf("  %d–%d of %d", start+1, end, len(indices))))
+	}
+	for n := start; n < end; n++ {
+		idx := indices[n]
+		s := m.sessions[idx]
+		presence := "unattended"
+		if s.AttachedCount > 0 {
+			presence = fmt.Sprintf("attached:%d", s.AttachedCount)
+		}
+		reason := s.AgentReason
+		if reason == "" {
+			reason = s.Operation
+		}
+		line := fmt.Sprintf("  %s %s\n    %s · %s\n    %s · %s · %s", padRight(s.Project, 10), truncate(s.Branch, 27), s.Lifecycle, presence, firstNonEmpty(s.Agent, "no signal"), s.Policy, truncate(reason, 22))
+		rows = append(rows, m.selectableLine(position[idx], line, s))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m app) selectableLine(position int, line string, s session) string {
+	prefix := "  "
+	if position == m.selected {
+		prefix = "› "
+	}
+	line = prefix + strings.TrimPrefix(line, "  ")
+	if position == m.selected {
+		return selectedStyle.Render(line)
+	}
+	if s.AttachedCount == 0 && (s.Agent == "attention" || s.Agent == "failed") {
+		return lipgloss.NewStyle().Foreground(urgent).Render(line)
+	}
+	if s.Policy != "current" || s.Lifecycle == "missing" || s.Lifecycle == "unreachable" {
+		return lipgloss.NewStyle().Foreground(warning).Render(line)
+	}
+	return line
+}
+
+func (m app) detailView() string {
+	idx, ok := m.selectedSessionIndex()
+	if !ok {
+		return titleStyle.Render("Inspector") + "\n" + mutedStyle.Render("No session selected")
+	}
+	s := m.sessions[idx]
+	presence := "unattended"
+	if s.AttachedCount > 0 {
+		presence = fmt.Sprintf("attached (%d confirmed)", s.AttachedCount)
+	}
+	agent := firstNonEmpty(s.Agent, "no unattended signal")
+	if s.AttachedCount > 0 {
+		agent = "suppressed while attached"
+	}
+	actions := availableActions(s)
+	lines := []string{
+		titleStyle.Render("Inspector"),
+		truncate(fmt.Sprintf("%s / %s", s.Project, s.Branch), 52),
+		mutedStyle.Render("UUID " + s.ID),
+		"lifecycle  " + styledFact(m.lifecycleLabel(s.Lifecycle)),
+		"presence   " + presence,
+		"agent      " + styledFact(agent),
+		"policy     " + styledFact(s.Policy),
+	}
+	if s.Operation != "" {
+		lines = append(lines, "operation  "+s.Operation)
+	}
+	lines = append(lines, "actions    "+strings.Join(actions, " · "))
+	return strings.Join(lines, "\n")
+}
+
+func availableActions(s session) []string {
+	if warning := observationWarning(s); warning != "" {
+		return []string{"inspect", "refresh " + warning + " facts"}
+	}
+	actions := []string{"inspect"}
+	switch s.Lifecycle {
+	case "ready":
+		actions = append(actions, "attach")
+	case "stopped":
+		if s.Policy != "invalid" {
+			actions = append(actions, "start", "attach")
+		}
+	case "missing", "unreachable":
+		actions = append(actions, "repair plan")
+	}
+	if s.AttachedCount > 0 {
+		actions = append(actions, "detach this client")
+	}
+	if s.Policy == "outdated" {
+		actions = append(actions, "policy diff", "recreate")
+	}
+	return actions
+}
+
+func observationWarning(s session) string {
+	switch s.Observation {
+	case "partial":
+		return "PARTIAL"
+	case "stale":
+		if s.ObservationAge != "" {
+			return "STALE " + s.ObservationAge
+		}
+		return "STALE"
+	default:
+		return ""
+	}
+}
+
+func (m app) createView(width int) string {
+	if m.browser {
+		return m.creationView(width)
+	}
+	kind := "NEW CREATE"
+	identity := "reserves UUID s-new-019 · operation op-create-77"
+	if m.draft.Replacing {
+		kind = "TRY AGAIN WITH CHANGES · REPLACEMENT CREATE"
+		identity = "NEW UUID s-new-020 · NEW operation op-create-78 · supersedes failed request"
+	}
+	content := strings.Join([]string{
+		titleStyle.Render(kind),
+		"",
+		"Project     " + m.draft.Project,
+		"Source      " + m.draft.Source,
+		"Branch      " + m.draft.Branch,
+		"Policy      " + m.draft.Policy,
+		"",
+		lipgloss.NewStyle().Foreground(warning).Render(identity),
+		"",
+	}, "\n")
+	content += "\n\n" + confirmationPrompt("Submit creation?", false)
+	return centeredPanel(width, content)
+}
+
+func (m app) createFailedView(width int) string {
+	content := strings.Join([]string{
+		titleStyle.Render("CREATION FAILED · bounded fixture diagnostic"),
+		"",
+		"Environment preparation failed: synthetic cache checksum mismatch.",
+		fmt.Sprintf("Reserved UUID  %s", m.draft.ReservedID),
+		fmt.Sprintf("Operation      %s", m.draft.OperationID),
+		fmt.Sprintf("Immutable      %s · %s · %s", m.draft.Project, m.draft.Source, m.draft.Branch),
+		"",
+		lipgloss.NewStyle().Foreground(positive).Render("Exact Retry") + " — same UUID, operation, source, branch, and policy",
+		lipgloss.NewStyle().Foreground(warning).Render("Try again with changes") + " — integrated replacement with new identity",
+	}, "\n")
+	return centeredPanel(width, content)
+}
+
+func (m app) branchesView(width int) string {
+	rows := []string{titleStyle.Render("Retained branches · Git resources, not sessions"), ""}
+	for _, b := range m.branches {
+		rows = append(rows, fmt.Sprintf("%s  %s  %s", padRight(b.Project, 10), padRight(b.Name, 30), b.Tip))
+	}
+	rows = append(rows, "", "They have no UUID, runtime, attachment, agent condition, or policy condition.")
+	return centeredPanel(width, strings.Join(rows, "\n"))
+}
+
+func (m app) policyView(width int) string {
+	idx, ok := m.selectedSessionIndex()
+	if !ok {
+		return centeredPanel(width, "No session selected")
+	}
+	s := m.sessions[idx]
+	rows := []string{
+		titleStyle.Render("Policy comparison · " + s.Policy),
+		"",
+		fmt.Sprintf("%s / %s", s.Project, s.Branch),
+		"Effective snapshot remains immutable; configuration reload did not update it.",
+		"",
+	}
+	if len(s.PolicyDiff) == 0 {
+		rows = append(rows, "No typed differences.")
+	} else {
+		rows = append(rows, s.PolicyDiff...)
+	}
+	if s.Policy == "outdated" {
+		rows = append(rows, "", "Recreate with current policy retains the old branch as source and creates a new UUID.")
+	}
+	if s.Policy == "invalid" {
+		rows = append(rows, "", "Invalid blocks a later Start; it does not silently mutate or stop a running session.")
+	}
+	return centeredPanel(width, strings.Join(rows, "\n"))
+}
+
+func (m app) deletePreviewView(width int) string {
+	attached, sessions := 0, 0
+	for _, s := range m.sessions {
+		if s.Project == m.deleteProject {
+			sessions++
+			attached += s.AttachedCount
+		}
+	}
+	content := strings.Join([]string{
+		lipgloss.NewStyle().Bold(true).Foreground(urgent).Render("DELETE PROJECT AND ALL P DATA"),
+		"",
+		"Project                 " + m.deleteProject,
+		fmt.Sprintf("Sessions               %d", sessions),
+		fmt.Sprintf("Live attachments       %d (confirmation terminates these)", attached),
+		"Assigned/retained refs  3 · 2 commits may lose their last P reference",
+		"Origin preservation     unknown (refresh failed)",
+		"Runtime-local loss      1 modified file · 2 untracked files",
+		"Owned resources         credentials · runtimes · image cache · repository",
+		"Not deleted             external mount contents · delivered event logs",
+		"",
+		"Confirmation fingerprint: fp:forge:8d7f (fixture)",
+		"", confirmationPrompt("Delete project?", true),
+	}, "\n")
+	return centeredPanel(width, content)
+}
+
+func (m app) deleteProgressView(width int) string {
+	rows := []string{titleStyle.Render("Project deletion · ensure absent"), "", "Every retry re-inspects all targets; completed deletion is never rolled back.", ""}
+	complete := true
+	for _, target := range m.deleteTargets {
+		state := target.State
+		if state != "deleted" && state != "already_absent" {
+			complete = false
+		}
+		rows = append(rows, fmt.Sprintf("%-34s %s", target.Name, styledFact(state)))
+	}
+	rows = append(rows, "")
+	if complete {
+		rows = append(rows, lipgloss.NewStyle().Foreground(positive).Render("All owned targets are confirmed absent; registry tombstone can be removed."))
+	} else {
+		rows = append(rows, lipgloss.NewStyle().Foreground(warning).Render("Partial success; remaining resources can be retried."))
+	}
+	return centeredPanel(width, strings.Join(rows, "\n"))
+}
+
+func (m app) helpView(width int) string {
+	if m.browser {
+		return centeredPanel(width, strings.Join([]string{
+			titleStyle.Render("Keyboard shortcuts"), "",
+			"j/k or ↑/↓ move · Enter session · s stop",
+			"c create · P project · / fuzzy search",
+			"A agents · S services · b branches · p policy",
+			"X review project deletion",
+			"PgUp/PgDn or Ctrl+B/F · previous/next page",
+			"Ctrl+U/D · half page up/down",
+			"Home/End or gg/G · first/last item",
+			"",
+			"In session: Ctrl+B opens the action menu.",
+			"Exit keys quit only from the idle session picker.",
+			"Demo data; actions are simulated.",
+		}, "\n"))
+	}
+
+	content := strings.Join([]string{
+		titleStyle.Render("Prototype controls"),
+		mutedStyle.Render("Compare and switch structural variants without changing fixture state."),
+		"",
+		"1–6            direct shortcuts for initial variants",
+		"Tab / v        cycle variants / open full gallery",
+		"j/k            move between sessions",
+		"h/l            move projects, or collapse/expand outline groups",
+		"/              fuzzy filter using sahilm/fuzzy",
+		"a or Enter     attach, or switch this prototype client",
+		"d              detach this prototype client only",
+		"c              creation and retry/replacement probe",
+		"b              retained branches",
+		"p              typed policy comparison",
+		"P              Select a project (Resource topology)",
+		"X              aggregate project deletion preview",
+		"esc            return/cancel",
+		"q              quit from overview",
+	}, "\n")
+	return centeredPanel(width, content)
+}
+
+func styledFact(value string) string {
+	if value == "running" || value == "working" || strings.HasPrefix(value, "attached:") {
+		return lipgloss.NewStyle().Foreground(accent).Render(value)
+	}
+	switch value {
+	case "attention", "failed", "invalid", "unreachable", "missing", "remaining":
+		return lipgloss.NewStyle().Foreground(urgent).Render(value)
+	case "waiting", "!", "outdated", "starting", "creating", "unknown", "discarding", "deleting", "activating":
+		return lipgloss.NewStyle().Foreground(warning).Render(value)
+	case "ready", "active", "current", "deleted", "already_absent":
+		return lipgloss.NewStyle().Foreground(positive).Render(value)
+	case "stopped", "inactive", "idle", "unattended", "—", "not evaluated":
+		return mutedStyle.Render(value)
+	default:
+		return value
+	}
+}
+
+func centeredPanel(width int, content string) string {
+	panelWidth := width - 4
+	if panelWidth > 92 {
+		panelWidth = 92
+	}
+	if panelWidth < 4 {
+		panelWidth = 4
+	}
+	return renderPanel(panelWidth+4, content)
+}
+
+func tableWidth(width int) int {
+	if width >= 110 {
+		return width * 62 / 100
+	}
+	return width
+}
+
+func detailWidth(width int) int {
+	return width - tableWidth(width) - 1
+}
+
+func navigatorWidth(width int) int {
+	if width < 90 {
+		return width
+	}
+	return width * 30 / 100
+}
+
+func attentionWidth(width int) int {
+	if width < 100 {
+		return width
+	}
+	return width * 43 / 100
+}
+
+func renderPanel(outerWidth int, content string) string {
+	if outerWidth < 8 {
+		outerWidth = 8
+	}
+	frame := panelStyle.GetHorizontalFrameSize()
+	return panelStyle.Copy().Width(outerWidth - frame).MaxWidth(outerWidth).Render(content)
+}
+
+func maxRows(height, width int) int {
+	if width < 100 || height < 28 {
+		return 4
+	}
+	return 8
+}
+
+func fitLines(s string, height int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= height {
+		return s
+	}
+	if height < 2 {
+		return strings.Join(lines[:height], "\n")
+	}
+	return strings.Join(append(lines[:height-1], mutedStyle.Render("… frame clipped; enlarge terminal to inspect remaining content")), "\n")
+}
+
+func truncate(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(s) <= max {
+		return s
+	}
+	return ansi.Truncate(s, max, "…")
+}
+
+func padRight(s string, width int) string {
+	value := truncate(s, width)
+	padding := width - ansi.StringWidth(value)
+	if padding <= 0 {
+		return value
+	}
+	return value + strings.Repeat(" ", padding)
+}
+
+func middleTruncate(s string, max int) string {
+	width := ansi.StringWidth(s)
+	if width <= max {
+		return s
+	}
+	if max <= 1 {
+		return truncate(s, max)
+	}
+	left := (max - 1) / 2
+	right := max - 1 - left
+	return ansi.Cut(s, 0, left) + "…" + ansi.Cut(s, width-right, width)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func windowBounds(length, cursor, limit int) (start, end int) {
+	if length <= 0 || limit <= 0 {
+		return 0, 0
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= length {
+		cursor = length - 1
+	}
+	start = cursor - limit/2
+	if start < 0 {
+		start = 0
+	}
+	if start+limit > length {
+		start = maxInt(0, length-limit)
+	}
+	end = start + limit
+	if end > length {
+		end = length
+	}
+	return start, end
+}
+
+// Resolve the cursor by identity so grouped and reordered lists scroll too.
+func (m app) sessionWindow(indices []int, limit int) (int, int) {
+	cursor := 0
+	if selected, ok := m.selectedSessionIndex(); ok {
+		for pos, idx := range indices {
+			if idx == selected {
+				cursor = pos
+				break
+			}
+		}
+	}
+	return windowBounds(len(indices), cursor, limit)
+}

@@ -1,0 +1,18 @@
+P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ DELETE PROJECT AND ALL P DATA                                                              │
+│                                                                                            │
+│ Project                 forge                                                              │
+│ Sessions               2                                                                   │
+│ Live attachments       1 (confirmation terminates these)                                   │
+│ Assigned/retained refs  3 · 2 commits may lose their last P reference                      │
+│ Origin preservation     unknown (refresh failed)                                           │
+│ Runtime-local loss      1 modified file · 2 untracked files                                │
+│ Owned resources         credentials · runtimes · image cache · repository                  │
+│ Not deleted             external mount contents · delivered event logs                     │
+│                                                                                            │
+│ Confirmation fingerprint: fp:forge:8d7f (fixture)                                          │
+│ y confirms exact reviewed facts · esc cancels                                              │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+esc returns without mutating real state

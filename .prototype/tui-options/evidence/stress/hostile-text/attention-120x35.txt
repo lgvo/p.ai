@@ -1,0 +1,26 @@
+P / probe · STRESS:hostile-text · view 03 Attention workspace · Tab cycle · v gallery
+╭───────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 4                         │ │ Everything else                                                │
+│ › forge<ESC… agent/oauth<LF>spoofed-row…      │ │   orbit      feature/zero<U+0000>byte-a…                       │
+│     ready · unattended                        │ │     starting · unattended                                      │
+│     attention · outdated · permission<U+0007> │ │     running · current · activating environmen…                 │
+│ re…                                           │ │   p.ai       prototype/tui-options-with…                       │
+│   orbit      fix/cache-race                   │ │     creating · unattended                                      │
+│     stopped · unattended                      │ │     idle · current · building project envi…                    │
+│     failed · current · tests exited 1         │ │   link<ESC>… docs/<BIDI>evil-bidi<BIDI>…                       │
+│   isolate-<… design/plugin-contract-rec…      │ │     ready · attached:1                                         │
+│     unreachable · unattended                  │ │     no signal · current ·                                      │
+│     unknown · invalid · Incus inspection      │ │ … 2 more                                                       │
+│ time…                                         │ │                                                                │
+│ … 1 more                                      │ │ Inspector                                                      │
+╰───────────────────────────────────────────────╯ │ forge<ESC>[31m-red / agent/oauth<LF>spoofed-row<TAB…           │
+                                                  │ UUID s-auth                                                    │
+                                                  │ lifecycle  ready                                               │
+                                                  │ presence   unattended                                          │
+                                                  │ agent      attention                                           │
+                                                  │ policy     outdated                                            │
+                                                  │ actions    inspect · attach · policy diff · recreate           │
+                                                  ╰────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -1,0 +1,13 @@
+P / probe · STRESS:mixed-observations · view 14 Governance …
+╭────────────────────────────────────────────────────────╮
+│ Governance dashboard · compact disclosure              │
+│ project-001 / work/0001-agent/oauth-device-flow        │
+│ UUID s-mixed-0001                                      │
+│ lifecycle  ready                                       │
+│ presence   unknown                                     │
+│ agent      not evaluated                               │
+│ policy     outdated                                    │
+│ actions    inspect · refresh PARTIAL facts             │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

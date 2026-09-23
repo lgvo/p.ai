@@ -1,0 +1,24 @@
+P / probe · STRESS:skewed · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────╮
+│ Focus deck · 1/300                                             │ │ Stream radar · context without leaving focus  │
+│ project-001 / work/0001-agent/oauth-device-flow                │ │ › project-001/work/0001-agent/oauth-…         │
+│ UUID s-skewed-0001                                             │ │     ready · unattended · attention · current  │
+│                                                                │ │   project-002/work/0002-docs/plugin-…         │
+│ Lifecycle  ready         Presence  unattended                  │ │     ready · unattended · attention · current  │
+│ Agent      attention     Policy    current                     │ │   project-003/work/0003-fix/cache-ra…         │
+│                                                                │ │     ready · unattended · attention · current  │
+│ Primary actions  inspect · attach                              │ │   project-004/boot/0004-feature/inte…         │
+╰────────────────────────────────────────────────────────────────╯ │     ready · unattended · attention · current  │
+                                                                   │   project-005/recover/0005-design/pl…         │
+                                                                   │     ready · unattended · attention · current  │
+                                                                   │   project-006/boot/0006-prototype/tu…         │
+                                                                   │     ready · unattended · attention · current  │
+                                                                   │   project-007/recover/0007-cleanup/r…         │
+                                                                   │     ready · unattended · attention · current  │
+                                                                   │   project-008/retire/0008-discard/te…         │
+                                                                   │     ready · unattended · attention · current  │
+                                                                   │ … 292 more                                    │
+                                                                   ╰───────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

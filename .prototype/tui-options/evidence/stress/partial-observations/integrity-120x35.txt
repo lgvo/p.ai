@@ -1,0 +1,20 @@
+P / probe · STRESS:partial-observations · view 18 Observation integrity · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────╮
+│ Observation integrity                                      │ │ Selected evidence · PARTIAL                       │
+│ Completeness and freshness are first-class; derived        │ │ project-001 / work/0001-agent/oauth-device-flow   │
+│ urgency never hides evidence quality.                      │ │ UUID s-partial-0001                               │
+│                                                            │ │ unreachable · unknown · not evaluated · outdated  │
+│ CURRENT 0  ·  PARTIAL 18  ·  STALE 0                       │ │ actions  inspect · refresh PARTIAL facts          │
+│                                                            │ │ progress runtime probe returned an incomplete     │
+│ › PARTIAL    s-partial-0001   unreachable unknown          │ │ response                                          │
+│   PARTIAL    s-partial-0002   ready       unknown          │ ╰───────────────────────────────────────────────────╯
+│   PARTIAL    s-partial-0003   stopped     unattended       │
+│   PARTIAL    s-partial-0004   starting    unknown          │
+│   PARTIAL    s-partial-0005   unreachable unknown          │
+│   PARTIAL    s-partial-0006   creating    unattended       │
+│   PARTIAL    s-partial-0007   missing     unknown          │
+│   … 11 more observations                                   │
+╰────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

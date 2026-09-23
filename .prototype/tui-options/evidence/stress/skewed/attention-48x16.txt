@@ -1,0 +1,12 @@
+P / probe · STRESS:skewed · view 03 Attention w…
+╭────────────────────────────────────────────╮
+│ Attention workspace · compact disclosure   │
+│ project-001 / work/0001-agent/oauth-dev…   │
+│ UUID s-skewed-0001                         │
+│ lifecycle  ready                           │
+│ presence   unattended                      │
+│ agent      attention                       │
+│ policy     current                         │
+│ actions    inspect · attach                │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

@@ -1,0 +1,19 @@
+P / probe · STRESS:ambiguous-identities · view 15 Session comparison · Tab cycl…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  platform-api-currant / feature/se…  ·  s-ambiguous-id-000002   │
+│ ready · attached:1 · — · current                                           │
+│ actions  inspect · attach · detach this client                             │
+│                                                                            │
+│ B · current  platform-api-current / feature/se…  ·  s-ambiguous-id-000001  │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+│                                                                            │
+│ A → B delta  life =ready  ·  presence attached:1→unattended  ·  agent      │
+│ —→att…                                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

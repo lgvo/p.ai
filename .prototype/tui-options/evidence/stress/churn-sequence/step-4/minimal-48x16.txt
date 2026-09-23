@@ -1,0 +1,8 @@
+P / probe · STRESS:churn@4 · view 11 Minimal st…
+╭────────────────────────────────────────────╮
+│ Minimal stream ledger · compact disclosure │
+│ No sessions in this fixture.               │
+│                                            │
+│ Dataset churn · use v to compare views     │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

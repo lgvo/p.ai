@@ -1,0 +1,29 @@
+P / probe · STRESS:mixed-observations · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│ › ▾ project-001          3 sessions · 0 urgent           │ │ project-001 / work/0001-agent/oauth-device-flow     │
+│       └─ work/0001-agent/oauth-device-flow               │ │ UUID s-mixed-0001                                   │
+│          ready · unknown · not evaluated · outdated      │ │ lifecycle  ready                                    │
+│       └─ work/0010-agent/oauth-device-flow               │ │ presence   unattended                               │
+│          ready · unknown · not evaluated · outdated      │ │ agent      unknown                                  │
+│       └─ work/0019-agent/oauth-device-flow               │ │ policy     outdated                                 │
+│          ready · unknown · not evaluated · outdated      │ │ actions    inspect · refresh PARTIAL facts          │
+│   ▾ project-002          3 sessions · 0 urgent           │ ╰─────────────────────────────────────────────────────╯
+│       └─ work/0002-docs/plugin-guide                     │
+│          ready · unattended · — · current                │
+│       └─ work/0011-docs/plugin-guide                     │
+│          ready · unattended · — · current                │
+│       └─ work/0020-docs/plugin-guide                     │
+│          ready · unattended · — · current                │
+│   ▾ project-003          3 sessions · 3 urgent           │
+│       └─ work/0003-fix/cache-race                        │
+│          stopped · unattended · failed · current         │
+│       └─ work/0012-fix/cache-race                        │
+│          stopped · unattended · failed · current         │
+│       └─ work/0021-fix/cache-race                        │
+│          stopped · unattended · failed · current         │
+│   … 24 nodes below                                       │
+╰──────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

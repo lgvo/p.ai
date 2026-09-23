@@ -1,0 +1,20 @@
+P / probe · STRESS:skewed · view 03 Attention workspace · Tab cycle · v gallery
+╭───────────────────────────────────────────────╮ ╭────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 299                       │ │ Everything else                                                │
+│ › project-0… work/0001-agent/oauth-devi…      │ │   project-0… recover/0151-cleanup/retai…                       │
+│     ready · unattended                        │ │     ready · attached:1                                         │
+│     attention · current · permission required │ │     no signal · current ·                                      │
+│ i…                                            │ │                                                                │
+│   project-0… work/0002-docs/plugin-guide      │ │ Inspector                                                      │
+│     ready · unattended                        │ │ project-001 / work/0001-agent/oauth-device-flow                │
+│     attention · current · permission required │ │ UUID s-skewed-0001                                             │
+│ i…                                            │ │ lifecycle  ready                                               │
+│   project-0… work/0003-fix/cache-race         │ │ presence   unattended                                          │
+│     ready · unattended                        │ │ agent      attention                                           │
+│     attention · current · permission required │ │ policy     current                                             │
+│ i…                                            │ │ actions    inspect · attach                                    │
+│ … 296 more                                    │ ╰────────────────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

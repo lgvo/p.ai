@@ -1,0 +1,24 @@
+P / probe · STRESS:high-attachments · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│ › proj…t-001 4 sess · 2 urgent │ │ › work/0001-agent/oauth-device-fl…                                            │
+│   proj…t-002 4 sess · 1 urgent │ │     ready · unattended · attention · outdated                                 │
+│   proj…t-003 4 sess · 0 urgent │ │   boot/0006-prototype/tui-options…                                            │
+│   proj…t-004 4 sess · 1 urgent │ │     creating · unattended · idle · current                                    │
+│   proj…t-005 4 sess · 1 urgent │ │   work/0011-docs/plugin-guide                                                 │
+╰────────────────────────────────╯ │     ready · unattended · — · current                                          │
+                                   │   recover/0016-cleanup/retained-s…                                            │
+                                   │     missing · unattended · — · outdated                                       │
+                                   │                                                                               │
+                                   │ Inspector                                                                     │
+                                   │ project-001 / work/0001-agent/oauth-device-flow                               │
+                                   │ UUID s-presence-0001                                                          │
+                                   │ lifecycle  ready                                                              │
+                                   │ presence   unattended                                                         │
+                                   │ agent      attention                                                          │
+                                   │ policy     outdated                                                           │
+                                   │ actions    inspect · attach · policy diff · recreate                          │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

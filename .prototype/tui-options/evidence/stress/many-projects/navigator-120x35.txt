@@ -1,0 +1,18 @@
+P / probe · STRESS:many-projects · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│ › proj…t-001 1 sess · 1 urgent │ │ › work/0001-agent/oauth-device-fl…                                            │
+│   proj…t-002 1 sess · 0 urgent │ │     ready · unattended · attention · outdated                                 │
+│   proj…t-003 1 sess · 1 urgent │ │                                                                               │
+│   proj…t-004 1 sess · 0 urgent │ │ Inspector                                                                     │
+│   proj…t-005 1 sess · 1 urgent │ │ project-001 / work/0001-agent/oauth-device-flow                               │
+│   proj…t-006 1 sess · 0 urgent │ │ UUID s-many-0001                                                              │
+│   proj…t-007 1 sess · 1 urgent │ │ lifecycle  ready                                                              │
+│   proj…t-008 1 sess · 0 urgent │ │ presence   unattended                                                         │
+│   proj…t-009 1 sess · 0 urgent │ │ agent      attention                                                          │
+│   proj…t-010 1 sess · 1 urgent │ │ policy     outdated                                                           │
+│   … 170 projects below         │ │ actions    inspect · attach · policy diff · recreate                          │
+╰────────────────────────────────╯ ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

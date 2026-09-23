@@ -1,0 +1,20 @@
+P / probe · STRESS:churn@3 · view 09 Operations console · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Operations / recovery console  ·  activity 9  ·  degraded 5  ·  attached 1 │
+│ Newest fixture observations first; recovery never implies hidden automatic │
+│ mutation.                                                                  │
+│                                                                            │
+│   TIME      SESSION        OBSERVATION                                     │
+│ › 20:42:00  s-churn-neig… stable ready · current                           │
+│   20:41:07  s-churn-0003  last start: host exited; bounded diagnostic a…   │
+│   20:40:14  s-churn-0004  activating environment · phase 3/5               │
+│   20:39:21  s-churn-0005  Incus inspection timed out                       │
+│   20:38:28  s-churn-0006  building project environment · phase 2/6         │
+│   20:37:35  s-churn-0007  expected runtime not found                       │
+│                                                                            │
+│ Selected operation context · s-churn-neighbor  project-002 / docs/deter…   │
+│ ready · unattended · — · current                                           │
+│ actions  inspect · attach · r recovery plan                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

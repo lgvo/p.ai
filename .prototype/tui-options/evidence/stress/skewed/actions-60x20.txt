@@ -1,0 +1,13 @@
+P / probe · STRESS:skewed · view 17 Action eligibility shee…
+╭────────────────────────────────────────────────────────╮
+│ Action eligibility sheet · compact disclosure          │
+│ project-001 / work/0001-agent/oauth-device-flow        │
+│ UUID s-skewed-0001                                     │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     current                                     │
+│ actions    inspect · attach                            │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

@@ -1,0 +1,15 @@
+P / probe · STRESS:high-attachments · view 11 Minimal stream ledger · Tab cycle…
+Stream ledger  20 streams · attached 40056
+One reading axis; the current row expands in place. No panel boundary carries m…
+
+› project-001 / work/0001-agent/oauth-device-flow
+    s-presence-0001 · ready · unattended · attention · outdated
+    actions  inspect · attach · policy diff · recreate
+  project-002 / work/0002-docs/p… ready · attached:1 · — · current
+  project-003 / work/0003-fix/ca… stopped · attached:2 · — · current
+  project-004 / boot/0004-featur… starting · attached:12 · — · current
+  project-005 / recover/0005-des… unreachable · attached:9999 · — · invalid
+  project-001 / boot/0006-protot… creating · unattended · idle · current
+  … 14 later streams
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

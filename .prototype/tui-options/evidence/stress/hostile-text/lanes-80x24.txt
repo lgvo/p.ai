@@ -1,0 +1,20 @@
+P / probe · STRESS:hostile-text · view 06 Actionability lanes · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspect first · 2                                                          │
+│ › forge<ESC>[… ready       unattended  attention outdated                  │
+│ … 1 below                                                                  │
+│ In progress · 3                                                            │
+│   link<ESC>]8… ready       attached:1  —         current                   │
+│ … 2 below                                                                  │
+│ Recover · 2                                                                │
+│   isolate-<BI… unreachable unattended  unknown   invalid  Incus inspe…     │
+│ … 1 below                                                                  │
+│ Removing · 2                                                               │
+│   demo/discar… discarding  unattended  —         current  tearing dow…     │
+│ … 1 below                                                                  │
+│ Selected s-auth  forge<ESC>[31m-red/agent/oa…                              │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

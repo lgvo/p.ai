@@ -1,0 +1,28 @@
+P / probe · STRESS:ambiguous-identities · view 02 Project navigator · Tab cycle · v gallery
+╭────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────────────────╮
+│ Projects                       │ │ Sessions in selected project                                                  │
+│ › plat…rrant 6 sess · 2 urgent │ │ › feature/session-synchronization…                                            │
+│   plat…rrent 6 sess · 3 urgent │ │     ready · attached:1 · — · current                                          │
+│   plat…ent-2 6 sess · 4 urgent │ │   feature/session-synchronization…                                            │
+│   plat…t-old 6 sess · 2 urgent │ │     creating · unattended · idle · current                                    │
+╰────────────────────────────────╯ │   feature/session-synchronization…                                            │
+                                   │     ready · unattended · attention · outdated                                 │
+                                   │   feature/session-synchronization…                                            │
+                                   │     unreachable · unattended · unknown · invalid                              │
+                                   │   feature/session-synchronization…                                            │
+                                   │     deleting · unattended · — · current                                       │
+                                   │   feature/session-synchronization…                                            │
+                                   │     starting · unattended · running · current                                 │
+                                   │                                                                               │
+                                   │ Inspector                                                                     │
+                                   │ platform-api-currant / feature/session-synchronizat…                          │
+                                   │ UUID s-ambiguous-id-000002                                                    │
+                                   │ lifecycle  ready                                                              │
+                                   │ presence   attached (1 confirmed)                                             │
+                                   │ agent      suppressed while attached                                          │
+                                   │ policy     current                                                            │
+                                   │ actions    inspect · attach · detach this client                              │
+                                   ╰───────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

@@ -1,0 +1,19 @@
+P / probe · STRESS:ambiguous-identities · view 15 Session comparison · Tab cycle · v gallery
+Session comparison
+s pins the current session as A; j/k chooses B. Differences never merge identities.
+
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ A · pinned baseline                                   │ │ B · current candidate                                 │
+│ platform-api-currant / feature/session-               │ │ platform-api-current / feature/session-               │
+│ synchronization-worker-002                            │ │ synchronization-worker-001                            │
+│ UUID s-ambiguous-id-000002                            │ │ UUID s-ambiguous-id-000001                            │
+│ lifecycle  ready                                      │ │ lifecycle  ready                                      │
+│ presence   attached:1                                 │ │ presence   unattended                                 │
+│ agent      —                                          │ │ agent      attention                                  │
+│ policy     current                                    │ │ policy     outdated                                   │
+│ actions    inspect · attach · detach this client      │ │ actions    inspect · attach · policy diff · recreate  │
+╰───────────────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
+A → B delta  life =ready  ·  presence attached:1→unattended  ·  agent —→attention  ·  policy current→outdated
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

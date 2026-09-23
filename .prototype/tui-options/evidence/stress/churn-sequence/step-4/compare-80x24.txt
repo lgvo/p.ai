@@ -1,0 +1,7 @@
+P / probe · STRESS:churn@4 · view 15 Session comparison · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ Two sessions are required; this fixture cannot form a pair.                │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 4: s-churn-neighbor disappeared; no sessions remain.
+j/k move · Tab cycle · v gallery · ? help · q quit

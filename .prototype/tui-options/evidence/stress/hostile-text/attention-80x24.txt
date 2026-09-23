@@ -1,0 +1,20 @@
+P / probe · STRESS:hostile-text · view 03 Attention workspace · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 4                                                      │
+│ › forge<ESC>[31m-red/agent/o… ready       unattended  attention outdated   │
+│   orbit/fix/cache-race        stopped     unattended  failed    current    │
+│   isolate-<BIDI>left<BIDI>-p… unreachable unattended  unknown   invalid    │
+│ … 1 more                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Everything else                                                            │
+│   orbit/feature/zero<U+0000>… starting    unattended  running   current    │
+│   p.ai/prototype/tui-options… creating    unattended  idle      current    │
+│   link<ESC>]8;;https://inval… ready       attached:1  —         current    │
+│ … 2 more                                                                   │
+│                                                                            │
+│ Selected s-auth  forge<ESC>[31m-red/agent/oa…  ·  actions: inspect /       │
+│ attach / policy diff / recreate                                            │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

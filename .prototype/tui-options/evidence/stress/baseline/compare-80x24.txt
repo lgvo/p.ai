@@ -1,0 +1,19 @@
+P / probe · STRESS:baseline · view 15 Session comparison · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Session comparison                                                         │
+│ s pins the current session as A; j/k chooses B. Differences never merge    │
+│ identities.                                                                │
+│                                                                            │
+│ A · pinned  forge / docs/plugin-guide  ·  s-docs                           │
+│ ready · attached:1 · — · current                                           │
+│ actions  inspect · attach · detach this client                             │
+│                                                                            │
+│ B · current  forge / agent/oauth-device-flow  ·  s-auth                    │
+│ ready · unattended · attention · outdated                                  │
+│ actions  inspect · attach · policy diff · recreate                         │
+│                                                                            │
+│ A → B delta  life =ready  ·  presence attached:1→unattended  ·  agent      │
+│ —→att…                                                                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

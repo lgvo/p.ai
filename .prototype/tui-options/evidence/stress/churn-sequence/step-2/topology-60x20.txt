@@ -1,0 +1,15 @@
+P / probe · STRESS:churn@2 · view 16 Resource topology · Ta…
+╭────────────────────────────────────────────────────────╮
+│ Resource topology · compact disclosure                 │
+│ project-001 / agent/stable-selection-target            │
+│ UUID s-churn-focus                                     │
+│ lifecycle  stopped                                     │
+│ presence   unattended                                  │
+│ agent      failed                                      │
+│ policy     outdated                                    │
+│ actions    inspect · start · attach · policy diff ·    │
+│ recreate                                               │
+│ progress   observation revision 2 replaced revision 1  │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

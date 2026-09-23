@@ -1,0 +1,22 @@
+P / probe · STRESS:partial-observations · view 12 Responsive card grid · Tab cy…
+Responsive session cards  ·  1 columns at 80 cells
+Identity, four independent facts, and eligible actions travel together as cards…
+
+╭────────────────────────────────────────────────────────────────────────────╮
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-partial-0001                                                        │
+│ life unreachable presence unknown                                          │
+│ agent not evaluated policy outdated                                        │
+│ actions inspect · refresh PARTIAL facts                                    │
+│ progress runtime probe returned an incomplete response                     │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ project-002 / work/0002-docs/plugin-guide                                  │
+│ UUID s-partial-0002                                                        │
+│ life ready       presence unknown                                          │
+│ agent not evaluated policy current                                         │
+│ actions inspect · refresh PARTIAL facts                                    │
+╰────────────────────────────────────────────────────────────────────────────╯
+cards 1–2 of 18 · j/k moves and turns pages
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

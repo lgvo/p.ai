@@ -1,0 +1,22 @@
+P / probe · STRESS:ambiguous-identities · view 11 Minimal stream ledger · Tab cycle · v gallery
+Stream ledger  24 streams · attached 2
+One reading axis; the current row expands in place. No panel boundary carries meaning.
+
+› platform-api-current / feature/session-synchronization-worker-001
+    s-ambiguous-id-000001 · ready · unattended · attention · outdated
+    actions  inspect · attach · policy diff · recreate
+  platform-api-currant / feature… ready · attached:1 · — · current
+  platform-api-current-2 / featu… stopped · unattended · failed · current
+  platform-api-current-old / fea… starting · unattended · running · current
+  platform-api-current / feature… unreachable · unattended · unknown · invalid
+  platform-api-currant / feature… creating · unattended · idle · current
+  platform-api-current-2 / featu… missing · unattended · — · outdated
+  platform-api-current-old / fea… discarding · unattended · — · current
+  platform-api-current / feature… deleting · unattended · — · current
+  platform-api-currant / feature… ready · unattended · attention · outdated
+  platform-api-current-2 / featu… ready · unattended · — · current
+  platform-api-current-old / fea… stopped · unattended · failed · current
+  … 12 later streams
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

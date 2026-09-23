@@ -1,0 +1,20 @@
+P / probe · STRESS:churn@3 · view 03 Attention workspace · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Urgent to inspect · 6                                                      │
+│   project-004/work/0010-agen… ready       unattended  attention outdated   │
+│   project-000/agent/arrived-… stopped     unattended  failed    current    │
+│   project-006/work/0012-fix/… stopped     unattended  failed    current    │
+│ … 3 more                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Everything else                                                            │
+│   project-006/boot/0006-prot… creating    unattended  idle      current    │
+│   project-004/boot/0004-feat… starting    unattended  running   current    │
+│   project-005/work/0011-docs… ready       unattended  —         current    │
+│ … 3 more                                                                   │
+│                                                                            │
+│ Selected s-churn-neighbor  project-002/docs/determinis…  ·  actions:       │
+│ inspect / attach                                                           │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 3: s-churn-focus disappeared; moved to neighbor s-churn-neighbor.
+j/k move · Tab cycle · v gallery · ? help · q quit

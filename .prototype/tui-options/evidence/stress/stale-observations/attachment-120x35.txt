@@ -1,0 +1,18 @@
+P / probe · STRESS:stale-observations · view 13 Attachment dock · Tab cycle · v gallery
+╭────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────────────────╮
+│ Attachment dock                            │ │ Switch targets                                                    │
+│ This client may occupy one persistent      │ │ › project-001 / work/… ready       unattended   a attach/switch   │
+│ session host; switching does not stop      │ │   project-002 / work/… ready       unattended   a attach/switch   │
+│ either host.                               │ │   project-003 / work/… stopped     unattended   a attach/switch   │
+│                                            │ │   project-004 / boot/… starting    unattended   inspect only      │
+│ CLIENT  attached → s-stale-0010            │ │   project-005 / recov… unreachable unattended   inspect only      │
+│ project-004 / work/0010-agent/oauth-devic… │ │   … 13 more targets                                               │
+│ ready · attached:1 · — · outdated          │ │                                                                   │
+│ d detaches this client; host remains ready │ │ Candidate facts  s-stale-0001                                     │
+╰────────────────────────────────────────────╯ │ ready · unattended · attention · outdated                         │
+                                               │ actions  inspect · refresh STALE 37m facts                        │
+                                               │ progress last observation is outside the trusted freshness window │
+                                               ╰───────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

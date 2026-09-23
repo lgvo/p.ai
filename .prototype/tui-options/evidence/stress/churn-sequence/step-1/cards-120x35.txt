@@ -1,0 +1,24 @@
+P / probe · STRESS:churn@1 · view 12 Responsive card grid · Tab cycle · v gallery
+Responsive session cards  ·  2 columns at 120 cells
+Identity, four independent facts, and eligible actions travel together as cards reflow.
+
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ project-004 / boot/0004-feature/interactive-cli       │ │ project-003 / work/0003-fix/cache-race                │
+│ UUID s-churn-0004                                     │ │ UUID s-churn-0003                                     │
+│ life starting    presence unattended                  │ │ life stopped     presence unattended                  │
+│ agent running    policy current                       │ │ agent failed     policy current                       │
+│ actions inspect                                       │ │ actions inspect · start · attach                      │
+│ progress activating environment · phase 3/5           │ │ progress last start: host exited; bounded diagnostic  │
+╰───────────────────────────────────────────────────────╯ │ available                                             │
+                                                          ╰───────────────────────────────────────────────────────╯
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ project-002 / docs/deterministic-fallback             │ │ project-001 / agent/stable-selection-target           │
+│ UUID s-churn-neighbor                                 │ │ UUID s-churn-focus                                    │
+│ life ready       presence unattended                  │ │ life ready       presence unattended                  │
+│ agent —          policy current                       │ │ agent attention  policy outdated                      │
+│ actions inspect · attach                              │ │ actions inspect · attach · policy diff · recreate     │
+╰───────────────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
+cards 9–12 of 12 · j/k moves and turns pages
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

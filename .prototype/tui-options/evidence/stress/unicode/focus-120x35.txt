@@ -1,0 +1,25 @@
+P / probe · STRESS:unicode · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────╮
+│ Focus deck · 1/9                                               │ │ Stream radar · context without leaving focus  │
+│ 工房・東京 / 機能/認証フロー                                   │ │ › 工房・東京/機能/認証フロー                  │
+│ UUID s-auth                                                    │ │     ready · unattended · attention · outdated │
+│                                                                │ │   مختبر-القاهرة/ميزة/دليل-الإضافة             │
+│ Lifecycle  ready         Presence  unattended                  │ │     ready · attached:1 · — · current          │
+│ Agent      attention     Policy    outdated                    │ │   café-equipe/correção/cache-concorr…         │
+│                                                                │ │     stopped · unattended · failed · current   │
+│ Primary actions  inspect · attach · policy diff · recreate     │ │   🚀-launch-pad/🚀/interactive-cli            │
+╰────────────────────────────────────────────────────────────────╯ │     starting · unattended · running · current │
+                                                                   │   מעבדת-תל-אביב/תיקון/חוזה-תוסף               │
+                                                                   │     unreachable · unattended · unknown ·      │
+                                                                   │ invalid                                       │
+                                                                   │   naïve-über/prototype/界面-🧪                │
+                                                                   │     creating · unattended · idle · current    │
+                                                                   │   데이터-연구소/정리/보존된-상태              │
+                                                                   │     missing · unattended · — · outdated       │
+                                                                   │   👩🏽‍💻-agents/essai/emoji-👨‍👩‍👧‍👦                    │
+                                                                   │     discarding · unattended · — · current     │
+                                                                   │ … 1 more                                      │
+                                                                   ╰───────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

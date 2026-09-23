@@ -1,0 +1,13 @@
+P / probe · STRESS:many-projects · view 03 Attention worksp…
+╭────────────────────────────────────────────────────────╮
+│ Attention workspace · compact disclosure               │
+│ project-001 / work/0001-agent/oauth-device-flow        │
+│ UUID s-many-0001                                       │
+│ lifecycle  ready                                       │
+│ presence   unattended                                  │
+│ agent      attention                                   │
+│ policy     outdated                                    │
+│ actions    inspect · attach · policy diff · recreate   │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

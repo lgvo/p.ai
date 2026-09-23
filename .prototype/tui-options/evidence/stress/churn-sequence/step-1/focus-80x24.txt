@@ -1,0 +1,21 @@
+P / probe · STRESS:churn@1 · view 05 Focus deck · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Focus deck · 12/12                                                         │
+│ project-001 / agent/stable-selection-target                                │
+│ UUID s-churn-focus                                                         │
+│                                                                            │
+│ Lifecycle  ready         Presence  unattended                              │
+│ Agent      attention     Policy    outdated                                │
+│                                                                            │
+│ Primary actions  inspect · attach · policy diff · recreate                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Stream radar · context without leaving focus                               │
+│   project-006/work/0012-… stopped    unattended failed    current          │
+│   project-005/work/0011-… ready      unattended —         current          │
+│   project-004/work/0010-… ready      unattended attention outdated         │
+│   project-003/retire/000… deleting   unattended —         current          │
+│ … 8 more                                                                   │
+╰────────────────────────────────────────────────────────────────────────────╯
+Churn step 1: selection preserved by UUID s-churn-focus.
+j/k move · Tab cycle · v gallery · ? help · q quit

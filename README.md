@@ -14,6 +14,33 @@ without changing its project model.
 > The design documents under [`docs/`](docs/) are authoritative for their
 > subjects. This README is the product summary.
 
+## Start from the current prototype
+
+The latest reviewed UI is the **Resource topology session browser**. Start with
+the [current decisions](.prototype/tui-options/DECISIONS.md) when continuing the
+work, then use the [prototype run guide](.prototype/tui-options/README.md) to try
+it:
+
+```sh
+cd .prototype/tui-options
+nix develop path:.
+go run .
+```
+
+The browser has a project-filtered session list, fuzzy search, a simulated
+terminal with a Ctrl+B action popup, and dedicated Agents and Services pages.
+Everything runs on fixtures; production integration remains open. See
+[MVP status](docs/mvp-status.md) for the implementation boundary.
+
+The [iteration history](.prototype/tui-options/ITERATIONS.md) preserves the
+earlier comparison gallery and explains how it led to this starting point.
+Use it for context; the current decisions guide further UI work.
+
+**Next prototype iteration: creation and policy workflows.** Continue within
+the chosen browser, improving the existing creation/retry and policy probes
+into coherent workflows. Layout selection is settled for this iteration;
+the gallery remains historical reference.
+
 ## The idea
 
 Agentic development creates more concurrent workspaces than a person can track
@@ -69,9 +96,9 @@ session UUID ↔ one logical Git branch
 
 The session's mutable human name is the real Git branch name. Its complete
 address is `(project path, branch name)`, so two projects may use the same
-branch name. Creation accepts a name or suggests a timestamp. Common source
-names such as `main` can seed a session but cannot themselves be the new
-session branch outside the bootstrap exception.
+branch name. Creation either selects an existing unassigned branch or creates
+a new branch from selected source. `main` can be used directly when it has no
+session, or selected as the source for a different new branch.
 
 Renaming a session renames its actual P-server and workspace refs while keeping
 the UUID, runtime, credentials, and interactive state. The operation is
@@ -79,9 +106,9 @@ journaled so reconciliation can finish an interrupted rename. It never renames
 or deletes an origin branch.
 
 There are no scratch sessions and no stored `base_commit` state. Ordinarily a
-session starts from an existing committed source and immediately owns a newly
-created session branch. The single bootstrap exception is a new blank project
-or a successfully contacted empty origin: its first session owns an unborn
+session uses an existing unassigned branch at its committed tip, or creates a
+new branch from selected committed source. The single bootstrap exception is
+a new blank project or a successfully contacted empty origin: its first session owns an unborn
 `main`, and the first push creates that ref. Later sessions require committed
 source. P never reads or snapshots a host checkout.
 
@@ -107,12 +134,22 @@ again. P does not model panes or infer agent status from terminal contents.
 ## A normal workflow
 
 Open the overview, create a project explicitly from an SSH origin or as a blank
-repository, and then create a session. The exact TUI layout and key map will be
-chosen through a prototype rather than fixed in the architecture documents.
+repository, and then create a session. The
+[prototype decisions](.prototype/tui-options/DECISIONS.md) record the reviewed
+layout and key map; connecting those interactions to the lifecycle below is
+still implementation work.
 
-Creating an ordinary session selects a committed source and a project. P then
-reserves a UUID and new branch name in that project, creates the P-server
-branch, issues its credentials, assembles the runtime and workspace, prepares
+Creation follows **Project → Branch → Policy**:
+
+- **Existing branch:** choose `feature/login` and use it directly. There is no
+  source question and no new branch. If it already has a session, open that
+  session instead.
+- **New branch:** choose **Create new branch**, select a source such as
+  `main`, then name the new branch `feature/logout`. The new session uses `feature/logout`.
+
+P reserves a UUID and the branch assignment, creating a ref only for the
+new-branch path. It captures the project policy, issues credentials, assembles
+the runtime and workspace, prepares
 the interactive host through systemd, and reports ready. The bootstrap session
 instead begins on unborn `main`. The normal TUI flow then attaches as a
 separate lifecycle action.
@@ -154,7 +191,8 @@ survives there. Local-only projects use retained P refs alone.
 
 The UUID↔branch invariant applies while the ref is assigned to a session.
 Discard releases that assignment and leaves an ordinary P branch; continuing
-from it creates a new UUID and a new session-owned branch.
+on it creates a new UUID and assigns that same retained branch. Creating a
+different branch from it is a separate choice that asks for a source.
 
 Creation, start, attachment, rename, stop, destructive preflight, repair,
 abandonment, and crash recovery are specified in
@@ -172,8 +210,10 @@ and whole-project deletion are specified in
 ## Overview and status
 
 The main UI will be a thin, filterable client of the same RPC surface available
-to scripts; business logic does not live in the TUI. Exact layout, navigation,
-keys, and initial slice are deferred until a prototype can test them.
+to scripts; business logic does not live in the TUI. A
+[session-browser prototype](.prototype/tui-options/README.md) now records the
+[current interaction decisions](.prototype/tui-options/DECISIONS.md).
+Production implementation and integration boundaries remain open.
 
 Each session presentation is derived from only four facts:
 

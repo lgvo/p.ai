@@ -1,0 +1,15 @@
+P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ CREATION FAILED · bounded fixture diagnostic                                               │
+│                                                                                            │
+│ Environment preparation failed: synthetic cache checksum mismatch.                         │
+│ Reserved UUID  s-new-019                                                                   │
+│ Operation      op-create-77                                                                │
+│ Immutable      forge · main@4e27a91 · feature/new-stream                                   │
+│                                                                                            │
+│ r  Exact Retry — same UUID, operation, source, branch, and policy                          │
+│ t  Try again with changes — integrated replacement with new identity                       │
+│ esc  leave the failed operation visible                                                    │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture failure injected after environment preparation.
+esc returns without mutating real state

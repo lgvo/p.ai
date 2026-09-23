@@ -2,7 +2,7 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, reviewed 2026-09-02.**
+> **Status: non-normative snapshot, updated 2026-09-09.**
 > [Project guidance](../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
@@ -15,9 +15,13 @@ observability contracts are assigned to explicit owner documents; the gateway
 owner retains a post-MVP design. The newly confirmed plugin composition model
 requires the implementation architecture to be reconciled before work begins.
 
-The exact TUI layout, navigation, key map, and smallest initial screen remain
-open pending a prototype. Plugin authoring, installation, composition, and
-approval interactions also remain open pending their dedicated design.
+The fixture-backed TUI prototype now has a reviewed session-browser direction:
+Resource topology, a session picker, prefix-driven terminal navigation, and
+agent/service inspection pages. [Current interaction decisions](../.prototype/tui-options/DECISIONS.md)
+record that direction and its integration limits. Production TUI implementation
+and reconciliation of the agent/service extensions remain open. Plugin
+authoring, installation, composition, and approval interactions also remain
+open pending their dedicated design.
 
 Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
 implementation work. They should narrow unsupported claims without reopening
@@ -47,7 +51,8 @@ technology design to be reconciled before implementation.
   origin explicitly makes the project local-only.
 - A blank project or contacted empty origin receives one bootstrap session on
   unborn `main`; its first push creates the ref. Later sessions start from
-  committed P/origin source and own a new real branch.
+  an existing unassigned P branch, or create a new branch from committed
+  P/origin source. Only new-branch creation asks for a source.
 - A session has an immutable UUID and one `(project, branch)` assignment.
   Rename changes the P/workspace branch while retaining identity.
 - Session Git updates are unconditionally fast-forward-only. The host P key is
@@ -113,18 +118,27 @@ technology design to be reconciled before implementation.
 - P MVP does not orchestrate project services. Checks and attempts remain
   reserved future concepts.
 
-## Intentionally deferred interaction decision
+## Current prototype interaction direction
 
-The production TUI is a thin RPC client, but its exact layout, navigation,
-keys, and initial slice will be chosen after a fixture-backed prototype tests:
+The [runnable prototype](../.prototype/tui-options/README.md) and
+[decision record](../.prototype/tui-options/DECISIONS.md) capture the reviewed
+layout and controls as of 2026-09-09. The browser uses branch labels, a roughly
+65% session-list split, exact project selection, fuzzy search, a prefix popup
+inside fake terminals, and dedicated Agents/Services/journal pages.
 
-- cross-project overview density and status/policy warnings;
-- project/session creation and changed-settings replacement;
-- attach, detach, and switching;
-- retained-branch actions; and
-- destructive previews, project-wide deletion, partial progress, and retry.
+This is local fixture-backed Go code, not a production RPC client. Real
+attachment, multi-agent inventory/preview sourcing, and project-service
+management need their own integration contracts. The authoritative MVP still
+retains a single unattended agent signal and excludes project-service
+orchestration. The prototype's presentation does not silently revise those
+boundaries.
 
-This deferral covers presentation only. It does not defer the underlying RPC or
+Creation now follows Project → Branch → Policy. An existing unassigned branch
+goes directly to Policy; creating a new branch asks for its source and then its name.
+The mock then boots and enters the session. Replacement/retry, policy,
+retained-branch, and destructive-operation screens remain older probes
+requiring further review in the new browser.
+The production TUI must remain a thin client of the subject-owned RPC and
 lifecycle semantics.
 
 ## Evidence still required
@@ -154,5 +168,5 @@ See [development validations](development-validations.md) for the gated tests.
 4. integrate attachment, observability, policy comparison, and recovery;
 5. integrate and validate the Codex adapter and session-local authentication;
    and
-6. prototype the TUI, record the chosen interaction contract, then implement
-   progressively complete product slices.
+6. continue from the recorded TUI prototype decisions, resolve integration
+   boundaries, and implement progressively complete product slices.

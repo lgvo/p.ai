@@ -1,0 +1,26 @@
+P / probe · STRESS:ambiguous-identities · view 12 Responsive card grid · Tab cycle · v gallery
+Responsive session cards  ·  2 columns at 120 cells
+Identity, four independent facts, and eligible actions travel together as cards reflow.
+
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ platform-api-current / feature/session-               │ │ platform-api-currant / feature/session-               │
+│ synchronization…                                      │ │ synchronization…                                      │
+│ UUID s-ambiguous-id-000001                            │ │ UUID s-ambiguous-id-000002                            │
+│ life ready       presence unattended                  │ │ life ready       presence attached:1                  │
+│ agent attention  policy outdated                      │ │ agent —          policy current                       │
+│ actions inspect · attach · policy diff · recreate     │ │ actions inspect · attach · detach this client         │
+╰───────────────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
+╭───────────────────────────────────────────────────────╮ ╭───────────────────────────────────────────────────────╮
+│ platform-api-current-2 / feature/session-             │ │ platform-api-current-old / feature/session-           │
+│ synchronizati…                                        │ │ synchroniza…                                          │
+│ UUID s-ambiguous-id-000003                            │ │ UUID s-ambiguous-id-000004                            │
+│ life stopped     presence unattended                  │ │ life starting    presence unattended                  │
+│ agent failed     policy current                       │ │ agent running    policy current                       │
+│ actions inspect · start · attach                      │ │ actions inspect                                       │
+│ progress last start: host exited; bounded diagnostic  │ │ progress activating environment · phase 3/5           │
+│ available                                             │ ╰───────────────────────────────────────────────────────╯
+╰───────────────────────────────────────────────────────╯
+cards 1–4 of 24 · j/k moves and turns pages
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

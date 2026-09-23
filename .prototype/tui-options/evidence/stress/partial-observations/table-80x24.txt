@@ -1,0 +1,23 @@
+P / probe · STRESS:partial-observations · view 01 Fleet table · Tab cycle · v g…
+╭────────────────────────────────────────────────────────────────────────────╮
+│ All active sessions · cross-project                                        │
+│   PROJECT / BRANCH              LIFE       SIGNAL / POLICY                 │
+│ › project-001 / work/0001-ag… unreachab… unattended · unknown / outdated   │
+│   project-002 / work/0002-do… ready      unattended · unknown / current    │
+│   project-003 / work/0003-fi… stopped    unattended · failed / current     │
+│   project-004 / boot/0004-fe… starting   unattended · unknown / current    │
+│   … 14 more                                                                │
+╰────────────────────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ Inspector                                                                  │
+│ project-001 / work/0001-agent/oauth-device-flow                            │
+│ UUID s-partial-0001                                                        │
+│ lifecycle  unreachable                                                     │
+│ presence   unattended                                                      │
+│ agent      unknown                                                         │
+│ policy     outdated                                                        │
+│ operation  runtime probe returned an incomplete response                   │
+│ actions    inspect · refresh PARTIAL facts                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
+j/k move · a attach · d detach · c create · b branches · p policy · X delete
+/ filter · Tab cycle · v gallery · ? help · q quit

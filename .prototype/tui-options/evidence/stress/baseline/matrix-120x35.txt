@@ -1,0 +1,16 @@
+P / probe · STRESS:baseline · view 08 Project status matrix · Tab cycle · v gallery
+╭─────────────────────────────────────────────────────────────────────────────╮ ╭──────────────────────────────────╮
+│ Project × intervention matrix  ·  9 sessions  ·  attached 1                 │ │ Inspector                        │
+│ Columns answer where attention, routine work, recovery, and removal         │ │ forge / agent/oauth-device-flow  │
+│ accumulate.                                                                 │ │ UUID s-auth                      │
+│                                                                             │ │ lifecycle  ready                 │
+│   PROJECT     INSPECT       WORK          RECOVER       REMOVE              │ │ presence   unattended            │
+│   demo       —             —             —             discard/tem…         │ │ agent      attention             │
+│ › forge      agent/oauth…  docs/plugin…  —             —                    │ │ policy     outdated              │
+│   labs       —             —             cleanup/ret…  —                    │ │ actions    inspect · attach ·    │
+│   orbit      fix/cache-r…  feature/int…  —             —                    │ │ policy diff · recreate           │
+│   p.ai       —             prototype/t…  design/plug…  —                    │ ╰──────────────────────────────────╯
+╰─────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

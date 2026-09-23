@@ -1,0 +1,5 @@
+P / probe
+Terminal too small
+received 40x12
+minimum 48x16
+No facts are hidden behind a clipped vi…

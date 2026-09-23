@@ -1,0 +1,15 @@
+P / probe · STRESS:partial-observations · view 03 Attention…
+╭────────────────────────────────────────────────────────╮
+│ Attention workspace · compact disclosure               │
+│ project-003 / work/0003-fix/cache-race                 │
+│ UUID s-partial-0003                                    │
+│ lifecycle  stopped                                     │
+│ presence   unattended                                  │
+│ agent      failed                                      │
+│ policy     current                                     │
+│ actions    inspect · refresh PARTIAL facts             │
+│ progress   last start: host exited; bounded diagnostic │
+│ available                                              │
+╰────────────────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views
+? help · q quit · compact mode below 72x22

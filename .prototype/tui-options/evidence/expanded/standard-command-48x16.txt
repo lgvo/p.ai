@@ -1,0 +1,13 @@
+P / probe · view 04 Command center · fixture:st…
+╭────────────────────────────────────────────╮
+│ Command center · compact disclosure        │
+│ forge / agent/oauth-device-flow            │
+│ UUID s-auth                                │
+│ lifecycle  ready                           │
+│ presence   unattended                      │
+│ agent      attention                       │
+│ policy     outdated                        │
+│ actions    inspect · attach · policy diff  │
+│ · recreate                                 │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

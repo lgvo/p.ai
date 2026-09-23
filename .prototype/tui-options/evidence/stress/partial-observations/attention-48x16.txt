@@ -1,0 +1,12 @@
+P / probe · STRESS:partial-observations · view …
+╭────────────────────────────────────────────╮
+│ Attention workspace · compact disclosure   │
+│ project-003 / work/0003-fix/cache-race     │
+│ UUID s-partial-0003                        │
+│ lifecycle  stopped                         │
+│ presence   unattended                      │
+│ agent      failed                          │
+│ policy     current                         │
+│ actions    inspect · refresh PARTIAL facts │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

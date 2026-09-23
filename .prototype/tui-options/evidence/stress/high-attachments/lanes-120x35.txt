@@ -1,0 +1,25 @@
+P / probe · STRESS:high-attachments · view 06 Actionability lanes · Tab cycle · v gallery
+╭──────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮ ╭─────────────────────────╮
+│ Inspect first · 1        │ │ In progress · 11        │ │ Recover · 4             │ │ Removing · 4            │
+│ › project-001/work/00…   │ │   project-002/work/00…  │ │   project-005/recover…  │ │   project-003/retire/…  │
+│     ready                │ │     ready               │ │     unreachable         │ │     discarding          │
+│     unattended           │ │     attached:1          │ │     attached:9999       │ │     attached:2          │
+│     attention · outdated │ │     — · current         │ │     — · invalid         │ │     — · current         │
+╰──────────────────────────╯ │   project-003/work/00…  │ │     Incus inspection    │ │     tearing down        │
+                             │     stopped             │ │ ti…                     │ │ runtim…                 │
+                             │     attached:2          │ │   project-002/recover…  │ │   project-004/retire/…  │
+                             │     — · current         │ │     missing             │ │     deleting            │
+                             │     last start: host    │ │     attached:1          │ │     attached:12         │
+                             │ ex…                     │ │     — · outdated        │ │     — · current         │
+                             │ … 9 below               │ │     expected runtime    │ │     credentials         │
+                             ╰─────────────────────────╯ │ no…                     │ │ deleted…                │
+                                                         │ … 2 below               │ │ … 2 below               │
+                                                         ╰─────────────────────────╯ ╰─────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Selected s-presence-0001  project-001/work/0001-agent…                                                             │
+│ ready · unattended · attention · outdated                                                                          │
+│ actions  inspect · attach · policy diff · recreate                                                                 │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

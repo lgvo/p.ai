@@ -1,0 +1,30 @@
+P / probe · STRESS:partial-observations · view 07 Expandable outline · Tab cycle · v gallery
+╭──────────────────────────────────────────────────────────╮ ╭─────────────────────────────────────────────────────╮
+│ Projects / sessions · expandable hierarchy               │ │ Inspector                                           │
+│ › ▾ project-001          3 sessions · 3 urgent           │ │ project-001 / work/0001-agent/oauth-device-flow     │
+│       └─ work/0001-agent/oauth-device-flow               │ │ UUID s-partial-0001                                 │
+│          unreachable · unknown · not evaluated ·         │ │ lifecycle  unreachable                              │
+│ outdated                                                 │ │ presence   unattended                               │
+│       └─ recover/0007-cleanup/retained-state             │ │ agent      unknown                                  │
+│          missing · unknown · not evaluated · outdated    │ │ policy     outdated                                 │
+│       └─ boot/0013-feature/interactive-cli               │ │ operation  runtime probe returned an incomplete     │
+│          unreachable · unknown · not evaluated · current │ │ response                                            │
+│   ▾ project-002          3 sessions · 1 urgent           │ │ actions    inspect · refresh PARTIAL facts          │
+│       └─ work/0002-docs/plugin-guide                     │ ╰─────────────────────────────────────────────────────╯
+│          ready · unknown · not evaluated · current       │
+│       └─ retire/0008-discard/temporary-spike             │
+│          discarding · unknown · not evaluated · current  │
+│       └─ recover/0014-design/plugin-contract-r…          │
+│          unreachable · unknown · not evaluated · invalid │
+│   ▾ project-003          3 sessions · 2 urgent           │
+│       └─ work/0003-fix/cache-race                        │
+│          stopped · unattended · failed · current         │
+│       └─ retire/0009-archive/old-experiment              │
+│          unreachable · unattended · — · current          │
+│       └─ boot/0015-prototype/tui-options-with-…          │
+│          creating · unattended · idle · current          │
+│   … 12 nodes below                                       │
+╰──────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+j/k move · a attach · d detach · c create · b branches · p policy · X delete · / filter · Tab cycle · v gallery · ? help
+· q quit

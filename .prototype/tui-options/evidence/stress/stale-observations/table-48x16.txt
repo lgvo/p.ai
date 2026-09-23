@@ -1,0 +1,13 @@
+P / probe · STRESS:stale-observations · view 01…
+╭────────────────────────────────────────────╮
+│ Fleet table · compact disclosure           │
+│ project-001 / work/0001-agent/oauth-dev…   │
+│ UUID s-stale-0001                          │
+│ lifecycle  ready                           │
+│ presence   unattended                      │
+│ agent      attention                       │
+│ policy     outdated                        │
+│ actions    inspect · refresh STALE 37m     │
+│ facts                                      │
+╰────────────────────────────────────────────╯
+j/k move · a attach · Tab cycle · v views

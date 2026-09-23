@@ -1,0 +1,14 @@
+P / probe · view 01 Fleet table · fixture:standard · Tab cycle · v gallery
+╭────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Policy comparison · outdated                                                               │
+│                                                                                            │
+│ forge / agent/oauth-device-flow                                                            │
+│ Effective snapshot remains immutable; configuration reload did not update it.              │
+│                                                                                            │
+│ - filesystem:secrets (still effective)                                                     │
+│ + service:issue-tracker (not available)                                                    │
+│                                                                                            │
+│ Recreate with current policy retains the old branch as source and creates a new UUID.      │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+Fixture data only — no daemon or project state is connected.
+esc returns without mutating real state
