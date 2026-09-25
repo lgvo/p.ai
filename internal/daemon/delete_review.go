@@ -22,6 +22,25 @@ func (l *lifecycle) freshDeleteReview(ctx context.Context, ev control.DiscardEvi
 }
 
 func (l *lifecycle) makeDeleteReview(ctx context.Context, project string, branchLoss gitservice.BranchRemovalLoss) (*control.RemovalBranchLoss, error) {
+	origin, _, err := l.store.Origin(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	if origin.URL == "" {
+		return l.makeDeleteReviewInScope(ctx, project, branchLoss, nil)
+	}
+	var review *control.RemovalBranchLoss
+	err = l.git.backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
+		var e error
+		review, e = l.makeDeleteReviewInScope(ctx, project, branchLoss, scope)
+		return e
+	})
+	return review, err
+}
+
+// makeDeleteReviewInScope avoids a nested origin lock when a Git-only
+// destructive action holds origin and ref authority through its final effect.
+func (l *lifecycle) makeDeleteReviewInScope(ctx context.Context, project string, branchLoss gitservice.BranchRemovalLoss, scope *gitservice.OriginScope) (*control.RemovalBranchLoss, error) {
 	branch := &control.RemovalBranchLoss{AssignedRef: branchLoss.AssignedRef, AssignedTip: branchLoss.AssignedTip,
 		CommitsLosingPReachability: branchLoss.CommitsLosingPReachability}
 	branch.PRefs = make([]struct {
@@ -42,21 +61,21 @@ func (l *lifecycle) makeDeleteReview(ctx context.Context, project string, branch
 	if origin.URL == "" {
 		return branch, nil
 	}
+	if scope == nil {
+		return nil, control.ErrConflict
+	}
 	branch.Origin.URL, branch.Origin.Status, branch.Origin.Reason = origin.URL, "unknown", "origin_refresh_unavailable"
-	_ = l.git.backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
-		advertised, e := scope.Observe(ctx, origin.URL)
-		if e != nil {
-			return nil
-		}
-		comparison, e := l.git.backend.CompareOriginRemoval(ctx, project, advertised, branch.CommitsLosingPReachability)
-		if e != nil {
-			return nil
-		}
-		branch.Origin.Status, branch.Origin.ContainingBranches = comparison.Status, comparison.ContainingBranches
-		branch.Origin.Reason = comparison.Reason
-		branch.Origin.ObservedRefsDigest, branch.Origin.UnresolvedRefs = comparison.ObservedRefsDigest, comparison.UnresolvedRefs
-		return nil
-	})
+	advertised, e := scope.Observe(ctx, origin.URL)
+	if e != nil {
+		return branch, nil
+	}
+	comparison, e := l.git.backend.CompareOriginRemoval(ctx, project, advertised, branch.CommitsLosingPReachability)
+	if e != nil {
+		return branch, nil
+	}
+	branch.Origin.Status, branch.Origin.ContainingBranches = comparison.Status, comparison.ContainingBranches
+	branch.Origin.Reason = comparison.Reason
+	branch.Origin.ObservedRefsDigest, branch.Origin.UnresolvedRefs = comparison.ObservedRefsDigest, comparison.UnresolvedRefs
 	return branch, nil
 }
 

@@ -168,6 +168,11 @@ type RetainedRenameAPI interface {
 	RenameRetainedBranch(context.Context, RetainedRenameRequest) (Operation, error)
 }
 
+type RetainedDeleteAPI interface {
+	PreviewRetainedDelete(context.Context, string, string) (RetainedDeletePreview, error)
+	ConfirmRetainedDelete(context.Context, string, string, string, string) (Operation, error)
+}
+
 type RepairAPI interface {
 	PreviewRepair(context.Context, string) (RepairPreview, error)
 	ConfirmRepair(context.Context, RepairConfirmRequest) (Operation, error)
@@ -240,6 +245,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			}
 			if _, ok := life.(RetainedRenameAPI); ok {
 				object["available"] = append(object["available"].([]string), "project.retained.rename")
+			}
+			if _, ok := life.(RetainedDeleteAPI); ok {
+				object["available"] = append(object["available"].([]string), "project.retained.delete.preview", "project.retained.delete.confirm")
 			}
 			if _, ok := life.(RepairAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.repair.preview", "session.repair.confirm")
@@ -437,6 +445,44 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				return nil, errorRPC(-32602, "invalid_params", "invalid project.retained.rename request")
 			}
 			op, e := rename.RenameRetainedBranch(ctx, req)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "operation": op}, nil
+		case "project.retained.delete.preview":
+			deletion, ok := life.(RetainedDeleteAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V       int    `json:"v"`
+				Project string `json:"project"`
+				Branch  string `json:"branch"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || !validBranch(p.Branch) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid retained delete preview request")
+			}
+			preview, e := deletion.PreviewRetainedDelete(ctx, p.Project, p.Branch)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "preview": preview}, nil
+		case "project.retained.delete.confirm":
+			deletion, ok := life.(RetainedDeleteAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V       int    `json:"v"`
+				Key     string `json:"key"`
+				Project string `json:"project"`
+				Branch  string `json:"branch"`
+				Token   string `json:"confirmation_token"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validProject(p.Project) || !validBranch(p.Branch) || !validHexToken(p.Token) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid retained delete confirmation request")
+			}
+			op, e := deletion.ConfirmRetainedDelete(ctx, p.Key, p.Project, p.Branch, p.Token)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}

@@ -96,7 +96,7 @@ func TestWorkspaceInspectSchemaEightReopenInstallsEstablishedGuard(t *testing.T)
 	}
 	defer reopened.Close()
 	var version int
-	if err := reopened.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 17 {
+	if err := reopened.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 18 {
 		t.Fatalf("schema eight did not migrate to nine: %d %v", version, err)
 	}
 	_, err = reopened.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at)
@@ -172,7 +172,7 @@ func TestWorkspaceLossInspectDurableGuardAndSchemaNineMigration(t *testing.T) {
 	}
 	defer db.Close()
 	var version int
-	if err := db.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 17 {
+	if err := db.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 18 {
 		t.Fatalf("schema-nine migration unavailable: %d %v", version, err)
 	}
 	_, err = db.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at)

@@ -2,7 +2,9 @@
 
 ## Current state — 2026-09-25
 
-- Latest selected VM evidence: **VM43 passed** guarded retained-branch rename
+- Latest selected VM evidence: **VM44 passed** retained-branch Delete with
+  exact Git loss review, stale-origin/tip refusal and sibling/origin
+  preservation. **VM43 passed** guarded retained-branch rename
   with a local SSH origin and preserved sibling/session state. **VM42 passed** guarded unrecoverable-record
   cleanup after exact runtime and assigned-ref absence; it preserved sibling
   and remaining project data. **VM40 passed** missing session Git principal
@@ -31,7 +33,7 @@
   dummy Codex credential cleanup. VM31 passed confirmed public Discard; VM30 passed capacity admission
   and read-only removal previews; VM29 passed bounded workspace-loss inspection.
   Latest full checkpoint: **through VM28 passed**, before the current removal
-  changes. VM43 powered down and removed its fresh disk; the integration lock
+  changes. VM44 powered down and removed its fresh disk; the integration lock
   is free.
 - VM37's serial run passed packet negative isolation with
   `P_PUBLIC_EGRESS_NEGATIVE_PASS`; external fetch was
@@ -2625,3 +2627,62 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   session runtime/key/dirty workspace and separate origin refs, and checked
   keyed replay after restart. The fresh disk was removed. This is local-origin
   fixture evidence, not external-origin availability evidence.
+
+- **Next independent batch 8e2 — retained branch deletion,
+  acceptance before edits:** read-only Git-only loss preview must name an
+  unassigned retained P ref and exact tip, commits losing the last P ref,
+  fresh local-SSH-origin preservation evidence or explicit unknown, and any
+  refusal. It must not require a runtime loss inspection. Confirmation is
+  short-lived, keyed and bound to the complete reviewed loss facts; changed
+  tip, assignment, project, or origin evidence makes it stale. A durable guard
+  precedes an expected-old-tip deletion of only that P ref; uncertain effects
+  reconcile the exact ref and never delete an origin or sibling. Focused
+  real-bare/SQLite tests, retained destructive/recovery review, and one serial
+  local-origin VM step are required before support is claimed.
+  Retained review approved source and VM44 after four affected Go suites,
+  independent focused real-bare/Store tests, Bash syntax, pinned ShellCheck,
+  and diff checks passed. First serial VM44
+  `.cache/p-vm/integration-20260925T221555Z-1503699.log` reached the
+  read-only retained-delete preview but failed the fixture's detailed JSON
+  assertion at line 294 before any confirmation or deletion. It emitted
+  `P_RETAINED_DELETE_FAIL`, exited 1, and removed its fresh VM disk. The log
+  does not yet identify which preview field differed; bounded non-secret
+  diagnostics are being added without relaxing the assertion. No VM pass is
+  claimed for 8e2.
+  Diagnostic serial VM44
+  `.cache/p-vm/integration-20260925T221828Z-1553426.log` again exited 1
+  before confirmation, now at preview assertion line 313. Its bounded output
+  identified the precise difference: exact tip, last-P-ref loss and sibling
+  refs matched; the local SSH origin observation was explicitly `unknown`
+  with `origin_object_or_comparison_unavailable` and unresolved
+  `refs/heads/divergent`, because that advertised object's comparison was
+  unavailable. The contract permits this reported unknown. The fixture will
+  assert that exact reason and unresolved ref while retaining all other
+  strict checks; no product behavior is changed. The fresh disk was removed.
+  Third serial VM44 `.cache/p-vm/integration-20260925T222034Z-1599926.log`
+  passed the corrected preview assertion and reached the stale-origin
+  confirmation probe, but failed its expected RPC error-envelope assertion
+  in the shared `expect_error` helper (line 104). The actual envelope was not
+  logged, so a bounded method/kind/code/message diagnostic is being added
+  before another correction. It exited 1 and removed the fresh disk. No
+  deletion pass is claimed.
+  Fourth serial VM44 `.cache/p-vm/integration-20260925T222255Z-1646611.log`
+  reported the actual stale-origin envelope: `unavailable/-32004` with
+  `lifecycle authority is unavailable`, while the reviewed ref remained
+  intact. The changed loss/origin digest is detected, but its private
+  `errDeleteReviewChanged` is not classified as `ErrConflict` for public RPC,
+  so the caller receives the wrong stale-confirmation result. A narrow error
+  classification fix and focused public regression are in progress; the
+  fixture assertion remains unchanged. This VM exited 1 and removed its disk.
+  The focused fix classified changed full loss/origin review as public
+  `ErrConflict` while retaining its private sentinel. A daemon regression
+  changed the origin observation digest and verified the public
+  `busy/-32003` envelope; daemon/control suites, VM fixture static checks,
+  and direct recheck of that finding passed. Serial VM44
+  `.cache/p-vm/integration-20260925T222635Z-1694151.log` then exited 0
+  with `P_RETAINED_DELETE_PASS`, selected product pass and smoke pass. It
+  proved assigned-branch refusal, explicit origin unknown, stale origin/tip
+  refusals, exact retained P ref deletion, preserved sibling/session/runtime/
+  dummy key/dirty workspace/origin refs, and keyed replay after restart. The
+  fresh disk was removed. This is local-SSH-origin fixture evidence; it does
+  not establish external-origin availability.

@@ -57,6 +57,7 @@ type lifecycle struct {
 	refRepairPreviews       map[string]refRepairPreviewState
 	principalRepairPreviews map[string]principalRepairPreviewState
 	recordRepairPreviews    map[string]recordRepairPreviewState
+	retainedDeletePreviews  map[string]retainedDeletePreviewState
 }
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
@@ -293,6 +294,11 @@ func (l *lifecycle) Recover() error {
 		return err
 	}
 	ops = append(ops, retainedRenames...)
+	retainedDeletes, err := l.store.UnfinishedRetainedDeletes(l.ctx)
+	if err != nil {
+		return err
+	}
+	ops = append(ops, retainedDeletes...)
 	repairs, err := l.store.UnfinishedRepairs(l.ctx)
 	if err != nil {
 		return err
@@ -648,7 +654,7 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	if err != nil {
 		return op, err
 	}
-	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
+	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "project.retained.delete" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
 		return op, control.ErrInvalid
 	}
 	if op.Status != "completed" {
@@ -687,6 +693,10 @@ func (l *lifecycle) process(id string) {
 	}
 	if op.Kind == "project.retained.rename" {
 		l.processRetainedRename(op)
+		return
+	}
+	if op.Kind == "project.retained.delete" {
+		l.processRetainedDelete(op)
 		return
 	}
 	if op.Kind == "session.repair" {

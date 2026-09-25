@@ -106,7 +106,7 @@ func TestStoreRestartMigrationAndWriterLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("PRAGMA user_version = 18"); err != nil {
+	if _, err := db.Exec("PRAGMA user_version = 19"); err != nil {
 		t.Fatal(err)
 	}
 	db.Close()
@@ -150,7 +150,7 @@ func TestVersionOneGitMigrationIsAtomicAndRestartable(t *testing.T) {
 	}
 	defer reopened.Close()
 	var version int
-	if err := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 17 {
+	if err := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 18 {
 		t.Fatalf("version after restart: %d %v", version, err)
 	}
 	for _, table := range []string{"git_principals", "git_ref_guards", "git_unborn_grants"} {

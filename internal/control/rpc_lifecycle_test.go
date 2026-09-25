@@ -26,6 +26,49 @@ type retainedRenameRPCProbe struct {
 	request RetainedRenameRequest
 }
 
+type retainedDeleteRPCProbe struct {
+	LifecycleAPI
+	previews, confirms          int
+	project, branch, key, token string
+}
+
+func (p *retainedDeleteRPCProbe) PreviewRetainedDelete(_ context.Context, project, branch string) (RetainedDeletePreview, error) {
+	p.previews++
+	p.project, p.branch = project, branch
+	return RetainedDeletePreview{Project: project, Branch: branch, ConfirmationToken: strings.Repeat("a", 32)}, nil
+}
+func (p *retainedDeleteRPCProbe) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (Operation, error) {
+	p.confirms++
+	p.key, p.project, p.branch, p.token = key, project, branch, token
+	return Operation{Kind: "project.retained.delete", Project: project}, nil
+}
+func TestRetainedDeleteRPCClosedRequests(t *testing.T) {
+	p := &retainedDeleteRPCProbe{}
+	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	for _, raw := range []string{`{"v":2,"project":"app","branch":"saved"}`, `{"v":1,"project":"app","branch":"saved","workspace":"/tmp"}`, `{"v":1,"project":"app","branch":"saved","branch":"saved"}`} {
+		if _, e := h(context.Background(), "project.retained.delete.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+			t.Fatalf("preview accepted %s: %+v", raw, e)
+		}
+	}
+	token := strings.Repeat("a", 32)
+	for _, raw := range []string{`{"v":2,"key":"delete","project":"app","branch":"saved","confirmation_token":"` + token + `"}`, `{"v":1,"key":"delete","project":"app","branch":"saved","confirmation_token":"short"}`, `{"v":1,"key":"delete","project":"app","branch":"saved","confirmation_token":"` + token + `","force":true}`} {
+		if _, e := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+			t.Fatalf("confirm accepted %s: %+v", raw, e)
+		}
+	}
+	if p.previews != 0 || p.confirms != 0 {
+		t.Fatal("invalid request reached authority")
+	}
+	preview, e := h(context.Background(), "project.retained.delete.preview", json.RawMessage(`{"v":1,"project":"app","branch":"saved"}`))
+	if e != nil || preview.(map[string]any)["preview"].(RetainedDeletePreview).Branch != "saved" || p.previews != 1 {
+		t.Fatalf("preview: %+v %+v", preview, e)
+	}
+	confirmed, e := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(`{"v":1,"key":"delete","project":"app","branch":"saved","confirmation_token":"`+token+`"}`))
+	if e != nil || confirmed.(map[string]any)["operation"].(Operation).Kind != "project.retained.delete" || p.confirms != 1 || p.token != token {
+		t.Fatalf("confirm: %+v %+v", confirmed, e)
+	}
+}
+
 func (p *retainedRenameRPCProbe) RenameRetainedBranch(_ context.Context, req RetainedRenameRequest) (Operation, error) {
 	p.called++
 	p.request = req

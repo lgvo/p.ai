@@ -83,3 +83,29 @@ func TestDeleteUnbornRefProvesAbsenceWithoutMutation(t *testing.T) {
 		t.Fatalf("present unborn ref deleted: marked=%t err=%v", marked, err)
 	}
 }
+
+func TestRetainedDeleteReviewAndSelectedExactCASOnRealBare(t *testing.T) {
+	b, repo := selectedDeleteBackend(t)
+	ctx := context.Background()
+	tree := snapshotGit(t, repo, nil, "mktree")
+	base := snapshotCommit(t, repo, tree, "")
+	unique := snapshotCommit(t, repo, tree, base)
+	snapshotGit(t, repo, nil, "update-ref", "refs/heads/saved", unique)
+	snapshotGit(t, repo, nil, "update-ref", "refs/heads/keep", base)
+	loss, err := b.BranchRemovalLoss(ctx, "app", "saved", false)
+	if err != nil || loss.AssignedTip != unique || len(loss.CommitsLosingPReachability) != 1 || loss.CommitsLosingPReachability[0] != unique {
+		t.Fatalf("retained loss: %+v %v", loss, err)
+	}
+	if err := b.DeleteAssignedBranchExact(ctx, "app", "saved", base, func() error { return nil }); !errors.Is(err, control.ErrConflict) {
+		t.Fatalf("stale tip deleted: %v", err)
+	}
+	if err := b.DeleteAssignedBranchExact(ctx, "app", "saved", unique, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if tip, exists, err := b.InspectBranchRef(ctx, "app", "saved"); err != nil || exists || tip != "" {
+		t.Fatalf("target survived: %q %v %v", tip, exists, err)
+	}
+	if tip, exists, err := b.InspectBranchRef(ctx, "app", "keep"); err != nil || !exists || tip != base {
+		t.Fatalf("sibling changed: %q %v %v", tip, exists, err)
+	}
+}
