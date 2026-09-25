@@ -114,7 +114,7 @@ func (s *Store) BeginRepairPreparation(ctx context.Context, key, uuid string, ev
 	}
 	var credential string
 	var active int
-	if err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session'`, uuid).Scan(&credential, &active); err != nil || credential != ev.CredentialFingerprint || active != 1 {
+	if err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, uuid).Scan(&credential, &active); err != nil || credential != ev.CredentialFingerprint || active != 1 {
 		return Operation{}, ErrConflict
 	}
 	id, err := newUUID()

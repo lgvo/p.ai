@@ -735,6 +735,23 @@ create retains the guard for exact recovery. No branch reset, force update,
 principal issuance, runtime adoption, or local-file deletion is part of this
 repair.
 
+For a missing or revoked session Git principal, the read-only principal-repair
+preview distinguishes a missing registered key, a revoked registration, and a
+valid private key whose identity differs from the registration. It identifies
+the exact session assignment, image and Incus UUID/generation, and is eligible
+only while that runtime is already stopped and its fixed `/etc/p/git/identity`
+target has safe metadata. An absent P ref blocks this plan, including a
+bootstrap whose history cannot be proved from the P ref alone; missing-ref
+repair uses its separate explicit plan. Preview never creates a key. Explicit confirmation
+reserves the assigned ref, durably stages one new UUID-scoped Ed25519 key, and
+atomically disables the old registered authority before activating the new
+fingerprint. It then replaces only this session's host key and the credential
+in that exact stopped runtime. The guest file write has a durable issued marker;
+an uncertain outcome can advance only after an exact positive readback, never
+by reissuing against the instance name. No Git ref, workspace file, image, or
+other session credential is changed by this plan. The runtime stays stopped;
+Start is a separate action after repair completes.
+
 ## Abandonment and orphans
 
 Abandonment is the explicit override for unreachable Incus. It means P

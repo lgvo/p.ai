@@ -177,7 +177,7 @@ func (s *Store) BeginRepair(ctx context.Context, req RepairRequest, ev RepairEvi
 	}
 	var credential string
 	var active int
-	err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session'`, req.UUID).Scan(&credential, &active)
+	err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, req.UUID).Scan(&credential, &active)
 	if err != nil || credential != ev.CredentialFingerprint || active != 1 {
 		return Operation{}, ErrConflict
 	}
@@ -286,7 +286,7 @@ func (s *Store) CompleteRepair(ctx context.Context, id string, verify func(conte
 	}
 	var credential string
 	var active int
-	err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session'`, sessionID).Scan(&credential, &active)
+	err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, sessionID).Scan(&credential, &active)
 	if err != nil || credential != ev.CredentialFingerprint || active != 1 {
 		return ErrConflict
 	}

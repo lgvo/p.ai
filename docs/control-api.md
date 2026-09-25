@@ -602,6 +602,25 @@ only an absent-ref compare-and-swap at the local tip. A stopped source remains
 stopped. Exact positive ref presence after an uncertain create can complete
 forward; absence after an issued request cannot authorize a second attempt.
 
+`session.principal.repair.preview` accepts `{"v":1,"uuid":"session-UUID"}`
+and returns `{"v":1,"preview":{...}}`. The read-only preview reports
+`kind:"session_git_principal"`, exact session/project/branch, old fingerprint,
+assigned-ref presence and tip,
+`registration_status` (`missing`, `revoked`, or `active`), host `key_status`
+(`missing`, `mismatch`, `matching`, or `unsafe`), guest `guest_key_status`
+and its bounded content digest, runtime status and exact Incus
+UUID/generation, image and policy fingerprints, `unsafe_reasons`, and
+`eligible`. An eligible preview has a short-lived `confirmation_token` and
+`expires_at`; a running or changed runtime has no token.
+
+`session.principal.repair.confirm` accepts
+`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
+and returns a durable `session.principal.repair` operation. It requires the
+reviewed assignment, policy, old credential facts, and exact stopped runtime.
+The operation stages one new key, disables old Git authority before installing
+the replacement into the fixed stopped runtime, and preserves the same UUID.
+An uncertain native file write remains guarded for exact positive recovery.
+
 ## Explicit environment cache collection
 
 This API passed review and its selected 7c3 VM gate; see

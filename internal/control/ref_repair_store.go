@@ -136,7 +136,7 @@ func (s *Store) BeginRefRepair(ctx context.Context, req RefRepairRequest, ev Ref
 	}
 	var principal string
 	var active int
-	if err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session'`, req.UUID).Scan(&principal, &active); err != nil || principal != ev.CredentialFingerprint || active != 1 {
+	if err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, req.UUID).Scan(&principal, &active); err != nil || principal != ev.CredentialFingerprint || active != 1 {
 		return Operation{}, ErrConflict
 	}
 	var lossRaw []byte

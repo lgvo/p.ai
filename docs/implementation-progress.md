@@ -2,7 +2,9 @@
 
 ## Current state — 2026-09-25
 
-- Latest selected VM evidence: **VM39 passed** the bare-present assigned-ref
+- Latest selected VM evidence: **VM40 passed** missing session Git principal
+  repair with a dummy key fault, current-ref refusal, old-key live Git denial,
+  new-key acceptance, replay, and restart preservation. **VM39 passed** the bare-present assigned-ref
   repair slice, including stale competing-ref refusal and preservation across
   daemon restart. A local-only tip is explicitly unsupported in MVP. **VM38
   passed** missing-derived-image repair
@@ -26,7 +28,7 @@
   dummy Codex credential cleanup. VM31 passed confirmed public Discard; VM30 passed capacity admission
   and read-only removal previews; VM29 passed bounded workspace-loss inspection.
   Latest full checkpoint: **through VM28 passed**, before the current removal
-  changes. VM39 powered down and removed its fresh disk; the integration lock
+  changes. VM40 powered down and removed its fresh disk; the integration lock
   is free.
 - VM37's serial run passed packet negative isolation with
   `P_PUBLIC_EGRESS_NEGATIVE_PASS`; external fetch was
@@ -2510,7 +2512,8 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   commit exists only in the runtime, preview reports `p_object_missing`, no
   confirmation token is issued, and runtime/local data stay untouched. There
   is no automatic object transfer in MVP. The earlier 8d2b transfer proposal
-  was not implemented or tested and is no longer a delivery gate. The
+  was interrupted before edits, was not implemented or tested, and is no
+  longer a delivery gate. The
   authoritative lifecycle contract and MVP snapshot now state this boundary;
   VM39 remains evidence only for the supported bare-present case.
 
@@ -2527,3 +2530,24 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   than widening authority. Focused SQLite/key/native regressions, retained
   recovery review and the smallest serial VM with a dummy key fault are
   required for support.
+  Partial 8d3 checkpoint: durable Store admission/ref guard, atomic old
+  principal revocation and single new registration, restartable phases, and
+  exact stopped-runtime credential path/one-shot native POST are implemented.
+  Focused real SQLite, host-key rotation, and adversarial native-file tests
+  passed across control, daemon and runtimeincus. This was a partial
+  implementation checkpoint; later review and VM evidence follow below.
+  Retained review found and closed a historical-bootstrap authority gap:
+  missing assigned P refs now block principal repair even if the durable
+  project.create row remains after main was committed. The VM fixture tests
+  committed-then-deleted main refusal, then restores that exact ref. Review
+  also required a live Git probe proving that the retired key is denied.
+  Post-fix five affected Go suites, focused independent review tests, Bash
+  syntax, pinned ShellCheck, and diff checks passed.
+  Serial VM40 `.cache/p-vm/integration-20260925T212611Z-1311421.log`
+  exited 0 with `P_PRINCIPAL_REPAIR_PASS`, selected product pass, and smoke
+  pass. It exercised a dummy missing host key, kept the exact stopped Incus
+  runtime/guest credential and sibling/workspace/Codex dummy data, accepted
+  one replacement key at the live P Git endpoint, denied the saved old key,
+  and passed replay and daemon restart checks. The fresh disk was removed.
+  This is fixture-backed principal-repair evidence; it does not validate real
+  Codex authentication.

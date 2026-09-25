@@ -83,7 +83,7 @@ func (s *Store) RegisterGitPrincipal(ctx context.Context, fingerprint, role, pro
 // row. A missing private key after registration must never imply rotation.
 func (s *Store) SessionGitPrincipal(ctx context.Context, sessionID string) (string, bool, error) {
 	var fingerprint string
-	err := s.db.QueryRowContext(ctx, `SELECT fingerprint FROM git_principals WHERE session_uuid=? AND role='session'`, sessionID).Scan(&fingerprint)
+	err := s.db.QueryRowContext(ctx, `SELECT fingerprint FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, sessionID).Scan(&fingerprint)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -95,7 +95,7 @@ func (s *Store) SessionGitPrincipal(ctx context.Context, sessionID string) (stri
 
 func (s *Store) IsSessionGitPrincipalActive(ctx context.Context, sessionID string) (bool, error) {
 	var active int
-	err := s.db.QueryRowContext(ctx, `SELECT active FROM git_principals WHERE session_uuid=? AND role='session'`, sessionID).Scan(&active)
+	err := s.db.QueryRowContext(ctx, `SELECT active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, sessionID).Scan(&active)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

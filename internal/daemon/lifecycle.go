@@ -24,37 +24,38 @@ import (
 )
 
 type lifecycle struct {
-	store              *control.Store
-	cfg                control.RuntimeConfig
-	git                *gitCapability
-	runtime            *runtimeincus.Backend
-	runtimePlugin      plugin.Active
-	environmentPlugin  *plugin.Active
-	hostPlan           plugin.AssetPlan
-	sourcePlan         plugin.AssetPlan
-	agentPlan          *plugin.AssetPlan
-	endpoints          *endpointManager
-	instanceID         string
-	ctx                context.Context
-	mu                 sync.Mutex
-	working            map[string]bool
-	queueSlots         chan struct{}
-	sessionLocks       map[string]chan struct{}
-	confinementCheck   func(context.Context) error
-	startActive        map[string]bool
-	attachments        map[string]*attachment
-	onAttachment       func(context.Context, string, int, bool)
-	events             *eventDelivery
-	eventMu            sync.Mutex
-	observed           map[string]observedFacts
-	eventContexts      map[string]eventContext
-	progress           map[string]string
-	changedPolicies    map[string]bool
-	collectionPreviews map[string]collectionPreviewState
-	cacheKeyLocks      map[string]chan struct{}
-	removalPreviews    map[string]removalPreviewState
-	repairPreviews     map[string]repairPreviewState
-	refRepairPreviews  map[string]refRepairPreviewState
+	store                   *control.Store
+	cfg                     control.RuntimeConfig
+	git                     *gitCapability
+	runtime                 *runtimeincus.Backend
+	runtimePlugin           plugin.Active
+	environmentPlugin       *plugin.Active
+	hostPlan                plugin.AssetPlan
+	sourcePlan              plugin.AssetPlan
+	agentPlan               *plugin.AssetPlan
+	endpoints               *endpointManager
+	instanceID              string
+	ctx                     context.Context
+	mu                      sync.Mutex
+	working                 map[string]bool
+	queueSlots              chan struct{}
+	sessionLocks            map[string]chan struct{}
+	confinementCheck        func(context.Context) error
+	startActive             map[string]bool
+	attachments             map[string]*attachment
+	onAttachment            func(context.Context, string, int, bool)
+	events                  *eventDelivery
+	eventMu                 sync.Mutex
+	observed                map[string]observedFacts
+	eventContexts           map[string]eventContext
+	progress                map[string]string
+	changedPolicies         map[string]bool
+	collectionPreviews      map[string]collectionPreviewState
+	cacheKeyLocks           map[string]chan struct{}
+	removalPreviews         map[string]removalPreviewState
+	repairPreviews          map[string]repairPreviewState
+	refRepairPreviews       map[string]refRepairPreviewState
+	principalRepairPreviews map[string]principalRepairPreviewState
 }
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
@@ -301,6 +302,11 @@ func (l *lifecycle) Recover() error {
 		return err
 	}
 	ops = append(ops, refRepairs...)
+	principalRepairs, err := l.store.UnfinishedPrincipalRepairs(l.ctx)
+	if err != nil {
+		return err
+	}
+	ops = append(ops, principalRepairs...)
 	after := ""
 	for {
 		sessions, next, e := l.store.ListSessions(l.ctx, after, 100)
@@ -631,7 +637,7 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	if err != nil {
 		return op, err
 	}
-	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" {
+	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" {
 		return op, control.ErrInvalid
 	}
 	if op.Status != "completed" {
@@ -678,6 +684,10 @@ func (l *lifecycle) process(id string) {
 	}
 	if op.Kind == "session.ref.repair" {
 		l.processRefRepair(op)
+		return
+	}
+	if op.Kind == "session.principal.repair" {
+		l.processPrincipalRepair(op)
 		return
 	}
 	if op.Kind == "workspace.inspect" || op.Kind == "workspace.loss.inspect" {
