@@ -4,7 +4,8 @@
 
 - Latest selected VM evidence: **VM39 passed** the bare-present assigned-ref
   repair slice, including stale competing-ref refusal and preservation across
-  daemon restart. Local-only tip transfer remains pending. **VM38 passed** missing-derived-image repair
+  daemon restart. A local-only tip is explicitly unsupported in MVP. **VM38
+  passed** missing-derived-image repair
   through explicit prepare/preview/confirm and post-completion restart on
   real Incus; it preserved same UUID/branch/key and lost only dummy runtime
   data. **VM37 passed** public-egress negative isolation,
@@ -25,7 +26,7 @@
   dummy Codex credential cleanup. VM31 passed confirmed public Discard; VM30 passed capacity admission
   and read-only removal previews; VM29 passed bounded workspace-loss inspection.
   Latest full checkpoint: **through VM28 passed**, before the current removal
-  changes. VM37 powered down and removed its fresh disk; the integration lock
+  changes. VM39 powered down and removed its fresh disk; the integration lock
   is free.
 - VM37's serial run passed packet negative isolation with
   `P_PUBLIC_EGRESS_NEGATIVE_PASS`; external fetch was
@@ -2460,8 +2461,8 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   results. Focused SQLite/real-Git/adversarial WASM tests and five affected Go
   suites passed; the reviewer approved this **narrow slice** for a selected
   VM39. A local-only tip whose commit object is absent from P bare remains
-  explicitly blocked as `p_object_missing` and requires a separate safe
-  authenticated object-transfer path before general 8d2 completion.
+  explicitly blocked as `p_object_missing`; the later scope decision below
+  excludes automatic transfer from MVP.
   First serial VM39 `.cache/p-vm/integration-20260925T200056Z-1097683.log`
   completed workspace-loss inspection and returned a ref-repair preview, but
   the fixture's compound preview assertion failed at line 221. Runner exited
@@ -2500,5 +2501,29 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   restored the exact tip with the runtime UUID/generation, dirty/ignored
   workspace, dummy Codex file, session key and sibling intact across restart.
   This validates only the bare-present object shape. A local-only tip absent
-  from P bare remains `p_object_missing` pending an authenticated exact-source
-  transfer path; no general ref-repair completion is claimed.
+  from P bare remains `p_object_missing`; automatic transfer is excluded from
+  MVP by the scope decision below.
+
+- **8d2 scope decision — local-only ref objects outside MVP:** the user
+  narrowed the repair promise after VM39. Supported MVP ref repair covers the
+  bare-present commit object and keeps its reviewed create-only CAS. When the
+  commit exists only in the runtime, preview reports `p_object_missing`, no
+  confirmation token is issued, and runtime/local data stay untouched. There
+  is no automatic object transfer in MVP. The earlier 8d2b transfer proposal
+  was not implemented or tested and is no longer a delivery gate. The
+  authoritative lifecycle contract and MVP snapshot now state this boundary;
+  VM39 remains evidence only for the supported bare-present case.
+
+- **Next independent batch 8d3 — missing or revoked session Git principal,
+  acceptance before edits:** inspection must distinguish a missing key file,
+  a revoked registration, and an identity mismatch without creating a key.
+  A named explicit repair previews the old fingerprint, exact runtime
+  generation and session assignment, and whether the runtime can be updated.
+  Confirmation disables old authority first, creates one new UUID-scoped
+  principal, installs only that credential into the exact stopped runtime,
+  and durably records recovery phases before any native effect. Existing
+  project/branch, Git refs, workspace, image and other sessions remain
+  unchanged; stale runtime/assignment or uncertain installation blocks rather
+  than widening authority. Focused SQLite/key/native regressions, retained
+  recovery review and the smallest serial VM with a dummy key fault are
+  required for support.

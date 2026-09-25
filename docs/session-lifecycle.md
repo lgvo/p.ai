@@ -689,7 +689,7 @@ Supported MVP repair shapes are:
 | Incomplete authorized operation | Resume its defined forward/rollback path. |
 | Stale runtime locator, one matching labeled runtime | Relink after UUID/project verification. |
 | Missing runtime, assigned P branch intact | Reuse the recorded image when present. If absent, resolve the current committed P branch and show whether its environment identity differs before the user authorizes recreation for the same UUID; disclose that prior runtime-local state is unavailable. |
-| Runtime exists, assigned P ref missing, assigned local branch intact | Offer guarded restoration of the P ref at the inspected local tip; never do it silently. |
+| Runtime exists, assigned P ref missing, assigned local branch intact | Offer guarded restoration at the inspected local tip only when that commit object is already in P's bare repository. Otherwise report `p_object_missing` without a confirmation action. |
 | Missing/revoked session Git principal | Rotate/reissue the UUID-scoped principal and update only its runtime. |
 | Workspace branch/upstream mismatch | Report exact refs and require a targeted plan; never reset, clean, or force-push automatically. |
 | Session row has neither runtime nor branch | Offer removal of the unrecoverable registry record after confirmation. |
@@ -720,10 +720,13 @@ starts from a completed bounded workspace-loss inspection. The preview shows
 the absent assigned ref, the one ordinary `/workspace` local branch and HEAD
 commit, tracked/untracked changes and ignored summary, the exact Incus
 generation and policy/principal authority, and any unsafe reason. The current
-gate permits confirmation only when that local commit object is already
-present in P's bare repository. A commit whose bytes exist only inside the
-runtime is shown as `p_object_missing` and requires a separate authenticated
-transfer path; P does not parse or import raw runtime Git storage on the host.
+MVP permits confirmation only when that local commit object is already
+present in P's bare repository. If the commit exists only inside the runtime,
+P reports `p_object_missing` without a repair token. The runtime and its
+local branch remain untouched; the developer can preserve that work outside
+P or choose a separately confirmed lifecycle action. Automatic object
+transfer for this case is outside MVP. P does not parse or import raw runtime
+Git storage on the host.
 An eligible preview issues a short-lived token bound to the complete source
 inspection. Confirmation guards the assigned ref, re-quiesces the same runtime,
 and compares the complete workspace snapshot before a create-only zero-old-OID
@@ -841,6 +844,10 @@ MVP includes:
   quiescence, and restart reconciliation;
 - local Git-principal and selected-plugin cleanup; and
 - orphan recognition without automatic age-based deletion.
+
+MVP ref repair does not transfer local-only Git objects into P's bare
+repository. A missing assigned ref with `p_object_missing` remains blocked;
+the supported ref repair is the bare-present case described above.
 
 MVP does not include runtime migration, branch-specific grants, automatic
 reclamation, service lifecycle, attempts, checks, session cloning, or recovery

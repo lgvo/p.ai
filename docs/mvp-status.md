@@ -116,6 +116,10 @@ foundation does not yet establish the complete plugin MVP.
 
 - Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, Repair, Abandon,
   retry, and restart reconciliation have defined outcomes.
+- Missing assigned-ref repair is supported when the inspected local commit
+  object is already in P's bare repository. If it exists only in the runtime,
+  P reports `p_object_missing` and leaves the runtime untouched; automatic
+  object transfer is outside MVP.
 - Exact Retry preserves the failed creation's immutable request and operation
   identity while cleaning verified partial derived resources. **Try again with
   changes** is one integrated superseding Create with new identity, not retry.

@@ -587,8 +587,10 @@ and returns `{"v":1,"preview":{...}}`. The preview reports
 Incus UUID/generation, image and policy fingerprints, registered credential
 fingerprint, loss operation/fingerprint, workspace `changes` and `ignored`
 summary, and `unsafe_reasons`. An eligible bare-present local commit has a
-short-lived `confirmation_token` and `expires_at`; `p_object_missing` is a
-blocked result with no token. Only one ordinary runtime-owned worktree on
+short-lived `confirmation_token` and `expires_at`; `p_object_missing` is an
+unsupported MVP repair case with no token. It means the inspected commit
+exists only inside the runtime; this API does not transfer it into P's bare
+repository or alter the runtime. Only one ordinary runtime-owned worktree on
 the assigned branch is supported in this gate.
 
 `session.ref.repair.confirm` accepts
@@ -690,8 +692,9 @@ kind/code pairs are `parse_error`/`-32700`, `invalid_request`/`-32600`,
 
 Without trusted runtime configuration, lifecycle mutations and inspection
 remain unavailable. Other methods under `project.`, `session.`, `origin.`,
-`runtime.`, and `status.` still return `unavailable`. The implemented subset
-includes only the missing-runtime repair plan described above. Other repair
-and abandonment plans remain unavailable. `project.branches`
+`runtime.`, and `status.` still return `unavailable` unless listed above. The
+implemented repair subset includes missing-runtime and bare-present
+missing-assigned-ref plans. Other repair and abandonment plans remain
+unavailable. `project.branches`
 and `project.retained_branches` observe Git refs through the configured source
 package; they do not mutate lifecycle state.
