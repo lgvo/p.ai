@@ -2,7 +2,8 @@
 
 ## Current state — 2026-09-25
 
-- Latest selected VM evidence: **VM42 passed** guarded unrecoverable-record
+- Latest selected VM evidence: **VM43 passed** guarded retained-branch rename
+  with a local SSH origin and preserved sibling/session state. **VM42 passed** guarded unrecoverable-record
   cleanup after exact runtime and assigned-ref absence; it preserved sibling
   and remaining project data. **VM40 passed** missing session Git principal
   repair with a dummy key fault, current-ref refusal, old-key live Git denial,
@@ -30,7 +31,7 @@
   dummy Codex credential cleanup. VM31 passed confirmed public Discard; VM30 passed capacity admission
   and read-only removal previews; VM29 passed bounded workspace-loss inspection.
   Latest full checkpoint: **through VM28 passed**, before the current removal
-  changes. VM42 powered down and removed its fresh disk; the integration lock
+  changes. VM43 powered down and removed its fresh disk; the integration lock
   is free.
 - VM37's serial run passed packet negative isolation with
   `P_PUBLIC_EGRESS_NEGATIVE_PASS`; external fetch was
@@ -2603,3 +2604,24 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   principal/key/endpoint and record cleanup while sibling/ref/image remained.
   The product repair itself issued no native or Git deletion. The fresh disk
   was removed. This is fixture-backed recovery evidence.
+
+- **Next independent batch 8e1 — retained branch rename, acceptance before
+  edits:** a retained source branch must be a real unassigned P ref at its
+  inspected commit, with an absent validated destination. Public keyed rename
+  reserves both names and pins that tip; a changed tip, new assignment, or
+  destination appearance refuses without touching refs. The durable operation
+  creates the destination at the expected tip, then deletes only the exact
+  source with guarded recovery for uncertain effects. It never changes an
+  origin ref or any session/runtime/credential, and preserves sibling refs.
+  Focused real-bare/SQLite tests, retained authorization/recovery review, and
+  one serial local-SSH-origin VM step are required before support is claimed.
+  Four affected Go suites, independent focused Store/real-Git tests, Bash
+  syntax, pinned ShellCheck, diff check and retained authorization/recovery
+  review passed. Serial VM43
+  `.cache/p-vm/integration-20260925T220033Z-1442976.log` exited 0 with
+  `P_RETAINED_RENAME_PASS`, selected product pass and smoke pass. It used a
+  local SSH origin, refused stale/assigned/occupied source or destination
+  cases, renamed only the exact retained P ref, preserved sibling refs,
+  session runtime/key/dirty workspace and separate origin refs, and checked
+  keyed replay after restart. The fresh disk was removed. This is local-origin
+  fixture evidence, not external-origin availability evidence.

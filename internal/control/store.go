@@ -346,6 +346,16 @@ CREATE TRIGGER IF NOT EXISTS repair_prepare_requires_established BEFORE INSERT O
 PRAGMA user_version = 16;
 `
 
+const migration17 = `
+DROP TRIGGER session_insert_excludes_rename_reservation;
+CREATE TRIGGER session_insert_excludes_rename_reservation BEFORE INSERT ON sessions
+ WHEN EXISTS(SELECT 1 FROM git_ref_guards g JOIN operations o ON o.id=g.operation_id
+   WHERE g.project_path=NEW.project_path AND g.branch=NEW.branch
+   AND o.kind IN ('session.rename','project.retained.rename') AND o.status IN ('running','blocked','unknown'))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: branch reserved by rename'); END;
+PRAGMA user_version = 17;
+`
+
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
 }
@@ -418,8 +428,8 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 	if err = db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return nil, err
 	}
-	if version > 16 {
-		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 16)", version)
+	if version > 17 {
+		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 17)", version)
 	}
 	if version == 0 {
 		var id string
@@ -633,6 +643,19 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 		}
 		defer tx.Rollback()
 		if _, e = tx.ExecContext(ctx, migration16); e != nil {
+			return nil, e
+		}
+		if e = tx.Commit(); e != nil {
+			return nil, e
+		}
+	}
+	if version < 17 {
+		tx, e := db.BeginTx(ctx, nil)
+		if e != nil {
+			return nil, e
+		}
+		defer tx.Rollback()
+		if _, e = tx.ExecContext(ctx, migration17); e != nil {
 			return nil, e
 		}
 		if e = tx.Commit(); e != nil {

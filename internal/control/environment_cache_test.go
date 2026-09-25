@@ -58,7 +58,7 @@ func TestEnvironmentCacheMigratesVersionSixOnReopen(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 16 {
+		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 17 {
 			t.Fatalf("migration version %d: %v", version, err)
 		}
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM environment_images`).Scan(&version); err != nil || version != 0 {
@@ -113,7 +113,7 @@ func TestEnvironmentCacheMigratesVersionSevenRowsOnReopen(t *testing.T) {
 			t.Fatalf("schema-seven cache row changed: %+v found=%v err=%v", got, found, err)
 		}
 		var version int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 16 {
+		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 17 {
 			t.Fatalf("version %d: %v", version, err)
 		}
 		if err := s.Close(); err != nil {
@@ -158,7 +158,7 @@ func TestEnvironmentCacheProjectScopeAndExactMissForget(t *testing.T) {
 func TestEnvironmentCacheRejectsForgedLabelsAndSchemaMigration(t *testing.T) {
 	s, _ := openTestStore(t)
 	var version int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 16 {
+	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 17 {
 		t.Fatalf("schema version %d: %v", version, err)
 	}
 	e := testEnvironmentImage("team/a")

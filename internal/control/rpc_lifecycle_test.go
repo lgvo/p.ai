@@ -20,6 +20,41 @@ type renameRPCProbe struct {
 	request RenameRequest
 }
 
+type retainedRenameRPCProbe struct {
+	LifecycleAPI
+	called  int
+	request RetainedRenameRequest
+}
+
+func (p *retainedRenameRPCProbe) RenameRetainedBranch(_ context.Context, req RetainedRenameRequest) (Operation, error) {
+	p.called++
+	p.request = req
+	return Operation{Kind: "project.retained.rename", Project: req.Project, Phase: "reserved"}, nil
+}
+
+func TestRetainedRenameRPCClosedRequest(t *testing.T) {
+	p := &retainedRenameRPCProbe{}
+	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	oid := strings.Repeat("a", 40)
+	for _, raw := range []string{
+		`{"v":2,"key":"move","project":"app","old_branch":"saved","new_branch":"archive","expected_old_tip":"` + oid + `"}`,
+		`{"v":1,"key":"move","project":"app","old_branch":"saved","new_branch":"archive","expected_old_tip":"` + oid + `","force":true}`,
+		`{"v":1,"key":"move","project":"app","old_branch":"saved","new_branch":"saved","expected_old_tip":"` + oid + `"}`,
+		`{"v":1,"key":"move","project":"app","old_branch":"saved","new_branch":"archive","expected_old_tip":"` + oid + `","project":"app"}`,
+	} {
+		if _, e := h(context.Background(), "project.retained.rename", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+			t.Fatalf("unsafe request %s: %+v", raw, e)
+		}
+	}
+	if p.called != 0 {
+		t.Fatal("invalid request reached authority")
+	}
+	result, e := h(context.Background(), "project.retained.rename", json.RawMessage(`{"v":1,"key":"move","project":"app","old_branch":"saved","new_branch":"archive","expected_old_tip":"`+oid+`"}`))
+	if e != nil || p.called != 1 || p.request.Project != "app" || p.request.ExpectedOldTip != oid || result.(map[string]any)["operation"].(Operation).Kind != "project.retained.rename" {
+		t.Fatalf("route: %+v %+v", result, e)
+	}
+}
+
 type repairRPCProbe struct {
 	LifecycleAPI
 	previewCalls         int

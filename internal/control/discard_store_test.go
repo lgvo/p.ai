@@ -271,7 +271,7 @@ func TestDeleteSchemaElevenReopenInstallsAdmissionGuard(t *testing.T) {
 	}
 	defer reopened.Close()
 	var version int
-	if err := reopened.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 16 {
+	if err := reopened.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 17 {
 		t.Fatalf("delete migration unavailable: %d %v", version, err)
 	}
 	_, err = reopened.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,created_at,updated_at)

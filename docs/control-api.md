@@ -313,6 +313,7 @@ duplicate fields.
 | `origin.publication.preview` | `{"v":1,"project":"team/app","expected_origin_url":"ssh://host/repo","kind":"session","source":"session-UUID","source_oid":"<exact P tip>","destination_ref":"refs/heads/main"}`; `kind:"retained"` uses a P branch name in `source` | `v`, `preview` with project, origin URL, source kind/identity/ref/OID, destination ref and observed OID or absence, relation, and `workspace_status:"unknown"`. This contacts the origin afresh. |
 | `origin.publish` | Same source fields as preview, plus `"key":"idempotency-key"` | `v`, `publication` with the preview and `status` (`created`, `advanced`, `satisfied`, `refused`, or `outcome_unknown`). This performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. |
 | `project.retained_branches` | `{"v":1,"project":"team/app","after":"optional-full-P-head-ref","limit":1..8}` | `v`, `branches` with `branch`, full `ref`, and tip `oid`, plus `next`. The cursor traverses P Git refs, so a page may be empty while `next` is nonempty if its refs are assigned to live sessions. |
+| `project.retained.rename` | `{"v":1,"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `v`, `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key conflict. |
 
 An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
 or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
@@ -322,6 +323,15 @@ completed `origin.change` key replays its committed result without contacting
 the origin. Reusing a key with different inputs returns `busy`. Interrupted
 preparations retry the same contact and compare-and-swap. Origin URL and SSH
 credentials stay on the host.
+
+Retained branch rename guards both P names while it creates the destination
+with an absent-ref compare-and-swap and deletes only the exact old source tip.
+The durable phases are `reserved`, `new-ref-create-issued`, `new-ref-created`,
+`old-ref-delete-issued`, `old-ref-deleted`, and `completed`. A stale input
+before the first issued effect fails as `stale` and releases both guards. An
+uncertain issued effect stays blocked and guarded until exact positive
+reconciliation; retry never repeats an uncertain Git command. The operation
+does not change session assignment, runtime, credential, or origin refs.
 
 Publication requires an established session with no unfinished lifecycle
 operation or ref guard, or a retained branch with no live session assignment.

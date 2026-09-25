@@ -34,3 +34,31 @@ func TestSelectedRenameRefCreateRequiresOldExactAndNewAbsent(t *testing.T) {
 		t.Fatalf("occupied destination accepted: %v", err)
 	}
 }
+
+func TestSelectedRetainedRenamePreservesSiblingAndNeverTouchesOrigin(t *testing.T) {
+	b, repo := selectedDeleteBackend(t)
+	ctx := context.Background()
+	tree := snapshotGit(t, repo, nil, "mktree")
+	base := snapshotCommit(t, repo, tree, "")
+	tip := snapshotCommit(t, repo, tree, base)
+	snapshotGit(t, repo, nil, "update-ref", "refs/heads/retained", tip)
+	snapshotGit(t, repo, nil, "update-ref", "refs/heads/sibling", base)
+	if err := b.CreateRenameBranchExact(ctx, "app", "retained", "archive", tip); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.DeleteAssignedBranchExact(ctx, "app", "retained", base, func() error { return nil }); !errors.Is(err, control.ErrConflict) {
+		t.Fatalf("wrong source tip deleted: %v", err)
+	}
+	if err := b.DeleteAssignedBranchExact(ctx, "app", "retained", tip, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"archive": tip, "sibling": base} {
+		got, exists, err := b.InspectBranchRef(ctx, "app", name)
+		if err != nil || !exists || got != want {
+			t.Fatalf("%s: %q %v %v", name, got, exists, err)
+		}
+	}
+	if got, exists, err := b.InspectBranchRef(ctx, "app", "retained"); err != nil || exists || got != "" {
+		t.Fatalf("old ref survived: %q %v %v", got, exists, err)
+	}
+}

@@ -164,6 +164,10 @@ type RenameAPI interface {
 	RenameSession(context.Context, RenameRequest) (Operation, error)
 }
 
+type RetainedRenameAPI interface {
+	RenameRetainedBranch(context.Context, RetainedRenameRequest) (Operation, error)
+}
+
 type RepairAPI interface {
 	PreviewRepair(context.Context, string) (RepairPreview, error)
 	ConfirmRepair(context.Context, RepairConfirmRequest) (Operation, error)
@@ -233,6 +237,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			}
 			if _, ok := life.(RenameAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.rename")
+			}
+			if _, ok := life.(RetainedRenameAPI); ok {
+				object["available"] = append(object["available"].([]string), "project.retained.rename")
 			}
 			if _, ok := life.(RepairAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.repair.preview", "session.repair.confirm")
@@ -405,6 +412,31 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.rename request")
 			}
 			op, e := rename.RenameSession(ctx, req)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "operation": op}, nil
+		case "project.retained.rename":
+			rename, ok := life.(RetainedRenameAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V              int    `json:"v"`
+				Key            string `json:"key"`
+				Project        string `json:"project"`
+				OldBranch      string `json:"old_branch"`
+				NewBranch      string `json:"new_branch"`
+				ExpectedOldTip string `json:"expected_old_tip"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 {
+				return nil, errorRPC(-32602, "invalid_params", "invalid project.retained.rename request")
+			}
+			req := RetainedRenameRequest{Key: p.Key, Project: p.Project, OldBranch: p.OldBranch, NewBranch: p.NewBranch, ExpectedOldTip: p.ExpectedOldTip}
+			if !ValidRetainedRenameRequest(req) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid project.retained.rename request")
+			}
+			op, e := rename.RenameRetainedBranch(ctx, req)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}
