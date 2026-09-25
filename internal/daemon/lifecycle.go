@@ -56,6 +56,7 @@ type lifecycle struct {
 	repairPreviews          map[string]repairPreviewState
 	refRepairPreviews       map[string]refRepairPreviewState
 	principalRepairPreviews map[string]principalRepairPreviewState
+	recordRepairPreviews    map[string]recordRepairPreviewState
 }
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
@@ -307,6 +308,11 @@ func (l *lifecycle) Recover() error {
 		return err
 	}
 	ops = append(ops, principalRepairs...)
+	recordRepairs, err := l.store.UnfinishedRecordRepairs(l.ctx)
+	if err != nil {
+		return err
+	}
+	ops = append(ops, recordRepairs...)
 	after := ""
 	for {
 		sessions, next, e := l.store.ListSessions(l.ctx, after, 100)
@@ -637,7 +643,7 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	if err != nil {
 		return op, err
 	}
-	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" {
+	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
 		return op, control.ErrInvalid
 	}
 	if op.Status != "completed" {
@@ -688,6 +694,10 @@ func (l *lifecycle) process(id string) {
 	}
 	if op.Kind == "session.principal.repair" {
 		l.processPrincipalRepair(op)
+		return
+	}
+	if op.Kind == "session.record.repair" {
+		l.processRecordRepair(op)
 		return
 	}
 	if op.Kind == "workspace.inspect" || op.Kind == "workspace.loss.inspect" {

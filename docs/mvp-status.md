@@ -120,6 +120,9 @@ foundation does not yet establish the complete plugin MVP.
   object is already in P's bare repository. If it exists only in the runtime,
   P reports `p_object_missing` and leaves the runtime untouched; automatic
   object transfer is outside MVP.
+- A renamed Incus instance cannot be relinked in MVP. Its expected name is
+  derived from the session UUID; P stores no mutable runtime locator and does
+  not adopt a renamed instance.
 - Exact Retry preserves the failed creation's immutable request and operation
   identity while cleaning verified partial derived resources. **Try again with
   changes** is one integrated superseding Create with new identity, not retry.

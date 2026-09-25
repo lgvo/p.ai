@@ -621,6 +621,25 @@ The operation stages one new key, disables old Git authority before installing
 the replacement into the fixed stopped runtime, and preserves the same UUID.
 An uncertain native file write remains guarded for exact positive recovery.
 
+`session.record.repair.preview` accepts `{"v":1,"uuid":"session-UUID"}`
+and returns `{"v":1,"preview":{...}}`. It reports the exact session/project/
+branch, registered Git principal and active flag, current `runtime_status`
+and `assigned_ref_status`, trusted Incus project and deterministic name,
+`external_authority:"none_registered"` for the current MVP selection, and
+`unsafe_reasons`. Only authoritative absence of both the exact runtime and
+assigned P ref produces `eligible:true`, a short-lived `confirmation_token`,
+and `expires_at`. Unreachable Incus or a same-UUID competing instance cannot
+be reviewed as absence.
+
+`session.record.repair.confirm` accepts
+`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
+and returns a durable `session.record.repair` operation. It rechecks both
+absences under the session and P-ref guards, disables the session Git
+principal with a durable `authority-disabled` phase, removes only that UUID's
+local key and endpoint, and then removes the registry row. Reappearance or an
+unknown readback blocks forward completion. It never deletes Git refs, an
+Incus instance, an image, or external data.
+
 ## Explicit environment cache collection
 
 This API passed review and its selected 7c3 VM gate; see

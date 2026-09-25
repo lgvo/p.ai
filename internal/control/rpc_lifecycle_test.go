@@ -36,6 +36,57 @@ type principalRepairRPCProbe struct {
 	key, uuid, token   string
 }
 
+type recordRepairRPCProbe struct {
+	LifecycleAPI
+	previews, confirms int
+	key, uuid, token   string
+}
+
+func (p *recordRepairRPCProbe) PreviewRecordRepair(_ context.Context, uuid string) (RecordRepairPreview, error) {
+	p.previews++
+	p.uuid = uuid
+	return RecordRepairPreview{Kind: "unrecoverable_session_record", SessionUUID: uuid}, nil
+}
+func (p *recordRepairRPCProbe) ConfirmRecordRepair(_ context.Context, key, uuid, token string) (Operation, error) {
+	p.confirms++
+	p.key, p.uuid, p.token = key, uuid, token
+	return Operation{Kind: "session.record.repair", SessionUUID: uuid}, nil
+}
+
+func TestRecordRepairRPCUsesClosedVersionedRequests(t *testing.T) {
+	p := &recordRepairRPCProbe{}
+	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	uuid := "550e8400-e29b-41d4-a716-446655440000"
+	token := strings.Repeat("a", 32)
+	for _, raw := range []string{
+		`{"v":2,"uuid":"` + uuid + `"}`,
+		`{"v":1,"uuid":"` + uuid + `","force":true}`,
+		`{"v":1,"uuid":"` + uuid + `","uuid":"` + uuid + `"}`,
+	} {
+		if _, e := h(context.Background(), "session.record.repair.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+			t.Fatalf("unsafe preview admitted: %s %+v", raw, e)
+		}
+	}
+	for _, raw := range []string{
+		`{"v":2,"key":"remove","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`,
+		`{"v":1,"key":"remove","uuid":"` + uuid + `","confirmation_token":"short"}`,
+		`{"v":1,"key":"remove","uuid":"` + uuid + `","confirmation_token":"` + token + `","delete_ref":true}`,
+	} {
+		if _, e := h(context.Background(), "session.record.repair.confirm", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+			t.Fatalf("unsafe confirm admitted: %s %+v", raw, e)
+		}
+	}
+	if p.previews != 0 || p.confirms != 0 {
+		t.Fatal("invalid record repair reached authority")
+	}
+	if result, e := h(context.Background(), "session.record.repair.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`"}`)); e != nil || p.previews != 1 || result.(map[string]any)["preview"].(RecordRepairPreview).SessionUUID != uuid {
+		t.Fatalf("preview route: %+v %+v", result, e)
+	}
+	if result, e := h(context.Background(), "session.record.repair.confirm", json.RawMessage(`{"v":1,"key":"remove","uuid":"`+uuid+`","confirmation_token":"`+token+`"}`)); e != nil || p.confirms != 1 || p.key != "remove" || p.uuid != uuid || p.token != token || result.(map[string]any)["operation"].(Operation).Kind != "session.record.repair" {
+		t.Fatalf("confirm route: %+v %+v", result, e)
+	}
+}
+
 func (p *principalRepairRPCProbe) PreviewPrincipalRepair(_ context.Context, uuid string) (PrincipalRepairPreview, error) {
 	p.previews++
 	p.uuid = uuid

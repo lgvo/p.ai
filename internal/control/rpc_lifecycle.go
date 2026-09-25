@@ -187,6 +187,11 @@ type PrincipalRepairAPI interface {
 	ConfirmPrincipalRepair(context.Context, string, string, string) (Operation, error)
 }
 
+type RecordRepairAPI interface {
+	PreviewRecordRepair(context.Context, string) (RecordRepairPreview, error)
+	ConfirmRecordRepair(context.Context, string, string, string) (Operation, error)
+}
+
 func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life LifecycleAPI) Handler {
 	base := StateHandlerWithGit(store, git, info)
 	return func(ctx context.Context, method string, params json.RawMessage) (any, *RPCError) {
@@ -240,6 +245,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			}
 			if _, ok := life.(PrincipalRepairAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.principal.repair.preview", "session.principal.repair.confirm")
+			}
+			if _, ok := life.(RecordRepairAPI); ok {
+				object["available"] = append(object["available"].([]string), "session.record.repair.preview", "session.record.repair.confirm")
 			}
 			object["lifecycle"] = "partial"
 			return object, nil
@@ -434,6 +442,43 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				return nil, errorRPC(-32602, "invalid_params", "invalid principal repair confirmation")
 			}
 			op, e := repair.ConfirmPrincipalRepair(ctx, p.Key, p.UUID, p.Token)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "operation": op}, nil
+		case "session.record.repair.preview":
+			repair, ok := life.(RecordRepairAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V    int    `json:"v"`
+				UUID string `json:"uuid"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid record repair preview")
+			}
+			preview, e := repair.PreviewRecordRepair(ctx, p.UUID)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "preview": preview}, nil
+		case "session.record.repair.confirm":
+			repair, ok := life.(RecordRepairAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V     int    `json:"v"`
+				Key   string `json:"key"`
+				UUID  string `json:"uuid"`
+				Token string `json:"confirmation_token"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 ||
+				!validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid record repair confirmation")
+			}
+			op, e := repair.ConfirmRecordRepair(ctx, p.Key, p.UUID, p.Token)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}

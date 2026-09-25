@@ -2,7 +2,9 @@
 
 ## Current state — 2026-09-25
 
-- Latest selected VM evidence: **VM40 passed** missing session Git principal
+- Latest selected VM evidence: **VM42 passed** guarded unrecoverable-record
+  cleanup after exact runtime and assigned-ref absence; it preserved sibling
+  and remaining project data. **VM40 passed** missing session Git principal
   repair with a dummy key fault, current-ref refusal, old-key live Git denial,
   new-key acceptance, replay, and restart preservation. **VM39 passed** the bare-present assigned-ref
   repair slice, including stale competing-ref refusal and preservation across
@@ -28,7 +30,7 @@
   dummy Codex credential cleanup. VM31 passed confirmed public Discard; VM30 passed capacity admission
   and read-only removal previews; VM29 passed bounded workspace-loss inspection.
   Latest full checkpoint: **through VM28 passed**, before the current removal
-  changes. VM40 powered down and removed its fresh disk; the integration lock
+  changes. VM42 powered down and removed its fresh disk; the integration lock
   is free.
 - VM37's serial run passed packet negative isolation with
   `P_PUBLIC_EGRESS_NEGATIVE_PASS`; external fetch was
@@ -2551,3 +2553,53 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   and passed replay and daemon restart checks. The fresh disk was removed.
   This is fixture-backed principal-repair evidence; it does not validate real
   Codex authentication.
+
+- **Next independent batch 8d4 — stale runtime locator, acceptance before
+  edits:** a read-only preview must identify the recorded locator and exactly
+  one Incus runtime carrying the same P session UUID/project assignment; no
+  candidate, multiple candidates, conflicting labels, unknown native state,
+  or a concurrent lifecycle operation must refuse confirmation. A short-lived
+  confirmation binds the inspected native identity and recorded assignment;
+  reinspection and Store CAS precede any relink. Relinking changes only the
+  stale locator in the control record, never creates/adopts a runtime, changes
+  Git authority or refs, or touches workspace data. A stale token must fail.
+  Focused Store/native tests, retained recovery/authority review, and one
+  serial selected VM with a controlled locator fault are required before
+  support is claimed.
+  Pre-edit model inspection found this acceptance inapplicable: the sessions
+  table has no locator field, the Incus name is deterministically `p-<UUID>`,
+  and the Incus project comes from trusted configuration. An external rename
+  can make lookup fail, but there is no stored locator to relink or CAS.
+  Implementing relink would require a new durable/native locator model solely
+  for that fault. No 8d4 code, tests, fixture, or VM run was made. The
+  lifecycle contract and MVP snapshot now explicitly exclude adoption of a
+  renamed Incus instance; P reports the missing expected runtime. This is a
+  scope boundary, not validation evidence.
+
+- **Next independent batch 8d5 — unrecoverable session record,
+  acceptance before edits:** a read-only preview may offer registry removal
+  only when Incus authoritatively confirms the expected runtime absent and
+  Git confirms the exact assigned P ref absent. It must show both losses,
+  the session assignment and principal, and reject native unreachability,
+  in-flight operations, competing identity, or reappearance. Explicit keyed
+  confirmation binds those facts and disables the session principal before
+  removing the row and local key through durable recovery phases. It must not
+  delete any other P/origin ref, runtime, image, sibling, or external mount.
+  Ref/runtime reappearance or uncertain native evidence blocks; no blind
+  cleanup or broad adoption. Focused real SQLite and native tests, retained
+  destructive/recovery review, and one serial selected VM using a controlled
+  both-absent fault are required before support is claimed.
+  Retained destructive/recovery review approved the guarded source and VM42
+  fixture after direct SQLite negatives for canonical runtime name and active
+  principal at final row removal. Post-hardening five affected Go suites,
+  independent focused tests, Bash syntax, pinned ShellCheck, and diff checks
+  passed. A first `./dev/test-vm --step 42-record-repair.sh` invocation named
+  a nonexistent fixture and exited 2 before building or starting any VM.
+  The correct serial VM42 run
+  `.cache/p-vm/integration-20260925T214622Z-1378109.log` exited 0 with
+  `P_UNRECOVERABLE_RECORD_PASS`, selected product pass, and smoke pass. It
+  removed only a disposable target runtime and its assigned P ref as the
+  controlled fault, refused stale confirmation, then completed UUID-scoped
+  principal/key/endpoint and record cleanup while sibling/ref/image remained.
+  The product repair itself issued no native or Git deletion. The fresh disk
+  was removed. This is fixture-backed recovery evidence.

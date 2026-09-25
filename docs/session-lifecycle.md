@@ -687,7 +687,7 @@ Supported MVP repair shapes are:
 | Inconsistency | Repair behavior |
 |---|---|
 | Incomplete authorized operation | Resume its defined forward/rollback path. |
-| Stale runtime locator, one matching labeled runtime | Relink after UUID/project verification. |
+| Stale runtime locator | Outside MVP: instance names are derived from the session UUID, and no mutable locator is stored. P reports the missing expected runtime; it does not adopt a renamed instance. |
 | Missing runtime, assigned P branch intact | Reuse the recorded image when present. If absent, resolve the current committed P branch and show whether its environment identity differs before the user authorizes recreation for the same UUID; disclose that prior runtime-local state is unavailable. |
 | Runtime exists, assigned P ref missing, assigned local branch intact | Offer guarded restoration at the inspected local tip only when that commit object is already in P's bare repository. Otherwise report `p_object_missing` without a confirmation action. |
 | Missing/revoked session Git principal | Rotate/reissue the UUID-scoped principal and update only its runtime. |
@@ -751,6 +751,19 @@ an uncertain outcome can advance only after an exact positive readback, never
 by reissuing against the instance name. No Git ref, workspace file, image, or
 other session credential is changed by this plan. The runtime stays stopped;
 Start is a separate action after repair completes.
+
+For an unrecoverable session record, preview requires authoritative absence
+of both the deterministic `p-<UUID>` Incus runtime and assigned P branch ref.
+The full confined-project native inventory must also contain no other runtime
+carrying that session UUID; a renamed or competing instance is not adopted.
+The preview reports the assignment, registered Git principal, both absences,
+and the current selected modules' lack of P-owned external credentials.
+Confirmation binds the reviewed facts to a short-lived token. Under a P-ref
+guard it rechecks both absences, durably marks the session removing and
+disables its Git principal before removing only its UUID-scoped local key and
+endpoint. Final row removal requires another exact absence observation. An
+unknown or reappeared runtime/ref leaves the removal guarded for targeted
+recovery; no runtime, branch, image, sibling or external mount is deleted.
 
 ## Abandonment and orphans
 
