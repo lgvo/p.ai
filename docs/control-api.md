@@ -579,6 +579,27 @@ second possibly delayed init. The same key and exact request replay the
 operation. Other repair shapes remain unavailable
 in this gate.
 
+`session.ref.repair.preview` accepts
+`{"v":1,"uuid":"session-UUID","loss_operation_id":"completed-workspace-loss-operation-UUID"}`
+and returns `{"v":1,"preview":{...}}`. The preview reports
+`kind:"missing_assigned_ref"`, exact `session_uuid`, `project`, `branch`,
+`assigned_ref`, `assigned_ref_status`, `local_tip`, runtime status and
+Incus UUID/generation, image and policy fingerprints, registered credential
+fingerprint, loss operation/fingerprint, workspace `changes` and `ignored`
+summary, and `unsafe_reasons`. An eligible bare-present local commit has a
+short-lived `confirmation_token` and `expires_at`; `p_object_missing` is a
+blocked result with no token. Only one ordinary runtime-owned worktree on
+the assigned branch is supported in this gate.
+
+`session.ref.repair.confirm` accepts
+`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
+and returns a durable `session.ref.repair` operation. It rechecks the selected
+runtime, principal, policy and absent P ref, freezes a Running source, verifies
+the complete workspace bytes against the reviewed inspection, and attempts
+only an absent-ref compare-and-swap at the local tip. A stopped source remains
+stopped. Exact positive ref presence after an uncertain create can complete
+forward; absence after an issued request cannot authorize a second attempt.
+
 ## Explicit environment cache collection
 
 This API passed review and its selected 7c3 VM gate; see

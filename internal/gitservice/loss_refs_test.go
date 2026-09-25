@@ -2,6 +2,7 @@ package gitservice
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -106,6 +108,30 @@ func TestRetainedLossRefsWithRealBareRepository(t *testing.T) {
 	}
 	if _, err := b.CompareOriginRemoval(context.Background(), "loss", []plugin.GitOriginRef{{Ref: "invalid", CommitOID: retained}}, nil); err == nil {
 		t.Fatal("malformed advertised origin ref accepted when no commits would be lost")
+	}
+	// A workspace loss inspection must remain complete when its assigned P
+	// head was removed externally. The local commit is still a valid object,
+	// but no P head now retains it.
+	gitTest(t, nil, "-C", repo, "update-ref", "-d", "refs/heads/main")
+	gitTest(t, nil, "-C", repo, "update-ref", "-d", "refs/heads/keep")
+	refs, local, err = b.RetainedLossRefs(context.Background(), "loss", []string{retained, missing, dangling})
+	if err != nil || len(refs) != 0 || len(local) != 3 {
+		t.Fatalf("missing assigned P ref made workspace loss unavailable: refs=%+v local=%v err=%v", refs, local, err)
+	}
+	if present, err := b.PCommitPresent(context.Background(), "loss", retained); err != nil || !present {
+		t.Fatalf("unreferenced but present P commit unavailable: %v %v", present, err)
+	}
+	if present, err := b.PCommitPresent(context.Background(), "loss", missing); err != nil || present {
+		t.Fatalf("runtime-only commit misclassified as P-owned: %v %v", present, err)
+	}
+	if err := b.createBranch(context.Background(), "loss", "main", retained, true); err != nil {
+		t.Fatalf("selected source-Git absent-ref CAS refused bare-present commit: %v", err)
+	}
+	if tip, exists, err := b.InspectBranchRef(context.Background(), "loss", "main"); err != nil || !exists || tip != retained {
+		t.Fatalf("restored P head differs: %q %v %v", tip, exists, err)
+	}
+	if err := b.createBranch(context.Background(), "loss", "main", dangling, true); !errors.Is(err, control.ErrConflict) {
+		t.Fatalf("occupied restored head accepted replacement: %v", err)
 	}
 	// A broken P tip cannot be considered a retained object even when its
 	// literal OID matches a local object.

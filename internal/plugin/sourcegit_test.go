@@ -16,6 +16,7 @@ type sourceFixture struct {
 	initCalls, headCalls, pageCalls int
 	observedOID                     string
 	observeCalls, createCalls       int
+	createError                     error
 	deleteCalls                     int
 	deleteError                     error
 }
@@ -91,7 +92,7 @@ func (f *sourceFixture) ObserveSource(context.Context) (string, error) {
 }
 func (f *sourceFixture) CreateBranch(context.Context) error {
 	f.createCalls++
-	return nil
+	return f.createError
 }
 func (f *sourceFixture) DeleteBranch(context.Context) error {
 	f.deleteCalls++
@@ -125,6 +126,15 @@ func TestSourceGitDeleteCannotRepeatAfterUncertainBrokerEffect(t *testing.T) {
 	_, err := RunSourceGit(context.Background(), adversarial, GitCommand{Kind: "git.branch.delete", Project: "app", Branch: "main", CommitOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, fixture)
 	if err == nil || fixture.deleteCalls != 1 {
 		t.Fatalf("uncertain effect repeated: calls=%d err=%v", fixture.deleteCalls, err)
+	}
+}
+
+func TestSourceGitCreateCannotRepeatAfterUncertainBrokerEffect(t *testing.T) {
+	adversarial := buildSourcePackage(t, "testdata/git-alternate", false)
+	fixture := &sourceFixture{createError: errors.New("native CAS outcome unknown")}
+	_, err := RunSourceGit(context.Background(), adversarial, GitCommand{Kind: "git.branch.create", Project: "app", Branch: "main", CommitOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, fixture)
+	if err == nil || fixture.createCalls != 1 {
+		t.Fatalf("uncertain create repeated: calls=%d err=%v", fixture.createCalls, err)
 	}
 }
 

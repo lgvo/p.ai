@@ -177,6 +177,11 @@ type PreparedRepairPreviewAPI interface {
 	PreviewPreparedRepair(context.Context, string, string) (RepairPreview, error)
 }
 
+type RefRepairAPI interface {
+	PreviewRefRepair(context.Context, string, string) (RefRepairPreview, error)
+	ConfirmRefRepair(context.Context, string, string, string) (Operation, error)
+}
+
 func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life LifecycleAPI) Handler {
 	base := StateHandlerWithGit(store, git, info)
 	return func(ctx context.Context, method string, params json.RawMessage) (any, *RPCError) {
@@ -224,6 +229,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			}
 			if _, ok := life.(RepairPreparationAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.repair.prepare")
+			}
+			if _, ok := life.(RefRepairAPI); ok {
+				object["available"] = append(object["available"].([]string), "session.ref.repair.preview", "session.ref.repair.confirm")
 			}
 			object["lifecycle"] = "partial"
 			return object, nil
@@ -381,6 +389,44 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.rename request")
 			}
 			op, e := rename.RenameSession(ctx, req)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "operation": op}, nil
+		case "session.ref.repair.preview":
+			repair, ok := life.(RefRepairAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V               int    `json:"v"`
+				UUID            string `json:"uuid"`
+				LossOperationID string `json:"loss_operation_id"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || !validUUID(p.LossOperationID) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid assigned-ref repair preview")
+			}
+			preview, e := repair.PreviewRefRepair(ctx, p.UUID, p.LossOperationID)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "preview": preview}, nil
+		case "session.ref.repair.confirm":
+			repair, ok := life.(RefRepairAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V     int    `json:"v"`
+				Key   string `json:"key"`
+				UUID  string `json:"uuid"`
+				Token string `json:"confirmation_token"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) == 0 || len(p.Key) > 128 ||
+				!validUUID(p.UUID) || !validHexToken(p.Token) || len(p.Token) != 32 {
+				return nil, errorRPC(-32602, "invalid_params", "invalid assigned-ref repair confirmation")
+			}
+			op, e := repair.ConfirmRefRepair(ctx, p.Key, p.UUID, p.Token)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}

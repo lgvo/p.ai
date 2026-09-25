@@ -234,7 +234,7 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	var brokerFailure error
 	callCount, offset, prepared := 0, 0, false
 	inspected, initialized, headSet := false, false, false
-	observed, created, deleteAttempted, deleted, observedOID := false, false, false, false, ""
+	observed, createAttempted, created, deleteAttempted, deleted, observedOID := false, false, false, false, false, ""
 	originObserved, originFetched, originPublished := false, false, false
 	publicationStatus := ""
 	var originRefs []GitOriginRef
@@ -344,10 +344,11 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 			}
 			observed, observedOID, reply.CommitOID = true, oid, oid
 		case "git.branch.create":
-			if command.Kind != "git.branch.create" || created || !plainGitBrokerRequest(req) {
+			if command.Kind != "git.branch.create" || createAttempted || !plainGitBrokerRequest(req) {
 				brokerFailure = errors.New("branch creation refused")
 				return -1
 			}
+			createAttempted = true // never reissue after an uncertain first effect
 			if e := broker.CreateBranch(callCtx); e != nil {
 				brokerFailure = e
 				return -1

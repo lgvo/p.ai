@@ -715,6 +715,23 @@ The accepted image locator changes only on completed repair. An uncertain
 builder, publication or instance-init effect retains a guard for exact
 reconciliation; it never licenses an alternate image or second runtime.
 
+For a missing assigned P ref with an intact runtime, the supported restoration
+starts from a completed bounded workspace-loss inspection. The preview shows
+the absent assigned ref, the one ordinary `/workspace` local branch and HEAD
+commit, tracked/untracked changes and ignored summary, the exact Incus
+generation and policy/principal authority, and any unsafe reason. The current
+gate permits confirmation only when that local commit object is already
+present in P's bare repository. A commit whose bytes exist only inside the
+runtime is shown as `p_object_missing` and requires a separate authenticated
+transfer path; P does not parse or import raw runtime Git storage on the host.
+An eligible preview issues a short-lived token bound to the complete source
+inspection. Confirmation guards the assigned ref, re-quiesces the same runtime,
+and compares the complete workspace snapshot before a create-only zero-old-OID
+ref update. A changed workspace or ref is stale. An uncertain pause or ref
+create retains the guard for exact recovery. No branch reset, force update,
+principal issuance, runtime adoption, or local-file deletion is part of this
+repair.
+
 ## Abandonment and orphans
 
 Abandonment is the explicit override for unreachable Incus. It means P

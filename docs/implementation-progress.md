@@ -2,7 +2,9 @@
 
 ## Current state — 2026-09-25
 
-- Latest selected VM evidence: **VM38 passed** missing-derived-image repair
+- Latest selected VM evidence: **VM39 passed** the bare-present assigned-ref
+  repair slice, including stale competing-ref refusal and preservation across
+  daemon restart. Local-only tip transfer remains pending. **VM38 passed** missing-derived-image repair
   through explicit prepare/preview/confirm and post-completion restart on
   real Incus; it preserved same UUID/branch/key and lost only dummy runtime
   data. **VM37 passed** public-egress negative isolation,
@@ -2438,3 +2440,65 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   image provenance after daemon restart. Fresh VM disk was removed and the
   integration lock released. This does not prove stale-token or mid-effect
   crash recovery; focused SQLite tests cover those code paths.
+
+- **Next batch 8d2 — missing assigned P ref with intact local branch,
+  acceptance before edits:** inspection must show the exact missing assigned
+  ref, the one matched runtime's local branch tip and workspace status, and
+  any reason restoration is unsafe. A short-lived explicit confirmation binds
+  session UUID/project/branch, runtime generation, local tip and current
+  authority. Under the Git/ref guard, restoration may create only the absent
+  assigned ref at that inspected tip; it must never reset the workspace,
+  force-update an existing ref, mint a new principal, or adopt a different
+  runtime. Stale/ref-race/ambiguous-runtime cases fail closed. Focused tests,
+  retained recovery review, and a selected serial VM with externally removed
+  P ref plus intact local commit establish the supported shape. This batch
+  does not claim other repair shapes or project deletion.
+  The bare-present first slice now has durable preview/confirmation and an
+  absent-ref zero-old Git CAS. Retained review found and fixed exact runtime
+  generation checks across quiesced export, definitive stale sibling-ref
+  rollback before the effect marker, and one-shot broker create on uncertain
+  results. Focused SQLite/real-Git/adversarial WASM tests and five affected Go
+  suites passed; the reviewer approved this **narrow slice** for a selected
+  VM39. A local-only tip whose commit object is absent from P bare remains
+  explicitly blocked as `p_object_missing` and requires a separate safe
+  authenticated object-transfer path before general 8d2 completion.
+  First serial VM39 `.cache/p-vm/integration-20260925T200056Z-1097683.log`
+  completed workspace-loss inspection and returned a ref-repair preview, but
+  the fixture's compound preview assertion failed at line 221. Runner exited
+  1, powered down, and removed the fresh disk. The fixture now emits bounded
+  preview metadata (never its confirmation token) on failure, so the next
+  serial run can identify the exact mismatch before changing product behavior
+  or weakening the assertion. Bash syntax and pinned ShellCheck pass.
+  Diagnostic serial VM39 `.cache/p-vm/integration-20260925T200325Z-1147056.log`
+  still failed the preview assertion, but the bounded preview now shows an
+  early refusal: `assigned_ref_status=unknown`, empty local tip/runtime
+  identity, and ineligible. The fixture now also reports `unsafe_reasons`
+  and bounded stored loss-operation identity/result metadata on failure to
+  distinguish a rejected snapshot from a worktree mismatch. No assertion was
+  relaxed; runner exited 1 and drained.
+  Third serial diagnostic VM39
+  `.cache/p-vm/integration-20260925T200605Z-1193648.log` identified the
+  exact mismatch: the completed `workspace.loss.inspect` operation ends in
+  phase `inspected`, while ref-repair preview required phase `completed`.
+  The loss result's schema, fingerprint, worktree count, native generation and
+  image identity were present; preview reported `loss_snapshot_unavailable`.
+  A narrow shared predicate now requires the actual terminal `inspected`
+  phase plus exact kind/status/session/project in preview, confirm and replay;
+  a focused phase regression and `TestRefRepair` pass. Retained recovery review
+  precedes another serial VM. The diagnostic VM exited 1 and drained.
+  Retained review found the same stale phase assumption in Store admission.
+  That SQL now requires `inspected`; a real SQLite regression seeds the actual
+  terminal phase, rejects a wrong `completed` phase, and then admits the
+  guarded operation. Independent focused control/daemon ref-repair tests and
+  retained review passed. The next serial VM39 will test the corrected public
+  path; no VM pass is claimed yet.
+  Serial VM39 `.cache/p-vm/integration-20260925T201037Z-1241198.log`
+  exited 0, emitted `P_MISSING_REF_REPAIR_BARE_PRESENT_PASS`, selected product
+  pass and smoke pass, then powered down/removed its fresh disk. It deleted
+  only the assigned P bare ref while a sibling retained the commit, required
+  a completed loss snapshot, rejected stale sibling-ref confirmation, and
+  restored the exact tip with the runtime UUID/generation, dirty/ignored
+  workspace, dummy Codex file, session key and sibling intact across restart.
+  This validates only the bare-present object shape. A local-only tip absent
+  from P bare remains `p_object_missing` pending an authenticated exact-source
+  transfer path; no general ref-repair completion is claimed.
