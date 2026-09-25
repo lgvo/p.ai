@@ -9,7 +9,7 @@ open source under the [Apache License 2.0](LICENSE), runs on machines the user
 controls, and can grow from a laptop to a larger Linux or Kubernetes host
 without changing its project model.
 
-> **Status: design.** [PROJECT.md](PROJECT.md) owns P's enduring project
+> **Status: implementation in progress.** [PROJECT.md](PROJECT.md) owns P's enduring project
 > guidance, and [product direction](docs/PRODUCT.md) owns P's product strategy.
 > The design documents under [`docs/`](docs/) are authoritative for their
 > subjects. This README is the product summary.
@@ -40,6 +40,13 @@ Use it for context; the current decisions guide further UI work.
 the chosen browser, improving the existing creation/retry and policy probes
 into coherent workflows. Layout selection is settled for this iteration;
 the gallery remains historical reference.
+
+For backend development, the [disposable Incus VM](dev/vm/README.md) provides
+a repository-owned Linux lab and an automated infrastructure smoke test:
+`nix run path:./dev/vm#smoke`. The separate `./dev/test-vm` suite runs the P
+daemon and CLI against real containers, including session creation, Git, retry,
+restart, and Stop/Start. See the [progress record](docs/implementation-progress.md)
+for passed gates and remaining MVP work.
 
 ## The idea
 
@@ -320,11 +327,15 @@ storage, mounts, network policy, labels, and cleanup.
 
 ## Model access
 
-MVP supports Codex as its sole validated agent integration. Codex runs inside
+Codex is the MVP's sole planned agent integration. The pinned adapter passes
+authentication-free event and private-storage fixtures; real authenticated
+execution remains [pending the user's manual acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation).
+Codex runs inside
 the isolated session as an ordinary command, and the user authenticates it
 within that session's private home. P does not copy, inject, or manage the
-host's Codex or OpenAI credentials. The session-local authentication survives
-Stop and Start and disappears with Discard or Delete.
+host's Codex or OpenAI credentials. The lifecycle contract retains session-local
+authentication across Stop/Start and removes it with Discard/Delete; automated
+tests use dummy files, and public destructive cleanup is still being implemented.
 
 Codex use that requires network access uses the project's explicitly selected,
 validated `public-egress` grant. P supplies no model endpoint in MVP.
@@ -342,7 +353,7 @@ implementations.
 
 MVP must prove that model through secure first-party defaults, including Incus
 runtime support, a tmux persistent host, Git source and session access, Nix
-environment preparation, the structured file-event handler, and the Codex
+environment preparation, the structured file-log handler, and the Codex
 adapter. Ordinary setup selects and connects those defaults automatically.
 Developers and agents can author and test alternatives, but registration does
 not activate a plugin or grant it authority; trusted developer configuration
@@ -356,9 +367,13 @@ mechanisms while P provides explicitly granted, session-scoped access.
 Host-side capabilities participate in lifecycle work without being exposed to
 the session.
 
-The concrete plugin architecture is not designed yet. Packaging, process
-model, isolation, transport, compatibility, capability manifests,
-installation, composition, and approval UX remain open. See
+The [plugin foundation](docs/plugin-contract.md) defines package manifests,
+content-pinned activation, grants, and the selected execution boundary.
+The initial CLI validates packages, executes bounded WASI event handlers,
+exercises the declarative file-log handler, and produces fixed session asset
+plans. Automatic composition, installation, and approval UX remain
+implementation work. Track reviewed changes and VM evidence in the
+[implementation progress record](docs/implementation-progress.md). See
 [product direction](docs/PRODUCT.md),
 [project guidance](PROJECT.md#make-extension-a-product-capability), and the
 [implementation tracker](docs/missing-pieces.md#plugin-contract).
@@ -443,7 +458,7 @@ MVP closes the loop for one user on Linux:
 - fetch from and explicitly publish to an optional origin;
 - enforce project-scoped external grants and Git credentials;
 - run Codex with authentication owned by the session's private home;
-- emit reduced typed events to a local file handler; and
+- emit reduced typed events to a local file-log handler; and
 - reconcile SQLite, Git, credentials, and runtime state after interruption.
 
 Implementation uncertainties that need real-machine evidence are tracked in

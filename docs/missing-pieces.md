@@ -5,6 +5,11 @@ Concrete work still required to implement and validate the MVP design.
 > **Status: tracker, not authority.** Subject documents own behavior. This list
 > points to them and must not introduce a competing contract.
 
+The active CLI-first work and validation evidence are recorded in
+[implementation progress](implementation-progress.md). The broad checklist
+below includes partially delivered items; an unchecked item does not mean all
+of its components are unimplemented.
+
 ## Design readiness
 
 The cross-document lifecycle decisions needed to begin implementation are now
@@ -42,7 +47,7 @@ does not change owner-document lifecycle semantics.
 - [ ] Implement SQLite migrations, transaction helpers, operation/idempotency
   records, minimal project-deletion tombstones, and restart reconciliation.
 - [ ] Implement typed errors, bounded/redacted diagnostics, structured logging,
-  and the versioned `EventHandler` interface with the NDJSON file handler.
+  and the versioned `EventHandler` interface with the NDJSON file-log handler.
 - [ ] Establish fake Git, runtime, environment, agent, and clock adapters for
   deterministic lifecycle tests.
 
@@ -67,12 +72,13 @@ does not change owner-document lifecycle semantics.
 
 ## Plugin contract
 
-- [ ] Reconcile the technology design with the confirmed
+- [x] Reconcile the package/activation foundation with the confirmed
   [product direction](PRODUCT.md): define the trusted P-core boundary and how
   authoritative lifecycle operations invoke plugins without delegating policy,
   grants, recovery, or user confirmation.
-- [ ] Assign one detailed design authority for the common plugin framework and
-  its capability-specific contracts.
+- [x] Assign [the plugin contract](plugin-contract.md) as the detailed owner
+  for the common plugin framework; capability-specific schemas follow with
+  their implementation slices.
 - [ ] Define packaging, process/isolation model, transport, discovery,
   installation/update/removal, compatibility/versioning, and failure behavior.
 - [ ] Define capability manifests and trusted activation so repository or
@@ -83,7 +89,7 @@ does not change owner-document lifecycle semantics.
   authentication, and host-side capabilities that are never exposed to the
   session.
 - [ ] Express the MVP Incus runtime, tmux persistent host, Git source/session
-  service, Nix environment builder, structured file-event handler, and Codex
+  service, Nix environment builder, structured file-log handler, and Codex
   adapter as secure first-party plugins selected and composed automatically by
   default setup.
 - [ ] Provide an agent-usable authoring, validation, and test workflow that
@@ -120,9 +126,11 @@ does not change owner-document lifecycle semantics.
   only the temporary transport and never the persistent host.
 - [ ] Implement the four independent public facts: `session_condition`,
   `attached_count`, `latest_unattended_condition`, and `policy_condition`.
-- [ ] Implement the Codex adapter and clear-on-confirmed-first-entry reduction
-  without terminal/process heuristics or retained status history. Other agent
-  adapters are post-MVP.
+- [ ] Complete Codex acceptance: the selected adapter, event fixtures,
+  clear-on-confirmed-first-entry reduction, and dummy credential isolation and
+  Stop/Start checks pass. Public Discard/Delete dummy cleanup remains pending;
+  authenticated execution and native hook reporting are reserved for the
+  user's final manual test. Other agent adapters are post-MVP.
 - [ ] Emit reduced lifecycle/status/policy events through `EventHandler`;
   handler failure must not roll back authoritative operations.
 

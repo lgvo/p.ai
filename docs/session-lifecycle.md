@@ -298,6 +298,13 @@ not reset its tip, rewrite its history, or restore an old session's runtime.
 The unborn-`main` bootstrap is created only as part of explicit blank/empty-
 origin project creation. It has no source object ID, uses the P base image, and
 may create only the already reserved `refs/heads/main` on its first push.
+The first update's server-side pre-receive check consumes a durable,
+single-use creation grant before Git commits the ref. Opening a receive
+connection or a dry-run push does not consume it. If the daemon fails after
+that check but before the ref outcome is known, P keeps the grant consumed;
+an absent `main` then requires explicit repair rather than permitting a
+second, potentially unrelated creation. An established bootstrap session can
+use its pending grant while `main` remains unborn.
 
 MVP has no repository-controlled P configuration. Creation snapshots the
 trusted project-scoped P configuration and evaluates only the ordinary Nix
@@ -488,10 +495,14 @@ ordinary ahead state for corruption.
 
 ### Rename recovery
 
-Before `new-ref-created`, reconciliation may release the reservation and retain
-the old mapping. At and after `new-ref-created`, it completes forward to the new
-name. The guards remain active and start/attach remain blocked until the new
-mapping verifies or explicit repair resolves an authority conflict.
+Before a native or Git effect is attempted, a proven refusal may release the
+reservation and retain the old mapping. An attempted backup write, freeze, or
+new-ref creation with an unknown outcome keeps both guards until its exact
+outcome is established or explicit repair resolves it. The new-ref-create-issued
+phase can already have created the new P ref, so it cannot roll back on an
+immediate absence observation. At and after a verified `new-ref-created`,
+recovery completes forward to the new name. Start and attach remain blocked
+while the operation is unresolved.
 
 If another process altered a guarded ref or the workspace mapping despite
 quiescence, P does not guess. It leaves the runtime stopped/paused as safely as
@@ -689,6 +700,20 @@ that existed only in the missing runtime. It also cannot promise the original
 environment after both that instance and cached image are gone: the branch may
 now define a different devShell. P presents that difference and never silently
 substitutes the new image during start or automatic reconciliation.
+
+When the recorded derived image is absent, an explicit keyed preparation
+operation first reserves the assigned branch and one bounded builder slot,
+then resolves the current committed tip inside a restricted disposable
+builder. The builder's exact absence closes preparation; its result is
+environment evidence, not permission to recreate the runtime. A subsequent
+read-only preview compares the resolved key and source commit with the
+recorded image, and a separate confirmation binds that exact preparation.
+Confirmed repair rechecks the tip, policy, selected modules, credential and
+runtime absence, rebuilds or accepts the reviewed environment image under a
+durable publication boundary, and initializes only the original session UUID.
+The accepted image locator changes only on completed repair. An uncertain
+builder, publication or instance-init effect retains a guard for exact
+reconciliation; it never licenses an alternate image or second runtime.
 
 ## Abandonment and orphans
 

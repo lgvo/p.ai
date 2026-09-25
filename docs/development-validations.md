@@ -208,6 +208,16 @@ Claude Code and other agent mappings require post-MVP evidence.
 
 **Gate:** semantic status-adapter support for that agent/version.
 
+For the current CLI-first implementation, authenticated Codex acceptance is
+reserved for the user's final manual test. Automated unit and VM checks use
+event fixtures and dummy credential files for persistence, isolation, and
+deletion. They must not log in, request credentials, or access host Codex or
+OpenAI credentials. Fixture results do not satisfy the real versioned-trace
+gate above. Record authenticated acceptance as pending user validation in
+[implementation progress](implementation-progress.md) until the user completes
+the session-local execution, hook/status, Stop/Start, and Discard/Delete checks.
+Other MVP work proceeds without that authentication.
+
 ## 10. Event handler
 
 **Validate:** For every MVP reduced event kind, verify the typed versioned

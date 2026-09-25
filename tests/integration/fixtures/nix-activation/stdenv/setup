@@ -1,0 +1,16 @@
+# shellcheck shell=bash
+# Nix sources this file and inspects its Bash declarations. The quote-bearing
+# scalar, arrays, and outputs are intentionally consumed outside this file.
+# shellcheck disable=SC2034,SC2089,SC2090,SC2154
+plain="unexported with spaces and 'single' quote"
+export -n plain
+export QUOTED
+declare -a fixture_array=("one word" "quote'\"two" "last")
+declare -A fixture_assoc=(["space key"]="a'b" [plain]="double \"quote\"")
+fixture_function () { printf 'function:%s\n' "$1"; }
+# Structured derivations expose output paths through an associative `outputs`.
+# Give the probe one scalar name in both modes without changing that contract.
+if [[ $(declare -p outputs) == 'declare -A '* ]]; then
+  out=${outputs[out]}
+fi
+unset -v SHOULD_UNSET

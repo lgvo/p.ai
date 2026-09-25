@@ -2,18 +2,40 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, updated 2026-09-09.**
+> **Status: non-normative snapshot, updated 2026-09-24.**
 > [Project guidance](../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
+> [Implementation plan](implementation-plan.md) proposes testable delivery
+> checkpoints from a real terminal/Git session through the documented MVP.
 
 ## Executive state
 
-P has a coherent MVP behavior and lifecycle model but no production
-implementation. Project, session, runtime, environment, communication, and
-observability contracts are assigned to explicit owner documents; the gateway
-owner retains a post-MVP design. The newly confirmed plugin composition model
-requires the implementation architecture to be reconciled before work begins.
+P's CLI-first implementation has started. Package validation, trusted plugin
+activation, bounded WASI event handlers, session asset plans, the file-log
+broker, SQLite state, Git/SSH, the assembled base runtime, and the executable
+Incus plugin have passed independent review, unit tests, and the packaged VM
+suite. Public CLI/RPC creation, captured-source sessions, exact retry, daemon
+restart, and retained Stop/Start now pass against real base-image containers.
+Private status RPC, durable unattended projections, attachment leases, daemon
+events, origin-backed creation, and explicit publication also pass in the VM.
+Restricted offline devShell realization, the selected environment WASI plugin,
+and native private-image publication pass their gates. Offline public devShell
+creation, project cache reuse/rebuild, activation, and private-state persistence
+also pass. Explicit cache collection, interrupted-cleanup recovery, and
+concurrent cache reuse pass their selected VM gate. The selected Codex adapter
+passes authentication-free event, private initialization, dummy credential
+isolation, and Stop/Start VM checks. The full serial VM checkpoint through
+test 28 passed these gates together, including bounded, non-activating workspace
+inspection and interrupted-pause recovery. Bounded loss reports for Git-known
+runtime worktrees, retained commits, and fingerprints passed selected test 29.
+Destructive session lifecycle operations,
+grants, and dummy credential deletion through public cleanup remain pending.
+Authenticated Codex acceptance is reserved for
+the user's final manual test; automated tests use fixtures and dummy files.
+The [progress record](implementation-progress.md) tracks each step's
+implementation, review, and serialized VM validation. Subject contracts remain
+assigned to their owner documents; the gateway retains a post-MVP design.
 
 The fixture-backed TUI prototype now has a reviewed session-browser direction:
 Resource topology, a session picker, prefix-driven terminal navigation, and
@@ -21,23 +43,30 @@ agent/service inspection pages. [Current interaction decisions](../.prototype/tu
 record that direction and its integration limits. Production TUI implementation
 and reconciliation of the agent/service extensions remain open. Plugin
 authoring, installation, composition, and approval interactions also remain
-open pending their dedicated design.
+open beyond the initial [package and activation contract](plugin-contract.md).
 
 Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
 implementation work. They should narrow unsupported claims without reopening
 the product model unless evidence disproves an invariant.
 
+A [disposable NixOS/Incus lab](../dev/vm/README.md) now provides a pinned
+container fixture and an automated VM smoke test for runtime infrastructure.
+The separate product suite runs P's daemon and CLI against real Incus
+containers. Its current checkpoint covers the gates listed above; it does not
+establish the full MVP.
+
 [Product direction](PRODUCT.md) requires MVP to prove P's composable plugin
 model through secure first-party defaults for Incus runtime support, the tmux
 persistent host, Git source and session access, Nix environment preparation,
-structured file-event logging, and the Codex adapter. The usable public
+the structured file-log handler, and the Codex adapter. The usable public
 interfaces and this basic composition are sufficient for MVP; a separate
-agent-authored plugin is not a release gate. The present Go interfaces,
-systemd contract, and event handler describe behavioral inputs rather than an
-approved public plugin architecture. Plugin packaging, process model,
-isolation, transport, compatibility, capabilities,
-installation/approval UX, and composition remain unresolved and require the
-technology design to be reconciled before implementation.
+agent-authored plugin is not a release gate. The [plugin contract](plugin-contract.md)
+now owns packaging, activation, compatibility, and the selected executable
+boundary. Initial event-handler, source-Git, and runtime executable methods are
+validated. Other
+capability-specific method schemas,
+installation, and automatic composition remain implementation work. The
+foundation does not yet establish the complete plugin MVP.
 
 ## Settled model
 

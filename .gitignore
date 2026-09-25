@@ -7,3 +7,10 @@ result-*
 
 # Ignore NixOS interactive test driver history
 **/.nixos-test-history
+
+# Disposable development VM disk and smoke-test console logs
+/.cache/p-vm/
+
+# Local Go dependency and compilation caches
+/.cache/go-modules/
+/.cache/go-build/

@@ -1,0 +1,12 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "org.p.git",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "source-git",
+  "placement": "hybrid",
+  "description": "Git source operations through scoped native Git primitives",
+  "runtime": {"kind": "wasi-command", "entry": "git.wasm"},
+  "requests": ["git.project"],
+  "assets": ["p-git-ssh"]
+}

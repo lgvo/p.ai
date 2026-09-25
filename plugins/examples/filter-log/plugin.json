@@ -1,0 +1,11 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "org.p.example.filterlog",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "event-handler",
+  "placement": "host",
+  "description": "Append only reduced ready-condition events through the P broker.",
+  "runtime": {"kind": "wasi-command", "entry": "filter.wasm"},
+  "requests": ["event.file.append"]
+}

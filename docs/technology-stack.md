@@ -8,15 +8,11 @@ environment, runtime, lifecycle, observability, and gateway behavior.
 **Convention:** **Decided** is settled for MVP. **Direction** is intentionally
 changeable. **Open** still needs a decision.
 
-> **Direction mismatch requiring design:** The confirmed
-> [product direction](PRODUCT.md) now requires MVP to compose its default Incus,
-> tmux, Git, Nix, file-event, and Codex capabilities through public plugin
-> contracts while P core retains lifecycle and security authority. The
-> interfaces and operating-system contracts below remain behavioral inputs,
-> but their
-> classification as internal-only seams is no longer settled. Do not implement
-> plugin linkage from this document until a dedicated design reconciles that
-> direction.
+The [public plugin package and activation contract](plugin-contract.md) now
+governs linkage. The interfaces and operating-system contracts below supply
+capability behavior; public method schemas for each remaining implementation
+must be fixed before that capability is linked. A bounded WASI event-handler
+runner and typed session asset plans are now available.
 
 ## Stack at a glance
 
@@ -134,8 +130,9 @@ store/database and activation material. Each session receives a private
 writable Incus root derived from it.
 
 Product direction requires this Nix implementation to be the bundled MVP
-environment plugin. `EnvironmentBuilder` is a design input and has not yet been
-approved as its public contract.
+environment plugin. `EnvironmentBuilder` is a design input; the package and
+activation surface is defined by [plugin contract](plugin-contract.md), while
+the public Nix method schema still needs to be fixed before linkage.
 
 The interface remains reusable, but MVP does not specify Dockerfile, OCI, or a
 format-negotiation framework. A future provider must produce an image form
@@ -148,21 +145,15 @@ implementation substitution. Product direction now requires capability-
 specific public plugin contracts for the bundled defaults. These existing
 interfaces are design inputs, not automatically the approved public surface.
 
-### Public plugin contract — unresolved
+### Public plugin contract
 
-The public plugin contract has not selected packaging, process isolation,
-transport, discovery, installation, compatibility/versioning, capability
-manifests, composition, or approval UX. MVP must include the first usable
-surface, but until those choices have their own reviewed design, P exposes no
-stable plugin ABI and must not load repository-authored code into the control
-plane merely because it implements one of the internal Go interfaces below.
-
-The settled boundary is that developers or agents may author, register, and
-test a plugin, while trusted developer configuration controls activation,
-implementation selection, and grants. Registration conveys no authority. An
-activated plugin may operate autonomously only within its grants, and P core
-retains identity, durable state, lifecycle orchestration, policy, recovery,
-and user confirmation.
+[Plugin contract](plugin-contract.md) owns packaging, discovery,
+compatibility, execution containment, activation, and grants. Its public
+package and activation schemas are implemented for the declarative file-log
+handler, the WASI event-handler method, and fixed session asset plans. Other
+WASI capability methods and live session asset installation remain pending. Current Go
+interfaces remain behavioral design inputs; they are not an alternate linkage
+path for bundled implementations.
 
 ### Systemd interactive host
 
@@ -243,23 +234,23 @@ session-local Codex authentication.
 
 ### Event handlers
 
-```go
-type EventHandler interface {
-    Handle(context.Context, Event) error
-}
-```
+Core dispatches a reduced `p.event/v1` value through the selected plugin with
+`plugin.DispatchEvent`. The bundled `org.p.filelog` package implements the
+declarative `event.file.append` operation; a selected WASI event-handler package
+uses the same dispatcher and broker grant. Handlers receive versioned, bounded,
+redacted P events only after authoritative state changes. Handler failure is
+diagnostic and cannot roll back state. The file-log operation appends
+newline-delimited JSON to a trusted-host-configured path with restrictive
+permissions and ordinary bounded rotation. P does not persist an event outbox,
+retry/acknowledgement state, or a second authoritative event history. Future
+logging, notification, webhook, or metrics handlers can extend this plugin
+seam with their own validated capability methods.
 
-Handlers receive versioned, bounded, redacted P events only after authoritative
-state changes. Handler failure is diagnostic and cannot roll back state. MVP's
-`FileEventHandler` appends newline-delimited JSON to a trusted-host-configured
-path with restrictive permissions and ordinary bounded rotation. P does not
-persist an event outbox, retry/acknowledgement state, or a second authoritative
-event history. Future logging, notification, webhook, or metrics handlers reuse
-this interface.
-
-Product direction requires the file handler to be a bundled host-side plugin.
-The behavior above remains required, but its public plugin contract is part of
-the unresolved composition design.
+The file-log handler is a bundled host-side declarative plugin through the
+[public package and activation contract](plugin-contract.md). Its broker
+operation is the first working capability. The daemon selects the handler from
+trusted host configuration and delivers reduced events from a bounded in-memory
+queue after state changes.
 
 ### Future isolated integrations
 
@@ -307,8 +298,10 @@ operation state.
 
 ## Git server
 
-Wish middleware authenticates host and session SSH keys and invokes the real
-Git service commands on bare repositories. Server policy enforces:
+Wish supplies the SSH server and key authentication. A narrow session-channel
+handler rejects environment, PTY, subsystem, forwarding, and commands other
+than the two fixed Git services before invoking real Git on bare repositories.
+Server policy enforces:
 
 - a session principal may update only its currently assigned branch;
 - all session updates are fast-forward only; MVP has no force-push exception;
@@ -319,9 +312,14 @@ Git service commands on bare repositories. Server policy enforces:
 P does not implement the pack protocol. Read-side queries shell out to Git;
 `go-git` remains an optional fallback only if profiling justifies it.
 
-Product direction requires Git source and session access to be supplied through
-the bundled Git plugin. How that plugin enrolls its host-side and external
-session-service roles remains part of the unresolved composition design.
+The bundled `source-git` WASI package uses the versioned broker operations in
+[plugin contract](plugin-contract.md#wasi-source-git-abi) to sequence bare
+repository initialization, bounded ref reads, and native transport plans. The
+broker alone chooses repository paths and Git argv. A per-stream private hook
+callback checks the proposed ref update at Git's pre-receive boundary; the
+SQLite assignment/ref-guard lease remains held through `receive-pack`.
+The optional session helper is a digest-bound asset plan; live installation
+belongs to the runtime lifecycle.
 
 ## API and TUI
 
@@ -365,15 +363,16 @@ Planned direct dependencies:
 | `charmbracelet/bubbletea` | MIT | TUI runtime |
 | `charmbracelet/bubbles` | MIT | TUI components |
 | `charmbracelet/lipgloss` | MIT | TUI styling |
-| `charmbracelet/wish` | MIT | Git SSH server middleware |
-| `gliderlabs/ssh`, `golang.org/x/crypto` | BSD-3 | SSH implementation |
+| `charm.land/wish/v2` v2.0.3 | MIT | Git SSH server; selected for compatibility with pinned Go 1.26.7 |
+| `charm.land/ssh` v0.4.3, `golang.org/x/crypto` v0.57.0 | BSD-3 | SSH protocol implementation |
 | `sahilm/fuzzy` | MIT | filtering |
 | `modernc.org/sqlite` | BSD-3 | CGo-free SQLite driver |
+| `tetratelabs/wazero` | Apache-2.0 | bounded WASI plugin runner |
 | `google/go-cmp` | BSD-3 | test diffs |
 | `google/go-licenses` | Apache-2.0 | CI license gate |
 
-MVP external binaries are `git`, `incus`, `systemd`, `tmux`, `ssh`, Codex, and
-the pinned `nix` binary. SSH remains necessary for the P Git service and origin
+MVP external binaries are `git`, `incus`, `systemd`, `tmux`, `ssh`, Codex,
+Python, and the pinned `nix` binary. SSH remains necessary for the P Git service and origin
 access, not for P client transport. Nix runs inside P's builder and session
 images rather than being a host runtime dependency. Bifrost is a post-MVP
 external service. The Incus Go client is not a planned direct dependency until
@@ -381,6 +380,38 @@ the CLI adapter demonstrates a concrete limitation.
 
 A new direct dependency requires a short decision record: alternatives,
 benefit over local code/process invocation, license, and authority impact.
+
+**SQLite driver decision (step 2):** `modernc.org/sqlite v1.39.1` is pinned in
+`go.mod` under its BSD-3 license. It supplies transactions and WAL through
+`database/sql` without CGo or a separate `sqlite3` process. The alternatives
+were a CGo-linked SQLite driver or CLI calls; either would add a native build
+or process boundary without improving P's single-writer state contract. This
+driver opens only the daemon's private control database and adds no Git,
+runtime, network, or plugin authority.
+
+**Codex adapter interpreter decision (step 10a):** the pinned Nixpkgs Python
+package (PSF license) runs the small bundled adapter as the session user.
+Its standard library supplies strict JSON parsing, private file creation,
+bounded subprocess execution, and timed Unix-socket transport without a new
+host service. Alternatives were Bash plus `jq`, a native Go asset, or a
+Codex-specific runtime-kit helper. Python keeps the versioned mapping inside
+the selected plugin and below the one-MiB asset limit, with no additional
+third-party Python modules. The fixed guest interpreter runs in isolated mode;
+this adds no host filesystem, Incus, credential, or cross-session authority.
+Codex itself is pinned to `0.151.0`; fixture checks do not satisfy the pending
+authenticated acceptance gate.
+
+**WASI runner decision (step 3a):** `github.com/tetratelabs/wazero v1.12.0`
+is pinned in `go.mod`; its pinned module contains an Apache-2.0 `LICENSE`.
+Wazero supplies an in-process WebAssembly interpreter with an explicit memory
+limit, context cancellation, WASI Preview 1 imports, and typed host functions.
+Alternatives were a native plugin process with OS sandboxing or a locally
+written WebAssembly interpreter. A native process would require a separate
+syscall and namespace policy to remove ambient filesystem and network
+authority; writing an interpreter would add a larger unreviewed execution
+surface. Wazero receives no host filesystem, network, environment, or command
+imports. The only new authority is the explicitly granted, operation-scoped
+broker call; the interpreter does not own P identity or policy.
 
 ## Deliberate rigidities
 

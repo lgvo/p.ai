@@ -1,0 +1,7 @@
+[Unit]
+Description=P session target
+Requires=p-interactive.service
+After=p-interactive.service
+
+[Install]
+WantedBy=multi-user.target

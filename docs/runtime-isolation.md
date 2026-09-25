@@ -203,15 +203,46 @@ instance root or an explicit external grant.
 | `/workspace` | assigned branch working repository |
 | `/home/p` | persistent session home |
 | `/nix` | cached image store plus private session additions |
-| `/run/p` | session-specific P endpoints and credential files |
+| `/opt/p/endpoints` | fixed Incus staging mount for session-specific P Unix sockets |
+| `/run/p` | read-only private bind of the staged sockets used by session processes |
+| `/etc/p/git` | session-specific P Git credentials and trusted SSH configuration in the private instance root |
 | `/opt/p` | P runtime kit and trusted systemd/attachment support |
 | `/mnt/p/<grant-name>` | explicit external filesystem grant |
 | `/var/p/<name>` | declared runtime-owned data/cache directory |
 
 The cached image may not replace these paths with conflicting mounts or
-declarations. `/run/p` is supplied from a P-owned per-session endpoint
-directory; `/workspace` is populated after instance creation and is never an
-image layer.
+declarations. Incus mounts the P-owned per-session socket directory read-only
+at `/opt/p/endpoints` because NixOS activation recreates `/run` as tmpfs during
+boot. Before the interactive host starts, a root-owned fixed helper validates
+that exact staging mount and its two sockets, then makes a private read-only
+bind of the same directory at `/run/p`. Both paths must refer to the same
+socket objects; neither mount is writable or shared. Trusted session assembly
+installs `/etc/p/git` through the confined
+Incus file API after instance creation; those files survive stop/start in the
+private instance root. A fixed first-boot helper initializes the standalone
+clone from the captured assigned branch through only the session's P Git SSH
+key; the checkout is never an image layer. Stopped-instance assembly reuses
+identical root-owned files and refuses unexpected existing files.
+
+First initialization is transactional. A root supervisor owns
+`/.p-workspace-init`, mode `0700`, and creates an unpublished staging tree
+inside it. A child with a private mount namespace binds that tree at
+`/workspace`, then runs all Git commands as uid/gid `1000:1000` with only the
+session's Git credentials. The staging parent remains inaccessible to the
+session user. Neither the bind nor its mount propagation reaches the normal
+runtime namespace. After the child exits successfully, the supervisor flushes
+the checkout and its initialization guard, atomically renames the tree over
+an empty `/workspace`, and flushes both parent directories.
+
+An interrupted initialization leaves either an empty `/workspace` and private
+scratch, or a complete published checkout. Retry can discard only unpublished
+scratch under the verified root-private parent. Unexpected scratch entries or
+an unsafe parent block cleanup. A nonempty `/workspace` without a valid
+initialization guard is preserved and blocks creation. A published checkout
+keeps ordinary user changes, including dirty files, detached HEAD, remotes,
+and later flake inputs. The guard records completed initialization only;
+systemd remains the authority for interactive-host readiness. The supervisor
+adds no Incus operation journal or duplicate lifecycle phase state.
 
 ## Grant model
 
@@ -243,17 +274,28 @@ non-executable or explicit executable
 fixed target /mnt/p/<name>
 ```
 
-P resolves symlinks and rejects dangling, cyclic, overlapping, or changing
-sources. It rejects the host root, whole home, P/Incus state and sockets,
-credential trees, host Nix state, and other broad control paths.
+P validates every source path component and rejects symlinks, dangling,
+overlapping, or changing sources. It rejects the host root, whole home,
+P/Incus state and sockets, credential trees, host Nix state, and other broad
+control paths.
 
 The source must also fall within a path prefix already authorized by the
 confined Incus project. P failing that check is a configuration error; P never
 falls back to the admin socket to attach it. Mounts are private and
 non-propagating, and P never deletes their host contents.
 
-The `/run/p` endpoint mount follows the same upper-bound rule but is generated
-and owned by P rather than selected by project configuration.
+The endpoint source follows the same upper-bound rule but is generated and
+owned by P rather than selected by project configuration. Its sole Incus
+device target is `/opt/p/endpoints`; the public runtime endpoint path is
+`/run/p` after the fixed helper prepares it. The source contains only
+`session.sock` and `git.sock`, is mounted read-only and private without UID
+shifting, and is attached only to its assigned runtime. On the host, the
+P-daemon-owned socket directory has mode `0755` below an unmounted,
+P-daemon-owned `0700` ancestor. Each socket has mode `0666` so the runtime's
+isolated UID mapping can connect. The private host ancestor prevents other
+host users from traversing to the sockets; sibling runtimes receive no mount
+of this directory or its ancestors. A runtime verifies the read-only mount
+and fixed socket contents rather than requiring a mapped owner on host files.
 
 ## Network contract
 
@@ -310,8 +352,12 @@ An Incus system container boots systemd and has a small explicit hierarchy:
 
 The Nix daemon is inside the unprivileged Incus user namespace. It is not the
 host daemon, has no host store/socket, and has authority only over this
-instance's private root and validated network profile. Nix build sandboxing
-remains enabled subject to the pinned Incus/Nix validation.
+instance's private root and validated network profile. Incus is P's required
+isolation boundary for Nix evaluation, builds, and sessions. Nix build
+sandboxing is disabled inside P-managed containers. Builds use the instance's
+private filesystem and permitted network access without an additional
+per-build namespace sandbox. The container baseline above, including disabled
+nesting, still applies.
 
 The instance does not run the P control daemon, Git server, an Incus
 client/daemon, or SSH server. Systemd is the container's ordinary service
@@ -352,10 +398,12 @@ The session receives only:
 It never receives host-origin SSH authority, the Incus socket, host Codex or
 OpenAI credentials, event-handler configuration, or another session's
 material. The user may authenticate Codex inside the session's private home;
-P does not read, copy, or manage those tool-owned files. P-provisioned secrets
-are written only under the session endpoint directory with restrictive
-ownership and are omitted from instance metadata, logs, SQLite diagnostics,
-and TUI previews.
+P does not read, copy, or manage those tool-owned files. P installs the session
+Git material under `/etc/p/git` in the private instance root: a root-owned
+`0755` directory, root-owned `ssh_config` and `known_hosts` files readable by
+`p` and not writable by it, and the `p`-owned `0400` private key `identity`.
+These files are never placed on the host socket mount. P-provisioned secrets
+are omitted from instance metadata, logs, SQLite diagnostics, and TUI previews.
 
 ## Attachment
 
@@ -413,6 +461,27 @@ helper attached only to the stopped/frozen instance storage. It must:
 - disable Git hooks, helpers, monitors, and ambient Git configuration;
 - accept enumerated operations with structured arguments; and
 - return bounded structured results.
+
+When inspection requires a helper container, creation admission reserves one
+slot beneath the configured Incus project container limit. Admission covers
+both project bootstrap and additional sessions. It counts actual project
+containers and durable session or creation reservations without a matching
+visible instance, including unresolved attempts. An exactly verified builder occupies
+its associated pending session's slot; it is not counted twice. Unassociated
+or ambiguous containers count as separate occupants. The reservation check and
+new durable intent must be serialized.
+
+This admission rule does not grant exclusive ownership of spare Incus capacity.
+External activity or older instances can still fill the project. P checks
+capacity again before creating the helper and quiescing its source; unavailable
+capacity blocks inspection without raising the ceiling or removing unrelated
+instances.
+
+The P base image uses static local account lookup (`files` for passwd/group)
+and does not run nscd/nsncd. Incus directory inspection must not wait on a
+name-service process inside a frozen source. Hostname lookup uses `files dns`;
+additional NSS modules and dynamic account providers are outside this substrate
+contract. This image configuration does not change the host's name services.
 
 The same non-activating mechanism may read the fixed P-owned systemd journal
 and diagnostic paths from a stopped instance. It does not start the instance

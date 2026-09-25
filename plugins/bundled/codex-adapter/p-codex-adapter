@@ -1,0 +1,243 @@
+#!/run/current-system/sw/bin/python3 -I
+"""Map pinned Codex events to bounded, content-free P session signals."""
+
+import json
+import os
+import re
+import socket
+import stat
+import subprocess
+import sys
+
+
+ADAPTER = "/usr/libexec/p/codex-adapter"
+CODEX = "/run/current-system/sw/bin/codex"
+SOCKET = "/run/p/session.sock"
+# Codex's arg0 setup reads CODEX_HOME/.env and creates tmp/arg0 even for
+# --version. NixOS creates /var/empty root-owned at 0555; it contains no
+# session configuration and cannot receive arg0's temporary files.
+VERSION_HOME = "/var/empty"
+MAX_INPUT = 1 << 20
+SESSION_UID = 1000
+UUID = re.compile(r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
+COMMON = {"session_id", "turn_id", "cwd", "transcript_path", "hook_event_name", "model", "permission_mode"}
+OPTIONAL = {"agent_id", "agent_type"}
+EVENTS = {
+    "UserPromptSubmit": ({"prompt"}, "running", "prompt submitted"),
+    "PreToolUse": ({"tool_name", "tool_input", "tool_use_id"}, "running", "tool starting"),
+    "PermissionRequest": ({"tool_name", "tool_input"}, "attention", "permission requested"),
+}
+
+
+def unique_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def invalid_constant(_):
+    raise ValueError("invalid JSON constant")
+
+
+def parse(raw):
+    if not raw or len(raw) > MAX_INPUT:
+        raise ValueError("input size")
+    value = json.loads(raw.decode("utf-8", "strict"), object_pairs_hook=unique_pairs,
+                       parse_constant=invalid_constant)
+    if not isinstance(value, dict):
+        raise ValueError("input object")
+    return value
+
+
+def text(value, limit):
+    return isinstance(value, str) and 0 < len(value) <= limit and "\x00" not in value
+
+
+def hook_condition(value):
+    event = value.get("hook_event_name")
+    if not isinstance(event, str) or event not in EVENTS:
+        return None
+    extra, condition, reason = EVENTS[event]
+    if not COMMON | extra <= value.keys() or value.keys() - (COMMON | extra | OPTIONAL):
+        return None
+    if not isinstance(value["session_id"], str) or not UUID.fullmatch(value["session_id"]):
+        return None
+    if not text(value["turn_id"], 256) or not text(value["cwd"], 4096) or not value["cwd"].startswith("/"):
+        return None
+    if not text(value["model"], 128) or value["permission_mode"] not in ("default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"):
+        return None
+    if value["transcript_path"] is not None and not text(value["transcript_path"], 4096):
+        return None
+    has_id, has_type = "agent_id" in value, "agent_type" in value
+    if has_id != has_type:
+        return None
+    agent_id = value["agent_id"] if has_id else None
+    if has_id and (not isinstance(agent_id, str) or not UUID.fullmatch(agent_id) or
+                   agent_id == value["session_id"] or not text(value["agent_type"], 128)):
+        return None
+    if event == "UserPromptSubmit" and not isinstance(value["prompt"], str):
+        return None
+    if event != "UserPromptSubmit" and not text(value["tool_name"], 128):
+        return None
+    if event == "PreToolUse" and not text(value["tool_use_id"], 256):
+        return None
+    # Review subagents can share session_id without agent_id in pinned Codex.
+    # An unmarked command hook therefore has session scope, not root-thread scope.
+    source = "codex/thread/" + agent_id if agent_id else "codex/session/" + value["session_id"]
+    return condition, reason, source
+
+
+def notify_condition(value):
+    required = {"type", "thread-id", "turn-id", "cwd", "input-messages", "last-assistant-message"}
+    if not required <= value.keys() or value.keys() - (required | {"client"}):
+        return None
+    if value["type"] != "agent-turn-complete":
+        return None
+    thread = value["thread-id"]
+    if not isinstance(thread, str) or not UUID.fullmatch(thread):
+        return None
+    if not text(value["turn-id"], 256) or not text(value["cwd"], 4096) or not value["cwd"].startswith("/"):
+        return None
+    if not isinstance(value["input-messages"], list) or not all(isinstance(x, str) for x in value["input-messages"]):
+        return None
+    if value["last-assistant-message"] is not None and not isinstance(value["last-assistant-message"], str):
+        return None
+    if "client" in value and not isinstance(value["client"], str):
+        return None
+    return "idle", "turn complete", "codex/thread/" + thread
+
+
+def safe_version_home():
+    for path in ("/", "/var", VERSION_HOME):
+        st = os.lstat(path)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != 0 or st.st_gid != 0 or st.st_mode & 0o022:
+            return False
+    return stat.S_IMODE(os.lstat(VERSION_HOME).st_mode) == 0o555
+
+
+def pinned_codex():
+    try:
+        if not safe_version_home():
+            return False
+        result = subprocess.run([CODEX, "--version"], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                timeout=3, check=True, cwd="/",
+                                env={"HOME": VERSION_HOME, "CODEX_HOME": VERSION_HOME,
+                                     "PATH": "/run/current-system/sw/bin"})
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.stdout in (b"codex-cli 0.151.0\n", b"codex 0.151.0\n")
+
+
+def report(condition, reason, source):
+    payload = {"jsonrpc": "2.0", "method": "status.report", "params": {
+        "v": 1, "source": source, "condition": condition, "reason": reason,
+        "adapter": "codex", "adapter_version": "0.151.0"}}
+    line = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("ascii") + b"\n"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        conn.settimeout(2)
+        conn.connect(SOCKET)
+        conn.sendall(line)
+
+
+HOOKS = ("UserPromptSubmit", "PreToolUse", "PermissionRequest")
+HOOKS_JSON = (json.dumps({"hooks": {event: [{"hooks": [{"type": "command", "command": ADAPTER + " hook", "timeout": 8}]}]
+                                      for event in HOOKS}}, separators=(",", ":"), sort_keys=True) + "\n").encode()
+CONFIG_TOML = ("cli_auth_credentials_store = \"file\"\n"
+               "notify = [\"" + ADAPTER + "\", \"notify\"]\n").encode()
+
+
+def check_existing(directory_fd, name, expected):
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     dir_fd=directory_fd)
+    except FileNotFoundError:
+        return False
+    with os.fdopen(fd, "rb") as item:
+        st = os.fstat(item.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != SESSION_UID or stat.S_IMODE(st.st_mode) != 0o600 or st.st_nlink != 1:
+            raise ValueError("existing Codex config is unsafe")
+        if item.read(len(expected) + 1) != expected:
+            raise ValueError("existing Codex config is user-managed")
+    return True
+
+
+def init(home="/home/p"):
+    if os.geteuid() != SESSION_UID or os.environ.get("HOME") != home:
+        raise ValueError("adapter init requires session user and home")
+    home_fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        st = os.fstat(home_fd)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != SESSION_UID or stat.S_IMODE(st.st_mode) != 0o700:
+            raise ValueError("session home is unsafe")
+        try:
+            old_umask = os.umask(0)
+            try:
+                os.mkdir(".codex", 0o700, dir_fd=home_fd)
+            finally:
+                os.umask(old_umask)
+        except FileExistsError:
+            pass
+        directory_fd = os.open(".codex", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                               dir_fd=home_fd)
+        try:
+            st = os.fstat(directory_fd)
+            if not stat.S_ISDIR(st.st_mode) or st.st_uid != SESSION_UID or stat.S_IMODE(st.st_mode) != 0o700:
+                raise ValueError("Codex config directory is unsafe")
+            wanted = (("hooks.json", HOOKS_JSON), ("config.toml", CONFIG_TOML))
+            present = [(name, check_existing(directory_fd, name, data)) for name, data in wanted]
+            for (name, data), (_, exists) in zip(wanted, present):
+                if exists:
+                    continue
+                fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=directory_fd)
+                # A later failure leaves only our exact O_EXCL-created file,
+                # which an idempotent retry can verify. Never unlink a path a
+                # same-UID process might have replaced meanwhile.
+                with os.fdopen(fd, "wb") as item:
+                    os.fchmod(item.fileno(), 0o600)
+                    item.write(data)
+                    item.flush()
+                    os.fsync(item.fileno())
+        finally:
+            os.close(directory_fd)
+    finally:
+        os.close(home_fd)
+
+
+def main():
+    if len(sys.argv) == 2 and sys.argv[1] == "init":
+        if not pinned_codex():
+            raise ValueError("unsupported Codex version")
+        init()
+        return 0
+    if not pinned_codex():
+        return 0  # Unknown version never emits a semantic condition.
+    if len(sys.argv) == 2 and sys.argv[1] == "hook":
+        value = parse(sys.stdin.buffer.read(MAX_INPUT + 1))
+        mapped = hook_condition(value)
+    elif len(sys.argv) == 3 and sys.argv[1] == "notify":
+        mapped = notify_condition(parse(sys.argv[2].encode("utf-8", "strict")))
+    else:
+        return 64
+    if mapped is not None:
+        report(*mapped)
+    return 0
+
+
+def run():
+    try:
+        return main()
+    except (OSError, ValueError, UnicodeError, TypeError, KeyError, RecursionError):
+        if len(sys.argv) == 2 and sys.argv[1] == "init":
+            print("Codex adapter initialization refused; existing user state preserved", file=sys.stderr)
+            return 1
+        # Hook failures must not affect Codex's own approval or tool decision.
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())
