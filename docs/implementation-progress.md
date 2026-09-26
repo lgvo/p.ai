@@ -227,11 +227,32 @@ mapping in the selected plugin rather than the P core status reducer.
 
 ### Manual Codex acceptance — pending user validation
 
-The pinned adapter and authentication-free checks are available. Run the full
-procedure after steps 8–9 provide public cleanup and public egress.
-Use two disposable sessions, A and B, with separate private homes. The final
-delivery will supply their creation and confirmed cleanup commands; those
-methods are not all implemented yet.
+The pinned adapter and authentication-free checks are available. This gate
+remains pending until the user runs it. Use a configured disposable project
+with the trusted `public-egress` policy, selected Codex adapter, and a committed
+source whose devShell provides Codex `0.151.0`. Real public network access
+must work on the user's machine; VM37 did not establish that positive gate.
+Create two disposable branches/sessions with separate private homes:
+
+```sh
+P_SOCKET=/absolute/path/to/control.sock
+P_PROJECT=your/disposable-project
+P_SOURCE=refs/heads/main
+RUN=codex-acceptance-$(date +%s)
+CREATE_A=$(p api "$P_SOCKET" session.create "$(jq -nc --arg key "$RUN-a" \
+  --arg project "$P_PROJECT" --arg branch "$RUN-a" --arg source "$P_SOURCE" \
+  '{v:1,key:$key,project:$project,branch:$branch,choice:"new",source:$source}')")
+CREATE_B=$(p api "$P_SOCKET" session.create "$(jq -nc --arg key "$RUN-b" \
+  --arg project "$P_PROJECT" --arg branch "$RUN-b" --arg source "$P_SOURCE" \
+  '{v:1,key:$key,project:$project,branch:$branch,choice:"new",source:$source}')")
+SESSION_A=$(jq -er '.result.operation.session_uuid' <<< "$CREATE_A")
+SESSION_B=$(jq -er '.result.operation.session_uuid' <<< "$CREATE_B")
+```
+
+For each returned `.result.operation.id`, call
+`p api "$P_SOCKET" operation.inspect "$(jq -nc --arg id "$OPERATION_ID" '{v:1,id:$id}')"`
+until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
+`failed`. Then check each `session.inspect` for `session_condition:"ready"`.
 
 1. Enter A with `p attach "$P_SOCKET" "$SESSION_A"`. Inside the session, run:
 
@@ -262,12 +283,43 @@ methods are not all implemented yet.
 3. Detach, call `session.stop` and then `session.start` with the same UUID
    parameters, and poll `session.inspect` until ready. Reattach and verify
    `codex login status` and a new real Codex task without another login.
+
+   ```sh
+   p api "$P_SOCKET" session.stop "$(jq -nc --arg uuid "$SESSION_A" '{v:1,uuid:$uuid}')"
+   p api "$P_SOCKET" session.start "$(jq -nc --arg uuid "$SESSION_A" '{v:1,uuid:$uuid}')"
+   p api "$P_SOCKET" session.inspect "$(jq -nc --arg uuid "$SESSION_A" '{v:1,uuid:$uuid}')"
+   ```
 4. Enter B and confirm it has no authentication from A. Do not copy A's
    credential file into B. Any login in B is a separate manual login.
 5. Review and confirm Discard for a disposable authenticated session, then
    Delete for another. Verify each operation's cleanup evidence and that its
    old private home/runtime cannot be reopened. A replacement session must
    require a new login. Check that the other session remains intact.
+
+   Use this exact flow for A with `ACTION=discard`, then B with
+   `ACTION=delete`. Detach first. After loss inspection, poll its operation as
+   above until completed; review the printed preview before confirmation.
+   A changed or expired report requires a new inspection/preview.
+
+   ```sh
+   TARGET=$SESSION_A
+   ACTION=discard
+   LOSS=$(p api "$P_SOCKET" workspace.loss.inspect "$(jq -nc \
+     --arg key "$RUN-$ACTION-loss" --arg uuid "$TARGET" '{v:1,key:$key,uuid:$uuid}')")
+   LOSS_ID=$(jq -er '.result.operation.id' <<< "$LOSS")
+   # Poll operation.inspect for LOSS_ID until completed before continuing.
+   PREVIEW=$(p api "$P_SOCKET" session.removal.preview "$(jq -nc \
+     --arg uuid "$TARGET" --arg kind "$ACTION" --arg loss "$LOSS_ID" \
+     '{v:1,uuid:$uuid,kind:$kind,loss_operation_id:$loss}')")
+   jq '.result.preview' <<< "$PREVIEW"
+   # Only after reviewing and accepting the named losses:
+   TOKEN=$(jq -er '.result.preview.confirmation_token' <<< "$PREVIEW")
+   REMOVE=$(p api "$P_SOCKET" "session.$ACTION" "$(jq -nc \
+     --arg key "$RUN-$ACTION" --arg uuid "$TARGET" --arg token "$TOKEN" \
+     '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')")
+   # Poll the returned operation ID until completed; old session.inspect and
+   # p attach must then fail, while the other session remains available.
+   ```
 
 Record the pinned version and each outcome here. Authentication-free fixtures
 cannot mark any real execution or authenticated persistence check as passed.
@@ -2696,3 +2748,29 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   finishing the missing tests/docs/VM45 fixture. Root is retaining the full
   historical evidence and committing progress updates independently from the
   still-unvalidated source batch.
+
+- **Runtime-identity finding during 8f1 inspection:** missing-runtime repair
+  currently checks only the deterministic instance name in preview/admission,
+  and native ordinary Create checks only that name before init. A renamed
+  Incus container with the same session UUID labels could therefore be
+  mistaken for absence and permit a duplicate runtime. Record cleanup and
+  8f1 already use a full project inventory for this proof. After 8f1, the
+  ordinary creation/repair boundary must use the same UUID-aware absence
+  proof before its durable init marker, while keeping workspace helper
+  semantics intact. Focused native regressions and the smallest serial repair
+  VM selection must prove renamed same-UUID refusal without deleting or
+  adopting it. This is a code-inspection finding, not VM evidence.
+  The manual Codex gate now includes exact CLI Create, Stop/Start and
+  loss-preview-confirmed Discard/Delete commands. It remains pending user
+  validation; this documentation update ran no authentication or real Codex
+  execution.
+
+- **8f1 resumed checkpoint:** the reused patch now has focused real SQLite,
+  RPC and native tests; affected control/daemon/runtimeincus full Go suites
+  passed with scoped socket access after the expected sandbox-denial run.
+  VM45's fixture uses only a fixture daemon PATH wrapper to pause the worker
+  ref read after public capture, advances the disposable bare ref with the
+  absolute host Git binary, and observes a blocked source-ready Create. It
+  checks stale/unsafe refusal, atomic supersession with new UUID/op/key,
+  replay/restart and sibling preservation. Bash/ShellCheck passed; final
+  race tests, retained recovery review and actual VM45 remain pending.
