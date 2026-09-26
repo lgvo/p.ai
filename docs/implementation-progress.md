@@ -12,8 +12,8 @@
 - Remaining automated delivery gate: final full serial VM suite (all55 steps).
   Reviewed fixture corrections committed `6e49231` and `c296a96`; current full
   checkpoint passed the complete first restricted group (37 checks, VM01–36
-  plus09b). That guest shut down; dedicated real-public VM37 is running alone,
-  then17 later restricted checks remain. Root owns the sole stream.
+  plus09b) and dedicated real-public VM37. Both guests shut down; final17
+  restricted checks are next/running serially. Root owns the sole stream.
   No universal repair/replacement/cleanup is claimed.
 - Authenticated Codex acceptance remains pending user validation using the
   exact manual procedure below. Automated checks use fixtures/dummy files;
@@ -4934,3 +4934,13 @@ it does not close the installation or external-tool attribution gates.
   authenticated Codex evidence. Dedicated VM37 is now running alone, console
   `.cache/p-vm/integration-20260926T230111Z-1781391.log`; later restricted group
   has not started. Full acceptance remains pending both remaining groups.
+
+  Dedicated public group passed all actual network gates in
+  `.cache/p-vm/integration-20260926T230111Z-1781391.log`: outer/container DoH,
+  real public DNS, hostname HTTPS and Nix fetch, actual public-to-private
+  resolution/redirect denials, plus Incus and outer host/private/metadata/sibling/
+  inbound denials. Synthetic-negative fixture markers remain separately labeled.
+  Exact selected/smoke markers passed; guest powered off/disk removed before
+  building final restricted group. No credentials or Codex authentication.
+  First restricted evidence committed5706056; full acceptance still awaits17
+  later restricted scripts, with the same single checkout-wide VM lock held.
