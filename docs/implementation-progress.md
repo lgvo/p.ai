@@ -2,8 +2,9 @@
 
 ## Current state — 2026-09-26
 
-- Latest committed checkpoint: **VM45 passed** guarded existing-branch Create
-  replacement, commit `8a3c8a6` on `feature/cli-first-mvp`. VM44 retained Delete, VM43 retained
+- Latest validated checkpoint: **VM46 passed** no-effect local new-branch Create
+  replacement on `feature/cli-first-mvp`; VM45 existing-branch replacement
+  passed at `8a3c8a6`. VM44 retained Delete, VM43 retained
   Rename, VM42 both-absent
   record cleanup, VM40 principal rotation, VM39 bare-present ref repair,
   VM38 missing-image repair, and VM34 missing-runtime repair passed their
@@ -13,17 +14,20 @@
   SQLite, native, socket and race tests, retained recovery review, affected
   package suites and the selected serial VM45 passed. Restart preserves
   absence facts for early creating records.
-  New-branch, dirty-workspace and uncertain-effect replacements remain outside
-  this first slice and require separate verified recovery/loss-review work.
+  **8f2 also passed:** local new-branch failures may replace into an absent
+  target or explicitly reuse their unchanged preserved ref. Blocked early
+  local requests stay dormant across restart until explicit Retry/exact replay.
+  Native-resource, dirty-workspace, origin-backed and unexpected-tip
+  replacements still require separate verified cleanup/loss-review work.
 - UUID-aware creation and missing-runtime repair now refuse renamed or
   competing native identities before init. Retained review, affected Go suites
-  and selected VM34 passed; no renamed runtime adoption was added.
+  and selected VM34 passed, commit `b4526b0`; no renamed runtime adoption was added.
 - The 2026-09-25 model/approval-service 401 interruption is recorded below.
   The user reported the OpenAI outage resolved and authorized resumption on
   2026-09-26. No VM or prior agent was running at resumption.
 - Latest full VM checkpoint is **through VM28**, before subsequent changes;
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
-  serial; VM45 powered down and removed its fresh disk.
+  serial; VM46 powered down and removed its fresh disk.
 - Remaining implementation includes broader replacement, abandonment/orphan
   handling, bulk project deletion, and installation/upgrade/backup/restore
   acceptance. VM37 proved negative public-egress isolation and synthetic
@@ -2870,3 +2874,65 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   stale admission after a competing UUID appeared, and normal repaired
   creation/restart with sibling preservation. No authentication was performed.
   Runner powered down and removed its fresh disk; this batch is validated.
+
+- **Next replacement batch 8f2 — failed new-branch creations without native
+  effects:** extend the existing atomic replacement to a blocked local-source
+  new-branch request while preserving every existing P ref. Acceptance requires
+  exact old request/source/policy and current branch facts in preview, changed
+  committed source/policy/request selection, complete old UUID resource absence,
+  stale-input refusal, atomic reservation transfer and durable exact replay.
+  An absent proposed branch may admit a new request from freshly captured local
+  committed source; a branch already created by the failed request may be
+  preserved and explicitly selected as existing. No ref reset/delete, missing
+  object import, provisional runtime deletion or ambiguous-effect cleanup is
+  authorized by this slice. Focused real SQLite/source/native tests, retained
+  review and a serial public-path VM gate are required before commit.
+  The retained implementer drafted shared selected-plugin local capture,
+  old/new exact branch observations, changed-request detection excluding only
+  the key, and atomic old/new reservation/guard checks with correct new CAS
+  intent. Initial real SQLite and selected-source tests passed. VM46 injects
+  public Git failures before CAS and after successful CAS with a failed reply,
+  while asserting unchanged refs, stale confirmation, restart/replay and
+  sibling preservation. Final affected/static checks and review remain pending;
+  no VM46 has run. Origin-backed and unexpected created-tip requests remain
+  blocked for a broader reviewed plan.
+  New-branch restart coverage exposed a scheduling hazard: Recover requeues
+  blocked early creations, so a cleared temporary before-CAS fault can cause
+  old-request branch/UUID effects before replacement inspection. The existing
+  VM45 moved-tip failure happened to stay blocked. The implementer is fencing
+  automatic scheduling of blocked early local creations with no durable
+  builder/environment-effect evidence; explicit exact Create replay/Retry,
+  running operations and later/origin recovery remain unchanged. A deterministic
+  regression and retained review will validate this correction before VM46.
+  The completed patch passed all affected control/daemon/gitservice/runtimeincus
+  package suites, focused real SQLite/RPC/selected-source/native tests, source
+  observation and recovery scheduling tests, and three repeats of targeted
+  Store/daemon race tests. Bash/ShellCheck/diff and cleared restricted-PATH
+  probes of both VM46 wrapper faults passed. API docs describe branch facts,
+  supported choices and explicit resumption. The retained reviewer now owns
+  this finished batch; live VM46 remains held for review.
+  Retained review approved with no outstanding findings. Independent focused
+  Store/source/CAS-fault/native tests and three repeats of Store/daemon race
+  tests passed, as did VM46 static checks. Root started selected serial VM46
+  with source/fixture frozen. The Git fault injection is fixture-created; the
+  asserted control API, selected-plugin source path and native resources are
+  real. No replacement path deletes/resets a P ref.
+  Selected serial VM46 passed (exit 0), log
+  `.cache/p-vm/integration-20260926T110032Z-244841.log`, marker
+  `P_NEW_CREATE_REPLACE_PASS`. Both public before-CAS failure and successful-CAS
+  failed-reply cases passed replacement, exact source/branch binding, stale
+  source/ref/key refusal, restart dormancy and renewed preview, atomic UUID
+  handoff, exact old/new replay, ref preservation and sibling data/key checks.
+  Runner powered down and removed its fresh disk. No real Codex authentication
+  was involved; broader cleanup/replacement remains pending.
+
+- **Related removal finding from UUID audit:** ordinary missing-runtime
+  Discard/Delete preview and completion still inspect only the deterministic
+  name (`removal_preview.go`, `discard_process.go`). A same-UUID runtime renamed
+  elsewhere in the project could therefore survive a reported completed
+  removal while its recognizable registry identity is dropped. The next safety
+  follow-up must reuse the full native inventory proof before missing-runtime
+  confirmation/commit and before row removal, preserving unexpected machinery
+  and requiring explicit abandonment rather than reporting it absent. Current
+  source inspection is a finding, not VM evidence; no additional runtime or
+  destructive operation was performed during this audit.

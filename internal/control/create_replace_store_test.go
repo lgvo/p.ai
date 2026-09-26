@@ -124,7 +124,7 @@ func TestReplaceBlockedCreateRefusesProvisionalBuilderAndPrincipal(t *testing.T)
 }
 
 func TestReplaceBlockedCreateSQLiteRefusalsPreserveReservation(t *testing.T) {
-	for _, name := range []string{"new-branch", "later-phase", "retried", "ref-cas", "environment-effect", "foreign-assignment", "ref-guard", "native-unknown", "unchanged", "capacity", "rollback", "retry-during-proof"} {
+	for _, name := range []string{"origin-source", "later-phase", "retried", "ref-cas", "environment-effect", "foreign-assignment", "ref-guard", "native-unknown", "unchanged", "capacity", "rollback", "retry-during-proof"} {
 		t.Run(name, func(t *testing.T) {
 			s, _ := openTestStore(t)
 			ctx := context.Background()
@@ -132,7 +132,7 @@ func TestReplaceBlockedCreateSQLiteRefusalsPreserveReservation(t *testing.T) {
 				t.Fatal(e)
 			}
 			oldReq := ReserveSessionRequest{Key: "old", Project: "team/app", Branch: "work", Choice: "existing"}
-			if name == "new-branch" {
+			if name == "origin-source" {
 				oldReq.Choice = "new"
 				oldReq.Source = "refs/heads/main"
 			}
@@ -145,6 +145,9 @@ func TestReplaceBlockedCreateSQLiteRefusalsPreserveReservation(t *testing.T) {
 			ev, _ := Evidence(old)
 			phase, status, committed := "source-ready", "blocked", false
 			switch name {
+			case "origin-source":
+				ev.OriginURL = "ssh://origin.invalid/repo"
+				ev.OriginRef = "refs/heads/main"
 			case "later-phase":
 				phase, committed = "runtime-created", true
 			case "retried":
@@ -297,5 +300,146 @@ func TestReplaceBlockedCreateCapturesChangedPolicyWithoutMovingRef(t *testing.T)
 	newSession, e := s.GetSession(ctx, fresh.SessionUUID)
 	if e != nil || string(newSession.Policy) != string(policy) || newSession.PolicySHA256 != hash {
 		t.Fatalf("new policy snapshot: %+v %v", newSession, e)
+	}
+}
+
+func TestReplaceBlockedLocalNewCreateChoicesAndRestartReplay(t *testing.T) {
+	for _, tc := range []struct {
+		name, phase, branch, choice, source string
+		tipChanged                          bool
+	}{
+		{name: "same-absent-target-new-source", phase: "source-ready", branch: "work", choice: "new", source: "refs/heads/main", tipChanged: true},
+		{name: "different-absent-target", phase: "source-ready", branch: "other", choice: "new", source: "refs/heads/main"},
+		{name: "preserved-created-target", phase: "branch-assigned", branch: "work", choice: "existing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, dir := openTestStore(t)
+			ctx := context.Background()
+			if e := s.CreateProject(ctx, "team/app", json.RawMessage(`{"network":"none"}`)); e != nil {
+				t.Fatal(e)
+			}
+			oldReq := ReserveSessionRequest{Key: "old", Project: "team/app", Branch: "work", Choice: "new", Source: "refs/heads/main"}
+			old, session, e := s.BeginSessionCreate(ctx, oldReq, strings.Repeat("d", 64), testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
+				return strings.Repeat("a", 40), false, nil
+			})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = s.AdvanceOperation(ctx, old.ID, "blocked", tc.phase, tc.phase == "branch-assigned", old.Evidence, ""); e != nil {
+				t.Fatal(e)
+			}
+			req := ReserveSessionRequest{Key: "replacement", Project: session.Project, Branch: tc.branch, Choice: tc.choice, Source: tc.source}
+			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: req}
+			tip := strings.Repeat("a", 40)
+			if tc.tipChanged {
+				tip = strings.Repeat("b", 40)
+			}
+			observe := func(context.Context, []CapacityReservation) (CapacityObservation, error) {
+				return CapacityObservation{Limit: 4, Occupied: map[string]bool{}}, nil
+			}
+			fresh, e := s.ReplaceBlockedCreate(ctx, intent, strings.Repeat("d", 64), testSelection(), nil, observe, func(context.Context) (string, error) { return tip, nil })
+			if e != nil {
+				t.Fatal(e)
+			}
+			ev, e := Evidence(fresh)
+			if e != nil || ev.CapturedOID != tip || ev.BranchExisted != (tc.choice == "existing") || ev.RefCASIntent != (tc.choice == "new") || ev.SupersedesUUID != session.UUID {
+				t.Fatalf("new immutable choice: %+v %v", ev, e)
+			}
+			if got, e := s.GetSession(ctx, fresh.SessionUUID); e != nil || got.Branch != tc.branch {
+				t.Fatalf("new target assignment: %+v %v", got, e)
+			}
+			if e = s.Close(); e != nil {
+				t.Fatal(e)
+			}
+			s, e = testScopedOpenStore(dir)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer s.Close()
+			if replay, e := s.ReplaceBlockedCreate(ctx, intent, strings.Repeat("d", 64), testSelection(), nil, observe, func(context.Context) (string, error) { t.Fatal("replay observed source"); return "", nil }); e != nil || replay.ID != fresh.ID {
+				t.Fatalf("restart replay: %+v %v", replay, e)
+			}
+			if got, _, e := s.BeginSessionCreate(ctx, oldReq, strings.Repeat("d", 64), testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
+				t.Fatal("superseded replay recaptured")
+				return "", false, nil
+			}); e != nil || got.Status != "superseded" {
+				t.Fatalf("old replay: %+v %v", got, e)
+			}
+		})
+	}
+}
+
+func TestReplaceBlockedNewCreateRefusesOccupiedGuardedOrUnchangedTarget(t *testing.T) {
+	for _, name := range []string{"occupied", "guarded", "unchanged", "origin-new", "foreign-existing", "stale-source", "late-builder", "stale-during-proof"} {
+		t.Run(name, func(t *testing.T) {
+			s, _ := openTestStore(t)
+			ctx := context.Background()
+			if e := s.CreateProject(ctx, "app", json.RawMessage(`{"network":"none"}`)); e != nil {
+				t.Fatal(e)
+			}
+			oldReq := ReserveSessionRequest{Key: "old", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"}
+			old, session, e := s.BeginSessionCreate(ctx, oldReq, strings.Repeat("d", 64), testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
+				return strings.Repeat("a", 40), false, nil
+			})
+			if e != nil {
+				t.Fatal(e)
+			}
+			ev, _ := Evidence(old)
+			if name == "late-builder" {
+				ev.BuilderTreeOID = strings.Repeat("c", 40)
+			}
+			raw, _ := json.Marshal(ev)
+			if e = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, raw, ""); e != nil {
+				t.Fatal(e)
+			}
+			req := ReserveSessionRequest{Key: "new", Project: "app", Branch: "other", Choice: "new", Source: "refs/heads/main"}
+			if name == "unchanged" {
+				req.Branch = oldReq.Branch
+			}
+			if name == "foreign-existing" {
+				req.Choice = "existing"
+				req.Source = ""
+			}
+			if name == "origin-new" {
+				req.Source = ""
+				req.OriginRef = "refs/heads/main"
+				req.ExpectedCommitOID = strings.Repeat("b", 40)
+			}
+			if name == "occupied" {
+				if _, _, e = s.BeginSessionCreate(ctx, ReserveSessionRequest{Key: "foreign", Project: "app", Branch: "other", Choice: "existing"}, strings.Repeat("d", 64), testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
+					return strings.Repeat("c", 40), true, nil
+				}); e != nil {
+					t.Fatal(e)
+				}
+			}
+			if name == "guarded" {
+				if _, e = s.db.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES('app','other',?)`, old.ID); e != nil {
+					t.Fatal(e)
+				}
+			}
+			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: req}
+			verify := func(context.Context) (string, error) {
+				if name == "stale-source" {
+					return "", ErrConflict
+				}
+				if name == "stale-during-proof" {
+					if _, e := s.db.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES('app','other',?)`, old.ID); e != nil {
+						t.Fatal(e)
+					}
+				}
+				return strings.Repeat("a", 40), nil
+			}
+			if _, e = s.ReplaceBlockedCreate(ctx, intent, strings.Repeat("d", 64), testSelection(), nil, func(context.Context, []CapacityReservation) (CapacityObservation, error) {
+				return CapacityObservation{Limit: 4, Occupied: map[string]bool{}}, nil
+			}, verify); e == nil {
+				t.Fatal("unsafe replacement admitted")
+			}
+			if _, e = s.GetSession(ctx, session.UUID); e != nil {
+				t.Fatal("old assignment removed", e)
+			}
+			if got, e := s.GetOperation(ctx, old.ID); e != nil || got.Status != "blocked" {
+				t.Fatalf("old operation changed: %+v %v", got, e)
+			}
+		})
 	}
 }

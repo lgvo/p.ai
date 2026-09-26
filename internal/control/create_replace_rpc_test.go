@@ -57,6 +57,10 @@ func TestCreateReplaceRPCClosedRequests(t *testing.T) {
 	if e != nil || p.previews != 1 || p.uuid != uuid || p.request.Key != "new" || !result.(map[string]any)["preview"].(CreateReplacePreview).Eligible {
 		t.Fatalf("preview routing: %+v %+v", result, e)
 	}
+	newPreview, e := h(context.Background(), "session.create.replace.preview", json.RawMessage(`{"v":1,"old_uuid":"`+uuid+`","key":"fresh","project":"app","branch":"different","choice":"new","source":"refs/heads/main"}`))
+	if e != nil || p.request.Choice != "new" || p.request.Source != "refs/heads/main" || newPreview.(map[string]any)["preview"].(CreateReplacePreview).NewRequest.Branch != "different" {
+		t.Fatalf("local new choice routing: %+v %+v", newPreview, e)
+	}
 	result, e = h(context.Background(), "session.create.replace.confirm", json.RawMessage(`{"v":1,"old_uuid":"`+uuid+`","key":"new","confirmation_token":"`+token+`"}`))
 	if e != nil || p.confirms != 1 || p.key != "new" || p.token != token || result.(map[string]any)["operation"].(Operation).Kind != "session.create" {
 		t.Fatalf("confirm routing: %+v %+v", result, e)

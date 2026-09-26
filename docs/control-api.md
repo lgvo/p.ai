@@ -375,7 +375,7 @@ branch requires the explicit replacement methods below.
 |---|---|---|
 | `project.create` | `{"v":1,"key":"idempotency-key","project":"team/app"}`; optionally include `"url":"ssh://host/repo"` for origin mode | `v`, `operation`; blank mode reserves unborn `main`. Origin mode contacts the URL before committing the project and observation; an empty origin also reserves unborn `main`. |
 | `session.create` | `{"v":1,"key":"idempotency-key","project":"team/app","branch":"work","choice":"existing"}` or `choice:"new"` with `source:"refs/heads/main"` or a committed object ID; origin mode uses `choice:"new"`, `origin_ref:"refs/heads/main"` or a tag, and `expected_commit_oid:"<observed commit>"` with no `source` | `v`, `operation`; origin mode requires a fresh observation and fetch, then captures the exact commit and origin identity for Retry. Blank session creation is unavailable. |
-| `session.create.replace.preview` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","project":"team/app","branch":"work","choice":"existing"}` | `v`, `preview` with old immutable request/operation/UUID/source/policy/image, new request/source/policy/image/plugin selection, provisional resource facts, `eligible`, and `unsafe_reasons`. Eligible previews also return `confirmation_token` and `expires_at`. |
+| `session.create.replace.preview` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","project":"team/app","branch":"work","choice":"existing"}`; a failed local new-branch creation also permits `choice:"new"` with a local `source` branch or committed OID and an absent target | `v`, `preview` with old immutable request/operation/UUID/source/policy/image, `old_branch` and `new_branch` observations, new request/source/policy/image/plugin selection, provisional resource facts, `eligible`, and `unsafe_reasons`. Eligible previews also return `confirmation_token` and `expires_at`. |
 | `session.create.replace.confirm` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | `v`, new `session.create` operation; an exact accepted key/token replays after restart. |
 | `operation.inspect` | `{"v":1,"id":"operation-UUID"}` | `v`, `operation` with status, phase, bounded diagnostic, and immutable evidence. |
 | `operation.retry` | Same as inspect | `v`, `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
@@ -388,21 +388,46 @@ branch requires the explicit replacement methods below.
 
 The replacement methods implement a bounded subset of
 [Try again with changes](session-lifecycle.md#failure-cancellation-and-retry).
-They accept only a blocked existing-branch creation on the same project and
-branch, in `source-ready` or `branch-assigned` before any builder, key,
-endpoint, principal, or native runtime effect. Fresh native inventory and
-local checks must positively prove these effects absent. `provisional` reports
-`assigned_ref:"preserved_existing"` and `absent` for each resource only after
-that proof succeeds. New branches, later phases, unexpected resources,
-attachments, active workers, and unavailable observations remain ineligible;
-this path does not review or clean uncertain effects or workspace data.
-The source tip or normalized policy must have changed. The existing ref is
-preserved, including its newly observed tip.
+They accept a blocked local creation in `source-ready` or `branch-assigned`
+before any builder, key, endpoint, principal, or native runtime effect. Fresh
+native inventory and local checks must positively prove these UUID resources
+absent. An existing-branch failure may select the same existing branch. A
+local-source new-branch failure may select an absent target with `choice:"new"`
+from freshly observed committed local source, including the same desired name.
+If the failed request's ref is present at its captured commit, the replacement
+may explicitly select that same preserved branch with `choice:"existing"`.
+A different absent target also leaves the old ref intact. Origin-backed
+requests and existing targets unrelated to the failed assignment are outside
+this slice.
+
+`old_branch` and `new_branch` report the full `ref`, `observed`, `exists`, and
+optional `oid`. `observed:false` means inspection was unavailable, not absence.
+The selected source package applies ordinary Create's local committed-source
+rules: branch selectors capture their current commit, and commit selectors
+must be reachable from an ordinary P head. No missing objects are imported.
+`provisional.assigned_ref` reports `absent`, `preserved_existing`, or
+`preserved_created` after successful old-ref inspection; resource fields report
+`absent` only after the complete UUID absence proof. Unavailable inspection or
+an unexpected old created tip yields an ineligible preview. Existing refs are
+never deleted or reset by replacement, including when the old assignment moves
+to another name. A new target must be unassigned and free of lifecycle guards;
+the old reservation may be transferred to the same name.
+
+The captured source, normalized policy, or request selection (branch, choice,
+or local source selector) must have changed; changing only the key is
+insufficient. The stored `ref_cas_intent` is a planned Git CAS, not evidence
+that it ran. Replacement binds fresh ref facts and preserves any observed ref
+without inferring cleanup authority from that marker. Later phases, unexpected
+UUID resources, attachments, active workers, and unavailable native observations
+remain ineligible. This path does not review or clean uncertain runtime effects
+or workspace data.
 
 Preview is read-only. Ineligible previews return reasons without a token.
 Eligible tokens expire after two minutes and are held by the issuing daemon;
-restart invalidates an unconsumed token. Confirmation rechecks the exact
-reviewed request, tip, policy, image, plugin selection, old evidence, and
+restart invalidates an unconsumed token. A blocked early local request stays
+blocked across restart until explicit Retry or exact Create replay; startup
+does not issue its planned branch CAS or UUID effects. Confirmation rechecks the exact
+reviewed request, source and target/old ref facts, policy, image, plugin selection, old evidence, and
 resource absence. Stale facts or an expired token return `busy` without
 superseding the old request. Successful confirmation atomically marks the old
 operation `superseded`, releases its session assignment, and creates one new

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
@@ -22,16 +21,42 @@ type createReplacePreviewState struct {
 	Expiry  time.Time
 }
 
-func (l *lifecycle) createReplaceTip(ctx context.Context, req control.ReserveSessionRequest) (string, error) {
-	tip, exists, err := l.git.backend.InspectBranchRef(ctx, req.Project, req.Branch)
-	if err != nil || !exists {
-		return "", errors.Join(err, control.ErrConflict)
+type localReplacementSource interface {
+	InspectBranchRef(context.Context, string, string) (string, bool, error)
+	CaptureLocalSource(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error)
+}
+
+func observeCreateReplacementSources(ctx context.Context, git localReplacementSource, old, req control.ReserveSessionRequest, oldOID string) (control.CreateReplaceBranch, control.CreateReplaceBranch, string, error) {
+	oldBranch := control.CreateReplaceBranch{Ref: "refs/heads/" + old.Branch}
+	target := control.CreateReplaceBranch{Ref: "refs/heads/" + req.Branch}
+	oid, exists, err := git.InspectBranchRef(ctx, old.Project, old.Branch)
+	if err != nil {
+		return oldBranch, target, "", err
 	}
-	observed, err := l.git.backend.ObserveSource(ctx, req.Project, plugin.GitSourceSelector{Kind: "branch", Value: "refs/heads/" + req.Branch})
-	if err != nil || observed != tip {
-		return "", errors.Join(err, control.ErrConflict)
+	oldBranch.Observed, oldBranch.Exists, oldBranch.OID = true, exists, oid
+	if old.Branch == req.Branch {
+		target = oldBranch
+	} else {
+		oid, exists, err = git.InspectBranchRef(ctx, req.Project, req.Branch)
+		if err != nil {
+			return oldBranch, target, "", err
+		}
+		target.Observed, target.Exists, target.OID = true, exists, oid
 	}
-	return tip, nil
+	// An unexpected old created tip requires a broader review; this slice only
+	// releases its assignment and never deletes or resets the preserved ref.
+	if old.Choice == "new" && oldBranch.Exists && oldBranch.OID != oldOID {
+		return oldBranch, target, "", control.ErrConflict
+	}
+	captured, err := git.CaptureLocalSource(ctx, req)
+	if err != nil {
+		return oldBranch, target, "", err
+	}
+	oid, exists, err = git.InspectBranchRef(ctx, req.Project, req.Branch)
+	if err != nil || exists != captured.Existed || exists && oid != captured.OID || exists != target.Exists || oid != target.OID {
+		return oldBranch, target, "", errors.Join(err, control.ErrConflict)
+	}
+	return oldBranch, target, captured.OID, nil
 }
 
 // createReplaceEffects proves absence of every UUID-scoped effect the selected
@@ -48,7 +73,8 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op control.Operati
 		return control.ErrConflict
 	}
 	ev, err := control.Evidence(op)
-	if err != nil || !ev.BranchExisted || ev.RefCASIntent || ev.BuilderTreeOID != "" || ev.EnvironmentState != nil ||
+	var oldReq control.ReserveSessionRequest
+	if err != nil || json.Unmarshal(op.Request, &oldReq) != nil || !control.ReplaceableCreationEvidence(oldReq, ev) ||
 		(op.Phase == "source-ready" && op.Committed || op.Phase == "branch-assigned" && !op.Committed) {
 		return control.ErrConflict
 	}
@@ -98,13 +124,15 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 	p.OldEvidenceSHA256 = hex.EncodeToString(sum[:])
 	p.OldImageFingerprint = ev.ImageFingerprint
 	p.Provisional.AssignedRef = "preserved_existing"
-	if req.Project != s.Project || req.Branch != s.Branch || req.Choice != "existing" {
+	if req.Project != s.Project || oldReq.Project != s.Project || oldReq.Branch != s.Branch || req.OriginRef != "" ||
+		(oldReq.Choice == "existing" && (req.Branch != s.Branch || req.Choice != "existing")) ||
+		(oldReq.Choice == "new" && req.Choice == "existing" && req.Branch != s.Branch) {
 		unsafe("unsupported_replacement_choice")
 	}
 	if op.Status != "blocked" || op.Kind != "session.create" || s.Registry != "creating" {
 		unsafe("old_creation_not_blocked")
 	}
-	if op.Phase != "source-ready" && op.Phase != "branch-assigned" || !ev.BranchExisted || ev.RefCASIntent || ev.BuilderTreeOID != "" || ev.EnvironmentState != nil {
+	if op.Phase != "source-ready" && op.Phase != "branch-assigned" || !control.ReplaceableCreationEvidence(oldReq, ev) {
 		unsafe("old_effect_not_proven_absent")
 	}
 	policy, hash, err := l.store.ProjectPolicyRecord(ctx, s.Project)
@@ -116,12 +144,30 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 	if _, configured := l.cfg.PolicyForProject(s.Project); !configured || l.currentProjectPolicy(ctx, s.Project) != nil {
 		unsafe("current_policy_unavailable")
 	}
-	if tip, e := l.createReplaceTip(ctx, req); e != nil {
-		unsafe("new_source_unavailable")
+	oldBranch, target, tip, sourceErr := observeCreateReplacementSources(ctx, l.git.backend, oldReq, req, ev.CapturedOID)
+	p.OldBranch, p.NewBranch = oldBranch, target
+	if !oldBranch.Observed {
+		p.Provisional.AssignedRef = "unavailable"
+	} else if oldBranch.Exists {
+		if oldReq.Choice == "existing" {
+			p.Provisional.AssignedRef = "preserved_existing"
+		} else if oldBranch.OID == ev.CapturedOID {
+			p.Provisional.AssignedRef = "preserved_created"
+		} else {
+			p.Provisional.AssignedRef = "preserved_present"
+		}
+	} else {
+		p.Provisional.AssignedRef = "absent"
+	}
+	if sourceErr != nil {
+		unsafe("new_source_or_branch_unavailable")
 	} else {
 		p.NewCapturedOID = tip
 	}
-	if p.NewCapturedOID != "" && p.NewCapturedOID == p.OldCapturedOID && p.NewPolicySHA256 == p.OldPolicySHA256 {
+	if l.store.CheckCreateReplacementTarget(ctx, req.Project, req.Branch, oldUUID) != nil || l.store.CheckCreateReplacementTarget(ctx, s.Project, s.Branch, oldUUID) != nil {
+		unsafe("target_assignment_unavailable")
+	}
+	if p.NewCapturedOID != "" && p.NewCapturedOID == p.OldCapturedOID && p.NewPolicySHA256 == p.OldPolicySHA256 && control.SameCreateSelection(oldReq, req) {
 		unsafe("request_unchanged")
 	}
 	if e := l.createReplaceEffects(ctx, op, s); e != nil {
@@ -231,8 +277,8 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 			if e := l.createReplaceEffects(call, oldOp, s); e != nil {
 				return "", e
 			}
-			tip, e := l.createReplaceTip(call, state.Preview.NewRequest)
-			if e != nil || tip != state.Preview.NewCapturedOID {
+			oldBranch, target, tip, e := observeCreateReplacementSources(call, l.git.backend, state.Preview.OldRequest, state.Preview.NewRequest, state.Preview.OldCapturedOID)
+			if e != nil || tip != state.Preview.NewCapturedOID || oldBranch != state.Preview.OldBranch || target != state.Preview.NewBranch {
 				return "", errors.Join(e, control.ErrConflict)
 			}
 			return tip, nil
@@ -243,7 +289,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	l.mu.Lock()
 	delete(l.createReplacePreviews, token)
 	l.mu.Unlock()
-	l.recordCreation(op, s.Branch)
+	l.recordCreation(op, state.Preview.NewRequest.Branch)
 	if e = l.enqueue(op.ID); e != nil {
 		return op, e
 	}

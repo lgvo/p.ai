@@ -352,6 +352,9 @@ func (l *lifecycle) Recover() error {
 		after = next
 	}
 	for _, op := range ops {
+		if deferBlockedCreationUntilRetry(op) {
+			continue
+		}
 		if op.Kind == "environment.collect" && op.Status != "running" {
 			continue
 		}
@@ -607,41 +610,8 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 		}
 		return op, nil
 	}
-	capture := func(ctx context.Context, r control.ReserveSessionRequest) (string, bool, error) {
-		current, exists, err := l.git.backend.InspectBranchRef(ctx, r.Project, r.Branch)
-		if err != nil {
-			return "", false, err
-		}
-		if r.Choice == "existing" {
-			if !exists {
-				return "", false, control.ErrNotFound
-			}
-			oid, e := l.git.backend.ObserveSource(ctx, r.Project, plugin.GitSourceSelector{Kind: "branch", Value: "refs/heads/" + r.Branch})
-			if e != nil {
-				return "", false, e
-			}
-			if oid != current {
-				return "", false, control.ErrConflict
-			}
-			return oid, true, nil
-		}
-		if exists {
-			return "", false, control.ErrConflict
-		}
-		selector := plugin.GitSourceSelector{Kind: "commit", Value: r.Source}
-		if strings.HasPrefix(r.Source, "refs/heads/") {
-			selector = plugin.GitSourceSelector{Kind: "branch", Value: r.Source}
-		}
-		oid, e := l.git.backend.ObserveSource(ctx, r.Project, selector)
-		if e != nil {
-			return "", false, e
-		}
-		return oid, false, nil
-	}
-	op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(ctx context.Context, req control.ReserveSessionRequest) (control.CapturedSource, error) {
-		oid, existed, err := capture(ctx, req)
-		return control.CapturedSource{OID: oid, Existed: existed}, err
-	}, l.observeSessionCapacity, l.environmentIntent())
+	op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(),
+		l.git.backend.CaptureLocalSource, l.observeSessionCapacity, l.environmentIntent())
 	if err != nil {
 		return op, err
 	}

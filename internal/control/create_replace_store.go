@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// CreateReplaceIntent is limited to a blocked existing-branch creation whose
+// CreateReplaceIntent is limited to a blocked local-source creation whose
 // durable evidence proves that no builder or publication was attempted.
 type CreateReplaceIntent struct {
 	OldOperationID    string
@@ -29,7 +29,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if !validUUID(intent.OldOperationID) || !validUUID(intent.OldUUID) ||
 		!validFingerprint(intent.OldEvidenceSHA256) || !validFingerprint(intent.OldPolicySHA256) || !validFingerprint(intent.NewPolicySHA256) ||
 		!validFingerprint(intent.TokenSHA256) || !ValidSessionCreateRequest(intent.New) ||
-		intent.New.Choice != "existing" || !validFingerprint(image) || !selection.Valid() ||
+		intent.New.OriginRef != "" || !validFingerprint(image) || !selection.Valid() ||
 		observe == nil || verify == nil || environment != nil && (!environment.Valid() || environment.BaseFingerprint != image) {
 		return Operation{}, ErrInvalid
 	}
@@ -89,32 +89,37 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	var oldRequest ReserveSessionRequest
 	var oldEv CreationEvidence
 	if tx.QueryRowContext(ctx, `SELECT request_json FROM operations WHERE id=?`, intent.OldOperationID).Scan(&oldEvidence) != nil ||
-		json.Unmarshal([]byte(oldEvidence), &oldRequest) != nil || oldRequest.Choice != "existing" ||
-		oldRequest.Project != intent.New.Project || oldRequest.Branch != intent.New.Branch {
+		json.Unmarshal([]byte(oldEvidence), &oldRequest) != nil || !ValidSessionCreateRequest(oldRequest) ||
+		oldRequest.Project != intent.New.Project ||
+		(oldRequest.Choice == "existing" && (intent.New.Choice != "existing" || oldRequest.Branch != intent.New.Branch)) ||
+		(oldRequest.Choice == "new" && intent.New.Choice == "existing" && oldRequest.Branch != intent.New.Branch) {
 		return Operation{}, ErrConflict
 	}
 	if tx.QueryRowContext(ctx, `SELECT evidence_json FROM operations WHERE id=?`, intent.OldOperationID).Scan(&oldEvidence) != nil ||
-		json.Unmarshal([]byte(oldEvidence), &oldEv) != nil || !oldEv.BranchExisted || oldEv.RefCASIntent ||
-		oldEv.BuilderTreeOID != "" || oldEv.EnvironmentState != nil || oldEv.PolicySHA256 != intent.OldPolicySHA256 {
+		json.Unmarshal([]byte(oldEvidence), &oldEv) != nil || !ReplaceableCreationEvidence(oldRequest, oldEv) || oldEv.PolicySHA256 != intent.OldPolicySHA256 {
 		return Operation{}, ErrConflict
 	}
 	var project, branch, policy, registry string
 	if err = tx.QueryRowContext(ctx, `SELECT project_path,branch,policy_sha256,registry_state FROM sessions WHERE uuid=?`, intent.OldUUID).Scan(&project, &branch, &policy, &registry); err != nil ||
-		project != intent.New.Project || branch != intent.New.Branch || policy != intent.OldPolicySHA256 || registry != "creating" {
+		project != intent.New.Project || branch != oldRequest.Branch || policy != intent.OldPolicySHA256 || registry != "creating" {
 		return Operation{}, errors.Join(err, ErrConflict)
 	}
 	var principals, guards int
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE session_uuid=?`, intent.OldUUID).Scan(&principals); err != nil || principals != 0 {
 		return Operation{}, ErrConflict
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=? AND branch=?`, project, branch).Scan(&guards); err != nil || guards != 0 {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=? AND branch IN (?,?)`, project, branch, intent.New.Branch).Scan(&guards); err != nil || guards != 0 {
+		return Operation{}, ErrConflict
+	}
+	var assigned int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE project_path=? AND branch=? AND uuid<>?`, project, intent.New.Branch, intent.OldUUID).Scan(&assigned); err != nil || assigned != 0 {
 		return Operation{}, ErrConflict
 	}
 	var newPolicy, newHash string
 	if err = tx.QueryRowContext(ctx, `SELECT policy_json,policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&newPolicy, &newHash); err != nil {
 		return Operation{}, errors.Join(err, ErrConflict)
 	}
-	if newHash != intent.NewPolicySHA256 || tip == oldEv.CapturedOID && newHash == intent.OldPolicySHA256 {
+	if newHash != intent.NewPolicySHA256 || tip == oldEv.CapturedOID && newHash == intent.OldPolicySHA256 && SameCreateSelection(oldRequest, intent.New) {
 		return Operation{}, ErrConflict
 	}
 	newSessionID, err := newUUID()
@@ -132,13 +137,13 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if _, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE uuid=? AND registry_state='creating'`, intent.OldUUID); err != nil {
 		return Operation{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES(?,?,?,'creating',?,?)`, newSessionID, project, branch, newPolicy, newHash); err != nil {
+	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES(?,?,?,'creating',?,?)`, newSessionID, project, intent.New.Branch, newPolicy, newHash); err != nil {
 		return Operation{}, classifyWrite(err)
 	}
 	if err = reservePublicAddressTx(ctx, tx, newSessionID, json.RawMessage(newPolicy)); err != nil {
 		return Operation{}, err
 	}
-	ev := CreationEvidence{CapturedOID: tip, BranchExisted: true, ImageFingerprint: image, PolicySHA256: newHash,
+	ev := CreationEvidence{CapturedOID: tip, BranchExisted: intent.New.Choice == "existing", RefCASIntent: intent.New.Choice == "new", ImageFingerprint: image, PolicySHA256: newHash,
 		Selection: selection, SupersedesOperationID: intent.OldOperationID, SupersedesUUID: intent.OldUUID,
 		ReplacementTokenSHA256: intent.TokenSHA256}
 	if environment != nil {
@@ -158,4 +163,24 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	}
 	return Operation{ID: newID, Key: intent.New.Key, Kind: "session.create", Project: project, SessionUUID: newSessionID,
 		Request: request, Status: "running", Phase: "source-ready", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
+}
+
+// CheckCreateReplacementTarget is read-only preview evidence. Admission repeats
+// the assignment and lifecycle-guard checks in its atomic handoff transaction.
+func (s *Store) CheckCreateReplacementTarget(ctx context.Context, project, branch, oldUUID string) error {
+	if !validProject(project) || !validBranch(branch) || !validUUID(oldUUID) {
+		return ErrInvalid
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE project_path=? AND branch=? AND uuid<>?`, project, branch, oldUUID).Scan(&count); err != nil {
+		return err
+	} else if count != 0 {
+		return ErrConflict
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=? AND branch=?`, project, branch).Scan(&count); err != nil {
+		return err
+	} else if count != 0 {
+		return ErrConflict
+	}
+	return nil
 }

@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -150,4 +152,38 @@ func TestCreationWorkerWaitDuringPreviewRetainsWorkAndHonorsCancellation(t *test
 		t.Fatalf("cancelled worker: %v", e)
 	}
 	preview()
+}
+
+func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *testing.T) {
+	req := control.ReserveSessionRequest{Key: "old", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"}
+	request, _ := json.Marshal(req)
+	ev := control.CreationEvidence{CapturedOID: strings.Repeat("a", 40), ImageFingerprint: strings.Repeat("d", 64), RefCASIntent: true}
+	for _, tc := range []struct {
+		name, status, phase string
+		mutate              func(*control.CreationEvidence)
+		want                bool
+	}{
+		{name: "before-planned-cas", status: "blocked", phase: "source-ready", want: true},
+		{name: "after-assignment", status: "blocked", phase: "branch-assigned", want: true},
+		{name: "explicit-retry", status: "running", phase: "source-ready"},
+		{name: "unknown", status: "unknown", phase: "source-ready"},
+		{name: "later-runtime", status: "blocked", phase: "runtime-created"},
+		{name: "builder-intent", status: "blocked", phase: "branch-assigned", mutate: func(e *control.CreationEvidence) { e.BuilderTreeOID = strings.Repeat("b", 40) }},
+		{name: "origin-intent", status: "blocked", phase: "source-ready", mutate: func(e *control.CreationEvidence) {
+			e.OriginURL = "ssh://origin.invalid/repo"
+			e.OriginRef = "refs/heads/main"
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			evidence := ev
+			if tc.mutate != nil {
+				tc.mutate(&evidence)
+			}
+			raw, _ := json.Marshal(evidence)
+			op := control.Operation{Kind: "session.create", Status: tc.status, Phase: tc.phase, Request: request, Evidence: raw}
+			if got := deferBlockedCreationUntilRetry(op); got != tc.want {
+				t.Fatalf("defer=%v want=%v", got, tc.want)
+			}
+		})
+	}
 }

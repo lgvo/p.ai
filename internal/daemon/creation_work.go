@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/lgvo/p.ai/internal/control"
 )
@@ -31,4 +32,17 @@ func (l *lifecycle) lockCreationOperation(ctx context.Context, observed control.
 		return control.Operation{}, nil, control.ErrConflict
 	}
 	return fresh, release, nil
+}
+
+// A blocked early local request remains inspectable until an explicit Retry or
+// exact Create replay. Restart must not turn a failed planned branch CAS into
+// fresh UUID effects while the user is preparing replacement. Running intents
+// and later/origin recovery retain their existing automatic reconciliation.
+func deferBlockedCreationUntilRetry(op control.Operation) bool {
+	if op.Kind != "session.create" || op.Status != "blocked" || op.Phase != "source-ready" && op.Phase != "branch-assigned" {
+		return false
+	}
+	var req control.ReserveSessionRequest
+	ev, err := control.Evidence(op)
+	return err == nil && json.Unmarshal(op.Request, &req) == nil && control.ReplaceableCreationEvidence(req, ev)
 }

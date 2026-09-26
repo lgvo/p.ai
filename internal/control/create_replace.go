@@ -9,6 +9,8 @@ type CreateReplacePreview struct {
 	OldStatus           string                 `json:"old_status"`
 	OldPhase            string                 `json:"old_phase"`
 	OldRequest          ReserveSessionRequest  `json:"old_request"`
+	OldBranch           CreateReplaceBranch    `json:"old_branch"`
+	NewBranch           CreateReplaceBranch    `json:"new_branch"`
 	OldCapturedOID      string                 `json:"old_captured_oid"`
 	OldEvidenceSHA256   string                 `json:"old_evidence_sha256"`
 	OldPolicySHA256     string                 `json:"old_policy_sha256"`
@@ -33,4 +35,26 @@ type CreateReplaceResources struct {
 	SessionKey  string `json:"session_key,omitempty"`
 	Endpoint    string `json:"endpoint,omitempty"`
 	Principal   string `json:"principal,omitempty"`
+}
+
+// CreateReplaceBranch records a fresh exact ref observation, including absence.
+type CreateReplaceBranch struct {
+	Ref      string `json:"ref"`
+	Observed bool   `json:"observed"`
+	Exists   bool   `json:"exists"`
+	OID      string `json:"oid,omitempty"`
+}
+
+// SameCreateSelection ignores only the idempotency key when detecting changes.
+func SameCreateSelection(a, b ReserveSessionRequest) bool {
+	a.Key, b.Key = "", ""
+	return a == b
+}
+
+// ReplaceableCreationEvidence permits local choices before UUID effects.
+// RefCASIntent records a planned Git CAS; replacement never resets/deletes it.
+func ReplaceableCreationEvidence(req ReserveSessionRequest, ev CreationEvidence) bool {
+	return ValidSessionCreateRequest(req) && req.OriginRef == "" && ev.OriginURL == "" && ev.OriginRef == "" &&
+		ev.BranchExisted == (req.Choice == "existing") && ev.RefCASIntent == (req.Choice == "new") &&
+		ev.BuilderTreeOID == "" && ev.EnvironmentState == nil
 }
