@@ -1,61 +1,30 @@
 # MVP implementation progress
 
-## Current state — 2026-09-25
+## Current state — 2026-09-26
 
-- Latest selected VM evidence: **VM44 passed** retained-branch Delete with
-  exact Git loss review, stale-origin/tip refusal and sibling/origin
-  preservation. **VM43 passed** guarded retained-branch rename
-  with a local SSH origin and preserved sibling/session state. **VM42 passed** guarded unrecoverable-record
-  cleanup after exact runtime and assigned-ref absence; it preserved sibling
-  and remaining project data. **VM40 passed** missing session Git principal
-  repair with a dummy key fault, current-ref refusal, old-key live Git denial,
-  new-key acceptance, replay, and restart preservation. **VM39 passed** the bare-present assigned-ref
-  repair slice, including stale competing-ref refusal and preservation across
-  daemon restart. A local-only tip is explicitly unsupported in MVP. **VM38
-  passed** missing-derived-image repair
-  through explicit prepare/preview/confirm and post-completion restart on
-  real Incus; it preserved same UUID/branch/key and lost only dummy runtime
-  data. **VM37 passed** public-egress negative isolation,
-  controlled production-rule DNAT denial, synthetic post-resolution denial,
-  and smoke on real Incus. Public Nix fetch, actual DNS rebinding, and HTTP
-  redirects remain **unverified** in this network-restricted VM; 9c's real
-  public-traffic gate remains pending. **VM36 passed** typed project filesystem grants
-  on real Incus, including directory/file RO/noexec, explicit directory
-  RW/exec, sibling denial, external data surviving Discard, and source-swap
-  Start refusal. **VM35 passed** exact-project trusted policy
-  snapshots, drift, and missing-map Start refusal. VM34 passed explicit missing-runtime repair
-  with the same UUID, retained P branch and host session key, lost dummy
-  runtime files, and post-completion daemon restart. VM25/26 capacity-fixture reruns passed
-  after public-Discard cleanup replaced raw fixture teardown. VM33 passed
-  public Rename with retained local-ahead/private state and post-completion
-  daemon restart. VM32 passed
-  confirmed public Delete and
-  dummy Codex credential cleanup. VM31 passed confirmed public Discard; VM30 passed capacity admission
-  and read-only removal previews; VM29 passed bounded workspace-loss inspection.
-  Latest full checkpoint: **through VM28 passed**, before the current removal
-  changes. VM44 powered down and removed its fresh disk; the integration lock
-  is free.
-- VM37's serial run passed packet negative isolation with
-  `P_PUBLIC_EGRESS_NEGATIVE_PASS`; external fetch was
-  `P_PUBLIC_NIX_FETCH_UNVERIFIED`. The VM is powered down and its disk removed.
-- Removal capacity admission, read-only previews, confirmed Discard, and
-  confirmed Delete passed affected-package tests, retained review, and selected
-  VM30–32. Rename passed four affected Go suites, retained review, and selected
-  VM33; VM25/26 were revalidated afterward against current capacity admission.
-  The missing-runtime/present-image repair shape passed VM34. Missing-derived-
-  image repair passed focused tests, retained review and selected VM38.
-  Other repair, abandonment, project deletion, real public egress, and remaining
-  MVP gates are pending. The Discard and
-  Delete fixtures used dummy Codex credential data only.
-- The user clarified on 2026-09-25 that the old agent usage-limit report was
-  from the previous limit. The same implementer finished the preview batch;
-  the same reviewer approved it. Subsequent ordinary implementation proceeds
-  in the main thread, with the retained reviewer after focused tests for
-  authorization, destructive behavior, isolation, or recovery.
-- Codex adapter event and persistence fixtures passed VM27 without login;
-  public Discard/Delete dummy cleanup passed VM31/32. Authenticated real Codex
-  acceptance remains pending. Authentication is
-  reserved for the user's manual procedure below.
+- Latest committed checkpoint: **VM44 passed** retained-branch Delete; commit
+  `f079675` on `feature/cli-first-mvp`. VM43 retained Rename, VM42 both-absent
+  record cleanup, VM40 principal rotation, VM39 bare-present ref repair,
+  VM38 missing-image repair, and VM34 missing-runtime repair passed their
+  selected gates. Detailed findings and logs remain in the evidence log.
+- **8f1 in progress:** the partial existing-branch Create replacement patch is
+  preserved. One Sol/high stream is finishing tests, API docs and a real
+  public-path VM45 fixture before recovery review. No VM45 pass is claimed.
+  New-branch, dirty-workspace and uncertain-effect replacements remain outside
+  this first slice and require separate verified recovery/loss-review work.
+- The 2026-09-25 model/approval-service 401 interruption is recorded below.
+  The user reported the OpenAI outage resolved and authorized resumption on
+  2026-09-26. No VM or prior agent was running at resumption.
+- Latest full VM checkpoint is **through VM28**, before subsequent changes;
+  a final full-suite delivery checkpoint remains required. Actual VM runs stay
+  serial; VM44 powered down and removed its fresh disk.
+- Remaining implementation includes broader replacement, abandonment/orphan
+  handling, bulk project deletion, and installation/upgrade/backup/restore
+  acceptance. VM37 proved negative public-egress isolation and synthetic
+  probes only; real public Nix fetch/DNS/redirect evidence remains unverified.
+- Codex event/persistence and Discard/Delete cleanup used fixtures and dummy
+  credentials. Real authenticated Codex acceptance remains **pending user
+  validation** using the procedure below; no login or host credentials are used.
 
 Execution record for the CLI-first implementation requested on 2026-09-23.
 This is a non-normative tracker. The [implementation plan](implementation-plan.md)
@@ -2686,3 +2655,44 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   dummy key/dirty workspace/origin refs, and keyed replay after restart. The
   fresh disk was removed. This is local-SSH-origin fixture evidence; it does
   not establish external-origin availability.
+
+- **Next independent batch 8f1 — Try again with changes for a safely
+  replaceable failed Create, acceptance before edits:** public preview must
+  identify one blocked creation, its immutable old request/UUID/branch/source/
+  policy, verified provisional refs/runtime/key/image resources, and the new
+  requested source/policy/branch choice. A changed resource, local workspace
+  data, uncertain native effect, or foreign assignment is ineligible until a
+  later integrated loss-review path exists. Explicit keyed replacement must
+  durably supersede the old request, clean only verified provisional resources
+  while preserving pre-existing refs, then admit one new Create with new UUID,
+  operation ID and key. A crash or repeated key must not leave two active
+  assignments/principals/runtimes or restart the old request. Focused Store/
+  native tests, retained destructive/recovery review, and one serial VM with a
+  failed-create fixture are required before this safe subset is supported.
+  Pre-edit architecture check narrowed the first slice: `source-ready` for a
+  new branch may have already issued a zero-old Git CAS without a durable
+  issued marker, and later phases may own builder/native/credential effects.
+  This batch therefore admits only a blocked existing-branch Create still in
+  `source-ready` after positive no-effect proofs for ref, native runtime,
+  key, and builder. New-branch and later/uncertain phases remain blocked for a
+  separate reconciliation design. VM45 must produce a real blocked
+  existing-branch Create; a synthetic Store state is insufficient evidence.
+  The delegated implementation stream then added a partial RPC/Store handoff
+  for this narrow slice and direct SQLite negatives, but its model call ended
+  with a 401 service authentication error before VM45 fixture, final tests,
+  or review. No VM45 run or support claim exists. The partial patch is
+  preserved on the feature branch working tree; coordination continues in
+  the main thread without retrying or switching agents around that error.
+  An unprivileged full Go test attempt for control/daemon/runtimeincus could
+  not complete: socket tests failed at `connect`/`setsockopt: operation not
+  permitted` under the workspace sandbox. This is environment denial, not a
+  product pass or source regression. The focused SQLite replacement test did
+  pass. A separate requested Git progress commit was not executed because
+  automatic approval review itself returned 401 Unauthorized; no bypass was
+  attempted. VM45 remains unrun.
+  Resumption on 2026-09-26: the user attributed the interruption to the
+  OpenAI outage and instructed work to continue. No prior agent or VM remained
+  active. The existing patch is reused; one Sol/high implementation stream is
+  finishing the missing tests/docs/VM45 fixture. Root is retaining the full
+  historical evidence and committing progress updates independently from the
+  still-unvalidated source batch.
