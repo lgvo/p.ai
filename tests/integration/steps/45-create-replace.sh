@@ -304,7 +304,7 @@ jq -e --arg uuid "$old_uuid" --arg id "$old_id" --arg old "$first" --arg new "$s
  .result.preview | .eligible==true and .old_uuid==$uuid and .old_operation_id==$id and
  .old_request.key=="old-create" and .old_captured_oid==$old and .new_captured_oid==$new and
  .old_policy_sha256==.new_policy_sha256 and .new_request.key=="changed-create" and
- .provisional=={assigned_ref:"preserved_existing",runtime:"absent",builder:"absent",session_key:"absent",endpoint:"absent",principal:"absent"} and
+ .provisional=={assigned_ref:"preserved_existing",runtime:"absent",builder:"absent",session_key:"absent",endpoint:"absent",principal:"absent",runtime_local:"unavailable"} and
  (.confirmation_token|test("^[0-9a-f]{32}$"))' <<< "$preview" >/dev/null
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 # Positive no-effect facts are rechecked at confirmation, including unexpected keys.

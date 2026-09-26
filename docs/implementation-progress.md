@@ -9,12 +9,13 @@
   retained review and selected serial VM55, committed `4f916dd`. No VM runs
   concurrently. The hardened service is network:none-only; public-egress remains
   the separately owner-run daemon path with unchanged VM37 evidence.
-- Remaining automated delivery gate: final full serial VM suite (all55 steps).
-  Reviewed fixture corrections committed `6e49231` and `c296a96`; current full
-  checkpoint passed the complete first restricted group (37 checks, VM01–36
-  plus09b) and dedicated real-public VM37. Both guests shut down; final17
-  restricted checks are next/running serially. Root owns the sole stream.
-  No universal repair/replacement/cleanup is claimed.
+- Remaining automated delivery gate: finish the final serial restricted group.
+  First37 restricted checks and dedicated real-public VM37 passed, committed
+  `5706056` and `f4ff784`. Later group passed38–44 then VM45's stale exact
+  preview object omitted the explicit `runtime_local:"unavailable"` field.
+  Exact fixture correction passed focused checks and selected VM45; reuse
+  unaffected earlier groups and rerun final17 for all55 checkpoint coverage.
+  Root owns the sole stream; no universal cleanup/repair is claimed.
 - Authenticated Codex acceptance remains pending user validation using the
   exact manual procedure below. Automated checks use fixtures/dummy files;
   no credentials or login. Production TUI, backup/restore, software rollback,
@@ -4944,3 +4945,31 @@ it does not close the installation or external-tool attribution gates.
   building final restricted group. No credentials or Codex authentication.
   First restricted evidence committed5706056; full acceptance still awaits17
   later restricted scripts, with the same single checkout-wide VM lock held.
+
+- **Final restricted group fromc296a96:** console
+  `.cache/p-vm/integration-20260926T230322Z-1783054.log` passed38–44 (41 is
+  not an inventory entry), then VM45 failed its eligible-preview exact-shape
+  assertion atline303; unsupported-choice refusal had already passed. Bounded
+  existing diagnostics show eligible:true/no unsafe reasons and exactly the
+  expected absence fields plus `runtime_local:"unavailable"`. That explicit
+  non-observation field was added by the approved narrowed failed-creation
+  loss contract; the older strict fixture object omitted it. No authorization,
+  cleanup or eligibility failure. Correct the exact expected object to include
+  unavailable runtime-local evidence, preserving all existing exact fields and
+  fresh-ref/local-resource/replay assertions. Syntax/lint/diff checks and selected
+  VM45 precede commit. Full attempt exited1, final guest powered off/diskremoved.
+  First restricted and real-public groups remain valid: only VM45 assertion
+  changes. Resume the complete final restricted selection after the fix, reusing
+  those committed earlier group results rather than rerunning unchanged expensive
+  checks. Report all55 checkpoint coverage only once final17 scripts pass, and
+  preserve the failed original full invocation rather than claiming it exited0.
+
+  Selected serial VM45 passed, exit0, console
+  `.cache/p-vm/integration-20260926T230919Z-1840648.log`, driver
+  `/tmp/p-vm45-runtime-local-shape-driver.out`. Exact eligible preview includes
+  runtime_local unavailable; unsupported choice, resource/ref rechecks, restart
+  expiry, durable supersession/replay and unaffected sibling assertions pass.
+  Required package checks passed; VM powered off/disk removed. This one-field
+  fixture correction changes no production source or prior group inputs.
+  Commit then resume all17 final restricted scripts serially, retaining earlier
+  committed restricted/actual-public evidence and original failed full log.
