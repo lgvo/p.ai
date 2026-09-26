@@ -362,7 +362,21 @@ host/private-network access.
 
 P is licensed under **Apache-2.0**.
 Compiled dependencies must use permissive licenses such as MIT, Apache-2.0,
-BSD, or ISC. CI runs `go-licenses` over the full transitive tree. GPL/LGPL tools
+BSD, or ISC. Nix package builds run pinned `go-licenses` checks over the
+transitive native CLI/runtime and bundled WASI target graphs, using offline
+vendored sources where dependencies are required. The allowed identifiers are
+`Apache-2.0`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, and `ISC`; scanner warnings
+remain visible. Host CLI and runtime kit use `CGO_ENABLED=0` so their ELF
+binaries do not introduce a dynamically linked libc boundary. Installed native
+packages include dependency notices under `share/p/licenses/modules` and Go
+standard-library notices, including its vendored dependencies and patent grant,
+from the pinned compiler source under `share/p/licenses/go`. The CLI also
+retains the vendor tree's license, notice, author and patent files, with original
+relative paths, under `share/p/licenses/vendor`; this includes supplementary
+and nested attributions not automatically saved by the scanner. Bundled WASI
+packages have corresponding notices under `share/p/licenses/plugins`; their
+flat activation package roots stay unchanged. All bundled packages retain P's
+license in that separate notice tree. GPL/LGPL tools
 such as Git and Nix remain separate processes, not linked dependencies.
 
 Planned direct dependencies:

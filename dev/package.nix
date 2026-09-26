@@ -5,6 +5,7 @@
   git,
   openssh,
   python3,
+  go-licenses,
 }:
 let
   source = lib.cleanSourceWith {
@@ -42,6 +43,7 @@ let
       && !(lib.hasPrefix "result-" name);
   };
   bundledPlugins = callPackage ./plugin-packages.nix { src = source; };
+  goNotices = callPackage ./go-license-notices.nix { };
 in
 buildGoModule {
   pname = "p";
@@ -49,10 +51,28 @@ buildGoModule {
   src = source;
   vendorHash = "sha256-YZmEJBF15LmqH7gACdtJUBoLDZ/oO2oy2ILwQK8NAUY=";
   subPackages = [ "cmd/p" ];
+  env.CGO_ENABLED = "0";
+  nativeBuildInputs = [ go-licenses ];
+  postBuild = ''
+    go-licenses check --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC ./cmd/p
+    go-licenses save --save_path="$TMPDIR/p-module-notices" ./cmd/p
+  '';
   postInstall = ''
     mkdir -p "$out/share/p/plugins"
-    cp -R ${bundledPlugins}/. "$out/share/p/plugins/"
+    cp -R ${bundledPlugins}/plugins/. "$out/share/p/plugins/"
     cp LICENSE "$out/share/p/LICENSE"
+    mkdir -p "$out/share/p/licenses"
+    cp -R "$TMPDIR/p-module-notices" "$out/share/p/licenses/modules"
+    cp -R ${goNotices} "$out/share/p/licenses/go"
+    cp -R ${bundledPlugins}/licenses "$out/share/p/licenses/plugins"
+    # The scanner saves detected package licenses, but not every nested or
+    # supplementary attribution file (for example LICENSE-MMAP-GO).
+    while IFS= read -r -d $'\0' notice; do
+      relative="''${notice#vendor/}"
+      mkdir -p "$out/share/p/licenses/vendor/$(dirname "$relative")"
+      cp "$notice" "$out/share/p/licenses/vendor/$relative"
+    done < <(find vendor -type f \( -name 'LICENSE*' -o -name 'NOTICE*' \
+      -o -name 'COPYING*' -o -name 'AUTHORS*' -o -name 'PATENTS*' \) -print0)
   '';
   passthru = { inherit bundledPlugins; };
   doCheck = true;

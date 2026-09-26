@@ -54,7 +54,27 @@ jq -e '.version=="0.1.0-dev" and .go_version=="go1.26.7" and
   any(.dependencies[]; .path=="modernc.org/sqlite" and .version=="v1.39.1") and
   any(.dependencies[]; .path=="github.com/tetratelabs/wazero" and .version=="v1.12.0")' \
   "$step_dir/version.json" >/dev/null
-catalog="$(dirname "$(dirname "$(readlink -f "$(command -v p)")")")/share/p/plugins"
+package_root="$(dirname "$(dirname "$(readlink -f "$(command -v p)")")")"
+catalog="$package_root/share/p/plugins"
+# Inspect the installed artifacts, rather than a separately built candidate.
+test -s "$package_root/share/p/LICENSE"
+test -s "$package_root/share/p/licenses/modules/modernc.org/sqlite/LICENSE"
+test -s "$package_root/share/p/licenses/modules/github.com/tetratelabs/wazero/LICENSE"
+test -s "$package_root/share/p/licenses/vendor/modernc.org/memory/LICENSE-MMAP-GO"
+test -s "$package_root/share/p/licenses/vendor/modernc.org/libc/honnef.co/go/netdb/LICENSE"
+test -s "$package_root/share/p/licenses/vendor/github.com/tetratelabs/wazero/NOTICE"
+test -s "$package_root/share/p/licenses/go/LICENSE"
+test -s "$package_root/share/p/licenses/go/PATENTS"
+test "$(cat "$package_root/share/p/licenses/go/VERSION")" = 1.26.7
+readelf -l "$package_root/bin/p" > "$step_dir/p-program-headers"
+readelf -d "$package_root/bin/p" > "$step_dir/p-dynamic-section"
+! grep -q INTERP "$step_dir/p-program-headers"
+! grep -q NEEDED "$step_dir/p-dynamic-section"
+for module in source-git runtime-incus environment-nix; do
+  test -s "$package_root/share/p/licenses/plugins/$module/LICENSE"
+  test -s "$package_root/share/p/licenses/plugins/$module/go/LICENSE"
+  test -s "$package_root/share/p/licenses/plugins/$module/modules/github.com/lgvo/p.ai/plugins/bundled/$module/LICENSE"
+done
 p plugins defaults "$log_file" > "$step_dir/activation.json"
 jq -e --arg catalog "$catalog" --arg log "$log_file" '
   .schema=="p.activation/v1" and (.plugins|length)==6 and
@@ -119,6 +139,20 @@ boot_uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$c
 sessions+=("$boot_uuid")
 wait_operation "$(jq -er '.result.operation.id' <<< "$created")" >/dev/null
 wait_ready "$boot_uuid"
+# shellcheck disable=SC2016 # Evaluate paths inside the container.
+guest "$boot_uuid" /run/current-system/sw/bin/bash -eu -c '
+  root=$(dirname "$(dirname "$(readlink -f /usr/libexec/p/runtime-kit)")")
+  test -s "$root/share/p/LICENSE"
+  test -s "$root/share/p/licenses/go/LICENSE"
+  test -s "$root/share/p/licenses/go/PATENTS"
+  test "$(cat "$root/share/p/licenses/go/VERSION")" = 1.26.7
+'
+guest "$boot_uuid" /run/current-system/sw/bin/cat /usr/libexec/p/runtime-kit > "$step_dir/runtime-kit"
+readelf -l "$step_dir/runtime-kit" > "$step_dir/runtime-program-headers"
+readelf -d "$step_dir/runtime-kit" > "$step_dir/runtime-dynamic-section"
+! grep -q INTERP "$step_dir/runtime-program-headers"
+! grep -q NEEDED "$step_dir/runtime-dynamic-section"
+echo P_INSTALLED_STATIC_LICENSE_NOTICES_PASS
 guest "$boot_uuid" git config user.name P
 guest "$boot_uuid" git config user.email p@example.invalid
 guest "$boot_uuid" /run/current-system/sw/bin/bash -c 'printf "retained source\n" > source.txt; git add source.txt; git commit -qm initial; git push origin HEAD:main'

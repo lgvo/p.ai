@@ -76,7 +76,9 @@ inspection and confirmed cleanup, validated separately in selected VM50/51.
 Stale workspace review preserves the source for fresh confirmation; exact native
 cleanup and restart retain the branch and uncertain identities. This is a narrow
 supported failure boundary, not universal replacement or cleanup support.
-Plugin installation/update/removal and NixOS service installation remain open;
+The static CLI/runtime packages and installed dependency, supplementary vendor
+and pinned Go notices passed retained review and the selected VM48 distribution
+check. Plugin installation/update/removal and NixOS service installation remain open;
 this evidence does not establish the complete plugin MVP or authenticated
 Codex execution.
 

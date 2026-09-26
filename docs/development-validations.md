@@ -291,6 +291,13 @@ post-MVP capabilities are enabled.
 
 **Gate:** release support for each affected integration.
 
+The distribution selection (VM48) inspects installed CLI and runtime-kit ELF
+headers for absence of an interpreter and linked shared libraries, verifies
+installed dependency and pinned Go notices, and exercises the installed plugin
+catalog through actual CLI/daemon and Incus session creation, Git and Stop/Start.
+Its Codex adapter notification remains an authentication-free event fixture;
+authenticated execution is a separate manual acceptance gate.
+
 ## 12. Performance and capacity
 
 **Validate:** On representative `x86_64-linux` and `aarch64-linux` machines,

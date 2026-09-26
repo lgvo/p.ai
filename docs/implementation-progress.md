@@ -4,12 +4,14 @@
 
 - Branch: `feature/cli-first-mvp`. Latest commits: public DoH/egress `8cd7fc7`,
   Rename mismatch/manual correction `fcb4f40`, missing-ref mismatch `7e48594`.
-  Relevant serial VM37, VM33, VM39, VM50 and VM51 passed; no VM is running.
+  Relevant serial VM37, VM33, VM39, VM50, VM51 and static-distribution
+  VM48 passed; no VM is running.
 - Read-only loss inspection for stopped assembled failed creations passed
   focused/broader unit checks, retained review and selected serial VM50;
   committed `d903114`.
   Confirmed cleanup passed focused/broader/race checks, retained review and
-  selected serial VM51. Its supported boundary remains explicit below.
+  selected serial VM51, committed `8c75851`. Its supported boundary remains
+  explicit below.
 - Remaining gates: bulk project deletion, plugin management and NixOS/Incus
   installation/distribution acceptance. Complex unsupported creation/cleanup
   states preserve resources; no universal replacement/repair is claimed.
@@ -4160,3 +4162,64 @@ it does not close the installation or external-tool attribution gates.
   local base-image cleanup boundary; injected outage/crash recovery remains
   labeled, complex unsupported failures are not claimed supported, and no real
   Codex authentication/execution was attempted. Commit this passing checkpoint.
+
+- **Static packages and installed license notices — acceptance before editing:**
+  coordinator implements this ordinary batch directly; retained implementation
+  agent stays idle. Use the already-tested CGO-disabled build for both host CLI
+  and runtime kit. Enforce the pinned permissive Go dependency allowlist on actual
+  offline-vendored native and bundled WASI targets, preserve scanner diagnostics,
+  and install dependency notices plus pinned Go standard-library/source notices.
+  Inspect actual Nix-built ELF/build metadata and notice artifacts. Extend the
+  existing installed-composition VM48 with direct installed-artifact assertions,
+  retaining real CLI/plugin/Git/Stop-Start checks and fixture-only agent evidence.
+  Focused build/check evidence precedes the smallest serial selected VM48;
+  commit on pass. Service installation, plugin management and authenticated
+  Codex remain separate gates; no package/license audit closes them implicitly.
+
+  Actual Nix package builds succeeded before VM validation: CLI
+  `/nix/store/k8s4czx2ywqs1wpalzspj79mdgm3yq7d-p-0.1.0-dev` and runtime kit
+  `/nix/store/bwswd3gri8kdwqm8ssxvx1a377g3559q-p-runtime-kit-0.1.0-dev`.
+  The CLI build ran the full Go suite and 17 authentication-free Python tests;
+  native/WASI permissive checks and notice saves succeeded offline. CLI carries
+  38 module notice files; the runtime target needs only P plus Go notices.
+  Both actual binaries have no ELF interpreter or dynamic section. The pinned
+  compiler output does not carry a root Go LICENSE; extract it, PATENTS and
+  vendored Go notices from its exact `go.src` archive instead of inventing text.
+  Assembly scanner warnings remain in `/tmp/p-static-package-checks.log` and
+  retain the prior source-attribution review. Installed WASI notice paths were
+  checked against actual output before preparing VM assertions. Bash, pinned
+  ShellCheck and whitespace checks passed. Retained reviewer is checking the
+  finished batch and artifacts; root alone runs selected VM48 afterwards.
+
+  Retained review found two distribution blockers before any VM execution.
+  Nested notice directories inside WASI activation roots violated the flat
+  package contract; corrected packaging stages unchanged plugin bytes under
+  `plugins` and separate notices under `licenses`, installed beside the catalog
+  at `share/p/licenses/plugins`. Review also identified scanner-save omissions:
+  modernc memory's BSD `LICENSE-MMAP-GO` and libc's nested netdb attribution.
+  The CLI now retains all vendor LICENSE/NOTICE/COPYING/AUTHORS/PATENTS files
+  with original paths under `share/p/licenses/vendor`; installed VM assertions
+  require those supplemental files plus wazero NOTICE. No package contract,
+  license allowlist or isolation assertion was relaxed. First output is build
+  evidence only and had an invalid activation catalog; do not report it as
+  installed-composition acceptance. Corrected artifacts are being rebuilt and
+  specifically rechecked before VM48.
+
+  Corrected CLI `/nix/store/w2w1rp0zk70innkr4f6m8kbk9ly3ivi0-p-0.1.0-dev`
+  passed actual six-package discovery, defaults and activation. Retained review
+  approved both fixes: flat source-git conformance passes, and all 55 exact
+  supplemental vendor files match their pinned source bytes. Previously omitted
+  memory mmap attribution is BSD-3-Clause and nested netdb is MIT. Native runtime
+  artifact is unchanged from its passing build. No remaining blocking findings;
+  root launched only selected serial VM48, without authentication.
+
+  Selected serial VM48 `.cache/p-vm/integration-20260926T191543Z-492365.log`
+  exited **0**. `P_INSTALLED_STATIC_LICENSE_NOTICES_PASS` inspected actual
+  installed host/runtime ELF binaries and required source/dependency/Go notices.
+  Six production plugin packages passed discovery/defaults/activation; actual
+  composed sessions completed Git pushes and Stop/Start with daemon restart and
+  retained source. `P_BUNDLED_DISTRIBUTION_PASS`, selected product suite and
+  smoke passed. `P_BUNDLED_CODEX_EVENT_FIXTURE_PASS` remains explicitly fixture
+  evidence, with no authenticated Codex execution. VM powered down and its fresh
+  disk was removed. Commit this passing static-distribution checkpoint; service
+  installation, plugin management, bulk deletion and final full suite remain open.

@@ -225,6 +225,7 @@ let
       bash
       coreutils
       diffutils
+      binutils
       gnugrep
       gnused
       gawk
