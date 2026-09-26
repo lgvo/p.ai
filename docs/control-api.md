@@ -556,7 +556,11 @@ When Incus authoritatively reports the runtime absent, omit
 `loss_operation_id` and pass `"acknowledge_missing_runtime":true`. The result
 then has `runtime.condition:"missing"` and
 `runtime.runtime_loss_unknown:true`. An unreachable Incus authority does not
-qualify as an absent runtime.
+qualify as an absent runtime. Missing-runtime preview/confirmation and durable
+removal require a full confined-project inventory with no matching session
+UUID. A renamed or competing instance produces a refusal without a token or
+newly accepted action. The proof is repeated before the authority commit and
+final row removal, including after a present-runtime deletion.
 
 The result is `{"v":1,"preview":{...}}`. The preview identifies the session,
 project, assigned ref and tip (tip omitted for an unborn branch), policy,

@@ -571,7 +571,11 @@ runtime locator changed, the confirmation is stale and P returns a new report.
 
 If Incus authoritatively reports the runtime missing, P states that
 runtime-local state is already unavailable and may continue cleanup after
-explicit acknowledgement. If Incus is unreachable, normal discard and
+explicit acknowledgement. Missing-runtime preview and confirmation, the local
+authority commit, and final record removal require full confined-project
+inventory proof that no runtime carries the session UUID. A renamed or
+competing runtime blocks ordinary removal; it is neither adopted nor deleted
+through the missing-name path. If Incus is unreachable, normal discard and
 delete are blocked because loss cannot be determined; abandonment is the only
 override.
 

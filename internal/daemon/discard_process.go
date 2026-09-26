@@ -238,6 +238,10 @@ func (l *lifecycle) processDiscard(op control.Operation) {
 				l.rollbackStaleDiscard(&op, ev, source, helper, errors.New("missing runtime reappeared"))
 				return
 			}
+			if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
+				l.blockDiscard(op, e)
+				return
+			}
 			refs, e := l.git.backend.AssignedBranchSnapshot(ctx, ev.Project, ev.Branch, ev.AllowUnborn)
 			if e != nil {
 				l.blockDiscard(op, e)
@@ -450,10 +454,18 @@ func (l *lifecycle) processDiscard(op control.Operation) {
 			}
 			return
 		}
+		verify := func(c context.Context, facts control.DiscardEvidence) error {
+			if facts.MissingRuntime {
+				if e := l.runtime.ConfirmSessionRuntimeAbsent(c, source); e != nil {
+					return e
+				}
+			}
+			return l.verifyDiscardRefs(c, facts)
+		}
 		if ev.Action == "delete" {
-			err = l.store.CommitDelete(ctx, op.ID, l.verifyDiscardRefs)
+			err = l.store.CommitDelete(ctx, op.ID, verify)
 		} else {
-			err = l.store.CommitDiscard(ctx, op.ID, l.verifyDiscardRefs)
+			err = l.store.CommitDiscard(ctx, op.ID, verify)
 		}
 		if err != nil {
 			if errors.Is(err, errDiscardRefsChanged) {
@@ -467,8 +479,7 @@ func (l *lifecycle) processDiscard(op control.Operation) {
 		fallthrough
 	case "removal-committed":
 		if ev.MissingRuntime {
-			observed, e := l.runtime.Inspect(ctx, source)
-			if e != nil || observed.Exists {
+			if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
 				l.blockDiscard(op, errors.Join(e, errors.New("missing discard runtime reappeared")))
 				return
 			}
@@ -517,8 +528,7 @@ func (l *lifecycle) processDiscard(op control.Operation) {
 		}
 		fallthrough
 	case "runtime-absent":
-		observed, e := l.runtime.Inspect(ctx, source)
-		if e != nil || observed.Exists {
+		if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
 			l.blockDiscard(op, errors.Join(e, errors.New("discard runtime absence unavailable")))
 			return
 		}
@@ -537,6 +547,13 @@ func (l *lifecycle) processDiscard(op control.Operation) {
 		fallthrough
 	case "secrets-absent":
 		if ev.Action == "delete" {
+			// This phase can be resumed directly after restart, bypassing the
+			// preceding runtime-absent check. Never delete the P ref while a
+			// renamed or reappearing session runtime makes absence unverified.
+			if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
+				l.blockDiscard(op, e)
+				return
+			}
 			if err = l.git.backend.DeleteAssignedBranchExact(ctx, ev.Project, ev.Branch, ev.AssignedTip, func() error { return l.advanceDiscard(&op, ev, "branch-delete-issued") }); err != nil {
 				l.blockDiscard(op, err)
 				return
@@ -547,7 +564,12 @@ func (l *lifecycle) processDiscard(op control.Operation) {
 			}
 			break
 		}
-		if err = l.store.CompleteDiscard(ctx, op.ID, func(c context.Context, project, branch, tip string) error { return l.discardAssignedTip(c, ev) }); err != nil {
+		if err = l.store.CompleteDiscard(ctx, op.ID, func(c context.Context, project, branch, tip string) error {
+			if e := l.runtime.ConfirmSessionRuntimeAbsent(c, source); e != nil {
+				return e
+			}
+			return l.discardAssignedTip(c, ev)
+		}); err != nil {
 			l.blockDiscard(op, err)
 			return
 		}
@@ -557,7 +579,12 @@ func (l *lifecycle) processDiscard(op control.Operation) {
 		l.blockDiscard(op, errors.New("P ref delete outcome unresolved; targeted repair required"))
 		return
 	case "branch-absent":
-		if err = l.store.CompleteDelete(ctx, op.ID, func(c context.Context, project, branch, tip string) error { return l.deleteAssignedAbsent(c, ev) }); err != nil {
+		if err = l.store.CompleteDelete(ctx, op.ID, func(c context.Context, project, branch, tip string) error {
+			if e := l.runtime.ConfirmSessionRuntimeAbsent(c, source); e != nil {
+				return e
+			}
+			return l.deleteAssignedAbsent(c, ev)
+		}); err != nil {
 			l.blockDiscard(op, err)
 			return
 		}

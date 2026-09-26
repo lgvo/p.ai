@@ -67,6 +67,9 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 		if !req.AcknowledgeMissingRuntime || req.LossOperationID != "" {
 			return control.RemovalPreview{}, control.ErrConflict
 		}
+		if err := l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
+			return control.RemovalPreview{}, errors.Join(err, control.ErrConflict)
+		}
 		preview.Runtime.Condition = "missing"
 		preview.Runtime.RuntimeLossUnknown = true
 	} else {

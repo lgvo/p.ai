@@ -85,6 +85,19 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 			return control.Operation{}, err
 		}
 	}
+	if ev.MissingRuntime {
+		session, err := l.store.GetSession(ctx, req.UUID)
+		if err != nil {
+			return control.Operation{}, err
+		}
+		native, err := l.runtimeSession(ctx, session)
+		if err != nil {
+			return control.Operation{}, err
+		}
+		if err := l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
+			return control.Operation{}, errors.Join(err, control.ErrConflict)
+		}
+	}
 	var op control.Operation
 	if action == "delete" {
 		op, err = l.store.BeginDelete(ctx, pinned, ev)

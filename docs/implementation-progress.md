@@ -2,8 +2,8 @@
 
 ## Current state — 2026-09-26
 
-- Latest validated checkpoint: **VM46 passed** no-effect local new-branch Create
-  replacement on `feature/cli-first-mvp`; VM45 existing-branch replacement
+- Latest committed checkpoint: **VM46 passed** no-effect local new-branch Create
+  replacement at `1d025e9` on `feature/cli-first-mvp`; VM45 existing-branch replacement
   passed at `8a3c8a6`. VM44 retained Delete, VM43 retained
   Rename, VM42 both-absent
   record cleanup, VM40 principal rotation, VM39 bare-present ref repair,
@@ -22,6 +22,9 @@
 - UUID-aware creation and missing-runtime repair now refuse renamed or
   competing native identities before init. Retained review, affected Go suites
   and selected VM34 passed, commit `b4526b0`; no renamed runtime adoption was added.
+- UUID-aware Discard/Delete absence checks also passed selected VM34, including
+  real `secrets-absent` Delete crash/restart with a competing UUID. The branch
+  and removing record stayed intact until the same operation could safely Retry.
 - The 2026-09-25 model/approval-service 401 interruption is recorded below.
   The user reported the OpenAI outage resolved and authorized resumption on
   2026-09-26. No VM or prior agent was running at resumption.
@@ -2936,3 +2939,48 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   and requiring explicit abandonment rather than reporting it absent. Current
   source inspection is a finding, not VM evidence; no additional runtime or
   destructive operation was performed during this audit.
+
+- **Next safety follow-up — removal absence:** before editing, acceptance is
+  strict full-project UUID absence for missing-runtime Discard/Delete preview
+  and confirmation, their durable authority commit and final row removal.
+  A renamed or newly competing runtime must yield no token or accepted action,
+  retain its identity/data and preserve the session row, keys and P refs.
+  Genuine absence must still permit both reviewed outcomes and normal removal
+  recovery. Root implements this bounded follow-up directly, reuses the retained
+  reviewer after focused tests, then runs the smallest selected VM34 extension
+  serially before commit. No renamed adoption/deletion or automatic abandonment.
+  Root added native absence verification to missing-runtime preview/admission,
+  guarded/commit recovery, runtime-absent secret cleanup and final transactional
+  Discard/Delete row-removal callbacks. API and lifecycle owners describe the
+  proof. The existing native inventory implementation is unchanged. Affected
+  daemon/control/runtimeincus suites and Bash/ShellCheck/diff passed. Extended
+  VM34 preserves prior repair evidence and adds both removal refusals for a
+  real renamed runtime and a conflict appearing after preview, plus genuine
+  missing-runtime Discard/Delete and sibling/restart preservation. Retained
+  review is pending; the extended VM selection has not run.
+  Retained review found a direct-resume gap at `secrets-absent`: Delete could
+  bypass the preceding runtime-absent proof and delete the P ref before final
+  row-removal proof refused a renamed runtime. Root added a fresh proof before
+  `DeleteAssignedBranchExact`; focused daemon tests passed and source review
+  approved the correction. The fixture now pauses a read after actual key
+  cleanup while the durable phase is still `secrets-absent`, stops the daemon,
+  adds a stopped conflicting UUID, and asserts restart preserves the P branch
+  and removing record. After fixture conflict removal, exact operation Retry
+  must complete forward. Bash/ShellCheck/diff and a local cleared-PATH
+  pre-key/pause/release/ref-preservation wrapper probe passed. Specific fixture
+  recheck and selected VM34 remain pending.
+  The retained reviewer approved the specific crash fixture and confirmed
+  selected VM34 alone covers the changed absence/admission/completion and
+  resume boundaries. Independent Bash/ShellCheck/diff passed. Root started the
+  serial selected VM34 with source/fixture frozen; no live pass is claimed yet.
+  Selected serial VM34 passed (exit 0), log
+  `.cache/p-vm/integration-20260926T111209Z-296415.log`, markers
+  `P_UUID_REMOVAL_ABSENCE_PASS` and `P_MISSING_RUNTIME_REPAIR_PASS`. Real rename
+  and stale-UUID removal preview/confirmation refusals preserved row/key/refs;
+  genuine missing Discard retained main and genuine missing Delete removed
+  only main. At the proven `secrets-absent` checkpoint, restart with a conflicting
+  UUID blocked before ref deletion, retained the removing row and exact native
+  identity, then completed the same operation by Retry after fixture conflict
+  cleanup. Sibling dummy credentials and final restart/no endpoint resurrection
+  checks passed. No authentication was used. Runner powered down and removed
+  its fresh disk. The finding and review recovery gap are closed.
