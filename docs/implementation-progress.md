@@ -12,7 +12,8 @@
 - Remaining automated delivery gate: final full serial VM suite (all55 steps),
   shared-guest attempt failed atVM06; grouped attempt diagnosed selector stdin
   atVM05. Corrected focused orchestration and selected05/06/21 checks pass;
-  final restricted/public/restricted checkpoint remains pending.
+  final restricted/public/restricted checkpoint remains pending; its latest
+  attempt reachedVM07 and diagnosed a stale refusal-message assertion.
   Latest previous full checkpoint was throughVM28. Root owns the sole stream;
   retained reviewer is idle. No universal repair/replacement/cleanup is claimed.
 - Authenticated Codex acceptance remains pending user validation using the
@@ -4829,3 +4830,25 @@ it does not close the installation or external-tool attribution gates.
   and17Python package checks passed. Global lock and fresh-disk cleanup remain
   intact; no concurrent VM or authentication. Commit this reviewed orchestration
   and fixture-consistency batch with every diagnosis before full serial retry.
+
+- **Full retry from committedd78cf81:** restricted group
+  `.cache/p-vm/integration-20260926T215938Z-1538816.log` passed01–06, thenVM07
+  failed its expected Git activation diagnostic text after correct refusal.
+  Configured-package integrity leasing now rejects tampered selection earlier
+  than Git service construction. Reproduced with the exact built CLI, private
+  throwaway SQLite/host configuration and Git digest zeroed: exit1, no RPC socket,
+  exact org.p.git: package digest mismatch. Initial diagnostic fixture modes were
+  refused before digest checking; corrected to required private077/0600 without
+  weakening ownership checks, then obtained that exact diagnostic. No runtime
+  or credentials used; this is host startup evidence, not VM acceptance.
+  Update VM07's assertion to exact selected package ID+digest-mismatch message,
+  retain refusal-before-RPC/non-timeout requirements, and print bounded error
+  when expectations disagree. No product change; focused syntax/lint/diff then
+  selectedVM07 acceptance before commit/full retry.
+
+  Selected serial VM07 exited0, driver
+  `/tmp/p-vm07-integrity-diagnostic-driver.out`: real daemon/Git composition,
+  stable restarted keys/authority and exact tampered-package startup refusal
+  before RPC all passed. No product behavior changed; required package checks
+  passed, VM powered off/disk removed. Commit the diagnostic assertion and
+  preserved evidence, then resume full grouped checkpoint.

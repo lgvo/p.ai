@@ -146,6 +146,7 @@ expect_refused_start() {
   fi
   if ! grep -Fq "$reason" "$step_dir/refused.err"; then
     echo "daemon refused startup for the wrong reason: $reason" >&2
+    tail -c 2048 "$step_dir/refused.err" >&2
     exit 1
   fi
 }
@@ -267,7 +268,7 @@ server_key_backup=
 activation_backup="$step_dir/activation.saved"
 mv "$activation" "$activation_backup"
 jq '.plugins[0].sha256 = ("0" * 64)' "$activation_backup" > "$activation"
-expect_refused_start 'Git activation'
+expect_refused_start "$package_id: package digest mismatch"
 mv "$activation_backup" "$activation"
 activation_backup=
 start_daemon
