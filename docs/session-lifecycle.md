@@ -687,7 +687,7 @@ Supported MVP repair shapes are:
 | Inconsistency | Repair behavior |
 |---|---|
 | Incomplete authorized operation | Resume its defined forward/rollback path. |
-| Stale runtime locator | Outside MVP: instance names are derived from the session UUID, and no mutable locator is stored. P reports the missing expected runtime; it does not adopt a renamed instance. |
+| Stale runtime locator | Outside MVP: instance names are derived from the session UUID, and no mutable locator is stored. P reports the missing expected runtime; a same-UUID runtime under another name blocks recreation, and P does not adopt it. |
 | Missing runtime, assigned P branch intact | Reuse the recorded image when present. If absent, resolve the current committed P branch and show whether its environment identity differs before the user authorizes recreation for the same UUID; disclose that prior runtime-local state is unavailable. |
 | Runtime exists, assigned P ref missing, assigned local branch intact | Offer guarded restoration at the inspected local tip only when that commit object is already in P's bare repository. Otherwise report `p_object_missing` without a confirmation action. |
 | Missing/revoked session Git principal | Rotate/reissue the UUID-scoped principal and update only its runtime. |
@@ -700,6 +700,11 @@ that existed only in the missing runtime. It also cannot promise the original
 environment after both that instance and cached image are gone: the branch may
 now define a different devShell. P presents that difference and never silently
 substitutes the new image during start or automatic reconciliation.
+Eligibility and confirmation require the complete confined-project native
+inventory to contain no runtime with the session UUID. Ordinary runtime
+creation repeats that absence proof before its init effect marker, so a renamed
+runtime is not treated as permission to create a duplicate. Disposable workspace
+helpers retain their separate operation identity and ownership checks.
 
 When the recorded derived image is absent, an explicit keyed preparation
 operation first reserves the assigned branch and one bounded builder slot,

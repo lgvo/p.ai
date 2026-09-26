@@ -134,6 +134,10 @@ func (l *lifecycle) previewRepair(ctx context.Context, id, preparationID string)
 		preview.BlockedReason = "runtime_present"
 		return preview, nil
 	}
+	if err := l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
+		preview.BlockedReason = "runtime_absence_unverified"
+		return preview, nil
+	}
 	image, err := l.runtime.ImagePresent(ctx, native.ImageFingerprint)
 	if err != nil {
 		return control.RepairPreview{}, err
@@ -439,6 +443,9 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 		if observed.Exists {
 			return control.ErrConflict
 		}
+		if err := l.runtime.ConfirmSessionRuntimeAbsent(call, native); err != nil {
+			return errors.Join(err, control.ErrConflict)
+		}
 		present, e := l.runtime.ImagePresent(call, native.ImageFingerprint)
 		if e != nil {
 			return e
@@ -680,6 +687,10 @@ func (l *lifecycle) processRepair(op control.Operation) {
 				_ = l.store.FailRepairPreInit(ctx, op.ID)
 				return
 			}
+			if err = l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
+				l.repairBlock(op, err)
+				return
+			}
 			if err = l.repairAdvance(&op, ev, "guarded"); err != nil {
 				l.repairBlock(op, err)
 				return
@@ -714,6 +725,10 @@ func (l *lifecycle) processRepair(op control.Operation) {
 			}
 			if observed.Exists {
 				_ = l.store.FailRepairPreInit(ctx, op.ID)
+				return
+			}
+			if err = l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
+				l.repairBlock(op, err)
 				return
 			}
 			if ev.PreparationOperationID != "" {

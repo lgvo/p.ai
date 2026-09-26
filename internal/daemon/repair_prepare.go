@@ -100,6 +100,9 @@ func (l *lifecycle) PrepareRepair(ctx context.Context, key, uuid string) (contro
 		if observed.Exists {
 			return control.ErrConflict
 		}
+		if err := l.runtime.ConfirmSessionRuntimeAbsent(call, native); err != nil {
+			return errors.Join(err, control.ErrConflict)
+		}
 		oldPresent, imageErr := l.runtime.ImagePresent(call, ev.RecordedImageFingerprint)
 		if imageErr != nil {
 			return imageErr

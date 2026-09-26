@@ -601,9 +601,15 @@ and registered credential fingerprints, exact Incus project and instance
 name, original `image_source_commit`, `image_source_differs`, and
 `runtime_local_loss:"unrecoverable"`. A blocked plan has `eligible:false` and
 `blocked_reason`, with no confirmation token. A fresh exact-absent plan has a
-short-lived `confirmation_token` and `expires_at`. An unreachable Incus
-authority is an error, never a missing-runtime observation. The preview is
-read-only. For a missing recorded image it requires the exact completed
+short-lived `confirmation_token` and `expires_at`. A failed expected-name
+Incus inspection is an RPC error, never a missing-runtime observation. The preview is
+read-only. Eligibility requires an absence proof across the confined project's
+native inventory; a same-UUID runtime under another name produces
+`runtime_absence_unverified` without a token, as does an unavailable or
+ambiguous full inventory after a successful expected-name inspection.
+Confirmation rechecks that proof, and ordinary native init repeats it
+before any creation effect marker. For a missing recorded image it requires
+the exact completed
 preparation and adds `preparation_operation_id` plus `environment`:
 `source_commit`, `system`, `selection`, optional `environment_key`, pinned
 base/recorded image fingerprints, optional recorded key, `identity_differs`,

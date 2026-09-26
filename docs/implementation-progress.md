@@ -2,8 +2,8 @@
 
 ## Current state — 2026-09-26
 
-- Latest validated checkpoint: **VM45 passed** guarded existing-branch Create
-  replacement on `feature/cli-first-mvp`. VM44 retained Delete, VM43 retained
+- Latest committed checkpoint: **VM45 passed** guarded existing-branch Create
+  replacement, commit `8a3c8a6` on `feature/cli-first-mvp`. VM44 retained Delete, VM43 retained
   Rename, VM42 both-absent
   record cleanup, VM40 principal rotation, VM39 bare-present ref repair,
   VM38 missing-image repair, and VM34 missing-runtime repair passed their
@@ -15,6 +15,9 @@
   absence facts for early creating records.
   New-branch, dirty-workspace and uncertain-effect replacements remain outside
   this first slice and require separate verified recovery/loss-review work.
+- UUID-aware creation and missing-runtime repair now refuse renamed or
+  competing native identities before init. Retained review, affected Go suites
+  and selected VM34 passed; no renamed runtime adoption was added.
 - The 2026-09-25 model/approval-service 401 interruption is recorded below.
   The user reported the OpenAI outage resolved and authorized resumption on
   2026-09-26. No VM or prior agent was running at resumption.
@@ -2841,3 +2844,29 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   replay, established replacement and sibling preservation passed. The
   runner powered down and removed its fresh disk. This validates the bounded
   existing-branch/no-effect slice only; broader replacement remains pending.
+
+- **Next safety batch — UUID-aware creation absence:** acceptance requires a
+  complete confined-project absence proof before ordinary runtime init and
+  before missing-runtime repair preview/admission. A renamed same-UUID native
+  runtime must yield no repair token or duplicate init, remain untouched, and
+  invalidate an earlier absence token. Normal creation and disposable workspace
+  helpers must retain their existing behavior. Focused native tests, retained
+  recovery review and the smallest selected VM34 will verify this batch before
+  commit. No locator repair/adoption or label mutation is introduced.
+  Root implemented the native proof before ordinary init's effect marker and
+  added preview, confirmation, preparation and pre-init repair-worker gates.
+  All affected runtimeincus/daemon/control suites passed, including native
+  competing-label/opaque/unreachable refusal-before-marker regressions and
+  ordinary creation. Bash/ShellCheck/diff passed. Retained review found a VM
+  assertion using the wrong RPC error shape; it now requires exact CLI exit 1
+  and the versioned JSON-RPC busy envelope. API wording distinguishes a failed
+  exact inspection from an unavailable/ambiguous full-inventory proof.
+  Independent focused native/helper tests passed; final review and VM34 pending.
+  The retained reviewer approved the corrected patch and fixture. Selected
+  serial VM34 passed (exit 0), log
+  `.cache/p-vm/integration-20260926T103922Z-186121.log`, marker
+  `P_MISSING_RUNTIME_REPAIR_PASS`. It exercised real stopped-runtime rename,
+  no token/no duplicate, native UUID and local/dummy credential preservation,
+  stale admission after a competing UUID appeared, and normal repaired
+  creation/restart with sibling preservation. No authentication was performed.
+  Runner powered down and removed its fresh disk; this batch is validated.

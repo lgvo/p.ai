@@ -13,6 +13,8 @@ export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 daemon_pid=
 uuid=
 uuid_b=
+renamed=
+competing=
 incus_real=$(command -v incus)
 
 inc() { timeout 60 "$incus_real" --force-local --project user-1000 "$@"; }
@@ -35,6 +37,8 @@ stop_daemon() {
 }
 cleanup() {
   stop_daemon
+  if test -n "$renamed"; then inc delete --force "$renamed" >/dev/null 2>&1 || true; fi
+  if test -n "$competing"; then inc delete --force "$competing" >/dev/null 2>&1 || true; fi
   if test -n "$uuid"; then
     inc delete --force "p-$uuid" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
@@ -150,6 +154,24 @@ inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/
 inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/bash -c 'printf sibling-dummy > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json'
 
+# An external rename leaves the same UUID elsewhere in the confined project.
+# Missing deterministic name must not yield permission to duplicate/adopt it.
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+renamed="p-renamed-$uuid"
+inc rename "p-$uuid" "$renamed"
+renamed_identity=$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')
+rename_preview=$(rpc session.repair.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')")
+jq -e '.result.preview | .eligible==false and .blocked_reason=="runtime_absence_unverified" and
+  (has("confirmation_token")|not)' <<< "$rename_preview" >/dev/null
+inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
+test "$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$renamed_identity"
+inc rename "$renamed" "p-$uuid"
+renamed=
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+wait_ready "$uuid"
+test "$(guest /run/current-system/sw/bin/cat lost-local)" = lost-local
+test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = lost-dummy
+
 # This fixture-only external fault removes A's native runtime. Public repair
 # must not silently recreate it through Start or disturb B.
 inc delete --force "p-$uuid"
@@ -169,6 +191,30 @@ jq -e --arg uuid "$uuid" --arg tip "$main_oid" --arg image "$base_image" '
   (.credential_fingerprint|length==64) and
   (.confirmation_token|test("^[0-9a-f]{32}$"))
 ' <<< "$preview" >/dev/null
+token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+# A competing UUID identity appearing after preview invalidates admission.
+# The fixture owns this stopped dummy instance and removes it explicitly.
+competing="p-competing-$uuid"
+inc init "$base_image" "$competing" --profile default \
+  --config security.idmap.isolated=true --config security.privileged=false \
+  --config security.nesting=false --config "user.p.session_uuid=$uuid"
+competing_identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
+if rpc session.repair.confirm "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
+  '{v:1,key:"repair-stale-runtime",uuid:$uuid,confirmation_token:$token}')" > "$step_dir/stale-runtime.reply"; then
+  echo 'competing session UUID accepted stale repair confirmation' >&2
+  exit 1
+else
+  stale_status=$?
+fi
+test "$stale_status" -eq 1
+jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+  .error.code== -32003 and .error.kind=="busy" and
+  (.error.message|type=="string" and length>0)' "$step_dir/stale-runtime.reply" >/dev/null
+inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
+test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$competing_identity"
+inc delete "$competing"
+competing=
+preview=$(rpc session.repair.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')")
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 confirmed=$(rpc session.repair.confirm "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
   '{v:1,key:"repair-confirmed",uuid:$uuid,confirmation_token:$token}')")

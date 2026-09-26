@@ -787,6 +787,15 @@ func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error
 	if !present {
 		return Observation{}, errors.New("pinned container image not present in confined project")
 	}
+	// A missing deterministic name does not prove the session runtime absent:
+	// an external rename can leave its UUID labels on another instance. Check
+	// the full project before recording or sending an ordinary session init.
+	// Disposable helpers have their own operation identity and ownership rules.
+	if s.WorkspaceOwner == "" {
+		if err := b.ConfirmSessionRuntimeAbsent(ctx, s); err != nil {
+			return Observation{}, err
+		}
+	}
 	if beforeInit != nil {
 		if err := beforeInit(); err != nil {
 			return Observation{}, err
