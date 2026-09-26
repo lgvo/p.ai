@@ -10,11 +10,10 @@
   concurrently. The hardened service is network:none-only; public-egress remains
   the separately owner-run daemon path with unchanged VM37 evidence.
 - Remaining automated delivery gate: final full serial VM suite (all55 steps).
-  Harness/VM07/VM08 corrections committed `d78cf81`, `71e2020`, `6e49231`
-  with selected passing evidence. Latest full run passed01–16 then failed VM17;
-  diagnostic VM17 identified fixture contention with the unchanged container
-  ceiling/helper reservation. Reviewed serial fixture phases passed selected
-  VM17; commit and full grouped retry follow. Root owns the sole stream.
+  Reviewed fixture corrections committed `6e49231` and `c296a96`; current full
+  checkpoint passed the complete first restricted group (37 checks, VM01–36
+  plus09b). That guest shut down; dedicated real-public VM37 is running alone,
+  then17 later restricted checks remain. Root owns the sole stream.
   No universal repair/replacement/cleanup is claimed.
 - Authenticated Codex acceptance remains pending user validation using the
   exact manual procedure below. Automated checks use fixtures/dummy files;
@@ -4923,3 +4922,15 @@ it does not close the installation or external-tool attribution gates.
   Required package checks passed; guest powered off/disk removed. This is real
   local SSH/Git/Incus integration with generated fixture keys, not authenticated
   Codex or an additional product cleanup/forget workflow. Commit before full retry.
+
+- **Full grouped checkpoint fromc296a96, first group passed:** driver
+  `/tmp/p-cli-mvp-final-grouped5-driver.out`; restricted guest
+  `.cache/p-vm/integration-20260926T223641Z-1779093.log` passed all37 selected
+  scripts (01–36 plus09b), exact selected marker and smoke marker, then powered
+  off and removed its disk. This includes corrected VM08/17 plus actual Git/SSH,
+  Nix offline realization/cache, attachment/events, dummy Codex private state,
+  loss/confirmed removal, mismatch/manual correction, identity recovery and
+  filesystem grant denials. Retain fixture-vs-native distinctions above; no
+  authenticated Codex evidence. Dedicated VM37 is now running alone, console
+  `.cache/p-vm/integration-20260926T230111Z-1781391.log`; later restricted group
+  has not started. Full acceptance remains pending both remaining groups.
