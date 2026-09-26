@@ -725,6 +725,12 @@ func (l *lifecycle) process(id string) {
 			l.recordProgress(op, "blocked")
 		}
 	}
+	if op.Kind == "session.create" && op.Phase == "replacement-cleanup" {
+		if err = l.completeReplacementCleanup(ctx, &op); err != nil {
+			fail(err)
+			return
+		}
+	}
 	var pinned control.CreationSelection
 	if op.Kind == "project.create" {
 		var ev control.BlankProjectEvidence
@@ -869,6 +875,15 @@ func (l *lifecycle) process(id string) {
 			return
 		}
 	}
+	if op.Kind == "session.create" {
+		// Historical early checkpoints precede the durable principals marker and
+		// therefore cannot have dispatched session init. Historical principals-ready
+		// without the new marker stays ambiguous and must never be relabeled safe.
+		if err = prepareCreationInitState(&op); err != nil {
+			fail(err)
+			return
+		}
+	}
 	dir, err := l.endpoints.Ensure(ctx, session.UUID)
 	if err != nil {
 		fail(err)
@@ -894,6 +909,13 @@ func (l *lifecycle) process(id string) {
 	}
 	native := runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: session.UUID, ProjectPath: session.Project, AssignedBranch: session.Branch, InitialOID: initialOID, ContractVersion: "1", ImageFingerprint: image, EndpointSource: dir, Grants: nativeFilesystemGrants(selectedPolicy), PublicIPv4: publicIPv4}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
+	if op.Kind == "session.create" {
+		scoped.BeforeCreate = func() error {
+			return recordCreationInitAttempt(ctx, &op, func(call context.Context, raw json.RawMessage) error {
+				return l.store.AdvanceOperation(call, op.ID, "running", op.Phase, op.Committed, raw, "")
+			})
+		}
+	}
 	runtimeRunning := false
 	if phaseRank(op.Phase) >= phaseRank("runtime-created") {
 		state, inspectErr := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)

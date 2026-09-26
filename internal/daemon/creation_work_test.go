@@ -157,7 +157,7 @@ func TestCreationWorkerWaitDuringPreviewRetainsWorkAndHonorsCancellation(t *test
 func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *testing.T) {
 	req := control.ReserveSessionRequest{Key: "old", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"}
 	request, _ := json.Marshal(req)
-	ev := control.CreationEvidence{CapturedOID: strings.Repeat("a", 40), ImageFingerprint: strings.Repeat("d", 64), RefCASIntent: true}
+	ev := control.CreationEvidence{CapturedOID: strings.Repeat("a", 40), ImageFingerprint: strings.Repeat("d", 64), RefCASIntent: true, RuntimeInitState: "not-attempted"}
 	for _, tc := range []struct {
 		name, status, phase string
 		mutate              func(*control.CreationEvidence)
@@ -167,6 +167,7 @@ func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *tes
 		{name: "after-assignment", status: "blocked", phase: "branch-assigned", want: true},
 		{name: "explicit-retry", status: "running", phase: "source-ready"},
 		{name: "unknown", status: "unknown", phase: "source-ready"},
+		{name: "base-principals", status: "blocked", phase: "principals-ready", want: true},
 		{name: "later-runtime", status: "blocked", phase: "runtime-created"},
 		{name: "builder-intent", status: "blocked", phase: "branch-assigned", mutate: func(e *control.CreationEvidence) { e.BuilderTreeOID = strings.Repeat("b", 40) }},
 		{name: "origin-intent", status: "blocked", phase: "source-ready", mutate: func(e *control.CreationEvidence) {
@@ -180,7 +181,7 @@ func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *tes
 				tc.mutate(&evidence)
 			}
 			raw, _ := json.Marshal(evidence)
-			op := control.Operation{Kind: "session.create", Status: tc.status, Phase: tc.phase, Request: request, Evidence: raw}
+			op := control.Operation{Kind: "session.create", Status: tc.status, Phase: tc.phase, Committed: tc.phase != "source-ready", Request: request, Evidence: raw}
 			if got := deferBlockedCreationUntilRetry(op); got != tc.want {
 				t.Fatalf("defer=%v want=%v", got, tc.want)
 			}

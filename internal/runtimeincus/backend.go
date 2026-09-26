@@ -726,7 +726,7 @@ func (b *Backend) Create(ctx context.Context, s Session) (Observation, error) {
 	return b.create(ctx, s, nil)
 }
 
-// CreateWithGate persists an exact repair intent after all no-effect checks
+// CreateWithGate persists an exact core init intent after all no-effect checks
 // and immediately before a name-targeted Incus init can be submitted.
 func (b *Backend) CreateWithGate(ctx context.Context, s Session, beforeInit func() error) (Observation, error) {
 	if beforeInit == nil {
@@ -735,9 +735,8 @@ func (b *Backend) CreateWithGate(ctx context.Context, s Session, beforeInit func
 	return b.create(ctx, s, beforeInit)
 }
 
-// beforeInit is used only by the disposable workspace helper to persist the
-// exact effect-attempt marker after every deterministic preflight and before
-// the Incus init request can be sent.
+// beforeInit persists the trusted core effect-attempt marker after every
+// deterministic preflight and before the Incus init request can be sent.
 func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error) (Observation, error) {
 	if err := validateSession(b.config, s); err != nil {
 		return Observation{}, err

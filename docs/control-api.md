@@ -389,9 +389,22 @@ branch requires the explicit replacement methods below.
 The replacement methods implement a bounded subset of
 [Try again with changes](session-lifecycle.md#failure-cancellation-and-retry).
 They accept a blocked local creation in `source-ready` or `branch-assigned`
-before any builder, key, endpoint, principal, or native runtime effect. Fresh
-native inventory and local checks must positively prove these UUID resources
-absent. An existing-branch failure may select the same existing branch. A
+before UUID resources exist, or a base-image local creation in `principals-ready`
+with its exact reviewed P Git key, active principal, and endpoint sockets present,
+and affirmative durable `runtime_init_state:"not-attempted"` evidence. Ordinary
+session creation records that state before the native boundary and changes it
+to `attempted` immediately before dispatch through the trusted broker gate.
+Dispatch provenance and approved cleanup completion are monotonic in SQLite;
+a stale Retry/status update cannot erase either checkpoint. A missing runtime
+after an attempted init cannot prove that a delayed request
+will not materialize; replacement refuses it. Historical `principals-ready`
+evidence without this tracked state is also ineligible. Exact Retry refuses a
+second absent-runtime init after an uncertain attempt, while an observed exact
+owned instance may continue without another init.
+Builder tree/publication evidence, environment effects, and later phases are
+outside this slice. Fresh full native inventory must positively prove both the
+runtime UUID and creation builder absent; unavailable or ambiguous observations
+are ineligible. An existing-branch failure may select the same existing branch. A
 local-source new-branch failure may select an absent target with `choice:"new"`
 from freshly observed committed local source, including the same desired name.
 If the failed request's ref is present at its captured commit, the replacement
@@ -406,9 +419,17 @@ The selected source package applies ordinary Create's local committed-source
 rules: branch selectors capture their current commit, and commit selectors
 must be reachable from an ordinary P head. No missing objects are imported.
 `provisional.assigned_ref` reports `absent`, `preserved_existing`, or
-`preserved_created` after successful old-ref inspection; resource fields report
-`absent` only after the complete UUID absence proof. Unavailable inspection or
-an unexpected old created tip yields an ineligible preview. Existing refs are
+`preserved_created` after successful old-ref inspection. Runtime and builder
+fields report `absent` only after the complete native UUID absence proof.
+`runtime_local:"unavailable"` explicitly reports that no runtime-local workspace
+or private state is available for inspection. Key, principal and endpoint fields
+report `absent` for the no-resource path, or `present` with `provisional.cleanup`
+for the reviewed local-resource path. That object names the old UUID, operation
+and image fingerprint, the key's public fingerprint, and device/inode/owner/mode
+identities for the private key directory/file, endpoint prefix/directory, and
+exact `git.sock` and `session.sock` entries. It contains no private key bytes.
+Wrong fingerprints, symlinks, unsafe metadata, extra principals or endpoint
+contents are refused and preserved. Unavailable inspection or an unexpected old created tip yields an ineligible preview. Existing refs are
 never deleted or reset by replacement, including when the old assignment moves
 to another name. A new target must be unassigned and free of lifecycle guards;
 the old reservation may be transferred to the same name.
@@ -417,22 +438,37 @@ The captured source, normalized policy, or request selection (branch, choice,
 or local source selector) must have changed; changing only the key is
 insufficient. The stored `ref_cas_intent` is a planned Git CAS, not evidence
 that it ran. Replacement binds fresh ref facts and preserves any observed ref
-without inferring cleanup authority from that marker. Later phases, unexpected
+without inferring cleanup authority from that marker. Beyond the reviewed
+base-image `principals-ready` checkpoint, later phases, unexpected
 UUID resources, attachments, active workers, and unavailable native observations
 remain ineligible. This path does not review or clean uncertain runtime effects
 or workspace data.
 
 Preview is read-only. Ineligible previews return reasons without a token.
 Eligible tokens expire after two minutes and are held by the issuing daemon;
-restart invalidates an unconsumed token. A blocked early local request stays
-blocked across restart until explicit Retry or exact Create replay; startup
-does not issue its planned branch CAS or UUID effects. Confirmation rechecks the exact
-reviewed request, source and target/old ref facts, policy, image, plugin selection, old evidence, and
-resource absence. Stale facts or an expired token return `busy` without
+restart invalidates an unconsumed token. A blocked early local request, including
+base-image `principals-ready`, stays blocked across restart until explicit Retry or exact Create replay; startup
+does not resume branch assignment or native creation. Established endpoint
+consumers may be reopened during recovery. Confirmation rechecks the exact
+reviewed request, source and target/old ref facts, policy, image, plugin selection,
+old evidence, resource identity, and native absence. Stale facts or an expired
+token return `busy` without
 superseding the old request. Successful confirmation atomically marks the old
 operation `superseded`, releases its session assignment, and creates one new
 UUID, operation, and immutable request with the new key before scheduling its
-worker. Evidence records `supersedes_operation_id`, `supersedes_uuid`, and a
+worker. For reviewed local resources the same transaction retires the exact old
+Git principal and records a new `replacement-cleanup` phase. Its durable
+`replacement_cleanup` evidence retains every reviewed old identity after the
+old session row is retired. The new worker serializes with the old UUID and
+rechecks full native absence before local cleanup and at each recovery boundary.
+It removes only the reviewed key and exact endpoint entries, then atomically
+records `replacement_cleanup.completed:true` and `source-ready`. It creates no
+new UUID resource or native effect until that checkpoint. Partial cleanup may
+resume with reviewed entries legitimately absent; substituted entries and newly
+appearing native identities block with the old cleanup evidence retained.
+Running cleanup recovers after restart; a blocked cleanup can resume by exact
+Create replay or Retry of the same new operation. Evidence records
+`supersedes_operation_id`, `supersedes_uuid`, and a
 confirmation-token hash. Repeating an accepted confirmation with the same key,
 old UUID, and token returns that operation, including after restart. Reusing
 its key with different confirmation inputs conflicts. Retrying the superseded

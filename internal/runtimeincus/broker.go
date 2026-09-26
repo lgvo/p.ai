@@ -14,7 +14,7 @@ type Scoped struct {
 	Session      Session
 	Assembly     *Assembly
 	HostAssets   *plugin.AssetPlan
-	BeforeCreate func() error // trusted repair effect marker, never plugin-selected
+	BeforeCreate func() error // trusted core init-attempt marker, never plugin-selected
 }
 
 var _ plugin.RuntimeBroker = Scoped{}

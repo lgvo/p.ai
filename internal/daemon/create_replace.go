@@ -59,47 +59,60 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 	return oldBranch, target, captured.OID, nil
 }
 
-// createReplaceEffects proves absence of every UUID-scoped effect the selected
-// creation path could have reached. It never removes a native resource.
-func (l *lifecycle) createReplaceEffects(ctx context.Context, op control.Operation, s control.Session) error {
-	if op.Kind != "session.create" || op.Status != "blocked" ||
-		(op.Phase != "source-ready" && op.Phase != "branch-assigned") || s.Registry != "creating" {
-		return control.ErrConflict
+// createReplaceEffects reviews only local resources, with full native absence.
+func (l *lifecycle) createReplaceEffects(ctx context.Context, op control.Operation, s control.Session) (*control.CreateReplacementCleanup, error) {
+	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" {
+		return nil, control.ErrConflict
 	}
 	l.mu.Lock()
 	working := l.working[op.ID] || l.hasAttachmentLocked(s.UUID)
 	l.mu.Unlock()
 	if working {
-		return control.ErrConflict
+		return nil, control.ErrConflict
 	}
 	ev, err := control.Evidence(op)
-	var oldReq control.ReserveSessionRequest
-	if err != nil || json.Unmarshal(op.Request, &oldReq) != nil || !control.ReplaceableCreationEvidence(oldReq, ev) ||
-		(op.Phase == "source-ready" && op.Committed || op.Phase == "branch-assigned" && !op.Committed) {
-		return control.ErrConflict
+	var req control.ReserveSessionRequest
+	if err != nil || json.Unmarshal(op.Request, &req) != nil || !control.ReplaceableCreationEvidence(req, ev) || !control.ReplaceableCreationPhase(op, ev) || ev.ReplacementCleanup != nil && !ev.ReplacementCleanup.Completed {
+		return nil, control.ErrConflict
 	}
-	if _, found, err := l.store.SessionGitPrincipal(ctx, s.UUID); err != nil || found {
-		return errors.Join(err, control.ErrConflict)
+	fp, found, err := l.store.SessionGitPrincipal(ctx, s.UUID)
+	if err != nil {
+		return nil, err
 	}
-	if _, err := os.Lstat(filepath.Join(l.store.StateDir(), "session_keys", s.UUID)); !errors.Is(err, os.ErrNotExist) {
-		return errors.Join(err, control.ErrConflict)
+	var cleanup *control.CreateReplacementCleanup
+	if op.Phase == "principals-ready" {
+		active, e := l.store.IsSessionGitPrincipalActive(ctx, s.UUID)
+		if !found || !active || e != nil || l.store.CheckCreateReplacementPrincipal(ctx, s.UUID, s.Project, fp) != nil {
+			return nil, control.ErrConflict
+		}
+		cleanup, err = reviewReplacementLocal(l.store.StateDir(), l.endpoints, s.UUID, op.ID, ev.ImageFingerprint, fp)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		if found {
+			return nil, control.ErrConflict
+		}
+		if _, err = os.Lstat(filepath.Join(l.store.StateDir(), "session_keys", s.UUID)); !errors.Is(err, os.ErrNotExist) {
+			return nil, control.ErrConflict
+		}
+		l.endpoints.mu.Lock()
+		opened := l.endpoints.opened[s.UUID] != nil
+		l.endpoints.mu.Unlock()
+		if opened {
+			return nil, control.ErrConflict
+		}
+		if _, err = os.Lstat(filepath.Join(l.cfg.EndpointPrefix, s.UUID)); !errors.Is(err, os.ErrNotExist) {
+			return nil, control.ErrConflict
+		}
 	}
-	l.endpoints.mu.Lock()
-	opened := l.endpoints.opened[s.UUID] != nil
-	l.endpoints.mu.Unlock()
-	if opened {
-		return control.ErrConflict
-	}
-	if _, err := os.Lstat(filepath.Join(l.cfg.EndpointPrefix, s.UUID)); !errors.Is(err, os.ErrNotExist) {
-		return errors.Join(err, control.ErrConflict)
-	}
-	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: l.instanceID,
-		SessionUUID: s.UUID, ProjectPath: s.Project, ContractVersion: "1", ImageFingerprint: ev.ImageFingerprint}, op.ID)
+	err = l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: s.UUID, ProjectPath: s.Project, ContractVersion: "1", ImageFingerprint: ev.ImageFingerprint}, op.ID)
+	return cleanup, err
 }
 
 func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (control.CreateReplacePreview, error) {
 	p := control.CreateReplacePreview{OldUUID: oldUUID, NewRequest: req, UnsafeReasons: []string{},
-		Provisional: control.CreateReplaceResources{}, NewImageFingerprint: l.cfg.BaseImageFingerprint,
+		Provisional: control.CreateReplaceResources{RuntimeLocal: "unavailable"}, NewImageFingerprint: l.cfg.BaseImageFingerprint,
 		NewSelection: l.selection(), NewEnvironment: l.environmentIntent()}
 	unsafe := func(reason string) { p.UnsafeReasons = append(p.UnsafeReasons, reason) }
 	if !control.ValidSessionCreateRequest(req) {
@@ -132,7 +145,7 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 	if op.Status != "blocked" || op.Kind != "session.create" || s.Registry != "creating" {
 		unsafe("old_creation_not_blocked")
 	}
-	if op.Phase != "source-ready" && op.Phase != "branch-assigned" || !control.ReplaceableCreationEvidence(oldReq, ev) {
+	if !control.ReplaceableCreationPhase(op, ev) || !control.ReplaceableCreationEvidence(oldReq, ev) {
 		unsafe("old_effect_not_proven_absent")
 	}
 	policy, hash, err := l.store.ProjectPolicyRecord(ctx, s.Project)
@@ -170,7 +183,7 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 	if p.NewCapturedOID != "" && p.NewCapturedOID == p.OldCapturedOID && p.NewPolicySHA256 == p.OldPolicySHA256 && control.SameCreateSelection(oldReq, req) {
 		unsafe("request_unchanged")
 	}
-	if e := l.createReplaceEffects(ctx, op, s); e != nil {
+	if cleanup, e := l.createReplaceEffects(ctx, op, s); e != nil {
 		unsafe("provisional_resource_unavailable")
 	} else {
 		p.Provisional.Runtime = "absent"
@@ -178,6 +191,12 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 		p.Provisional.SessionKey = "absent"
 		p.Provisional.Endpoint = "absent"
 		p.Provisional.Principal = "absent"
+		if cleanup != nil {
+			p.Provisional.SessionKey = "present"
+			p.Provisional.Endpoint = "present"
+			p.Provisional.Principal = "present"
+			p.Provisional.Cleanup = cleanup
+		}
 	}
 	p.Eligible = len(p.UnsafeReasons) == 0
 	return p, nil
@@ -226,22 +245,21 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	if len(oldUUID) != 36 || key == "" || len(key) > 128 || len(token) != 32 {
 		return control.Operation{}, control.ErrInvalid
 	}
+	hash := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(hash[:])
+	// Accepted replay reads durable intent only. Cleanup may own the retired
+	// UUID lock for its entire recovery; replay must not need that mutation lock.
+	if prior, found, e := l.store.ReplayCreateReplacement(ctx, key, oldUUID, tokenHash); e != nil || found {
+		return prior, e
+	}
 	release, err := l.lockSession(ctx, oldUUID)
 	if err != nil {
 		return control.Operation{}, err
 	}
 	defer release()
-	hash := sha256.Sum256([]byte(token))
-	tokenHash := hex.EncodeToString(hash[:])
-	if prior, e := l.store.GetOperationByKey(ctx, key); e == nil {
-		var saved control.CreationEvidence
-		if prior.Kind != "session.create" || json.Unmarshal(prior.Evidence, &saved) != nil ||
-			saved.SupersedesUUID != oldUUID || saved.ReplacementTokenSHA256 != tokenHash {
-			return control.Operation{}, control.ErrConflict
-		}
-		return prior, nil
-	} else if !errors.Is(e, control.ErrNotFound) {
-		return control.Operation{}, e
+	// Another confirmation may have completed between the read and admission.
+	if prior, found, e := l.store.ReplayCreateReplacement(ctx, key, oldUUID, tokenHash); e != nil || found {
+		return prior, e
 	}
 	l.mu.Lock()
 	state, ok := l.createReplacePreviews[token]
@@ -252,6 +270,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	intent := control.CreateReplaceIntent{OldOperationID: state.Preview.OldOperationID, OldUUID: oldUUID,
 		OldEvidenceSHA256: state.Preview.OldEvidenceSHA256, OldPolicySHA256: state.Preview.OldPolicySHA256,
 		NewPolicySHA256: state.Preview.NewPolicySHA256,
+		Cleanup:         state.Preview.Provisional.Cleanup,
 		TokenSHA256:     tokenHash, ExpiresAt: state.Preview.ExpiresAt, New: state.Preview.NewRequest}
 	if !time.Now().Before(state.Expiry) {
 		return control.Operation{}, control.ErrConflict
@@ -274,8 +293,8 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	}
 	op, e := l.store.ReplaceBlockedCreate(ctx, intent, l.cfg.BaseImageFingerprint, l.selection(), l.environmentIntent(), l.observeSessionCapacity,
 		func(call context.Context) (string, error) {
-			if e := l.createReplaceEffects(call, oldOp, s); e != nil {
-				return "", e
+			if cleanup, e := l.createReplaceEffects(call, oldOp, s); e != nil || !reflect.DeepEqual(cleanup, state.Preview.Provisional.Cleanup) {
+				return "", errors.Join(e, control.ErrConflict)
 			}
 			oldBranch, target, tip, e := observeCreateReplacementSources(call, l.git.backend, state.Preview.OldRequest, state.Preview.NewRequest, state.Preview.OldCapturedOID)
 			if e != nil || tip != state.Preview.NewCapturedOID || oldBranch != state.Preview.OldBranch || target != state.Preview.NewBranch {

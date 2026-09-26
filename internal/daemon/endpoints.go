@@ -151,6 +151,10 @@ func listenEndpoint(path string) (net.Listener, error) {
 		l.Close()
 		return nil, err
 	}
+	// Managed sockets are removed only after explicit identity checks. A
+	// listener's automatic name-based unlink on shutdown could delete a path
+	// substituted after a refused cleanup or review.
+	l.(*net.UnixListener).SetUnlinkOnClose(false)
 	return l, nil
 }
 func (m *endpointManager) Close() {

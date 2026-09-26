@@ -15,20 +15,22 @@ import (
 // CreationEvidence is immutable selection data made under the Git authority
 // lock. It is stored before an absent-ref CAS or runtime side effect.
 type CreationEvidence struct {
-	CapturedOID            string             `json:"captured_oid,omitempty"`
-	BranchExisted          bool               `json:"branch_existed"`
-	ImageFingerprint       string             `json:"image_fingerprint"`
-	PolicySHA256           string             `json:"policy_sha256"`
-	RefCASIntent           bool               `json:"ref_cas_intent,omitempty"`
-	Selection              CreationSelection  `json:"selection"`
-	OriginURL              string             `json:"origin_url,omitempty"`
-	OriginRef              string             `json:"origin_ref,omitempty"`
-	BuilderTreeOID         string             `json:"builder_tree_oid,omitempty"`
-	Environment            *EnvironmentIntent `json:"environment,omitempty"`
-	EnvironmentState       *EnvironmentState  `json:"environment_state,omitempty"`
-	SupersedesOperationID  string             `json:"supersedes_operation_id,omitempty"`
-	SupersedesUUID         string             `json:"supersedes_uuid,omitempty"`
-	ReplacementTokenSHA256 string             `json:"replacement_token_sha256,omitempty"`
+	CapturedOID            string                    `json:"captured_oid,omitempty"`
+	BranchExisted          bool                      `json:"branch_existed"`
+	ImageFingerprint       string                    `json:"image_fingerprint"`
+	PolicySHA256           string                    `json:"policy_sha256"`
+	RuntimeInitState       string                    `json:"runtime_init_state,omitempty"`
+	RefCASIntent           bool                      `json:"ref_cas_intent,omitempty"`
+	Selection              CreationSelection         `json:"selection"`
+	OriginURL              string                    `json:"origin_url,omitempty"`
+	OriginRef              string                    `json:"origin_ref,omitempty"`
+	BuilderTreeOID         string                    `json:"builder_tree_oid,omitempty"`
+	Environment            *EnvironmentIntent        `json:"environment,omitempty"`
+	EnvironmentState       *EnvironmentState         `json:"environment_state,omitempty"`
+	SupersedesOperationID  string                    `json:"supersedes_operation_id,omitempty"`
+	SupersedesUUID         string                    `json:"supersedes_uuid,omitempty"`
+	ReplacementCleanup     *CreateReplacementCleanup `json:"replacement_cleanup,omitempty"`
+	ReplacementTokenSHA256 string                    `json:"replacement_token_sha256,omitempty"`
 }
 
 // EnvironmentIntent is selected by the trusted host before reservation and
@@ -189,7 +191,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 	if err != nil {
 		return Operation{}, Session{}, err
 	}
-	ev := CreationEvidence{CapturedOID: oid, BranchExisted: existed, ImageFingerprint: image, PolicySHA256: policyHash, RefCASIntent: req.Choice == "new", Selection: selection, OriginURL: selectionResult.OriginURL, OriginRef: selectionResult.OriginRef}
+	ev := CreationEvidence{RuntimeInitState: "not-attempted", CapturedOID: oid, BranchExisted: existed, ImageFingerprint: image, PolicySHA256: policyHash, RefCASIntent: req.Choice == "new", Selection: selection, OriginURL: selectionResult.OriginURL, OriginRef: selectionResult.OriginRef}
 	if len(environment) == 1 && environment[0] != nil {
 		pinned := *environment[0]
 		ev.Environment = &pinned
@@ -726,6 +728,12 @@ func Evidence(op Operation) (CreationEvidence, error) {
 	var ev CreationEvidence
 	if err := json.Unmarshal(op.Evidence, &ev); err != nil {
 		return ev, fmt.Errorf("creation evidence: %w", err)
+	}
+	if ev.RuntimeInitState != "" && ev.RuntimeInitState != "not-attempted" && ev.RuntimeInitState != "attempted" {
+		return ev, ErrInvalid
+	}
+	if ev.ReplacementCleanup != nil && (!ev.ReplacementCleanup.Valid() || ev.ReplacementCleanup.OldUUID != ev.SupersedesUUID || ev.ReplacementCleanup.OldOperationID != ev.SupersedesOperationID || ev.ReplacementCleanup.OldUUID == op.SessionUUID || !ev.ReplacementCleanup.Completed && op.Phase != "replacement-cleanup") {
+		return ev, ErrInvalid
 	}
 	if !validFingerprint(ev.ImageFingerprint) || ev.Environment != nil && (!ev.Environment.Valid() || ev.Environment.BaseFingerprint != ev.ImageFingerprint && ev.EnvironmentState == nil) {
 		return ev, ErrInvalid

@@ -2,9 +2,10 @@
 
 ## Current state — 2026-09-26
 
-- Latest committed checkpoint: **VM34 removal absence/recovery passed**,
-  `e7ef837` on `feature/cli-first-mvp`. VM46 local new-branch replacement
-  passed at `1d025e9`; VM45 existing-branch replacement passed at `8a3c8a6`.
+- Latest validated checkpoint: **VM47 reviewed local-resource replacement
+  passed**, on `feature/cli-first-mvp`; commit follows this evidence update.
+  VM34 removal absence/recovery passed at `e7ef837`. VM46 local new-branch
+  replacement passed at `1d025e9`; VM45 existing-branch replacement at `8a3c8a6`.
   Prior selected recovery/retained-branch evidence remains in the log below.
 - **8f1 passed:** public preview/confirmation atomically supersede an early
   no-effect blocked existing-branch Create with changed source/policy. Focused
@@ -28,14 +29,15 @@
   2026-09-26. No VM or prior agent was running at resumption.
 - Latest full VM checkpoint is **through VM28**, before subsequent changes;
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
-  serial; the latest selected VM34 powered down and removed its fresh disk.
+  serial; the latest selected VM47 powered down and removed its fresh disk.
 - Remaining implementation includes broader replacement, abandonment/orphan
   handling, bulk project deletion, and installation/upgrade/backup/restore
   acceptance. VM37 proved negative public-egress isolation and synthetic
   probes only; real public Nix fetch/DNS/redirect evidence remains unverified.
-- **8f3 in progress:** the retained implementer is adding durable cleanup of
-  reviewed P Git keys/principals and endpoints before a new creation, requiring
-  full old-runtime/builder absence. No source/test/VM pass is claimed yet.
+- **8f3 passed:** reviewed P Git keys/principals and endpoints are durably
+  cleaned before new creation, with old-runtime/builder absence and affirmative
+  no-init-dispatch evidence. Legacy/attempted init stays ineligible. Retained
+  review, focused/affected/race checks and selected serial VM47 passed.
 - Codex event/persistence and Discard/Delete cleanup used fixtures and dummy
   credentials. Real authenticated Codex acceptance remains **pending user
   validation** using the procedure below; no login or host credentials are used.
@@ -3048,6 +3050,60 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   Otherwise a completed old-resource cleanup could be replayed after the new
   creation had started. The implementer is adding real SQLite stale-snapshot,
   refused-update and reopen tests for these monotonic boundaries.
+  A further endpoint-preservation finding is being fixed in the same batch:
+  automatic Unix-listener unlink on shutdown could remove a substituted path
+  even after cleanup refused its changed identity. Managed listeners must leave
+  unlinking to explicit identity-checked cleanup/reopen. A refusal-then-Close
+  sentinel regression validates that unexpected replacement contents survive.
+  Final affected suites/race checks and retained approval remain pending.
+  The implementer now reports all corrections complete: affected package
+  suites, three targeted control/daemon/runtime race-test repetitions, genuine
+  legacy/attempted SQLite reopen negatives, stale Retry monotonic refusals,
+  delayed native init/lost-reply single-dispatch recovery, endpoint sentinel
+  preservation, and revised VM47 static/restricted-PATH checks passed. The
+  retained reviewer is rechecking the finished fixes; no VM result is claimed.
+  Retained final recheck approved with no remaining blockers. Independent
+  focused SQLite/native tests, three daemon race-test repetitions and static
+  checks passed. VM47 alone is the relevant bounded selection; root confirmed
+  no VM/integration active and is starting it serially with source frozen.
+  First selected VM47 failed (exit 1), log
+  `.cache/p-vm/integration-20260926T114858Z-367337.log`. At line 373 the fixture
+  replays the accepted confirmation while cleanup is paused after key deletion.
+  `ConfirmCreateReplace` takes the old UUID mutation lock before its durable
+  replay lookup; the cleanup worker owns that lock, so replay returns busy
+  rather than the already accepted operation. The durable old operation is
+  superseded and the new operation remains running at `replacement-cleanup`;
+  this is a real idempotency defect, not a passing restart test. Runner powered
+  down and removed its disk. Root's bounded correction will resolve exact
+  accepted replay before taking the resource lock, then repeat the lookup after
+  locking to handle concurrent admission. A real SQLite held-lock regression,
+  focused tests and specific retained recheck precede the next serial VM47.
+  Root moved exact accepted lookup to read-only `Store.ReplayCreateReplacement`
+  before the old UUID lock and repeats it after locking for admission races.
+  The initial daemon-unit fixture's exported `OpenStore(t.TempDir())` correctly
+  rejected this sandbox's foreign-owned `/tmp` ancestry. Production checks were
+  preserved; the actual SQLite regression uses the existing private control
+  fixture, admits the real cleanup handoff, retires the old row, holds Git
+  mutation authority and verifies exact replay plus wrong token/UUID/key refusal
+  without changing durable cleanup. The unchanged VM47 assertion tests the
+  actual daemon UUID lock. Focused and affected control/daemon suites, three
+  race-test repeats and diff check passed. Specific retained recheck is pending.
+  Specific retained recheck approved the read-only replay/provenance and
+  admission reread. Independent SQLite race test repeated three times and diff
+  check passed; VM47's real held-UUID-lock assertion stays unchanged. Root
+  confirmed no VM active and is starting the second selected run serially.
+  Second selected serial VM47 passed (exit 0), log
+  `.cache/p-vm/integration-20260926T120126Z-418942.log`, marker
+  `P_CREATE_REPLACE_CLEANUP_PASS`. The real CLI path established pre-dispatch
+  image-preflight failure with P Git keys/endpoints, bound/refused stale facts,
+  superseded old authority, and retained exact confirmation replay during a
+  paused cleanup. Restart with a competing old UUID blocked before new UUID
+  resources or native effects; after fixture conflict removal the same new
+  operation completed by Retry. P refs, sibling dirty/private data/key,
+  old-operation replay and final no-old-endpoint resurrection passed. Runner
+  powered down and removed its fresh disk. No Codex authentication was used.
+  This closes the bounded absent-native local-resource path and replay finding;
+  broader native/workspace/origin/environment cleanup remains required.
 
 - **Independent public-egress diagnostic:** `dev/vm/machine.nix` still sets
   `virtualisation.restrictNetwork = true`, including VM37. The local NixOS

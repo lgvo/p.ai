@@ -1046,9 +1046,9 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 		return err
 	}
 	defer tx.Rollback()
-	var kind, sessionID, oldStatus string
+	var kind, sessionID, oldStatus, oldPhase, oldEvidence string
 	var oldCommitted int
-	err = tx.QueryRowContext(ctx, "SELECT kind,COALESCE(session_uuid,''),status,committed FROM operations WHERE id=?", id).Scan(&kind, &sessionID, &oldStatus, &oldCommitted)
+	err = tx.QueryRowContext(ctx, "SELECT kind,COALESCE(session_uuid,''),status,committed,phase,COALESCE(evidence_json,'') FROM operations WHERE id=?", id).Scan(&kind, &sessionID, &oldStatus, &oldCommitted, &oldPhase, &oldEvidence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -1057,6 +1057,11 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	}
 	if oldStatus == "completed" || oldStatus == "superseded" || (oldCommitted == 1 && !committed) {
 		return ErrConflict
+	}
+	if kind == "session.create" {
+		if err = monotonicCreationEvidence(oldPhase, []byte(oldEvidence), evidence); err != nil {
+			return err
+		}
 	}
 	if kind == "session.create" && sessionID != "" && (status == "failed" || status == "completed" || status == "superseded") {
 		var registry string

@@ -36,13 +36,14 @@ func (l *lifecycle) lockCreationOperation(ctx context.Context, observed control.
 
 // A blocked early local request remains inspectable until an explicit Retry or
 // exact Create replay. Restart must not turn a failed planned branch CAS into
-// fresh UUID effects while the user is preparing replacement. Running intents
-// and later/origin recovery retain their existing automatic reconciliation.
+// fresh UUID effects while the user is preparing replacement. Base-image
+// principals-ready failures also stay dormant with their existing key/endpoint.
+// Running intents and later/origin recovery keep automatic reconciliation.
 func deferBlockedCreationUntilRetry(op control.Operation) bool {
-	if op.Kind != "session.create" || op.Status != "blocked" || op.Phase != "source-ready" && op.Phase != "branch-assigned" {
+	if op.Kind != "session.create" || op.Status != "blocked" || op.Phase != "source-ready" && op.Phase != "branch-assigned" && op.Phase != "principals-ready" {
 		return false
 	}
 	var req control.ReserveSessionRequest
 	ev, err := control.Evidence(op)
-	return err == nil && json.Unmarshal(op.Request, &req) == nil && control.ReplaceableCreationEvidence(req, ev)
+	return err == nil && json.Unmarshal(op.Request, &req) == nil && control.ReplaceableCreationEvidence(req, ev) && control.ReplaceableCreationPhase(op, ev)
 }
