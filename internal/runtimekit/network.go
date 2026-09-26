@@ -1,13 +1,13 @@
 package runtimekit
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -18,6 +18,9 @@ import (
 )
 
 const ipBinary = "/run/current-system/sw/bin/ip"
+const publicDNSService = "p-dns-over-https.service"
+const publicResolverEndpoint = "127.0.0.1:53"
+const publicResolverContent = "nameserver 127.0.0.1\n"
 const publicIPv6DisablePath = "/proc/sys/net/ipv6/conf/eth0/disable_ipv6"
 
 func validatePublicNetwork(c PublicNetwork) error {
@@ -59,47 +62,130 @@ func PreparePublicNetwork() error {
 	if err != nil {
 		return err
 	}
-	if cfg.PublicNetwork == nil {
-		if _, err := os.Lstat("/sys/class/net/eth0"); err == nil {
-			return errors.New("none session unexpectedly has a public NIC")
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-		return nil
-	}
-	if err := validatePublicNetwork(*cfg.PublicNetwork); err != nil {
+	return prepareGuestPublicNetwork(cfg.PublicNetwork, guestNetworkPreparation{
+		none: validateNonePublicNetwork,
+		ipv6: disablePublicIPv6,
+		resolver: func(dns []string) error {
+			return installPinnedResolver("/etc/resolv.conf", dns, validateResolverParent)
+		},
+		ip:            guestIP,
+		startResolver: startPublicResolver,
+		verify:        ValidatePublicNetwork,
+	})
+}
+
+type guestNetworkPreparation struct {
+	none          func() error
+	ipv6          func() error
+	resolver      func([]string) error
+	ip            func(...string) ([]byte, error)
+	startResolver func() error
+	verify        func(*PublicNetwork) error
+}
+
+func validateNonePublicNetwork() error {
+	if _, err := os.Lstat("/sys/class/net/eth0"); err == nil {
+		return errors.New("none session unexpectedly has a public NIC")
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	// Incus's ipv6.address=none prevents bridge IPv6 assignment, but the
-	// kernel can still create an eth0 link-local address when the NIC appears.
-	// Disable IPv6 on this exact interface before activating it; failure is a
-	// hard refusal rather than a reason to tolerate an extra address.
-	if err := disablePublicIPv6(); err != nil {
+	return nil
+}
+
+func prepareGuestPublicNetwork(c *PublicNetwork, setup guestNetworkPreparation) error {
+	// This branch never starts a unit, installs DNS, or invokes an IP command.
+	if c == nil {
+		return setup.none()
+	}
+	if err := validatePublicNetwork(*c); err != nil {
 		return err
 	}
-	if err := installPinnedResolver("/etc/resolv.conf", cfg.PublicNetwork.DNS, validateResolverParent); err != nil {
+	if err := setup.ipv6(); err != nil {
+		return err
+	}
+	if err := setup.resolver(c.DNS); err != nil {
 		return err
 	}
 	for _, args := range [][]string{
 		{"link", "set", "dev", "eth0", "up"},
-		{"-4", "address", "replace", cfg.PublicNetwork.Address, "dev", "eth0"},
-		{"-4", "route", "replace", "default", "via", cfg.PublicNetwork.Gateway, "dev", "eth0"},
+		{"-4", "address", "replace", c.Address, "dev", "eth0"},
+		{"-4", "route", "replace", "default", "via", c.Gateway, "dev", "eth0"},
 	} {
-		if _, err := guestIP(args...); err != nil {
+		if _, err := setup.ip(args...); err != nil {
 			return err
 		}
 	}
-	return ValidatePublicNetwork(cfg.PublicNetwork)
+	// The image does not autostart this unit: no public DNS contact precedes the
+	// trusted address/route setup, and old images without the unit fail closed.
+	if err := setup.startResolver(); err != nil {
+		return err
+	}
+	return setup.verify(c)
+}
+
+func publicResolverCommand(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "/usr/libexec/p/systemctl", append([]string{"--system"}, args...)...)
+	cmd.Env = []string{"LANG=C", "LC_ALL=C"}
+	cmd.Stdin = nil
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("fixed DoH resolver unit unavailable or failed: %w", err)
+	}
+	return nil
+}
+
+func startPublicResolver() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := publicResolverCommand(ctx, "start", publicDNSService); err != nil {
+		return err
+	}
+	resolver := net.Resolver{PreferGo: true, StrictErrors: true, Dial: func(call context.Context, network, address string) (net.Conn, error) {
+		endpoint, err := publicResolverDialAddress(network, address)
+		if err != nil {
+			return nil, err
+		}
+		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(call, network, endpoint)
+	}}
+	return waitPublicResolver(ctx, resolver.LookupIP)
+}
+
+func publicResolverDialAddress(network, _ string) (string, error) {
+	if network != "udp" && network != "tcp" {
+		return "", errors.New("public resolver transport changed")
+	}
+	return publicResolverEndpoint, nil
+}
+
+func waitPublicResolver(ctx context.Context, lookup func(context.Context, string, string) ([]net.IP, error)) error {
+	for {
+		call, cancel := context.WithTimeout(ctx, 3*time.Second)
+		ips, err := lookup(call, "ip4", "example.com.")
+		cancel()
+		if err == nil && len(ips) > 0 {
+			for _, ip := range ips {
+				if ip.To4() == nil {
+					return errors.New("fixed loopback DoH resolver returned unexpected address family")
+				}
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errors.New("fixed loopback DoH resolver not ready within startup bound")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func validatePublicResolverService() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return publicResolverCommand(ctx, "is-active", "--quiet", publicDNSService)
 }
 
 func ValidatePublicNetwork(c *PublicNetwork) error {
 	if c == nil {
-		if _, err := os.Lstat("/sys/class/net/eth0"); err == nil {
-			return errors.New("none session unexpectedly has a public NIC")
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-		return nil
+		return validateNonePublicNetwork()
 	}
 	if err := validatePublicNetwork(*c); err != nil {
 		return err
@@ -147,7 +233,10 @@ func ValidatePublicNetwork(c *PublicNetwork) error {
 	if data, err = guestIP("-j", "-6", "route", "show", "default"); err != nil || len(bytes.TrimSpace(data)) != 2 || string(bytes.TrimSpace(data)) != "[]" {
 		return errors.New("public guest IPv6 route present or unavailable")
 	}
-	return validatePinnedResolver(c.DNS)
+	if err := validatePinnedResolver(c.DNS); err != nil {
+		return err
+	}
+	return validatePublicResolverService()
 }
 
 func disablePublicIPv6() error {
@@ -223,7 +312,7 @@ func installPinnedResolver(path string, dns []string, validateParent func(string
 		return fmt.Errorf("public guest resolver creation failed: %w", err)
 	}
 	defer os.Remove(f.Name())
-	content := []byte("nameserver " + dns[0] + "\nnameserver " + dns[1] + "\n")
+	content := []byte(publicResolverContent)
 	n, writeErr := f.Write(content)
 	chmodErr := f.Chmod(0644)
 	syncErr := f.Sync()
@@ -276,34 +365,30 @@ func describeGuestAddresses(addresses []guestAddressObservation) string {
 }
 
 func validatePinnedResolver(expected []string) error {
-	info, err := os.Stat("/etc/resolv.conf")
-	if err != nil || !info.Mode().IsRegular() || owner(info) != 0 || info.Mode().Perm()&022 != 0 || info.Size() > 4096 {
-		return fmt.Errorf("public guest resolver is not root-owned and bounded: %s", describeResolverPath("/etc/resolv.conf"))
+	if len(expected) != 2 || expected[0] != "1.1.1.1" || expected[1] != "9.9.9.9" {
+		return errors.New("public guest DoH upstream selection changed")
 	}
-	data, err := os.ReadFile("/etc/resolv.conf")
-	if err != nil || len(data) > 4096 {
-		return errors.New("public guest resolver unavailable")
+	return validateLocalResolverFile("/etc/resolv.conf", 0)
+}
+
+func validateLocalResolverFile(path string, expectedUID uint32) error {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return errors.New("public guest local resolver is not a regular root-controlled file")
 	}
-	var observed []string
-	scan := bufio.NewScanner(bytes.NewReader(data))
-	for scan.Scan() {
-		line := strings.TrimSpace(scan.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) != 2 || fields[0] != "nameserver" {
-			return errors.New("public guest resolver has an unexpected directive")
-		}
-		observed = append(observed, fields[1])
+	f := os.NewFile(uintptr(fd), path)
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || owner(info) != expectedUID || info.Mode().Perm() != 0644 || info.Size() != int64(len(publicResolverContent)) {
+		return errors.New("public guest local resolver metadata changed")
 	}
-	if scan.Err() != nil || len(observed) != len(expected) {
-		return errors.New("public guest resolver list changed")
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Nlink != 1 {
+		return errors.New("public guest local resolver identity is unsafe")
 	}
-	for i := range observed {
-		if observed[i] != expected[i] {
-			return errors.New("public guest resolver address changed")
-		}
+	data, err := io.ReadAll(io.LimitReader(f, int64(len(publicResolverContent)+1)))
+	if err != nil || string(data) != publicResolverContent {
+		return errors.New("public guest local resolver selection changed")
 	}
 	return nil
 }

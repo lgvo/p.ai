@@ -20,6 +20,8 @@
             inherit image automated;
             pPackage = null;
             productTest = null;
+            runtimeImage = null;
+            selectedSteps = [ ];
           };
           modules = [ ./machine.nix ];
         };

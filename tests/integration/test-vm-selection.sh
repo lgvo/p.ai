@@ -21,11 +21,28 @@ fi
 while (( $# )); do
   if [[ $1 == --argstr && ${2:-} == selectedStepsText ]]; then
     printf '%s' "$3" > "$P_TEST_SELECTION_CAPTURE"
-    break
+  fi
+  if [[ $1 == --argstr && ${2:-} == outerHostIPv4Text ]]; then
+    printf '%s' "$3" > "$P_TEST_HOST_CAPTURE"
+  fi
+  if [[ $1 == --argstr && ${2:-} == outerHostLANIPv4Text ]]; then
+    printf '%s' "$3" > "$P_TEST_LAN_CAPTURE"
   fi
   shift
 done
 printf '%s\n' "$P_TEST_RUNNER"
+EOF
+cat > "$fixture/bin/ip" <<'EOF'
+#!/usr/bin/env bash
+[[ ${P_TEST_IP_FAIL:-0} != 1 ]] || exit 1
+if [[ $* == '-o -4 address show' ]]; then
+  printf '1: lo    inet 127.0.0.1/8 scope host lo\n2: eth0    inet 198.41.0.7/24 scope global eth0\n'
+elif [[ $* == '-o -4 route show table all scope link type unicast' ]]; then
+  [[ ${P_TEST_ROUTE_FAIL:-0} != 1 ]] || exit 1
+  printf '198.41.0.0/24 dev eth0 proto kernel scope link src 198.41.0.7\n198.42.0.0/24 dev eth1 table 100 scope link\n'
+else
+  exit 1
+fi
 EOF
 cat > "$fixture/runner/bin/p-vm-integration-test" <<'EOF'
 #!/usr/bin/env bash
@@ -39,20 +56,37 @@ cat > "$fixture/bin/id" <<'EOF'
 #!/usr/bin/env bash
 if [[ $1 == -un ]]; then echo pdev; else /usr/bin/id "$@"; fi
 EOF
-chmod +x "$fixture/bin/nix-build" "$fixture/bin/id" "$fixture/runner/bin/p-vm-integration-test"
+chmod +x "$fixture/bin/nix-build" "$fixture/bin/id" "$fixture/bin/ip" "$fixture/runner/bin/p-vm-integration-test"
 export PATH="$fixture/bin:$PATH"
 export P_TEST_BUILD_CALLS="$fixture/build-calls"
 export P_TEST_SELECTION_CAPTURE="$fixture/selection"
+export P_TEST_HOST_CAPTURE="$fixture/host-addresses"
+export P_TEST_LAN_CAPTURE="$fixture/host-lan"
 export P_TEST_RUNNER="$fixture/runner"
 export P_VM_LOG_DIR="$fixture/logs"
 
 "$repo/dev/test-vm" > /dev/null
 [[ ! -s "$P_TEST_SELECTION_CAPTURE" ]]
+[[ $(cat "$P_TEST_HOST_CAPTURE") == $'127.0.0.1\n198.41.0.7' ]]
+[[ $(cat "$P_TEST_LAN_CAPTURE") == $'198.41.0.0/24\n198.42.0.0/24' ]]
 [[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 1 ]]
 
 "$repo/dev/test-vm" --step 13-daemon-events.sh --step 12-attachment.sh > /dev/null
 [[ $(cat "$P_TEST_SELECTION_CAPTURE") == $'12-attachment.sh\n13-daemon-events.sh' ]]
 [[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 2 ]]
+[[ ! -s "$P_TEST_HOST_CAPTURE" ]]
+[[ ! -s "$P_TEST_LAN_CAPTURE" ]]
+
+"$repo/dev/test-vm" --step 37-public-egress.sh > /dev/null
+[[ $(cat "$P_TEST_HOST_CAPTURE") == $'127.0.0.1\n198.41.0.7' ]]
+if P_TEST_IP_FAIL=1 "$repo/dev/test-vm" --step 37-public-egress.sh > /dev/null 2>&1; then
+  echo 'Expected unavailable host inventory to fail closed' >&2
+  exit 1
+fi
+if P_TEST_ROUTE_FAIL=1 "$repo/dev/test-vm" --step 37-public-egress.sh > /dev/null 2>&1; then
+  echo 'Expected unavailable LAN inventory to fail closed' >&2
+  exit 1
+fi
 
 for args in missing duplicate unknown injection mixed_help; do
   case $args in
@@ -67,7 +101,7 @@ for args in missing duplicate unknown injection mixed_help; do
     exit 1
   fi
 done
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 2 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 3 ]]
 [[ ! -e "$fixture/injected" ]]
 
 export P_TEST_BLOCK_READY="$fixture/build-ready"
@@ -84,7 +118,7 @@ if "$repo/dev/test-vm" > "$fixture/second-output" 2>&1; then
   exit 1
 fi
 grep -Fq 'Another VM integration run is active' "$fixture/second-output"
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 3 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 4 ]]
 : > "$P_TEST_RELEASE_BUILD"
 wait "$first_pid"
 first_pid=
@@ -103,7 +137,7 @@ if "$repo/dev/test-vm" --step 13-daemon-events.sh > "$fixture/second-output" 2>&
   exit 1
 fi
 grep -Fq 'Another VM integration run is active' "$fixture/second-output"
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 4 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 5 ]]
 : > "$P_TEST_RELEASE_RUNNER"
 wait "$first_pid"
 first_pid=

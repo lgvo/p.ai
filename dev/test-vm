@@ -78,7 +78,23 @@ if ! flock -n 9; then
   echo "Another VM integration run is active for this checkout." >&2
   exit 1
 fi
+outer_host_ipv4=""
+outer_host_lan_ipv4=""
+if (( ${#selected[@]} == 0 )) || [[ $'\n'"$selected_steps_text"$'\n' == *$'\n37-public-egress.sh\n'* ]]; then
+  # Include public host addresses too: filtering only RFC1918 is insufficient.
+  # Failure to inspect the host must not silently produce an incomplete policy.
+  host_addresses=$(ip -o -4 address show)
+  host_routes=$(ip -o -4 route show table all scope link type unicast)
+  outer_host_ipv4=$(awk '{ sub(/\/.*/, "", $4); print $4 }' <<< "$host_addresses" | sort -u)
+  outer_host_lan_ipv4=$(awk '$1 != "default" { print $1 }' <<< "$host_routes" | sort -u)
+  if [[ -z "$outer_host_ipv4" ]]; then
+    echo "Cannot establish outer VM host-address denial policy." >&2
+    exit 1
+  fi
+fi
 runner=$(nix-build "$repo/dev/integration.nix" -A runner \
-  --argstr selectedStepsText "$selected_steps_text" --no-out-link)
+  --argstr selectedStepsText "$selected_steps_text" \
+  --argstr outerHostIPv4Text "$outer_host_ipv4" \
+  --argstr outerHostLANIPv4Text "$outer_host_lan_ipv4" --no-out-link)
 export P_VM_LOG_DIR="$log_dir"
 exec "$runner/bin/p-vm-integration-test"

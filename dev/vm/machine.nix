@@ -9,9 +9,13 @@
   productTest ? null,
   selectedSteps ? [ ],
   runtimeImage ? null,
+  outerHostIPv4 ? [ ],
+  outerHostLANIPv4 ? [ ],
+  specialArgs,
   ...
 }:
 let
+  dnsOverHTTPSModule = specialArgs.dnsOverHTTPSModule or null;
   smokeScript = pkgs.writeShellApplication {
     name = "p-vm-smoke";
     runtimeInputs = [
@@ -24,7 +28,8 @@ let
   };
   productMarker = if selectedSteps == [ ] then "P_PRODUCT_INTEGRATION_PASS"
     else "P_PRODUCT_INTEGRATION_SELECTED_PASS ${lib.concatStringsSep "," selectedSteps}";
-  publicEgressFixture = automated && (selectedSteps == [ ] || lib.elem "37-public-egress.sh" selectedSteps);
+  publicEgressFixture = automated && productTest != null
+    && (selectedSteps == [ ] || lib.elem "37-public-egress.sh" selectedSteps);
   publicEgressDeniedCIDRs = [
     "0.0.0.0/8" "10.0.0.0/8" "100.64.0.0/10" "127.0.0.0/8"
     "169.254.0.0/16" "172.16.0.0/12" "192.0.0.0/24"
@@ -136,17 +141,31 @@ PY
   '';
 in
 {
-  imports = [ "${modulesPath}/virtualisation/qemu-vm.nix" ];
+  imports = [ "${modulesPath}/virtualisation/qemu-vm.nix" ]
+    ++ lib.optional (dnsOverHTTPSModule != null) dnsOverHTTPSModule;
   system.stateVersion = "26.05";
+  assertions = lib.optional publicEgressFixture {
+    assertion = outerHostIPv4 != [ ] && dnsOverHTTPSModule != null;
+    message = "Public-egress validation requires captured outer host IPv4 addresses; use dev/test-vm.";
+  };
   networking.hostName = "p-vm";
   networking.nftables.enable = true;
+  networking.enableIPv6 = lib.mkIf publicEgressFixture false;
+  networking.nameservers = lib.mkIf publicEgressFixture [ "127.0.0.1" ];
+  services = {
+    openssh.enable = false;
+    getty.autologinUser = lib.mkIf (!automated) "pdev";
+    getty.helpLine = "P infrastructure lab. Run p-vm-smoke. Console root password: p-vm.";
+  } // lib.optionalAttrs (dnsOverHTTPSModule != null) {
+    p-dns-over-https.enable = publicEgressFixture;
+  };
+  networking.dhcpcd.extraConfig = lib.mkIf publicEgressFixture (lib.mkAfter ''
+    nooption domain_name_servers
+  '');
   security.apparmor.enable = true;
   boot.kernelModules = [ "btrfs" ];
   documentation.enable = false;
   documentation.nixos.enable = false;
-  services.openssh.enable = false;
-  services.getty.autologinUser = lib.mkIf (!automated) "pdev";
-  services.getty.helpLine = "P infrastructure lab. Run p-vm-smoke. Console root password: p-vm.";
 
   virtualisation = {
     # One serial VM can exercise two bounded 4 GiB builders concurrently,
@@ -161,7 +180,9 @@ in
     writableStore = true;
     writableStoreUseTmpfs = false;
     sharedDirectories = lib.mkForce { };
-    restrictNetwork = true;
+    # Public tests need an actual outside route. Guest nftables constrains
+    # this one selection; smoke and all other selections retain SLIRP isolation.
+    restrictNetwork = !publicEgressFixture;
     incus = {
       enable = true;
       package = pkgs.incus;
@@ -261,6 +282,10 @@ in
           options = [ "NOPASSWD" ];
         }
         {
+          command = "${pkgs.nftables}/bin/nft -j list table inet p_vm_outer";
+          options = [ "NOPASSWD" ];
+        }
+        {
           command = "${pkgs.nftables}/bin/nft list counter ip p_vm_dnat_probe forward_hits";
           options = [ "NOPASSWD" ];
         }
@@ -284,6 +309,45 @@ in
     }
   ];
   networking.nftables.tables = lib.mkIf publicEgressFixture {
+    p_vm_outer = {
+      family = "inet";
+      content = ''
+        chain output {
+          type filter hook output priority -10; policy drop;
+          oifname "lo" accept
+          # Only bootstrap DHCP is exempt from destination denial. QEMU's
+          # private gateway/DNS aliases remain unavailable to applications.
+          oifname "eth0" ip saddr { 0.0.0.0, 10.0.2.15 } ip daddr { 10.0.2.2, 255.255.255.255 } udp sport 68 udp dport 67 accept
+          meta nfproto ipv6 drop
+          ${lib.concatMapStringsSep "\n" (address: ''ip daddr ${address} counter drop'') outerHostIPv4}
+          ${lib.concatMapStringsSep "\n" (prefix: ''ip daddr ${prefix} counter drop'') outerHostLANIPv4}
+          ${lib.concatMapStringsSep "\n" (cidr: ''ip daddr ${cidr} counter drop'') publicEgressDeniedCIDRs}
+          # Retain existing pinned DNS allowances; the resolver itself uses DoH.
+          ip daddr { 1.1.1.1, 9.9.9.9 } udp dport 53 counter accept
+          ip daddr { 1.1.1.1, 9.9.9.9 } tcp dport 53 counter accept
+          tcp dport { 80, 443 } counter accept
+        }
+        chain input {
+          type filter hook input priority -10; policy drop;
+          iifname "lo" accept
+          ct state established,related accept
+          iifname "eth0" ip saddr 10.0.2.2 udp sport 67 udp dport 68 accept
+        }
+        chain forward {
+          type filter hook forward priority -10; policy accept;
+          iifname "p-public-v1" meta nfproto ipv6 drop
+          ${lib.concatMapStringsSep "\n" (address: ''iifname "p-public-v1" ip daddr ${address} counter drop'') outerHostIPv4}
+          ${lib.concatMapStringsSep "\n" (prefix: ''iifname "p-public-v1" ip daddr ${prefix} counter drop'') outerHostLANIPv4}
+          ${lib.concatMapStringsSep "\n" (cidr: ''iifname "p-public-v1" ip daddr ${cidr} counter drop'') publicEgressDeniedCIDRs}
+          iifname "p-public-v1" ip daddr { 1.1.1.1, 9.9.9.9 } udp dport 53 counter accept
+          iifname "p-public-v1" ip daddr { 1.1.1.1, 9.9.9.9 } tcp dport 53 counter accept
+          iifname "p-public-v1" tcp dport { 80, 443 } counter accept
+          iifname "p-public-v1" drop
+          oifname "p-public-v1" ct state established,related accept
+          oifname "p-public-v1" drop
+        }
+      '';
+    };
     # Disposable integration probe only. The separate production table below
     # still drops every forwarded packet whose destination was rewritten.
     p_vm_dnat_probe = {
@@ -348,6 +412,11 @@ in
     "d /var/lib/p-vm/grants 0755 root root -"
     "d /var/lib/p-vm/grants/pdev 0700 pdev users -"
   ];
+
+  systemd.services.p-dns-over-https = lib.mkIf publicEgressFixture {
+    serviceConfig.StandardOutput = "journal+console";
+    serviceConfig.StandardError = "journal+console";
+  };
 
   systemd.services.p-vm-prepare = {
     description = "Prepare the confined Incus lab and pinned fixture image";

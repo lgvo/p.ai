@@ -1,4 +1,4 @@
-{ selectedStepsText ? "" }:
+{ selectedStepsText ? "", outerHostIPv4Text ? "", outerHostLANIPv4Text ? "" }:
 let
   # Reuse the lab's locked nixpkgs without copying VM disks or module caches
   # into a flake source. package.nix explicitly filters the production source.
@@ -6,6 +6,21 @@ let
   nixpkgs = lab.inputs.nixpkgs;
   system = "x86_64-linux";
   pkgs = nixpkgs.legacyPackages.${system};
+  # Runner captures actual host addresses, never credentials. Reject text
+  # outside the IPv4 grammar before embedding it in the guest nftables rules.
+  outerHostIPv4 = if outerHostIPv4Text == "" then [ ] else nixpkgs.lib.splitString "\n" outerHostIPv4Text;
+  outerHostLANIPv4 = if outerHostLANIPv4Text == "" then [ ] else nixpkgs.lib.splitString "\n" outerHostLANIPv4Text;
+  validIPv4 = address:
+    let parts = nixpkgs.lib.splitString "." address;
+    in builtins.length parts == 4 && builtins.all
+      (part: builtins.match "(0|[1-9][0-9]{0,2})" part != null
+        && nixpkgs.lib.toInt part <= 255) parts;
+  validPrefix = prefix:
+    let parts = nixpkgs.lib.splitString "/" prefix;
+    in (builtins.length parts == 1 && validIPv4 prefix)
+      || (builtins.length parts == 2 && validIPv4 (builtins.head parts)
+        && builtins.match "(0|[1-9][0-9]?)" (builtins.elemAt parts 1) != null
+        && nixpkgs.lib.toInt (builtins.elemAt parts 1) <= 32);
   stepEntries = builtins.readDir ../tests/integration/steps;
   validStepName = name: builtins.match "[A-Za-z0-9][A-Za-z0-9._-]*\\.sh" name != null;
   availableSteps = builtins.filter
@@ -235,6 +250,8 @@ let
       export P_TEST_NIX_FIXTURE=${nixActivationFixture}
       export P_TEST_SELECTED_STEPS=${nixpkgs.lib.escapeShellArg (nixpkgs.lib.concatStringsSep "\n" selectedSteps)}
       export P_TEST_NFT_BINARY=${pkgs.nftables}/bin/nft
+      export P_TEST_OUTER_HOST_IPV4=${nixpkgs.lib.escapeShellArg outerHostIPv4Text}
+      export P_TEST_OUTER_HOST_LAN_IPV4=${nixpkgs.lib.escapeShellArg outerHostLANIPv4Text}
       export P_TEST_PUBLIC_EGRESS_FIXTURE=${if selectedSteps == [ ] || nixpkgs.lib.elem "37-public-egress.sh" selectedSteps then "1" else "0"}
     ''
     + builtins.readFile ../tests/integration/run.sh;
@@ -243,6 +260,9 @@ let
     (nixpkgs.lib.nixosSystem {
       inherit system;
       specialArgs = {
+        dnsOverHTTPSModule = ../runtime/dns-over-https.nix;
+        outerHostIPv4 = assert builtins.all validIPv4 outerHostIPv4; outerHostIPv4;
+        outerHostLANIPv4 = assert builtins.all validPrefix outerHostLANIPv4; outerHostLANIPv4;
         inherit
           image
           runtimeImage

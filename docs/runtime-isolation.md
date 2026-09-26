@@ -316,6 +316,16 @@ carrier-grade NAT, link-local, metadata, multicast, sibling-instance, Incus
 API, and undeclared service destinations over IPv4 and IPv6. Incus defaults are
 not evidence of this P policy.
 
+The public-session image uses a root-configured, loopback-only DNS forwarder.
+Its fixed Cloudflare and Quad9 upstreams use DNS over HTTPS on TCP 443 with
+literal bootstrap addresses `1.1.1.1` and `9.9.9.9` and certificate validation
+for `cloudflare-dns.com` and `dns.quad9.net`. It does not use host/LAN DNS,
+system-resolver bootstrap, downloaded resolver lists, or plaintext external
+port-53 fallback. DoH redirects are refused so a provider response cannot
+introduce a different resolver host. Ordinary applications use the session's loopback DNS endpoint;
+the resolver's only upstream transport is HTTPS. A `none` session does not start
+this resolver or gain a public NIC.
+
 There is no unsolicited inbound access, host network mode, published port, or
 general host route. A public forge may be reachable, but the runtime still
 receives no origin remote or origin credential.

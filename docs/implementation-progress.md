@@ -2,16 +2,15 @@
 
 ## Current state — 2026-09-26
 
-- **Paused at user request after the VM49 checkpoint commit.** No subsequent
-  implementation batch has started; no VM is running.
-- Latest passing checkpoint: **VM49 bounded failed-creation cleanup passed**
-  on `feature/cli-first-mvp`; its reviewed implementation, scope decisions and
-  evidence are included in this checkpoint commit. VM48 bundled distribution
-  passed at `24fcf32`.
-  VM47 reviewed local-resource replacement passed at `572c8d0`.
-  VM34 removal absence/recovery passed at `e7ef837`. VM46 local new-branch
-  replacement passed at `1d025e9`; VM45 existing-branch replacement at `8a3c8a6`.
-  Prior selected recovery/retained-branch evidence remains in the log below.
+- **Paused after the DNS/network checkpoint commit.** The authorized DoH
+  correction and selected serial VM37 passed; no other MVP batch resumed.
+- Latest passing checkpoint: **VM37 real public-egress/DoH passed** on
+  `feature/cli-first-mvp`, with reviewed code and evidence in this commit.
+  Bounded failed-creation cleanup passed at `99da3b6`; bundled distribution
+  at `24fcf32`; local-resource replacement at `572c8d0`.
+  VM34 removal recovery passed at `e7ef837`, VM46 new-branch replacement
+  at `1d025e9`, and VM45 existing-branch replacement at `8a3c8a6`.
+  Prior evidence and all failure/decision history remain below.
 - **8f1 passed:** public preview/confirmation atomically supersede an early
   no-effect blocked existing-branch Create with changed source/policy. Focused
   SQLite, native, socket and race tests, retained recovery review, affected
@@ -34,12 +33,13 @@
   2026-09-26. No VM or prior agent was running at resumption.
 - Latest full VM checkpoint is **through VM28**, before subsequent changes;
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
-  serial; the latest selected VM49 powered down and removed its fresh disk.
+  serial; the latest selected VM37 powered down and removed its fresh disk.
 - Remaining implementation includes broader assembled-runtime cleanup/loss
   inspection, mismatch diagnostics/manual correction, bulk project deletion,
   and NixOS/Incus installation
-  acceptance. VM37 proved negative public-egress isolation and synthetic
-  probes only; real public Nix fetch/DNS/redirect evidence remains unverified.
+  acceptance. VM37 now proves real DoH/DNS, hostname HTTPS, fresh Nix fetch,
+  public-to-private DNS and real HTTPS redirect denial alongside isolation;
+  synthetic probes remain separately labelled.
 - **8f3 passed:** reviewed P Git keys/principals and endpoints are durably
   cleaned before new creation, with old-runtime/builder absence and affirmative
   no-init-dispatch evidence. Legacy/attempted init stays ineligible. Retained
@@ -47,12 +47,12 @@
 - Codex event/persistence and Discard/Delete cleanup used fixtures and dummy
   credentials. Real authenticated Codex acceptance remains **pending user
   validation** using the procedure below; no login or host credentials are used.
-- Corrected public VM routing is now proved by real verified numeric HTTPS
-  from both layers; public DNS/hostname HTTPS/Nix-fetch acceptance still fails
-  on resolver timeouts. The initial `restrictNetwork` mistake is corrected;
-  scope/docs and bundled distribution are review-approved, VM48 passed.
-  Bounded failed-creation cleanup is now reviewed and VM49-validated. No active
-  implementation stream remains during the requested pause.
+- Corrected public VM routing and session-local DNS over HTTPS now pass real
+  network gates. Cloudflare and Quad9 are the fixed encrypted upstreams; the
+  auxiliary HTTP/1.1 Quad9 probe receives 505, while the production standard
+  resolver reports both providers live through its supported transport.
+  Existing VM port-53 allowances remain; no plaintext bootstrap/fallback is
+  configured. No active implementation stream or VM remains during the pause.
 
 Execution record for the CLI-first implementation requested on 2026-09-23.
 This is a non-normative tracker. The [implementation plan](implementation-plan.md)
@@ -95,7 +95,7 @@ and unrelated working-tree changes are preserved.
 | 6 | SSH origins, source selection, publication and retained branches | Contact-before-association, fast-forward publication, unknown results | Local SSH origin fixture; fetch/publish/retained branch workflows | Origin transport/association/creation and public publication/retained queries passed VM |
 | 7 | Committed Nix devShell builds, activation and project-scoped image cache | Source/lock identity, activation validation, cache keys and cleanup | Restricted builder; two private stores; cache loss and stop/start | Offline creation/cache/activation/retry and explicit collection/recovery passed selected VM gates; public fetch remains gated on step 9 |
 | 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; broader cleanup/project deletion and manual mismatch acceptance pending; abandonment excluded |
-| 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c negative isolation and synthetic probes VM37 passed, real public traffic pending |
+| 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c selected VM37 real DoH/DNS/HTTPS/Nix/private-resolution/redirect and negative isolation passed; synthetic fixtures separate |
 | 10 | Versioned Codex adapter and session-local authentication workflow | Strict semantic mapping, absent/unsupported hooks, isolation | Authentication-free event fixtures and dummy credential storage checks; real authenticated acceptance by user | VM27 adapter/event/persistence and VM31/32 dummy Discard/Delete cleanup passed; authenticated acceptance pending user validation |
 | 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Installed bundled composition passed VM48; service/install/license and plugin management pending |
 
@@ -3606,3 +3606,191 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   abandonment remain outside MVP. Authenticated Codex acceptance stays pending
   the user's manual procedure above; no authentication or host credentials
   were accessed. No following implementation batch starts before resumption.
+
+
+- **Authorized DNS-over-HTTPS correction — acceptance before editing:** the
+  user reports their firewall intentionally blocks external UDP/TCP port 53
+  and permits encrypted DNS through SSL ports. This provides new network-policy
+  evidence explaining the earlier plaintext DNS timeouts; the corrected public
+  route already worked. Only this networking batch resumes; all other MVP work
+  stays paused. Use real DNS-over-HTTPS on TCP 443 with literal upstream
+  bootstrap addresses and verified TLS names, a loopback-only resolver inside
+  each public session and the dedicated outer VM, and no system-DNS/port-53
+  fallback. Preserve none-profile absence of public network, Incus isolation,
+  all private/host/LAN/metadata/sibling/inbound/DNAT denials, and existing
+  filesystem/resource restrictions.
+  Focused tests must cover pinned upstreams, resolver file safety, absent public
+  config, DoH response validation and bootstrap identity. Reuse the retained
+  Sol/high implementer for the session image/service portion; root owns outer
+  VM, probes and documentation. Review the finished patch with the retained
+  reviewer, then run only VM37 serially. Require real DoH DNS, ordinary hostname
+  HTTPS, actual fresh Nix fetch, public-to-private resolution and actual redirect
+  denial evidence; fixture tests remain separate. Record and commit after a
+  relevant passing VM, then pause again. No authentication or credentials.
+
+  The user clarified that the VM firewall need not block port 53. Retain its
+  existing pinned external DNS allowances; encrypted upstream transport and
+  absence of plaintext bootstrap/fallback are resolver responsibilities. The
+  host's configured firewall policy supplies the existing port-53 restriction.
+  This supersedes the initial proposal to remove the outer port-53 allowances;
+  no extra host/LAN access or generic service grants are added.
+
+  Root focused checks pass: VM runner selection/inventory/fail-closed tests,
+  Bash syntax, ShellCheck and diff checks. Ten network fixture tests cover
+  DNS/DoH response validation, exact literal TLS bootstrap plus hostname
+  verification, certificate-failure socket closure, non-loopback plaintext
+  refusal and verified redirect evidence. All 16 Python fixture tests pass
+  when the existing Codex Unix-notification fixture is allowed to bind its
+  local socket; the initial sandbox-only run failed that bind, not a network
+  assertion. These are authentication-free fixtures, not real network evidence.
+  Official provider transport references used for implementation are
+  [Cloudflare wireformat DoH](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-wireformat/)
+  and [Quad9 service endpoints](https://docs.quad9.net/services/).
+
+  Nix preflight diagnostics found duplicate `services` definitions while adding
+  the outer resolver. Consolidated the existing SSH/getty settings, including
+  the separately reported helpLine, into the same attribute set. A later
+  standalone-smoke evaluation exposed optional-import recursion: imports cannot
+  depend on a missing module argument resolved through config. The shared module
+  path now comes from NixOS's always-provided specialArgs, not config; standalone
+  smoke retains no resolver import. Its flake also supplies explicit null
+  runtimeImage and empty selectedSteps, matching intended existing defaults,
+  after evaluation identified the missing argument. These are bounded evaluation
+  corrections based on exact diagnostic locations; no VM was run or isolation
+  assertion changed.
+
+  Production focused race tests (three runs) and runtimekit/cmd suites pass.
+  The implementer's final upstream audit found that dnscrypt-proxy static
+  literal addresses avoid bootstrap lookup, but its HTTP transport follows
+  redirects and can resolve an uncached redirect host through system DNS.
+  `ignore_system_dns` alone does not contain that path. Require a minimal
+  pinned-package patch refusing DoH HTTP redirects with a focused regression,
+  preserving verified TLS and fixed literal endpoints; do not add host resolver
+  access or an /etc/hosts bypass. No no-fallback integration claim yet.
+
+  Public integration, restricted integration (VM49 selection), and standalone
+  smoke Nix derivations now evaluate successfully without starting any VM.
+  The runtime resolver's unnecessary network-online ordering warning was
+  removed: explicit trusted network preparation supplies its startup ordering.
+  Real DoH/hostname/Nix/redirect evidence is still pending the reviewed VM37 run.
+
+  Frozen production source passed focused runtimekit race tests three times
+  and affected runtimekit/cmd suites. Retained reviewer activated for the whole
+  coherent DNS/network batch. The exact derived dnscrypt package build fetched
+  pinned source `/nix/store/92ji4i7133rbxyrslg0by7rc5497d43w-source` but failed
+  during patch application: the redirect hunk did not match the actual pinned
+  xtransport.go. Refresh against this source and dry-run the patch before another
+  package build; preserve the native transport regression. No VM launched.
+
+  Refreshed exact module package build passed: derivation
+  `/nix/store/d4aq9a7nqivy72fhf8ppxmmy85j6rs8f-dnscrypt-proxy-2.1.18.drv`,
+  output `/nix/store/f912adzryy2b5avy7pg2f3hwjddr7pkg-dnscrypt-proxy-2.1.18`.
+  The actual Fetch TLS redirect regression passed in its Nix check phase
+  (0.010s); already-started independent vendored-source race tests passed three
+  runs (1.113s). Retained reviewer approved serial VM37 launch after actual
+  upstream bootstrap/transport audit and independent focused checks. No
+  outstanding source/isolation finding. Service feasibility and real network
+  acceptance still require VM evidence.
+
+  Frozen VM37 DoH snapshot `/tmp/p-vm37-doh-reviewed.gsy4h0mx`; baseline `99da3b60f39d9386bc2297005367375c48acb847`,
+  13-file source/test overlay manifest SHA256 `f01fd5764a0177daf5e768a97f76bfdadb439a742c1d8a219a04fdea60bccf47`
+  (ordered JSON path/mode/content-hash manifest). Root global VM lock will be
+  held through build and shutdown. No other implementation batch resumes.
+
+  First DoH VM37 `.cache/p-vm/integration-20260926T142021Z-1067124.log`
+  exited 1 at the real redirect gate, after real certificate-verified Cloudflare
+  wireformat DoH, local UDP/TCP DNS, hostname HTTPS and actual fresh Nix fetch
+  passed from the production session; outer DNS/HTTPS passed too. Native session
+  resolver service worked under unprivileged nesting-disabled Incus. The none
+  session had no NIC and its resolver stayed inactive. Existing private/sibling/
+  host/LAN/metadata/IPv6/DNAT denials and real public-to-private DNS denial passed.
+  All four pinned external53 output/forward UDP/TCP permit counters stayed zero;
+  no additional VM53 block was required. Nix fetched a real Example Domain
+  body with hash `sha256-/2ep12TWojZ6GHc05pf2pTIX25ohwQHUEKETyocaKZ0=`.
+
+  The public redirect service returned an HTTP error, which correctly failed
+  rather than counting as denial evidence. Direct Quad9 diagnostic returned a
+  ValueError while the actual dnscrypt provider startup reported both providers
+  live; capture the bounded reason before selecting a probe fix. Add bounded
+  redirect HTTP status/body and DoH validation reason diagnostics, preserving
+  actual redirect assertions. VM powered down and its disposable disk was
+  removed; no full VM37 pass or checkpoint commit claimed.
+
+  Diagnostic-only probe update is frozen; ten focused fixtures and diff checks
+  pass. Real HTTP redirect success is still mandatory. The same isolated
+  snapshot now has 13-file overlay manifest SHA256 `c58f144ce74ea6c6fc6c74ef225bb2748cca488d7de85925437a902d69c874cb`; production
+  source/service/package is unchanged. One serial VM37 rerun will obtain actual
+  redirect status/body and Quad9 parser reason from the corrected VM, rather
+  than select a different fixture or weaken a gate based on host inference.
+
+  Second diagnostic VM37 `.cache/p-vm/integration-20260926T142556Z-1118834.log`
+  exited 1 with fresh real evidence: HTTPBingo returned verified HTTP403 and
+  an explicit redirect whitelist (example.com/net/org and httpbingo.org), so
+  it cannot emit the required private-target redirect. This is a fixture choice
+  error, not an isolation failure. Replace only that public fixture with
+  HTTPBin's documented arbitrary redirect endpoint; retain the exact verified
+  HTTP302/Location and subsequent destination-timeout assertions. No synthetic
+  redirect or service-error-as-pass substitution. All prior DoH/DNS/HTTPS/Nix
+  and denial markers again passed; VM powered down and removed its disk.
+
+  The independent Quad9 diagnostic reached HTTPS but reported invalid HTTP
+  DoH response, not a socket/DNS timeout; the production resolver reported both
+  providers live and resolved through its standard transport. Add bounded
+  status/MIME diagnostics and use RFC8484's recommended DNS ID zero for direct
+  DoH requests, preserving question/response-ID/size/public-address checks and
+  TLS hostname verification. Eleven focused fixture tests pass including the
+  zero-ID request and wrong-response-ID rejection. The governing references are
+  [HTTPBin implementation](https://raw.githubusercontent.com/postmanlabs/httpbin/master/httpbin/core.py)
+  and [RFC8484 section4.1](https://www.rfc-editor.org/rfc/rfc8484#section-4.1).
+  Retained reviewer rechecks this specific fixture/protocol fix before the next
+  serial VM selection. Other MVP work remains paused.
+
+  Retained specific recheck approved the fixture/RFC-ID fix; independent eleven
+  focused fixtures and diff checks pass. Refreshed same frozen snapshot manifest
+  SHA256 `8c6b218858ac42046bdf5d44c784044d35833f5b5f67c60d7266ffcfc0fba93b`. No production/service/isolation change or extra DNS grant.
+  Third serial VM37 requires actual HTTPBin302 and exact private-target follow
+  timeout alongside the real DNS/HTTPS/Nix and previous denial gates.
+
+
+- **DoH/public-network passing checkpoint — 2026-09-26:** third serial VM37
+  `.cache/p-vm/integration-20260926T143135Z-1167016.log` exited **0**.
+  The final 13-file source/test manifest SHA256 is
+  `8c6b218858ac42046bdf5d44c784044d35833f5b5f67c60d7266ffcfc0fba93b`
+  on baseline `99da3b6`; all working-tree source/test bytes and modes match the
+  passing reviewed snapshot. VM smoke, unchanged isolation negatives and
+  outer-VM denial gates passed. Real Cloudflare certificate-verified DoH
+  wireformat queries, ordinary local UDP/TCP resolution, hostname HTTPS, and
+  a fresh real Nix fetch passed from the production session; outer DoH/local
+  resolution/HTTPS passed too. Incus nesting stayed disabled and all original
+  filesystem/resource/user-mapping restrictions remained. No host resolver,
+  private DNS exception, credentials or Codex authentication were introduced.
+
+  The public `10.233.0.1.sslip.io` lookup really returned `10.233.0.1`; its
+  attempted gateway connection timed out as required. The actual HTTPS
+  HTTPBin request returned verified HTTP302 with exact Location
+  `http://10.233.0.1:443/`, and following that same response/target timed out.
+  `P_PUBLIC_DOH_PASS`, `P_PUBLIC_DNS_PASS`, `P_PUBLIC_HTTPS_PASS`,
+  `P_PUBLIC_NIX_FETCH_PASS`, `P_PUBLIC_REAL_RESOLUTION_NEGATIVE_PASS`,
+  `P_PUBLIC_REAL_REDIRECT_NEGATIVE_PASS`, `P_PUBLIC_EGRESS_PASS`,
+  `P_PRODUCT_INTEGRATION_SELECTED_PASS 37-public-egress.sh` and
+  `P_VM_SMOKE_PASS` all passed. Synthetic rebinding/parser/redirect fixtures
+  remain separate evidence; no missing real service assertion was waived.
+
+  The auxiliary direct Python HTTP/1.1 Quad9 probe receives HTTP505. It does
+  not prove a Quad9 DNS outage; the actual standard resolver's startup
+  transport reports both Quad9 and Cloudflare as live DoH providers. Direct
+  wireformat response evidence comes from Cloudflare; no direct Python Quad9
+  success is claimed. No expensive rerun is justified by that diagnostic-only
+  protocol limitation. Existing focused/race suites, patched native transport
+  check and retained review remain valid; the VM package build also passed its
+  Go and authentication-free Python checks. Nix ignored the untrusted client's
+  download-attempts option; no trust or security grant was widened, and the
+  independent subprocess deadline remained enforced.
+
+  VM powered down and removed its temporary disk. Commit the reviewed DNS
+  service/runtime preparation, corrected public VM protections/probes/fixture,
+  authoritative DNS behavior/validation docs and this sole evidence record.
+  Then pause again as requested. Other MVP gates remain unchanged: broader
+  cleanup, mismatch/manual correction, project deletion, NixOS service/install/
+  dependency notices/plugin management and final full serial suite. Real
+  authenticated Codex acceptance stays pending the user's manual procedure.

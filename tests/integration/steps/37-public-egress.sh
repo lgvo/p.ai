@@ -49,7 +49,24 @@ cleanup() {
 }
 on_error() {
   printf 'P_PUBLIC_EGRESS_FAIL line=%s status=%s\n' "$2" "$1" >&2
+  /run/current-system/sw/bin/systemctl show p-dns-over-https.service \
+    -p ActiveState -p SubState -p Result -p ExecMainStatus >&2 || true
   tail -c 3072 "$step_dir/daemon.err" >&2 || true
+  if test -f "$step_dir/sibling.out"; then
+    echo 'sibling listener diagnostics:' >&2
+    tail -c 2048 "$step_dir/sibling.out" >&2 || true
+  fi
+  for diagnostic in outer-network session-network; do
+    if test -f "$step_dir/$diagnostic.out"; then
+      echo "$diagnostic bounded diagnostics:" >&2
+      tail -c 8192 "$step_dir/$diagnostic.out" >&2 || true
+    fi
+  done
+  # Show only the permit-rule counters, proving whether diagnostic traffic
+  # reached the outer grants without dumping unrestricted host state.
+  /run/wrappers/bin/sudo -n "$P_TEST_NFT_BINARY" -j list table inet p_vm_outer |
+    jq -c '[.nftables[] | .rule? | select(.chain=="output" or .chain=="forward") |
+      select(any(.expr[]; has("accept"))) | {chain,expr}]' >&2 || true
   if inc network show p-public-v1 > "$step_dir/network-show.out" 2>&1; then
     echo 'confined Incus bridge configuration:' >&2
     tail -c 3072 "$step_dir/network-show.out" >&2 || true
@@ -65,6 +82,11 @@ on_error() {
     tail -c 1024 "$step_dir/acl-show.out" >&2 || true
   fi
   if test -n "$uuid_a"; then
+    inc exec "p-$uuid_a" -- /run/current-system/sw/bin/journalctl \
+      -u p-dns-over-https.service -b -n 16 --no-pager \
+      > "$step_dir/guest-doh-service.out" 2>&1 || true
+    echo 'session DoH service bounded diagnostics:' >&2
+    tail -c 3072 "$step_dir/guest-doh-service.out" >&2 || true
     echo 'public guest network inventory after failure:' >&2
     if inc exec "p-$uuid_a" -- /run/current-system/sw/bin/ip -j address show dev eth0 \
       > "$step_dir/guest-address.out" 2>&1; then
@@ -78,6 +100,15 @@ on_error() {
     else
       tail -c 1024 "$step_dir/guest-route.out" >&2 || true
     fi
+  fi
+  if test -n "$uuid_new"; then
+    echo 'sibling guest address and listener state:' >&2
+    inc exec "p-$uuid_new" -- /run/current-system/sw/bin/ip -j -4 address show \
+      > "$step_dir/sibling-address.out" 2>&1 || true
+    tail -c 2048 "$step_dir/sibling-address.out" >&2 || true
+    inc exec "p-$uuid_new" -- /run/current-system/sw/bin/ss -ltn \
+      > "$step_dir/sibling-listeners.out" 2>&1 || true
+    tail -c 2048 "$step_dir/sibling-listeners.out" >&2 || true
   fi
 }
 trap cleanup EXIT
@@ -191,10 +222,10 @@ inc list "^p-$uuid_new$" --format json |
 guest_a /run/current-system/sw/bin/bash -c '
   ip -4 -o addr show dev eth0 | grep -q "10.233.0.10/24" &&
   ip -4 route show default | grep -q "via 10.233.0.1" &&
-  grep -qx "nameserver 1.1.1.1" /etc/resolv.conf &&
-  grep -qx "nameserver 9.9.9.9" /etc/resolv.conf'
+  test "$(cat /etc/resolv.conf)" = "nameserver 127.0.0.1" &&
+  systemctl is-active --quiet p-dns-over-https.service'
 inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
-  /run/current-system/sw/bin/bash -c 'test ! -e /sys/class/net/eth0'
+  /run/current-system/sw/bin/bash -c 'test ! -e /sys/class/net/eth0 && test "$(systemctl show -p ActiveState --value p-dns-over-https.service)" = inactive'
 
 # A root-owned live host listener uses allowed port 443, distinguishing
 # destination filtering from the ACL's default service-port refusal.
@@ -234,7 +265,17 @@ fi
 
 # The second public guest provides a live sibling destination.
 inc exec "p-$uuid_new" -- \
-  /run/current-system/sw/bin/python3 -m http.server 443 --bind 10.233.0.11 \
+  /run/current-system/sw/bin/python3 -I -u -c '
+import socket
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("10.233.0.11", 443))
+    listener.listen(8)
+    print("P_SIBLING_LISTENER_READY", flush=True)
+    while True:
+        connection, _ = listener.accept()
+        connection.close()
+' \
   > "$step_dir/sibling.out" 2>&1 &
 sibling_pid=$!
 deadline=$((SECONDS+10))
@@ -324,11 +365,53 @@ echo P_PUBLIC_SYNTHETIC_RESOLUTION_NEGATIVE_PASS
 kill "$sibling_pid" 2>/dev/null || true
 wait "$sibling_pid" 2>/dev/null || true
 
-# Positive fetch is separate evidence; an isolated VM may have no public route.
-if guest_a /run/current-system/sw/bin/bash -c \
-  'timeout 20 nix store prefetch-file https://example.com/' > "$step_dir/fetch.out" 2>&1; then
-  echo P_PUBLIC_NIX_FETCH_PASS
-else
-  echo P_PUBLIC_NIX_FETCH_UNVERIFIED
-fi
 echo P_PUBLIC_EGRESS_NEGATIVE_PASS
+# The outer VM must enforce an explicit policy when SLIRP restriction is off.
+# shellcheck disable=SC2024 # The report intentionally belongs to unprivileged pdev.
+/run/wrappers/bin/sudo -n "$P_TEST_NFT_BINARY" -j list table inet p_vm_outer \
+  > "$step_dir/outer-firewall.json"
+jq -e '([.nftables[] | .chain? | select(.name=="input" and .policy=="drop")] | length)==1 and
+  ([.nftables[] | .chain? | select(.name=="output" and .policy=="drop")] | length)==1' \
+  "$step_dir/outer-firewall.json" >/dev/null
+for forbidden in 10.0.2.2 10.0.2.3 169.254.169.254; do
+  if timeout 3 /run/current-system/sw/bin/python3 -I -c \
+    'import socket,sys; socket.create_connection((sys.argv[1],443),2).close()' "$forbidden" \
+    > "$step_dir/outer-denied-$forbidden.out" 2>&1; then
+    echo "outer VM reached forbidden host/metadata address $forbidden" >&2
+    exit 1
+  fi
+done
+while IFS= read -r forbidden; do
+  # Outer loopback is the VM itself, never the physical host. Forwarding
+  # loopback destinations from containers is denied by both firewall layers.
+  [[ "$forbidden" == 127.* ]] && continue
+  if timeout 3 /run/current-system/sw/bin/python3 -I -c \
+    'import socket,sys; socket.create_connection((sys.argv[1],443),2).close()' "$forbidden" \
+    > "$step_dir/outer-host-$forbidden.out" 2>&1; then
+    echo "outer VM reached actual host address $forbidden" >&2
+    exit 1
+  fi
+done <<< "$P_TEST_OUTER_HOST_IPV4"
+echo P_PUBLIC_OUTER_DENIAL_PASS
+# Print bounded real-route diagnostics in both layers before choosing any DNS
+# correction. The outer VM has public routing only for this selection.
+probe=$(cat "$P_TEST_SOURCE/tests/integration/public-network-probe.py")
+if timeout 45 /run/current-system/sw/bin/python3 -I -c "$probe" outer \
+  > "$step_dir/outer-network.out" 2>&1; then
+  cat "$step_dir/outer-network.out"
+else
+  cat "$step_dir/outer-network.out" >&2
+  on_error 1 "$LINENO"
+  exit 1
+fi
+if timeout 110 "$incus_real" --force-local --project user-1000 \
+  exec "p-$uuid_a" --user 1000 --group 1000 --cwd /workspace \
+  --env HOME=/home/p -- /run/current-system/sw/bin/python3 -I -c "$probe" session \
+  > "$step_dir/session-network.out" 2>&1; then
+  cat "$step_dir/session-network.out"
+else
+  cat "$step_dir/session-network.out" >&2
+  on_error 1 "$LINENO"
+  exit 1
+fi
+echo P_PUBLIC_EGRESS_PASS

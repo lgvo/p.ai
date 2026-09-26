@@ -113,8 +113,11 @@ validated configuration and rules.
 P never receives that socket or network-edit permission.
 The bridge has no DHCP, DNS service, or IPv6; P reserves a distinct static IPv4
 address for each public session and records the substrate digest in the
-immutable policy. The guest installs only that address, route, and the pinned
-public resolvers. A `none` session receives no NIC even in a project that
+immutable policy. The guest installs only that address and route, plus a
+root-owned loopback resolver. The `dns` pair pins the image's DNS-over-HTTPS
+bootstrap addresses; the fixed resolver verifies the Cloudflare/Quad9 TLS
+names and uses TCP 443 without host DNS or plaintext fallback. A `none` session
+receives no NIC or running resolver even in a project that
 permits the public bridge. A changed or missing public substrate makes the
 captured public policy `invalid` and blocks Start.
 

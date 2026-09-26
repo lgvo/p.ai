@@ -17,7 +17,10 @@ let
   '';
 in
 {
-  imports = [ "${modulesPath}/../maintainers/scripts/incus/incus-container-image.nix" ];
+  imports = [
+    "${modulesPath}/../maintainers/scripts/incus/incus-container-image.nix"
+    ./dns-over-https.nix
+  ];
 
   assertions = [
     {
@@ -36,6 +39,9 @@ in
   # the immutable public-network config. NixOS resolvconf would otherwise
   # place a dynamically owned target behind /etc/resolv.conf.
   networking.resolvconf.enable = false;
+  # No resolver runs in a none session. The trusted root pre-start explicitly
+  # starts this fixed unit only after configuring a public address and route.
+  services.p-dns-over-https = { enable = true; autostart = false; };
   documentation.enable = lib.mkForce false;
   documentation.nixos.enable = lib.mkForce false;
   system.installer.channel.enable = false;

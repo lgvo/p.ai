@@ -45,6 +45,16 @@ multicast, gateway administration, sibling instances, Incus API, and undeclared
 services. Cover IPv4, IPv6, DNS rebinding, redirects, literal addresses, and
 host aliases.
 
+For the dedicated public-egress VM selection, enable outbound public routing
+with explicit outer-VM host/LAN/private/metadata/inbound denial rules; other
+selections retain restricted networking. Validate the session-local and outer
+loopback resolvers against real DNS-over-HTTPS upstreams with literal bootstrap
+addresses and verified TLS names on TCP 443. Preserve existing pinned port-53
+allowances at the VM boundary; prove from the resolver configuration and
+bounded network evidence that hostname HTTPS and a fresh Nix fetch use DoH
+without plaintext bootstrap or fallback. Require actual public-to-private hostname
+resolution and HTTPS redirect denial evidence; synthetic fixtures are separate.
+
 Incus network/ACL defaults are not sufficient evidence; capture the actual
 configured routing and packet-level test results.
 

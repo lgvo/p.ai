@@ -31,7 +31,10 @@ inspection and interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.
 Selected later VM checks also cover Discard/Delete, typed grants, guarded
 repairs, retained-branch rename/delete, and three early failed-creation
-replacement paths. The final full-suite checkpoint remains pending.
+replacement paths. The selected public-network VM now passes real DoH,
+hostname HTTPS, Nix fetch and public-to-private DNS/HTTPS redirect denials
+under the configured Incus and outer-VM restrictions. The final full-suite
+checkpoint remains pending.
 Authenticated Codex acceptance is reserved for
 the user's final manual test; automated tests use fixtures and dummy files.
 The [progress record](implementation-progress.md) tracks each step's
