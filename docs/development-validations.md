@@ -117,10 +117,15 @@ container must stop, the durable operation must identify the failed phase, and
 diagnostics must remain available after the container has stopped. Exact Retry
 must preserve its operation/session/source/policy identity, clean only verified
 partial derived resources, and rebuild without creating a retry chain. Also
-test **Try again with changes** as a new creation that supersedes and cleans the
-failed provisional creation before reusing the desired branch name.
+test the supported **Try again with changes** paths as a new creation that
+supersedes and cleans the failed provisional creation before reusing the desired
+branch name. For complex cases that refuse integrated replacement, validate the
+documented cleanup followed by a separate new Create. Cleanup must preview
+losses, require explicit confirmation, recheck identity/ownership, recover
+durably, and preserve shared or unrelated resources. Uncertain cleanup must
+explain the unresolved condition and leave uncertain resources intact.
 
-**Gate:** reliable status/control from sessions and local Linux client support.
+**Gate:** reliable status/control from sessions and local NixOS client support.
 
 ## 6. Lifecycle and authority recovery
 
@@ -233,8 +238,11 @@ not be able to configure handlers.
 
 **Validate:** Record the exact Go, Bubble Tea ecosystem, Wish, Git, OpenSSH,
 Incus, Nix, tmux, Codex adapter, and SQLite driver versions used by MVP. Pin
-every CLI JSON/API field and protocol behavior parsed by P. Verify upgrades
-through the relevant conformance suites before widening supported ranges.
+every CLI JSON/API field and protocol behavior parsed by P. MVP installation
+support is NixOS with Incus only. Backup/restore and software upgrade/rollback
+are outside delivery gates; normal Stop/Start and daemon-restart persistence
+and operation-level crash recovery remain required. Future changes to supported
+dependency ranges require the relevant conformance suites.
 Bifrost and the SSH client transport receive their own pins when those
 post-MVP capabilities are enabled.
 

@@ -1,14 +1,13 @@
 {
   lib,
   buildGoModule,
+  callPackage,
   git,
   openssh,
   python3,
 }:
-buildGoModule {
-  pname = "p";
-  version = "0.1.0-dev";
-  src = lib.cleanSourceWith {
+let
+  source = lib.cleanSourceWith {
     src = ../.;
     filter =
       path: type:
@@ -42,8 +41,20 @@ buildGoModule {
       && !(lib.hasSuffix ".pyc" name)
       && !(lib.hasPrefix "result-" name);
   };
+  bundledPlugins = callPackage ./plugin-packages.nix { src = source; };
+in
+buildGoModule {
+  pname = "p";
+  version = "0.1.0-dev";
+  src = source;
   vendorHash = "sha256-YZmEJBF15LmqH7gACdtJUBoLDZ/oO2oy2ILwQK8NAUY=";
   subPackages = [ "cmd/p" ];
+  postInstall = ''
+    mkdir -p "$out/share/p/plugins"
+    cp -R ${bundledPlugins}/. "$out/share/p/plugins/"
+    cp LICENSE "$out/share/p/LICENSE"
+  '';
+  passthru = { inherit bundledPlugins; };
   doCheck = true;
   nativeCheckInputs = [
     git
@@ -53,7 +64,7 @@ buildGoModule {
   checkPhase = ''
     runHook preCheck
     go test ./...
-    python3 -I -B -m unittest discover -s tests/unit -p codex_adapter_test.py
+    python3 -I -B -m unittest discover -s tests/unit -p '*_test.py'
     runHook postCheck
   '';
   meta = {

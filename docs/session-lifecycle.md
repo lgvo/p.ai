@@ -348,16 +348,30 @@ are absent or safe to reuse, and reconstructs the desired result without
 creating retry chains. Repeating Retry cannot accumulate instances,
 principals, operations, or refs.
 
-If repository content or settings must change, **Try again with changes** is
-one replacement action, not Retry. It records a new request, UUID, source,
-policy snapshot, operation ID, and idempotency key; explicitly supersedes the
-failed creation; cleans its verified provisional resources; and may reuse the
-desired branch name. Cleanup may remove an unchanged branch created by the
-failed request, but must preserve a pre-existing branch and only release its
-old assignment before the replacement claims it. Unexpected commits, workspace
-changes, or resource identity invoke the integrated loss review rather than
-silently deleting them. The user does not perform preparatory Discard/Delete
-bookkeeping.
+If repository content or settings must change, **Try again with changes**
+records a new request, UUID, source, policy snapshot, operation ID and
+idempotency key, and explicitly supersedes the failed creation. The supported
+MVP integrated paths cover reviewed early failures with no UUID-scoped effects
+and the reviewed local Git-principal/key/endpoint cleanup path with affirmative
+evidence that native initialization was not dispatched. They preserve existing
+P refs; an unchanged ref created by the failed request may be explicitly reused.
+Exact Retry retains the original identity and request.
+
+MVP does not require one automatic replacement action for every failure.
+Other cases may refuse integrated replacement, explaining the unsupported or
+uncertain condition and the available cleanup path. A supported fallback is
+reviewed cleanup followed by a separate new Create: Discard retains the branch,
+while Delete additionally requires explicit branch-loss review. Cleanup must
+show runtime/workspace and local-credential losses, obtain explicit confirmation,
+revalidate identity and ownership, persist recovery intent, and preserve other
+refs, sessions, shared environment images and external mount contents. Its
+exact CLI procedure must be documented and integration-validated for each
+supported failure shape; refusal alone does not satisfy this gate.
+
+An uncertain native init outcome, competing identity, unreachable authority or
+unverifiable workspace may prevent safe cleanup. P explains the unresolved
+condition and leaves uncertain resources intact. It does not guess ownership,
+reset commits or start another runtime to conceal the failure.
 
 Reconciliation verifies every observed result. It reuses a valid immutable
 image and safely matching resources, treats absence as a clean rebuild point,
@@ -891,6 +905,10 @@ the supported ref repair is the bare-present case described above.
 MVP does not include runtime migration, branch-specific grants, automatic
 reclamation, service lifecycle, attempts, checks, session cloning, or recovery
 of state that never reached a retained Git ref or external mount.
+Backup/restore and software upgrade/rollback are outside MVP; operation-level
+crash recovery remains required. Stop/Start and daemon restarts preserve local
+Git repositories and the documented retained runtime data, without protection
+against disk loss or deliberate deletion.
 
 ## Acceptance criteria
 

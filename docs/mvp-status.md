@@ -2,7 +2,7 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, updated 2026-09-24.**
+> **Status: non-normative snapshot, updated 2026-09-26.**
 > [Project guidance](../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
@@ -29,8 +29,9 @@ isolation, and Stop/Start VM checks. The full serial VM checkpoint through
 test 28 passed these gates together, including bounded, non-activating workspace
 inspection and interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.
-Destructive session lifecycle operations,
-grants, and dummy credential deletion through public cleanup remain pending.
+Selected later VM checks also cover Discard/Delete, typed grants, guarded
+repairs, retained-branch rename/delete, and three early failed-creation
+replacement paths. The final full-suite checkpoint remains pending.
 Authenticated Codex acceptance is reserved for
 the user's final manual test; automated tests use fixtures and dummy files.
 The [progress record](implementation-progress.md) tracks each step's
@@ -95,6 +96,10 @@ foundation does not yet establish the complete plugin MVP.
 
 ### Runtime, environment, and policy
 
+- MVP installation targets NixOS with Incus only. Backup/restore and software
+  upgrade/rollback are outside delivery gates. Normal Stop/Start and daemon
+  restart retain P's local Git repositories; disk loss and deliberate deletion
+  have no protection claim.
 - Incus system containers are the only MVP runtime. Each session has a private
   root, `/nix`, workspace, home, credentials, and narrow endpoints.
 - A restricted builder realizes a committed default Nix devShell into a
@@ -125,7 +130,10 @@ foundation does not yet establish the complete plugin MVP.
   not adopt a renamed instance.
 - Exact Retry preserves the failed creation's immutable request and operation
   identity while cleaning verified partial derived resources. **Try again with
-  changes** is one integrated superseding Create with new identity, not retry.
+  changes** has validated integrated early-failure paths with a new identity.
+  Complex cases may refuse with a documented, validated cleanup-then-Create
+  path. Uncertain resources remain intact when safe cleanup cannot proceed;
+  broader fallback acceptance is still pending.
 - The public status model has four independent facts:
   `session_condition`, `attached_count`,
   `latest_unattended_condition`, and `policy_condition`.

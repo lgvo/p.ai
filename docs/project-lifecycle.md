@@ -34,6 +34,12 @@ Repository content cannot create a project, choose its path, configure its
 origin, or widen its trusted policy. Project lifecycle is a host RPC action;
 Git carries the selected origin objects and later session commits.
 
+P preserves its local bare repositories and retained refs across ordinary
+session Stop/Start and daemon restarts. Session cleanup removes only the
+resources authorized by that operation; Discard retains the assigned P
+branch. MVP has no backup/restore subsystem and makes no protection claim for
+disk loss or deliberate deletion. Ordinary restart recovery is not a backup.
+
 ## Project identity and state
 
 The project path, such as `p` or `lgvo/p`, is its identity within one P

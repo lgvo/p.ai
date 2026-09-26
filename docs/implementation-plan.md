@@ -232,9 +232,13 @@ B is not declared complete.
   capability documentation, and the authoring/test workflow. Prove all six
   bundled capabilities use those contracts without rebuilding core for plugin
   changes. A separate agent-authored plugin remains a later demonstration.
-- Complete production UI coverage for the lifecycle above, packaging, service
-  definitions, install/upgrade/rollback, backup/restore, dependency/license
-  checks, and bounded diagnostics.
+- Complete the authorized CLI-first lifecycle, NixOS/Incus packaging and
+  installation, service definitions, dependency/license checks and bounded
+  diagnostics. Production TUI, backup/restore and software upgrade/rollback
+  are outside the current MVP delivery gates.
+- Preserve validated integrated failed-creation replacement paths. Complex
+  refusal requires a documented and validated cleanup-then-new-Create path;
+  uncertain resources stay intact when safe cleanup cannot proceed.
 - Map every MVP acceptance criterion to an automated test, recorded integration
   result, or explicit support gate. Run crash injection for each newly exposed
   mutation and the full tested-host conformance suite. Update the status and

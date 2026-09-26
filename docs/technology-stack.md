@@ -33,10 +33,19 @@ runner and typed session asset plans are now available.
 | Events | typed handlers; MVP structured file-log handler | receives reduced P events after state changes |
 | Testing | stdlib `testing` plus `go-cmp`; real Git, Incus, Nix, and tmux integration tests | fake seams for unit tests, real authorities for conformance |
 
-Linux is the MVP daemon, runtime, and client platform. MVP clients use the
-local Unix transport. Client-initiated SSH-to-Unix and native remote clients
+MVP installation is supported only on NixOS with local Incus system
+containers. Other Linux distributions and container engines are outside the
+installation support gate. MVP clients use the local Unix transport.
+Client-initiated SSH-to-Unix and native remote clients
 are post-MVP. The daemon does not initiate SSH or manage a remote host as a
 runtime.
+
+The MVP distribution includes pinned packages, service configuration and
+diagnostics for that host. Backup/restore and software upgrade/rollback are
+outside MVP delivery gates. This does not remove transactional lifecycle
+recovery or persistence requirements; [project lifecycle](project-lifecycle.md)
+owns retained local Git data and [session lifecycle](session-lifecycle.md)
+owns Stop/Start and daemon-restart recovery.
 
 ## Governing principle
 

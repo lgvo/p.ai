@@ -169,8 +169,11 @@ does not change owner-document lifecycle semantics.
 
 - [ ] Turn every acceptance criterion and development validation into an
   automated test, recorded integration result, or explicit support gate.
-- [ ] Pin dependency/protocol versions and prove upgrade behavior.
-- [ ] Add packaging, install/upgrade/rollback guidance, service definitions,
-  backup/restore, and diagnostics documentation.
+- [ ] Pin dependency/protocol versions and complete distribution license checks.
+- [ ] Add NixOS/Incus packaging, installation guidance, service definitions and
+  diagnostics. Backup/restore and software upgrade/rollback are outside MVP.
+- [ ] Validate the documented cleanup-then-Create fallback for supported complex
+  failed creations; preserve validated integrated replacement and refuse unsafe
+  cleanup without deleting uncertain resources.
 - [ ] Re-read all summaries after implementation evidence and update any claim
   that proved narrower than the design.

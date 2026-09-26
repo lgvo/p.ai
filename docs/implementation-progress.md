@@ -2,8 +2,9 @@
 
 ## Current state — 2026-09-26
 
-- Latest validated checkpoint: **VM47 reviewed local-resource replacement
-  passed**, on `feature/cli-first-mvp`; commit follows this evidence update.
+- Latest passing checkpoint: **VM48 bundled distribution passed** on
+  `feature/cli-first-mvp`; checkpoint commit records this evidence.
+  VM47 reviewed local-resource replacement passed at `572c8d0`.
   VM34 removal absence/recovery passed at `e7ef837`. VM46 local new-branch
   replacement passed at `1d025e9`; VM45 existing-branch replacement at `8a3c8a6`.
   Prior selected recovery/retained-branch evidence remains in the log below.
@@ -29,9 +30,9 @@
   2026-09-26. No VM or prior agent was running at resumption.
 - Latest full VM checkpoint is **through VM28**, before subsequent changes;
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
-  serial; the latest selected VM47 powered down and removed its fresh disk.
-- Remaining implementation includes broader replacement, abandonment/orphan
-  handling, bulk project deletion, and installation/upgrade/backup/restore
+  serial; the latest selected VM48 powered down and removed its fresh disk.
+- Remaining implementation includes validated cleanup-then-Create fallback,
+  abandonment/orphan handling, bulk project deletion, and NixOS/Incus installation
   acceptance. VM37 proved negative public-egress isolation and synthetic
   probes only; real public Nix fetch/DNS/redirect evidence remains unverified.
 - **8f3 passed:** reviewed P Git keys/principals and endpoints are durably
@@ -41,6 +42,11 @@
 - Codex event/persistence and Discard/Delete cleanup used fixtures and dummy
   credentials. Real authenticated Codex acceptance remains **pending user
   validation** using the procedure below; no login or host credentials are used.
+- Corrected public VM routing is now proved by real verified numeric HTTPS
+  from both layers; public DNS/hostname HTTPS/Nix-fetch acceptance still fails
+  on resolver timeouts. The initial `restrictNetwork` mistake is corrected;
+  scope/docs and bundled distribution are review-approved, VM48 passed.
+  The sole active implementation stream is failed-creation cleanup (VM49 pending).
 
 Execution record for the CLI-first implementation requested on 2026-09-23.
 This is a non-normative tracker. The [implementation plan](implementation-plan.md)
@@ -85,7 +91,7 @@ and unrelated working-tree changes are preserved.
 | 8 | Rename, destructive previews, discard/delete, repair/abandon and project deletion | Stale confirmations, guards, quiescence, crash recovery, tombstones | Real workspace/ref loss checks and restart at mutation boundaries | 8a1/8a2 loss, 8b1 previews, 8b2a Discard, 8b2b Delete, and 8c Rename passed VM28–33; repair/project deletion pending |
 | 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c negative isolation and synthetic probes VM37 passed, real public traffic pending |
 | 10 | Versioned Codex adapter and session-local authentication workflow | Strict semantic mapping, absent/unsupported hooks, isolation | Authentication-free event fixtures and dummy credential storage checks; real authenticated acceptance by user | VM27 adapter/event/persistence and VM31/32 dummy Discard/Delete cleanup passed; authenticated acceptance pending user validation |
-| 11 | Installation, upgrade, backup/restore and complete CLI acceptance | Compatibility, dependencies/licenses, API documentation | Clean VM install and full MVP acceptance matrix | Pending |
+| 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Bundled distribution batch in progress |
 
 Steps may be split further when review or evidence reveals a distinct boundary.
 No unrun check or fixture-only result establishes production support. Missing
@@ -3105,6 +3111,21 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   This closes the bounded absent-native local-resource path and replay finding;
   broader native/workspace/origin/environment cleanup remains required.
 
+- **Next independent batch 11a — production bundled distribution:** before
+  editing, acceptance is that the production P package contains all six exact
+  first-party plugin packages, including compiled source/runtime/environment
+  WASI commands, and the CLI returns version/pin and default activation data
+  without reading repository configuration or activating effects. Default
+  selection must validate package identity, capability, digest and exact grants;
+  the event-log path is explicit trusted input. Preserve existing conformance
+  and per-invocation digest checks. Focused CLI/package tests, retained review
+  of activation defaults, and one serial VM48 must verify installed catalog
+  conformance and actual use through production CLI commands. No Codex login,
+  host credential access, system installation or external deployment occurs.
+  Plugin install/update/removal, service configuration, upgrade/rollback and
+  backup/restore remain separate required gates. This packaging batch does not
+  close broader replacement, abandonment, project deletion or public DNS.
+
 - **Independent public-egress diagnostic:** `dev/vm/machine.nix` still sets
   `virtualisation.restrictNetwork = true`, including VM37. The local NixOS
   QEMU module defines that setting as preventing guest packets from routing
@@ -3162,3 +3183,204 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   actual pinned Nix vendored/build inputs for the distribution audit rather
   than interpreting the partial cache as the shipped module graph. This
   preparation failure does not invalidate the passing package/test evidence.
+
+- **Public-network correction acceptance (user direction, 2026-09-26):** the
+  unconditional QEMU `restrictNetwork = true` is a test-configuration mistake
+  for VM37, not an established external limitation. This supersedes the earlier
+  decision to defer VM37 based on host resolver probes. Enable the outside route
+  only when the product selection includes public-egress (including the full
+  product suite); smoke and non-network selections remain restricted. Add an
+  outer nftables layer denying actual host IPv4 addresses, private/metadata,
+  IPv6 and unsolicited inbound traffic; permit only bootstrap DHCP, the two
+  pinned DNS resolvers and public HTTP(S). Preserve all Incus restrictions and
+  existing production denial rules. Capture bounded route/resolver, UDP/TCP DNS,
+  HTTPS and Nix diagnostics from the corrected VM and session before choosing
+  any DNS change. Require real DNS, verified HTTPS and private-store Nix-fetch
+  success, plus real public private-destination DNS and HTTPS redirect denial.
+  Synthetic evidence retains its separate marker. Focused runner checks and
+  retained review precede one serial VM37. Commit only after its pass; no
+  credentials/authentication. The unfinished independent 11a packaging edits
+  remain preserved and are not claimed validated by this network selection.
+  Retained review found three evidence/isolation gaps before any VM: local
+  host addresses alone omitted globally addressed LAN neighbours; a second
+  redirect request could timeout before observing its redirect; a second
+  hostname lookup could fail and incorrectly count as destination denial.
+  Corrections capture unicast connected LAN routes from all routing tables,
+  require the exact 302/Location in the request actually followed, and connect
+  the DNS-verified numeric private target with timeout-only denial evidence.
+  Nix prefetch explicitly uses `--refresh`. DHCP exceptions are limited to
+  SLIRP eth0/gateway/ports. Four fixture-only parser/redirect regressions and
+  stub-only runner/host+LAN inventory/fail-closed/serialization checks pass;
+  ShellCheck, bash syntax and diff checks pass. Public/non-network VM
+  derivations evaluate. Affected plugin/CLI Go checks passed in the host
+  context; sandbox ancestry ownership failures were not weakened. Review
+  recheck and actual corrected VM evidence remain pending.
+  Retained reviewer approved the specific corrections and independently
+  repeated the focused checks. First corrected serial VM37
+  `.cache/p-vm/integration-20260926T122435Z-476325.log` exited 1 after its
+  confined Incus smoke passed. At guest self-connect the sibling's port-443
+  listener returned `Connection refused`; this occurred before real DNS,
+  HTTPS or Nix probes, so it establishes no external network limitation or
+  public-network pass. Guest A had the expected static address and default
+  route. The fresh VM powered down and its disk was removed. Add bounded
+  sibling stderr/address/listener diagnostics before another correction;
+  preserve the live-listener assertion and all firewall restrictions.
+
+- **User-confirmed MVP scope revision (2026-09-26):** installation support is
+  NixOS with Incus only. Backup/restore and software upgrade/rollback are not
+  delivery gates; no backup subsystem or disk-loss/deletion protection is
+  introduced. Ordinary Stop/Start and daemon restarts retain P local Git.
+  Preserve the reviewed/validated VM45/46/47 integrated replacement paths.
+  Complex cases may refuse integrated replacement, but require a documented
+  and validated loss-reviewed, explicitly confirmed cleanup-then-new-Create
+  path. Unsafe/uncertain cleanup explains its unresolved condition and
+  preserves uncertain/shared/unrelated resources. Technology-stack, project
+  and session lifecycle authorities now own these boundaries; snapshots and
+  the existing implementation plan/tracker are aligned. No new planning
+  document was created. Current ordinary removal preview still requires an
+  established session, so failed-creation fallback is a genuine implementation
+  and integration gate, not an already-passing claim. Remaining gates:
+  NixOS installation/default composition/plugin management/license checks;
+  supported complex cleanup fallback; branch/upstream mismatch repair;
+  abandonment/orphan handling; aggregate project deletion; real VM public
+  networking; final full serial suite; authenticated Codex manual user test.
+  Backup/restore, upgrade/rollback and universal integrated replacement are
+  removed from those gates. No prior safety/recovery check is waived.
+  Second serial diagnostic VM37
+  `.cache/p-vm/integration-20260926T122757Z-528762.log` again exited 1 before
+  DNS probes. New bounded evidence showed the sibling has the expected
+  `10.233.0.11` address, an empty Python listener log and no port-443 socket.
+  Python's actual `HTTPServer.server_bind` calls `socket.getfqdn` before
+  listening, introducing a reverse-DNS wait into this supposedly independent
+  packet-denial fixture. Replace only that fixture with a numeric bind/listen
+  TCP server, with no name lookup and an explicit readiness marker. Preserve
+  live self-connect and sibling denial assertions, all production network
+  policy and DNS gates. This uses new diagnostics after the two unsuccessful
+  runs rather than guessing a network-policy relaxation. Both VMs shut down
+  and removed their disks; no external limitation is established yet.
+  Third serial VM37 `.cache/p-vm/integration-20260926T123127Z-580097.log`
+  passed real live-listener sibling denial, production DNAT counter proof,
+  synthetic resolution denial, existing confinement and new outer host/private
+  denial. It then exited 1 at the outer diagnostic command, whose redirected
+  stderr was not yet exposed by the trap. No real DNS/HTTPS/Nix result or
+  external limitation is claimed. Use the already-proven absolute NixOS `ip`
+  path rather than the diagnostic process's inherited service PATH; always
+  expose bounded outer/session diagnostic output on failure. The VM powered
+  down and removed its disk. These diagnostic changes do not relax any gate.
+  Fourth serial VM37 `.cache/p-vm/integration-20260926T123513Z-628449.log`
+  reached the real probes after all prior denial checks passed. Outer VM:
+  `10.0.2.15`, default route via `10.0.2.2`, no IPv6 routes. Session:
+  `10.233.0.10`, default via `10.233.0.1`, exact pinned resolver configuration,
+  no IPv6 routes. UDP and TCP DNS to both `1.1.1.1` and `9.9.9.9` timed out in
+  both layers. HTTPS failed; this does not yet distinguish DNS failure from
+  outside HTTPS reachability. The Nix command rejected the trailing-slash URL
+  before fetching (`cannot figure out file name`), a probe mistake. Correct
+  it with `--name`; align outer static DNS with its public resolver grants
+  rather than the denied DHCP DNS alias; add verified numeric HTTPS diagnostics
+  and outer permit-rule counters before identifying an external limitation.
+  No positive public DNS/HTTPS/Nix or real redirect gate passed. Runner exited
+  1 and the sole VM powered down/removed its disk. No firewall denial is relaxed.
+  11a packaging and narrowed-scope documents are retained-review approved;
+  exact adapter provenance/sequence assertion was strengthened. Focused Go
+  defaults, ShellCheck and all ten authentication-free Python fixtures passed.
+  VM48 installed composition and subsequent NixOS service installation remain
+  pending; no Codex authenticated evidence is claimed.
+  Fifth serial VM37 `.cache/p-vm/integration-20260926T124112Z-677490.log`
+  proves an outside public route in both outer VM and Incus session: verified
+  TLS HEAD to numeric `1.1.1.1` returned HTTP 301. Static outer DNS now matches
+  the granted public resolvers, with the private SLIRP DNS alias omitted.
+  All established denial checks passed. Raw UDP/TCP53 exchanges to both public
+  resolvers still timed out in both layers; ordinary HTTPS reports temporary
+  name-resolution failure. The named, fresh Nix fetch now actually attempts
+  download and fails specifically with `Resolving timed out after 5000
+  milliseconds`. This distinguishes corrected routing from remaining resolver
+  reachability failure; its precise external cause is not established. Public
+  DNS, hostname HTTPS, Nix fetch and real redirect/resolution gates remain
+  failed, not fixture-substituted or reported passed. The numeric HTTPS result
+  is diagnostic route evidence only. No repeat VM37 without new relevant
+  connectivity/diagnostic evidence or a substantive fix. Preserve its reviewed
+  patch and continue independent MVP work. The runner exited 1, powered down
+  its sole VM and removed the fresh disk. Actual counter reporting was not
+  reached by the explicit failure exit, so no permit-counter result is claimed.
+  Read-only Nix vendor audit found all 40 actual pinned vendored modules under
+  `/nix/store/mf73mj4w27jz5pkmc9ghs5dgzq0m1ar9-p-0.1.0-dev-go-modules`
+  have root license notices, including Wazero NOTICE and Modernc extra notices.
+  This resolves the earlier partial-cache inventory uncertainty; notice shipping
+  and external runtime-package audit still need their distribution gate.
+
+- **Next bounded cleanup fallback acceptance:** retain all VM45–47 replacement
+  behavior. Add a separate explicitly confirmed cleanup path for blocked local
+  committed session creation, so an invalid immutable Nix selection can be
+  cleaned safely and followed by a new Create from corrected committed source.
+  Preserve the assigned P ref and all other refs, siblings, shared images and
+  external mounts. Preview binds the blocked operation/request/evidence, native
+  and builder identity/absence, approved P-local resources and any bounded
+  workspace loss. Confirmation supersedes the old intent atomically and
+  persists forward cleanup under one UUID; exact replay/Retry/restart are
+  idempotent. Known owned workspace cases may be included only with the same
+  non-activating loss inspection and stale-token rechecks as ordinary removal.
+  Unknown init outcomes, competing/renamed resources, unsafe filesystem
+  substitutions, unreachable authorities or unsupported bootstrap/origin
+  ambiguity must explain their refusal and preserve uncertain resources.
+  No weakening of registry/active-operation constraints, authority checks,
+  inspection isolation or cleanup fencing. Focused real SQLite/native/socket
+  recovery tests, retained reviewer, then the smallest serial VM fixture must
+  prove complex replacement refusal, supported cleanup, a new Create, and
+  preservation of unrelated dirty/private resources. Record exact CLI steps
+  and pending shapes. Delegate only this substantial batch to the retained
+  creation implementer after VM48's build snapshot is frozen; root handles
+  VM/evidence/commits and no second implementation stream starts.
+  First serial VM48 `.cache/p-vm/integration-20260926T124555Z-725961.log`
+  passed installed version/catalog/defaults/conformance/activation and asset
+  plans, then real project bootstrap, Git push and committed session creation.
+  It exited 1 at a fixture assertion using the nonexistent operation-evidence
+  field `environment_selection`. The actual contract stores the selected module
+  and native resolution in `environment`/`environment_state`, with the public
+  environment projection on `session.inspect`. Correct the assertion to bind
+  the installed module digest, captured OID, affirmative absent-flake resolution
+  and public base/no-cache/image projection. No production fallback or assertion
+  was weakened. The sole VM powered down/removed its disk; VM48 is not claimed
+  passed before the corrected complete selection runs.
+  Second serial VM48 `.cache/p-vm/integration-20260926T124850Z-727798.log`
+  passed the corrected installed selected-WASI environment proof and exact
+  Codex fixture provenance/sequence gate. It then rejected the fixture's Stop
+  request, which incorrectly supplied a key and expected an asynchronous
+  operation. Source/API inspection confirms Stop/Start accept only `{v,uuid}`
+  and return the fresh session synchronously. Correct only those fixture calls
+  and assert the returned stopped condition before daemon restart. These are
+  distinct fixture-contract failures; new diagnostic/source evidence precedes
+  each correction, and no production schema or assertion is weakened. The VM
+  powered down/removed its disk; the completed packaging selection is pending.
+
+  VM48 checkpoint isolation: run the reviewed six-file distribution overlay
+  against committed baseline `572c8d036ebbee2e655fc24cf29ea7345fe88f72` in
+  `/tmp/p-vm48-checkpoint.tdm6ojzz`. Overlay SHA256:
+  `e6f96c03c7c837a47075386bfa6b555c42cad0f63def5659fcecc210e7e2bbf0`.
+  This excludes the active cleanup implementer's unfinished changes and pending
+  public-network patch. The root checkout VM lock is held externally through
+  build and shutdown; snapshot validation does not start another VM.
+  Scope consistency follow-up also aligns the validation authority: supported
+  integrated replacement plus confirmed cleanup/new Create, local NixOS support,
+  and future dependency-range conformance without an MVP upgrade/backup gate.
+  Earlier historical entries listing backup/upgrade as required are superseded
+  by the explicit user-confirmed revision above.
+
+- **11a complete — selected serial VM48 passed:**
+  `.cache/p-vm/integration-20260926T125650Z-776212.log`, exit 0, against the
+  isolated committed baseline and reviewed overlay recorded above. Installed
+  CLI version/pins, exact six-package catalog/default activation/digests/grants,
+  conformance and tmux/Codex plans passed. Real Git bootstrap/push and composed
+  committed session creation used the installed WASI source/runtime/environment
+  packages; selected environment digest/captured commit and base/no-cache image
+  projection were verified. Exact Codex adapter provenance/status/sequence used
+  an authentication-free event fixture, not real Codex execution. Real Stop,
+  daemon restart and Start preserved P's local bare repository/ref and runtime
+  commit; file-log events passed. All Go package tests and six Codex fixture
+  Python tests passed in the Nix package build. The root repository-wide VM lock
+  stayed held through shutdown; the single VM powered down and removed its disk.
+  Retained review approved distribution and scope patches; validation-authority
+  follow-up also approved without redundant tests. Commit includes only reviewed
+  distribution/scope/evidence paths, not unfinished cleanup or pending network
+  code. NixOS service/install/license/plugin management, complex cleanup, other
+  lifecycle gates, real public DNS/fetch and final full suite remain open.
+  Authenticated Codex acceptance remains pending user manual validation.

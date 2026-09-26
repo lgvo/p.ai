@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -31,9 +33,34 @@ func main() {
 
 var errAPIExit = errors.New("api error")
 
+var buildVersion = "0.1.0-dev"
+
 func run(args []string) error {
 	if len(args) == 0 {
 		return usage()
+	}
+	if args[0] == "version" {
+		if len(args) != 1 {
+			return usage()
+		}
+		type dependency struct {
+			Path    string `json:"path"`
+			Version string `json:"version"`
+			Sum     string `json:"sum,omitempty"`
+		}
+		deps := []dependency{}
+		if info, ok := debug.ReadBuildInfo(); ok {
+			for _, module := range info.Deps {
+				deps = append(deps, dependency{module.Path, module.Version, module.Sum})
+			}
+		}
+		return printJSON(struct {
+			Version      string       `json:"version"`
+			GoVersion    string       `json:"go_version"`
+			ControlAPI   int          `json:"control_api_version"`
+			PluginAPI    string       `json:"plugin_api_version"`
+			Dependencies []dependency `json:"dependencies"`
+		}{buildVersion, runtime.Version(), 1, plugin.APIVersion, deps})
 	}
 	if len(args) == 1 && args[0] == "git-hook" {
 		return gitservice.RunPreReceiveHook(context.Background(), os.Stdin)
@@ -99,6 +126,29 @@ func run(args []string) error {
 		return usage()
 	}
 	switch args[1] {
+	case "defaults":
+		if len(args) != 3 && len(args) != 4 {
+			return usage()
+		}
+		catalog := ""
+		if len(args) == 4 {
+			catalog = mustAbs(args[3])
+		} else {
+			executable, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			executable, err = filepath.EvalSymlinks(executable)
+			if err != nil {
+				return err
+			}
+			catalog = filepath.Join(filepath.Dir(filepath.Dir(executable)), "share", "p", "plugins")
+		}
+		activation, err := plugin.DefaultActivation(catalog, args[2])
+		if err != nil {
+			return err
+		}
+		return printJSON(activation)
 	case "conformance":
 		if len(args) != 3 {
 			return usage()
@@ -221,5 +271,5 @@ func printJSON(value any) error {
 }
 
 func usage() error {
-	return errors.New("usage: p daemon <trusted-host.json> | attach <socket-path> <session-uuid> | api <socket-path> <method> [json-params] | plugins conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
+	return errors.New("usage: p version | daemon <trusted-host.json> | attach <socket-path> <session-uuid> | api <socket-path> <method> [json-params] | plugins defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
 }

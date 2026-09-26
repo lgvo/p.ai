@@ -479,6 +479,21 @@ safety.
 
 `p plugins list /absolute/catalog/path` scans immediate package directories
 and reports valid packages and rejections. It does not activate anything.
+The NixOS distribution ships all six first-party packages under
+`share/p/plugins` beside its `bin/p`: Incus runtime, tmux host, Git source,
+Nix environment, file-log handler and Codex adapter. Executable packages
+include their compiled WASI modules and only declared package files.
+`p version` reports the P, Go, control/plugin API versions and linked module
+versions as JSON.
+
+`p plugins defaults /absolute/private/events.ndjson [absolute-catalog-path]`
+returns a `p.activation/v1` selection with each validated package's digest and
+exact grant. Without a catalog override it uses the installed catalog relative
+to the resolved executable. It reads no project configuration, writes no files,
+executes no plugin and activates no authority. The explicit event-log path
+uses a 4 MiB rotation limit. The host owner reviews and saves this output in
+a private trusted activation file before selecting its roles in host
+configuration. Package digests are still rechecked on activation and invocation.
 Trusted activation is a host-owned JSON file with schema `p.activation/v1` and
 a `plugins` array. Each selection contains `id`, absolute `path`, exact
 `sha256`, `grants`, and capability-specific `config`. The file must be regular
@@ -524,8 +539,8 @@ event handler; they are diagnostic commands, not daemon or lifecycle APIs.
 Daemon delivery selects an event handler by trusted host configuration and
 rechecks its package digest for each invocation. Handler calls are bounded and
 best effort; a full queue or failed call loses that event without rolling back
-the committed transition. Install, update, removal, and automatic default
-selection remain to be implemented. Update requires staging a new digest and
+the committed transition. Plugin installation, update and removal management
+remain separate from the read-only bundled selection command. Update requires staging a new digest and
 explicit trusted selection; removal disables new calls before retiring assets
 or credentials. A plugin failure returns a bounded diagnostic to core and
 never changes identity, policy, or committed lifecycle state.
