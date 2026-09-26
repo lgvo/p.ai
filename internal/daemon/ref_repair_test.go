@@ -56,3 +56,23 @@ func TestRefRepairRequiresCompletedInspectedLossSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestRefRepairReportsChangedOrDetachedBranchWithoutAuthorization(t *testing.T) {
+	for _, actual := range []string{"other", "", strings.Repeat("a", 100)} {
+		p := control.RefRepairPreview{Branch: "main", AssignedRef: "refs/heads/main", UnsafeReasons: []string{}}
+		if !refRepairWorktreeMismatch(&p, actual) || p.BranchMismatch == nil || p.BranchMismatch.Expected != p.AssignedRef {
+			t.Fatalf("missing assignment values: %+v", p)
+		}
+		want := "refs/heads/" + actual
+		if actual == "" {
+			want = "<detached>"
+		}
+		if p.BranchMismatch.Actual != want || len(p.UnsafeReasons) != 1 || p.UnsafeReasons[0] != "workspace_branch_mismatch" || p.Eligible || p.ConfirmationToken != "" {
+			t.Fatalf("mismatch authorized mutation or lost actual value: %+v", p)
+		}
+	}
+	p := control.RefRepairPreview{Branch: "main", AssignedRef: "refs/heads/main"}
+	if refRepairWorktreeMismatch(&p, "main") || p.BranchMismatch != nil || len(p.UnsafeReasons) != 0 {
+		t.Fatal("matching branch falsely refused")
+	}
+}

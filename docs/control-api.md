@@ -770,6 +770,12 @@ exists only inside the runtime; this API does not transfer it into P's bare
 repository or alter the runtime. Only one ordinary runtime-owned worktree on
 the assigned branch is supported in this gate.
 
+A changed workspace branch returns `workspace_branch_mismatch` with structured
+`branch_mismatch.expected` and `branch_mismatch.actual` full ref names; detached
+HEAD is shown as `<detached>`. The preview is ineligible and has no confirmation
+token. Correct Git manually, run a fresh `workspace.loss.inspect`, and request
+a new preview. P does not switch branches or reset work to make repair pass.
+
 `session.ref.repair.confirm` accepts
 `{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
 and returns a durable `session.ref.repair` operation. It rechecks the selected

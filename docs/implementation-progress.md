@@ -4,8 +4,9 @@
 
 - **Resumed after DNS/network checkpoint `8cd7fc7`.** Rename branch/upstream
   diagnostics, initial blank-session upstream and manual correction passed
-  reviewed focused checks and serial selected VM33. Commit this checkpoint,
-  then close generic missing-ref preview mismatch diagnostics and continue.
+  reviewed focused checks and serial selected VM33, committed `fcb4f40`.
+  Missing-ref preview mismatch diagnostics passed focused checks, retained
+  review and serial selected VM39. Broader cleanup is the next batch.
 - Latest passing checkpoint: **VM37 real public-egress/DoH passed** on
   `feature/cli-first-mvp`, with reviewed code at `8cd7fc7` and evidence below.
   Bounded failed-creation cleanup passed at `99da3b6`; bundled distribution
@@ -37,7 +38,7 @@
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
   serial; the latest selected VM37 powered down and removed its fresh disk.
 - Remaining implementation includes broader assembled-runtime cleanup/loss
-  inspection, missing-ref preview mismatch diagnostics, bulk project deletion,
+  inspection, bulk project deletion,
   and NixOS/Incus installation
   acceptance. VM37 now proves real DoH/DNS, hostname HTTPS, fresh Nix fetch,
   public-to-private DNS and real HTTPS redirect denial alongside isolation;
@@ -96,7 +97,7 @@ and unrelated working-tree changes are preserved.
 | 5 | Trusted attachment helper, leases, session RPC and observability | Token races, connection ownership, unattended reducer, status projection | PTY attach/detach and client/daemon loss; persistent host survives | Status RPC, attachment, and daemon events passed VM |
 | 6 | SSH origins, source selection, publication and retained branches | Contact-before-association, fast-forward publication, unknown results | Local SSH origin fixture; fetch/publish/retained branch workflows | Origin transport/association/creation and public publication/retained queries passed VM |
 | 7 | Committed Nix devShell builds, activation and project-scoped image cache | Source/lock identity, activation validation, cache keys and cleanup | Restricted builder; two private stores; cache loss and stop/start | Offline creation/cache/activation/retry and explicit collection/recovery passed selected VM gates; public fetch remains gated on step 9 |
-| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; broader cleanup/project deletion and manual mismatch acceptance pending; abandonment excluded |
+| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; Rename/missing-ref manual mismatch acceptance passed selected VM33/39; broader cleanup/project deletion pending; abandonment excluded |
 | 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c selected VM37 real DoH/DNS/HTTPS/Nix/private-resolution/redirect and negative isolation passed; synthetic fixtures separate |
 | 10 | Versioned Codex adapter and session-local authentication workflow | Strict semantic mapping, absent/unsupported hooks, isolation | Authentication-free event fixtures and dummy credential storage checks; real authenticated acceptance by user | VM27 adapter/event/persistence and VM31/32 dummy Discard/Delete cleanup passed; authenticated acceptance pending user validation |
 | 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Installed bundled composition passed VM48; service/install/license and plugin management pending |
@@ -3881,3 +3882,40 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   separate inspected remaining gap is missing-ref repair preview's generic
   `local_worktree_unsupported` refusal for a changed branch; preserve refusal
   and expose its expected/actual values before claiming all mismatch gates.
+
+- **Missing-ref mismatch preview batch — acceptance before editing:** retain
+  the existing single-worktree refusal and add structured expected/actual branch
+  values for a changed or detached workspace HEAD. Ineligible previews must
+  have no confirmation token and cannot mutate a P ref. The smallest selected
+  serial VM39 must prove refusal with the assigned ref absent, unchanged local
+  dirty/ignored files, dummy credentials, native identity and sibling state,
+  then manual branch correction, a fresh loss inspection and successful existing
+  repair. Focused tests, retained review and passing VM precede the commit.
+  No automatic checkout or runtime-only object transfer is introduced.
+
+  The completed patch adds optional structured `branch_mismatch` expected/
+  actual values and a stable `workspace_branch_mismatch` reason without changing
+  the existing refusal, token allocation or native effect permissions. Changed,
+  detached and maximum-name unit cases and matching-branch checks passed;
+  focused daemon race checks (`-count=3`), both affected full suites, Bash,
+  ShellCheck and whitespace checks passed. Reused reviewer is checking this
+  batch before its selected serial VM39 run. Existing VM39's bare-present repair,
+  runtime-only object refusal and UUID/guard evidence remain valid scope.
+
+  Retained review approved with no blockers: inspected branch values already
+  pass the bounded safe-token parser; the new return occupies the prior refusal
+  point before any token/native effect, and confirmation/recovery remain
+  unchanged. Launch selected VM39 serially against `fcb4f40` plus this patch.
+
+  Selected serial VM39
+  `.cache/p-vm/integration-20260926T175936Z-162028.log` exited **0**.
+  The real workspace loss inspection and preview reported assigned
+  `refs/heads/main` versus `refs/heads/manual-other`, remained ineligible with
+  no token, and refused forged confirmation without recreating the missing P
+  ref. Local dirty/ignored/untracked files, dummy credentials, runtime native
+  identity, session key and sibling remained unchanged. Manual Git correction
+  followed by fresh inspection completed the existing confirmed bare-present
+  repair and survived restart. `P_REF_REPAIR_MISMATCH_MANUAL_CORRECTION_PASS`,
+  `P_MISSING_REF_REPAIR_BARE_PRESENT_PASS`, selected product marker and
+  `P_VM_SMOKE_PASS` passed. The VM shut down and removed its disk. Commit this
+  completed batch and continue; no authenticated Codex evidence is claimed.

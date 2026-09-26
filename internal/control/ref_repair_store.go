@@ -18,32 +18,38 @@ type RefRepairIgnored struct {
 	LogicalBytes int `json:"logical_bytes"`
 }
 
+type RefRepairBranchMismatch struct {
+	Expected string `json:"expected"`
+	Actual   string `json:"actual"`
+}
+
 // RefRepairPreview describes an exact local worktree observation. Unsafe
 // observations have no token and cannot authorize a P ref mutation.
 type RefRepairPreview struct {
-	Kind                  string            `json:"kind"`
-	SessionUUID           string            `json:"session_uuid"`
-	Project               string            `json:"project"`
-	Branch                string            `json:"branch"`
-	AssignedRef           string            `json:"assigned_ref"`
-	AssignedRefStatus     string            `json:"assigned_ref_status"`
-	LocalTip              string            `json:"local_tip"`
-	RuntimeStatus         string            `json:"runtime_status"`
-	IncusProject          string            `json:"incus_project"`
-	InstanceName          string            `json:"instance_name"`
-	IncusUUID             string            `json:"incus_uuid"`
-	Generation            string            `json:"generation"`
-	ImageFingerprint      string            `json:"image_fingerprint"`
-	PolicySHA256          string            `json:"policy_sha256"`
-	CredentialFingerprint string            `json:"credential_fingerprint"`
-	LossOperationID       string            `json:"loss_operation_id"`
-	LossFingerprint       string            `json:"loss_fingerprint"`
-	Changes               []RefRepairChange `json:"changes"`
-	Ignored               RefRepairIgnored  `json:"ignored"`
-	UnsafeReasons         []string          `json:"unsafe_reasons"`
-	Eligible              bool              `json:"eligible"`
-	ConfirmationToken     string            `json:"confirmation_token,omitempty"`
-	ExpiresAt             string            `json:"expires_at,omitempty"`
+	Kind                  string                   `json:"kind"`
+	SessionUUID           string                   `json:"session_uuid"`
+	Project               string                   `json:"project"`
+	Branch                string                   `json:"branch"`
+	BranchMismatch        *RefRepairBranchMismatch `json:"branch_mismatch,omitempty"`
+	AssignedRef           string                   `json:"assigned_ref"`
+	AssignedRefStatus     string                   `json:"assigned_ref_status"`
+	LocalTip              string                   `json:"local_tip"`
+	RuntimeStatus         string                   `json:"runtime_status"`
+	IncusProject          string                   `json:"incus_project"`
+	InstanceName          string                   `json:"instance_name"`
+	IncusUUID             string                   `json:"incus_uuid"`
+	Generation            string                   `json:"generation"`
+	ImageFingerprint      string                   `json:"image_fingerprint"`
+	PolicySHA256          string                   `json:"policy_sha256"`
+	CredentialFingerprint string                   `json:"credential_fingerprint"`
+	LossOperationID       string                   `json:"loss_operation_id"`
+	LossFingerprint       string                   `json:"loss_fingerprint"`
+	Changes               []RefRepairChange        `json:"changes"`
+	Ignored               RefRepairIgnored         `json:"ignored"`
+	UnsafeReasons         []string                 `json:"unsafe_reasons"`
+	Eligible              bool                     `json:"eligible"`
+	ConfirmationToken     string                   `json:"confirmation_token,omitempty"`
+	ExpiresAt             string                   `json:"expires_at,omitempty"`
 }
 
 type RefRepairRequest struct {

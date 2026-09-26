@@ -212,6 +212,33 @@ test "$(guest "$uuid" git branch --show-current)" = main
 test "$(guest "$uuid" git ls-remote origin refs/heads/main)" = ""
 test "$(source_identity)" = "$identity_before"
 
+# A manual HEAD change must remain an ineligible, value-bearing preview.
+# Neither preview nor failed confirmation may recreate the missing P ref.
+guest "$uuid" git switch -c manual-other
+inspected=$(rpc workspace.loss.inspect "$(jq -nc --arg uuid "$uuid" \
+  '{v:1,key:"ref-repair-mismatch-loss",uuid:$uuid}')")
+mismatch_loss_op=$(operation_id "$inspected")
+op_ids+=("$mismatch_loss_op")
+wait_operation "$mismatch_loss_op" >/dev/null
+mismatch_preview=$(rpc session.ref.repair.preview "$(jq -nc --arg uuid "$uuid" --arg loss "$mismatch_loss_op" \
+  '{v:1,uuid:$uuid,loss_operation_id:$loss}')")
+jq -e '.result.preview | .eligible==false and (has("confirmation_token")|not) and
+  (.unsafe_reasons|index("workspace_branch_mismatch")!=null) and
+  .branch_mismatch.expected=="refs/heads/main" and .branch_mismatch.actual=="refs/heads/manual-other"' \
+  <<< "$mismatch_preview" >/dev/null
+expect_busy session.ref.repair.confirm "$(jq -nc --arg uuid "$uuid" \
+  '{v:1,key:"ref-repair-mismatch-refused",uuid:$uuid,confirmation_token:"00000000000000000000000000000000"}')"
+if bare_ref > "$step_dir/mismatch-absent.out" 2>&1; then echo 'mismatch recreated P ref' >&2; exit 1; fi
+test "$(guest "$uuid" git branch --show-current)" = manual-other
+test "$(guest "$uuid" sha256sum tracked | cut -d' ' -f1)" = "$tracked_digest"
+test "$(guest "$uuid" cat new-file)" = untracked
+test "$(guest "$uuid" cat ignored.bin)" = abc
+test "$(guest "$uuid" cat /home/p/.codex/auth.json)" = dummy-secret
+test "$(source_identity)" = "$identity_before"
+test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
+test "$(guest "$sibling_uuid" cat /home/p/.codex/auth.json)" = sibling-dummy
+guest "$uuid" git switch main
+
 inspected=$(rpc workspace.loss.inspect "$(jq -nc --arg uuid "$uuid" \
   '{v:1,key:"ref-repair-loss",uuid:$uuid}')")
 loss_op=$(operation_id "$inspected")
@@ -292,3 +319,4 @@ test "$(bare_ref)" = "$tip"
 test "$(guest "$uuid" cat /home/p/.codex/auth.json)" = dummy-secret
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
 echo P_MISSING_REF_REPAIR_BARE_PRESENT_PASS
+echo P_REF_REPAIR_MISMATCH_MANUAL_CORRECTION_PASS

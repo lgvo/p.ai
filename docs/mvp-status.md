@@ -128,8 +128,9 @@ Codex execution.
 - Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, supported Repair,
   retry, and restart reconciliation have defined outcomes.
 - Branch/upstream mismatches must show expected and actual values and block
-  dependent actions. Expected/actual diagnostics and manual-correction/recheck
-  acceptance remain pending. A dedicated mismatch repair or automatic
+  dependent actions. Rename diagnostics and missing-ref preview expected/actual
+  values plus manual-correction/recheck passed selected VM33/39. A dedicated
+  mismatch repair or automatic
   checkout/reset is outside MVP.
 - Incus unavailability leaves cleanup incomplete with identity, durable
   confirmed operation and authorization restrictions retained. Retry/reconciliation

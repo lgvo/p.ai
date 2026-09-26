@@ -28,6 +28,19 @@ func completedRefRepairLoss(op control.Operation, uuid, project string) bool {
 		op.Phase == "inspected" && op.SessionUUID == uuid && op.Project == project
 }
 
+func refRepairWorktreeMismatch(preview *control.RefRepairPreview, actual string) bool {
+	if actual == preview.Branch {
+		return false
+	}
+	value := "<detached>"
+	if actual != "" {
+		value = "refs/heads/" + actual
+	}
+	preview.BranchMismatch = &control.RefRepairBranchMismatch{Expected: preview.AssignedRef, Actual: value}
+	preview.UnsafeReasons = append(preview.UnsafeReasons, "workspace_branch_mismatch")
+	return true
+}
+
 func (l *lifecycle) PreviewRefRepair(ctx context.Context, uuid, lossID string) (control.RefRepairPreview, error) {
 	if len(uuid) != 36 || len(lossID) != 36 {
 		return control.RefRepairPreview{}, control.ErrInvalid
@@ -68,12 +81,14 @@ func (l *lifecycle) PreviewRefRepair(ctx context.Context, uuid, lossID string) (
 	}
 	preview.LossFingerprint = loss.Fingerprint
 	if len(loss.Worktrees) != 1 || len(loss.ExternalWorktrees) != 0 || len(loss.Worktrees[0].Changes) > 4096 ||
-		loss.Worktrees[0].Path != "/workspace" || loss.Worktrees[0].Location != "runtime" ||
-		loss.Worktrees[0].Branch != s.Branch || loss.Worktrees[0].HeadOID == "" {
+		loss.Worktrees[0].Path != "/workspace" || loss.Worktrees[0].Location != "runtime" || loss.Worktrees[0].HeadOID == "" {
 		unsafe("local_worktree_unsupported")
 		return preview, nil
 	}
 	tree := loss.Worktrees[0]
+	if refRepairWorktreeMismatch(&preview, tree.Branch) {
+		return preview, nil
+	}
 	preview.LocalTip = tree.HeadOID
 	preview.Changes = make([]control.RefRepairChange, 0, len(tree.Changes))
 	for _, change := range tree.Changes {
