@@ -2,8 +2,12 @@
 
 ## Current state — 2026-09-26
 
-- Latest passing checkpoint: **VM48 bundled distribution passed**,
-  `24fcf32` on `feature/cli-first-mvp`.
+- **Paused at user request after the VM49 checkpoint commit.** No subsequent
+  implementation batch has started; no VM is running.
+- Latest passing checkpoint: **VM49 bounded failed-creation cleanup passed**
+  on `feature/cli-first-mvp`; its reviewed implementation, scope decisions and
+  evidence are included in this checkpoint commit. VM48 bundled distribution
+  passed at `24fcf32`.
   VM47 reviewed local-resource replacement passed at `572c8d0`.
   VM34 removal absence/recovery passed at `e7ef837`. VM46 local new-branch
   replacement passed at `1d025e9`; VM45 existing-branch replacement at `8a3c8a6`.
@@ -30,9 +34,10 @@
   2026-09-26. No VM or prior agent was running at resumption.
 - Latest full VM checkpoint is **through VM28**, before subsequent changes;
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
-  serial; the latest selected VM48 powered down and removed its fresh disk.
-- Remaining implementation includes validated cleanup-then-Create fallback,
-  abandonment/orphan handling, bulk project deletion, and NixOS/Incus installation
+  serial; the latest selected VM49 powered down and removed its fresh disk.
+- Remaining implementation includes broader assembled-runtime cleanup/loss
+  inspection, mismatch diagnostics/manual correction, bulk project deletion,
+  and NixOS/Incus installation
   acceptance. VM37 proved negative public-egress isolation and synthetic
   probes only; real public Nix fetch/DNS/redirect evidence remains unverified.
 - **8f3 passed:** reviewed P Git keys/principals and endpoints are durably
@@ -46,7 +51,8 @@
   from both layers; public DNS/hostname HTTPS/Nix-fetch acceptance still fails
   on resolver timeouts. The initial `restrictNetwork` mistake is corrected;
   scope/docs and bundled distribution are review-approved, VM48 passed.
-  The sole active implementation stream is failed-creation cleanup (VM49 pending).
+  Bounded failed-creation cleanup is now reviewed and VM49-validated. No active
+  implementation stream remains during the requested pause.
 
 Execution record for the CLI-first implementation requested on 2026-09-23.
 This is a non-normative tracker. The [implementation plan](implementation-plan.md)
@@ -88,10 +94,10 @@ and unrelated working-tree changes are preserved.
 | 5 | Trusted attachment helper, leases, session RPC and observability | Token races, connection ownership, unattended reducer, status projection | PTY attach/detach and client/daemon loss; persistent host survives | Status RPC, attachment, and daemon events passed VM |
 | 6 | SSH origins, source selection, publication and retained branches | Contact-before-association, fast-forward publication, unknown results | Local SSH origin fixture; fetch/publish/retained branch workflows | Origin transport/association/creation and public publication/retained queries passed VM |
 | 7 | Committed Nix devShell builds, activation and project-scoped image cache | Source/lock identity, activation validation, cache keys and cleanup | Restricted builder; two private stores; cache loss and stop/start | Offline creation/cache/activation/retry and explicit collection/recovery passed selected VM gates; public fetch remains gated on step 9 |
-| 8 | Rename, destructive previews, discard/delete, repair/abandon and project deletion | Stale confirmations, guards, quiescence, crash recovery, tombstones | Real workspace/ref loss checks and restart at mutation boundaries | 8a1/8a2 loss, 8b1 previews, 8b2a Discard, 8b2b Delete, and 8c Rename passed VM28–33; repair/project deletion pending |
+| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; broader cleanup/project deletion and manual mismatch acceptance pending; abandonment excluded |
 | 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c negative isolation and synthetic probes VM37 passed, real public traffic pending |
 | 10 | Versioned Codex adapter and session-local authentication workflow | Strict semantic mapping, absent/unsupported hooks, isolation | Authentication-free event fixtures and dummy credential storage checks; real authenticated acceptance by user | VM27 adapter/event/persistence and VM31/32 dummy Discard/Delete cleanup passed; authenticated acceptance pending user validation |
-| 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Bundled distribution batch in progress |
+| 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Installed bundled composition passed VM48; service/install/license and plugin management pending |
 
 Steps may be split further when review or evidence reveals a distinct boundary.
 No unrun check or fixture-only result establishes production support. Missing
@@ -3410,3 +3416,193 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   fencing and refusal checks passed; RPC/VM49 fixture/docs and remaining
   focused/race checks are still in progress. This is interim unit evidence,
   not cleanup integration approval.
+
+- **New bounded network diagnostic evidence requirement:** explicit probe
+  `exit 1` bypassed the ERR trap, so previous permit counters were not collected.
+  Both explicit failure branches now call the existing bounded diagnostic
+  handler. Bash/ShellCheck/diff checks pass; no policy or acceptance assertion
+  changed. A single isolated VM37 will obtain the missing counters instead of
+  repeating unchanged checks expecting a different DNS outcome. Snapshot: /tmp/p-vm37-diagnostics._n804h27;
+  baseline `bf2d7e2d0bf2f4af0f5a152ced4a4e4f2925bc8e`; seven-file
+  network overlay SHA256 `47d44f6a9169da3f185b46e6ce3230d2ce782a5933e3338a5220fbd450bed4a5`. Excludes unfinished cleanup source.
+
+- **User-confirmed MVP scope revision — mismatch/unavailable authority:**
+  branch/upstream mismatches must return clear expected/actual values and block
+  assigned-branch-dependent actions. Manual Git correction by the user/agent
+  and recheck on the next attempt replaces a dedicated mismatch repair gate;
+  automatic checkout/reset is not required or permitted as implicit repair.
+  Incus unavailability leaves cleanup incomplete with session/project identity,
+  durable confirmed operation state and existing restrictions retained. Retry
+  or reconciliation may resume confirmed work when it returns. No success,
+  forgetting uncertain machinery, silent adoption or replacement while
+  existence is uncertain. Explicit abandonment, abandonment tombstones and
+  associated orphan-cleanup/forget workflow are outside MVP. Manual Incus
+  investigation remains supported; missing/changed-container identity checks
+  and duplicate prevention remain mandatory. Session/project lifecycle and
+  validation authorities, existing plan and snapshot/tracker are aligned; the
+  retained future abandonment design is explicitly post-MVP. Minimal durable
+  project deletion records are unresolved confirmed-operation recovery, not
+  abandonment tombstones or permission to forget uncertain resources.
+  Earlier historical abandonment/targeted mismatch repair gates are superseded.
+  Remaining gates: supported cleanup/new Create; expected/actual mismatch
+  diagnostics/manual-correction recheck; unavailable-authority cleanup recovery;
+  aggregate project deletion; NixOS service/install/license/plugin management;
+  real public DNS/hostname HTTPS/Nix/redirect; final full serial suite; manual
+  authenticated Codex acceptance (pending user validation).
+
+  Sixth isolated serial VM37 diagnostics:
+  `.cache/p-vm/integration-20260926T130634Z-826408.log`, exit 1. All established
+  denial gates and certificate-verified numeric HTTPS in both layers passed.
+  Newly collected outer permit counters show UDP53 output 38/forward 18 packets,
+  TCP53 output 6/forward 6 packets, HTTPS/HTTP output 17/forward 13 packets.
+  DNS attempts reached the configured outer permit rules, yet both public
+  resolvers timed out on UDP/TCP in both layers; named HTTPS and actual fresh
+  Nix fetch again failed during name resolution. These counters do not alone
+  identify the later response-loss cause. Public-positive/real redirect gates
+  remain failed; no weaker fixture substitution or isolation change was made.
+  Bounded ACL inspection via the confined user socket correctly refused default
+  project authority; no broader permission was requested. The VM powered down
+  and removed its disk. No further identical network rerun without relevant
+  new connectivity or diagnostic evidence. Retained reviewer approved the tiny
+  diagnostic fix; pending network code is not committed as a passing checkpoint.
+
+- **Following mismatch/unavailable acceptance (before editing):** inspect the
+  existing refusal paths rather than add a repair action. Native workspace
+  rename currently returns a generic `source Git upstream does not match
+  assigned branch`; expected/actual structured or bounded diagnostic values
+  are therefore still an implementation gate. Add the missing diagnostics
+  without exposing remote URLs/credentials, retain strict refusal and show a
+  manual correction/recheck procedure. Focused native tests and the smallest
+  serial affected workspace/rename VM must prove no ref/workspace mutation on
+  mismatch, manual correction and success on the next attempt. Reuse existing
+  missing/competing UUID evidence; add unavailable-Incus cleanup recovery only
+  where existing tests lack confirmed-operation/restart/resume proof. Do not
+  add automatic checkout/reset, abandonment, tombstones or forgetting. Root
+  handles this after the current cleanup stream finishes.
+
+  Completed cleanup source is frozen for retained review. Five affected package
+  suites and full race suites passed; focused safety tests repeated three times
+  passed, including real SQLite reopen, stale Retry/local checkpoint fencing,
+  unavailable cleanup retention, endpoint/key ownership and cancellation.
+  VM49 now includes an explicitly injected target-only Incus observation outage
+  across restart, guard/disabled authority/row retention and restored Retry.
+  No VM49 run or integration approval yet. Reviewer found snapshot wording
+  implying expected/actual mismatch diagnostics were already implemented;
+  corrected it to required scope with acceptance explicitly pending. Owner
+  lifecycle/validation requirements remain normative, not pass claims.
+
+  Retained cleanup review found a recoverability defect: builder attempt
+  provenance was persisted before deterministic native preflight. Capacity,
+  confinement or missing-image refusal could therefore strand a known no-effect
+  request as uncertain and permanently block corrected Retry/cleanup. Move the
+  marker to immediately before actual builder init dispatch using a new native
+  gate analogous to session CreateWithGate (the current builder API has no
+  equivalent yet). Preserve monotonic actual-dispatch uncertainty and worker
+  fences; require a preflight-failure/correction regression. The retained
+  implementer owns this focused fix; VM49 is held pending tests/recheck. The
+  initial frozen snapshot must be refreshed after the approved correction.
+  Related review requirement: a fresh captured builder tree must retain
+  explicit cycle-0 `not-attempted` provenance after a deterministic preflight
+  refusal, so correction can safely Retry or clean it. Historical tree evidence
+  with no provenance remains unknown/ineligible. The corrected predicate must
+  distinguish these states; merely moving the attempted callback is insufficient.
+  Independent retained-review focused Store/RPC/builder/daemon/identity/worker
+  race tests (count 3), VM49 syntax/ShellCheck and diff checks passed.
+
+  Builder correction is frozen and retained-review approved: native preflight
+  precedes the dispatch gate; fresh cycle-0 not-attempted/tree proof qualifies
+  while historical unknown tree proof still refuses. New actual SQLite and
+  native preflight/correction, gate failure and lost-reply race regressions
+  (count 3) pass; post-fix affected full suites pass. No remaining blocking
+  cleanup/scope review finding. Refreshed VM49 snapshot: /tmp/p-vm49-reviewed.i07a_4s7;
+  baseline `bf2d7e2d0bf2f4af0f5a152ced4a4e4f2925bc8e`, 19-file source/fixture
+  overlay SHA256 `bff744d2e1fb8553b83617c4c1bc0678a1bde24e1eaea5c98e5f4b540f93cc49`. Initial snapshot was not run.
+  Pending network code is excluded; VM49 remains restricted and externally
+  holds the root global VM lock through build/shutdown.
+
+  First VM49 `.cache/p-vm/integration-20260926T133035Z-891068.log` exited 1
+  before intended invalid Nix evaluation: the fixture selected `default` (dir)
+  rather than the proven `builders` (btrfs) pool. Production quota enforcement
+  correctly refused it. Correct only that trusted fixture selection and require
+  the explicit `present default devShell invalid` diagnostic, as already proven
+  in VM25. Bash/ShellCheck/diff pass; no policy/check is weakened. VM shut down
+  and removed its disk. Refreshed same reviewed source/fixture overlay SHA256:
+  `76e3d73a4d7fec108143ec701dbfb00e8b2bc094213e0530da5706734f7767bd`. Serial rerun pending.
+  User pause instruction: finish this major cleanup validation batch and commit
+  its reviewed implementation/scope/evidence, then pause; do not start the
+  following mismatch or NixOS installation batches. Authenticated Codex remains
+  pending manual user validation.
+
+  Second VM49 `.cache/p-vm/integration-20260926T133459Z-942321.log` exited 1
+  at fixture line 355 after real invalid-devShell/settled builder proof,
+  integrated replacement refusal, stale ref/local/native/token rejection,
+  accepted cleanup and durable local-complete pause passed. Exact cleanup
+  confirmation replay succeeded; old exact session.create replay failed.
+  New source evidence: beginSessionCreateCaptured acquires the global Git
+  authority lock before its idempotency lookup, while final cleanup retains
+  that lock during the deliberately paused ShowRef check. Read-only superseded
+  Create replay therefore waits/refuses unnecessarily. Keep the assertion;
+  the retained implementer must reproduce with real SQLite + held lock and
+  fix terminal exact replay before authority acquisition, retaining hash/kind
+  conflict checks and in-lock admission rechecks. Retained reviewer reactivated
+  for this bounded fix. No blind same-failure retry or assertion weakening.
+  VM powered down and removed its disk; no VM is running. User-requested pause
+  remains after this batch passes and its implementation/scope/evidence commit.
+  Retained reviewer confirmed the replay-lock diagnosis. The fix performs a
+  consistent read-only replay transaction before Git authority acquisition and
+  repeats admission checks under authority. Its first draft retained publication
+  key conflicts but omitted origin-request conflicts; review requires both
+  namespaces and a same-key origin regression. This safety check is preserved,
+  not waived to make replay pass. VM49 replay now captures bounded actual RPC
+  error kind/code/message on failure rather than cascading ERR/jq noise; exact
+  old operation-ID success remains required. Bash/ShellCheck/diff pass.
+
+  Read-only replay fix is frozen and retained-review approved. Its real SQLite
+  held-Git-lock test covers pending and cleaned states, immutable request/hash
+  matching, wrong-kind/changed-request rejection and origin/publication key
+  conflicts. Independent and implementer focused race tests pass three runs;
+  post-fix affected control/daemon/gitservice suites pass. The original VM49
+  replay assertion stays at the contested local-complete boundary. Refreshed
+  19-file reviewed snapshot overlay SHA256:
+  `12a0b64841fdd19424248a35997371339acb750b72199ebf3badcc893fa4e6df`. Same baseline bf2d7e2; no network patch included.
+  Next serial VM49 required before commit and user-requested pause.
+
+
+- **VM49 passing checkpoint and requested pause — 2026-09-26:** third serial
+  run `.cache/p-vm/integration-20260926T134426Z-995341.log` exited **0**.
+  Baseline `bf2d7e2d0bf2f4af0f5a152ced4a4e4f2925bc8e` plus the final reviewed
+  19-file overlay SHA256
+  `12a0b64841fdd19424248a35997371339acb750b72199ebf3badcc893fa4e6df`;
+  all 19 working-tree source/fixture files exactly match the passing snapshot.
+  Pending public-network code was excluded; this selection retained restricted
+  outer networking and the root global VM lock through shutdown.
+
+  Real production daemon/SQLite, Git and confined Incus exercised committed
+  invalid-devShell creation, settled builder deletion, integrated replacement
+  refusal, stale ref/local/native/token checks, explicitly confirmed cleanup,
+  durable local-complete recovery, exact cleanup and superseded Create replay
+  at the contested lock boundary, competing UUID refusal, restored Retry, and
+  separate corrected Create. Assigned refs, shared images, unrelated sibling
+  work and dummy credential files remain protected. Existing focused/race and
+  affected-suite evidence plus retained review approval are reused.
+
+  `P_FAILED_CREATE_CLEANUP_UNAVAILABLE_PRESERVED` and
+  `P_FAILED_CREATE_CLEANUP_PASS` passed, followed by
+  `P_PRODUCT_INTEGRATION_SELECTED_PASS 49-failed-create-cleanup.sh` and
+  `P_VM_SMOKE_PASS`. The unavailable-authority case is an **injected, target-only
+  read outage** atop real Incus; it is not evidence of an actual Incus service
+  outage. No synthetic event/credential fixture is claimed as authenticated
+  Codex evidence. The VM powered down, its fresh disk was removed, and no QEMU
+  process remains.
+
+  Commit this reviewed bounded cleanup implementation, authoritative scope and
+  lifecycle/validation updates, and this evidence record, then **pause as
+  requested**. Preserve the uncommitted public-network patch and its failed
+  positive-gate evidence. Remaining gates are broader assembled-runtime cleanup
+  inspection, expected/actual mismatch and manual-correction acceptance,
+  aggregate project deletion, NixOS installation/service and dependency notices
+  plus plugin management, real public DNS/hostname HTTPS/Nix/redirect evidence,
+  and the final full serial suite. Backup/restore, upgrade/rollback and explicit
+  abandonment remain outside MVP. Authenticated Codex acceptance stays pending
+  the user's manual procedure above; no authentication or host credentials
+  were accessed. No following implementation batch starts before resumption.

@@ -45,7 +45,7 @@ does not change owner-document lifecycle semantics.
 - [ ] Implement structured configuration loading and validation with trusted
   instance/project authority and immutable session policy snapshots.
 - [ ] Implement SQLite migrations, transaction helpers, operation/idempotency
-  records, minimal project-deletion tombstones, and restart reconciliation.
+  records, minimal project-deletion records, and restart reconciliation.
 - [ ] Implement typed errors, bounded/redacted diagnostics, structured logging,
   and the versioned `EventHandler` interface with the NDJSON file-log handler.
 - [ ] Establish fake Git, runtime, environment, agent, and clock adapters for
@@ -67,8 +67,10 @@ does not change owner-document lifecycle semantics.
 - [ ] Implement explicit origin publication with fresh observation, one
   destination ref, no force, and unknown-outcome reporting.
 - [ ] Implement **Delete project and all P data** with aggregate preflight,
-  confirmed attachment termination, minimal tombstone, ensure-absent retry,
-  and abandonment for unreachable resources.
+  confirmed attachment termination, minimal durable deletion record,
+  ensure-absent retry, and incomplete cleanup retaining identity and restrictions
+  while Incus is unavailable. Abandonment and its tombstone/orphan-cleanup/forget
+  workflow are outside MVP.
 
 ## Plugin contract
 
@@ -100,7 +102,8 @@ does not change owner-document lifecycle semantics.
 ## Runtime and environments
 
 - [ ] Implement the confined Incus backend, deterministic labels/names,
-  non-activating inspection helper, endpoint mounts, and orphan recognition.
+  non-activating inspection helper, endpoint mounts, and unfamiliar-runtime
+  identity checks without silent adoption.
 - [ ] Build the pinned base image with systemd, Nix, Git/SSH, tmux, the runtime
   kit, `p-session.target`, `p-interactive.service`, and the root-owned
   `/usr/libexec/p/attach` entrypoint.
@@ -117,11 +120,15 @@ does not change owner-document lifecycle semantics.
 ## Session lifecycle and observability
 
 - [ ] Implement Create with committed source plus the one bootstrap exception,
-  exact immutable Retry, and **Try again with changes** as a superseding new
-  creation.
-- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, Repair,
-  Abandon, and startup/restart reconciliation exactly as owned by
+  exact immutable Retry, supported superseding **Try again with changes** and
+  validated cleanup-then-new-Create fallback.
+- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, supported
+  Repair, and startup/restart reconciliation exactly as owned by
   [session lifecycle](session-lifecycle.md).
+- [ ] Validate expected/actual branch/upstream mismatch diagnostics, blocked
+  dependent actions and manual Git correction/recheck without automatic reset.
+- [ ] Validate unavailable Incus retains identity, durable cleanup and restrictions
+  until the confirmed operation can resume. Abandonment is outside MVP.
 - [ ] Implement pending-to-confirmed attachment leases whose loss tears down
   only the temporary transport and never the persistent host.
 - [ ] Implement the four independent public facts: `session_condition`,

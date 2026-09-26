@@ -449,3 +449,73 @@ func TestBuilderUsesLogicalProjectIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestBuilderInitGatePreflightFailureThenCorrectedExactRetry(t *testing.T) {
+	for _, name := range []string{"image-missing", "confinement", "storage"} {
+		t.Run(name, func(t *testing.T) {
+			r := testBuilder()
+			f := &fakeBuilderIncus{request: r}
+			b := builderBackend(f)
+			missing := name == "image-missing"
+			if name == "confinement" {
+				f.base.unsafeProfile = true
+			}
+			if name == "storage" {
+				f.poolStatus = "Unavailable"
+			}
+			b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+				if missing && len(argv) > 4 && argv[3] == "image" && argv[4] == "list" {
+					return []byte("[]"), nil
+				}
+				return f.run(ctx, binary, argv, env)
+			}
+			gates := 0
+			gate := func() error {
+				gates++
+				if len(f.mutations) != 0 {
+					t.Fatal("marker followed native init")
+				}
+				return nil
+			}
+			if _, e := b.CreateBuilderWithGate(context.Background(), r, gate); e == nil || gates != 0 || len(f.mutations) != 0 {
+				t.Fatalf("read-only preflight crossed dispatch: gates=%d native=%v err=%v", gates, f.mutations, e)
+			}
+			// Correct only the preflight condition. The UUID/source/image request is
+			// exactly the original; one gate immediately precedes one native init.
+			missing = false
+			f.base.unsafeProfile = false
+			f.poolStatus = "Created"
+			got, e := b.CreateBuilderWithGate(context.Background(), r, gate)
+			if e != nil || !got.Exists || !got.Ready || gates != 1 || !slices.Equal(f.mutations, []string{"init"}) {
+				t.Fatalf("corrected exact retry: %+v gates=%d native=%v err=%v", got, gates, f.mutations, e)
+			}
+			if _, e = b.CreateBuilderWithGate(context.Background(), r, func() error { t.Fatal("existing builder issued another init marker"); return nil }); e != nil {
+				t.Fatal(e)
+			}
+		})
+	}
+}
+
+func TestBuilderInitGatePersistenceFailureAndLostReply(t *testing.T) {
+	r := testBuilder()
+	f := &fakeBuilderIncus{request: r}
+	b := builderBackend(f)
+	refused := errors.New("fixture marker persistence failed")
+	if _, e := b.CreateBuilderWithGate(context.Background(), r, func() error { return refused }); !errors.Is(e, refused) || len(f.mutations) != 0 {
+		t.Fatal("native init ran after gate refusal", e, f.mutations)
+	}
+	attempts := 0
+	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if len(argv) > 3 && argv[3] == "init" {
+			return nil, errors.New("fixture init reply/outcome lost")
+		}
+		return f.run(ctx, binary, argv, env)
+	}
+	if _, e := b.CreateBuilderWithGate(context.Background(), r, func() error { attempts++; return nil }); e == nil || attempts != 1 || f.exists {
+		t.Fatal("unknown init lost dispatch marker")
+	}
+	// Core refuses a second absent outcome using its durable attempted marker.
+	if _, e := b.CreateBuilderWithGate(context.Background(), r, func() error { return refused }); !errors.Is(e, refused) || attempts != 1 {
+		t.Fatal("lost reply admitted another init")
+	}
+}

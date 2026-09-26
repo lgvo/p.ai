@@ -369,7 +369,8 @@ digests. It reuses the recorded image when available. A verified cache miss
 before an instance exists may rebuild from the same captured source; an
 uncertain instance or publication cannot trigger blind recreation. A changed
 request needs a new idempotency key. Reusing a blocked creation's assigned
-branch requires the explicit replacement methods below.
+branch requires the explicit replacement methods below, or supported confirmed
+failed-create cleanup followed by a separate Create.
 
 | Method | Params | Result |
 |---|---|---|
@@ -377,6 +378,8 @@ branch requires the explicit replacement methods below.
 | `session.create` | `{"v":1,"key":"idempotency-key","project":"team/app","branch":"work","choice":"existing"}` or `choice:"new"` with `source:"refs/heads/main"` or a committed object ID; origin mode uses `choice:"new"`, `origin_ref:"refs/heads/main"` or a tag, and `expected_commit_oid:"<observed commit>"` with no `source` | `v`, `operation`; origin mode requires a fresh observation and fetch, then captures the exact commit and origin identity for Retry. Blank session creation is unavailable. |
 | `session.create.replace.preview` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","project":"team/app","branch":"work","choice":"existing"}`; a failed local new-branch creation also permits `choice:"new"` with a local `source` branch or committed OID and an absent target | `v`, `preview` with old immutable request/operation/UUID/source/policy/image, `old_branch` and `new_branch` observations, new request/source/policy/image/plugin selection, provisional resource facts, `eligible`, and `unsafe_reasons`. Eligible previews also return `confirmation_token` and `expires_at`. |
 | `session.create.replace.confirm` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | `v`, new `session.create` operation; an exact accepted key/token replays after restart. |
+| `session.create.cleanup.preview` | `{"v":1,"uuid":"blocked-session-UUID"}` | `v`, `preview` with the old immutable request and evidence digest, assigned ref, image, tracked builder state, provisional resources, `external_mounts:"preserved"`, `shared_images:"preserved"`, eligibility and reasons; an eligible preview includes a two-minute confirmation token. |
+| `session.create.cleanup.confirm` | `{"v":1,"uuid":"blocked-session-UUID","key":"cleanup-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | `v`, one `session.create.cleanup` operation on the old UUID; exact accepted key/token replay works during cleanup and after restart. |
 | `operation.inspect` | `{"v":1,"id":"operation-UUID"}` | `v`, `operation` with status, phase, bounded diagnostic, and immutable evidence. |
 | `operation.retry` | Same as inspect | `v`, `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
 | `operation.list` | `{"v":1,"limit":1..20,"after":"optional-operation-UUID"}` | `v`, concise operation summaries (without request/evidence), `next` in bytewise ID order. |
@@ -474,6 +477,49 @@ old UUID, and token returns that operation, including after restart. Reusing
 its key with different confirmation inputs conflicts. Retrying the superseded
 operation returns `busy`; exact replay of its original `session.create` key
 returns the superseded operation without scheduling the old creation.
+
+Confirmed failed-create cleanup is a separate fallback for a blocked, local
+committed-source Create in `source-ready`, `branch-assigned`, or
+`principals-ready`. It preserves the assigned P ref at its reviewed tip and
+all other refs. It creates no new session or runtime. In addition to the early
+paths above, it supports an immutable Nix selection/resolution failure when
+`environment_builder` durably records a settled `absent` cycle: the worker
+recorded its init attempt, positively observed the exact owned builder, removed
+it, and verified full native absence. A captured tree with affirmative cycle-zero
+`not-attempted` evidence also permits cleanup after a builder preflight failure.
+The dispatch gate runs after confinement, storage and pinned-image preflight;
+correcting such a failure permits exact Retry without a new request. An
+attempted-but-unobserved builder, historical builder evidence without this
+tracking, environment publication or
+cache state, origin requests, and later runtime/workspace phases are ineligible.
+Runtime initialization must affirmatively remain `not-attempted`. Native
+absence alone never settles a possibly delayed init.
+
+Preview reports runtime-local state as `unavailable`, not clean or empty.
+Keys/principals/endpoints must either be absent or match the same reviewed local
+identity checks used by integrated replacement. Confirmation rechecks the
+preview, including its ref tip, old evidence, principal, local entries and full
+native inventory. Stale or unavailable facts return `busy` and preserve the old
+request. Accepted confirmation atomically supersedes the old Create, records a
+forward cleanup operation and ref guard on its existing UUID, changes its
+registry from `creating` to `removing`, and disables its Git principal and
+session RPC authority. Durable evidence retains the reviewed old identities.
+
+The cleanup worker serializes with creation on that UUID. It proves full native
+absence before deleting only reviewed local entries, then records
+`local-complete` before final revalidation and registry removal. This checkpoint
+and its immutable review cannot regress through Retry. Partial cleanup permits
+already removed reviewed entries; substituted entries or new native identities
+block cleanup. Incus unavailability leaves the accepted operation incomplete,
+with its identity, disabled authority and ref guard retained. Restart reconciles
+forward; `operation.retry` resumes the same cleanup intent. No ref, shared image
+or external mount content is removed. Only a completed `cleaned` operation
+releases the assignment for a separate corrected `session.create` with a new
+key and UUID. The superseded original Create remains inspectable and exact
+replay cannot schedule its worker. Fully assembled failed runtimes require a
+dedicated loss inspection that this method does not implement; preserve the
+resources and use exact Retry when its immutable request can safely resume.
+See the [CLI procedure](session-lifecycle.md#confirmed-failed-create-cleanup).
 
 Each session view returns all four [public status facts](session-observability.md#status-model).
 When a session was created with environment selection, its view also includes
@@ -855,7 +901,9 @@ Without trusted runtime configuration, lifecycle mutations and inspection
 remain unavailable. Other methods under `project.`, `session.`, `origin.`,
 `runtime.`, and `status.` still return `unavailable` unless listed above. The
 implemented repair subset includes missing-runtime and bare-present
-missing-assigned-ref plans. Other repair and abandonment plans remain
-unavailable. `project.branches`
+missing-assigned-ref plans. Branch/upstream mismatch correction is manual, with
+P rechecking on the next attempt; no dedicated repair method is required.
+Abandonment and its associated tombstone/orphan-cleanup/forget workflow are
+outside MVP. Other unlisted repair plans remain unavailable. `project.branches`
 and `project.retained_branches` observe Git refs through the configured source
 package; they do not mutate lifecycle state.

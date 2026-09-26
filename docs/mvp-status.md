@@ -94,7 +94,7 @@ Codex execution.
 - Retained branches are first-class project resources with
   list/source/fetch/rename/fast-forward-publish/loss-preview/delete operations.
 - **Delete project and all P data** uses aggregate preflight, confirmed live-
-  attachment termination, a minimal durable tombstone, and idempotent
+  attachment termination, a minimal durable deletion record, and idempotent
   ensure-absent retry. It has no rollback/recovery-mode state machine.
 
 ### Runtime, environment, and policy
@@ -122,8 +122,17 @@ Codex execution.
 
 ### Lifecycle, status, and events
 
-- Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, Repair, Abandon,
+- Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, supported Repair,
   retry, and restart reconciliation have defined outcomes.
+- Branch/upstream mismatches must show expected and actual values and block
+  dependent actions. Expected/actual diagnostics and manual-correction/recheck
+  acceptance remain pending. A dedicated mismatch repair or automatic
+  checkout/reset is outside MVP.
+- Incus unavailability leaves cleanup incomplete with identity, durable
+  confirmed operation and authorization restrictions retained. Retry/reconciliation
+  may resume when it returns; uncertain resources are never forgotten or replaced.
+  Explicit abandonment and its tombstone/orphan-cleanup/forget workflow are outside
+  MVP. Manual investigation preserves existing identity and duplicate checks.
 - Missing assigned-ref repair is supported when the inspected local commit
   object is already in P's bare repository. If it exists only in the runtime,
   P reports `p_object_missing` and leaves the runtime untouched; automatic
@@ -136,7 +145,8 @@ Codex execution.
   changes** has validated integrated early-failure paths with a new identity.
   Complex cases may refuse with a documented, validated cleanup-then-Create
   path. Uncertain resources remain intact when safe cleanup cannot proceed;
-  broader fallback acceptance is still pending.
+  VM49 validates bounded local committed-creation cleanup after a settled
+  builder failure. Broader assembled-runtime cleanup acceptance remains pending.
 - The public status model has four independent facts:
   `session_condition`, `attached_count`,
   `latest_unattended_condition`, and `policy_condition`.

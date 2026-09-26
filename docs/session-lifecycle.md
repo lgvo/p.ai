@@ -1,7 +1,7 @@
 # P — session lifecycle
 
-How P creates, starts, attaches, renames, stops, discards, deletes, repairs,
-and abandons sessions without confusing intended state with Git, runtime, or
+How P creates, starts, attaches, renames, stops, discards, deletes, and repairs
+sessions without confusing intended state with Git, runtime, or
 credential facts.
 
 > **Status: design.** This document is authoritative for session identity,
@@ -31,7 +31,7 @@ credential facts.
 - [Discard](#discard)
 - [Delete](#delete)
 - [Reconciliation and repair](#reconciliation-and-repair)
-- [Abandonment and orphans](#abandonment-and-orphans)
+- [Abandonment and orphans (post-MVP)](#abandonment-and-orphans-post-mvp)
 - [Credential and image-cache cleanup](#credential-and-image-cache-cleanup)
 - [Operation recovery summary](#operation-recovery-summary)
 - [RPC and presentation](#rpc-and-presentation)
@@ -144,8 +144,8 @@ the assigned branch's current tip remain the source authority.
 
 Reconciliation never replaces a fresh authority query with a cached SQLite
 observation. Conversely, discovering an Incus instance does not invent a
-session row: unmatched P metadata is orphan machinery until its UUID is
-matched to an active session or abandonment record.
+session row. Unmatched P metadata is unfamiliar machinery requiring manual
+Incus investigation; P never silently adopts it or deletes uncertain resources.
 
 ## Registry state, session condition, and operations
 
@@ -162,8 +162,9 @@ The session row has one coarse registry state:
 | `removing` | Internal recovery state: an authorized discard/delete is ensuring its action-specific result. It is never the public session condition. |
 
 There is no terminal registry state. Completed discard/delete removes the
-session row. Minimal cleanup or orphan tombstones are separate records and do
-not re-create a session.
+session row. Unresolved cleanup retains the session identity and durable
+operation state until its required absence checks succeed. Abandonment
+tombstones are outside MVP.
 
 ### Session condition
 
@@ -225,9 +226,9 @@ operation is incomplete:
 
 | Action | Conflict rule |
 |---|---|
-| Start or attach | Refused during create completion, rename, removal, repair mutation, or abandonment. |
-| Rename | Refused during start, stop, removal, repair mutation, or abandonment. |
-| Stop | Refused during create completion, rename, removal, repair mutation, or abandonment. |
+| Start or attach | Refused during create completion, rename, removal, or repair mutation. |
+| Rename | Refused during start, stop, removal, or repair mutation. |
+| Stop | Refused during create completion, rename, removal, or repair mutation. |
 | Publish | Refused unless the session is established and its branch assignment is stable. |
 | Discard/delete | Refused during any other mutation and while a pending or confirmed attachment exists. |
 
@@ -360,8 +361,9 @@ Exact Retry retains the original identity and request.
 MVP does not require one automatic replacement action for every failure.
 Other cases may refuse integrated replacement, explaining the unsupported or
 uncertain condition and the available cleanup path. A supported fallback is
-reviewed cleanup followed by a separate new Create: Discard retains the branch,
-while Delete additionally requires explicit branch-loss review. Cleanup must
+reviewed cleanup followed by a separate new Create. The implemented failed-create
+cleanup below retains the branch; ordinary established-session Discard also
+retains it, while Delete requires explicit branch-loss review. Cleanup must
 show runtime/workspace and local-credential losses, obtain explicit confirmation,
 revalidate identity and ownership, persist recovery intent, and preserve other
 refs, sessions, shared environment images and external mount contents. Its
@@ -372,6 +374,73 @@ An uncertain native init outcome, competing identity, unreachable authority or
 unverifiable workspace may prevent safe cleanup. P explains the unresolved
 condition and leaves uncertain resources intact. It does not guess ownership,
 reset commits or start another runtime to conceal the failure.
+
+### Confirmed failed-create cleanup
+
+The host API supports explicit cleanup of a blocked local committed-source
+Create before runtime init was dispatched, including an invalid immutable Nix
+resolution after its exact owned builder was removed and positively verified
+absent. Both runtime and builder must be absent under the complete native
+identity inventory. The durable builder cycle must distinguish a settled
+removal from an unobserved init attempt; historical or uncertain evidence cannot
+be upgraded by an absence observation. An affirmative cycle-zero
+`not-attempted` builder record permits cleanup even with a captured source tree
+after a read-only preflight failure; fixing that preflight also permits exact
+Retry. The assigned P ref and its reviewed tip, sibling refs/sessions, shared
+images and external mount contents are preserved.
+Reviewed P Git keys, principals and endpoint sockets may be removed. Runtime-
+local state is reported unavailable. Environment publication/cache history,
+origin/bootstrap ambiguity and fully assembled runtime/workspace failures remain
+outside this method; the latter require dedicated loss inspection. Preserve
+these resources and use exact Retry only when its captured request can safely
+resume. Unreachable Incus never authorizes forgetting an accepted cleanup.
+
+Use the trusted host control socket and the old UUID from `operation.inspect`.
+First inspect the immutable failure and review the entire preview:
+
+```sh
+socket=/path/to/state/control.sock
+old_uuid=OLD_SESSION_UUID
+p api "$socket" operation.inspect '{"v":1,"id":"OLD_CREATE_OPERATION_UUID"}'
+p api "$socket" session.create.cleanup.preview \
+  "$(jq -nc --arg uuid "$old_uuid" '{v:1,uuid:$uuid}')" > cleanup-preview.json
+jq '.result.preview' cleanup-preview.json
+```
+
+Proceed only when `eligible` is true and the ref and resource identities match
+what you intend to preserve/remove. Copy the returned token into an explicit
+confirmation with a fresh cleanup key, then poll its returned operation ID:
+
+```sh
+token=$(jq -er '.result.preview.confirmation_token' cleanup-preview.json)
+p api "$socket" session.create.cleanup.confirm \
+  "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" \
+      '{v:1,uuid:$uuid,key:"reviewed-cleanup-1",confirmation_token:$token}')"
+p api "$socket" operation.inspect '{"v":1,"id":"CLEANUP_OPERATION_UUID"}'
+# If accepted cleanup blocks, inspect its diagnostic, correct the observed
+# condition, and resume this same intent:
+p api "$socket" operation.retry '{"v":1,"id":"CLEANUP_OPERATION_UUID"}'
+```
+
+Unconsumed tokens expire after two minutes or daemon restart; obtain and review
+a fresh preview. Exact accepted confirmation replay uses the same UUID, key and
+token, even after restart. Accepted cleanup disables old session authority and
+retains a durable ref guard and resource identities until completion. A new or
+unreachable native identity leaves it incomplete. Retry never changes the
+approved losses or restores the superseded Create.
+
+Only after `status:"completed", phase:"cleaned"` may a separate Create reuse the
+preserved branch. Correct the source with ordinary Git, commit and push it to P,
+then submit a new immutable request. For example, after updating `work`:
+
+```sh
+p api "$socket" session.create \
+  '{"v":1,"key":"corrected-create-1","project":"team/app","branch":"work","choice":"existing"}'
+```
+
+This new request captures the current committed source and policy and receives
+its own UUID. Cleanup performs no branch deletion, reset, checkout, or new
+native creation.
 
 Reconciliation verifies every observed result. It reuses a valid immutable
 image and safely matching resources, treats absence as a clean rebuild point,
@@ -589,8 +658,13 @@ explicit acknowledgement. Missing-runtime preview and confirmation, the local
 authority commit, and final record removal require full confined-project
 inventory proof that no runtime carries the session UUID. A renamed or
 competing runtime blocks ordinary removal; it is neither adopted nor deleted
-through the missing-name path. If Incus is unreachable, normal discard and
-delete are blocked because loss cannot be determined; abandonment is the only
+through the missing-name path. If Incus is unavailable, P reports the unavailable
+authority and cannot obtain a new loss confirmation. An already-confirmed
+removal remains incomplete with its session identity, durable operation and
+existing authorization restrictions intact. Retry or reconciliation may resume
+that same operation when Incus returns. P never claims successful deletion,
+forgets uncertain resources or creates replacement machinery while existence
+is uncertain. Manual Incus investigation is supported; MVP has no abandonment
 override.
 
 ### Branch loss
@@ -650,8 +724,8 @@ unchanged.
 
 Once the runtime-removal commit point is persisted, discard never recreates the
 runtime to roll back. Reconciliation completes cleanup forward. Failure to
-revoke an external key creates a cleanup tombstone; it does not keep a removed
-runtime or session alive.
+revoke a required key retains the disabled session identity and durable cleanup
+operation until revocation is verified; it never recreates a removed runtime.
 
 ## Delete
 
@@ -663,8 +737,7 @@ After runtime removal verifies, P:
 1. checks that the guarded branch still has the confirmed object ID;
 2. atomically deletes that ref with an expected-old-value check;
 3. ends the assignment and removes the session row; and
-4. retains only required cleanup/orphan tombstones and bounded operation
-   diagnostics.
+4. retains bounded operation diagnostics after all required cleanup verifies.
 
 Delete never deletes or renames an origin ref, external mount contents, cached
 environment images, or another P ref containing the same
@@ -709,7 +782,7 @@ Supported MVP repair shapes are:
 | Missing runtime, assigned P branch intact | Reuse the recorded image when present. If absent, resolve the current committed P branch and show whether its environment identity differs before the user authorizes recreation for the same UUID; disclose that prior runtime-local state is unavailable. |
 | Runtime exists, assigned P ref missing, assigned local branch intact | Offer guarded restoration at the inspected local tip only when that commit object is already in P's bare repository. Otherwise report `p_object_missing` without a confirmation action. |
 | Missing/revoked session Git principal | Rotate/reissue the UUID-scoped principal and update only its runtime. |
-| Workspace branch/upstream mismatch | Report exact refs and require a targeted plan; never reset, clean, or force-push automatically. |
+| Workspace branch/upstream mismatch | Show expected and actual branch/upstream values and block actions that depend on the assigned branch. The user or agent corrects Git manually; P rechecks on the next attempt. No dedicated repair action or automatic checkout/reset is required. |
 | Session row has neither runtime nor branch | Offer removal of the unrecoverable registry record after confirmation. |
 
 Repairing a missing runtime uses committed P-branch state. It cannot recover
@@ -788,7 +861,11 @@ endpoint. Final row removal requires another exact absence observation. An
 unknown or reappeared runtime/ref leaves the removal guarded for targeted
 recovery; no runtime, branch, image, sibling or external mount is deleted.
 
-## Abandonment and orphans
+## Abandonment and orphans (post-MVP)
+
+The following design is outside MVP. MVP retains incomplete cleanup and its
+identity while Incus is unavailable, supports manual investigation, and never
+offers abandonment, abandonment tombstones or an orphan-cleanup/forget workflow.
 
 Abandonment is the explicit override for unreachable Incus. It means P
 cannot inspect or remove the expected runtime and the user authorizes control-
@@ -827,8 +904,8 @@ expires a tombstone.
 
 ## Credential and image-cache cleanup
 
-Local P authorization follows the SQLite assignment. Marking removal or
-abandonment immediately prevents the session key from pushing even if a private
+Local P authorization follows the SQLite assignment. Marking removal
+immediately prevents the session key from pushing even if a private
 key file survives in unreachable machinery.
 
 Every selected plugin's MVP lifecycle contract owns provider-specific
@@ -855,7 +932,6 @@ cache miss the next time P needs to create or repair an instance.
 | Discard | Runtime removal committed | Revalidate or cancel without loss | Complete runtime/credential cleanup; retain branch |
 | Delete | Runtime removal committed | Revalidate or cancel without loss | Complete cleanup and confirmed branch deletion |
 | Repair | Plan-specific mutation persisted | Reinspect/cancel | Complete only the displayed repair plan |
-| Abandon | Tombstone persisted and local authority disabled | No control-plane deletion | Complete reachable cleanup; retain tombstone until resolved |
 
 No client blindly retries an ambiguous durable mutation with a new
 idempotency key. It queries the existing operation and lets reconciliation
@@ -892,11 +968,12 @@ MVP includes:
 - committed-source creation plus the one unborn-main project bootstrap;
 - one UUID-to-project/branch assignment and one runtime per session;
 - start, attach/detach, transactional rename, and stop;
-- discard, delete, destructive preflight, repair, and abandonment;
+- discard, delete, destructive preflight, and the supported repair shapes;
 - persisted cross-authority operations, per-session/ref locking, Incus
   quiescence, and restart reconciliation;
 - local Git-principal and selected-plugin cleanup; and
-- orphan recognition without automatic age-based deletion.
+- identity checks and duplicate prevention for missing or manually changed
+  containers, without adopting unfamiliar machinery.
 
 MVP ref repair does not transfer local-only Git objects into P's bare
 repository. A missing assigned ref with `p_object_missing` remains blocked;
@@ -904,7 +981,9 @@ the supported ref repair is the bare-present case described above.
 
 MVP does not include runtime migration, branch-specific grants, automatic
 reclamation, service lifecycle, attempts, checks, session cloning, or recovery
-of state that never reached a retained Git ref or external mount.
+of state that never reached a retained Git ref or external mount. Dedicated
+branch/upstream mismatch repair, explicit abandonment, abandonment tombstones
+and their orphan-cleanup/forget workflow are also outside MVP.
 Backup/restore and software upgrade/rollback are outside MVP; operation-level
 crash recovery remains required. Stop/Start and daemon restarts preserve local
 Git repositories and the documented retained runtime data, without protection
@@ -917,9 +996,11 @@ The lifecycle design is implemented when integration tests prove:
 1. every crash point in create, rename, discard, and delete converges to the
    documented result without duplicate runtimes or silent ref loss;
 2. retrying creation verifies and cleans partial resources, reconstructs the
-   same immutable request without duplicate identities, and a changed source
-   uses an explicitly superseding new request. Both existing-branch and
-   new-branch paths are covered; cleanup never deletes a pre-existing branch;
+   same immutable request without duplicate identities. Reviewed existing-branch
+   and local new-branch failures support integrated supersession; supported
+   complex failures use explicitly confirmed cleanup followed by separate
+   Create. Unsafe uncertainty is explained and preserved, and cleanup never
+   deletes a pre-existing branch;
 3. `(project, branch)` uniqueness allows equal branch names in different
    projects and rejects collisions in one project;
 4. start preserves writable runtime state but does not claim process or tmux
@@ -935,8 +1016,10 @@ The lifecycle design is implemented when integration tests prove:
 9. missing and unreachable runtimes take different cleanup paths;
 10. repair never creates a duplicate runtime, resets a workspace, or widens a
    credential;
-11. abandonment recognizes a later runtime by UUID, prevents adoption, and
-    retains its tombstone until runtime and credential cleanup are resolved;
+11. Incus unavailability leaves cleanup incomplete with identity, durable
+    operation state and authorization restrictions retained; when it returns,
+    Retry/reconciliation resume only confirmed work without duplicates or
+    adoption of unfamiliar machinery;
 12. daemon restart drops pending attachment tokens and active leases; each
     helper finishes temporary-client teardown while systemd preserves the
     persistent host, and operation reconciliation resumes;
@@ -946,6 +1029,9 @@ The lifecycle design is implemented when integration tests prove:
 14. no automatic cleanup deletes a branch, runtime, or orphan record based only
     on age;
 15. activation or persistent-host failure leaves the container stopped with a
-    bounded inspectable diagnostic and an ordinary Start retry; and
+    bounded inspectable diagnostic and an ordinary Start retry;
 16. host exit shuts down the container while detach or switching sessions does
-    not.
+    not; and
+17. branch/upstream mismatch diagnostics show expected and actual values,
+    block dependent actions, and recheck manually corrected Git on the next
+    attempt without automatic checkout/reset.

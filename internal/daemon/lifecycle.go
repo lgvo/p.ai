@@ -59,6 +59,7 @@ type lifecycle struct {
 	recordRepairPreviews    map[string]recordRepairPreviewState
 	retainedDeletePreviews  map[string]retainedDeletePreviewState
 	createReplacePreviews   map[string]createReplacePreviewState
+	createCleanupPreviews   map[string]createCleanupPreviewState
 }
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
@@ -630,7 +631,7 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	if err != nil {
 		return op, err
 	}
-	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "project.retained.delete" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
+	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "session.create.cleanup" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "project.retained.delete" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
 		return op, control.ErrInvalid
 	}
 	if op.Status == "superseded" {
@@ -656,6 +657,10 @@ func (l *lifecycle) process(id string) {
 	ctx := l.ctx
 	op, err := l.store.GetOperation(ctx, id)
 	if err != nil {
+		return
+	}
+	if op.Kind == "session.create.cleanup" {
+		l.processCreateCleanup(op)
 		return
 	}
 	if op.Kind == "environment.collect" {

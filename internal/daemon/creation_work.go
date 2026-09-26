@@ -45,5 +45,5 @@ func deferBlockedCreationUntilRetry(op control.Operation) bool {
 	}
 	var req control.ReserveSessionRequest
 	ev, err := control.Evidence(op)
-	return err == nil && json.Unmarshal(op.Request, &req) == nil && control.ReplaceableCreationEvidence(req, ev) && control.ReplaceableCreationPhase(op, ev)
+	return err == nil && json.Unmarshal(op.Request, &req) == nil && (control.ReplaceableCreationEvidence(req, ev) && control.ReplaceableCreationPhase(op, ev) || control.SafeCreateCleanupEvidence(req, ev) && control.SafeCreateCleanupPhase(op))
 }

@@ -30,7 +30,9 @@ helper.
 Run on each claimed storage driver and architecture. Measure logical and
 physical image/session sizes, but do not generalize copy-on-write or
 deduplication behavior across drivers. Test interruption, duplicate detection,
-builder/session orphans, and external image deletion.
+unexpected instance metadata, manually changed containers, and external image
+deletion. Unfamiliar machinery must not be silently adopted or used as proof
+that the expected runtime is absent.
 
 **Gate:** the claimed Incus/storage-driver/architecture combination.
 
@@ -132,9 +134,20 @@ explain the unresolved condition and leave uncertain resources intact.
 **Validate:** Crash at every documented cross-authority commit point. Verify
 create/rename/discard/delete converge without duplicate Incus instances or
 silent Git ref loss. Verify Incus-owned start/stop uses Incus operation/state
-without a duplicate P workflow. Test missing versus unreachable, repair,
-abandonment, orphan recognition, image cache misses, immutable-policy
-current/outdated/invalid comparison, and cleanup failures.
+without a duplicate P workflow. Test missing versus unreachable, supported
+repair, identity conflicts, image cache misses, immutable-policy
+current/outdated/invalid comparison, and cleanup failures. Branch/upstream
+mismatches must show expected and actual values, block dependent actions, and
+recheck on the next attempt after manual Git correction. No dedicated mismatch
+repair action or automatic checkout/reset is required.
+
+When Incus is unavailable, verify cleanup remains incomplete, session/project
+identity and durable confirmed operation state survive restart, and existing
+authorization restrictions remain intact. Restore Incus and resume that same
+confirmed operation through Retry/reconciliation. Do not report deletion
+success, forget uncertain machinery or create a replacement while existence
+is uncertain. Explicit abandonment, abandonment tombstones and the associated
+orphan-cleanup/forget workflow are outside MVP; manual investigation is supported.
 
 Create projects from a reachable SSH origin and as blank repositories. Verify
 failed origin contact leaves no new association, an empty origin produces the
@@ -148,9 +161,10 @@ refs. Exercise retained-branch assignment/list/source/fetch,
 rename, fast-forward publication, and deletion after the loss preview.
 
 For **Delete project and all P data**, confirm the aggregate preview enumerates
-and terminates listed live attachments, the minimal tombstone survives daemon
+and terminates listed live attachments, the minimal deletion record survives daemon
 restart, partial failures leave an idempotent ensure-absent retry with a smaller
-remainder, and unreachable resources require explicit abandonment. Verify
+remainder, and unavailable Incus keeps identity and cleanup incomplete until
+the confirmed operation can resume. Verify
 there is no rollback or hidden multi-phase recovery mode.
 
 **Gate:** each lifecycle mutation as it enters the implementation.

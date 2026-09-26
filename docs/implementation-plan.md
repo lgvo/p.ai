@@ -220,11 +220,14 @@ B is not declared complete.
 
 ## 6. Close the documented MVP
 
-- Complete transactional session rename, Delete, Repair, Abandon, orphan
-  recognition, origin change/removal, and the full retained-branch operations.
+- Complete transactional session rename, Delete, supported Repair, identity
+  checks, origin change/removal, and the full retained-branch operations.
+  Branch/upstream mismatches require expected/actual diagnostics and manual Git
+  correction/recheck, not a dedicated repair action. Explicit abandonment and
+  its tombstone/orphan-cleanup/forget workflow are outside MVP.
 - Complete aggregate project deletion with attachment termination, a minimal
-  durable tombstone, idempotent ensure-absent retry, and unreachable-resource
-  handling.
+  durable deletion record, idempotent ensure-absent retry, and incomplete cleanup
+  retaining identity/restrictions while Incus is unavailable.
 - Complete typed filesystem grants, policy diffs/current/outdated/invalid
   behavior, and guided recreation. Safety validation and immutable snapshots
   are required from the first exposed operation, not postponed to this step.

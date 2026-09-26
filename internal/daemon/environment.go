@@ -123,6 +123,10 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *control.Operation,
 		TreeOID: snapshot.TreeOID(), BaseImageFingerprint: ev.Environment.BaseFingerprint,
 		ContractVersion: "1",
 	}
+	if ev.EnvironmentBuilder == nil && ev.BuilderTreeOID == "" {
+		// An empty durable tree precedes every builder dispatch in older workers.
+		ev.EnvironmentBuilder = &control.CreationBuilderState{State: "not-attempted"}
+	}
 	// Capture the verified tree before any builder init. Capacity admission
 	// can then verify a concurrent builder without reentering an origin lock.
 	if ev.BuilderTreeOID != r.TreeOID {
@@ -134,16 +138,53 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *control.Operation,
 			return "", err
 		}
 	}
+	if ev.EnvironmentBuilder == nil {
+		return "", errors.New("historical builder dispatch/cleanup evidence unavailable; preserve unresolved resources")
+	}
 	before, err := l.runtime.InspectBuilder(ctx, r)
 	if err != nil {
 		return "", err
 	}
 	if before.Exists {
-		if _, err := l.runtime.DeleteBuilder(ctx, r); err != nil {
+		if ev.EnvironmentBuilder.State != "attempted" && ev.EnvironmentBuilder.State != "owned" {
+			return "", errors.New("builder reappeared outside durable attempt")
+		}
+		ev.EnvironmentBuilder.State = "owned"
+		if err = l.persistEnvironment(op, *ev, op.Phase); err != nil {
+			return "", err
+		}
+		if _, err = l.runtime.DeleteBuilder(ctx, r); err != nil {
 			return "", err
 		}
 	}
-	if _, err := l.runtime.CreateBuilder(ctx, r); err != nil {
+	if ev.EnvironmentBuilder.State == "owned" {
+		if err = l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: op.SessionUUID, ProjectPath: op.Project, ContractVersion: "1", ImageFingerprint: ev.ImageFingerprint}, op.ID); err != nil {
+			return "", err
+		}
+		ev.EnvironmentBuilder.State = "absent"
+		if err = l.persistEnvironment(op, *ev, op.Phase); err != nil {
+			return "", err
+		}
+	}
+	if ev.EnvironmentBuilder.State != "not-attempted" && ev.EnvironmentBuilder.State != "absent" {
+		return "", errors.New("builder init outcome unknown; absent inventory cannot authorize another init")
+	}
+	if _, err = l.runtime.CreateBuilderWithGate(ctx, r, func() error {
+		next := *ev
+		next.EnvironmentBuilder = &control.CreationBuilderState{Cycle: ev.EnvironmentBuilder.Cycle + 1, State: "attempted"}
+		if e := l.persistEnvironment(op, next, op.Phase); e != nil {
+			return e
+		}
+		*ev = next
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	if ev.EnvironmentBuilder.State != "attempted" {
+		return "", errors.New("builder appeared outside recorded native dispatch")
+	}
+	ev.EnvironmentBuilder.State = "owned"
+	if err = l.persistEnvironment(op, *ev, op.Phase); err != nil {
 		return "", err
 	}
 	cleanup := true
@@ -155,6 +196,15 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *control.Operation,
 		defer cancel()
 		if _, err := l.runtime.DeleteBuilder(stopCtx, r); err != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("verified builder cleanup failed: %w", err))
+			return
+		}
+		if err := l.runtime.ConfirmFailedCreateEffectsAbsent(stopCtx, runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: op.SessionUUID, ProjectPath: op.Project, ContractVersion: "1", ImageFingerprint: ev.ImageFingerprint}, op.ID); err != nil {
+			resultErr = errors.Join(resultErr, err)
+			return
+		}
+		ev.EnvironmentBuilder.State = "absent"
+		if err := l.persistEnvironment(op, *ev, op.Phase); err != nil {
+			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 	if err := l.runtime.TransferBuilderSource(ctx, r, snapshot); err != nil {

@@ -23,6 +23,12 @@ func monotonicCreationEvidence(oldPhase string, oldRaw, newRaw json.RawMessage) 
 			return ErrConflict
 		}
 	}
+	if old.EnvironmentBuilder == nil && next.EnvironmentBuilder != nil && old.BuilderTreeOID != "" {
+		return ErrConflict
+	}
+	if err := monotonicBuilderState(old.EnvironmentBuilder, next.EnvironmentBuilder); err != nil {
+		return err
+	}
 	if old.ReplacementCleanup != nil {
 		if next.ReplacementCleanup == nil {
 			return ErrConflict

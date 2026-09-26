@@ -1063,6 +1063,15 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 			return err
 		}
 	}
+	if kind == "session.create.cleanup" {
+		var next CreateCleanupEvidence
+		if status != "running" && status != "blocked" || json.Unmarshal(evidence, &next) != nil || phase != "local-cleanup" && phase != "local-complete" || next.LocalComplete != (phase == "local-complete") || oldPhase == "local-complete" && phase != "local-complete" {
+			return ErrConflict
+		}
+		if err = monotonicCreateCleanupEvidence([]byte(oldEvidence), evidence); err != nil {
+			return err
+		}
+	}
 	if kind == "session.create" && sessionID != "" && (status == "failed" || status == "completed" || status == "superseded") {
 		var registry string
 		err = tx.QueryRowContext(ctx, "SELECT registry_state FROM sessions WHERE uuid=?", sessionID).Scan(&registry)

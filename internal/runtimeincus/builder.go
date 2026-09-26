@@ -223,6 +223,19 @@ func (b *Backend) inspectBuilder(ctx context.Context, r Builder, allowPendingRoo
 // An interrupted request may finish its own root limit; a different request
 // with the same name is never adopted.
 func (b *Backend) CreateBuilder(ctx context.Context, r Builder) (BuilderObservation, error) {
+	return b.createBuilder(ctx, r, nil)
+}
+
+// CreateBuilderWithGate records trusted dispatch intent after read-only
+// confinement, pool, ownership and pinned-image preflight, before native init.
+// Existing owned builders are observed without issuing another init or gate.
+func (b *Backend) CreateBuilderWithGate(ctx context.Context, r Builder, beforeInit func() error) (BuilderObservation, error) {
+	if beforeInit == nil {
+		return BuilderObservation{}, errors.New("builder init gate unavailable")
+	}
+	return b.createBuilder(ctx, r, beforeInit)
+}
+func (b *Backend) createBuilder(ctx context.Context, r Builder, beforeInit func() error) (BuilderObservation, error) {
 	if err := validateBuilder(r); err != nil {
 		return BuilderObservation{}, err
 	}
@@ -257,6 +270,11 @@ func (b *Backend) CreateBuilder(ctx context.Context, r Builder) (BuilderObservat
 		}
 		if !found {
 			return BuilderObservation{}, errors.New("pinned builder base image missing")
+		}
+		if beforeInit != nil {
+			if err := beforeInit(); err != nil {
+				return BuilderObservation{}, err
+			}
 		}
 		_, createErr := b.command(ctx, "init", r.BaseImageFingerprint, builderName(r), "--profile", "default", "--storage", b.config.BuilderStoragePool, "--device", "root,size="+builderRootSize, "--config", "security.idmap.isolated=true", "--config", "security.privileged=false", "--config", "security.nesting=false", "--config", "limits.cpu="+builderCPU, "--config", "limits.memory="+builderMemory, "--config", "limits.processes="+builderProcesses, "--config", "user.p.builder_request_uuid="+r.RequestUUID, "--config", "user.p.builder_project_path="+r.ProjectPath, "--config", "user.p.builder_commit_oid="+r.CommitOID, "--config", "user.p.builder_tree_oid="+r.TreeOID, "--config", "user.p.builder_contract_version="+r.ContractVersion, "--config", "user.p.builder_base_image="+r.BaseImageFingerprint)
 		before, err = b.inspectBuilder(ctx, r, true)

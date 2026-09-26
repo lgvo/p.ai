@@ -272,6 +272,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			if _, ok := life.(CreateReplaceAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.create.replace.preview", "session.create.replace.confirm")
 			}
+			if _, ok := life.(CreateCleanupAPI); ok {
+				object["available"] = append(object["available"].([]string), "session.create.cleanup.preview", "session.create.cleanup.confirm")
+			}
 			object["lifecycle"] = "partial"
 			return object, nil
 		case "project.create":
@@ -308,6 +311,42 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.create request")
 			}
 			op, e := life.CreateSession(ctx, req)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "operation": op}, nil
+		case "session.create.cleanup.preview":
+			cleanup, ok := life.(CreateCleanupAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V    int    `json:"v"`
+				UUID string `json:"uuid"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid failed creation cleanup preview")
+			}
+			review, e := cleanup.PreviewCreateCleanup(ctx, p.UUID)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "preview": review}, nil
+		case "session.create.cleanup.confirm":
+			cleanup, ok := life.(CreateCleanupAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V     int    `json:"v"`
+				UUID  string `json:"uuid"`
+				Key   string `json:"key"`
+				Token string `json:"confirmation_token"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) || len(p.Token) != 32 {
+				return nil, errorRPC(-32602, "invalid_params", "invalid failed creation cleanup confirmation")
+			}
+			op, e := cleanup.ConfirmCreateCleanup(ctx, p.UUID, p.Key, p.Token)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}

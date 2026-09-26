@@ -253,7 +253,7 @@ func (s *Store) UnfinishedDiscards(ctx context.Context) ([]Operation, error) {
 	return s.UnfinishedRemovals(ctx)
 }
 func (s *Store) UnfinishedRemovals(ctx context.Context) ([]Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('session.discard','session.delete') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('session.discard','session.delete','session.create.cleanup') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}

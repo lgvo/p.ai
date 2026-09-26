@@ -19,6 +19,7 @@ type CreationEvidence struct {
 	BranchExisted          bool                      `json:"branch_existed"`
 	ImageFingerprint       string                    `json:"image_fingerprint"`
 	PolicySHA256           string                    `json:"policy_sha256"`
+	EnvironmentBuilder     *CreationBuilderState     `json:"environment_builder,omitempty"`
 	RuntimeInitState       string                    `json:"runtime_init_state,omitempty"`
 	RefCASIntent           bool                      `json:"ref_cas_intent,omitempty"`
 	Selection              CreationSelection         `json:"selection"`
@@ -127,32 +128,60 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 	if len(environment) > 1 || len(environment) == 1 && environment[0] != nil && (!environment[0].Valid() || environment[0].BaseFingerprint != image) {
 		return Operation{}, Session{}, ErrInvalid
 	}
+	request, _ := json.Marshal(req)
+	// Exact durable replay does not inspect refs or require Git authority. A read
+	// transaction keeps the operation/session pair coherent across supersession.
+	replay := func() (Operation, Session, bool, error) {
+		tx, e := s.db.BeginTx(ctx, nil)
+		if e != nil {
+			return Operation{}, Session{}, true, e
+		}
+		defer tx.Rollback()
+		var journal int
+		e = tx.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM origin_requests WHERE idempotency_key=? LIMIT 1`, req.Key, req.Key).Scan(&journal)
+		if e == nil {
+			return Operation{}, Session{}, true, ErrConflict
+		}
+		if !errors.Is(e, sql.ErrNoRows) {
+			return Operation{}, Session{}, true, e
+		}
+		var kind, hash string
+		e = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &hash)
+		if errors.Is(e, sql.ErrNoRows) {
+			return Operation{}, Session{}, false, nil
+		}
+		if e != nil {
+			return Operation{}, Session{}, true, e
+		}
+		if kind != "session.create" || hash != digest(request) {
+			return Operation{}, Session{}, true, ErrConflict
+		}
+		op, e := getOperationTx(ctx, tx, req.Key)
+		if e != nil {
+			return op, Session{}, true, e
+		}
+		if digest(op.Request) != hash {
+			return Operation{}, Session{}, true, ErrConflict
+		}
+		if op.Status == "superseded" {
+			return op, Session{}, true, nil
+		}
+		session, e := getSessionTx(ctx, tx, op.SessionUUID)
+		if errors.Is(e, sql.ErrNoRows) {
+			e = ErrNotFound
+		}
+		return op, session, true, e
+	}
+	if op, session, found, e := replay(); found || e != nil {
+		return op, session, e
+	}
 	if err := s.lockGitAuthority(ctx); err != nil {
 		return Operation{}, Session{}, err
 	}
 	defer s.gitAuthority.Unlock()
-	if err := s.CheckOriginKeyConflict(ctx, req.Key); err != nil {
-		return Operation{}, Session{}, err
-	}
-	request, _ := json.Marshal(req)
-	var existingKind, existingHash string
-	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&existingKind, &existingHash)
-	if err == nil {
-		if existingKind != "session.create" || existingHash != digest(request) {
-			return Operation{}, Session{}, ErrConflict
-		}
-		op, e := s.GetOperationByKey(ctx, req.Key)
-		if e != nil {
-			return op, Session{}, e
-		}
-		if op.Status == "superseded" {
-			return op, Session{}, nil
-		}
-		session, e := s.GetSession(ctx, op.SessionUUID)
+	// Another admission may have completed while authority was contested.
+	if op, session, found, e := replay(); found || e != nil {
 		return op, session, e
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, Session{}, err
 	}
 	if !validFingerprint(image) || !selection.Valid() {
 		return Operation{}, Session{}, ErrInvalid
@@ -195,6 +224,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 	if len(environment) == 1 && environment[0] != nil {
 		pinned := *environment[0]
 		ev.Environment = &pinned
+		ev.EnvironmentBuilder = &CreationBuilderState{State: "not-attempted"}
 	}
 	evJSON, _ := json.Marshal(ev)
 	if len(evJSON) > 16384 {
@@ -728,6 +758,9 @@ func Evidence(op Operation) (CreationEvidence, error) {
 	var ev CreationEvidence
 	if err := json.Unmarshal(op.Evidence, &ev); err != nil {
 		return ev, fmt.Errorf("creation evidence: %w", err)
+	}
+	if ev.EnvironmentBuilder != nil && !ev.EnvironmentBuilder.Valid() {
+		return ev, ErrInvalid
 	}
 	if ev.RuntimeInitState != "" && ev.RuntimeInitState != "not-attempted" && ev.RuntimeInitState != "attempted" {
 		return ev, ErrInvalid

@@ -74,7 +74,7 @@ The local user, TUI, and `p api` share the complete lifecycle surface:
 |---|---|
 | System | hello, health, protocol and build versions |
 | Projects | create, inspect, configure/remove origin, delete all P-owned data |
-| Sessions | list, create, attach, rename, stop, discard, delete, repair, abandon |
+| Sessions | list, create, attach, rename, stop, discard, delete, supported repair |
 | Remotes | configure, refresh, inspect origin state, explicitly publish |
 | Observability | session condition, attachment count, latest unattended condition, policy condition, subscriptions |
 | Configuration | validated effective configuration and diagnostics |
@@ -379,8 +379,11 @@ Git reachability and optionally observed origin branches. Runtime files and Git
 objects never travel inside the RPC request.
 
 Session discard/delete, missing/unreachable behavior, confirmation
-fingerprints, credential cleanup, and abandonment are defined in
+fingerprints and credential cleanup are defined in
 [session lifecycle](session-lifecycle.md#destructive-preflight).
+Unavailable Incus keeps confirmed cleanup incomplete and resumable; explicit
+abandonment and its associated tombstone/orphan-cleanup/forget workflow are
+outside MVP.
 Whole-project deletion is defined in
 [project lifecycle](project-lifecycle.md#project-deletion).
 

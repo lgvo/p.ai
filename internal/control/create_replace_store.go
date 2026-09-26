@@ -185,6 +185,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if environment != nil {
 		copy := *environment
 		ev.Environment = &copy
+		ev.EnvironmentBuilder = &CreationBuilderState{State: "not-attempted"}
 	}
 	phase := "source-ready"
 	if intent.Cleanup != nil {
