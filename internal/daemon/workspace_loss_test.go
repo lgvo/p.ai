@@ -21,7 +21,14 @@ func TestWorkspaceLossFingerprintBindsNativeGenerationAndSourceBytes(t *testing.
 	if err != nil || len(base) != 64 {
 		t.Fatalf("base fingerprint: %q %v", base, err)
 	}
+	// Preserve the established-session canonical digest from before creator
+	// bindings were added; absent bindings do not change existing evidence.
+	if base != "f7cb10a86800cdbb8fc411fb4f2fec97da3c8de1c733782634081b14dfdb5545" {
+		t.Fatalf("established loss fingerprint changed: %s", base)
+	}
+	originalEvidence, originalBytes := ev, snapshot.Main.Entries[1].Data
 	for _, mutation := range []func(){
+		func() { ev.CreatorOperationID = "77777777-7777-4777-8777-777777777777" },
 		func() { ev.SourceGeneration = "55555555-5555-5555-5555-555555555555" },
 		func() { ev.SourceIncusUUID = "66666666-6666-6666-6666-666666666666" },
 		func() { snapshot.Main.Entries[1].Data = []byte("two") },
@@ -30,6 +37,30 @@ func TestWorkspaceLossFingerprintBindsNativeGenerationAndSourceBytes(t *testing.
 		changed, err := workspaceLossFingerprint(session, "user-1000", "p-"+session.UUID, ev, snapshot, result)
 		if err != nil || changed == base {
 			t.Fatalf("native generation or source bytes omitted from fingerprint: %q %v", changed, err)
+		}
+		ev, snapshot.Main.Entries[1].Data = originalEvidence, originalBytes
+	}
+}
+
+func TestWorkspaceLossFingerprintBindsEachCreatorAuthority(t *testing.T) {
+	ev := control.WorkspaceInspectEvidence{CreatorOperationID: "77777777-7777-4777-8777-777777777777",
+		CreatorRequestSHA256: strings.Repeat("c", 64), CreatorEvidenceSHA256: strings.Repeat("d", 64)}
+	base, err := workspaceLossFingerprint(control.Session{}, "user-1000", "source", ev, runtimeincus.WorkspaceLossSnapshot{}, workspaceLossResult{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []func(*control.WorkspaceInspectEvidence){
+		func(e *control.WorkspaceInspectEvidence) {
+			e.CreatorOperationID = "88888888-8888-4888-8888-888888888888"
+		},
+		func(e *control.WorkspaceInspectEvidence) { e.CreatorRequestSHA256 = strings.Repeat("e", 64) },
+		func(e *control.WorkspaceInspectEvidence) { e.CreatorEvidenceSHA256 = strings.Repeat("e", 64) },
+	} {
+		next := ev
+		change(&next)
+		changed, err := workspaceLossFingerprint(control.Session{}, "user-1000", "source", next, runtimeincus.WorkspaceLossSnapshot{}, workspaceLossResult{})
+		if err != nil || changed == base {
+			t.Fatalf("creator authority omitted: %s %v", changed, err)
 		}
 	}
 }

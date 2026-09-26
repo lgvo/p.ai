@@ -353,6 +353,13 @@ func (l *lifecycle) Recover() error {
 		after = next
 	}
 	for _, op := range ops {
+		if op.Kind == "session.create" {
+			if err = l.checkNoWorkspaceInspect(l.ctx, op.SessionUUID); errors.Is(err, control.ErrConflict) {
+				continue
+			} else if err != nil {
+				return err
+			}
+		}
 		if deferBlockedCreationUntilRetry(op) {
 			continue
 		}
@@ -406,6 +413,17 @@ func (l *lifecycle) schedule() {
 	}
 }
 func (l *lifecycle) enqueue(id string) error {
+	if l.store != nil {
+		op, err := l.store.GetOperation(l.ctx, id)
+		if err != nil {
+			return err
+		}
+		if op.Kind == "session.create" && op.Status != "completed" && op.Status != "superseded" {
+			if err = l.checkNoWorkspaceInspect(l.ctx, op.SessionUUID); err != nil {
+				return err
+			}
+		}
+	}
 	l.mu.Lock()
 	if l.working[id] {
 		l.mu.Unlock()
@@ -636,6 +654,11 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	}
 	if op.Status == "superseded" {
 		return op, control.ErrConflict
+	}
+	if op.Kind == "session.create" && op.Status != "completed" {
+		if err = l.checkNoWorkspaceInspect(ctx, op.SessionUUID); err != nil {
+			return op, err
+		}
 	}
 	if op.Status != "completed" {
 		if op.Status == "blocked" {

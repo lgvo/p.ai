@@ -603,6 +603,15 @@ and returns a durable operation. It passed review and selected VM29; see
 [implementation progress](implementation-progress.md). It produces read-only
 evidence and does not authorize removal.
 
+The method also admits the narrow stopped assembled failed-creation case
+described by [session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
+Its durable operation evidence additionally binds `creator_operation_id`,
+`creator_request_sha256` and `creator_evidence_sha256` alongside native source
+UUID/generation. The session remains `creating`; an active inspection fences
+the original creator. Unsupported or uncertain failed creations remain refused.
+This extension's selected-VM gate is recorded separately in implementation
+progress; the earlier VM29 pass does not validate it.
+
 On completion, `operation.evidence.result` has schema `p.workspace-loss/v1`:
 
 | Field | Meaning |

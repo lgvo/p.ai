@@ -367,6 +367,59 @@ CREATE TRIGGER session_insert_excludes_rename_reservation BEFORE INSERT ON sessi
 PRAGMA user_version = 18;
 `
 
+// A narrowly proved blocked creator and its read-only loss inspection share a
+// session. Every other active-operation exclusion remains in place, and the
+// creator cannot advance (including through a stale writer) while inspected.
+const migration19 = `
+DROP INDEX active_session_operation;
+CREATE UNIQUE INDEX active_session_operation ON operations(session_uuid)
+ WHERE session_uuid IS NOT NULL AND status IN ('running','blocked','unknown')
+ AND NOT (kind='workspace.loss.inspect' AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='');
+DROP INDEX IF EXISTS active_creator_loss_inspection;
+CREATE UNIQUE INDEX active_creator_loss_inspection ON operations(session_uuid)
+ WHERE kind='workspace.loss.inspect' AND status IN ('running','blocked','unknown')
+ AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='';
+DROP TRIGGER IF EXISTS workspace_loss_read_requires_established;
+CREATE TRIGGER workspace_loss_read_requires_established BEFORE INSERT ON operations
+ WHEN NEW.kind='workspace.loss.inspect' AND NOT EXISTS(
+ SELECT 1 FROM sessions s WHERE s.uuid=NEW.session_uuid AND s.project_path=NEW.project_path AND (
+ (s.registry_state='established' AND COALESCE(json_extract(NEW.evidence_json,'$.creator_operation_id'),'')='') OR
+ (s.registry_state='creating' AND json_extract(NEW.evidence_json,'$.original_status')='Stopped' AND EXISTS(
+ SELECT 1 FROM operations c WHERE c.id=json_extract(NEW.evidence_json,'$.creator_operation_id')
+ AND c.session_uuid=s.uuid AND c.project_path=s.project_path AND c.kind='session.create'
+ AND c.status='blocked' AND c.phase='assembly-ready' AND c.committed=1
+ AND c.request_sha256=json_extract(NEW.evidence_json,'$.creator_request_sha256')
+ AND json_extract(c.evidence_json,'$.runtime_init_state')='attempted'))))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: workspace source unavailable'); END;
+DROP TRIGGER IF EXISTS creator_loss_excludes_other_insert;
+CREATE TRIGGER creator_loss_excludes_other_insert BEFORE INSERT ON operations
+ WHEN NEW.session_uuid IS NOT NULL AND NEW.status IN ('running','blocked','unknown') AND (
+ EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=NEW.session_uuid
+ AND w.kind='workspace.loss.inspect' AND w.status IN ('running','blocked','unknown')
+ AND COALESCE(json_extract(w.evidence_json,'$.creator_operation_id'),'')!='') OR
+ (NEW.kind='workspace.loss.inspect' AND COALESCE(json_extract(NEW.evidence_json,'$.creator_operation_id'),'')!=''
+ AND EXISTS(SELECT 1 FROM operations o WHERE o.session_uuid=NEW.session_uuid AND o.status IN ('running','blocked','unknown')
+ AND o.id!=json_extract(NEW.evidence_json,'$.creator_operation_id'))))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+DROP TRIGGER IF EXISTS creator_loss_excludes_other_update;
+CREATE TRIGGER creator_loss_excludes_other_update BEFORE UPDATE ON operations
+ WHEN EXISTS(SELECT 1 FROM operations w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid
+ AND w.kind='workspace.loss.inspect' AND w.status IN ('running','blocked','unknown')
+ AND COALESCE(json_extract(w.evidence_json,'$.creator_operation_id'),'')!='')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+DROP TRIGGER IF EXISTS creator_loss_preserves_assignment;
+CREATE TRIGGER creator_loss_preserves_assignment BEFORE UPDATE OF registry_state,branch ON sessions
+ WHEN EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='workspace.loss.inspect'
+ AND w.status IN ('running','blocked','unknown') AND COALESCE(json_extract(w.evidence_json,'$.creator_operation_id'),'')!='')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+DROP TRIGGER IF EXISTS creator_loss_preserves_session;
+CREATE TRIGGER creator_loss_preserves_session BEFORE DELETE ON sessions
+ WHEN EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='workspace.loss.inspect'
+ AND w.status IN ('running','blocked','unknown') AND COALESCE(json_extract(w.evidence_json,'$.creator_operation_id'),'')!='')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+PRAGMA user_version = 19;
+`
+
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
 }
@@ -439,8 +492,8 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 	if err = db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return nil, err
 	}
-	if version > 18 {
-		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 18)", version)
+	if version > 19 {
+		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 19)", version)
 	}
 	if version == 0 {
 		var id string
@@ -680,6 +733,19 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 		}
 		defer tx.Rollback()
 		if _, e = tx.ExecContext(ctx, migration18); e != nil {
+			return nil, e
+		}
+		if e = tx.Commit(); e != nil {
+			return nil, e
+		}
+	}
+	if version < 19 {
+		tx, e := db.BeginTx(ctx, nil)
+		if e != nil {
+			return nil, e
+		}
+		defer tx.Rollback()
+		if _, e = tx.ExecContext(ctx, migration19); e != nil {
 			return nil, e
 		}
 		if e = tx.Commit(); e != nil {
@@ -1061,6 +1127,22 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	if kind == "session.create" {
 		if err = monotonicCreationEvidence(oldPhase, []byte(oldEvidence), evidence); err != nil {
 			return err
+		}
+	}
+	if kind == "workspace.inspect" || kind == "workspace.loss.inspect" {
+		if err = immutableWorkspaceSource([]byte(oldEvidence), evidence); err != nil {
+			return err
+		}
+		var ev WorkspaceInspectEvidence
+		_ = json.Unmarshal(evidence, &ev)
+		if ev.CreatorOperationID != "" {
+			session, e := getSessionTx(ctx, tx, sessionID)
+			if e != nil {
+				return ErrConflict
+			}
+			if e = validateWorkspaceCreatorTx(ctx, tx, session, ev); e != nil {
+				return e
+			}
 		}
 	}
 	if kind == "session.create.cleanup" {

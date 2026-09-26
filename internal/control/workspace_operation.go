@@ -12,13 +12,16 @@ import (
 // intent. A helper is always named from the durable operation UUID, never
 // from a repository name or an Incus observation.
 type WorkspaceInspectEvidence struct {
-	InstanceUUID     string          `json:"instance_uuid"`
-	ImageFingerprint string          `json:"image_fingerprint"`
-	BaseFingerprint  string          `json:"base_fingerprint"`
-	SourceIncusUUID  string          `json:"source_incus_uuid,omitempty"`
-	SourceGeneration string          `json:"source_generation,omitempty"`
-	OriginalStatus   string          `json:"original_status"`
-	Result           json.RawMessage `json:"result,omitempty"`
+	InstanceUUID          string          `json:"instance_uuid"`
+	ImageFingerprint      string          `json:"image_fingerprint"`
+	BaseFingerprint       string          `json:"base_fingerprint"`
+	SourceIncusUUID       string          `json:"source_incus_uuid,omitempty"`
+	SourceGeneration      string          `json:"source_generation,omitempty"`
+	OriginalStatus        string          `json:"original_status"`
+	CreatorOperationID    string          `json:"creator_operation_id,omitempty"`
+	CreatorRequestSHA256  string          `json:"creator_request_sha256,omitempty"`
+	CreatorEvidenceSHA256 string          `json:"creator_evidence_sha256,omitempty"`
+	Result                json.RawMessage `json:"result,omitempty"`
 }
 
 type WorkspaceInspectRequest struct {
@@ -63,6 +66,11 @@ func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req Workspa
 	if kind == "workspace.loss.inspect" && (!validUUID(ev.SourceIncusUUID) || !validUUID(ev.SourceGeneration)) {
 		return Operation{}, ErrInvalid
 	}
+	if ev.CreatorOperationID != "" && (kind != "workspace.loss.inspect" || !validUUID(ev.CreatorOperationID) ||
+		!validFingerprint(ev.CreatorRequestSHA256) || !validFingerprint(ev.CreatorEvidenceSHA256) || ev.OriginalStatus != "Stopped") ||
+		ev.CreatorOperationID == "" && (ev.CreatorRequestSHA256 != "" || ev.CreatorEvidenceSHA256 != "") {
+		return Operation{}, ErrInvalid
+	}
 	request, _ := json.Marshal(req)
 	evidence, _ := json.Marshal(ev)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -81,14 +89,21 @@ func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req Workspa
 	if !errors.Is(err, sql.ErrNoRows) {
 		return Operation{}, err
 	}
-	var project string
-	err = tx.QueryRowContext(ctx, `SELECT project_path FROM sessions WHERE uuid=? AND registry_state='established'`, req.SessionUUID).Scan(&project)
+	session, err := getSessionTx(ctx, tx, req.SessionUUID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Operation{}, ErrNotFound
 	}
 	if err != nil {
 		return Operation{}, err
 	}
+	if ev.CreatorOperationID != "" {
+		if err = validateWorkspaceCreatorTx(ctx, tx, session, ev); err != nil {
+			return Operation{}, err
+		}
+	} else if session.Registry != "established" {
+		return Operation{}, ErrConflict
+	}
+	project := session.Project
 	id, err := newUUID()
 	if err != nil {
 		return Operation{}, err

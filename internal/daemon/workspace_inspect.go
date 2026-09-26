@@ -53,7 +53,20 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 	if err != nil {
 		return control.Operation{}, err
 	}
-	if s.Registry != "established" {
+	var creator control.Operation
+	if s.Registry == "creating" && kind == "workspace.loss.inspect" {
+		creator, err = l.store.CreationForSession(ctx, s.UUID)
+		if err != nil {
+			return control.Operation{}, err
+		}
+		if err = control.AssembledCreationForLoss(s, creator, l.cfg.BaseImageFingerprint); err != nil {
+			return control.Operation{}, err
+		}
+		created, _ := control.Evidence(creator)
+		if created.Selection != l.selection() {
+			return control.Operation{}, errors.New("failed creation plugin selection unavailable")
+		}
+	} else if s.Registry != "established" {
 		return control.Operation{}, control.ErrConflict
 	}
 	native, err := l.runtimeSession(ctx, s)
@@ -73,6 +86,15 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 	ev := control.WorkspaceInspectEvidence{InstanceUUID: l.instanceID, ImageFingerprint: native.ImageFingerprint,
 		BaseFingerprint: l.cfg.BaseImageFingerprint, SourceIncusUUID: observed.IncusUUID,
 		SourceGeneration: observed.Generation, OriginalStatus: observed.Status}
+	if creator.ID != "" {
+		if observed.Status != "Stopped" {
+			return control.Operation{}, errors.New("failed creation workspace source must already be stopped")
+		}
+		if err = l.runtime.CheckAssembledCreationSource(ctx, native, creator.ID, observed.IncusUUID, observed.Generation); err != nil {
+			return control.Operation{}, err
+		}
+		control.BindWorkspaceCreator(&ev, creator)
+	}
 	var op control.Operation
 	if kind == "workspace.loss.inspect" {
 		op, err = l.store.BeginWorkspaceLossInspect(ctx, req, ev)
@@ -119,9 +141,20 @@ func (l *lifecycle) processWorkspaceInspect(op control.Operation) {
 	ctx := l.ctx
 	entryPhase := op.Phase
 	s, err := l.store.GetSession(ctx, op.SessionUUID)
-	if err != nil || s.Registry != "established" || s.Project != op.Project {
+	if err != nil || s.Project != op.Project || s.Registry != "established" && ev.CreatorOperationID == "" ||
+		ev.CreatorOperationID != "" && (op.Kind != "workspace.loss.inspect" || s.Registry != "creating" || ev.OriginalStatus != "Stopped") {
 		l.blockWorkspaceInspect(op, errors.Join(err, errors.New("workspace session changed")))
 		return
+	}
+	if ev.CreatorOperationID != "" {
+		creator, e := l.store.CreationForSession(ctx, s.UUID)
+		created, evidenceErr := control.Evidence(creator)
+		if e != nil || evidenceErr != nil || creator.ID != ev.CreatorOperationID || hexDigest(creator.Request) != ev.CreatorRequestSHA256 ||
+			hexDigest(creator.Evidence) != ev.CreatorEvidenceSHA256 || created.Selection != l.selection() ||
+			control.AssembledCreationForLoss(s, creator, ev.BaseFingerprint) != nil {
+			l.blockWorkspaceInspect(op, errors.New("failed creation workspace source evidence changed"))
+			return
+		}
 	}
 	source, err := l.runtimeSession(ctx, s)
 	if err != nil || source.ImageFingerprint != ev.ImageFingerprint {
@@ -144,6 +177,12 @@ func (l *lifecycle) processWorkspaceInspect(op control.Operation) {
 		return nil
 	}
 	fail := func(cause error) { l.failWorkspaceInspect(op, ev, source, helper, cause) }
+	if ev.CreatorOperationID != "" {
+		if err = l.runtime.CheckAssembledCreationSource(ctx, source, ev.CreatorOperationID, ev.SourceIncusUUID, ev.SourceGeneration); err != nil {
+			fail(err)
+			return
+		}
+	}
 	switch op.Phase {
 	case "helper-intent":
 		observed, e := l.runtime.InspectWorkspaceHelper(ctx, helper)
@@ -325,6 +364,12 @@ func (l *lifecycle) processWorkspaceInspect(op control.Operation) {
 		if observed, e := l.runtime.Inspect(ctx, source); e != nil || !observed.Exists || observed.Status != ev.OriginalStatus || !lossSourceMatches(observed) {
 			fail(errors.Join(e, errors.New("workspace source not restored")))
 			return
+		}
+		if ev.CreatorOperationID != "" {
+			if e := l.runtime.CheckAssembledCreationSource(ctx, source, ev.CreatorOperationID, ev.SourceIncusUUID, ev.SourceGeneration); e != nil {
+				fail(e)
+				return
+			}
 		}
 		if e := l.store.AdvanceOperation(ctx, op.ID, "completed", "inspected", true, op.Evidence, ""); e != nil {
 			fail(e)

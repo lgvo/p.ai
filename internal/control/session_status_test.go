@@ -69,7 +69,7 @@ func TestVersionTwoStatusMigrationIsRestartable(t *testing.T) {
 			t.Fatal(err)
 		}
 		var version int
-		if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 18 {
+		if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 19 {
 			t.Fatalf("migration version=%d: %v", version, err)
 		}
 		var sequence int

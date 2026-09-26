@@ -726,7 +726,7 @@ func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE sessions SET registry_state='established' WHERE uuid=? AND registry_state='creating'`, sid)
 	if err != nil {
-		return err
+		return classifyWrite(err)
 	}
 	n, _ := result.RowsAffected()
 	if n != 1 {
@@ -749,7 +749,7 @@ func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,diagnostic='',updated_at=? WHERE id=?`, now, opID)
 	if err != nil {
-		return err
+		return classifyWrite(err)
 	}
 	return tx.Commit()
 }

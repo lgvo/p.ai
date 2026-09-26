@@ -32,6 +32,9 @@ func (l *lifecycle) inspectWorkspaceLossResult(ctx context.Context, session cont
 	if err != nil {
 		return nil, err
 	}
+	if ev.CreatorOperationID != "" && len(loss.Linked) != 0 {
+		return nil, errors.New("failed creation loss inspection supports only a standalone workspace")
+	}
 	if err := l.runtime.InstallWorkspaceLossCopy(ctx, helper, loss); err != nil {
 		return nil, err
 	}
@@ -56,6 +59,11 @@ func (l *lifecycle) inspectWorkspaceLossResult(ctx context.Context, session cont
 		observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration || observed.Name == "" {
 		return nil, errors.Join(err, errors.New("workspace source changed before loss result"))
 	}
+	if ev.CreatorOperationID != "" {
+		if err = l.runtime.CheckAssembledCreationSource(ctx, source, ev.CreatorOperationID, ev.SourceIncusUUID, ev.SourceGeneration); err != nil {
+			return nil, err
+		}
+	}
 	// Native Inspect accepts only the captured root, endpoint and typed grant
 	// devices. This loss walker analyzes runtime-owned worktrees only; a Git
 	// pointer into any grant is unavailable, never silently classified or
@@ -73,6 +81,15 @@ func (l *lifecycle) inspectWorkspaceLossResult(ctx context.Context, session cont
 
 func workspaceLossFingerprint(session control.Session, incusProject, instanceName string, ev control.WorkspaceInspectEvidence,
 	loss runtimeincus.WorkspaceLossSnapshot, result workspaceLossResult) (string, error) {
+	type creatorBinding struct {
+		OperationID    string
+		RequestSHA256  string
+		EvidenceSHA256 string
+	}
+	var creator *creatorBinding
+	if ev.CreatorOperationID != "" {
+		creator = &creatorBinding{ev.CreatorOperationID, ev.CreatorRequestSHA256, ev.CreatorEvidenceSHA256}
+	}
 	canonical, err := json.Marshal(struct {
 		SessionUUID      string
 		Project          string
@@ -85,11 +102,12 @@ func workspaceLossFingerprint(session control.Session, incusProject, instanceNam
 		Generation       string
 		ImageFingerprint string
 		OriginalStatus   string
+		Creator          *creatorBinding `json:",omitempty"`
 		Snapshot         runtimeincus.WorkspaceLossSnapshot
 		Result           workspaceLossResult
 	}{session.UUID, session.Project, session.Branch, session.PolicySHA256,
 		ev.InstanceUUID, incusProject, instanceName, ev.SourceIncusUUID, ev.SourceGeneration,
-		ev.ImageFingerprint, ev.OriginalStatus, loss, result})
+		ev.ImageFingerprint, ev.OriginalStatus, creator, loss, result})
 	if err != nil {
 		return "", err
 	}

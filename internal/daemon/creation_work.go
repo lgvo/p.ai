@@ -31,6 +31,10 @@ func (l *lifecycle) lockCreationOperation(ctx context.Context, observed control.
 		release()
 		return control.Operation{}, nil, control.ErrConflict
 	}
+	if err = l.checkNoWorkspaceInspect(ctx, fresh.SessionUUID); err != nil {
+		release()
+		return control.Operation{}, nil, err
+	}
 	return fresh, release, nil
 }
 

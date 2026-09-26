@@ -501,6 +501,17 @@ The MVP set covers Git status/ref inspection, branch/upstream rename, and the
 targeted ref operations required by lifecycle repair. It never accepts
 arbitrary argv, reset, clean, automatic commit, or force-push.
 
+The narrow assembled failed-creation loss inspection also uses this helper.
+It requires a stopped source with exact UUID/generation and a complete,
+unambiguous confined-project inventory; a competing runtime identity or creator
+builder is a refusal. A durable creator-bound inspection guard prevents P from
+advancing the original Create while the helper may exist, including after
+restart. The source remains stopped, and the helper receives no NIC, filesystem
+grant, source credential files or activation. Losing helper cleanup authority
+keeps inspection incomplete and its guard retained until verified cleanup.
+The supported creation/policy boundary belongs to
+[session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
+
 ## Reconciliation and cleanup
 
 P lists and inspects instances only in its configured confined Incus project.

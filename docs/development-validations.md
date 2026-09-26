@@ -137,6 +137,14 @@ losses, require explicit confirmation, recheck identity/ownership, recover
 durably, and preserve shared or unrelated resources. Uncertain cleanup must
 explain the unresolved condition and leave uncertain resources intact.
 
+For the narrow assembled failed-creation inspection path, use an actual failed
+host startup with a stopped, committed local base-image workspace. Prove that
+the non-activating loss helper preserves workspace/private files and the assigned
+P ref, removes only its helper, and leaves the original session `creating`.
+Exercise durable creator fencing across Retry, replay and daemon restart;
+reject changed native identity, unsupported policy/layout and uncertain init.
+Read-only inspection evidence does not establish confirmed cleanup acceptance.
+
 **Gate:** reliable status/control from sessions and local NixOS client support.
 
 ## 6. Lifecycle and authority recovery

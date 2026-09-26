@@ -2,6 +2,22 @@
 
 ## Current state — 2026-09-26
 
+- Branch: `feature/cli-first-mvp`. Latest commits: public DoH/egress `8cd7fc7`,
+  Rename mismatch/manual correction `fcb4f40`, missing-ref mismatch `7e48594`.
+  Relevant serial VM37, VM33, VM39 and VM50 passed; no VM is running.
+- Read-only loss inspection for stopped assembled failed creations passed
+  focused/broader unit checks, retained review and selected serial VM50.
+  Confirmed cleanup is the following batch, reusing the retained implementer.
+- Remaining gates: broader failed-creation cleanup, bulk project deletion,
+  plugin management and NixOS/Incus installation/distribution acceptance.
+  Latest full-suite checkpoint remains through VM28; final full suite is pending.
+- Authenticated Codex acceptance remains pending the user's manual procedure.
+  Automated tests use fixtures/dummy files and no host credentials.
+- Preserve all prior patches/evidence; reuse the retained reviewer, run VMs
+  serially, and commit each batch after relevant passing VM validation.
+
+## Preserved checkpoint history — 2026-09-26
+
 - **Resumed after DNS/network checkpoint `8cd7fc7`.** Rename branch/upstream
   diagnostics, initial blank-session upstream and manual correction passed
   reviewed focused checks and serial selected VM33, committed `fcb4f40`.
@@ -3919,3 +3935,108 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   `P_MISSING_REF_REPAIR_BARE_PRESENT_PASS`, selected product marker and
   `P_VM_SMOKE_PASS` passed. The VM shut down and removed its disk. Commit this
   completed batch and continue; no authenticated Codex evidence is claimed.
+
+- **Assembled failed-create loss inspection — acceptance before editing:**
+  first add read-only loss inspection for an exact blocked local committed
+  base-image `session.create` that durably reached verified `assembly-ready`.
+  Bind the inspection to the original operation/evidence and native identity;
+  keep Retry/replay/reconciliation from advancing the creator while its
+  durable inspection guard is active. Only the existing no-NIC bounded helper
+  may inspect, and the original creating identity/assignment remain intact.
+  Earlier/uncertain init, origin/bootstrap ambiguity, unsupported layout and
+  unverified ownership remain clear refusals. Unit/SQLite reopen/race checks,
+  retained review and a new serial VM50 must prove real failed startup,
+  non-activating inspection, private/dummy file preservation, no ref/runtime
+  deletion, restart/retry fencing and helper cleanup. This inspection is the
+  prerequisite for a following separately reviewed confirmed cleanup batch;
+  it does not itself authorize deletion or establish that cleanup passed.
+
+  One Sol/high implementer owns this substantial bounded batch and related
+  fixes; coordinator handles review/results/docs. No VM is running. Retained
+  reviewer remains available; no Astra or new reviewer was introduced.
+
+- **Read-only distribution prerequisite inspection during that stream:**
+  pinned Nixpkgs supplies `go-licenses 2.0.1`; its tool was fetched independently
+  of all VMs. Native CLI/runtime-kit plus bundled sources and actual WASI
+  bundled targets passed `go-licenses check` with the project-policy allowlist
+  `Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC`. The native report classified
+  37 library entries: 22 MIT, 11 BSD-3-Clause, 1 BSD-2-Clause, 3 Apache-2.0.
+  Go module hashes are `88b6e68713b46e2bda0c2c0922826881045b00577fca40bf244b53b4acdffd1d`
+  (`go.mod`) and `0d9ead7dc993d15e2c94a4a4422a0859a0c9964c183ec6e5546ac19d2f14febc`
+  (`go.sum`). `/tmp/p-notices.WetYHLj2/licenses` contains collected notice files;
+  CSV/check/save artifacts are `/tmp/p-go-licenses*`. Classification uses local
+  pinned sources; report URL discovery for vanity modules failed under sandbox
+  DNS and returned Unknown URLs, not Unknown license classes. Ordinary assembly
+  source warnings require the existing manual audit; they were not suppressed.
+  These are dependency-audit preparation, not installed-notice or NixOS service
+  acceptance. Future packaging must install notices, retain their source/license
+  identity, and validate the installed artifact. Tool behavior was checked
+  against its [pinned primary README](https://github.com/google/go-licenses/blob/v2.0.1/README.md).
+
+Read-only distribution follow-up: `readelf -d` on the existing VM39 package
+`/nix/store/4wmhx3yfn6yq4mx86a7r7lyqmzizi3zb-p-0.1.0-dev/bin/p` shows
+`libresolv.so.2`, `libpthread.so.0` and `libc.so.6` dynamic dependencies.
+The Go-module allowlist does not establish the separate linked-system-library
+boundary. The later distribution batch must settle this against the stack's
+permissive compiled-dependency rule and validate its packaged result. No build
+configuration was changed during the active failed-creation implementation.
+Scanner assembly warnings were inspected: x/sys files name the module BSD
+license, wazero includes its Apache license and notice, modernc libc includes
+its BSD license, and Poly1305's package includes its Go BSD attribution.
+This source inspection supplements, rather than suppresses, scanner warnings;
+it does not close the installation or external-tool attribution gates.
+
+- **Assembled inspection review/checkpoint:** schema 19 adds transactional creator fencing
+  and creator/source bindings. Focused control/native/workspace checks and full
+  affected control/daemon/runtimeincus unit suites passed; real SQLite reopen,
+  race, changed-evidence and unsupported-state cases passed. Existing workspace
+  loss fingerprints keep a fixed pre-change golden digest when no creator
+  binding exists; independent creator field changes alter their bound digest.
+  Bash, pinned ShellCheck and whitespace checks passed on the prepared VM50.
+  No actual VM50 run or cleanup acceptance is claimed yet.
+
+  Retained review found a VM50 fixture error before execution: its proposed
+  success path added `core.fsmonitor` and `[include]`, which the existing safe
+  Git-config parser correctly refuses before analysis. Preserve that sanitizer.
+  The same implementer is correcting the fixture to use inert config/hook
+  sentinels for successful analysis, with a separate explicit unsupported-config
+  refusal/preservation check. Durable/native review continues before any VM run.
+
+  Retained review approved product authorization, isolation, creator fencing,
+  migration and recovery. The fixture now separately proves unsupported-config
+  refusal/cleanup/preservation before restoring inert config for success.
+  Review also found a fixture scheduling race: helper-delete observation could
+  record the client placeholder `pending`. Coordinator changed that observation
+  to the exact native argument, preserving the identity assertion. Final Bash,
+  ShellCheck and whitespace checks passed. Launch selected VM50 serially;
+  its injected helper-delete failure remains fixture-only recovery evidence.
+
+  First serial VM50 `.cache/p-vm/integration-20260926T182355Z-220376.log`
+  exited **1**. Actual startup failed at the intended assembled boundary, and
+  unsafe Git config inspection reported `failed/cleaned` with the sanitizer
+  diagnostic. The fixture then failed `incus file pull` into its reused
+  comparison path: the previous root-owned read-only identity-file download
+  retained its mode/owner and prevented overwriting. Coordinator now unlinks
+  only that exact temporary path inside the fixture's private owned directory
+  before each pull. Assertions, product permissions and isolation are unchanged;
+  Bash, ShellCheck and whitespace checks passed. No inspection/cleanup gate is
+  claimed from this incomplete run. VM shut down and removed its fresh disk;
+  rerun the same selected VM50 serially with this evidence-based fixture fix.
+
+  Second selected serial VM50
+  `.cache/p-vm/integration-20260926T182642Z-271420.log` exited **0**.
+  The real failed startup remained blocked at `assembly-ready` with a stopped
+  exact source. Actual unsupported-config inspection refused/cleaned its exact
+  helper and preserved source state; after explicit fixture config restoration,
+  actual isolated helper analysis produced the bounded workspace-loss result.
+  The deliberately injected helper-delete error retained its guard across daemon
+  restart; parent Retry and original Create replay stayed refused. Exact loss
+  inspection Retry cleaned the helper and completed without promoting or deleting
+  the failed creator. Native UUID/generation, P refs, sibling files, dirty/
+  ignored/untracked files, private files and dummy credential/key bytes stayed
+  unchanged; the source-effect audit stayed empty. Helper root-only/no-NIC and
+  isolation checks passed. `P_FAILED_CREATE_WORKSPACE_LOSS_PASS`, selected
+  product marker and `P_VM_SMOKE_PASS` passed. VM shut down and removed its disk.
+  This proves read-only inspection plus the labeled injected recovery case;
+  confirmed failed-runtime deletion and authenticated Codex remain unvalidated.
+  Commit this checkpoint and continue into separately reviewed confirmed cleanup.

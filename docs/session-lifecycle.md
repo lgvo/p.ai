@@ -377,6 +377,25 @@ reset commits or start another runtime to conceal the failure.
 
 ### Confirmed failed-create cleanup
 
+Before cleanup can cover an assembled failed runtime, P needs a bounded
+workspace-loss report. `workspace.loss.inspect` may inspect a `creating`
+session only when its original local committed-source Create is blocked at
+`assembly-ready`, with the captured base image and immutable plugin/policy
+selection unchanged. The source must already be stopped, have its exact native
+UUID/generation, and be the sole matching owned runtime in the full inventory.
+This initial inspection path supports one standalone workspace, network `none`
+and no filesystem grants. Origin/bootstrap, environment-builder/publication,
+replacement history and uncertain earlier init are outside that path.
+
+Inspection binds the original creator operation, request and evidence. Its
+durable guard prevents that creator's Retry, replay, reconciliation or stale
+worker from advancing while inspection remains active, including after daemon
+restart. The existing non-activating helper reads bounded workspace data without
+starting the source or its interactive command. The report leaves the session
+`creating`, preserves its branch/runtime/private files, and grants no deletion
+authority. Unsupported or changed evidence is a refusal that preserves resources;
+it does not convert the failed creation into an established session.
+
 The host API supports explicit cleanup of a blocked local committed-source
 Create before runtime init was dispatched, including an invalid immutable Nix
 resolution after its exact owned builder was removed and positively verified
