@@ -103,9 +103,14 @@ Codex execution.
   history is an outside host Git operation.
 - Retained branches are first-class project resources with
   list/source/fetch/rename/fast-forward-publish/loss-preview/delete operations.
-- **Delete project and all P data** uses aggregate preflight, confirmed live-
-  attachment termination, a minimal durable deletion record, and idempotent
-  ensure-absent retry. It has no rollback/recovery-mode state machine.
+- **Delete project and all P data** uses aggregate loss preflight, explicit
+  confirmation, a minimal durable deletion record, and idempotent ensure-absent
+  retry. The CLI-first boundary requires established stopped, detached sessions
+  with fresh loss proofs, or acknowledged positively missing runtimes. Running,
+  attached or incomplete sessions require the documented preparation/cleanup
+  first. It has no rollback/recovery-mode state machine. Base-session deletion
+  and restart/identity refusal passed VM52; actual Nix-built indexed-image
+  deletion passed VM53 using offline fixture source.
 
 ### Runtime, environment, and policy
 

@@ -329,3 +329,13 @@ project/storage/network configuration, commands/test cases, raw result, and
 resulting implementation constraint beside the dependent test or code. A
 failure narrows or postpones that support claim; it does not block unrelated
 milestones.
+
+## Cached-session bulk deletion
+
+Selected `53-project-delete-cached.sh` exercises the public environment build,
+native image import/index and aggregate preview before exact project deletion.
+It requires removal of the owned image/index after runtime absence, preservation
+of shared base/unrelated resources, and the same outage/restart/competing-identity
+checks as VM52. Its offline fixture source does not establish external-repository
+or public-fetch acceptance. Evidence and remaining gates belong in the progress
+record.

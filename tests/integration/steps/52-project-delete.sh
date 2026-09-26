@@ -128,6 +128,14 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
       base_image_fingerprint:$image,
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
+if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
+ activate "$P_TEST_ENV_PLUGIN" "$step_dir/environment.json" environment.nix
+ jq --arg path "$step_dir/environment.json" \
+  --arg id "$(jq -er '.plugins[0].id' "$step_dir/environment.json")" \
+  '.runtime.environment={activation_path:$path,plugin_id:$id,system:"x86_64-linux",builder_storage_pool:"builders"}' \
+  "$step_dir/host.json" > "$step_dir/host.next.json"
+ mv "$step_dir/host.next.json" "$step_dir/host.json"
+fi
 start_daemon() {
   p daemon "$step_dir/host.json" >> "$step_dir/daemon.out" 2>> "$step_dir/daemon.err" &
   daemon_pid=$!
@@ -206,6 +214,31 @@ bootstrap=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$bootstrap")
 wait_operation "$bootstrap" completed >/dev/null
 guest "$main" /run/current-system/sw/bin/bash -c 'printf committed > tracked; printf "ignored.bin\n" > .gitignore'
+if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
+ # Fixture source, actual public P builder/realization/import/indexing path.
+ cat > "$step_dir/flake.nix" <<'FLAKE'
+{
+ outputs = { self }: {
+  devShells.x86_64-linux.default = builtins.derivation {
+   name = "p-project-delete-shell-fixture";
+   system = "x86_64-linux";
+   builder = "/run/current-system/sw/bin/bash";
+   args = [ "-c" "printf built > \"$out\"" ];
+   outputs = [ "out" ];
+   stdenv = ./stdenv;
+   NATIVE_VALUE = "ok";
+   NATIVE_REV = self.rev;
+   shellHook = ''export NATIVE_HOOK=ready'';
+  };
+ };
+}
+FLAKE
+ printf 'export NATIVE_VALUE=ok\n' > "$step_dir/setup"
+ guest "$main" /run/current-system/sw/bin/mkdir -p stdenv
+ inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/flake.nix" "p-$main/workspace/flake.nix"
+ inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/setup" "p-$main/workspace/stdenv/setup"
+ guest "$main" /run/current-system/sw/bin/git add flake.nix stdenv/setup
+fi
 guest "$main" /run/current-system/sw/bin/git add tracked .gitignore
 guest "$main" /run/current-system/sw/bin/git -c user.name=P -c user.email=p@example.invalid commit -qm source
 guest "$main" /run/current-system/sw/bin/git push origin HEAD:refs/heads/main
@@ -215,6 +248,16 @@ work=$(jq -er '.result.operation.session_uuid' <<< "$created")
 work_creator=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$work_creator")
 wait_operation "$work_creator" completed >/dev/null
+if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
+ view=$(rpc session.inspect "$(jq -nc --arg uuid "$work" '{v:1,uuid:$uuid}')")
+ cache_image=$(jq -er '.result.session.environment|select(.cache=="miss")|.image_fingerprint|select(length==64)' <<< "$view")
+ test "$cache_image" != "$base"
+ cache_key=$(jq -er '.result.session.environment.environment_key|select(length==64)' <<< "$view")
+ rpc environment.cache.list '{"v":1,"project":"bulk-delete","limit":8}' | \
+  jq -e --arg image "$cache_image" --arg key "$cache_key" '.result.images|length==1 and .[0].fingerprint==$image and .[0].environment_key==$key' >/dev/null
+ inc image list --format json | jq -e --arg image "$cache_image" \
+  'any(.fingerprint==$image and .properties["p.project_path"]=="bulk-delete")' >/dev/null
+fi
 created=$(rpc project.create '{"v":1,"key":"unrelated-bootstrap","project":"bulk-other"}')
 unrelated=$(jq -er '.result.operation.session_uuid' <<< "$created")
 other_creator=$(jq -er '.result.operation.id' <<< "$created")
@@ -262,6 +305,9 @@ losses after-bytes
 review=$(preview)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 first=$(jq -er '.result.preview.sessions[0].session.uuid' <<< "$review")
+if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
+ jq -e --arg image "$cache_image" '.result.preview.cache_images|length==1 and .[0].image.fingerprint==$image' <<< "$review" >/dev/null
+fi
 second=$(jq -er '.result.preview.sessions[1].session.uuid' <<< "$review")
 printf 'p-%s\n' "$first" > "$step_dir/confirmed-first"
 printf 'p-%s\n' "$second" > "$step_dir/confirmed-second"
@@ -309,6 +355,11 @@ for uuid in "$main" "$work"; do
  test ! -e "$endpoint_prefix/$uuid"
 done
 test ! -e "$repo"
+if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
+ inc image list --format json | jq -e --arg image "$cache_image" 'all(.fingerprint!=$image)' >/dev/null
+ rpc environment.cache.list '{"v":1,"project":"bulk-delete","limit":8}' | jq -e '.result.images==[]' >/dev/null
+ printf 'P_PROJECT_DELETE_CACHED_IMAGE_PASS\n'
+fi
 test -d "$other_repo"
 test "$(sha256sum "$state/session_keys/$unrelated" | cut -d' ' -f1)" = "$other_key"
 test "$(guest "$unrelated" /run/current-system/sw/bin/cat /home/p/p-bulk-other)" = unrelated-private

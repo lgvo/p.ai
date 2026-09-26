@@ -14,9 +14,10 @@
   selected serial VM51, committed `8c75851`. Its supported boundary remains
   explicit below.
 - Bulk project deletion passed focused/broader/race checks, retained review and
-  serial VM52, including the diagnosed CLI confirmation deadline correction.
-  No VM is running. Actual cached-session bulk acceptance remains pending.
-- Remaining gates: bulk project deletion, plugin management and NixOS/Incus
+  serial VM52, committed `c101b9d`, including the diagnosed CLI confirmation
+  deadline correction.
+  Actual cached-session bulk deletion also passed serial VM53. No VM is running.
+- Remaining gates: plugin management and NixOS/Incus
   installation/distribution acceptance. Complex unsupported creation/cleanup
   states preserve resources; no universal replacement/repair is claimed.
   Latest full-suite checkpoint remains through VM28; final full suite is pending.
@@ -122,7 +123,7 @@ and unrelated working-tree changes are preserved.
 | 5 | Trusted attachment helper, leases, session RPC and observability | Token races, connection ownership, unattended reducer, status projection | PTY attach/detach and client/daemon loss; persistent host survives | Status RPC, attachment, and daemon events passed VM |
 | 6 | SSH origins, source selection, publication and retained branches | Contact-before-association, fast-forward publication, unknown results | Local SSH origin fixture; fetch/publish/retained branch workflows | Origin transport/association/creation and public publication/retained queries passed VM |
 | 7 | Committed Nix devShell builds, activation and project-scoped image cache | Source/lock identity, activation validation, cache keys and cleanup | Restricted builder; two private stores; cache loss and stop/start | Offline creation/cache/activation/retry and explicit collection/recovery passed selected VM gates; public fetch remains gated on step 9 |
-| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; Rename/missing-ref manual mismatch acceptance passed selected VM33/39; read-only assembled loss VM50 and confirmed assembled cleanup VM51 passed for the documented narrow boundary; base-session bulk deletion passed VM52; cached-session acceptance pending; abandonment excluded |
+| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; Rename/missing-ref manual mismatch acceptance passed selected VM33/39; read-only assembled loss VM50 and confirmed assembled cleanup VM51 passed for the documented narrow boundary; base-session bulk deletion passed VM52; actual cached-session image removal passed VM53; abandonment excluded |
 | 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c selected VM37 real DoH/DNS/HTTPS/Nix/private-resolution/redirect and negative isolation passed; synthetic fixtures separate |
 | 10 | Versioned Codex adapter and session-local authentication workflow | Strict semantic mapping, absent/unsupported hooks, isolation | Authentication-free event fixtures and dummy credential storage checks; real authenticated acceptance by user | VM27 adapter/event/persistence and VM31/32 dummy Discard/Delete cleanup passed; authenticated acceptance pending user validation |
 | 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Installed bundled composition and static binaries/dependency/Go notices passed VM48; service/install and plugin management pending |
@@ -4423,3 +4424,32 @@ it does not close the installation or external-tool attribution gates.
   Actual Nix-built indexed-cache project deletion remains a separate gate.
   Retained review and focused CLI regression cover the timeout correction;
   existing server request bounds, security checks and assertions remain intact.
+
+
+- **Cached-session bulk acceptance batch:** acceptance requires a real public
+  P session Create to realize an offline fixture devShell in the restricted
+  builder, publish/index an owned environment image, and expose it in the exact
+  aggregate loss preview. Confirmed deletion must remove that image only after
+  exact runtime absence, preserve shared/base and unrelated resources, retain
+  outage/competing-identity recovery checks, and leave no cache index. VM53
+  reuses VM52 with this explicit additional path; it does not synthesize cache
+  rows/properties. Fixture source is distinct from real-repository/public-fetch
+  evidence. Bash, pinned ShellCheck and whitespace checks passed. Run only
+  selected VM53 serially; no authentication or parallel VM is involved.
+
+  Selected serial VM53
+  `.cache/p-vm/integration-20260926T202558Z-792609.log` exited **0**.
+  Real public session creation realized the offline fixture devShell in the
+  existing confined builder and imported/indexed a new owned image. The native
+  fingerprint and cache key were verified through public inspect/list and Incus;
+  aggregate preview included the exact indexed identity. Confirmed project
+  deletion removed the image and cache entry after exact session cleanup while
+  preserving shared base/unrelated project resources. Stale review, injected
+  outage, daemon restart, competing identity refusal, restored Retry and retired
+  request replay checks also passed unchanged. Explicit cached-image and exact
+  selected-suite pass markers were present. The single VM powered down and
+  removed its disk. This is actual builder/import/native deletion evidence using
+  offline fixture source, distinct from real-repository/public network evidence.
+  No Codex authentication or host credential access occurred. Existing retained
+  core review covers these unchanged cleanup boundaries; only fixture selection
+  and cached-image assertions were added, with Bash/ShellCheck/whitespace checks.
