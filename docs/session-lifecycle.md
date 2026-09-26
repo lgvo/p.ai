@@ -556,6 +556,16 @@ The new branch name must pass Git validation and be absent from the project's
 must be reachable, and its workspace must contain the assigned local branch.
 P does not reset, clean, commit, or switch unrelated work to make rename pass.
 
+The workspace must be on the assigned branch with `origin` tracking that
+branch in P. A mismatch is a precommit refusal with bounded expected/actual
+branch or upstream values; remote URLs and credentials are omitted. Correct
+Git inside the session after inspecting the work: switch back to the assigned
+branch when safe, and set `branch.<assigned>.remote` to `origin` and
+`branch.<assigned>.merge` to `refs/heads/<assigned>`. P performs no checkout,
+reset or configuration repair. Submit a new Rename request after correcting a
+failed precommit attempt; exact replay of its old key still returns that failed
+operation. The next attempt rechecks the corrected workspace.
+
 ### Rename phases
 
 Under the lifecycle and project/ref locks:

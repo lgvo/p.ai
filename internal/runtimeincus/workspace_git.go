@@ -15,6 +15,10 @@ import (
 
 var safeGitToken = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$`)
 
+type gitUpstreamConfigError struct{ branch, reason string }
+
+func (e *gitUpstreamConfigError) Error() string { return e.reason }
+
 // safeGitConfig accepts only inert facts needed to interpret an ordinary
 // standalone worktree. The original file is never passed to Git. Includes,
 // extensions, filters, monitors, external diff and credential helpers are
@@ -152,10 +156,10 @@ func safeGitConfig(raw []byte) ([]byte, error) {
 	for _, name := range keys {
 		values := branches[name]
 		if values["remote"] == "" || values["merge"] == "" {
-			return nil, errors.New("Git upstream setting incomplete")
+			return nil, &gitUpstreamConfigError{branch: name, reason: "Git upstream setting incomplete"}
 		}
 		if remoteFetch[values["remote"]] == "" {
-			return nil, errors.New("Git upstream fetch mapping unavailable")
+			return nil, &gitUpstreamConfigError{branch: name, reason: "Git upstream fetch mapping unavailable"}
 		}
 		fmt.Fprintf(&out, "[branch %q]\n\tremote = %s\n\tmerge = %s\n", name, values["remote"], values["merge"])
 	}

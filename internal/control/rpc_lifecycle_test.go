@@ -442,6 +442,32 @@ func TestLifecyclePagesFitClientFrame(t *testing.T) {
 	}
 }
 
+func TestRenameMismatchDiagnosticAndPagesRetainFullNamesWithinFrame(t *testing.T) {
+	expected := "origin:refs/heads/" + strings.Repeat("a", 100)
+	actual := strings.Repeat("b", 100) + ":refs/heads/" + strings.Repeat("c", 100)
+	diagnostic := fmt.Sprintf("workspace upstream mismatch: expected %q, actual %q; correct Git manually and retry", expected, actual)
+	summary := SummarizeOperation(Operation{Kind: "session.rename", Diagnostic: diagnostic})
+	if summary.Diagnostic != diagnostic || !strings.Contains(summary.Diagnostic, actual) {
+		t.Fatalf("public mismatch lost reviewed names: %q", summary.Diagnostic)
+	}
+	ops := make([]OperationSummary, 20)
+	for i := range ops {
+		ops[i] = SummarizeOperation(Operation{ID: fmt.Sprintf("%036d", i), Key: strings.Repeat("\x00", 128), Kind: "session.rename", Project: strings.Repeat("p", 255), SessionUUID: strings.Repeat("b", 36), Status: "failed", Phase: "stale", Diagnostic: strings.Repeat("\x00", 1024)})
+	}
+	page, rpcErr := boundedLifecyclePage("operations", ops, "", func(v OperationSummary) string { return v.ID })
+	if rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	returned := page["operations"].([]OperationSummary)
+	if len(returned) == 0 || len(returned) >= len(ops) || page["next"] != returned[len(returned)-1].ID {
+		t.Fatalf("rename page did not preserve bounded continuation: %d %+v", len(returned), page["next"])
+	}
+	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": page})
+	if err != nil || len(raw)+1 > MaxFrameBytes {
+		t.Fatalf("rename page exceeds frame: %d %v", len(raw), err)
+	}
+}
+
 func TestEnvironmentProjectionKeepsPinnedBaseAndSelectedImageDistinct(t *testing.T) {
 	base, selected := strings.Repeat("a", 64), strings.Repeat("b", 64)
 	ev := CreationEvidence{

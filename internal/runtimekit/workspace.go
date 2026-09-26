@@ -244,6 +244,16 @@ func initWorkspaceRemote(c WorkspaceConfig, dir, git, url string) error {
 		if _, err := gitRun("branch", "--set-upstream-to", "origin/"+c.Branch, c.Branch); err != nil {
 			return err
 		}
+	} else {
+		// An unborn branch has no remote-tracking ref yet, but its assigned
+		// upstream can be recorded without inventing a commit or ref. This
+		// happens only during first initialization, never on ordinary Start.
+		if _, err := gitRun("config", "branch."+c.Branch+".remote", "origin"); err != nil {
+			return err
+		}
+		if _, err := gitRun("config", "branch."+c.Branch+".merge", "refs/heads/"+c.Branch); err != nil {
+			return err
+		}
 	}
 	// This marker records only that first initialization finished. Systemd
 	// readiness always comes from the interactive service, never this file.

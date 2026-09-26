@@ -120,6 +120,8 @@ created=$(rpc project.create '{"v":1,"key":"rename-bootstrap","project":"rename-
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 wait_operation "$create_op" completed >/dev/null
+test "$(guest /run/current-system/sw/bin/git config branch.main.remote)" = origin
+test "$(guest /run/current-system/sw/bin/git config branch.main.merge)" = refs/heads/main
 guest /run/current-system/sw/bin/git config user.name P
 guest /run/current-system/sw/bin/git config user.email p@example.invalid
 guest /run/current-system/sw/bin/bash -c \
@@ -134,10 +136,51 @@ guest /usr/libexec/p/codex-adapter init
 guest /run/current-system/sw/bin/bash -c \
   'printf dummy-rename > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json; printf ahead > tracked; git add tracked; git commit -qm ahead; printf untracked > private-note'
 ahead_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
+guest /run/current-system/sw/bin/bash -c 'printf dirty > tracked; printf staged > staged-note; git add staged-note'
+status_digest=$(guest /run/current-system/sw/bin/bash -c 'git status --porcelain=v1 -z | sha256sum' | cut -d' ' -f1)
 guest /run/current-system/sw/bin/bash -c \
   'setsid /run/current-system/sw/bin/sleep 300 > /tmp/rename-sleep.log 2>&1 < /dev/null & echo $! > /tmp/rename.pid'
 sleep_pid=$(guest /run/current-system/sw/bin/cat /tmp/rename.pid)
 guest /run/current-system/sw/bin/kill -0 "$sleep_pid"
+
+# Refuse changed upstream/HEAD before any Git mutation, preserve private work
+# and resume the persistent host. Manual Git correction is the supported path.
+assert_mismatch_refusal() {
+  local key="$1" expected="$2" actual="$3" op result before_config before_branch
+  before_config=$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)
+  before_branch=$(guest /run/current-system/sw/bin/git branch --show-current)
+  result=$(rpc session.rename "$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" --arg key "$key" \
+    '{v:1,key:$key,uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')")
+  op=$(jq -er '.result.operation.id' <<< "$result")
+  result=$(wait_operation "$op" failed)
+  printf 'P_RENAME_MISMATCH_OBSERVED %s\n' "$(jq -c '.result.operation | {status,phase,diagnostic}' <<< "$result")"
+  jq -e --arg expected "$expected" --arg actual "$actual" \
+    '.result.operation | .committed==false and .phase=="stale" and
+      (.diagnostic | contains($expected) and contains($actual) and contains("correct Git manually"))' \
+    <<< "$result" >/dev/null
+  test "$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)" = "$before_config"
+  test "$(guest /run/current-system/sw/bin/git rev-parse HEAD)" = "$ahead_oid"
+  test "$(guest /run/current-system/sw/bin/git branch --show-current)" = "$before_branch"
+  test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
+  test "$(guest /run/current-system/sw/bin/cat private-note)" = untracked
+  test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
+  test "$(guest /run/current-system/sw/bin/cat staged-note)" = staged
+  test "$(guest /run/current-system/sw/bin/bash -c 'git status --porcelain=v1 -z | sha256sum' | cut -d' ' -f1)" = "$status_digest"
+  test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename
+  guest /run/current-system/sw/bin/kill -0 "$sleep_pid"
+  # shellcheck disable=SC2016 # The loop expands inside the guest shell.
+  guest /run/current-system/sw/bin/bash -c 'test ! -e .git/refs/heads/renamed; for backup in .git/p-rename-*.json; do test ! -e "$backup"; done'
+  rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
+    jq -e --arg base "$base_oid" '.result.refs | length==2 and
+      any(.[]; .ref=="refs/heads/main" and .oid==$base) and
+      any(.[]; .ref=="refs/heads/sibling" and .oid==$base)' >/dev/null
+}
+guest /run/current-system/sw/bin/git config branch.main.merge refs/heads/sibling
+assert_mismatch_refusal rename-upstream-mismatch origin:refs/heads/main origin:refs/heads/sibling
+guest /run/current-system/sw/bin/git config branch.main.merge refs/heads/main
+guest /run/current-system/sw/bin/git switch -c manual-other
+assert_mismatch_refusal rename-branch-mismatch refs/heads/main refs/heads/manual-other
+guest /run/current-system/sw/bin/git switch main
 
 request=$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" \
   '{v:1,key:"rename-confirmed",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')
@@ -147,13 +190,16 @@ done_op=$(wait_operation "$rename_op" completed)
 jq -e '.result.operation | .kind=="session.rename" and .status=="completed" and .committed==true' <<< "$done_op" >/dev/null
 test "$(guest /run/current-system/sw/bin/git branch --show-current)" = renamed
 test "$(guest /run/current-system/sw/bin/git rev-parse HEAD)" = "$ahead_oid"
-test "$(guest /run/current-system/sw/bin/cat tracked)" = ahead
+test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
+test "$(guest /run/current-system/sw/bin/cat staged-note)" = staged
+test "$(guest /run/current-system/sw/bin/bash -c 'git status --porcelain=v1 -z | sha256sum' | cut -d' ' -f1)" = "$status_digest"
 test "$(guest /run/current-system/sw/bin/cat private-note)" = untracked
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename
 guest /run/current-system/sw/bin/kill -0 "$sleep_pid"
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
 test -S "$endpoint_prefix/$uuid/git.sock"
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
+echo P_RENAME_MISMATCH_MANUAL_CORRECTION_PASS
 rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
   jq -e --arg base "$base_oid" '.result.refs | length==2 and
     any(.[]; .ref=="refs/heads/renamed" and .oid==$base) and

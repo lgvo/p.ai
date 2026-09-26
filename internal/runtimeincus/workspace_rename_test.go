@@ -7,9 +7,66 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+type renameMemoryFiles struct{ memoryImageFiles }
+
+func (f *renameMemoryFiles) lstatOptional(_ context.Context, name string) (guestFile, bool, error) {
+	v, ok := f.files[name]
+	return v, ok, nil
+}
+
+func TestRenameMismatchIsBoundedReadOnlyAndManualCorrectionRechecks(t *testing.T) {
+	base := "[core]\nrepositoryformatversion = 0\nbare = false\n[remote \"origin\"]\nurl = ssh://secret@private.invalid/app\nfetch = +refs/heads/*:refs/remotes/origin/*\n[branch \"main\"]\nremote = origin\nmerge = refs/heads/main\n"
+	for _, tc := range []struct{ name, head, config, field, actual string }{
+		{"branch", "ref: refs/heads/other\n", base, "branch", "refs/heads/other"},
+		{"detached", strings.Repeat("a", 40) + "\n", base, "branch", "<detached> " + strings.Repeat("a", 40)},
+		{"unsafe-head", "ref: refs/heads/secret@private.invalid\n", base, "branch", "<unavailable>"},
+		{"upstream", "ref: refs/heads/main\n", strings.ReplaceAll(base, "merge = refs/heads/main", "merge = refs/heads/other"), "upstream", "origin:refs/heads/other"},
+		{"remote", "ref: refs/heads/main\n", strings.ReplaceAll(base, "origin", "other"), "upstream", "other:refs/heads/main"},
+		{"unset", "ref: refs/heads/main\n", "[core]\nrepositoryformatversion = 0\nbare = false\n", "upstream", "<unset>"},
+		{"incomplete", "ref: refs/heads/main\n", strings.ReplaceAll(base, "merge = refs/heads/main\n", ""), "upstream", "<incomplete>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := guestFile{typ: "directory", uid: 1000, gid: 1000, mode: 0755}
+			file := func(s string) guestFile {
+				return guestFile{typ: "file", uid: 1000, gid: 1000, mode: 0644, data: []byte(s)}
+			}
+			f := &renameMemoryFiles{memoryImageFiles{files: map[string]guestFile{
+				"/workspace": dir, "/workspace/.git": dir, "/workspace/.git/refs": dir, "/workspace/.git/refs/heads": dir,
+				"/workspace/.git/HEAD": file(tc.head), renameRefPath("main"): file(strings.Repeat("a", 40) + "\n"),
+				"/workspace/.git/config": file(tc.config), "/workspace/private-note": file("private"),
+			}}}
+			before := make(map[string]guestFile)
+			for name, value := range f.files {
+				before[name] = value
+			}
+			marked := 0
+			op := "550e8400-e29b-41d4-a716-446655440001"
+			_, err := prepareWorkspaceRenameFiles(context.Background(), f, op, "main", "renamed", func() error { marked++; return nil })
+			var mismatch *WorkspaceAssignmentMismatchError
+			if !errors.As(err, &mismatch) || mismatch.Field != tc.field || mismatch.Actual != tc.actual {
+				t.Fatalf("missing exact mismatch: %+v %v", mismatch, err)
+			}
+			if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "private.invalid") || len(err.Error()) > 512 {
+				t.Fatalf("unsafe diagnostic: %v", err)
+			}
+			if marked != 0 || len(f.deletes) != 0 || !reflect.DeepEqual(before, f.files) {
+				t.Fatal("mismatch mutated workspace")
+			}
+			// An ordinary external Git correction permits the next independent
+			// attempt. No repair action or automatic checkout is involved.
+			f.files["/workspace/.git/HEAD"] = file("ref: refs/heads/main\n")
+			f.files["/workspace/.git/config"] = file(base)
+			if _, err := prepareWorkspaceRenameFiles(context.Background(), f, op, "main", "renamed", func() error { marked++; return nil }); err != nil || marked != 1 {
+				t.Fatalf("manual correction not rechecked: marker=%d err=%v", marked, err)
+			}
+		})
+	}
+}
 
 type delayedRenameFiles struct {
 	memoryImageFiles
@@ -39,7 +96,7 @@ func TestRenameBackupUncertainWriteRetainsEffectMarkerForRecovery(t *testing.T) 
 		"/workspace/.git/refs/heads":      dir,
 		"/workspace/.git/HEAD":            file("ref: refs/heads/main\n"),
 		"/workspace/.git/refs/heads/main": file(strings.Repeat("a", 40) + "\n"),
-		"/workspace/.git/config":          file("[core]\n repositoryformatversion = 0\n bare = false\n"),
+		"/workspace/.git/config":          file("[core]\n repositoryformatversion = 0\n bare = false\n[remote \"origin\"]\n fetch = +refs/heads/*:refs/remotes/origin/*\n[branch \"main\"]\n remote = origin\n merge = refs/heads/main\n"),
 	}}}
 	marked := 0
 	_, err := prepareWorkspaceRenameFiles(ctx, f, opID, "main", "renamed", func() error { marked++; return nil })
@@ -147,6 +204,20 @@ func TestRenameConfigRefusesExecutableOrAmbiguousGitSettings(t *testing.T) {
 	for _, name := range []string{"../escape", "a//b", ".private", "a.lock", strings.Repeat("x", 101)} {
 		if validWorkspaceRenameName(name) {
 			t.Fatalf("unsafe branch accepted: %q", name)
+		}
+	}
+}
+
+func TestRenameDoesNotAttributeUnrelatedConfigFailureToAssignedUpstream(t *testing.T) {
+	base := "[core]\nrepositoryformatversion = 0\nbare = false\n[remote \"origin\"]\nfetch = +refs/heads/*:refs/remotes/origin/*\n[branch \"main\"]\nremote = origin\nmerge = refs/heads/main\n"
+	for _, extra := range []string{
+		"[branch \"other\"]\nremote = origin\n",
+		"[branch \"other\"]\nremote = missing\nmerge = refs/heads/other\n",
+	} {
+		_, err := renameConfig([]byte(base+extra), "main", "renamed")
+		var mismatch *WorkspaceAssignmentMismatchError
+		if err == nil || errors.As(err, &mismatch) {
+			t.Fatalf("unrelated config falsely attributed to main: %v", err)
 		}
 	}
 }

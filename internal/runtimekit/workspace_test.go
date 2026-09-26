@@ -36,6 +36,15 @@ func TestWorkspaceBootstrapKeepsUnbornMainAndRetainedFiles(t *testing.T) {
 	if got := gitTest(t, work, "symbolic-ref", "HEAD"); got != "refs/heads/main" {
 		t.Fatalf("HEAD=%s", got)
 	}
+	if got := gitTest(t, work, "config", "branch.main.remote"); got != "origin" {
+		t.Fatalf("bootstrap remote=%s", got)
+	}
+	if got := gitTest(t, work, "config", "branch.main.merge"); got != "refs/heads/main" {
+		t.Fatalf("bootstrap merge=%s", got)
+	}
+	if got := gitTest(t, work, "for-each-ref", "--format=%(refname)"); got != "" {
+		t.Fatalf("bootstrap invented refs=%s", got)
+	}
 	if err := os.WriteFile(filepath.Join(work, "retained"), []byte("user change"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -52,11 +61,15 @@ func TestWorkspaceBootstrapKeepsUnbornMainAndRetainedFiles(t *testing.T) {
 	gitTest(t, work, "-c", "user.name=P", "-c", "user.email=p@example.invalid", "commit", "-m", "user flake")
 	gitTest(t, work, "checkout", "-b", "local-work")
 	gitTest(t, work, "remote", "set-url", "origin", filepath.Join(base, "later-remote.git"))
+	gitTest(t, work, "config", "branch.main.merge", "refs/heads/manual-choice")
 	if err := initWorkspaceRemote(c, work, "git", remote); err != nil {
 		t.Fatalf("later user flake blocked Start: %v", err)
 	}
 	if got := gitTest(t, work, "symbolic-ref", "HEAD"); got != "refs/heads/local-work" {
 		t.Fatalf("retained HEAD reset to %s", got)
+	}
+	if got := gitTest(t, work, "config", "branch.main.merge"); got != "refs/heads/manual-choice" {
+		t.Fatalf("ordinary Start repaired user upstream=%s", got)
 	}
 	if data, err := os.ReadFile(filepath.Join(work, "retained")); err != nil || string(data) != "user change" {
 		t.Fatalf("retained dirty file changed: %v", err)

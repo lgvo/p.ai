@@ -392,6 +392,11 @@ failed-create cleanup followed by a separate Create.
 | `session.stop` | Same as Start | `v`, `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments return `busy`. |
 | `session.attach` | Same as Start | `v`, `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
 
+Rename operation diagnostics retain up to 512 bytes so both validated
+expected/actual branch or upstream names remain visible. Other operation
+diagnostics retain their 256-byte bound. Operation lists still enforce the
+control-frame limit and return a continuation when a page must be shortened.
+
 The replacement methods implement a bounded subset of
 [Try again with changes](session-lifecycle.md#failure-cancellation-and-retry).
 They accept a blocked local creation in `source-ready` or `branch-assigned`

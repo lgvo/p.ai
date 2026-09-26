@@ -2,10 +2,12 @@
 
 ## Current state — 2026-09-26
 
-- **Paused after the DNS/network checkpoint commit.** The authorized DoH
-  correction and selected serial VM37 passed; no other MVP batch resumed.
+- **Resumed after DNS/network checkpoint `8cd7fc7`.** Rename branch/upstream
+  diagnostics, initial blank-session upstream and manual correction passed
+  reviewed focused checks and serial selected VM33. Commit this checkpoint,
+  then close generic missing-ref preview mismatch diagnostics and continue.
 - Latest passing checkpoint: **VM37 real public-egress/DoH passed** on
-  `feature/cli-first-mvp`, with reviewed code and evidence in this commit.
+  `feature/cli-first-mvp`, with reviewed code at `8cd7fc7` and evidence below.
   Bounded failed-creation cleanup passed at `99da3b6`; bundled distribution
   at `24fcf32`; local-resource replacement at `572c8d0`.
   VM34 removal recovery passed at `e7ef837`, VM46 new-branch replacement
@@ -35,7 +37,7 @@
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
   serial; the latest selected VM37 powered down and removed its fresh disk.
 - Remaining implementation includes broader assembled-runtime cleanup/loss
-  inspection, mismatch diagnostics/manual correction, bulk project deletion,
+  inspection, missing-ref preview mismatch diagnostics, bulk project deletion,
   and NixOS/Incus installation
   acceptance. VM37 now proves real DoH/DNS, hostname HTTPS, fresh Nix fetch,
   public-to-private DNS and real HTTPS redirect denial alongside isolation;
@@ -52,7 +54,7 @@
   auxiliary HTTP/1.1 Quad9 probe receives 505, while the production standard
   resolver reports both providers live through its supported transport.
   Existing VM port-53 allowances remain; no plaintext bootstrap/fallback is
-  configured. No active implementation stream or VM remains during the pause.
+  configured. One direct implementation stream is active; VM runs remain serial.
 
 Execution record for the CLI-first implementation requested on 2026-09-23.
 This is a non-normative tracker. The [implementation plan](implementation-plan.md)
@@ -259,7 +261,8 @@ The pinned adapter and authentication-free checks are available. This gate
 remains pending until the user runs it. Use a configured disposable project
 with the trusted `public-egress` policy, selected Codex adapter, and a committed
 source whose devShell provides Codex `0.151.0`. Real public network access
-must work on the user's machine; VM37 did not establish that positive gate.
+must also work on the user's machine; selected VM37 now establishes real
+DoH/DNS/HTTPS/Nix-fetch evidence, but no authenticated Codex acceptance.
 Create two disposable branches/sessions with separate private homes:
 
 ```sh
@@ -3794,3 +3797,87 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   cleanup, mismatch/manual correction, project deletion, NixOS service/install/
   dependency notices/plugin management and final full serial suite. Real
   authenticated Codex acceptance stays pending the user's manual procedure.
+
+- **Resumed mismatch batch — acceptance defined before implementation:** a
+  changed assigned HEAD or upstream must refuse Rename before any workspace
+  backup or P-ref mutation, with bounded expected/actual values and no URL or
+  credential disclosure. Existing quiescence/recovery/ownership guards stay
+  intact; the daemon must preserve that diagnostic in the failed operation.
+  Manual Git correction followed by a new request must succeed, preserving
+  local-ahead commits, dirty/private files, dummy credentials and the persistent
+  host. Focused native checks, affected package suites, retained Sol/high
+  review and the smallest serial VM33 selection precede the checkpoint commit.
+  No automatic checkout/reset or dedicated repair action is introduced.
+
+  Focused native Rename tests and race checks (`-count=3`) passed. Full affected
+  `runtimeincus`, `daemon` and `control` suites passed with local Unix-socket
+  fixture access. Their first sandboxed run failed only because the sandbox
+  denied socket operations; scoped escalation reran the unchanged assertions.
+  Bash syntax, ShellCheck and whitespace checks passed. The prior reviewer
+  threads are no longer present; one fresh user-authorized Sol/high reviewer
+  is retained for this and subsequent coherent batches. Actual VM33 acceptance
+  remains pending review and its serial run, not inferred from unit fixtures.
+
+  Retained review found that global upstream parser errors could originate in
+  an unrelated branch and wrongly claim an assigned-branch mismatch. The safe
+  parser now attributes its existing refusal to the validated branch name;
+  only assigned-branch failures become typed mismatch diagnostics. Added
+  unrelated incomplete/missing-remote regression cases without relaxing parser
+  restrictions. Review otherwise found guard/recovery/credential omission
+  sound. Its coverage suggestions add dirty tracked and staged files and move
+  the manual-correction PASS marker after verified successful Rename.
+
+  Specific retained-review recheck approved the attribution and fixture fixes,
+  with no remaining blocking findings. Focused Rename race checks (`-count=3`)
+  and all three affected package suites passed after correction; shell/static
+  checks remain clean. Proceed with serial selected VM33 on baseline `8cd7fc7`;
+  no other VM is running and no other implementation stream is active.
+
+  First selected serial VM33 `.cache/p-vm/integration-20260926T174458Z-6468.log`
+  exited **1** at the new failed-operation diagnostic assertion after normal
+  Incus isolation smoke and session creation passed. The operation reached
+  `failed`, but its diagnostic/phase were not printed; no mismatch acceptance
+  is claimed. VM powered down and removed its disk. Add bounded status/phase/
+  diagnostic output to collect new evidence before choosing a product fix;
+  assertions and isolation remain unchanged.
+
+  Diagnostic-only serial VM33
+  `.cache/p-vm/integration-20260926T174720Z-57759.log` exited **1** with new
+  evidence: the actual failed/stale operation correctly reported assigned main
+  upstream `<incomplete>`. Fresh blank initialization never recorded a branch
+  remote/merge because its P ref is unborn; the fixture's changed merge alone
+  therefore produced an incomplete upstream rather than the intended other-ref
+  mismatch. Correct first-time blank initialization to record `origin` and the
+  assigned merge ref without creating a commit/ref. The existing initialization
+  marker still makes normal Start a no-op, including after manual branch or
+  upstream changes. Real Git unit assertions verify empty refs and later manual
+  upstream preservation; VM33 explicitly checks the initialized settings.
+  The VM shut down and removed its disk before this product correction.
+
+  Coordinator inspection also found that public operation summaries truncated
+  diagnostics to 256 bytes, potentially cutting a valid long upstream name.
+  Rename summaries now retain the durable 512-byte bound; other operations
+  remain at 256. Added full-length expected/actual name and escaped worst-case
+  pagination checks proving continuation and the existing frame ceiling.
+
+  Retained reviewer approved both first-initialization bootstrap behavior and
+  the RPC diagnostic/frame fix with no new blockers. Focused bootstrap/native
+  race checks (`-count=3`), all four affected suites and focused long-name/frame
+  tests passed. The next serial VM33 validates the actual corrected image/API;
+  no prior failed VM result is being reused as a pass.
+
+  Third serial selected VM33
+  `.cache/p-vm/integration-20260926T175238Z-109179.log` exited **0**.
+  Actual public operations reported failed/stale expected/actual upstream
+  (`origin:refs/heads/main` versus `origin:refs/heads/sibling`) and branch
+  (`refs/heads/main` versus `refs/heads/manual-other`) values. Refusal preserved
+  P refs, assigned/local-ahead identity, dirty/staged/untracked files, dummy
+  credentials and the live persistent process. Manual correction followed by
+  a new request completed Rename and survived daemon restart. Initial blank
+  upstream assertions, `P_RENAME_MISMATCH_MANUAL_CORRECTION_PASS`,
+  `P_RENAME_LIFECYCLE_PASS`, selected product marker and `P_VM_SMOKE_PASS`
+  passed. VM powered down and removed its disk; no authentication was used.
+  Commit this checkpoint; the user authorized automatic continuation. A
+  separate inspected remaining gap is missing-ref repair preview's generic
+  `local_worktree_unsupported` refusal for a changed branch; preserve refusal
+  and expose its expected/actual values before claiming all mismatch gates.

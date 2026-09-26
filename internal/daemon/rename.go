@@ -157,7 +157,12 @@ func (l *lifecycle) rollbackRenamePrecommit(op control.Operation, ev control.Ren
 	// Before a native effect, an independently stopped/replaced source does
 	// not justify forcing its old status. It does not prevent releasing these
 	// two ref guards after a definite no-effect precommit refusal.
-	if err := l.store.FailRenamePrecommit(ctx, op.ID, "rename precommit input changed"); err != nil {
+	diagnostic := "rename precommit input changed"
+	var mismatch *runtimeincus.WorkspaceAssignmentMismatchError
+	if errors.As(cause, &mismatch) {
+		diagnostic = mismatch.Error()
+	}
+	if err := l.store.FailRenamePrecommit(ctx, op.ID, diagnostic); err != nil {
 		l.blockRename(op, errors.Join(cause, err))
 	}
 }

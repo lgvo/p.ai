@@ -131,8 +131,14 @@ func boundedLifecyclePage[T any](field string, values []T, next string, cursor f
 
 func SummarizeOperation(o Operation) OperationSummary {
 	d := o.Diagnostic
-	if len(d) > 256 {
-		d = d[:256]
+	limit := 256
+	if o.Kind == "session.rename" {
+		// Preserve both full validated branch/upstream names in mismatch
+		// refusals. The durable Rename diagnostic has the same fixed bound.
+		limit = 512
+	}
+	if len(d) > limit {
+		d = d[:limit]
 	}
 	return OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Diagnostic: d, Environment: CreationEnvironmentView(o)}
 }

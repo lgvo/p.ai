@@ -21,6 +21,33 @@ type WorkspaceRenamePlan struct {
 	ConfigAfterSHA256 string
 }
 
+// WorkspaceAssignmentMismatchError contains only validated Git names or fixed
+// absence markers, never configuration contents, URLs, or credentials.
+type WorkspaceAssignmentMismatchError struct {
+	Field, Expected, Actual string
+}
+
+func (e *WorkspaceAssignmentMismatchError) Error() string {
+	return fmt.Sprintf("workspace %s mismatch: expected %q, actual %q; correct Git manually and retry", e.Field, e.Expected, e.Actual)
+}
+
+func checkRenameHead(head []byte, old string) error {
+	if bytes.Equal(head, []byte("ref: refs/heads/"+old+"\n")) {
+		return nil
+	}
+	actual := "<unavailable>"
+	value := strings.TrimSuffix(string(head), "\n")
+	if strings.HasPrefix(value, "ref: refs/heads/") {
+		name := strings.TrimPrefix(value, "ref: refs/heads/")
+		if validWorkspaceRenameName(name) {
+			actual = "refs/heads/" + name
+		}
+	} else if validBuilderOID(value) {
+		actual = "<detached> " + value
+	}
+	return &WorkspaceAssignmentMismatchError{Field: "branch", Expected: "refs/heads/" + old, Actual: actual}
+}
+
 type renameFileAPI interface {
 	lstat(context.Context, string) (guestFile, error)
 	lstatOptional(context.Context, string) (guestFile, bool, error)
@@ -112,7 +139,12 @@ func renameLocksAbsent(ctx context.Context, api renameFileAPI, old, next string)
 }
 
 func renameConfig(raw []byte, old, next string) ([]byte, error) {
-	if _, err := safeGitConfig(raw); err != nil {
+	safe, err := safeGitConfig(raw)
+	if err != nil {
+		var upstream *gitUpstreamConfigError
+		if errors.As(err, &upstream) && upstream.branch == old {
+			return nil, &WorkspaceAssignmentMismatchError{Field: "upstream", Expected: "origin:refs/heads/" + old, Actual: "<incomplete>"}
+		}
 		return nil, err
 	}
 	if !bytes.HasSuffix(raw, []byte("\n")) || bytes.IndexByte(raw, 0) >= 0 {
@@ -120,6 +152,30 @@ func renameConfig(raw []byte, old, next string) ([]byte, error) {
 	}
 	oldHeader := "[branch \"" + old + "\"]"
 	newHeader := "[branch \"" + next + "\"]"
+	// Read only the sanitized configuration. Its parser validates names and
+	// omits every URL, user identity, and executable setting.
+	inside, remote, merge := false, "", ""
+	for _, line := range strings.Split(string(safe), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inside = trimmed == oldHeader
+		} else if inside {
+			key, value, _ := strings.Cut(trimmed, "=")
+			switch strings.TrimSpace(key) {
+			case "remote":
+				remote = strings.TrimSpace(value)
+			case "merge":
+				merge = strings.TrimSpace(value)
+			}
+		}
+	}
+	actual := "<unset>"
+	if remote != "" && merge != "" {
+		actual = remote + ":" + merge
+	}
+	if remote != "origin" || merge != "refs/heads/"+old {
+		return nil, &WorkspaceAssignmentMismatchError{Field: "upstream", Expected: "origin:refs/heads/" + old, Actual: actual}
+	}
 	seenOld := false
 	for _, line := range strings.Split(string(raw), "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -151,7 +207,7 @@ func renameConfig(raw []byte, old, next string) ([]byte, error) {
 		} else if insideOld && strings.HasPrefix(strings.ToLower(trimmed), "merge") {
 			key, value, ok := strings.Cut(trimmed, "=")
 			if !ok || strings.TrimSpace(strings.ToLower(key)) != "merge" || strings.TrimSpace(value) != "refs/heads/"+old {
-				return nil, errors.New("source Git upstream does not match assigned branch")
+				return nil, errors.New("source Git upstream config unsupported")
 			}
 			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 			out.WriteString(indent + "merge = refs/heads/" + next + "\n")
@@ -163,6 +219,9 @@ func renameConfig(raw []byte, old, next string) ([]byte, error) {
 }
 
 func renameBackupDetails(v workspaceRenameBackup, old, next string) (WorkspaceRenamePlan, []byte, error) {
+	if err := checkRenameHead(v.Head, old); err != nil {
+		return WorkspaceRenamePlan{}, nil, err
+	}
 	if v.Schema != "p.workspace-rename/v1" || v.Old != old || v.New != next ||
 		!bytes.Equal(v.Head, []byte("ref: refs/heads/"+old+"\n")) || len(v.Ref) < 41 || v.Ref[len(v.Ref)-1] != '\n' ||
 		!validBuilderOID(strings.TrimSuffix(string(v.Ref), "\n")) {
@@ -266,6 +325,9 @@ func prepareWorkspaceRenameFiles(ctx context.Context, api renameFileAPI, opID, o
 	}
 	head, _, err := renameSafeFile(ctx, api, "/workspace/.git/HEAD", 256)
 	if err != nil {
+		return WorkspaceRenamePlan{}, err
+	}
+	if err := checkRenameHead(head, old); err != nil {
 		return WorkspaceRenamePlan{}, err
 	}
 	ref, _, err := renameSafeFile(ctx, api, renameRefPath(old), 128)
