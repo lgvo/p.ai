@@ -4,7 +4,8 @@ export LC_ALL=C
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 usage() {
   echo "Usage: ./dev/test-vm [--step STEP.sh ...]"
-  echo "Without --step, runs every integration step. Selected steps run in repository order."
+  echo "Without --step, runs every step across serial restricted/public/restricted VMs."
+  echo "Selected steps run in repository order; public-egress uses its own VM."
 }
 requested=()
 if (( $# == 1 )) && [[ $1 == --help || $1 == -h ]]; then
@@ -41,8 +42,10 @@ while (( $# )); do
   esac
 done
 selected=()
+available=()
 for step in "$repo"/tests/integration/steps/*.sh; do
   [[ -f $step && ! -L $step ]] || continue
+  available+=("${step##*/}")
   for step_name in "${requested[@]}"; do
     if [[ "${step##*/}" == "$step_name" ]]; then
       selected+=("$step_name")
@@ -64,37 +67,65 @@ if (( ${#selected[@]} != ${#requested[@]} )); then
   done
   exit 2
 fi
-selected_steps_text=""
-if (( ${#selected[@]} )); then
-  printf -v selected_steps_text '%s\n' "${selected[@]}"
-  selected_steps_text=${selected_steps_text%$'\n'}
+if (( ${#requested[@]} == 0 )); then
+  selected=("${available[@]}")
+fi
+if (( ${#selected[@]} == 0 )); then
+  echo "No integration steps available." >&2
+  exit 2
+fi
+if (( ${#selected[@]} > 1 )); then
+  export P_VM_TIMEOUT=${P_VM_TIMEOUT:-10800}
 fi
 log_dir=${P_VM_LOG_DIR:-"$repo/.cache/p-vm"}
 mkdir -p -- "$log_dir" "$repo/.cache/p-vm"
-# All product integration runs for this checkout share one lock, even when
-# callers choose different log directories. Hold it through build and shutdown.
+# One lock covers every build, guest and shutdown, including grouped full runs.
 exec 9>"$repo/.cache/p-vm/integration.lock"
 if ! flock -n 9; then
   echo "Another VM integration run is active for this checkout." >&2
   exit 1
 fi
-outer_host_ipv4=""
-outer_host_lan_ipv4=""
-if (( ${#selected[@]} == 0 )) || [[ $'\n'"$selected_steps_text"$'\n' == *$'\n37-public-egress.sh\n'* ]]; then
-  # Include public host addresses too: filtering only RFC1918 is insufficient.
-  # Failure to inspect the host must not silently produce an incomplete policy.
-  host_addresses=$(ip -o -4 address show)
-  host_routes=$(ip -o -4 route show table all scope link type unicast)
-  outer_host_ipv4=$(awk '{ sub(/\/.*/, "", $4); print $4 }' <<< "$host_addresses" | sort -u)
-  outer_host_lan_ipv4=$(awk '$1 != "default" { print $1 }' <<< "$host_routes" | sort -u)
-  if [[ -z "$outer_host_ipv4" ]]; then
-    echo "Cannot establish outer VM host-address denial policy." >&2
-    exit 1
-  fi
-fi
-runner=$(nix-build "$repo/dev/integration.nix" -A runner \
-  --argstr selectedStepsText "$selected_steps_text" \
-  --argstr outerHostIPv4Text "$outer_host_ipv4" \
-  --argstr outerHostLANIPv4Text "$outer_host_lan_ipv4" --no-out-link)
 export P_VM_LOG_DIR="$log_dir"
-exec "$runner/bin/p-vm-integration-test"
+run_selection() {
+  (( $# )) || return 0
+  local selected_steps_text outer_host_ipv4="" outer_host_lan_ipv4=""
+  local host_addresses host_routes runner
+  printf -v selected_steps_text '%s\n' "$@"
+  selected_steps_text=${selected_steps_text%$'\n'}
+  if [[ $'\n'"$selected_steps_text"$'\n' == *$'\n37-public-egress.sh\n'* ]]; then
+    # Public routing is confined to this dedicated selection. Include public
+    # host addresses and all directly connected LAN routes in its denial policy.
+    host_addresses=$(ip -o -4 address show)
+    host_routes=$(ip -o -4 route show table all scope link type unicast)
+    outer_host_ipv4=$(awk '{ sub(/\/.*/, "", $4); print $4 }' <<< "$host_addresses" | sort -u)
+    outer_host_lan_ipv4=$(awk '$1 != "default" { print $1 }' <<< "$host_routes" | sort -u)
+    if [[ -z "$outer_host_ipv4" ]]; then
+      echo "Cannot establish outer VM host-address denial policy." >&2
+      return 1
+    fi
+  fi
+  runner=$(nix-build "$repo/dev/integration.nix" -A runner \
+    --argstr selectedStepsText "$selected_steps_text" \
+    --argstr outerHostIPv4Text "$outer_host_ipv4" \
+    --argstr outerHostLANIPv4Text "$outer_host_lan_ipv4" --no-out-link)
+  "$runner/bin/p-vm-integration-test"
+}
+before=() public=() after=()
+for step_name in "${selected[@]}"; do
+  if [[ $step_name == 37-public-egress.sh ]]; then
+    public+=("$step_name")
+  elif (( ${#public[@]} )); then
+    after+=("$step_name")
+  else
+    before+=("$step_name")
+  fi
+done
+# Each runner returns only after powering off and removing its disposable disk.
+# Do not release the lock or advance to another group when any runner fails.
+run_selection "${before[@]}"
+run_selection "${public[@]}"
+run_selection "${after[@]}"
+if (( ${#requested[@]} == 0 )); then
+  echo P_PRODUCT_INTEGRATION_PASS
+  echo "All ${#selected[@]} product steps passed across serial restricted/public/restricted VMs."
+fi

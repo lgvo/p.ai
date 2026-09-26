@@ -6,10 +6,13 @@
   bulk deletion/cache, failed-creation cleanup, distribution and public DoH
   batches are committed with preserved passing selected VM evidence below.
 - NixOS installation passed focused module checks, required package checks,
-  retained review and selected serial VM55. Commit this batch next; no VM runs
+  retained review and selected serial VM55, committed `4f916dd`. No VM runs
   concurrently. The hardened service is network:none-only; public-egress remains
   the separately owner-run daemon path with unchanged VM37 evidence.
-- Remaining automated delivery gate: final full serial VM suite (all55 steps).
+- Remaining automated delivery gate: final full serial VM suite (all55 steps),
+  shared-guest attempt failed atVM06; grouped attempt diagnosed selector stdin
+  atVM05. Corrected focused orchestration and selected05/06/21 checks pass;
+  final restricted/public/restricted checkpoint remains pending.
   Latest previous full checkpoint was throughVM28. Root owns the sole stream;
   retained reviewer is idle. No universal repair/replacement/cleanup is claimed.
 - Authenticated Codex acceptance remains pending user validation using the
@@ -343,14 +346,16 @@ until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
    p api "$P_SOCKET" session.inspect "$(jq -nc --arg uuid "$SESSION_A" '{v:1,uuid:$uuid}')"
    ```
 4. Enter B and confirm it has no authentication from A. Do not copy A's
-   credential file into B. Any login in B is a separate manual login.
+   credential file into B. Then repeat initialization, hook trust and a separate
+   device login inside B before testing authenticated Delete.
 5. Review and confirm Discard for a disposable authenticated session, then
    Delete for another. Verify each operation's cleanup evidence and that its
    old private home/runtime cannot be reopened. A replacement session must
    require a new login. Check that the other session remains intact.
 
    Use this exact flow for A with `ACTION=discard`, then B with
-   `ACTION=delete`. Detach first. After loss inspection, poll its operation as
+   `ACTION=delete`, recreating A between them as described below. Detach first.
+   After loss inspection, poll its operation as
    above until completed; review the printed preview before confirmation.
    A changed or expired report requires a new inspection/preview.
 
@@ -371,8 +376,25 @@ until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
      --arg key "$RUN-$ACTION" --arg uuid "$TARGET" --arg token "$TOKEN" \
      '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')")
    # Poll the returned operation ID until completed; old session.inspect and
-   # p attach must then fail, while the other session remains available.
+   # p attach must then fail; verify the unrelated session described below.
    ```
+
+   After Discard completes for A, recreate its retained branch with a new UUID:
+
+   ```sh
+   RECREATE=$(p api "$P_SOCKET" session.create "$(jq -nc --arg key "$RUN-replacement" \
+     --arg project "$P_PROJECT" --arg branch "$RUN-a" \
+     '{v:1,key:$key,project:$project,branch:$branch,choice:"existing"}')")
+   REPLACEMENT=$(jq -er '.result.operation.session_uuid' <<< "$RECREATE")
+   # Poll its operation to completed and session.inspect to ready, then:
+   p attach "$P_SOCKET" "$REPLACEMENT"
+   # Inside: export CODEX_HOME=/home/p/.codex; /usr/libexec/p/codex-adapter init
+   # codex login status must report not logged in. Do not copy credentials.
+   ```
+
+   B must retain its independently authenticated state after A's removal. Then
+   repeat the reviewed removal block with `TARGET=$SESSION_B` and `ACTION=delete`;
+   the replacement's `session.inspect` must still report ready after B is gone.
 
 Record the pinned version and each outcome here. Authentication-free fixtures
 cannot mark any real execution or authenticated persistence check as passed.
@@ -4722,3 +4744,88 @@ it does not close the installation or external-tool attribution gates.
   No authenticated Codex execution occurred. Commit installation and all findings
   before the final full serial suite. Final full-suite caller budget10800s and
   guest10500s retain per-test bounds; one VM12GiB, no concurrent native runs.
+
+- **Final delivery checkpoint started after installation commit4f916dd.**
+  `P_VM_TIMEOUT=10800 ./dev/test-vm` runs all55 selections in one12GiB VM.
+  Driver `/tmp/p-cli-mvp-final-full-driver.out`. No other integration or VM is
+  running. Reuse valid earlier package/review evidence and preserve per-gate
+  assertions, native isolation and fixture-versus-real-network distinctions.
+  Authentication stays pending user acceptance; never log in or access secrets.
+
+  First final full run `.cache/p-vm/integration-20260926T213945Z-1361568.log`
+  failed at VM06 after gates01–05 passed: exact diagnostic was Incus project
+  lacks restricted.devices.nic=block. The all-in-one full guest enables VM37's
+  managed-NIC/public substrate from boot, incompatible with correctly stricter
+  legacy no-network native probes and the hardened network:none service. This
+  is full-suite configuration, not an external blocker or reason to weaken
+  confinement. Acceptance for correction: dev/test-vm full mode holds its one
+  global lock across three sequential fresh guests (01–36 restricted, dedicated
+  VM37 public, 38–55 restricted); only37 captures public routing/outer protections.
+  Focused orchestration tests must prove selection partition, lock retention,
+  single-selection compatibility and stop-on-failure. Retained review before
+  full serial retry; retain all isolation/assertions and existing native evidence.
+
+  Grouped runner patch and focused tests are ready. Reused existing
+  test-vm-selection.sh rather than adding another fixture/test document. Mocks
+  prove all55 tests partition37/1/17 (09b is additional and41 is absent), only37
+  receives outer host/LAN proof inputs, mixed selected requests split correctly,
+  global lock stays held during every build/runner and excludes concurrent full
+  or selected calls, and a failed second runner prevents third build/full marker.
+  Existing invalid-input/injection/route-inventory-fail-closed and exact marker
+  checks are preserved. Initial fixed numeric counts36/18 were corrected after
+  actual filename inventory; no gate removed. Bash/ShellCheck/Nix parse/diff pass.
+  Direct Nix integration builds now require explicit routing-compatible groups
+  and refuse mixed public selections. Multi-step guest budget10500s matches
+  caller10800s; single selections retain1100/1200s and individual bounds.
+  These are synthetic orchestration checks, not native integration evidence.
+
+  Retained Sol/high reviewer approved grouped orchestration with no blockers:
+  exact public selection, one held lock through builds/shutdown, fail-fast and
+  final marker only after all groups. Native grouped retry begins serially;
+  no concurrent VM or authentication. Driver
+  `/tmp/p-cli-mvp-final-grouped-driver.out`.
+
+  Manual acceptance procedure corrected before user testing: B authenticates
+  independently only after isolation is checked; after A Discard, explicitly
+  recreate A's retained branch with a new UUID, verify no inherited login, then
+  Delete B and prove that replacement remains available. This supplies the
+  previously implicit replacement command and a real surviving sibling for
+  both cleanup checks. It remains unexecuted/pending user authentication.
+
+  First grouped run `.cache/p-vm/integration-20260926T214914Z-1421394.log`
+  failed atVM05: Incus init parsed next selector06-runtime-incus.sh as YAML
+  InstancePut. Concrete cause: run.sh's selected-step while/read here-string
+  was inherited as child stdin; native Incus consumes piped configuration.
+  Fix run_step child stdin=/dev/null, retaining explicit internal pipes/heredocs.
+  Existing selection regression now includes child scripts that drain stdin:
+  both selected steps must execute in order and consume no selection bytes.
+  Full/mixed/locking/failure/marker tests and Bash/ShellCheck/diff checks pass.
+  No native restriction/assertion changed. Obtain specific retained review and
+  smallest selected VM05+06 acceptance before another full checkpoint.
+
+  Smallest selected VM05+06 `.cache/p-vm/integration-20260926T215231Z-1479173.log`
+  passed VM05 and selector-stdin correction; VM06 next correctly refused:
+  Incus disk ceiling differs from trusted configuration. New bounded diagnostic
+  plus source inventory shows legacy runtime/builder fixtures declared endpoints
+  only, while the VM's already-approved restriction and production host fixtures
+  declare exactly endpoints+grants since VM36. Update the three fixture source
+  files' runtime/builder/Nix configurations to that exact existing ceiling. No
+  project restriction, runtime plan, grant or mounted path is added/widened.
+  Retain equality checks. Reuse VM05 pass; focused backend checks/fixturecompile
+  and selected VM06+21 prove both native fixture configurations before full retry.
+
+  Focused confinement/ceiling/builder suite and updated native fixture compilation
+  passed with scoped local Unix socket access. The sandbox attempt denied
+  setsockopt on fixture Unix sockets; reran unchanged tests with socket permission,
+  not changed production checks. Fixtures contain no unit tests themselves;
+  compile evidence is distinct from the passing backend regressions and pending
+  actual VM06+21. No credentials were accessed.
+
+  Retained reviewer approved exact fixture ceiling consistency. Selected serial
+  VM06+21 exited0; `.cache/p-vm/integration-20260926T215813Z-1537221.log`,
+  driver `/tmp/p-vm06-21-ceilings-driver.out`. Real no-NIC native runtime
+  conformance and bounded builder substrate/quota refusals passed under unchanged
+  Incus ceilings; earlier VM05 passed the child-stdin correction. Required Go
+  and17Python package checks passed. Global lock and fresh-disk cleanup remain
+  intact; no concurrent VM or authentication. Commit this reviewed orchestration
+  and fixture-consistency batch with every diagnosis before full serial retry.

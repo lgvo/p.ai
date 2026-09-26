@@ -72,7 +72,7 @@ func run(args []string) error {
 	backend, err := runtimeincus.New(runtimeincus.Config{
 		Binary: binary, UserSocket: req.Socket, Project: "user-1000",
 		EndpointPrefix:     "/var/lib/p-vm/endpoints/pdev",
-		DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints"},
+		DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"},
 	})
 	if err != nil {
 		return err

@@ -68,9 +68,12 @@ or P lifecycle recovery. Those remain in the
 
 For the growing CLI product suite, run `./dev/test-vm` from the repository
 root. It builds P with the same pinned Nixpkgs, runs all Go unit tests, and
-boots a fresh VM containing the packaged CLI and explicit source fixtures.
-The VM runs the infrastructure smoke test followed by
-`tests/integration/steps/*.sh`. A checkout-wide lock rejects overlapping
+boots serial fresh VMs containing the packaged CLI and explicit source fixtures.
+Full validation partitions the steps into restricted tests01–36, dedicated
+public-egress test37, then restricted tests38 onward. Each VM runs the
+infrastructure smoke test followed by its selected product steps. Only test37
+has public routing and its outer denial protections; other guests keep restricted
+networking. A checkout-wide lock covers all groups and rejects overlapping
 product integration runs. Console logs are retained under
 `.cache/p-vm/integration-*.log`; the disposable disk is removed on exit.
 To debug specific steps, pass their exact filenames, repeating `--step` as
@@ -79,13 +82,17 @@ Step filenames must start with a letter or digit, use only letters, digits,
 dots, underscores, and hyphens, and end in `.sh`.
 Selected steps run in repository order and still run the VM smoke test. Their
 result is marked `P_PRODUCT_INTEGRATION_SELECTED_PASS` with the selected names;
-only a full run produces `P_PRODUCT_INTEGRATION_PASS`.
+only a full invocation produces `P_PRODUCT_INTEGRATION_PASS`, after every
+group succeeds and removes its disk. Selections containing test37 are split
+the same way. Multi-step runs use a bounded10800s guest-runner budget and
+single steps keep1200s; per-test operation deadlines remain unchanged.
 `tests/integration/test-vm-selection.sh` checks selection and markers with mock
 commands without starting a VM.
 See [implementation progress](../../docs/implementation-progress.md) for
-the exact features covered so far. The current product suite validates plugin
-and durable daemon/RPC foundations plus actual Git/SSH authorization and
-executable source-plugin behavior. It is not a complete session control plane.
+the exact supported CLI scope and acceptance evidence. The suite exercises
+plugin management, durable lifecycle/RPC, Git/SSH, isolated environments,
+networking and reviewed cleanup. Authenticated Codex execution remains the
+user's manual gate; automated checks use event fixtures and dummy files.
 
 ```sh
 nix run path:./dev/vm

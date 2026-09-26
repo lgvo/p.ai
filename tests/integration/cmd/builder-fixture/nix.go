@@ -100,7 +100,7 @@ func runNixFixture(args []string, environment *plugin.Active, image bool) error 
 	if err != nil {
 		return err
 	}
-	b, err := runtimeincus.New(runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints"}, BuilderStoragePool: "builders", PInstanceID: "a0000000-0000-4000-8000-000000000024"})
+	b, err := runtimeincus.New(runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"}, BuilderStoragePool: "builders", PInstanceID: "a0000000-0000-4000-8000-000000000024"})
 	if err != nil {
 		return err
 	}

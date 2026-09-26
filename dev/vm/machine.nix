@@ -29,7 +29,7 @@ let
   productMarker = if selectedSteps == [ ] then "P_PRODUCT_INTEGRATION_PASS"
     else "P_PRODUCT_INTEGRATION_SELECTED_PASS ${lib.concatStringsSep "," selectedSteps}";
   publicEgressFixture = automated && productTest != null
-    && (selectedSteps == [ ] || lib.elem "37-public-egress.sh" selectedSteps);
+    && selectedSteps == [ "37-public-egress.sh" ];
   serviceFixture = automated && productTest != null
     && (selectedSteps == [ ] || lib.elem "55-nixos-service.sh" selectedSteps);
   serviceControl = pkgs.writeShellScriptBin "p-service-test-control" ''
@@ -649,9 +649,9 @@ in
     serviceConfig = {
       Type = "oneshot";
       # The full serial suite has more gates than the original VM28 checkpoint.
-      # Its caller uses P_VM_TIMEOUT=10800; selected runs retain their old budget.
+      # Multi-step callers use P_VM_TIMEOUT=10800; single-step runs keep their budget.
       # Individual test/operation deadlines continue to bound each gate.
-      TimeoutStartSec = if selectedSteps == [] then 10500 else 1100;
+      TimeoutStartSec = if selectedSteps == [] || lib.length selectedSteps > 1 then 10500 else 1100;
       StandardOutput = "journal+console";
       StandardError = "journal+console";
     };

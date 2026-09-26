@@ -10,7 +10,8 @@ run_step() {
   local step=$1
   test -f "$step"
   echo "Running $(basename "$step")"
-  bash -euo pipefail "$step"
+  # Selection input belongs to the coordinator, never to child CLI commands.
+  bash -euo pipefail "$step" < /dev/null
 }
 if [[ -n ${P_TEST_SELECTED_STEPS:-} ]]; then
   while IFS= read -r step_name; do

@@ -91,7 +91,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	baseConfig := runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints"}}
+	baseConfig := runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"}}
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
 		return err

@@ -26,10 +26,13 @@ let
   availableSteps = builtins.filter
     (name: validStepName name && stepEntries.${name} == "regular")
     (builtins.attrNames stepEntries);
-  requestedSteps = if selectedStepsText == "" then [ ] else nixpkgs.lib.splitString "\n" selectedStepsText;
+  requestedSteps = if selectedStepsText == "" then
+    throw "Use dev/test-vm for the full suite; each guest requires an explicit routing-compatible selection."
+    else nixpkgs.lib.splitString "\n" selectedStepsText;
   selectedSteps =
     assert builtins.all (name: builtins.elem name availableSteps) requestedSteps;
     assert builtins.length requestedSteps == builtins.length (nixpkgs.lib.unique requestedSteps);
+    assert !builtins.elem "37-public-egress.sh" requestedSteps || builtins.length requestedSteps == 1;
     builtins.filter (name: builtins.elem name requestedSteps) availableSteps;
   selectedMarker = if selectedSteps == [ ] then "P_PRODUCT_INTEGRATION_PASS"
     else "P_PRODUCT_INTEGRATION_SELECTED_PASS ${nixpkgs.lib.concatStringsSep "," selectedSteps}";

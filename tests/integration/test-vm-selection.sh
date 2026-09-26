@@ -13,7 +13,12 @@ mkdir -p "$fixture/bin" "$fixture/runner/bin" "$fixture/source/tests/integration
 
 cat > "$fixture/bin/nix-build" <<'EOF'
 #!/usr/bin/env bash
+if flock -n "$P_TEST_GLOBAL_LOCK" true; then
+  echo 'Build ran without the checkout lock' >&2
+  exit 1
+fi
 printf x >> "$P_TEST_BUILD_CALLS"
+call=$(wc -c < "$P_TEST_BUILD_CALLS")
 if [[ ${P_TEST_BLOCK_BUILD:-} == 1 ]]; then
   : > "$P_TEST_BLOCK_READY"
   while [[ ! -e "$P_TEST_RELEASE_BUILD" ]]; do sleep 0.05; done
@@ -30,6 +35,8 @@ while (( $# )); do
   fi
   shift
 done
+cp "$P_TEST_SELECTION_CAPTURE" "$P_TEST_SELECTION_CAPTURE.$call"
+cp "$P_TEST_HOST_CAPTURE" "$P_TEST_HOST_CAPTURE.$call"
 printf '%s\n' "$P_TEST_RUNNER"
 EOF
 cat > "$fixture/bin/ip" <<'EOF'
@@ -46,6 +53,12 @@ fi
 EOF
 cat > "$fixture/runner/bin/p-vm-integration-test" <<'EOF'
 #!/usr/bin/env bash
+if flock -n "$P_TEST_GLOBAL_LOCK" true; then
+  echo 'Guest ran without the checkout lock' >&2
+  exit 1
+fi
+printf x >> "$P_TEST_RUNNER_CALLS"
+if [[ ${P_TEST_FAIL_RUNNER_CALL:-0} == "$(wc -c < "$P_TEST_RUNNER_CALLS")" ]]; then exit 17; fi
 if [[ ${P_TEST_BLOCK_RUNNER:-} == 1 ]]; then
   : > "$P_TEST_RUNNER_READY"
   while [[ ! -e "$P_TEST_RELEASE_RUNNER" ]]; do sleep 0.05; done
@@ -63,17 +76,26 @@ export P_TEST_SELECTION_CAPTURE="$fixture/selection"
 export P_TEST_HOST_CAPTURE="$fixture/host-addresses"
 export P_TEST_LAN_CAPTURE="$fixture/host-lan"
 export P_TEST_RUNNER="$fixture/runner"
+export P_TEST_RUNNER_CALLS="$fixture/runner-calls"
+export P_TEST_GLOBAL_LOCK="$repo/.cache/p-vm/integration.lock"
 export P_VM_LOG_DIR="$fixture/logs"
 
-"$repo/dev/test-vm" > /dev/null
-[[ ! -s "$P_TEST_SELECTION_CAPTURE" ]]
-[[ $(cat "$P_TEST_HOST_CAPTURE") == $'127.0.0.1\n198.41.0.7' ]]
-[[ $(cat "$P_TEST_LAN_CAPTURE") == $'198.41.0.0/24\n198.42.0.0/24' ]]
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 1 ]]
+"$repo/dev/test-vm" > "$fixture/grouped-full-output"
+mapfile -t first_group < "$P_TEST_SELECTION_CAPTURE.1"
+mapfile -t last_group < "$P_TEST_SELECTION_CAPTURE.3"
+[[ ${#first_group[@]} -eq 37 && ${first_group[0]} == 01-* && ${first_group[-1]} == 36-* ]]
+[[ $(cat "$P_TEST_SELECTION_CAPTURE.2") == 37-public-egress.sh ]]
+[[ ${#last_group[@]} -eq 17 && ${last_group[0]} == 38-* && ${last_group[-1]} == 55-* ]]
+[[ ! -s "$P_TEST_HOST_CAPTURE.1" && ! -s "$P_TEST_HOST_CAPTURE.3" ]]
+[[ $(cat "$P_TEST_HOST_CAPTURE.2") == $'127.0.0.1\n198.41.0.7' ]]
+[[ ! -s "$P_TEST_HOST_CAPTURE" && ! -s "$P_TEST_LAN_CAPTURE" ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 3 ]]
+[[ $(wc -c < "$P_TEST_RUNNER_CALLS") -eq 3 ]]
+grep -Fxq P_PRODUCT_INTEGRATION_PASS "$fixture/grouped-full-output"
 
 "$repo/dev/test-vm" --step 13-daemon-events.sh --step 12-attachment.sh > /dev/null
 [[ $(cat "$P_TEST_SELECTION_CAPTURE") == $'12-attachment.sh\n13-daemon-events.sh' ]]
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 2 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 4 ]]
 [[ ! -s "$P_TEST_HOST_CAPTURE" ]]
 [[ ! -s "$P_TEST_LAN_CAPTURE" ]]
 
@@ -101,7 +123,7 @@ for args in missing duplicate unknown injection mixed_help; do
     exit 1
   fi
 done
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 3 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 5 ]]
 [[ ! -e "$fixture/injected" ]]
 
 export P_TEST_BLOCK_READY="$fixture/build-ready"
@@ -118,7 +140,7 @@ if "$repo/dev/test-vm" > "$fixture/second-output" 2>&1; then
   exit 1
 fi
 grep -Fq 'Another VM integration run is active' "$fixture/second-output"
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 4 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 6 ]]
 : > "$P_TEST_RELEASE_BUILD"
 wait "$first_pid"
 first_pid=
@@ -137,21 +159,45 @@ if "$repo/dev/test-vm" --step 13-daemon-events.sh > "$fixture/second-output" 2>&
   exit 1
 fi
 grep -Fq 'Another VM integration run is active' "$fixture/second-output"
-[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 5 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 7 ]]
 : > "$P_TEST_RELEASE_RUNNER"
 wait "$first_pid"
 first_pid=
 
+# Mixed requests also isolate public routing and never emit the full marker.
+: > "$P_TEST_BUILD_CALLS"
+: > "$P_TEST_RUNNER_CALLS"
+"$repo/dev/test-vm" --step 55-nixos-service.sh --step 37-public-egress.sh --step 36-filesystem-grants.sh > "$fixture/grouped-selected-output"
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 3 ]]
+[[ $(cat "$P_TEST_SELECTION_CAPTURE.1") == 36-filesystem-grants.sh ]]
+[[ $(cat "$P_TEST_SELECTION_CAPTURE.2") == 37-public-egress.sh ]]
+[[ $(cat "$P_TEST_SELECTION_CAPTURE.3") == 55-nixos-service.sh ]]
+[[ ! -s "$P_TEST_HOST_CAPTURE.1" && -s "$P_TEST_HOST_CAPTURE.2" && ! -s "$P_TEST_HOST_CAPTURE.3" ]]
+if grep -Fxq P_PRODUCT_INTEGRATION_PASS "$fixture/grouped-selected-output"; then exit 1; fi
+
+# A failed second guest stops the checkpoint before a third build or pass marker.
+: > "$P_TEST_BUILD_CALLS"
+: > "$P_TEST_RUNNER_CALLS"
+status=0
+P_TEST_FAIL_RUNNER_CALL=2 "$repo/dev/test-vm" > "$fixture/grouped-failure-output" 2>&1 || status=$?
+[[ $status -eq 17 ]]
+[[ $(wc -c < "$P_TEST_BUILD_CALLS") -eq 2 ]]
+[[ $(wc -c < "$P_TEST_RUNNER_CALLS") -eq 2 ]]
+if grep -Fxq P_PRODUCT_INTEGRATION_PASS "$fixture/grouped-failure-output"; then exit 1; fi
+
 export P_TEST_SOURCE="$fixture/source"
 export P_TEST_EXECUTED="$fixture/executed"
+export P_TEST_CHILD_STDIN="$fixture/child-stdin"
 for name in 01-a.sh 02-b.sh; do
   cat > "$P_TEST_SOURCE/tests/integration/steps/$name" <<'EOF'
+cat >> "$P_TEST_CHILD_STDIN"
 printf '%s\n' "${BASH_SOURCE[0]##*/}" >> "$P_TEST_EXECUTED"
 EOF
 done
 unset P_TEST_SELECTED_STEPS
 bash "$repo/tests/integration/run.sh" > "$fixture/full-output"
 [[ $(cat "$P_TEST_EXECUTED") == $'01-a.sh\n02-b.sh' ]]
+[[ ! -s "$P_TEST_CHILD_STDIN" ]]
 grep -Fxq 'P_PRODUCT_INTEGRATION_PASS' "$fixture/full-output"
 if grep -Fq 'P_PRODUCT_INTEGRATION_SELECTED_PASS' "$fixture/full-output"; then exit 1; fi
 
@@ -159,6 +205,7 @@ if grep -Fq 'P_PRODUCT_INTEGRATION_SELECTED_PASS' "$fixture/full-output"; then e
 export P_TEST_SELECTED_STEPS=$'02-b.sh\n01-a.sh'
 bash "$repo/tests/integration/run.sh" > "$fixture/selected-output"
 [[ $(cat "$P_TEST_EXECUTED") == $'02-b.sh\n01-a.sh' ]]
+[[ ! -s "$P_TEST_CHILD_STDIN" ]]
 grep -Fxq 'P_PRODUCT_INTEGRATION_SELECTED_PASS 02-b.sh,01-a.sh' "$fixture/selected-output"
 if grep -Fxq 'P_PRODUCT_INTEGRATION_PASS' "$fixture/selected-output"; then exit 1; fi
 
