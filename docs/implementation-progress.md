@@ -3006,6 +3006,48 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   cascade: the handoff must explicitly disable the exact reviewed old principal
   under Git authority, retain old cleanup identity in the new durable operation,
   and finish verified local cleanup before allowing new creation effects.
+  The implementer reports focused real SQLite handoff/reopen/replay/Retry,
+  stale/principal/environment refusal, scoped socket identity tests using
+  generated P Git keys, and restart after partial key cleanup passed. Public
+  VM47 fixture, affected checks and retained review remain in progress; these
+  focused results are not a live VM or authenticated Codex pass.
+  The completed patch also passed affected control/daemon/gitservice/runtimeincus
+  suites, three targeted Store/daemon race-test repetitions, Bash/ShellCheck/diff
+  and the VM47 fault-wrapper restricted-PATH probe. The retained reviewer is
+  reviewing this finished batch; the public VM47 remains unrun.
+  Retained review found a blocking native-effect ambiguity: `principals-ready`
+  precedes ordinary native init, so a timed-out init may still be pending even
+  when a fresh instance inventory is empty. The current phase alone cannot
+  distinguish VM47's before-dispatch fixture fault from a lost reply after
+  dispatch. Replacement must require durable proof that init was never
+  dispatched, or a reconciled terminal native outcome; uncertain init must
+  preserve old authority/resources and remain ineligible. The implementer and
+  reviewer are resolving this finding before any VM run. Inventory repetitions
+  are not a substitute for an effect marker or native-operation evidence.
+  The retained review found no additional blocker in local cleanup: authority
+  retirement drains Git leases, old/new UUID locks protect cleanup, exact local
+  file/socket identity checks preserve substitutions, and only approved partial
+  absence is idempotent. Independent SQLite handoff/replay negatives and VM47
+  static checks passed. Overall approval remains pending the init-dispatch fence.
+  Root also identified the legacy-evidence requirement: a missing newly added
+  attempt marker cannot prove that an older binary never dispatched init.
+  The implementer and reviewer agreed on affirmative `not-attempted` evidence
+  created before the dispatch boundary; genuine legacy missing-state and
+  attempted-state records must remain ineligible. This specific regression is
+  part of closing the delayed-init finding.
+  The affirmative init-state correction passed focused persistence/preflight/
+  legacy tests, and VM47 now faults read-only image preflight before the gate.
+  During recheck the reviewer found a second concrete race: Retry can read
+  stale blocked/not-attempted evidence, then overwrite a worker's newly durable
+  attempted marker through `AdvanceOperation`. A crash could then falsely
+  certify no dispatch. Store updates must preserve monotonic init evidence or
+  serialize/reload Retry with the worker; a deterministic stale-Retry
+  regression is required. VM47 remains held for this finding and final checks.
+  The same transactional fix must freeze reviewed replacement-cleanup identity
+  and prevent `completed:true` from being rewound by stale Retry evidence.
+  Otherwise a completed old-resource cleanup could be replayed after the new
+  creation had started. The implementer is adding real SQLite stale-snapshot,
+  refused-update and reopen tests for these monotonic boundaries.
 
 - **Independent public-egress diagnostic:** `dev/vm/machine.nix` still sets
   `virtualisation.restrictNetwork = true`, including VM37. The local NixOS
@@ -3018,3 +3060,49 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   must provide deliberately constrained external test connectivity and fresh
   diagnostics while preserving host/private-address restrictions; simply
   removing isolation or accepting a synthetic fetch is not an acceptable fix.
+  After the current replacement checkpoint, the next bounded network batch
+  must keep non-network test VMs restricted, provide public-only outbound
+  connectivity for the dedicated public-egress selection, and explicitly
+  block outer VM host/private/metadata/IPv6 access. Acceptance preserves all
+  existing Incus protections and packet-denial assertions, adds bounded host
+  and guest failure diagnostics, and requires real DNS/HTTPS/Nix-fetch evidence
+  plus redirected or publicly resolved private-destination denial. Focused
+  static checks, retained security review and one serial VM37 must precede a
+  support claim; unavailable external services remain a recorded gate.
+  The services' own documentation identifies [nip.io/sslip.io](https://nip.io/)
+  as public DNS for IP-encoded hostnames and
+  [httpbingo](https://httpbingo.org/) as an HTTP redirect test endpoint. They
+  are candidates for authentication-free live probes; reading those documents
+  is not evidence that the VM can contact them or that their current deployed
+  responses meet the assertions.
+  A serial authentication-free host diagnostic on 2026-09-26 obtained verified
+  TLS and `HTTP/1.1 200 OK` from `example.com`, but UDP DNS queries for that
+  public name timed out at both configured resolvers (`1.1.1.1`, `9.9.9.9`,
+  three seconds each). This distinguishes a working direct HTTPS route from
+  unverified pinned-resolver reachability; it is host evidence, not VM evidence,
+  and does not establish the reason for the DNS timeouts.
+  Sequential TCP DNS probes to the same two pinned public resolvers also timed
+  out (three seconds each). Direct HTTPS success does not prove the required
+  resolver protocols available on this host. This is a fresh environment gate
+  to account for in the network batch, not a reason to relax DNS or isolation
+  assertions.
+  Because pinned-resolver reachability is not available in these bounded host
+  probes, root will not spend another expensive VM37 run expecting a positive
+  fetch without new connectivity evidence. Keep the network acceptance above
+  pending and continue independent lifecycle/packaging work after VM47; no
+  public-egress support claim or fixture-based substitution is added.
+
+- **Packaging preparation, read-only:** the current `go.mod` records 40 module
+  versions (SHA-256
+  `88b6e68713b46e2bda0c2c0922826881045b00577fca40bf244b53b4acdffd1d`).
+  Root inventoried license-file names and hashes for 36 locally cached module
+  directories. Four directories (`charmbracelet/x/conpty`, `charmbracelet/x/xpty`,
+  `mattn/go-isatty`, `ncruces/go-strftime`) are not in this local cache; this
+  establishes neither missing licenses nor completed distribution compliance.
+  Packaging must collect notices from the actual shipped dependency set and
+  pinned runtime packages. No dependency, source or runtime was changed.
+  An offline `go list -m -json all` cannot enumerate the complete graph from
+  this partial host cache (`module lookup disabled by GOPROXY=off`). Use the
+  actual pinned Nix vendored/build inputs for the distribution audit rather
+  than interpreting the partial cache as the shipped module graph. This
+  preparation failure does not invalidate the passing package/test evidence.
