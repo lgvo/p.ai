@@ -15,17 +15,20 @@ import (
 // CreationEvidence is immutable selection data made under the Git authority
 // lock. It is stored before an absent-ref CAS or runtime side effect.
 type CreationEvidence struct {
-	CapturedOID      string             `json:"captured_oid,omitempty"`
-	BranchExisted    bool               `json:"branch_existed"`
-	ImageFingerprint string             `json:"image_fingerprint"`
-	PolicySHA256     string             `json:"policy_sha256"`
-	RefCASIntent     bool               `json:"ref_cas_intent,omitempty"`
-	Selection        CreationSelection  `json:"selection"`
-	OriginURL        string             `json:"origin_url,omitempty"`
-	OriginRef        string             `json:"origin_ref,omitempty"`
-	BuilderTreeOID   string             `json:"builder_tree_oid,omitempty"`
-	Environment      *EnvironmentIntent `json:"environment,omitempty"`
-	EnvironmentState *EnvironmentState  `json:"environment_state,omitempty"`
+	CapturedOID            string             `json:"captured_oid,omitempty"`
+	BranchExisted          bool               `json:"branch_existed"`
+	ImageFingerprint       string             `json:"image_fingerprint"`
+	PolicySHA256           string             `json:"policy_sha256"`
+	RefCASIntent           bool               `json:"ref_cas_intent,omitempty"`
+	Selection              CreationSelection  `json:"selection"`
+	OriginURL              string             `json:"origin_url,omitempty"`
+	OriginRef              string             `json:"origin_ref,omitempty"`
+	BuilderTreeOID         string             `json:"builder_tree_oid,omitempty"`
+	Environment            *EnvironmentIntent `json:"environment,omitempty"`
+	EnvironmentState       *EnvironmentState  `json:"environment_state,omitempty"`
+	SupersedesOperationID  string             `json:"supersedes_operation_id,omitempty"`
+	SupersedesUUID         string             `json:"supersedes_uuid,omitempty"`
+	ReplacementTokenSHA256 string             `json:"replacement_token_sha256,omitempty"`
 }
 
 // EnvironmentIntent is selected by the trusted host before reservation and
@@ -139,6 +142,9 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		op, e := s.GetOperationByKey(ctx, req.Key)
 		if e != nil {
 			return op, Session{}, e
+		}
+		if op.Status == "superseded" {
+			return op, Session{}, nil
 		}
 		session, e := s.GetSession(ctx, op.SessionUUID)
 		return op, session, e

@@ -2,14 +2,17 @@
 
 ## Current state — 2026-09-26
 
-- Latest committed checkpoint: **VM44 passed** retained-branch Delete; commit
-  `f079675` on `feature/cli-first-mvp`. VM43 retained Rename, VM42 both-absent
+- Latest validated checkpoint: **VM45 passed** guarded existing-branch Create
+  replacement on `feature/cli-first-mvp`. VM44 retained Delete, VM43 retained
+  Rename, VM42 both-absent
   record cleanup, VM40 principal rotation, VM39 bare-present ref repair,
   VM38 missing-image repair, and VM34 missing-runtime repair passed their
   selected gates. Detailed findings and logs remain in the evidence log.
-- **8f1 in progress:** the partial existing-branch Create replacement patch is
-  preserved. One Sol/high stream is finishing tests, API docs and a real
-  public-path VM45 fixture before recovery review. No VM45 pass is claimed.
+- **8f1 passed:** public preview/confirmation atomically supersede an early
+  no-effect blocked existing-branch Create with changed source/policy. Focused
+  SQLite, native, socket and race tests, retained recovery review, affected
+  package suites and the selected serial VM45 passed. Restart preserves
+  absence facts for early creating records.
   New-branch, dirty-workspace and uncertain-effect replacements remain outside
   this first slice and require separate verified recovery/loss-review work.
 - The 2026-09-25 model/approval-service 401 interruption is recorded below.
@@ -17,7 +20,7 @@
   2026-09-26. No VM or prior agent was running at resumption.
 - Latest full VM checkpoint is **through VM28**, before subsequent changes;
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
-  serial; VM44 powered down and removed its fresh disk.
+  serial; VM45 powered down and removed its fresh disk.
 - Remaining implementation includes broader replacement, abandonment/orphan
   handling, bulk project deletion, and installation/upgrade/backup/restore
   acceptance. VM37 proved negative public-egress isolation and synthetic
@@ -2774,3 +2777,67 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   checks stale/unsafe refusal, atomic supersession with new UUID/op/key,
   replay/restart and sibling preservation. Bash/ShellCheck passed; final
   race tests, retained recovery review and actual VM45 remain pending.
+  Final pre-review validation passed offline `go test ./... -count=1` with
+  scoped socket access, focused real SQLite/RPC/native regressions, Bash
+  syntax, pinned ShellCheck, selector tests and a local extracted wrapper
+  probe of capture/pause/ref advance/release. Preview also binds the new base
+  image, plugin selection and environment intent to refuse configuration
+  drift before confirmation. Prior reviewer threads were no longer available,
+  so one fresh Sol/high reviewer now owns this completed recovery batch and
+  will be reused. No VM45 has run.
+  Recovery review found a blocking old-Create replay scheduling race: exact
+  replay can enqueue the blocked worker after final absence verification but
+  before supersession; a policy-only branch-assigned case could then create
+  old-UUID endpoints or key material from a previously read session. Atomic
+  SQLite handoff and Retry's status check alone do not exclude this path.
+  The implementer is serializing creation work with replacement and adding a
+  deterministic concurrency regression. VM45 remains held pending re-review.
+  That finding is closed: session.create workers now acquire the same session
+  lock as replacement and reload operation identity/status after waiting,
+  before reading the old session or issuing effects. Independent repeated
+  daemon `-race` regressions for late replay, worker-first exclusion and
+  contention/cancellation passed, as did focused SQLite/RPC/native tests and
+  Bash/ShellCheck. The retained reviewer approved the corrected source and
+  VM45 fixture; root will run the selected VM after post-fix suite results.
+  First serial VM45 `.cache/p-vm/integration-20260926T102021Z-36795.log`
+  passed host isolation smoke and booted the public fixture but timed out
+  waiting for the fixture Git pause marker. Root found the wrapper invokes
+  unqualified touch/sleep while production Git deliberately restricts PATH
+  to the selected Git directory. A local probe under that exact restricted
+  environment will verify the fixture mismatch before correction; only the
+  fixture utility paths may change, never the broker's PATH restriction.
+  Runner exited 1 and removed the fresh VM disk. No VM45 pass is claimed.
+  The exact restricted-environment probe reproduced exit 127 at touch on
+  quiet-ref read count 2, with no pause marker. The corrected fixture uses a
+  shell builtin to create the marker and a resolved absolute sleep binary;
+  it passed capture/pause/host-ref advance/release under the cleared broker
+  environment. Timeout diagnostics now report bounded count/marker and
+  operation state without tokens, requests or evidence. Bash/ShellCheck/diff
+  passed. Production code and restricted PATH were unchanged.
+  Second serial VM45 `.cache/p-vm/integration-20260926T102526Z-86592.log`
+  reached the real blocked source-ready Create, initial eligible preview and
+  stale-key/tip refusals. It then failed line 320 extracting a token from the
+  fresh preview after daemon restart. Root found Recover unconditionally
+  calls endpoints.Ensure for all non-removing session rows, including early
+  no-effect creating records. The implementer is reproducing this startup
+  path and adding bounded preview diagnostics, then will make recovery follow
+  durable creation progress rather than weaken replacement absence checks.
+  VM exited 1 and removed its fresh disk; review and rerun remain pending.
+  The focused real endpoint regression reproduced startup manufacturing that
+  directory/socket. Recovery now restores endpoints for established sessions
+  and matching committed late creation checkpoints, skips early or unknown
+  creation evidence, and preserves unexpected early paths for inspection.
+  The retained reviewer approved the correction; independent socket/race
+  regressions passed three repeats. Replacement absence checks remain strict.
+  Bash/ShellCheck/diff checks passed; affected-suite result and VM45 rerun
+  remain pending.
+  All affected control/daemon/runtimeincus package suites passed after the
+  correction. Root started the next selected serial VM45 run; source and
+  fixture are frozen for this checkpoint.
+  Selected serial VM45 passed (exit 0), log
+  `.cache/p-vm/integration-20260926T103241Z-134747.log`, marker
+  `P_CREATE_REPLACE_PASS`. Public blocked Create, exact preview, stale
+  key/source refusal, restarted preview, atomic supersession, old/new request
+  replay, established replacement and sibling preservation passed. The
+  runner powered down and removed its fresh disk. This validates the bounded
+  existing-branch/no-effect slice only; broader replacement remains pending.

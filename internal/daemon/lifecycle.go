@@ -58,6 +58,7 @@ type lifecycle struct {
 	principalRepairPreviews map[string]principalRepairPreviewState
 	recordRepairPreviews    map[string]recordRepairPreviewState
 	retainedDeletePreviews  map[string]retainedDeletePreviewState
+	createReplacePreviews   map[string]createReplacePreviewState
 }
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
@@ -334,7 +335,7 @@ func (l *lifecycle) Recover() error {
 			if s.Registry == "removing" {
 				continue
 			}
-			if _, e = l.endpoints.Ensure(l.ctx, s.UUID); e != nil {
+			if e = recoverSessionEndpoint(l.ctx, s, l.store.CreationForSession, l.endpoints.Ensure); e != nil {
 				return e
 			}
 			if l.events != nil {
@@ -445,7 +446,7 @@ func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
 	}
 }
 
-func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) {
+func (l *lifecycle) sessionLockSlot(id string) chan struct{} {
 	l.mu.Lock()
 	if l.sessionLocks == nil {
 		l.sessionLocks = map[string]chan struct{}{}
@@ -457,6 +458,11 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 		l.sessionLocks[id] = slot
 	}
 	l.mu.Unlock()
+	return slot
+}
+
+func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) {
+	slot := l.sessionLockSlot(id)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -528,7 +534,7 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 			if err != nil {
 				return op, err
 			}
-			if op.Status != "completed" {
+			if op.Status != "completed" && op.Status != "superseded" {
 				if err = l.enqueue(op.ID); err != nil {
 					return op, err
 				}
@@ -594,7 +600,7 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 		if errors.Is(priorErr, control.ErrNotFound) {
 			l.recordCreation(op, req.Branch)
 		}
-		if op.Status != "completed" {
+		if op.Status != "completed" && op.Status != "superseded" {
 			if err = l.enqueue(op.ID); err != nil {
 				return op, err
 			}
@@ -642,7 +648,7 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 	if errors.Is(priorErr, control.ErrNotFound) {
 		l.recordCreation(op, req.Branch)
 	}
-	if op.Status != "completed" {
+	if op.Status != "completed" && op.Status != "superseded" {
 		if err = l.enqueue(op.ID); err != nil {
 			return op, err
 		}
@@ -656,6 +662,9 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	}
 	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "project.retained.delete" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
 		return op, control.ErrInvalid
+	}
+	if op.Status == "superseded" {
+		return op, control.ErrConflict
 	}
 	if op.Status != "completed" {
 		if op.Status == "blocked" {
@@ -725,6 +734,14 @@ func (l *lifecycle) process(id string) {
 	}
 	if op.Status == "completed" || op.Status == "superseded" {
 		return
+	}
+	if op.Kind == "session.create" {
+		var release func()
+		op, release, err = l.lockCreationOperation(ctx, op, l.store.GetOperation)
+		if err != nil {
+			return
+		}
+		defer release()
 	}
 	fail := func(err error) {
 		if ctx.Err() != nil {

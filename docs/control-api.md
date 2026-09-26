@@ -368,13 +368,15 @@ same captured request, UUID, source commit, policy, and selected plugin
 digests. It reuses the recorded image when available. A verified cache miss
 before an instance exists may rebuild from the same captured source; an
 uncertain instance or publication cannot trigger blind recreation. A changed
-request needs a new idempotency key and cannot reuse an
-assigned branch.
+request needs a new idempotency key. Reusing a blocked creation's assigned
+branch requires the explicit replacement methods below.
 
 | Method | Params | Result |
 |---|---|---|
 | `project.create` | `{"v":1,"key":"idempotency-key","project":"team/app"}`; optionally include `"url":"ssh://host/repo"` for origin mode | `v`, `operation`; blank mode reserves unborn `main`. Origin mode contacts the URL before committing the project and observation; an empty origin also reserves unborn `main`. |
 | `session.create` | `{"v":1,"key":"idempotency-key","project":"team/app","branch":"work","choice":"existing"}` or `choice:"new"` with `source:"refs/heads/main"` or a committed object ID; origin mode uses `choice:"new"`, `origin_ref:"refs/heads/main"` or a tag, and `expected_commit_oid:"<observed commit>"` with no `source` | `v`, `operation`; origin mode requires a fresh observation and fetch, then captures the exact commit and origin identity for Retry. Blank session creation is unavailable. |
+| `session.create.replace.preview` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","project":"team/app","branch":"work","choice":"existing"}` | `v`, `preview` with old immutable request/operation/UUID/source/policy/image, new request/source/policy/image/plugin selection, provisional resource facts, `eligible`, and `unsafe_reasons`. Eligible previews also return `confirmation_token` and `expires_at`. |
+| `session.create.replace.confirm` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | `v`, new `session.create` operation; an exact accepted key/token replays after restart. |
 | `operation.inspect` | `{"v":1,"id":"operation-UUID"}` | `v`, `operation` with status, phase, bounded diagnostic, and immutable evidence. |
 | `operation.retry` | Same as inspect | `v`, `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
 | `operation.list` | `{"v":1,"limit":1..20,"after":"optional-operation-UUID"}` | `v`, concise operation summaries (without request/evidence), `next` in bytewise ID order. |
@@ -383,6 +385,34 @@ assigned branch.
 | `session.start` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. |
 | `session.stop` | Same as Start | `v`, `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments return `busy`. |
 | `session.attach` | Same as Start | `v`, `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
+
+The replacement methods implement a bounded subset of
+[Try again with changes](session-lifecycle.md#failure-cancellation-and-retry).
+They accept only a blocked existing-branch creation on the same project and
+branch, in `source-ready` or `branch-assigned` before any builder, key,
+endpoint, principal, or native runtime effect. Fresh native inventory and
+local checks must positively prove these effects absent. `provisional` reports
+`assigned_ref:"preserved_existing"` and `absent` for each resource only after
+that proof succeeds. New branches, later phases, unexpected resources,
+attachments, active workers, and unavailable observations remain ineligible;
+this path does not review or clean uncertain effects or workspace data.
+The source tip or normalized policy must have changed. The existing ref is
+preserved, including its newly observed tip.
+
+Preview is read-only. Ineligible previews return reasons without a token.
+Eligible tokens expire after two minutes and are held by the issuing daemon;
+restart invalidates an unconsumed token. Confirmation rechecks the exact
+reviewed request, tip, policy, image, plugin selection, old evidence, and
+resource absence. Stale facts or an expired token return `busy` without
+superseding the old request. Successful confirmation atomically marks the old
+operation `superseded`, releases its session assignment, and creates one new
+UUID, operation, and immutable request with the new key before scheduling its
+worker. Evidence records `supersedes_operation_id`, `supersedes_uuid`, and a
+confirmation-token hash. Repeating an accepted confirmation with the same key,
+old UUID, and token returns that operation, including after restart. Reusing
+its key with different confirmation inputs conflicts. Retrying the superseded
+operation returns `busy`; exact replay of its original `session.create` key
+returns the superseded operation without scheduling the old creation.
 
 Each session view returns all four [public status facts](session-observability.md#status-model).
 When a session was created with environment selection, its view also includes
@@ -447,8 +477,9 @@ The initial scan is limited to 512 entries, 16 MiB total file contents, 2 MiB
 per file, and depth 24. It refuses escapes, nested mounts, unsupported Git
 configuration, linked worktrees, and other unsupported layouts explicitly.
 An incomplete scan never produces a clean result. The separate loss-inspection
-method below provides bounded linked-worktree and retention evidence;
-destructive confirmation and lifecycle operations remain pending.
+method below provides bounded linked-worktree and retention evidence.
+[Removal previews and confirmation](#session-removal-preview) govern the
+implemented Discard and Delete lifecycle methods.
 
 ## Workspace loss inspection
 

@@ -201,6 +201,11 @@ type RecordRepairAPI interface {
 	ConfirmRecordRepair(context.Context, string, string, string) (Operation, error)
 }
 
+type CreateReplaceAPI interface {
+	PreviewCreateReplace(context.Context, string, ReserveSessionRequest) (CreateReplacePreview, error)
+	ConfirmCreateReplace(context.Context, string, string, string) (Operation, error)
+}
+
 func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life LifecycleAPI) Handler {
 	base := StateHandlerWithGit(store, git, info)
 	return func(ctx context.Context, method string, params json.RawMessage) (any, *RPCError) {
@@ -264,6 +269,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			if _, ok := life.(RecordRepairAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.record.repair.preview", "session.record.repair.confirm")
 			}
+			if _, ok := life.(CreateReplaceAPI); ok {
+				object["available"] = append(object["available"].([]string), "session.create.replace.preview", "session.create.replace.confirm")
+			}
 			object["lifecycle"] = "partial"
 			return object, nil
 		case "project.create":
@@ -300,6 +308,53 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.create request")
 			}
 			op, e := life.CreateSession(ctx, req)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "operation": op}, nil
+		case "session.create.replace.preview":
+			replace, ok := life.(CreateReplaceAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V                 int    `json:"v"`
+				OldUUID           string `json:"old_uuid"`
+				Key               string `json:"key"`
+				Project           string `json:"project"`
+				Branch            string `json:"branch"`
+				Choice            string `json:"choice"`
+				Source            string `json:"source"`
+				OriginRef         string `json:"origin_ref"`
+				ExpectedCommitOID string `json:"expected_commit_oid"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.OldUUID) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid create replacement preview")
+			}
+			req := ReserveSessionRequest{Key: p.Key, Project: p.Project, Branch: p.Branch, Choice: p.Choice, Source: p.Source, OriginRef: p.OriginRef, ExpectedCommitOID: p.ExpectedCommitOID}
+			if !ValidSessionCreateRequest(req) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid create replacement request")
+			}
+			preview, e := replace.PreviewCreateReplace(ctx, p.OldUUID, req)
+			if e != nil {
+				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "preview": preview}, nil
+		case "session.create.replace.confirm":
+			replace, ok := life.(CreateReplaceAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V       int    `json:"v"`
+				OldUUID string `json:"old_uuid"`
+				Key     string `json:"key"`
+				Token   string `json:"confirmation_token"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.OldUUID) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) || len(p.Token) != 32 {
+				return nil, errorRPC(-32602, "invalid_params", "invalid create replacement confirmation")
+			}
+			op, e := replace.ConfirmCreateReplace(ctx, p.OldUUID, p.Key, p.Token)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}
