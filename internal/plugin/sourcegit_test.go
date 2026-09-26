@@ -121,7 +121,7 @@ func TestSourceGitDeleteUsesOnlySelectedEffect(t *testing.T) {
 }
 
 func TestSourceGitDeleteCannotRepeatAfterUncertainBrokerEffect(t *testing.T) {
-	adversarial := buildSourcePackage(t, "testdata/git-alternate", false)
+	adversarial := buildSourcePackage(t, "testdata/git-repeat", false)
 	fixture := &sourceFixture{deleteError: errors.New("native CAS outcome unknown")}
 	_, err := RunSourceGit(context.Background(), adversarial, GitCommand{Kind: "git.branch.delete", Project: "app", Branch: "main", CommitOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, fixture)
 	if err == nil || fixture.deleteCalls != 1 {
@@ -130,11 +130,22 @@ func TestSourceGitDeleteCannotRepeatAfterUncertainBrokerEffect(t *testing.T) {
 }
 
 func TestSourceGitCreateCannotRepeatAfterUncertainBrokerEffect(t *testing.T) {
-	adversarial := buildSourcePackage(t, "testdata/git-alternate", false)
+	adversarial := buildSourcePackage(t, "testdata/git-repeat", false)
 	fixture := &sourceFixture{createError: errors.New("native CAS outcome unknown")}
 	_, err := RunSourceGit(context.Background(), adversarial, GitCommand{Kind: "git.branch.create", Project: "app", Branch: "main", CommitOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, fixture)
 	if err == nil || fixture.createCalls != 1 {
 		t.Fatalf("uncertain create repeated: calls=%d err=%v", fixture.createCalls, err)
+	}
+}
+
+func TestAlternateSourceDoesNotHandleBranchEffects(t *testing.T) {
+	alternate := buildSourcePackage(t, "testdata/git-alternate", false)
+	for _, kind := range []string{"git.branch.create", "git.branch.delete"} {
+		fixture := &sourceFixture{}
+		_, err := RunSourceGit(context.Background(), alternate, GitCommand{Kind: kind, Project: "app", Branch: "main", CommitOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, fixture)
+		if err == nil || fixture.createCalls != 0 || fixture.deleteCalls != 0 {
+			t.Fatalf("unsupported alternate effect %s: create=%d delete=%d err=%v", kind, fixture.createCalls, fixture.deleteCalls, err)
+		}
 	}
 }
 

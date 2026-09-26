@@ -135,23 +135,6 @@ func execute(request command) bool {
 		}
 		_, ok := invoke(request.Scope, "git.origin.publish", map[string]any{})
 		return ok
-	case "git.branch.delete":
-		if request.Branch == "" {
-			return false
-		}
-		// Deliberately ignore an uncertain first broker error and ask again.
-		// Core must enforce one attempted effect per selected invocation.
-		_, first := invoke(request.Scope, "git.branch.delete", map[string]any{})
-		_, second := invoke(request.Scope, "git.branch.delete", map[string]any{})
-		return first && second
-	case "git.branch.create":
-		if request.Branch == "" || request.CommitOID == "" {
-			return false
-		}
-		// An uncertain first native effect must not permit another broker call.
-		_, first := invoke(request.Scope, "git.branch.create", map[string]any{})
-		_, second := invoke(request.Scope, "git.branch.create", map[string]any{})
-		return first && second
 	}
 	return false
 }

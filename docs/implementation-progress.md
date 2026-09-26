@@ -12,10 +12,12 @@
 - Remaining automated delivery gate: final full serial VM suite (all55 steps),
   shared-guest attempt failed atVM06; grouped attempt diagnosed selector stdin
   atVM05. Corrected focused orchestration and selected05/06/21 checks pass;
-  final restricted/public/restricted checkpoint remains pending; its latest
-  attempt reachedVM07 and diagnosed a stale refusal-message assertion.
-  Latest previous full checkpoint was throughVM28. Root owns the sole stream;
-  retained reviewer is idle. No universal repair/replacement/cleanup is claimed.
+  latest harness/VM07 fixes committed `d78cf81` and `71e2020`. VM05/06/21/07
+  acceptance passed. Full retry passed01–07 then exposed VM08 fixture-role
+  collision; focused real-WASI regressions and retained review passed, and
+  selected serial VM08 passed. Final grouped checkpoint is next. Root owns
+  the sole implementation
+  stream; retained reviewer is idle. Latest earlier checkpoint was throughVM28. No universal repair/replacement/cleanup is claimed.
 - Authenticated Codex acceptance remains pending user validation using the
   exact manual procedure below. Automated checks use fixtures/dummy files;
   no credentials or login. Production TUI, backup/restore, software rollback,
@@ -4852,3 +4854,39 @@ it does not close the installation or external-tool attribution gates.
   before RPC all passed. No product behavior changed; required package checks
   passed, VM powered off/disk removed. Commit the diagnostic assertion and
   preserved evidence, then resume full grouped checkpoint.
+
+  Passing VM07 console `.cache/p-vm/integration-20260926T220509Z-1596340.log`.
+  Assertion/evidence committed71e2020. Full grouped retry from that commit runs
+  serially; driver `/tmp/p-cli-mvp-final-grouped3-driver.out`. Earlier valid
+  selected evidence remains preserved, and no authenticated acceptance is claimed.
+
+- **Next full retry from71e2020:** restricted group
+  `.cache/p-vm/integration-20260926T220623Z-1597924.log` passed01–07, failedVM08's
+  no-ref-mutation assertion. Reproduced without another VM using exact pinned
+  Git/CLI/WASI/native fixture paths and closed throwaway HOME/state (no Incus
+  or credentials), trace `/tmp/p-git-source-diagnostic.log`. Ref diff identifies
+  only alternate-cannot-create appearing after alternate package refusal.
+  Source diagnosis: git-alternate, originally the unsupported-method fixture,
+  later gained deliberately repeated create/delete broker effects for one-effect
+  unit regressions. The old VM expects unsupported creation with zero effects,
+  while the adversarial fixture performs one approved CAS then refuses when
+  core blocks its repeated call. This is fixture-role collision, not native
+  fallback or a reason to weaken no-effect/one-effect assertions.
+  Correction acceptance: separate the adversarial repeated-effects WASI fixture
+  from the alternate adapter; retain both exact unit call-count checks andVM08's
+  immutable ref-set assertion. Focused selected-WASI tests, retained review and
+  selectedVM08 before commit/full retry. No product authorization changes.
+
+  Focused real-WASI alternate create/delete zero-effect regressions, unchanged
+  uncertain-effect one-call create/delete checks, and source orchestration passed.
+  Go formatting and diff checks passed. Retained Sol high reviewer approved
+  strict ABI/call sequencing and fixture separation; no production change or
+  weakened assertion. Selected serial VM08 is running; no acceptance claimed yet.
+
+  Selected serial VM08 passed, exit0, console
+  `.cache/p-vm/integration-20260926T221912Z-1660598.log`, driver
+  `/tmp/p-vm08-fixture-separation-driver.out`. Required package checks passed;
+  real Git source operations, unsupported alternate no-ref-effect assertion and
+  committed-source marker passed. VM powered off and disk removed. This is
+  native Git integration evidence with test adapters, not authenticated Codex.
+  Commit the reviewed fixture split and evidence before the full grouped retry.
