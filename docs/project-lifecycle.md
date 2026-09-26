@@ -246,6 +246,36 @@ re-inspects authorities and attempts every remaining deletion. The project
 registry and deletion records are removed last so partial external cleanup is
 never forgotten.
 
+After positive completion, P clears resource claims and historical raw request
+and loss evidence. It retains a minimal completed deletion outcome and retired
+idempotency-key receipts containing only key, operation ID, kind and request
+digest. An old Create, origin or publication request must not become new work
+merely because the project was deleted. These receipts confer no project or
+session authority and are distinct from the excluded abandonment workflow.
+
+### Implemented aggregate boundary
+
+The CLI-first aggregate path accepts established, stopped, detached sessions
+with fresh standalone workspace-loss proofs, or explicit
+acknowledgement of positively proved missing runtimes. It accepts
+indexed, exactly owned environment images and bounded Git/history/report
+inventories. Running or attached sessions require detach and Stop followed by
+fresh inspection. Incomplete creators require supported separate cleanup or
+exact-identity investigation first. Oversized or unfamiliar inventories remain
+intact with preparation or investigation instructions; no uncertain resource
+is deleted to meet a limit. The [host API](control-api.md#aggregate-project-deletion)
+owns the request fields and current bounds; validation evidence belongs in the
+progress record.
+
+Within already-confirmed bulk ensure-absent work, an issued source DELETE is
+never repeated. After interruption, available deterministic-name and full
+project/session inventory checks may positively prove the source absent and
+advance the durable outcome. A present original, renamed/competing machinery,
+unavailable authority or uncertain identity retains the incomplete operation
+for investigation. P never recreates or reuses a retired session name to finish
+cleanup. This differs from the stricter unknown-issued hold of the separate
+assembled failed-creation cleanup path.
+
 ## MVP boundary
 
 MVP includes explicit project creation from one SSH origin or blank state,

@@ -257,6 +257,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			if _, ok := life.(RetainedRenameAPI); ok {
 				object["available"] = append(object["available"].([]string), "project.retained.rename")
 			}
+			if _, ok := life.(ProjectDeleteAPI); ok {
+				object["available"] = append(object["available"].([]string), "project.delete.preview", "project.delete.confirm")
+			}
 			if _, ok := life.(RetainedDeleteAPI); ok {
 				object["available"] = append(object["available"].([]string), "project.retained.delete.preview", "project.retained.delete.confirm")
 			}
@@ -558,6 +561,54 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			op, e := rename.RenameRetainedBranch(ctx, req)
 			if e != nil {
 				return nil, lifecycleRPC(e)
+			}
+			return map[string]any{"v": 1, "operation": op}, nil
+		case "project.delete.preview":
+			deletion, ok := life.(ProjectDeleteAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V                  int               `json:"v"`
+				Project            string            `json:"project"`
+				LossOperations     map[string]string `json:"loss_operations"`
+				AcknowledgeMissing []string          `json:"acknowledge_missing,omitempty"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || len(p.LossOperations) > 4 || len(p.AcknowledgeMissing) > 4 {
+				return nil, errorRPC(-32602, "invalid_params", "invalid project deletion preview")
+			}
+			for uuid, id := range p.LossOperations {
+				if !validUUID(uuid) || !validUUID(id) {
+					return nil, errorRPC(-32602, "invalid_params", "invalid project loss proof")
+				}
+			}
+			for _, uuid := range p.AcknowledgeMissing {
+				if !validUUID(uuid) {
+					return nil, errorRPC(-32602, "invalid_params", "invalid missing runtime acknowledgement")
+				}
+			}
+			preview, e := deletion.PreviewProjectDelete(ctx, ProjectDeletePreviewRequest{Project: p.Project, LossOperations: p.LossOperations, AcknowledgeMissing: p.AcknowledgeMissing})
+			if e != nil {
+				return nil, projectDeleteRPC(e)
+			}
+			return map[string]any{"v": 1, "preview": preview}, nil
+		case "project.delete.confirm":
+			deletion, ok := life.(ProjectDeleteAPI)
+			if !ok {
+				return nil, lifecycleRPC(ErrNotFound)
+			}
+			var p struct {
+				V       int    `json:"v"`
+				Key     string `json:"key"`
+				Project string `json:"project"`
+				Token   string `json:"confirmation_token"`
+			}
+			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) {
+				return nil, errorRPC(-32602, "invalid_params", "invalid project deletion confirmation")
+			}
+			op, e := deletion.ConfirmProjectDelete(ctx, ProjectDeleteConfirmRequest{Key: p.Key, Project: p.Project, ConfirmationToken: p.Token})
+			if e != nil {
+				return nil, projectDeleteRPC(e)
 			}
 			return map[string]any{"v": 1, "operation": op}, nil
 		case "project.retained.delete.preview":
@@ -932,4 +983,18 @@ func lifecycleRPC(err error) *RPCError {
 	default:
 		return errorRPC(-32004, "unavailable", "lifecycle authority is unavailable")
 	}
+}
+
+func projectDeleteRPC(err error) *RPCError {
+	if errors.Is(err, ErrConflict) {
+		message := err.Error()
+		if len(message) > 900 {
+			message = message[:900]
+		}
+		return errorRPC(-32003, "busy", message)
+	}
+	if errors.Is(err, ErrInvalid) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return lifecycleRPC(err)
+	}
+	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review")
 }

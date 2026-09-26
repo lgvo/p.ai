@@ -4,6 +4,7 @@
 
 - Branch: `feature/cli-first-mvp`. Latest commits: public DoH/egress `8cd7fc7`,
   Rename mismatch/manual correction `fcb4f40`, missing-ref mismatch `7e48594`.
+  Static distribution/notices committed `c315b79`.
   Relevant serial VM37, VM33, VM39, VM50, VM51 and static-distribution
   VM48 passed; no VM is running.
 - Read-only loss inspection for stopped assembled failed creations passed
@@ -12,6 +13,9 @@
   Confirmed cleanup passed focused/broader/race checks, retained review and
   selected serial VM51, committed `8c75851`. Its supported boundary remains
   explicit below.
+- Bulk project deletion passed focused/broader/race checks, retained review and
+  serial VM52, including the diagnosed CLI confirmation deadline correction.
+  No VM is running. Actual cached-session bulk acceptance remains pending.
 - Remaining gates: bulk project deletion, plugin management and NixOS/Incus
   installation/distribution acceptance. Complex unsupported creation/cleanup
   states preserve resources; no universal replacement/repair is claimed.
@@ -118,10 +122,10 @@ and unrelated working-tree changes are preserved.
 | 5 | Trusted attachment helper, leases, session RPC and observability | Token races, connection ownership, unattended reducer, status projection | PTY attach/detach and client/daemon loss; persistent host survives | Status RPC, attachment, and daemon events passed VM |
 | 6 | SSH origins, source selection, publication and retained branches | Contact-before-association, fast-forward publication, unknown results | Local SSH origin fixture; fetch/publish/retained branch workflows | Origin transport/association/creation and public publication/retained queries passed VM |
 | 7 | Committed Nix devShell builds, activation and project-scoped image cache | Source/lock identity, activation validation, cache keys and cleanup | Restricted builder; two private stores; cache loss and stop/start | Offline creation/cache/activation/retry and explicit collection/recovery passed selected VM gates; public fetch remains gated on step 9 |
-| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; Rename/missing-ref manual mismatch acceptance passed selected VM33/39; read-only assembled loss VM50 and confirmed assembled cleanup VM51 passed for the documented narrow boundary; project deletion pending; abandonment excluded |
+| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; Rename/missing-ref manual mismatch acceptance passed selected VM33/39; read-only assembled loss VM50 and confirmed assembled cleanup VM51 passed for the documented narrow boundary; base-session bulk deletion passed VM52; cached-session acceptance pending; abandonment excluded |
 | 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c selected VM37 real DoH/DNS/HTTPS/Nix/private-resolution/redirect and negative isolation passed; synthetic fixtures separate |
 | 10 | Versioned Codex adapter and session-local authentication workflow | Strict semantic mapping, absent/unsupported hooks, isolation | Authentication-free event fixtures and dummy credential storage checks; real authenticated acceptance by user | VM27 adapter/event/persistence and VM31/32 dummy Discard/Delete cleanup passed; authenticated acceptance pending user validation |
-| 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Installed bundled composition passed VM48; service/install/license and plugin management pending |
+| 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Installed bundled composition and static binaries/dependency/Go notices passed VM48; service/install and plugin management pending |
 
 Steps may be split further when review or evidence reveals a distinct boundary.
 No unrun check or fixture-only result establishes production support. Missing
@@ -4223,3 +4227,199 @@ it does not close the installation or external-tool attribution gates.
   evidence, with no authenticated Codex execution. VM powered down and its fresh
   disk was removed. Commit this passing static-distribution checkpoint; service
   installation, plugin management, bulk deletion and final full suite remain open.
+
+- **Bulk project deletion — acceptance before editing:** reuse the retained Sol
+  high implementer for this substantial destructive/recovery batch; it is the
+  only implementation stream. Implement a CLI-first aggregate deletion preview
+  and explicit confirmation bound to project/origin/ref/session/attachment,
+  native identities, runtime-loss fingerprints and owned cache/resource facts.
+  Changed facts refuse before commitment. Confirmation atomically closes project
+  and session authority; durable per-resource ensure-absent work survives restart
+  and retains uncertain/unavailable native identity. No rollback, name-only
+  adoption, uncertain deletion or abandonment. Registry disappears last, after
+  exact owned runtime/credential/repository/cache absence; external filesystem
+  grant contents, unrelated projects and shared images remain untouched. Safely
+  unsupported states explain their existing cleanup/investigation path rather
+  than deleting uncertain resources. Focused real-SQLite authorization/recovery
+  checks and prepared auth-free VM fixtures precede retained review; root alone
+  runs the smallest serial project-deletion selection and commits after pass.
+  This is not a backup subsystem or universal failed-creation replacement.
+
+  Initial aggregate implementation boundary is quiescent established sessions:
+  stopped exact native runtimes or acknowledged positive absence, fresh completed
+  per-session loss inspections, no live attachments or competing operations.
+  Running/attached sessions receive explicit Stop/detach then fresh-inspection
+  instructions; incomplete creators use supported existing cleanup or manual
+  investigation. This records a first verifiable batch, not proof of every
+  project-deletion state; any remaining running/attachment/cache acceptance gap
+  stays explicit until implemented and validated. Existing project `deleting`
+  state, active-authority checks, exact removal and cache collection seams are
+  reused. No additional VM or second implementation stream has started.
+
+  Implementer architecture result: exact indexed project-owned cache claims are
+  included directly; delete only after confirmed runtime absence with existing
+  fingerprint/property collection proof, then remove the exact index. Unindexed
+  project-labeled machinery refuses with investigation instructions. Fresh loss
+  uses existing durable inspection operations while reviewed session locks stay
+  held (inspection workers do not acquire those locks). Cancelled/interrupted
+  precommit work leaves recoverable read helpers and active project authority;
+  atomic retirement waits for fresh fingerprints and full registry/ref/origin/
+  native/local/cache fact equality. Patch and focused tests are still in progress;
+  no review or project-deletion VM evidence is claimed yet.
+
+  Implementer milestone: four touched packages compile. New real-SQLite
+  project-deletion admission/reopen/monotonic/race checks, strict RPC checks and
+  native project inventory checks passed. A new Git-loss test initially lacked
+  the selected WASI source capability and correctly returned `unsupported
+  source-git capability`; fixture is being corrected to reuse the existing
+  selected backend. Product capability assertions stay intact. No product
+  blocker or VM run is claimed at this milestone; coherent patch/broader checks
+  and review remain pending.
+
+  Focused implementer checks now pass: real SQLite proof/reopen/partial-resource
+  monotonicity/admission races, strict RPC schema, actual selected WASI Git
+  union-of-all-heads loss and bounded-history refusal, and native inventory
+  unknown-builder/image/unavailable refusal. Prepared VM52 passes Bash,
+  ShellCheck and whitespace checks; no VM execution yet. It uses two stopped
+  target base sessions/retained refs and an unrelated live project, stale ref and
+  workspace confirmations, actual native deletion, explicitly injected second
+  source outage/restart, parked-original/competing-name refusal, exact identity
+  restoration/Retry and repository-last proof. Indexed-cache cleanup is wired,
+  but actual production-path cached-session bulk-deletion evidence is separately
+  pending; do not report base fixtures or synthetic indexes as that evidence.
+  Broader touched-package checks and final ready summary precede retained review.
+
+  Final implementer self-review found an authority-replay edge before review/VM:
+  deleting old operation keys could turn an old Create/origin/publication request
+  into new work after project removal. Retain only minimal retired idempotency
+  authority receipts (operation/key/kind and request digest, superseded outcome),
+  clearing raw old request/policy/origin and loss evidence. Original requests
+  and Retry must remain retired across reopen and never enqueue or recreate.
+  Successful completion receipts are ordinary idempotency protection, not the
+  excluded abandonment/orphan-forget workflow or retained live project state.
+  Implementer is adding reopen/old-replay checks and the VM52 post-completion
+  assertion; patch remains unreviewed and unexecuted in a VM.
+
+  Broader touched-package suites passed before the final replay correction:
+  control 7.865s, daemon 0.434s, Git service 8.230s and runtime adapter 3.638s;
+  socket escalation was scoped to temporary unit Unix sockets. Race subset
+  passed 8.080s. Final retirement uses a separate minimal immutable key/operation
+  ID/kind/request-SHA256 receipt table; full old operation/origin/publication
+  requests and evidence disappear. Retired keys refuse before source/origin
+  work, including raw-operation insert fencing. Post-fix reopen/old Create/
+  origin/publication tests are running, and VM52 checks both old Create keys
+  after completion. Incomplete cleanup must retain exact claims; successful main
+  deletion should retain only minimal outcome/idempotency evidence.
+
+  Recovery decision for bulk ensure-absent: never reissue source DELETE after
+  durable issued admission. If the exact original remains present or Incus/
+  identity is uncertain, retain closed authority, UUID/generation and investigation
+  diagnostic. After crash-after-success-before-receipt, available Incus may advance
+  only when deterministic-name checks and full session/project inventory
+  positively exclude original, renamed, competing and unknown owned machinery.
+  P does not recreate or reuse the retired session name. This positive-absence
+  convergence is allowed for already-confirmed bulk deletion; it is distinct
+  from assembled cleanup's stricter unconditional issued-uncertainty hold.
+  Exact positive-absence and present/competing refusal checks must support this
+  boundary, then retained review checks the coherent completed patch.
+
+  Final broader touched-package run after replay correction passed: control
+  7.959s, daemon 0.428s, Git service 8.183s, runtime adapter 3.634s. Expanded
+  control race selection passed 13.856s. Implementer is checking the final
+  receipt/resource boundaries and small daemon decision regression before its
+  ready-for-review report. Review and selected VM52 remain unperformed.
+
+  Completed patch ready: public `project.delete.preview`/`project.delete.confirm`,
+  at most four established stopped/detached sessions (positive missing identities
+  require explicit acknowledgement), twenty exact indexed images, bounded
+  standalone loss/ref/history/report facts. Code uses schema21; historical version
+  assertions advance without weakening, future-version rejection is22. Retained
+  reviewer approved the complete authorization/freshness/immutable identity/
+  one-time DELETE/full absence/registry-last/receipt batch with no blockers.
+  A suspected VM retry-observation race was withdrawn after inspecting Retry's
+  synchronous blocked-to-running transition; no unnecessary fixture correction
+  or assertion weakening. Coordinator updated authoritative project lifecycle,
+  host API and validation documents for current boundary and retained minimal
+  authority receipts. Final Bash/ShellCheck/whitespace/no-VM checks passed; root
+  launched only serial selected VM52. Indexed-cache native evidence remains
+  separately pending; no authenticated Codex action was attempted.
+
+  First selected serial VM52
+  `.cache/p-vm/integration-20260926T195846Z-538060.log` exited **1**.
+  Incus smoke, actual target/sibling creation and both stopped workspace loss
+  inspections passed; no deletion confirmation occurred. Fixture line166 called
+  `operation.list` with unsupported `project` and limit100, violating its strict
+  global pagination schema (limit1..20). Coordinator corrected only this fixture
+  to paginate all pages, filter the returned project summaries, and actually
+  verify every collected caller/implicit helper is absent. Existing ownership,
+  stale-confirmation and native deletion assertions are unchanged. Source and
+  documented API bounds remain intact. VM powered down; no pass or deletion
+  recovery evidence is claimed. Host-visible QEMU executable comm starts with
+  `.qemu-system`, so future process checks match the substring rather than a
+  bare-name anchor; the runner lock remains the authoritative serial guard.
+  Bash, pinned ShellCheck and whitespace checks precede the corrected VM52 only.
+
+  Second selected serial VM52
+  `.cache/p-vm/integration-20260926T200252Z-590344.log` exited **1** after
+  correcting pagination. It reached an `expect_busy` stale-confirmation check,
+  whose strict required busy/-32003 response did not match. The fixture discarded
+  its captured unexpected response, so logs do not establish timeout versus
+  classification; no product cause is asserted yet. Coordinator adds bounded
+  method/status/error (or operation ID/status) diagnostics and keeps the exact
+  assertion. CLI source has a fixed ten-second API deadline, a concrete suspect
+  for fresh multi-session inspection, but actual response is needed before any
+  product correction. VM shut down/disk removed. Only a diagnosed smallest VM52
+  repeat follows focused fixture checks; no pass, confirmed deletion or recovery
+  evidence is claimed, and no expensive unrelated check is rerun.
+
+  Third selected serial VM52
+  `.cache/p-vm/integration-20260926T200711Z-639703.log` exited **1**.
+  Both strict stale-ref/stale-byte assertions passed with their unchanged busy
+  contract, but fresh confirmation failed at line259 before its operation ID
+  could be recorded. The general RPC wrapper also swallowed captured error
+  stdout, so this run still does not establish the cause of fresh confirmation.
+  Coordinator makes every failed RPC emit only bounded method/status/error or
+  operation identity to stderr, preserving original stdout, exit status and all
+  assertions. This diagnostic improvement is needed before any source fix;
+  transport deadline remains a source-backed suspect, not an asserted diagnosis.
+  VM shut down/removed its disk. Repeat only VM52 for this new diagnostic; no
+  successful deletion/recovery or whole-MVP evidence is claimed.
+
+  Fourth selected serial VM52
+  `.cache/p-vm/integration-20260926T201134Z-688985.log` exited **1**.
+  The new bounded diagnostic positively identified a transport `i/o timeout`
+  during `project.delete.confirm`, before confirmation could return. The CLI's
+  fixed ten-second deadline is insufficient for fresh multi-session loss
+  inspection; this is a product client deadline issue, not an external blocker.
+  Coordinator gives this method a bounded two-minute transport deadline, leaving
+  other calls at ten seconds and preserving preview expiry/freshness checks.
+  A real private-socket CLI regression delays the reply eleven seconds to exercise
+  behavior beyond the old limit. Initial local build lacked gcc; matching the
+  delivered CGO_ENABLED=0 static settings fixes that test environment issue.
+  No native isolation, token expiry, busy assertion or cleanup boundary changes.
+  VM shut down and removed its disk; no deletion pass is claimed yet.
+
+  CLI regression passed `go test ./cmd/p -count=1` with static-build settings
+  (11.013s). Retained reviewer approved the scoped transport correction; the
+  daemon's existing thirty-second request limit still applies and was not
+  changed. Bash, pinned ShellCheck and whitespace checks passed. Run only the
+  corrected serial VM52 next; cached-session acceptance remains separate.
+
+
+  Fifth selected serial VM52
+  `.cache/p-vm/integration-20260926T202000Z-739457.log` exited **0**.
+  Exact stale-ref/stale-byte refusal preserved both stopped sessions and dummy
+  private/credential sentinels. Fresh confirmation closed project/session/Git
+  authority; actual source deletion, injected Incus read outage, daemon restart,
+  competing native identity refusal and restored Retry converged safely. The
+  original repository/registry/keys/endpoints and helper containers were removed;
+  unrelated project/private bytes/key and shared base image remained. Old Create
+  keys refused and the completed confirmation replayed its original operation.
+  `P_PROJECT_DELETE_STALE_PRESERVED`,
+  `P_PROJECT_DELETE_RESTART_IDENTITY_PRESERVED`, `P_PROJECT_DELETE_PASS` and the
+  exact selected-suite pass marker were present. The fresh VM powered down and
+  removed its disk. Outage/competing identities are deliberate fixture injection;
+  real native cleanup/restart is evidence for this supported base-session scope.
+  Actual Nix-built indexed-cache project deletion remains a separate gate.
+  Retained review and focused CLI regression cover the timeout correction;
+  existing server request bounds, security checks and assertions remain intact.

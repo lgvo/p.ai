@@ -101,7 +101,13 @@ func run(args []string) error {
 		if len(args) == 4 {
 			params = json.RawMessage(args[3])
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		deadline := 10 * time.Second
+		if args[2] == "project.delete.confirm" {
+			// Aggregate confirmation performs fresh durable loss inspections before
+			// retiring authority. Its preview still enforces the two-minute expiry.
+			deadline = 2 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), deadline)
 		defer cancel()
 		response, err := control.Call(ctx, args[1], args[2], params)
 		if err != nil {

@@ -119,6 +119,9 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (st
 // PublicationRecord returns a stable answer for a repeated key. An attempted
 // push without a committed answer is unknown; it must never be sent again.
 func (s *Store) PublicationRecord(ctx context.Context, r PublicationRequest) (PublicationResult, string, error) {
+	if e := s.checkRetiredKey(ctx, r.Key); e != nil {
+		return PublicationResult{}, "", e
+	}
 	var project, originURL, kind, source, oid, dest, status, raw string
 	err := s.db.QueryRowContext(ctx, `SELECT project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,result_json FROM publication_requests WHERE idempotency_key=?`, r.Key).Scan(&project, &originURL, &kind, &source, &oid, &dest, &status, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -152,7 +155,7 @@ func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (P
 	}
 	defer tx.Rollback()
 	var existing int
-	for _, table := range []string{"operations", "origin_requests"} {
+	for _, table := range []string{"operations", "origin_requests", "retired_lifecycle_requests"} {
 		column := "idempotency_key"
 		err = tx.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE `+column+`=?`, r.Key).Scan(&existing)
 		if err == nil {

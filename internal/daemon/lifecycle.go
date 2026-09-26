@@ -60,6 +60,7 @@ type lifecycle struct {
 	retainedDeletePreviews  map[string]retainedDeletePreviewState
 	createReplacePreviews   map[string]createReplacePreviewState
 	createCleanupPreviews   map[string]createCleanupPreviewState
+	projectDeletePreviews   map[string]projectDeletePreviewState
 }
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
@@ -276,6 +277,11 @@ func (l *lifecycle) Recover() error {
 		return err
 	}
 	ops = append(ops, collections...)
+	projectDeletes, e := l.store.UnfinishedProjectDeletes(l.ctx)
+	if e != nil {
+		return e
+	}
+	ops = append(ops, projectDeletes...)
 	workspace, err := l.store.UnfinishedWorkspaceInspects(l.ctx)
 	if err != nil {
 		return err
@@ -392,6 +398,11 @@ func (l *lifecycle) schedule() {
 				continue
 			}
 			ops = append(ops, collections...)
+			projectDeletes, e := l.store.UnfinishedProjectDeletes(l.ctx)
+			if e != nil {
+				continue
+			}
+			ops = append(ops, projectDeletes...)
 			workspace, err := l.store.UnfinishedWorkspaceInspects(l.ctx)
 			if err != nil {
 				log.Printf("workspace reconciliation: %v", err)
@@ -497,6 +508,9 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 
 func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectRequest) (control.Operation, error) {
 	_, priorErr := l.store.GetOperationByKey(ctx, req.Key)
+	if errors.Is(priorErr, control.ErrConflict) {
+		return control.Operation{}, priorErr
+	}
 	if req.URL != "" {
 		if err := gitservice.ValidateOriginURL(req.URL); err != nil {
 			return control.Operation{}, control.ErrInvalid
@@ -537,6 +551,9 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 		return control.Operation{}, control.ErrInvalid
 	}
 	_, priorErr := l.store.GetOperationByKey(ctx, req.Key)
+	if errors.Is(priorErr, control.ErrConflict) {
+		return control.Operation{}, priorErr
+	}
 	if _, configured := l.cfg.PolicyForProject(req.Project); !configured && errors.Is(priorErr, control.ErrNotFound) {
 		return control.Operation{}, control.ErrConflict
 	}
@@ -649,7 +666,7 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	if err != nil {
 		return op, err
 	}
-	if op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "session.create.cleanup" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "project.retained.delete" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
+	if op.Kind != "project.delete" && op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "session.create.cleanup" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "project.retained.delete" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
 		return op, control.ErrInvalid
 	}
 	if op.Status == "superseded" {
@@ -683,6 +700,10 @@ func (l *lifecycle) process(id string) {
 	ctx := l.ctx
 	op, err := l.store.GetOperation(ctx, id)
 	if err != nil {
+		return
+	}
+	if op.Kind == "project.delete" {
+		l.processProjectDelete(op)
 		return
 	}
 	if op.Kind == "session.create.cleanup" {

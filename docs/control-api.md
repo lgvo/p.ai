@@ -319,6 +319,8 @@ duplicate fields.
 | `project.retained.rename` | `{"v":1,"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `v`, `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key conflict. |
 | `project.retained.delete.preview` | `{"v":1,"project":"team/app","branch":"saved"}` | `v`, `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
 | `project.retained.delete.confirm` | `{"v":1,"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `v`, `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs conflict. |
+| `project.delete.preview` | `{"v":1,"project":"team/app","loss_operations":{"session-UUID":"completed-loss-operation-UUID"},"acknowledge_missing":[]}` | `v`, aggregate `preview` for whole-project deletion, including sessions, runtime loss, all P branch loss, exact credentials/repository/cache identities, preserved external mounts, warnings, token and expiry. |
+| `project.delete.confirm` | `{"v":1,"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | `v`, durable `operation` (`kind:"project.delete"`). Fresh loss and identity checks precede atomic authority closure. Completed exact confirmation replays without deleting again. |
 
 An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
 or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
@@ -857,6 +859,46 @@ principal with a durable `authority-disabled` phase, removes only that UUID's
 local key and endpoint, and then removes the registry row. Reappearance or an
 unknown readback blocks forward completion. It never deletes Git refs, an
 Incus instance, an image, or external data.
+
+## Aggregate project deletion
+
+The implemented aggregate boundary requires at most four established, stopped,
+detached sessions with standalone workspace layouts and recent completed
+`workspace.loss.inspect` proofs. `loss_operations` maps each present session UUID
+to its proof operation ID. Supply positively missing UUIDs in
+`acknowledge_missing` instead: the preview explicitly reports unknown runtime
+loss and still requires full native absence proof. Unknown native identity or
+unavailable Incus cannot be acknowledged into deletion authority.
+
+At most twenty indexed, exactly owned environment images and bounded Git/history
+and report inventories are accepted. The preview covers every assigned and
+retained P ref and the union of commits losing P reachability, with fresh origin
+preservation or explicit unknown evidence. Its expiry is at most two minutes and
+does not outlive the earliest loss proof. Changed facts or expired reports need
+fresh loss inspection and a new preview/token/key. Refused preparation directs
+the caller to Stop/detach, supported failed-creation cleanup, reviewed resource
+collection or identity investigation; P does not delete uncertain resources.
+
+After reviewing the complete preview, call `project.delete.confirm` with its
+token and a new key. It repeats bounded read-only loss inspection and fact checks
+before atomically setting the project to `deleting`, sessions to `removing`, and
+principals inactive. The CLI allows this confirmation call up to two minutes
+for fresh multi-session inspection; other API calls retain their ten-second
+transport deadline. This does not extend the preview's expiry or authorize
+expired facts. Poll `operation.inspect`; its incomplete evidence contains
+independent `runtime`, `local`, `image` and `repository` resources with `remaining`,
+`unreachable`, `deleted` or `already_absent` status. Existing `operation.retry`
+resumes the same confirmed outcome; it does not grant replacement machinery.
+
+An issued source DELETE is never dispatched again. Available name and full
+inventory checks may positively prove absence after a crash; a still-present,
+renamed, competing or uncertain source keeps cleanup blocked for investigation.
+Owned indexed images are deleted only after runtime absence. The repository and
+registry disappear last. Shared/base images, other projects, external grant
+contents and delivered logs remain. Completion clears bulky claims and old raw
+requests/evidence, retaining a minimal completed result and immutable retired
+key/operation-ID/kind/request-digest receipts. Replaying old Create, origin or
+publication keys refuses instead of recreating deleted authority.
 
 ## Explicit environment cache collection
 

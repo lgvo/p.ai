@@ -485,6 +485,90 @@ CREATE TRIGGER assembled_cleanup_requires_creator BEFORE INSERT ON operations
 PRAGMA user_version = 20;
 `
 
+const migration21 = `
+CREATE TABLE IF NOT EXISTS retired_lifecycle_requests (
+ idempotency_key TEXT PRIMARY KEY, operation_id TEXT NOT NULL, kind TEXT NOT NULL,
+ request_sha256 TEXT NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS immutable_retired_request BEFORE UPDATE ON retired_lifecycle_requests
+ BEGIN SELECT RAISE(ABORT,'immutable retired request'); END;
+CREATE TRIGGER IF NOT EXISTS retain_retired_request BEFORE DELETE ON retired_lifecycle_requests
+ BEGIN SELECT RAISE(ABORT,'retired request prevents replay'); END;
+
+CREATE UNIQUE INDEX IF NOT EXISTS one_project_delete ON operations(project_path) WHERE kind='project.delete' AND status IN ('running','blocked','unknown');
+CREATE TRIGGER IF NOT EXISTS deleting_project_operation_insert BEFORE INSERT ON operations
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting') AND
+ NOT (NEW.kind='project.delete' AND NEW.committed=1 AND NEW.phase='ensure-absent')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_operation_update BEFORE UPDATE ON operations
+ WHEN OLD.kind!='project.delete' AND EXISTS(SELECT 1 FROM projects WHERE path=OLD.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_sessions_insert BEFORE INSERT ON sessions
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_sessions_update BEFORE UPDATE ON sessions
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=OLD.project_path AND registry_state='deleting') AND NOT
+ (OLD.uuid=NEW.uuid AND OLD.project_path=NEW.project_path AND OLD.branch=NEW.branch AND NEW.registry_state='removing')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_policy BEFORE UPDATE ON projects
+ WHEN OLD.registry_state='deleting'
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_principal_insert BEFORE INSERT ON git_principals
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_principal_update BEFORE UPDATE ON git_principals
+ WHEN NEW.active!=0 AND EXISTS(SELECT 1 FROM projects WHERE path=OLD.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_sessions_delete BEFORE DELETE ON sessions
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=OLD.project_path AND registry_state='deleting') AND NOT EXISTS
+ (SELECT 1 FROM operations WHERE project_path=OLD.project_path AND kind='project.delete' AND committed=1 AND phase='finalizing')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project resources incomplete'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_registry_delete BEFORE DELETE ON projects
+ WHEN OLD.registry_state='deleting' AND NOT EXISTS
+ (SELECT 1 FROM operations WHERE project_path=OLD.path AND kind='project.delete' AND committed=1 AND phase='finalizing')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project resources incomplete'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_origin_requests_insert BEFORE INSERT ON origin_requests
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_origin_requests_update BEFORE UPDATE ON origin_requests
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_publication_requests_insert BEFORE INSERT ON publication_requests
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_publication_requests_update BEFORE UPDATE ON publication_requests
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_project_origins_insert BEFORE INSERT ON project_origins
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_project_origins_update BEFORE UPDATE ON project_origins
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_environment_images_insert BEFORE INSERT ON environment_images
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_environment_images_update BEFORE UPDATE ON environment_images
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_git_ref_guards_insert BEFORE INSERT ON git_ref_guards
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS deleting_project_git_ref_guards_update BEFORE UPDATE ON git_ref_guards
+ WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
+CREATE TRIGGER IF NOT EXISTS operations_retired_key BEFORE INSERT ON operations
+ WHEN EXISTS(SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=NEW.idempotency_key)
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project-deleted request retired'); END;
+CREATE TRIGGER IF NOT EXISTS origin_requests_retired_key BEFORE INSERT ON origin_requests
+ WHEN EXISTS(SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=NEW.idempotency_key)
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project-deleted request retired'); END;
+CREATE TRIGGER IF NOT EXISTS publication_requests_retired_key BEFORE INSERT ON publication_requests
+ WHEN EXISTS(SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=NEW.idempotency_key)
+ BEGIN SELECT RAISE(ABORT,'constraint failed: project-deleted request retired'); END;
+PRAGMA user_version=21;
+`
+
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
 }
@@ -557,8 +641,8 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 	if err = db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return nil, err
 	}
-	if version > 20 {
-		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 20)", version)
+	if version > 21 {
+		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 21)", version)
 	}
 	if version == 0 {
 		var id string
@@ -824,6 +908,19 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 		}
 		defer tx.Rollback()
 		if _, e = tx.ExecContext(ctx, migration20); e != nil {
+			return nil, e
+		}
+		if e = tx.Commit(); e != nil {
+			return nil, e
+		}
+	}
+	if version < 21 {
+		tx, e := db.BeginTx(ctx, nil)
+		if e != nil {
+			return nil, e
+		}
+		defer tx.Rollback()
+		if _, e = tx.ExecContext(ctx, migration21); e != nil {
 			return nil, e
 		}
 		if e = tx.Commit(); e != nil {
@@ -1238,6 +1335,9 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 		if err = monotonicCreateCleanupEvidence([]byte(oldEvidence), evidence); err != nil {
 			return err
 		}
+	}
+	if kind == "project.delete" && (phase != "ensure-absent" || oldPhase != phase || !committed || oldCommitted != 1 || digest([]byte(oldEvidence)) != digest(evidence) || status != "running" && status != "blocked") {
+		return ErrConflict
 	}
 	if kind == "session.create" && sessionID != "" && (status == "failed" || status == "completed" || status == "superseded") {
 		var registry string

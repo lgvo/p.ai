@@ -196,6 +196,17 @@ remainder, and unavailable Incus keeps identity and cleanup incomplete until
 the confirmed operation can resume. Verify
 there is no rollback or hidden multi-phase recovery mode.
 
+For the implemented quiescent aggregate boundary, also prove stale ref/workspace
+refusal before retirement; atomic project/session/principal closure; partial
+resource absence and blocked competing/renamed/unavailable identities across
+restart; no repeat dispatch of an issued source DELETE; repository/registry-last
+removal; and retired Create/origin/publication keys that cannot revive deleted
+authority. VM52 is the base-session fixture for this batch. Production-path
+cached-session/image deletion requires separate actual builder/cache evidence;
+synthetic indexes or base-only sessions do not establish that gate. Running/live
+attachment preparation and oversized/unsupported inventory refusals remain
+explicit boundaries, not proof of automatic deletion in those states.
+
 **Gate:** each lifecycle mutation as it enters the implementation.
 
 ## 7. Git and origin

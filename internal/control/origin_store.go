@@ -115,6 +115,9 @@ func (s *Store) PrepareOriginChange(ctx context.Context, c OriginChange) (bool, 
 }
 
 func (s *Store) CheckLifecycleKeyConflict(ctx context.Context, key string) error {
+	if e := s.checkRetiredKey(ctx, key); e != nil {
+		return e
+	}
 	var exists int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=?`, key).Scan(&exists)
 	if err == nil {

@@ -138,7 +138,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		}
 		defer tx.Rollback()
 		var journal int
-		e = tx.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM origin_requests WHERE idempotency_key=? LIMIT 1`, req.Key, req.Key).Scan(&journal)
+		e = tx.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM origin_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=? LIMIT 1`, req.Key, req.Key, req.Key).Scan(&journal)
 		if e == nil {
 			return Operation{}, Session{}, true, ErrConflict
 		}
@@ -247,6 +247,9 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 }
 
 func (s *Store) CheckOriginKeyConflict(ctx context.Context, key string) error {
+	if e := s.checkRetiredKey(ctx, key); e != nil {
+		return e
+	}
 	var exists int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=?`, key).Scan(&exists)
 	if err == nil {
@@ -312,6 +315,9 @@ func (s *Store) BeginBlankProjectWithCapacity(ctx context.Context, req BlankProj
 }
 
 func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, policy json.RawMessage, image string, selection CreationSelection, observe CapacityObserver) (Operation, error) {
+	if e := s.checkRetiredKey(ctx, req.Key); e != nil {
+		return Operation{}, e
+	}
 	if len(req.Key) < 1 || len(req.Key) > 128 || !validProject(req.Project) || len(req.URL) > 2048 {
 		return Operation{}, ErrInvalid
 	}
@@ -504,6 +510,9 @@ func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []plu
 }
 
 func (s *Store) GetOperationByKey(ctx context.Context, key string) (Operation, error) {
+	if e := s.checkRetiredKey(ctx, key); e != nil {
+		return Operation{}, e
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return Operation{}, err

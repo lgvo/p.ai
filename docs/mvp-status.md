@@ -157,7 +157,8 @@ Codex execution.
   Complex cases may refuse with a documented, validated cleanup-then-Create
   path. Uncertain resources remain intact when safe cleanup cannot proceed;
   VM49 validates bounded local committed-creation cleanup after a settled
-  builder failure. Broader assembled-runtime cleanup acceptance remains pending.
+  builder failure. VM50/51 validate inspection and confirmed cleanup of the
+  documented stopped assembled base-image boundary; broader cases still refuse.
 - The public status model has four independent facts:
   `session_condition`, `attached_count`,
   `latest_unattended_condition`, and `policy_condition`.
