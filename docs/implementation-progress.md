@@ -4,12 +4,15 @@
 
 - Branch: `feature/cli-first-mvp`. Latest commits: public DoH/egress `8cd7fc7`,
   Rename mismatch/manual correction `fcb4f40`, missing-ref mismatch `7e48594`.
-  Relevant serial VM37, VM33, VM39 and VM50 passed; no VM is running.
+  Relevant serial VM37, VM33, VM39, VM50 and VM51 passed; no VM is running.
 - Read-only loss inspection for stopped assembled failed creations passed
-  focused/broader unit checks, retained review and selected serial VM50.
-  Confirmed cleanup is the following batch, reusing the retained implementer.
-- Remaining gates: broader failed-creation cleanup, bulk project deletion,
-  plugin management and NixOS/Incus installation/distribution acceptance.
+  focused/broader unit checks, retained review and selected serial VM50;
+  committed `d903114`.
+  Confirmed cleanup passed focused/broader/race checks, retained review and
+  selected serial VM51. Its supported boundary remains explicit below.
+- Remaining gates: bulk project deletion, plugin management and NixOS/Incus
+  installation/distribution acceptance. Complex unsupported creation/cleanup
+  states preserve resources; no universal replacement/repair is claimed.
   Latest full-suite checkpoint remains through VM28; final full suite is pending.
 - Authenticated Codex acceptance remains pending the user's manual procedure.
   Automated tests use fixtures/dummy files and no host credentials.
@@ -113,7 +116,7 @@ and unrelated working-tree changes are preserved.
 | 5 | Trusted attachment helper, leases, session RPC and observability | Token races, connection ownership, unattended reducer, status projection | PTY attach/detach and client/daemon loss; persistent host survives | Status RPC, attachment, and daemon events passed VM |
 | 6 | SSH origins, source selection, publication and retained branches | Contact-before-association, fast-forward publication, unknown results | Local SSH origin fixture; fetch/publish/retained branch workflows | Origin transport/association/creation and public publication/retained queries passed VM |
 | 7 | Committed Nix devShell builds, activation and project-scoped image cache | Source/lock identity, activation validation, cache keys and cleanup | Restricted builder; two private stores; cache loss and stop/start | Offline creation/cache/activation/retry and explicit collection/recovery passed selected VM gates; public fetch remains gated on step 9 |
-| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; Rename/missing-ref manual mismatch acceptance passed selected VM33/39; broader cleanup/project deletion pending; abandonment excluded |
+| 8 | Rename, destructive previews, discard/delete, supported repair and project deletion | Stale confirmations, guards, quiescence, crash recovery, unavailable-authority retention | Real workspace/ref loss checks and restart at mutation boundaries | VM28–34, selected repair/replacement VM39–47 and bounded cleanup VM49 passed; Rename/missing-ref manual mismatch acceptance passed selected VM33/39; read-only assembled loss VM50 and confirmed assembled cleanup VM51 passed for the documented narrow boundary; project deletion pending; abandonment excluded |
 | 9 | Immutable project policy, filesystem grants and public-egress configuration | Normalization, drift, path identity, fail-closed capability gates | Negative mount/network probes, unchanged old policy, explicit recreation | 9a/9b VM35/36 passed; 9c selected VM37 real DoH/DNS/HTTPS/Nix/private-resolution/redirect and negative isolation passed; synthetic fixtures separate |
 | 10 | Versioned Codex adapter and session-local authentication workflow | Strict semantic mapping, absent/unsupported hooks, isolation | Authentication-free event fixtures and dummy credential storage checks; real authenticated acceptance by user | VM27 adapter/event/persistence and VM31/32 dummy Discard/Delete cleanup passed; authenticated acceptance pending user validation |
 | 11 | NixOS/Incus installation and complete CLI acceptance | Compatibility, dependencies/licenses, service/API documentation | Clean VM install and full MVP acceptance matrix; backup/restore and software upgrade/rollback excluded | Installed bundled composition passed VM48; service/install/license and plugin management pending |
@@ -4040,3 +4043,120 @@ it does not close the installation or external-tool attribution gates.
   This proves read-only inspection plus the labeled injected recovery case;
   confirmed failed-runtime deletion and authenticated Codex remain unvalidated.
   Commit this checkpoint and continue into separately reviewed confirmed cleanup.
+
+- **Confirmed assembled failed-create cleanup — acceptance before editing:**
+  extend the reviewed cleanup path for the same supported local stopped base-
+  image failure, using an explicitly selected completed creator-bound loss
+  inspection. Preview must show the workspace/private-credential loss and exact
+  identities, preserve the assigned P branch/shared resources and require a
+  fresh explicit token. Recompute bounded quiescent loss before any irreversible
+  source deletion; changed files, refs, identities or ownership refuse deletion.
+  Retire old creator/session authority durably, remove only the verified runtime,
+  its helper and reviewed local credentials/endpoints, and retain identity and
+  confirmed intent across unavailable authority/crash until verified absence.
+  Replays cannot recreate the retired runtime. Focused real SQLite/reopen/race
+  checks and retained review precede serial VM51. VM51 must prove stale loss
+  refusal/preservation, confirmed source/dummy-credential cleanup, branch and
+  sibling/shared-image preservation, recovery and then a separate corrected
+  Create with a new UUID. Uncertain or unsupported cases stay clear refusals;
+  no automatic branch deletion, checkout/reset or universal replacement is added.
+  Coordinator owns docs/evidence/VM/commits; reuse the same implementation stream.
+
+  Cleanup implementation decision: keep the original creator blocked/creating
+  while a separate durable precommit cleanup guard and stopped helper recompute
+  the reviewed loss. A settled stale review cleans only its helper/releases its
+  guards, permitting fresh inspection/review without resource loss. Retire the
+  original authority atomically immediately before native DELETE admission;
+  after that commit, recovery only ensures reviewed resources absent. Ambiguous
+  native effects retain identity/guards rather than permitting name-only deletion.
+  Explicit loss-operation input extends the existing preview while preserving
+  the validated early no-init path. These are intended implementation boundaries,
+  not additional passed integration evidence.
+
+- **Read-only static distribution preparation:** an immutable `git archive`
+  of committed `d903114` was built in `/tmp/p-static-audit.*`, separately from
+  the active cleanup edits. `CGO_ENABLED=0` builds of both `p` and
+  `p-runtime-kit` succeeded; `readelf -d` reports no dynamic section in either
+  binary, and the static `p version` command succeeded. With that same distinct
+  build environment, affected attachment/control/gitservice/runtimekit/
+  runtimeincus/plugin/daemon unit suites passed (`-count=1`, scoped socket
+  escalation; log `/tmp/p-static-audit-tests.out`). This establishes a viable
+  distribution candidate for the linked-system-library policy finding. The
+  later packaging batch still must apply it to both packages, install dependency
+  and Go standard-library notices, validate actual Nix outputs and run relevant
+  VM acceptance. No working-source/build configuration was changed by this audit,
+  and no production installation or authenticated integration pass is claimed.
+
+  Vendored/offline follow-up: generating a new vendor tree from the native-only
+  Go cache refused four uncached other-platform modules with `GOPROXY=off`.
+  No network fallback was used. Reused the already-built fixed-output Nix vendor
+  artifact `/nix/store/mf73mj4w27jz5pkmc9ghs5dgzq0m1ar9-p-0.1.0-dev-go-modules`
+  (the existing pinned vendor hash), copied only into the immutable temporary
+  audit tree. With `CGO_ENABLED=0` and `GOFLAGS=-mod=vendor -buildvcs=false`,
+  both native `go-licenses check` with the same permissive allowlist and
+  `go-licenses save` exited **0**. Collected notices contain 38 files including
+  P's own license; assembly warnings remain visible. Logs are
+  `/tmp/p-vendored-license-check.out` and `/tmp/p-vendored-license-save.out`.
+  This verifies offline-vendor feasibility for later Nix packaging, not an
+  installed distribution or VM gate. Working-tree package settings remain intact.
+
+  Confirmed assembled cleanup is ready for retained review. Optional explicit
+  `loss_operation_id` preserves the early preview API; source/creator/request/
+  evidence/policy/ref bindings feed fresh non-activating analysis. Schema 20
+  records the reversible guard and atomic retirement/native deletion admission.
+  Settled stale or interrupted precommit cleanup ends `failed/stale`, removes only
+  its exact helper/releases its guards, and leaves the original creator usable
+  for new loss/review keys. Unknown `delete-issued` retains name/UUID/generation
+  and restrictions, reports the unresolved outcome, and requires administrative
+  Incus investigation instead of name-based redispatch. Positively recorded
+  runtime absence permits forward Retry; this is not universal automatic repair.
+
+  Focused control tests, full affected control/daemon/runtimeincus suites and
+  strengthened real SQLite/reopen/migration/guard races passed (latest race
+  12.848s). Historical schema fixtures assert 20; future-version rejection is21,
+  without weakening assertions. Prepared VM51 Bash, pinned ShellCheck and
+  whitespace checks passed. Root documented the exact CLI loss-preview flow,
+  fresh-review path and private-home whole-runtime warnings: private credentials
+  outside the bounded inventory are not enumerated or hashed. The retained
+  reviewer is checking this completed batch before any serial VM51 execution.
+
+  Retained review approved the completed cleanup batch with no blocking
+  authorization, identity, helper-isolation, stale-recovery, schema-fencing or
+  deletion-admission findings. VM51 preserves exact deletion/absence assertions
+  and separates real native work from injected completion crash/read outage.
+  Final Bash, ShellCheck, whitespace and no-running-VM checks passed. Launch only
+  selected serial VM51; existing early cleanup evidence remains separately scoped.
+
+  First serial VM51 `.cache/p-vm/integration-20260926T185326Z-330420.log`
+  exited **1** after actual stale-loss refusal (`failed/stale`, uncommitted),
+  source/private/ref preservation, exact helper cleanup/guard release, and a
+  fresh completed loss/eligible preview. Fresh confirmation failed before its
+  operation ID was returned. Bounded source inspection found its fixture
+  `completion-arm` used `printf pending` without newline: the strict Git wrapper's
+  unconditional `read -r` exits on EOF before forwarding the ref observation.
+  Coordinator fixed that control-file format to newline-terminated `pending`
+  and added bounded confirmation status/error output while still requiring exit0.
+  Product code, sanitizer, ownership and loss/deletion assertions are unchanged.
+  Bash, ShellCheck and whitespace checks passed. This partial run does not prove
+  confirmed deletion/recovery. VM shut down and removed its disk; repeat only
+  selected VM51 serially with the diagnosed fixture correction.
+
+  Second selected serial VM51
+  `.cache/p-vm/integration-20260926T185835Z-382087.log` exited **0**.
+  Actual changed workspace bytes caused reversible `failed/stale` refusal without
+  source/private/key/ref loss; its exact helper and own guards were cleaned.
+  Fresh explicit loss/preview/token/key then admitted actual exact native source
+  deletion and reviewed local cleanup. At durable `local-complete`, the fixture
+  paused the completion proof and restarted the daemon. An explicitly injected
+  native-read outage kept the removing identity, inactive principal, ref guard
+  and confirmed intent; a real fixture-created competing UUID also blocked
+  completion without being deleted by P. Removing that fixture identity allowed
+  exact Retry to finish; original Create stayed superseded and could not enqueue.
+  Retained branch/all P refs, sibling files, shared base image and unrelated
+  authority stayed intact. A separate corrected Create on the retained branch
+  completed with a new UUID. `P_ASSEMBLED_CLEANUP_NATIVE_UNAVAILABLE_PRESERVED`,
+  `P_ASSEMBLED_FAILED_CREATE_CLEANUP_PASS`, selected product and `P_VM_SMOKE_PASS`
+  passed. VM shut down and removed its disk. This proves the documented stopped
+  local base-image cleanup boundary; injected outage/crash recovery remains
+  labeled, complex unsupported failures are not claimed supported, and no real
+  Codex authentication/execution was attempted. Commit this passing checkpoint.

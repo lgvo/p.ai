@@ -9,7 +9,14 @@ import (
 
 type createCleanupRPCProbe struct {
 	LifecycleAPI
-	calls int
+	calls  int
+	lossID string
+}
+
+func (p *createCleanupRPCProbe) PreviewAssembledCreateCleanup(_ context.Context, uuid, lossID string) (CreateCleanupPreview, error) {
+	p.calls++
+	p.lossID = lossID
+	return CreateCleanupPreview{UUID: uuid, Eligible: true, Runtime: &RemovalRuntimePreview{LossOperationID: lossID}}, nil
 }
 
 func (p *createCleanupRPCProbe) PreviewCreateCleanup(_ context.Context, uuid string) (CreateCleanupPreview, error) {
@@ -26,7 +33,7 @@ func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	ctx := context.Background()
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	token := strings.Repeat("a", 32)
-	for _, raw := range []string{`{"v":2,"uuid":"` + uuid + `"}`, `{"v":1,"uuid":"bad"}`, `{"v":1,"uuid":"` + uuid + `","force":true}`, `{"v":1,"uuid":"` + uuid + `","uuid":"` + uuid + `"}`} {
+	for _, raw := range []string{`{"v":2,"uuid":"` + uuid + `"}`, `{"v":1,"uuid":"bad"}`, `{"v":1,"uuid":"` + uuid + `","force":true}`, `{"v":1,"uuid":"` + uuid + `","uuid":"` + uuid + `"}`, `{"v":1,"uuid":"` + uuid + `","loss_operation_id":"bad"}`} {
 		if _, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
 			t.Fatal("unsafe preview admitted")
 		}
@@ -44,5 +51,8 @@ func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	}
 	if result, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","key":"cleanup","confirmation_token":"`+token+`"}`)); e != nil || result.(map[string]any)["operation"].(Operation).Kind != "session.create.cleanup" {
 		t.Fatal("confirmation route")
+	}
+	if result, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","loss_operation_id":"`+uuid+`"}`)); e != nil || p.lossID != uuid || result.(map[string]any)["preview"].(CreateCleanupPreview).Runtime.LossOperationID != uuid {
+		t.Fatal("creator-bound loss preview not routed", e)
 	}
 }

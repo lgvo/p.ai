@@ -327,13 +327,24 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				return nil, lifecycleRPC(ErrNotFound)
 			}
 			var p struct {
-				V    int    `json:"v"`
-				UUID string `json:"uuid"`
+				V               int    `json:"v"`
+				UUID            string `json:"uuid"`
+				LossOperationID string `json:"loss_operation_id,omitempty"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
+			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.LossOperationID != "" && !validUUID(p.LossOperationID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid failed creation cleanup preview")
 			}
-			review, e := cleanup.PreviewCreateCleanup(ctx, p.UUID)
+			var review CreateCleanupPreview
+			var e error
+			if p.LossOperationID != "" {
+				assembled, supported := life.(AssembledCreateCleanupAPI)
+				if !supported {
+					return nil, lifecycleRPC(ErrNotFound)
+				}
+				review, e = assembled.PreviewAssembledCreateCleanup(ctx, p.UUID, p.LossOperationID)
+			} else {
+				review, e = cleanup.PreviewCreateCleanup(ctx, p.UUID)
+			}
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}

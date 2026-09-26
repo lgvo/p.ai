@@ -71,6 +71,11 @@ boundary. Event-handler, source-Git, runtime and environment executable methods
 and host/agent assets are validated. Selected VM48 exercised the production
 package's exact six-plugin catalog and CLI default activation through real
 session creation, fixture status reporting and Stop/Start with daemon restart.
+Stopped local base-image failed creations now have reviewed bounded loss
+inspection and confirmed cleanup, validated separately in selected VM50/51.
+Stale workspace review preserves the source for fresh confirmation; exact native
+cleanup and restart retain the branch and uncertain identities. This is a narrow
+supported failure boundary, not universal replacement or cleanup support.
 Plugin installation/update/removal and NixOS service installation remain open;
 this evidence does not establish the complete plugin MVP or authenticated
 Codex execution.

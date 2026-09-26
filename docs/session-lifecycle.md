@@ -408,11 +408,15 @@ after a read-only preflight failure; fixing that preflight also permits exact
 Retry. The assigned P ref and its reviewed tip, sibling refs/sessions, shared
 images and external mount contents are preserved.
 Reviewed P Git keys, principals and endpoint sockets may be removed. Runtime-
-local state is reported unavailable. Environment publication/cache history,
-origin/bootstrap ambiguity and fully assembled runtime/workspace failures remain
-outside this method; the latter require dedicated loss inspection. Preserve
-these resources and use exact Retry only when its captured request can safely
-resume. Unreachable Incus never authorizes forgetting an accepted cleanup.
+local state is reported unavailable on this early path. The narrow stopped
+assembled case above can instead supply a completed creator-bound loss
+inspection to cleanup preview. It shows bounded workspace/Git losses and warns
+that deletion also removes all private runtime state, including home and agent
+credentials outside that inventory. It does not enumerate or hash those private
+credential contents. Environment publication/cache history, origin/bootstrap
+ambiguity and other unsupported failures remain outside cleanup. Preserve those
+resources and use exact Retry only when its captured request can safely resume.
+Unreachable Incus never authorizes forgetting an accepted cleanup.
 
 Use the trusted host control socket and the old UUID from `operation.inspect`.
 First inspect the immutable failure and review the entire preview:
@@ -423,6 +427,22 @@ old_uuid=OLD_SESSION_UUID
 p api "$socket" operation.inspect '{"v":1,"id":"OLD_CREATE_OPERATION_UUID"}'
 p api "$socket" session.create.cleanup.preview \
   "$(jq -nc --arg uuid "$old_uuid" '{v:1,uuid:$uuid}')" > cleanup-preview.json
+jq '.result.preview' cleanup-preview.json
+```
+
+For a supported assembled failure, first obtain a completed workspace-loss
+inspection and supply its exact operation ID instead of the early preview:
+
+```sh
+p api "$socket" workspace.loss.inspect \
+  "$(jq -nc --arg uuid "$old_uuid" \
+      '{v:1,uuid:$uuid,key:"failed-create-loss-review-1"}')"
+p api "$socket" operation.inspect '{"v":1,"id":"LOSS_OPERATION_UUID"}'
+# Proceed only after that loss operation is completed; review its full result.
+loss_id=LOSS_OPERATION_UUID
+p api "$socket" session.create.cleanup.preview \
+  "$(jq -nc --arg uuid "$old_uuid" --arg loss "$loss_id" \
+      '{v:1,uuid:$uuid,loss_operation_id:$loss}')" > cleanup-preview.json
 jq '.result.preview' cleanup-preview.json
 ```
 
@@ -443,10 +463,22 @@ p api "$socket" operation.retry '{"v":1,"id":"CLEANUP_OPERATION_UUID"}'
 
 Unconsumed tokens expire after two minutes or daemon restart; obtain and review
 a fresh preview. Exact accepted confirmation replay uses the same UUID, key and
-token, even after restart. Accepted cleanup disables old session authority and
+token, even after restart. Early cleanup disables old session authority and
 retains a durable ref guard and resource identities until completion. A new or
 unreachable native identity leaves it incomplete. Retry never changes the
 approved losses or restores the superseded Create.
+
+Assembled confirmation first installs a reversible precommit guard while the
+original creator stays blocked/creating. A stopped isolated helper recomputes
+the reviewed bounded loss before source deletion. A settled stale result cleans
+only that helper and releases the cleanup guards, preserving the source and
+original creator. Repeat loss inspection, preview and confirmation with fresh
+keys and review the new losses. An interrupted precommit check also requires
+fresh review after exact helper cleanup. Ambiguous effects keep their guard.
+Authority retirement occurs atomically at native deletion admission; from that
+point Retry/restart only ensures the confirmed resources absent. An uncertain
+delete outcome never permits another name-only deletion. Its diagnostic retains
+the unresolved identity for manual Incus investigation.
 
 Only after `status:"completed", phase:"cleaned"` may a separate Create reuse the
 preserved branch. Correct the source with ordinary Git, commit and push it to P,

@@ -499,8 +499,10 @@ The dispatch gate runs after confinement, storage and pinned-image preflight;
 correcting such a failure permits exact Retry without a new request. An
 attempted-but-unobserved builder, historical builder evidence without this
 tracking, environment publication or
-cache state, origin requests, and later runtime/workspace phases are ineligible.
-Runtime initialization must affirmatively remain `not-attempted`. Native
+cache state and origin requests are ineligible. Later runtime/workspace phases
+require the separate narrow assembled path below; they cannot use early absence
+evidence. Early cleanup requires runtime initialization to affirmatively remain
+`not-attempted`. Native
 absence alone never settles a possibly delayed init.
 
 Preview reports runtime-local state as `unavailable`, not clean or empty.
@@ -508,8 +510,8 @@ Keys/principals/endpoints must either be absent or match the same reviewed local
 identity checks used by integrated replacement. Confirmation rechecks the
 preview, including its ref tip, old evidence, principal, local entries and full
 native inventory. Stale or unavailable facts return `busy` and preserve the old
-request. Accepted confirmation atomically supersedes the old Create, records a
-forward cleanup operation and ref guard on its existing UUID, changes its
+request. Early-path accepted confirmation atomically supersedes the old Create,
+records a forward cleanup operation and ref guard on its existing UUID, changes its
 registry from `creating` to `removing`, and disables its Git principal and
 session RPC authority. Durable evidence retains the reviewed old identities.
 
@@ -524,9 +526,33 @@ forward; `operation.retry` resumes the same cleanup intent. No ref, shared image
 or external mount content is removed. Only a completed `cleaned` operation
 releases the assignment for a separate corrected `session.create` with a new
 key and UUID. The superseded original Create remains inspectable and exact
-replay cannot schedule its worker. Fully assembled failed runtimes require a
-dedicated loss inspection that this method does not implement; preserve the
-resources and use exact Retry when its immutable request can safely resume.
+replay cannot schedule its worker.
+
+For the narrow stopped assembled failure supported by workspace loss inspection,
+`session.create.cleanup.preview` additionally accepts `loss_operation_id`:
+
+```json
+{"v":1,"uuid":"session-UUID","loss_operation_id":"completed-inspection-UUID"}
+```
+
+The preview binds that explicitly selected creator-bound inspection and exact
+native source, includes `runtime.loss` and `loss_warnings`, and preserves the
+assigned P ref. Private home/credential files outside the bounded Git/workspace
+inventory are covered by whole-runtime loss warnings; their contents are not
+enumerated or hashed by the inspection. Confirmation uses the same existing
+UUID/key/token shape. A durable precommit cleanup guard keeps the original
+creator blocked while an isolated stopped helper recomputes bounded loss.
+Settled stale evidence removes only the helper, fails the cleanup intent and
+releases its guards; fresh inspection/preview/confirmation requires new keys.
+
+Only after fresh loss matches does cleanup atomically retire the original
+creator/session authority and admit deletion of the exact native source.
+Subsequent recovery proceeds toward verified runtime and local-resource absence.
+Unknown deletion effects or an unavailable/competing native identity remain
+guarded and incomplete; recovery cannot reissue a name-only deletion or forget
+the identity. The selected assembled-cleanup integration gate is separate from
+earlier no-init cleanup and read-only inspection evidence. Other unsupported
+failures preserve resources and explain the unresolved condition.
 See the [CLI procedure](session-lifecycle.md#confirmed-failed-create-cleanup).
 
 Each session view returns all four [public status facts](session-observability.md#status-model).

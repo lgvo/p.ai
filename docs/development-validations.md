@@ -145,6 +145,17 @@ Exercise durable creator fencing across Retry, replay and daemon restart;
 reject changed native identity, unsupported policy/layout and uncertain init.
 Read-only inspection evidence does not establish confirmed cleanup acceptance.
 
+For confirmed assembled cleanup, change workspace bytes after preview and prove
+fresh quiescent comparison refuses source deletion, preserves private/dummy
+credential files and releases only the settled precommit helper/guards. Fresh
+inspection/review/confirmation must then remove only the exact owned source and
+reviewed local authority, retaining the P branch, sibling and shared base image.
+Crash after native deletion/local cleanup; unavailable or competing authority
+must retain the removing identity and accepted intent until exact recovery.
+Reject retired Create replay and prove a separate corrected Create receives a
+new UUID. Label injected outage/crash evidence separately from real native work;
+whole-runtime loss warnings do not claim private credential enumeration.
+
 **Gate:** reliable status/control from sessions and local NixOS client support.
 
 ## 6. Lifecycle and authority recovery

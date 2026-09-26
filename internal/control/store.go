@@ -420,6 +420,71 @@ CREATE TRIGGER creator_loss_preserves_session BEFORE DELETE ON sessions
 PRAGMA user_version = 19;
 `
 
+// Assembled cleanup holds a reversible read guard with the blocked creator;
+// only its atomic DELETE commitment retires that creator and its authority.
+const migration20 = `
+DROP INDEX active_session_operation;
+CREATE UNIQUE INDEX active_session_operation ON operations(session_uuid)
+ WHERE session_uuid IS NOT NULL AND status IN ('running','blocked','unknown')
+ AND NOT (kind='workspace.loss.inspect' AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='')
+ AND NOT (kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object');
+DROP INDEX active_creator_loss_inspection;
+CREATE UNIQUE INDEX active_creator_loss_inspection ON operations(session_uuid)
+ WHERE status IN ('running','blocked','unknown') AND
+ ((kind='workspace.loss.inspect' AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='') OR
+ (kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object'));
+DROP VIEW IF EXISTS creation_read_guards;
+CREATE VIEW creation_read_guards AS SELECT id,session_uuid FROM operations
+ WHERE status IN ('running','blocked','unknown') AND
+ ((kind='workspace.loss.inspect' AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='') OR
+ (kind='session.create.cleanup' AND committed=0 AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object'));
+DROP TRIGGER creator_loss_excludes_other_insert;
+CREATE TRIGGER creator_loss_excludes_other_insert BEFORE INSERT ON operations
+ WHEN NEW.session_uuid IS NOT NULL AND NEW.status IN ('running','blocked','unknown') AND
+ (EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.session_uuid=NEW.session_uuid) OR
+ EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=NEW.session_uuid AND w.kind='session.create.cleanup'
+ AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object') OR
+ ((NEW.kind='workspace.loss.inspect' AND COALESCE(json_extract(NEW.evidence_json,'$.creator_operation_id'),'')!='' OR
+ NEW.kind='session.create.cleanup' AND COALESCE(json_type(NEW.evidence_json,'$.review.runtime'),'')='object') AND
+ EXISTS(SELECT 1 FROM operations o WHERE o.session_uuid=NEW.session_uuid AND o.status IN ('running','blocked','unknown')
+ AND o.id!=COALESCE(json_extract(NEW.evidence_json,'$.creator_operation_id'),json_extract(NEW.evidence_json,'$.review.old_operation_id')))))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+DROP TRIGGER creator_loss_excludes_other_update;
+CREATE TRIGGER creator_loss_excludes_other_update BEFORE UPDATE ON operations
+ WHEN EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid) OR
+ EXISTS(SELECT 1 FROM operations w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid AND w.kind='session.create.cleanup'
+ AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
+ AND NOT (w.committed=1 AND w.phase='delete-issued' AND OLD.kind='session.create'
+ AND OLD.id=json_extract(w.evidence_json,'$.review.old_operation_id') AND NEW.status='superseded' AND NEW.phase='superseded'))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+DROP TRIGGER creator_loss_preserves_assignment;
+CREATE TRIGGER creator_loss_preserves_assignment BEFORE UPDATE OF registry_state,branch ON sessions
+ WHEN EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.session_uuid=OLD.uuid) OR
+ EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='session.create.cleanup'
+ AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
+ AND NOT (w.committed=1 AND w.phase='delete-issued' AND OLD.branch=NEW.branch AND NEW.registry_state='removing'))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+DROP TRIGGER creator_loss_preserves_session;
+CREATE TRIGGER creator_loss_preserves_session BEFORE DELETE ON sessions
+ WHEN EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.session_uuid=OLD.uuid) OR
+ EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='session.create.cleanup'
+ AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
+ AND NOT (w.committed=1 AND w.phase='local-complete' AND json_extract(w.evidence_json,'$.runtime_absent')=1
+ AND json_extract(w.evidence_json,'$.local_complete')=1))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+DROP TRIGGER IF EXISTS assembled_cleanup_requires_creator;
+CREATE TRIGGER assembled_cleanup_requires_creator BEFORE INSERT ON operations
+ WHEN NEW.kind='session.create.cleanup' AND COALESCE(json_type(NEW.evidence_json,'$.review.runtime'),'')='object' AND NOT EXISTS(
+ SELECT 1 FROM sessions s JOIN operations c ON c.id=json_extract(NEW.evidence_json,'$.review.old_operation_id')
+ WHERE s.uuid=NEW.session_uuid AND s.project_path=NEW.project_path AND s.registry_state='creating'
+ AND c.session_uuid=s.uuid AND c.project_path=s.project_path AND c.kind='session.create'
+ AND c.status='blocked' AND c.phase='assembly-ready' AND c.committed=1
+ AND c.request_sha256=json_extract(NEW.evidence_json,'$.review.old_request_sha256')
+ AND NEW.committed=0 AND NEW.phase='helper-intent')
+ BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup source unavailable'); END;
+PRAGMA user_version = 20;
+`
+
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
 }
@@ -492,8 +557,8 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 	if err = db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return nil, err
 	}
-	if version > 19 {
-		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 19)", version)
+	if version > 20 {
+		return nil, fmt.Errorf("state schema %d is newer than this binary (supports 20)", version)
 	}
 	if version == 0 {
 		var id string
@@ -746,6 +811,19 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 		}
 		defer tx.Rollback()
 		if _, e = tx.ExecContext(ctx, migration19); e != nil {
+			return nil, e
+		}
+		if e = tx.Commit(); e != nil {
+			return nil, e
+		}
+	}
+	if version < 20 {
+		tx, e := db.BeginTx(ctx, nil)
+		if e != nil {
+			return nil, e
+		}
+		defer tx.Rollback()
+		if _, e = tx.ExecContext(ctx, migration20); e != nil {
 			return nil, e
 		}
 		if e = tx.Commit(); e != nil {
@@ -1147,7 +1225,14 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	}
 	if kind == "session.create.cleanup" {
 		var next CreateCleanupEvidence
-		if status != "running" && status != "blocked" || json.Unmarshal(evidence, &next) != nil || phase != "local-cleanup" && phase != "local-complete" || next.LocalComplete != (phase == "local-complete") || oldPhase == "local-complete" && phase != "local-complete" {
+		if status != "running" && status != "blocked" || json.Unmarshal(evidence, &next) != nil {
+			return ErrConflict
+		}
+		if next.Review.Runtime != nil {
+			if !validAssembledCleanupAdvance(oldPhase, phase, oldCommitted == 1, committed, next) {
+				return ErrConflict
+			}
+		} else if phase != "local-cleanup" && phase != "local-complete" || next.LocalComplete != (phase == "local-complete") || oldPhase == "local-complete" && phase != "local-complete" {
 			return ErrConflict
 		}
 		if err = monotonicCreateCleanupEvidence([]byte(oldEvidence), evidence); err != nil {

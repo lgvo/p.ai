@@ -512,6 +512,15 @@ keeps inspection incomplete and its guard retained until verified cleanup.
 The supported creation/policy boundary belongs to
 [session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
 
+Confirmed assembled-failure cleanup uses the same stopped-source helper for
+fresh precommit loss comparison. Settled stale or interrupted inspection removes
+only its exact helper and leaves the source intact for new review. After matching
+loss and atomic authority retirement, native deletion must target the reviewed
+UUID/generation and owned inventory. Unknown delete admission or effects retain
+the source identity and cleanup guard; a name alone never authorizes another
+deletion. Private home/credential data outside the bounded inventory is covered
+by whole-runtime loss warnings and removed with the confirmed owned runtime.
+
 ## Reconciliation and cleanup
 
 P lists and inspects instances only in its configured confined Incus project.
