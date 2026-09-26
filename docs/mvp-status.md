@@ -11,7 +11,8 @@ Current snapshot of P's design and implementation readiness.
 
 ## Executive state
 
-P's CLI-first implementation has started. Package validation, trusted plugin
+P's CLI-first implementation is available. The serial delivery checkpoint
+covers all 55 automated validation gates. Package validation, trusted plugin
 activation, bounded WASI event handlers, session asset plans, the file-log
 broker, SQLite state, Git/SSH, the assembled base runtime, and the executable
 Incus plugin have passed independent review, unit tests, and the packaged VM
@@ -25,16 +26,17 @@ creation, project cache reuse/rebuild, activation, and private-state persistence
 also pass. Explicit cache collection, interrupted-cleanup recovery, and
 concurrent cache reuse pass their selected VM gate. The selected Codex adapter
 passes authentication-free event, private initialization, dummy credential
-isolation, and Stop/Start VM checks. The full serial VM checkpoint through
-test 28 passed these gates together, including bounded, non-activating workspace
-inspection and interrupted-pause recovery. Bounded loss reports for Git-known
+isolation, and Stop/Start VM checks. The serial delivery checkpoint covers all
+55 current steps, including bounded, non-activating workspace inspection and
+interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.
 Selected later VM checks also cover Discard/Delete, typed grants, guarded
 repairs, retained-branch rename/delete, and three early failed-creation
 replacement paths. The selected public-network VM now passes real DoH,
 hostname HTTPS, Nix fetch and public-to-private DNS/HTTPS redirect denials
-under the configured Incus and outer-VM restrictions. The final full-suite
-checkpoint remains pending.
+under the configured Incus and outer-VM restrictions. All 55 automated gates
+have passing coverage across the resumed serial checkpoint; the progress record
+preserves failed invocations and fixture fixes.
 Authenticated Codex acceptance is reserved for
 the user's final manual test; automated tests use fixtures and dummy files.
 The [progress record](implementation-progress.md) tracks each step's
@@ -51,15 +53,15 @@ installation/update/removal passed VM54. Production TUI approval interactions
 remain deferred beyond the
 [package and activation contract](plugin-contract.md).
 
-Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
-implementation work. They should narrow unsupported claims without reopening
-the product model unless evidence disproves an invariant.
+The validated CLI-first scope retains bounded supported recovery and cleanup
+paths. Production TUI integration and arbitrary-failure recovery remain outside
+this delivery; the subject contracts define safe refusals and supported cleanup.
 
 A [disposable NixOS/Incus lab](../dev/vm/README.md) now provides a pinned
 container fixture and an automated VM smoke test for runtime infrastructure.
 The separate product suite runs P's daemon and CLI against real Incus
-containers. Its current checkpoint covers the gates listed above; it does not
-establish the full MVP.
+containers. Its delivery checkpoint covers all 55 automated gates listed above.
+Authenticated Codex acceptance remains the user-run delivery gate.
 
 [Product direction](PRODUCT.md) requires MVP to prove P's composable plugin
 model through secure first-party defaults for Incus runtime support, the tmux
@@ -86,8 +88,8 @@ daemon stopped and explicit trusted selection; the package contract owns its
 preparation/refusal boundaries. NixOS service installation passed selected VM55 with private configuration,
 real Git and restart/Stop/Start persistence and confirmed cleanup. Its hardened
 service supports network:none; public-egress uses the separate owner-run daemon.
-Final full-suite acceptance remains open; authenticated Codex execution remains
-a manual gate.
+Automated delivery acceptance covers all 55 current VM steps; authenticated
+Codex execution remains pending manual validation.
 
 ## Settled model
 

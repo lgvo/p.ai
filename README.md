@@ -9,10 +9,17 @@ open source under the [Apache License 2.0](LICENSE), runs on machines the user
 controls, and can grow from a laptop to a larger Linux or Kubernetes host
 without changing its project model.
 
-> **Status: implementation in progress.** [PROJECT.md](PROJECT.md) owns P's enduring project
+> **Status: CLI-first implementation validated; authenticated Codex acceptance pending.**
+> [PROJECT.md](PROJECT.md) owns P's enduring project
 > guidance, and [product direction](docs/PRODUCT.md) owns P's product strategy.
 > The design documents under [`docs/`](docs/) are authoritative for their
 > subjects. This README is the product summary.
+
+Start with [NixOS installation](#nixos-installation) to use the implemented CLI.
+The [host API reference](docs/control-api.md) documents creation, inspection,
+attachment and lifecycle commands. All 55 automated VM gates have passing serial
+checkpoint coverage; [manual Codex acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
+remains pending. The TUI below is a separate fixture-backed prototype.
 
 ## Start from the current prototype
 

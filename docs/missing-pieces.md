@@ -1,14 +1,17 @@
 # P — remaining implementation work
 
-Concrete work still required to implement and validate the MVP design.
+Historical implementation checklist for P's broader design.
 
 > **Status: tracker, not authority.** Subject documents own behavior. This list
 > points to them and must not introduce a competing contract.
 
-The active CLI-first work and validation evidence are recorded in
-[implementation progress](implementation-progress.md). The broad checklist
-below includes partially delivered items; an unchecked item does not mean all
-of its components are unimplemented.
+The CLI-first implementation and all 55 automated acceptance gates are validated;
+authenticated Codex acceptance remains pending the user's manual test. Exact
+scope, evidence, safe refusal boundaries and the acceptance procedure are in
+[implementation progress](implementation-progress.md). The historical checklist
+below includes delivered, partially delivered and deferred design work. Its
+unchecked items are not additional CLI-first delivery gates; subject contracts
+and the confirmed MVP scope govern support claims.
 
 ## Design readiness
 

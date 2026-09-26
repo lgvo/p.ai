@@ -169,9 +169,9 @@ or approved plans.
 - MVP must prove the first-class plugin goal through a basic working
   composition of secure first-party implementations. The package and
   activation contract is defined in [plugin contract](docs/plugin-contract.md);
-  its event-handler runner is validated. Remaining capability methods,
-  installation, and the approval experience still need implementation and
-  validation.
+  the default composition, executable methods and managed CLI installation
+  have automated validation. Authenticated Codex acceptance remains a manual
+  gate; production TUI approval remains deferred.
 - The [session-browser prototype](.prototype/tui-options/DECISIONS.md) records
   the current reviewed layout and controls. Production TUI integration and
   scope reconciliation remain open.
@@ -179,8 +179,9 @@ or approved plans.
   orchestration, richer event handlers, and optional multi-instance
   coordination may be explored while preserving the confirmed guidance.
 
-The repository contains a CLI session control plane validated for base-image
-creation, Git, retry, restart, and Stop/Start on the pinned VM host.
-[Implementation progress](docs/implementation-progress.md) records its remaining
-MVP gates. [Development validations](docs/development-validations.md) identify
+The repository contains a CLI-first control plane with passing coverage of all 55
+serial NixOS/Incus VM validation gates within its documented support boundary.
+[Implementation progress](docs/implementation-progress.md) records the evidence
+and pending manual authenticated Codex acceptance.
+[Development validations](docs/development-validations.md) identify
 the evidence required before support claims are made.

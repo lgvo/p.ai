@@ -3,12 +3,17 @@
 # sentinels; outages and competing identities below are explicit test injection.
 set -E
 umask 077
-step_dir="$P_TEST_TMP/step-52"
+if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
+ step_dir="$P_TEST_TMP/step-53"
+ endpoint_prefix=/var/lib/p-vm/endpoints/pdev/step53
+else
+ step_dir="$P_TEST_TMP/step-52"
+ endpoint_prefix=/var/lib/p-vm/endpoints/pdev/step52
+fi
 mkdir -m 0700 "$step_dir"
 state="$step_dir/state"
 mkdir -m 0700 "$state"
 socket="$state/control.sock"
-endpoint_prefix=/var/lib/p-vm/endpoints/pdev/step52
 mkdir -m 0700 "$endpoint_prefix"
 export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 daemon_pid=

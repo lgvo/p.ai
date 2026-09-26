@@ -2,26 +2,23 @@
 
 ## Current state — 2026-09-26
 
-- Branch: `feature/cli-first-mvp`. Managed plugins committed `5c66105`;
-  bulk deletion/cache, failed-creation cleanup, distribution and public DoH
-  batches are committed with preserved passing selected VM evidence below.
-- NixOS installation passed focused module checks, required package checks,
-  retained review and selected serial VM55, committed `4f916dd`. No VM runs
-  concurrently. The hardened service is network:none-only; public-egress remains
-  the separately owner-run daemon path with unchanged VM37 evidence.
-- Remaining automated delivery gate: finish the final serial restricted group.
-  First37 restricted checks and dedicated real-public VM37 passed, committed
-  `5706056` and `f4ff784`. Later group passed38–44 then VM45's stale exact
-  preview object omitted the explicit `runtime_local:"unavailable"` field.
-  Exact fixture correction passed focused checks and selected VM45; reuse
-  unaffected earlier groups and rerun final17 for all55 checkpoint coverage.
-  Root owns the sole stream; no universal cleanup/repair is claimed.
-- Authenticated Codex acceptance remains pending user validation using the
-  exact manual procedure below. Automated checks use fixtures/dummy files;
-  no credentials or login. Production TUI, backup/restore, software rollback,
-  abandonment and uncertain-resource deletion are outside this delivery scope.
-- Preserve prior evidence, use this record only, run VMs serially, and commit
-  each batch after relevant passing validation.
+- Branch: `feature/cli-first-mvp`. CLI-first implementation and automated
+  delivery acceptance are complete within the documented bounded MVP scope.
+- All55 current VM inventory steps have passing serial checkpoint coverage:
+  first 37 restricted checks, dedicated actual-public VM37, later 38–52, then
+  combined 52–55 after fixture corrections. Inventory/log audit passed; original
+  failed invocations remain recorded and are not claimed to have exited0.
+- Final52–55 selection passed native cached-image deletion, managed plugins and
+  hardened NixOS service persistence and cleanup. Required package Go suite and 17
+  Python tests passed. All VMs powered off/disks removed; no QEMU process remains.
+- Hardened NixOS service is `network:none` only; public-egress uses the separately
+  owner-run daemon with scoped network proofs. Real public DoH/DNS/HTTPS/Nix-fetch
+  and denial evidence passed; synthetic checks are labeled separately.
+- Authenticated Codex acceptance is **pending user validation** with the exact
+  CLI procedure below. Automated tests used fixtures/dummy files only; no login
+  or credential access. Production TUI, additional host platforms, backup/restore,
+  software rollback, abandonment and uncertain-resource deletion are outside
+  this delivery. No universal repair/replacement/cleanup is claimed.
 
 ## Preserved checkpoint history — 2026-09-26
 
@@ -4973,3 +4970,60 @@ it does not close the installation or external-tool attribution gates.
   fixture correction changes no production source or prior group inputs.
   Commit then resume all17 final restricted scripts serially, retaining earlier
   committed restricted/actual-public evidence and original failed full log.
+
+- **Final restricted resume from754b6d5:** driver
+  `/tmp/p-cli-mvp-final-restricted-resume-driver.out`, console
+  `.cache/p-vm/integration-20260926T231101Z-1842299.log` passed38–52, including
+  corrected VM45, all replacement/failed-create cleanup and actual aggregate
+  project deletion. VM53 stopped before its product assertions: `mkdir` refused
+  existing private `step-52` directory because cached53 sources52 and reused
+  its fixture path. Native53 had passed alone earlier; this is combined fixture
+  directory collision. Guest powered off/disk removed, exit1;54/55 did not run.
+  Correction acceptance: cached variant uses its own step53 0700 state and scoped
+  endpoint prefix inside unchanged ceiling; base52 retains original paths.
+  Preserve all identity/loss/cache cleanup/recovery/isolation assertions, never
+  reuse or remove52 state to get a pass. Focused syntax/lint/diff and serial
+  selection52+53 prove both coexist, followed by remaining54/55 in the same
+  sole VM. Unchanged previous checkpoint members remain valid; do not rerun them.
+
+  Combined serial52–55 selection passed, exit0, driver
+  `/tmp/p-cli-mvp-final-tail-driver.out`, console
+  `.cache/p-vm/integration-20260926T232309Z-1899844.log`. Base52 and cached53
+  coexist with distinct private state/endpoint prefixes; actual offline Nix image
+  realization/indexed deletion, managed-plugin staging/update/explicit selection/
+  durable removal/dependency/isolation checks, and hardened nonroot NixOS service
+  private configuration/Git/restart/StopStart/exact cleanup passed. Exact selected
+  marker and smoke marker passed; guest powered off and fresh disk removed.
+  Required package Go suite and17 Python tests passed in the same driver build.
+
+  **Final automated acceptance audit:** current 55-file inventory equals the
+  union of 37 successful restricted scripts from 223641, actual-public 37 from 230111,
+  14 successful later scripts through 52 from 231101 (failed 53 excluded), and 4
+  successful 52–55 scripts from 232309. The 52 overlap is counted once. Each
+  successful selection has its exact selected/smoke markers; fail-fast runner
+  establishes earlier 231101 scripts exited0 before its fixture mkdir failure.
+  No production source changed after the first groups: only exact VM45 preview
+  expectation and cached VM53 fixture paths changed, both validated natively.
+  No other expensive unchanged group rerun was required. The original full
+  invocation failed; resumed checkpoint evidence completes all 55 coverage and
+  must not be described as one successful uninterrupted invocation.
+
+  Scoped process inspection found no QEMU process. Shell syntax/lint/diff checks
+  passed for the changed deletion fixture. No unresolved automated MVP blocker
+  remains within the narrowed support boundary. Authenticated Codex execution,
+  real hooks/status and credential persistence/removal remain **pending user
+  validation**, using the manual procedure above; fixture evidence cannot pass
+  that gate. Preserve all failure, review, decisions and raw-log references here.
+  Commit the passing cached-fixture correction and delivery status together.
+
+  Retained Sol high reviewer independently audited the four raw logs against
+  all55 current inventory files and approved cached fixture isolation, unchanged
+  ceilings/cleanup identities, resumed coverage wording and pending/manual scope.
+  No blocking findings. Reviewer performed no build, VM or authentication.
+
+  Final documented CLI smoke: `nix build .#default --no-link --print-out-paths`
+  exited0 using the already validated cached package; its `p version` exited0
+  with0.1.0-dev/Go1.26.7/control API1/plugin API1.0. Changed status documents
+  have resolving local file links and the manual-authentication heading/commands
+  remain explicitly pending. Documentation-only status updates do not invalidate
+  the passing native evidence. No further VM or authentication run was performed.
