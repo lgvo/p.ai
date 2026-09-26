@@ -309,6 +309,17 @@ catalog through actual CLI/daemon and Incus session creation, Git and Stop/Start
 Its Codex adapter notification remains an authentication-free event fixture;
 authenticated execution is a separate manual acceptance gate.
 
+The NixOS service selection (VM55) must exercise the actual module-generated
+service and private account-owned configuration, explicit bundled activation,
+real isolated session creation and Git, live-host continuity through daemon
+restart, stopped-state restart, Stop/Start persistence, and confirmed cleanup.
+Focused module evaluation must reject root or administrative Incus accounts,
+unavailable Incus, unsafe state directory names and public-egress settings.
+The hardened service supports `network: none`; the separate owner-run daemon's
+public-egress evidence must not be described as service-module acceptance.
+Authentication-free dummy private files prove persistence and removal only;
+authenticated Codex execution remains the user's manual gate.
+
 ## 12. Performance and capacity
 
 **Validate:** On representative `x86_64-linux` and `aarch64-linux` machines,

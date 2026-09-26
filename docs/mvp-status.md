@@ -46,8 +46,9 @@ Resource topology, a session picker, prefix-driven terminal navigation, and
 agent/service inspection pages. [Current interaction decisions](../.prototype/tui-options/DECISIONS.md)
 record that direction and its integration limits. Production TUI implementation
 and reconciliation of the agent/service extensions remain open. Installed
-first-party plugin composition passed selected VM48; plugin management and
-remaining approval interactions stay open beyond the
+first-party plugin composition passed selected VM48; CLI managed package
+installation/update/removal passed VM54. Production TUI approval interactions
+remain deferred beyond the
 [package and activation contract](plugin-contract.md).
 
 Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
@@ -82,8 +83,11 @@ check. Managed installation/update/removal passed reviewed focused/full/race
 checks, the Nix package suite and selected VM54, including durable dependency
 refusal and real session preservation. The instance-bound manager requires the
 daemon stopped and explicit trusted selection; the package contract owns its
-preparation/refusal boundaries. NixOS service installation and final full-suite
-acceptance remain open; authenticated Codex execution remains a manual gate.
+preparation/refusal boundaries. NixOS service installation passed selected VM55 with private configuration,
+real Git and restart/Stop/Start persistence and confirmed cleanup. Its hardened
+service supports network:none; public-egress uses the separate owner-run daemon.
+Final full-suite acceptance remains open; authenticated Codex execution remains
+a manual gate.
 
 ## Settled model
 

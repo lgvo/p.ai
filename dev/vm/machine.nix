@@ -30,6 +30,17 @@ let
     else "P_PRODUCT_INTEGRATION_SELECTED_PASS ${lib.concatStringsSep "," selectedSteps}";
   publicEgressFixture = automated && productTest != null
     && (selectedSteps == [ ] || lib.elem "37-public-egress.sh" selectedSteps);
+  serviceFixture = automated && productTest != null
+    && (selectedSteps == [ ] || lib.elem "55-nixos-service.sh" selectedSteps);
+  serviceControl = pkgs.writeShellScriptBin "p-service-test-control" ''
+    set -euo pipefail
+    test "$#" -eq 1
+    case "$1" in
+      restart|stop|start) exec ${pkgs.systemd}/bin/systemctl "$1" p.service ;;
+      diagnostic) exec ${pkgs.systemd}/bin/journalctl -b -u p.service --no-pager -n 30 ;;
+      *) exit 2 ;;
+    esac
+  '';
   publicEgressDeniedCIDRs = [
     "0.0.0.0/8" "10.0.0.0/8" "100.64.0.0/10" "127.0.0.0/8"
     "169.254.0.0/16" "172.16.0.0/12" "192.0.0.0/24"
@@ -141,7 +152,11 @@ PY
   '';
 in
 {
-  imports = [ "${modulesPath}/virtualisation/qemu-vm.nix" ]
+  systemd.services.p = lib.mkIf serviceFixture {
+    after = [ "p-vm-prepare.service" ];
+    requires = [ "p-vm-prepare.service" ];
+  };
+  imports = [ ../../nix/module.nix "${modulesPath}/virtualisation/qemu-vm.nix" ]
     ++ lib.optional (dnsOverHTTPSModule != null) dnsOverHTTPSModule;
   system.stateVersion = "26.05";
   assertions = lib.optional publicEgressFixture {
@@ -153,6 +168,54 @@ in
   networking.enableIPv6 = lib.mkIf publicEgressFixture false;
   networking.nameservers = lib.mkIf publicEgressFixture [ "127.0.0.1" ];
   services = {
+    p = lib.mkIf serviceFixture {
+    enable = true;
+    package = pPackage;
+    user = "pdev";
+    group = "users";
+    createUser = false;
+    stateDirectory = "p-service55";
+    bundledActivation = true;
+    settings = {
+      git = {
+        activation_path = "/var/lib/p-service55/activation.json";
+        source_plugin_id = "org.p.git";
+        listen = "127.0.0.1:0";
+      };
+      events = {
+        activation_path = "/var/lib/p-service55/activation.json";
+        plugin_id = "org.p.filelog";
+      };
+      runtime = {
+        activation_path = "/var/lib/p-service55/activation.json";
+        runtime_plugin_id = "org.p.runtime.incus";
+        host_plugin_id = "org.p.tmux-host";
+        incus_binary = "${pkgs.incus}/bin/incus";
+        incus_user_socket = "/var/lib/incus/unix.socket.user";
+        incus_project = "user-1000";
+        endpoint_prefix = "/var/lib/p-vm/endpoints/pdev";
+        disk_source_ceilings = [ "/var/lib/p-vm/endpoints" "/var/lib/p-vm/grants" ];
+        base_image_fingerprint = lib.removeSuffix "\n" (builtins.readFile
+          (pkgs.runCommand "p-service-runtime-fingerprint" {} ''
+            cat ${runtimeImage.config.system.build.metadata}/tarball/*.tar.xz \
+              ${runtimeImage.config.system.build.squashfs}/*.squashfs | sha256sum | cut -d' ' -f1 > "$out"
+          ''));
+        project_policy = {
+          network = "none"; filesystem_mounts = []; command = [ "/run/current-system/sw/bin/bash" ];
+        };
+        environment = {
+          activation_path = "/var/lib/p-service55/activation.json";
+          plugin_id = "org.p.environment.nix";
+          system = "x86_64-linux";
+          builder_storage_pool = "builders";
+        };
+        agent_adapter = {
+          activation_path = "/var/lib/p-service55/activation.json";
+          plugin_id = "org.p.codex-adapter";
+        };
+      };
+    };
+  };
     openssh.enable = false;
     getty.autologinUser = lib.mkIf (!automated) "pdev";
     getty.helpLine = "P infrastructure lab. Run p-vm-smoke. Console root password: p-vm.";
@@ -307,7 +370,10 @@ in
         }
       ];
     }
-  ];
+  ] ++ lib.optionals serviceFixture [{
+    users = [ "pdev" ];
+    commands = [{ command = "${serviceControl}/bin/p-service-test-control"; options = [ "NOPASSWD" ]; }];
+  }];
   networking.nftables.tables = lib.mkIf publicEgressFixture {
     p_vm_outer = {
       family = "inet";
@@ -400,6 +466,7 @@ in
       btrfs-progs
     ])
     ++ lib.optional publicEgressFixture pkgs.python3
+    ++ lib.optional serviceFixture serviceControl
     ++ lib.optional (pPackage != null) pPackage
     ++ lib.optional (productTest != null) productTest;
   nix.settings.experimental-features = [
@@ -581,10 +648,10 @@ in
     unitConfig.OnFailure = "p-vm-failed.service";
     serviceConfig = {
       Type = "oneshot";
-      # The serial product suite grows with each lifecycle gate. Keep its
-      # aggregate budget below the runner's 1200s deadline; individual test
-      # and operation deadlines still bound failures within each gate.
-      TimeoutStartSec = 1100;
+      # The full serial suite has more gates than the original VM28 checkpoint.
+      # Its caller uses P_VM_TIMEOUT=10800; selected runs retain their old budget.
+      # Individual test/operation deadlines continue to bound each gate.
+      TimeoutStartSec = if selectedSteps == [] then 10500 else 1100;
       StandardOutput = "journal+console";
       StandardError = "journal+console";
     };
@@ -598,6 +665,7 @@ in
           \
                   && runuser -u pdev -- env \
                     P_TEST_NETWORK_PROOF_BINARY=${publicNetworkProof}/bin/p-public-network-proof \
+                    ${lib.optionalString serviceFixture "P_TEST_SERVICE_CONTROL_BINARY=${serviceControl}/bin/p-service-test-control"} \
                     ${productTest}/bin/p-product-integration''
       }; then
         ${lib.optionalString (productTest != null) ''

@@ -67,6 +67,34 @@ the full administrative socket, which is host-root-equivalent, and it never
 passes either socket into a builder or session. Running P as a user that also
 has unrestricted Incus administration is an unsupported isolation posture.
 
+### NixOS service installation
+
+The root flake exports the locked CLI, production runtime image, image metadata
+and fingerprint, plus `nixosModules.default`. The module runs one local
+`p.service` as a persistent non-root account in the confined `incus` group;
+root or administrative Incus membership refuses evaluation. The machine owner
+still provisions Incus, the restricted user project/profile, storage pools,
+allowed disk paths and imported base image. Enabling P does not widen them.
+
+The hardened service accepts only `network: none` policies and no public-egress
+substrate. Its no-new-privileges and empty capability boundary prevent the
+scoped privileged network proofs needed for public egress. Public-egress
+operation remains available through the separately owner-run daemon and its
+validated, fixed-argument proof commands; the service module refuses that
+configuration without weakening its hardening.
+
+`services.p.settings` supplies trusted non-secret host configuration. Schema and
+state directory are fixed by the module; a private, singly-linked, daemon-owned
+`STATE/host.json` is generated at each service start. Edit declarative settings
+rather than that generated file. `services.p.bundledActivation = true` approves
+generating the bundled selection once at `STATE/activation.json`; existing
+activation remains unchanged across restarts and can be explicitly updated by
+the trusted owner. Configuration and activation are validated by the normal
+daemon boundaries before runtime work. Service Stop or restart retains the
+private state and native sessions; normal lifecycle cleanup retains its existing
+authority and recovery rules. The module supplies no backup, restore or software
+upgrade/rollback behavior.
+
 MVP uses local Incus only. Incus remote servers and clusters do not turn other
 machines into backends of this P daemon. A future P deployment may define a
 different placement contract without changing session identity.

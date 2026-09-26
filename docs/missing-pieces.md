@@ -135,7 +135,7 @@ does not change owner-document lifecycle semantics.
   `attached_count`, `latest_unattended_condition`, and `policy_condition`.
 - [ ] Complete Codex acceptance: the selected adapter, event fixtures,
   clear-on-confirmed-first-entry reduction, and dummy credential isolation and
-  Stop/Start checks pass. Public Discard/Delete dummy cleanup remains pending;
+  Stop/Start checks pass. Public Discard/Delete dummy cleanup passed VM31/32;
   authenticated execution and native hook reporting are reserved for the
   user's final manual test. Other agent adapters are post-MVP.
 - [ ] Emit reduced lifecycle/status/policy events through `EventHandler`;
@@ -177,8 +177,10 @@ does not change owner-document lifecycle semantics.
 - [ ] Turn every acceptance criterion and development validation into an
   automated test, recorded integration result, or explicit support gate.
 - [ ] Pin dependency/protocol versions and complete distribution license checks.
-- [ ] Add NixOS/Incus packaging, installation guidance, service definitions and
-  diagnostics. Backup/restore and software upgrade/rollback are outside MVP.
+- [x] Add NixOS/Incus packaging, installation guidance, service definitions and
+  diagnostics. VM55 validates the hardened network:none service; public-egress
+  remains the separate owner-run daemon path. Backup/restore and software
+  upgrade/rollback are outside MVP.
 - [ ] Validate the documented cleanup-then-Create fallback for supported complex
   failed creations; preserve validated integrated replacement and refuse unsafe
   cleanup without deleting uncertain resources.

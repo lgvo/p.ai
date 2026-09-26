@@ -2,32 +2,22 @@
 
 ## Current state — 2026-09-26
 
-- Branch: `feature/cli-first-mvp`. Latest commits: public DoH/egress `8cd7fc7`,
-  Rename mismatch/manual correction `fcb4f40`, missing-ref mismatch `7e48594`.
-  Static distribution/notices committed `c315b79`.
-  Relevant serial VM37, VM33, VM39, VM50, VM51 and static-distribution
-  VM48 passed; no VM is running.
-- Read-only loss inspection for stopped assembled failed creations passed
-  focused/broader unit checks, retained review and selected serial VM50;
-  committed `d903114`.
-  Confirmed cleanup passed focused/broader/race checks, retained review and
-  selected serial VM51, committed `8c75851`. Its supported boundary remains
-  explicit below.
-- Bulk project deletion passed focused/broader/race checks, retained review and
-  serial VM52, committed `c101b9d`, including the diagnosed CLI confirmation
-  deadline correction.
-  Actual cached-session bulk deletion also passed serial VM53, committed
-  `ec507cd`. Managed package install/update/removal passed retained review,
-  focused/full/race checks, corrected Nix checks and serial VM54. No VM is running.
-- Remaining gates: NixOS/Incus
-  service installation acceptance and final full suite. Root owns the sole
-  implementation stream; installer source is unvalidated. Complex unsupported creation/cleanup
-  states preserve resources; no universal replacement/repair is claimed.
-  Latest full-suite checkpoint remains through VM28; final full suite is pending.
-- Authenticated Codex acceptance remains pending the user's manual procedure.
-  Automated tests use fixtures/dummy files and no host credentials.
-- Preserve all prior patches/evidence; reuse the retained reviewer, run VMs
-  serially, and commit each batch after relevant passing VM validation.
+- Branch: `feature/cli-first-mvp`. Managed plugins committed `5c66105`;
+  bulk deletion/cache, failed-creation cleanup, distribution and public DoH
+  batches are committed with preserved passing selected VM evidence below.
+- NixOS installation passed focused module checks, required package checks,
+  retained review and selected serial VM55. Commit this batch next; no VM runs
+  concurrently. The hardened service is network:none-only; public-egress remains
+  the separately owner-run daemon path with unchanged VM37 evidence.
+- Remaining automated delivery gate: final full serial VM suite (all55 steps).
+  Latest previous full checkpoint was throughVM28. Root owns the sole stream;
+  retained reviewer is idle. No universal repair/replacement/cleanup is claimed.
+- Authenticated Codex acceptance remains pending user validation using the
+  exact manual procedure below. Automated checks use fixtures/dummy files;
+  no credentials or login. Production TUI, backup/restore, software rollback,
+  abandonment and uncertain-resource deletion are outside this delivery scope.
+- Preserve prior evidence, use this record only, run VMs serially, and commit
+  each batch after relevant passing validation.
 
 ## Preserved checkpoint history — 2026-09-26
 
@@ -290,7 +280,9 @@ mapping in the selected plugin rather than the P core status reducer.
 The pinned adapter and authentication-free checks are available. This gate
 remains pending until the user runs it. Use a configured disposable project
 with the trusted `public-egress` policy, selected Codex adapter, and a committed
-source whose devShell provides Codex `0.151.0`. Real public network access
+source whose devShell provides Codex `0.151.0`. Use the separately owner-run
+daemon with scoped network proofs: the hardened NixOS service module supports
+`network: none` and refuses public-egress settings. Real public network access
 must also work on the user's machine; selected VM37 now establishes real
 DoH/DNS/HTTPS/Nix-fetch evidence, but no authenticated Codex acceptance.
 Create two disposable branches/sessions with separate private homes:
@@ -4643,3 +4635,90 @@ it does not close the installation or external-tool attribution gates.
   corrections are preserved above. NixOS installation source is the next separate
   unvalidated batch; do not include it in this package-management commit.
   Passing VM54 console: `.cache/p-vm/integration-20260926T210630Z-987713.log`.
+
+- **NixOS service installation batch:** root is the sole implementation stream;
+  retained implementer is idle. Added root flake using the existing exact
+  Nixpkgs lock, CLI/runtime image/metadata/fingerprint outputs and a module that
+  selects its locked package. The service uses a persistent non-root confined
+  account, private owned0700 state/0600 singly-linked generated host config,
+  explicit owner-selected roles and optional once-only bundled activation.
+  Existing activation is preserved on restart. No Incus project/pool/network
+  provisioning or authority widening is done by P. Owner configuration supplies
+  restricted socket/project/base fingerprint/disk ceilings. Service hardening
+  keeps no-new-privileges, strict filesystem and private temporary/devices scope;
+  no credential or host secret is loaded. The test-only service control helper
+  permits only fixed p.service actions and bounded diagnostics inside the VM.
+  VM55 acceptance covers installed service, all six selections, real isolated
+  session/Git, running-host persistence through restart, stopped-state restart,
+  Stop/Start dummy-byte/key/ref persistence and public exact project cleanup.
+  No authentication is attempted. Root flake show, syntax and ShellCheck passed.
+  Focused NixOS evaluation initially diagnosed the pinned Incus module's nftables
+  requirement, corrected only its fixture premise; then positive service and
+  root-account/Incus-unavailable/unsafe-state/admin-group negative cases passed.
+  Preserve those checks as tests/nix/service-module.nix. Retained review and
+  selected serial VM55 have not run yet. Plugin batch committed `5c66105`.
+
+  Retained installation review identified one service compatibility finding:
+  public-egress requires fixed scoped sudo/nft/proof commands, incompatible with
+  service no-new-privileges and empty capability bounding. Keep the hardened
+  service explicitly network:none-only and refuse non-null public_egress, default
+  public policy, and mapped public policy at Nix evaluation. Existing separately
+  owner-run daemon public-egress support and VM37 evidence remain unchanged.
+  README and isolation authority now state this narrower service boundary.
+  All three focused negative cases passed alongside existing account/state/Incus
+  checks; the initial test used a shallow attrs override that was ignored, then
+  corrected to explicit mkForce settings. No production checks weakened.
+  Root locked package build also passed required authentication-free checks;
+  this is package evidence, not yet service VM acceptance.
+
+  Reviewer approved the network:none assertion/docs/focused negative cases.
+  First selected VM55 `.cache/p-vm/integration-20260926T212644Z-1074638.log`
+  exited1 after real private service configuration, native creation and Git push:
+  fixture service_control could not find sudo in its deliberately bounded PATH.
+  Fix only explicit /run/wrappers/bin/sudo and fixed installed test-helper paths;
+  production service and authorization are unchanged. Guest powered off and
+  fresh disk was removed. Retry only VM55. Final full-suite preparation also
+  extends only the aggregate guest deadline to10500s for all55 serial gates
+  (outer caller P_VM_TIMEOUT=10800), retaining selected1100s and individual bounds.
+
+  Second selected VM55 `.cache/p-vm/integration-20260926T212902Z-1132426.log`
+  again reached real Create/Git, then fixture control refused with sudo password
+  required. New diagnostic inspected the exact generated non-secret sudoers:
+  it authorizes the immutable /nix/store helper path, not its system-profile
+  symlink. Pass that same declared store path explicitly through the VM test
+  environment and invoke it exactly. Do not broaden sudoers, request credentials
+  or remove assertions. This correction follows new concrete policy evidence;
+  the prior two failures are preserved. Guest/disk were removed before retry.
+
+  Third selected VM55 `.cache/p-vm/integration-20260926T213121Z-1189567.log`
+  passed the corrected scoped control helper, real live daemon restart, unchanged
+  tmux/key/activation and Stop plus another restart. A subsequent RPC returned1
+  inside the fixture wrapper, but its discarded JSON hid method/error; existing
+  bounded journal proved service restarts succeeded. No speculative product fix:
+  add bounded failed-RPC method/status/error diagnostics, retaining the exact
+  assertions and no secret/transcript output, then repeat selection for evidence.
+
+  Diagnostic-only VM55 `.cache/p-vm/integration-20260926T213344Z-1247013.log`
+  identified final session.stop returning exact busy/-32003 immediately after
+  asynchronous Start. Source inspection confirms Start retains the session
+  mutation lock through host readiness and diagnostic persistence; a ready
+  native projection can precede release. This is correct exclusion, not failed
+  persistence. Fixture now retries only exact busy/no-result within40s, requires
+  successful Stop to return stopped, and fails any other response or timeout.
+  No lock/authority/readiness assertions or product behavior changed. Retain
+  diagnostics. Bash/ShellCheck/diff checks passed before selected serial retry.
+
+  Reviewed corrected selected VM55 exited0; console
+  `.cache/p-vm/integration-20260926T213709Z-1304216.log`, driver
+  `/tmp/p-vm55-nixos-service-driver5.out`. Actual module-installed private service
+  config/activation, six-role composition, isolated idmap/nesting-off/no-NIC
+  native container, Git commit/push, unchanged live tmux/key/activation through
+  daemon restart, stopped-state restart, Stop/Start retained Git/private/dummy
+  credentials, fresh loss preview and confirmed exact project cleanup passed.
+  Required package Go/17Python checks and focused NixOS refusals also passed.
+  Retained reviewer approved the exact helper path and bounded busy retry; no
+  production lock, permissions, isolation or assertion was weakened. Busy is
+  retried as a refusal, never accepted as success. VM powered down/disk removed.
+  No authenticated Codex execution occurred. Commit installation and all findings
+  before the final full serial suite. Final full-suite caller budget10800s and
+  guest10500s retain per-test bounds; one VM12GiB, no concurrent native runs.
