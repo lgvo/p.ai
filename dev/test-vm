@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+usage() {
+  echo "Usage: ./dev/test-vm [--step STEP.sh ...]"
+  echo "Without --step, runs every integration step. Selected steps run in repository order."
+}
+requested=()
+if (( $# == 1 )) && [[ $1 == --help || $1 == -h ]]; then
+  usage
+  exit 0
+fi
+while (( $# )); do
+  case "$1" in
+    --step)
+      if (( $# < 2 )); then
+        echo "Missing step name after --step." >&2
+        usage >&2
+        exit 2
+      fi
+      step_name=$2
+      shift 2
+      if [[ ! $step_name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*\.sh$ ]]; then
+        echo "Invalid integration step filename: $step_name" >&2
+        exit 2
+      fi
+      for existing in "${requested[@]}"; do
+        if [[ "$existing" == "$step_name" ]]; then
+          echo "Duplicate integration step: $step_name" >&2
+          exit 2
+        fi
+      done
+      requested+=("$step_name")
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+selected=()
+for step in "$repo"/tests/integration/steps/*.sh; do
+  [[ -f $step && ! -L $step ]] || continue
+  for step_name in "${requested[@]}"; do
+    if [[ "${step##*/}" == "$step_name" ]]; then
+      selected+=("$step_name")
+    fi
+  done
+done
+if (( ${#selected[@]} != ${#requested[@]} )); then
+  for step_name in "${requested[@]}"; do
+    found=false
+    for existing in "${selected[@]}"; do
+      if [[ "$existing" == "$step_name" ]]; then
+        found=true
+        break
+      fi
+    done
+    if [[ "$found" == false ]]; then
+      echo "Unknown integration step: $step_name" >&2
+    fi
+  done
+  exit 2
+fi
+selected_steps_text=""
+if (( ${#selected[@]} )); then
+  printf -v selected_steps_text '%s\n' "${selected[@]}"
+  selected_steps_text=${selected_steps_text%$'\n'}
+fi
+log_dir=${P_VM_LOG_DIR:-"$repo/.cache/p-vm"}
+mkdir -p -- "$log_dir" "$repo/.cache/p-vm"
+# All product integration runs for this checkout share one lock, even when
+# callers choose different log directories. Hold it through build and shutdown.
+exec 9>"$repo/.cache/p-vm/integration.lock"
+if ! flock -n 9; then
+  echo "Another VM integration run is active for this checkout." >&2
+  exit 1
+fi
+outer_host_ipv4=""
+outer_host_lan_ipv4=""
+if (( ${#selected[@]} == 0 )) || [[ $'\n'"$selected_steps_text"$'\n' == *$'\n37-public-egress.sh\n'* ]]; then
+  # Include public host addresses too: filtering only RFC1918 is insufficient.
+  # Failure to inspect the host must not silently produce an incomplete policy.
+  host_addresses=$(ip -o -4 address show)
+  host_routes=$(ip -o -4 route show table all scope link type unicast)
+  outer_host_ipv4=$(awk '{ sub(/\/.*/, "", $4); print $4 }' <<< "$host_addresses" | sort -u)
+  outer_host_lan_ipv4=$(awk '$1 != "default" { print $1 }' <<< "$host_routes" | sort -u)
+  if [[ -z "$outer_host_ipv4" ]]; then
+    echo "Cannot establish outer VM host-address denial policy." >&2
+    exit 1
+  fi
+fi
+runner=$(nix-build "$repo/dev/integration.nix" -A runner \
+  --argstr selectedStepsText "$selected_steps_text" \
+  --argstr outerHostIPv4Text "$outer_host_ipv4" \
+  --argstr outerHostLANIPv4Text "$outer_host_lan_ipv4" --no-out-link)
+export P_VM_LOG_DIR="$log_dir"
+exec "$runner/bin/p-vm-integration-test"

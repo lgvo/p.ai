@@ -5,6 +5,11 @@ Concrete work still required to implement and validate the MVP design.
 > **Status: tracker, not authority.** Subject documents own behavior. This list
 > points to them and must not introduce a competing contract.
 
+The active CLI-first work and validation evidence are recorded in
+[implementation progress](implementation-progress.md). The broad checklist
+below includes partially delivered items; an unchecked item does not mean all
+of its components are unimplemented.
+
 ## Design readiness
 
 The cross-document lifecycle decisions needed to begin implementation are now
@@ -40,9 +45,9 @@ does not change owner-document lifecycle semantics.
 - [ ] Implement structured configuration loading and validation with trusted
   instance/project authority and immutable session policy snapshots.
 - [ ] Implement SQLite migrations, transaction helpers, operation/idempotency
-  records, minimal project-deletion tombstones, and restart reconciliation.
+  records, minimal project-deletion records, and restart reconciliation.
 - [ ] Implement typed errors, bounded/redacted diagnostics, structured logging,
-  and the versioned `EventHandler` interface with the NDJSON file handler.
+  and the versioned `EventHandler` interface with the NDJSON file-log handler.
 - [ ] Establish fake Git, runtime, environment, agent, and clock adapters for
   deterministic lifecycle tests.
 
@@ -62,17 +67,20 @@ does not change owner-document lifecycle semantics.
 - [ ] Implement explicit origin publication with fresh observation, one
   destination ref, no force, and unknown-outcome reporting.
 - [ ] Implement **Delete project and all P data** with aggregate preflight,
-  confirmed attachment termination, minimal tombstone, ensure-absent retry,
-  and abandonment for unreachable resources.
+  confirmed attachment termination, minimal durable deletion record,
+  ensure-absent retry, and incomplete cleanup retaining identity and restrictions
+  while Incus is unavailable. Abandonment and its tombstone/orphan-cleanup/forget
+  workflow are outside MVP.
 
 ## Plugin contract
 
-- [ ] Reconcile the technology design with the confirmed
+- [x] Reconcile the package/activation foundation with the confirmed
   [product direction](PRODUCT.md): define the trusted P-core boundary and how
   authoritative lifecycle operations invoke plugins without delegating policy,
   grants, recovery, or user confirmation.
-- [ ] Assign one detailed design authority for the common plugin framework and
-  its capability-specific contracts.
+- [x] Assign [the plugin contract](plugin-contract.md) as the detailed owner
+  for the common plugin framework; capability-specific schemas follow with
+  their implementation slices.
 - [ ] Define packaging, process/isolation model, transport, discovery,
   installation/update/removal, compatibility/versioning, and failure behavior.
 - [ ] Define capability manifests and trusted activation so repository or
@@ -83,7 +91,7 @@ does not change owner-document lifecycle semantics.
   authentication, and host-side capabilities that are never exposed to the
   session.
 - [ ] Express the MVP Incus runtime, tmux persistent host, Git source/session
-  service, Nix environment builder, structured file-event handler, and Codex
+  service, Nix environment builder, structured file-log handler, and Codex
   adapter as secure first-party plugins selected and composed automatically by
   default setup.
 - [ ] Provide an agent-usable authoring, validation, and test workflow that
@@ -94,7 +102,8 @@ does not change owner-document lifecycle semantics.
 ## Runtime and environments
 
 - [ ] Implement the confined Incus backend, deterministic labels/names,
-  non-activating inspection helper, endpoint mounts, and orphan recognition.
+  non-activating inspection helper, endpoint mounts, and unfamiliar-runtime
+  identity checks without silent adoption.
 - [ ] Build the pinned base image with systemd, Nix, Git/SSH, tmux, the runtime
   kit, `p-session.target`, `p-interactive.service`, and the root-owned
   `/usr/libexec/p/attach` entrypoint.
@@ -111,18 +120,24 @@ does not change owner-document lifecycle semantics.
 ## Session lifecycle and observability
 
 - [ ] Implement Create with committed source plus the one bootstrap exception,
-  exact immutable Retry, and **Try again with changes** as a superseding new
-  creation.
-- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, Repair,
-  Abandon, and startup/restart reconciliation exactly as owned by
+  exact immutable Retry, supported superseding **Try again with changes** and
+  validated cleanup-then-new-Create fallback.
+- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, supported
+  Repair, and startup/restart reconciliation exactly as owned by
   [session lifecycle](session-lifecycle.md).
+- [ ] Validate expected/actual branch/upstream mismatch diagnostics, blocked
+  dependent actions and manual Git correction/recheck without automatic reset.
+- [ ] Validate unavailable Incus retains identity, durable cleanup and restrictions
+  until the confirmed operation can resume. Abandonment is outside MVP.
 - [ ] Implement pending-to-confirmed attachment leases whose loss tears down
   only the temporary transport and never the persistent host.
 - [ ] Implement the four independent public facts: `session_condition`,
   `attached_count`, `latest_unattended_condition`, and `policy_condition`.
-- [ ] Implement the Codex adapter and clear-on-confirmed-first-entry reduction
-  without terminal/process heuristics or retained status history. Other agent
-  adapters are post-MVP.
+- [ ] Complete Codex acceptance: the selected adapter, event fixtures,
+  clear-on-confirmed-first-entry reduction, and dummy credential isolation and
+  Stop/Start checks pass. Public Discard/Delete dummy cleanup remains pending;
+  authenticated execution and native hook reporting are reserved for the
+  user's final manual test. Other agent adapters are post-MVP.
 - [ ] Emit reduced lifecycle/status/policy events through `EventHandler`;
   handler failure must not roll back authoritative operations.
 
@@ -161,8 +176,11 @@ does not change owner-document lifecycle semantics.
 
 - [ ] Turn every acceptance criterion and development validation into an
   automated test, recorded integration result, or explicit support gate.
-- [ ] Pin dependency/protocol versions and prove upgrade behavior.
-- [ ] Add packaging, install/upgrade/rollback guidance, service definitions,
-  backup/restore, and diagnostics documentation.
+- [ ] Pin dependency/protocol versions and complete distribution license checks.
+- [ ] Add NixOS/Incus packaging, installation guidance, service definitions and
+  diagnostics. Backup/restore and software upgrade/rollback are outside MVP.
+- [ ] Validate the documented cleanup-then-Create fallback for supported complex
+  failed creations; preserve validated integrated replacement and refuse unsafe
+  cleanup without deleting uncertain resources.
 - [ ] Re-read all summaries after implementation evidence and update any claim
   that proved narrower than the design.

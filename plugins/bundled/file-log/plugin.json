@@ -1,0 +1,11 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "org.p.filelog",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "event-handler",
+  "placement": "host",
+  "description": "Append bounded, reduced P events to a private host file.",
+  "runtime": {"kind": "declarative", "entry": "event.file.append"},
+  "requests": ["event.file.append"]
+}

@@ -34,6 +34,12 @@ Repository content cannot create a project, choose its path, configure its
 origin, or widen its trusted policy. Project lifecycle is a host RPC action;
 Git carries the selected origin objects and later session commits.
 
+P preserves its local bare repositories and retained refs across ordinary
+session Stop/Start and daemon restarts. Session cleanup removes only the
+resources authorized by that operation; Discard retains the assigned P
+branch. MVP has no backup/restore subsystem and makes no protection claim for
+disk loss or deliberate deletion. Ordinary restart recovery is not a backup.
+
 ## Project identity and state
 
 The project path, such as `p` or `lgvo/p`, is its identity within one P
@@ -218,10 +224,13 @@ or `unreachable`. Partial success is expected. Retry runs the same authorized
 ensure-absent operation and normally has fewer remaining targets. The project
 disappears only after all owned resources are confirmed absent.
 
-If machinery is unreachable, ordinary deletion remains incomplete. A separate
-stronger Abandon action disables local authority and retains sufficient
-project/session/Incus identity as orphan tombstones so later machinery can be
-recognized and contained.
+If Incus is unavailable, P reports the unavailable authority and deletion
+remains incomplete. Project/session identity, the durable confirmed operation
+and existing authorization restrictions remain intact. Retry or reconciliation
+may resume the same ensure-absent operation when Incus returns. P never reports
+success, forgets uncertain resources or creates replacement containers while
+their existence is uncertain. Manual Incus investigation is supported; explicit
+abandonment and its tombstone/orphan-cleanup/forget workflow are outside MVP.
 
 ## Recovery and idempotency
 
@@ -229,11 +238,12 @@ Project creation and origin changes use operation identity and expected inputs
 but do not require multi-authority rollback after their commit point. A retry
 reconciles provisional resources and reasserts the same desired result.
 
-Project deletion persists a minimal tombstone containing the confirmed project
-identity, requested outcome, and known owned resource identifiers until all
-targets are absent. It is not a phase machine: on restart or explicit Retry, P
+Project deletion persists a minimal durable deletion record containing the
+confirmed project identity, requested outcome, and known owned resource
+identifiers until all targets are absent. It is not a phase machine: on restart
+or explicit Retry, P
 re-inspects authorities and attempts every remaining deletion. The project
-registry record and tombstone are removed last so partial external cleanup is
+registry and deletion records are removed last so partial external cleanup is
 never forgotten.
 
 ## MVP boundary
@@ -244,7 +254,8 @@ retained-branch management, and bulk idempotent project deletion.
 
 MVP excludes `p .`, host checkout registration/import, project rename,
 automatic origin mirroring, automatic branch reclamation, multi-origin
-projects, and project migration between P instances.
+projects, project migration between P instances, explicit abandonment,
+abandonment tombstones and their orphan-cleanup/forget workflow.
 
 ## Acceptance criteria
 
@@ -264,4 +275,6 @@ The project lifecycle is supported only when tests prove:
    new project authority, and converges through repeated ensure-absent calls;
 8. partial deletion and daemon restart retain enough identity to find every
    remaining resource without recreating deleted state; and
-9. abandonment preserves recognizable tombstones for unreachable machinery.
+9. Incus unavailability preserves project/session identity, incomplete durable
+   cleanup and authorization restrictions until confirmed work can resume;
+   uncertain machinery is neither forgotten nor silently adopted.

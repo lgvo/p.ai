@@ -30,7 +30,9 @@ helper.
 Run on each claimed storage driver and architecture. Measure logical and
 physical image/session sizes, but do not generalize copy-on-write or
 deduplication behavior across drivers. Test interruption, duplicate detection,
-builder/session orphans, and external image deletion.
+unexpected instance metadata, manually changed containers, and external image
+deletion. Unfamiliar machinery must not be silently adopted or used as proof
+that the expected runtime is absent.
 
 **Gate:** the claimed Incus/storage-driver/architecture combination.
 
@@ -42,6 +44,16 @@ while denying host, RFC1918/ULA, link-local, carrier-grade NAT, metadata,
 multicast, gateway administration, sibling instances, Incus API, and undeclared
 services. Cover IPv4, IPv6, DNS rebinding, redirects, literal addresses, and
 host aliases.
+
+For the dedicated public-egress VM selection, enable outbound public routing
+with explicit outer-VM host/LAN/private/metadata/inbound denial rules; other
+selections retain restricted networking. Validate the session-local and outer
+loopback resolvers against real DNS-over-HTTPS upstreams with literal bootstrap
+addresses and verified TLS names on TCP 443. Preserve existing pinned port-53
+allowances at the VM boundary; prove from the resolver configuration and
+bounded network evidence that hostname HTTPS and a fresh Nix fetch use DoH
+without plaintext bootstrap or fallback. Require actual public-to-private hostname
+resolution and HTTPS redirect denial evidence; synthetic fixtures are separate.
 
 Incus network/ACL defaults are not sufficient evidence; capture the actual
 configured routing and packet-level test results.
@@ -117,19 +129,35 @@ container must stop, the durable operation must identify the failed phase, and
 diagnostics must remain available after the container has stopped. Exact Retry
 must preserve its operation/session/source/policy identity, clean only verified
 partial derived resources, and rebuild without creating a retry chain. Also
-test **Try again with changes** as a new creation that supersedes and cleans the
-failed provisional creation before reusing the desired branch name.
+test the supported **Try again with changes** paths as a new creation that
+supersedes and cleans the failed provisional creation before reusing the desired
+branch name. For complex cases that refuse integrated replacement, validate the
+documented cleanup followed by a separate new Create. Cleanup must preview
+losses, require explicit confirmation, recheck identity/ownership, recover
+durably, and preserve shared or unrelated resources. Uncertain cleanup must
+explain the unresolved condition and leave uncertain resources intact.
 
-**Gate:** reliable status/control from sessions and local Linux client support.
+**Gate:** reliable status/control from sessions and local NixOS client support.
 
 ## 6. Lifecycle and authority recovery
 
 **Validate:** Crash at every documented cross-authority commit point. Verify
 create/rename/discard/delete converge without duplicate Incus instances or
 silent Git ref loss. Verify Incus-owned start/stop uses Incus operation/state
-without a duplicate P workflow. Test missing versus unreachable, repair,
-abandonment, orphan recognition, image cache misses, immutable-policy
-current/outdated/invalid comparison, and cleanup failures.
+without a duplicate P workflow. Test missing versus unreachable, supported
+repair, identity conflicts, image cache misses, immutable-policy
+current/outdated/invalid comparison, and cleanup failures. Branch/upstream
+mismatches must show expected and actual values, block dependent actions, and
+recheck on the next attempt after manual Git correction. No dedicated mismatch
+repair action or automatic checkout/reset is required.
+
+When Incus is unavailable, verify cleanup remains incomplete, session/project
+identity and durable confirmed operation state survive restart, and existing
+authorization restrictions remain intact. Restore Incus and resume that same
+confirmed operation through Retry/reconciliation. Do not report deletion
+success, forget uncertain machinery or create a replacement while existence
+is uncertain. Explicit abandonment, abandonment tombstones and the associated
+orphan-cleanup/forget workflow are outside MVP; manual investigation is supported.
 
 Create projects from a reachable SSH origin and as blank repositories. Verify
 failed origin contact leaves no new association, an empty origin produces the
@@ -143,9 +171,10 @@ refs. Exercise retained-branch assignment/list/source/fetch,
 rename, fast-forward publication, and deletion after the loss preview.
 
 For **Delete project and all P data**, confirm the aggregate preview enumerates
-and terminates listed live attachments, the minimal tombstone survives daemon
+and terminates listed live attachments, the minimal deletion record survives daemon
 restart, partial failures leave an idempotent ensure-absent retry with a smaller
-remainder, and unreachable resources require explicit abandonment. Verify
+remainder, and unavailable Incus keeps identity and cleanup incomplete until
+the confirmed operation can resume. Verify
 there is no rollback or hidden multi-phase recovery mode.
 
 **Gate:** each lifecycle mutation as it enters the implementation.
@@ -208,6 +237,16 @@ Claude Code and other agent mappings require post-MVP evidence.
 
 **Gate:** semantic status-adapter support for that agent/version.
 
+For the current CLI-first implementation, authenticated Codex acceptance is
+reserved for the user's final manual test. Automated unit and VM checks use
+event fixtures and dummy credential files for persistence, isolation, and
+deletion. They must not log in, request credentials, or access host Codex or
+OpenAI credentials. Fixture results do not satisfy the real versioned-trace
+gate above. Record authenticated acceptance as pending user validation in
+[implementation progress](implementation-progress.md) until the user completes
+the session-local execution, hook/status, Stop/Start, and Discard/Delete checks.
+Other MVP work proceeds without that authentication.
+
 ## 10. Event handler
 
 **Validate:** For every MVP reduced event kind, verify the typed versioned
@@ -223,8 +262,11 @@ not be able to configure handlers.
 
 **Validate:** Record the exact Go, Bubble Tea ecosystem, Wish, Git, OpenSSH,
 Incus, Nix, tmux, Codex adapter, and SQLite driver versions used by MVP. Pin
-every CLI JSON/API field and protocol behavior parsed by P. Verify upgrades
-through the relevant conformance suites before widening supported ranges.
+every CLI JSON/API field and protocol behavior parsed by P. MVP installation
+support is NixOS with Incus only. Backup/restore and software upgrade/rollback
+are outside delivery gates; normal Stop/Start and daemon-restart persistence
+and operation-level crash recovery remain required. Future changes to supported
+dependency ranges require the relevant conformance suites.
 Bifrost and the SSH client transport receive their own pins when those
 post-MVP capabilities are enabled.
 

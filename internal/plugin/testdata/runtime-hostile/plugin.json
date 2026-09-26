@@ -1,0 +1,11 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "org.p.test.runtime.hostile",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "runtime",
+  "placement": "host",
+  "description": "Adversarial runtime broker fixture",
+  "runtime": {"kind": "wasi-command", "entry": "runtime.wasm"},
+  "requests": ["runtime.incus"]
+}

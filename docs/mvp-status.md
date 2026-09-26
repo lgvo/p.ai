@@ -2,42 +2,78 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, updated 2026-09-09.**
+> **Status: non-normative snapshot, updated 2026-09-26.**
 > [Project guidance](../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
+> [Implementation plan](implementation-plan.md) proposes testable delivery
+> checkpoints from a real terminal/Git session through the documented MVP.
 
 ## Executive state
 
-P has a coherent MVP behavior and lifecycle model but no production
-implementation. Project, session, runtime, environment, communication, and
-observability contracts are assigned to explicit owner documents; the gateway
-owner retains a post-MVP design. The newly confirmed plugin composition model
-requires the implementation architecture to be reconciled before work begins.
+P's CLI-first implementation has started. Package validation, trusted plugin
+activation, bounded WASI event handlers, session asset plans, the file-log
+broker, SQLite state, Git/SSH, the assembled base runtime, and the executable
+Incus plugin have passed independent review, unit tests, and the packaged VM
+suite. Public CLI/RPC creation, captured-source sessions, exact retry, daemon
+restart, and retained Stop/Start now pass against real base-image containers.
+Private status RPC, durable unattended projections, attachment leases, daemon
+events, origin-backed creation, and explicit publication also pass in the VM.
+Restricted offline devShell realization, the selected environment WASI plugin,
+and native private-image publication pass their gates. Offline public devShell
+creation, project cache reuse/rebuild, activation, and private-state persistence
+also pass. Explicit cache collection, interrupted-cleanup recovery, and
+concurrent cache reuse pass their selected VM gate. The selected Codex adapter
+passes authentication-free event, private initialization, dummy credential
+isolation, and Stop/Start VM checks. The full serial VM checkpoint through
+test 28 passed these gates together, including bounded, non-activating workspace
+inspection and interrupted-pause recovery. Bounded loss reports for Git-known
+runtime worktrees, retained commits, and fingerprints passed selected test 29.
+Selected later VM checks also cover Discard/Delete, typed grants, guarded
+repairs, retained-branch rename/delete, and three early failed-creation
+replacement paths. The selected public-network VM now passes real DoH,
+hostname HTTPS, Nix fetch and public-to-private DNS/HTTPS redirect denials
+under the configured Incus and outer-VM restrictions. The final full-suite
+checkpoint remains pending.
+Authenticated Codex acceptance is reserved for
+the user's final manual test; automated tests use fixtures and dummy files.
+The [progress record](implementation-progress.md) tracks each step's
+implementation, review, and serialized VM validation. Subject contracts remain
+assigned to their owner documents; the gateway retains a post-MVP design.
 
 The fixture-backed TUI prototype now has a reviewed session-browser direction:
 Resource topology, a session picker, prefix-driven terminal navigation, and
 agent/service inspection pages. [Current interaction decisions](../.prototype/tui-options/DECISIONS.md)
 record that direction and its integration limits. Production TUI implementation
-and reconciliation of the agent/service extensions remain open. Plugin
-authoring, installation, composition, and approval interactions also remain
-open pending their dedicated design.
+and reconciliation of the agent/service extensions remain open. Installed
+first-party plugin composition passed selected VM48; plugin management and
+remaining approval interactions stay open beyond the
+[package and activation contract](plugin-contract.md).
 
 Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
 implementation work. They should narrow unsupported claims without reopening
 the product model unless evidence disproves an invariant.
 
+A [disposable NixOS/Incus lab](../dev/vm/README.md) now provides a pinned
+container fixture and an automated VM smoke test for runtime infrastructure.
+The separate product suite runs P's daemon and CLI against real Incus
+containers. Its current checkpoint covers the gates listed above; it does not
+establish the full MVP.
+
 [Product direction](PRODUCT.md) requires MVP to prove P's composable plugin
 model through secure first-party defaults for Incus runtime support, the tmux
 persistent host, Git source and session access, Nix environment preparation,
-structured file-event logging, and the Codex adapter. The usable public
+the structured file-log handler, and the Codex adapter. The usable public
 interfaces and this basic composition are sufficient for MVP; a separate
-agent-authored plugin is not a release gate. The present Go interfaces,
-systemd contract, and event handler describe behavioral inputs rather than an
-approved public plugin architecture. Plugin packaging, process model,
-isolation, transport, compatibility, capabilities,
-installation/approval UX, and composition remain unresolved and require the
-technology design to be reconciled before implementation.
+agent-authored plugin is not a release gate. The [plugin contract](plugin-contract.md)
+now owns packaging, activation, compatibility, and the selected executable
+boundary. Event-handler, source-Git, runtime and environment executable methods
+and host/agent assets are validated. Selected VM48 exercised the production
+package's exact six-plugin catalog and CLI default activation through real
+session creation, fixture status reporting and Stop/Start with daemon restart.
+Plugin installation/update/removal and NixOS service installation remain open;
+this evidence does not establish the complete plugin MVP or authenticated
+Codex execution.
 
 ## Settled model
 
@@ -61,11 +97,15 @@ technology design to be reconciled before implementation.
 - Retained branches are first-class project resources with
   list/source/fetch/rename/fast-forward-publish/loss-preview/delete operations.
 - **Delete project and all P data** uses aggregate preflight, confirmed live-
-  attachment termination, a minimal durable tombstone, and idempotent
+  attachment termination, a minimal durable deletion record, and idempotent
   ensure-absent retry. It has no rollback/recovery-mode state machine.
 
 ### Runtime, environment, and policy
 
+- MVP installation targets NixOS with Incus only. Backup/restore and software
+  upgrade/rollback are outside delivery gates. Normal Stop/Start and daemon
+  restart retain P's local Git repositories; disk loss and deliberate deletion
+  have no protection claim.
 - Incus system containers are the only MVP runtime. Each session has a private
   root, `/nix`, workspace, home, credentials, and narrow endpoints.
 - A restricted builder realizes a committed default Nix devShell into a
@@ -85,11 +125,31 @@ technology design to be reconciled before implementation.
 
 ### Lifecycle, status, and events
 
-- Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, Repair, Abandon,
+- Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, supported Repair,
   retry, and restart reconciliation have defined outcomes.
+- Branch/upstream mismatches must show expected and actual values and block
+  dependent actions. Expected/actual diagnostics and manual-correction/recheck
+  acceptance remain pending. A dedicated mismatch repair or automatic
+  checkout/reset is outside MVP.
+- Incus unavailability leaves cleanup incomplete with identity, durable
+  confirmed operation and authorization restrictions retained. Retry/reconciliation
+  may resume when it returns; uncertain resources are never forgotten or replaced.
+  Explicit abandonment and its tombstone/orphan-cleanup/forget workflow are outside
+  MVP. Manual investigation preserves existing identity and duplicate checks.
+- Missing assigned-ref repair is supported when the inspected local commit
+  object is already in P's bare repository. If it exists only in the runtime,
+  P reports `p_object_missing` and leaves the runtime untouched; automatic
+  object transfer is outside MVP.
+- A renamed Incus instance cannot be relinked in MVP. Its expected name is
+  derived from the session UUID; P stores no mutable runtime locator and does
+  not adopt a renamed instance.
 - Exact Retry preserves the failed creation's immutable request and operation
   identity while cleaning verified partial derived resources. **Try again with
-  changes** is one integrated superseding Create with new identity, not retry.
+  changes** has validated integrated early-failure paths with a new identity.
+  Complex cases may refuse with a documented, validated cleanup-then-Create
+  path. Uncertain resources remain intact when safe cleanup cannot proceed;
+  VM49 validates bounded local committed-creation cleanup after a settled
+  builder failure. Broader assembled-runtime cleanup acceptance remains pending.
 - The public status model has four independent facts:
   `session_condition`, `attached_count`,
   `latest_unattended_condition`, and `policy_condition`.

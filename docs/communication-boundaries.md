@@ -63,6 +63,8 @@ control-plane network.
 The daemon exposes newline-delimited JSON-RPC 2.0 over a Unix socket. One line
 is one request, response, or notification. Long operations return an operation
 ID and publish phase updates; arbitrary stdout is never multiplexed into JSON.
+The [local control API reference](control-api.md) fixes the currently
+implemented v1 request, response, method, error, and host configuration schemas.
 
 ### Host RPC audience
 
@@ -72,7 +74,7 @@ The local user, TUI, and `p api` share the complete lifecycle surface:
 |---|---|
 | System | hello, health, protocol and build versions |
 | Projects | create, inspect, configure/remove origin, delete all P-owned data |
-| Sessions | list, create, attach, rename, stop, discard, delete, repair, abandon |
+| Sessions | list, create, attach, rename, stop, discard, delete, supported repair |
 | Remotes | configure, refresh, inspect origin state, explicitly publish |
 | Observability | session condition, attachment count, latest unattended condition, policy condition, subscriptions |
 | Configuration | validated effective configuration and diagnostics |
@@ -82,8 +84,9 @@ client-selected shell commands.
 
 ### Session RPC audience
 
-Each runtime receives a private per-session Unix socket bound server-side to
-its immutable session UUID. Its allowed surface is deliberately narrow:
+Each runtime receives `/run/p/session.sock`, a private per-session Unix socket
+bound server-side to its immutable session UUID. Its allowed surface is
+deliberately narrow:
 
 | Allowed | Denied |
 |---|---|
@@ -92,7 +95,8 @@ its immutable session UUID. Its allowed surface is deliberately narrow:
 | receive method/version errors for its own calls | publish to `origin` or change credentials, runtime, network policy, or mounts |
 
 The socket authenticates by runtime placement; a request cannot supply a
-different session UUID.
+different session UUID. The host socket mount and its filesystem permissions
+follow [runtime isolation](runtime-isolation.md#filesystem-grants).
 
 ### Observability over RPC
 
@@ -128,7 +132,9 @@ lifetime are defined by
 ### Session principal
 
 Each session receives a distinct SSH key bound to `(project, session UUID,
-current ref)`.
+current ref)`. Its fixed stream helper connects SSH to `/run/p/git.sock`;
+credential placement and ownership follow
+[runtime isolation](runtime-isolation.md#credentials).
 
 - It may read ordinary `refs/heads/*` in its project.
 - It may push only its assigned current branch.
@@ -245,6 +251,16 @@ origin operations and P-controlled Git garbage collection for a project so an
 active comparison cannot lose objects underneath it. When origin source
 selection succeeds, the newly created ordinary P branch retains the selected
 commit.
+
+An origin-source Create may be blocked after it records the captured commit
+but before it creates the ordinary P branch. P disables implicit Git garbage
+collection and maintenance in host Git operations that can trigger them,
+including `receive-pack`, so that commit remains available across daemon restart and
+exact Retry. MVP runs no explicit P-controlled garbage collection. A future
+explicit collector must hold the project origin/ref authority and preserve
+commits captured by pending creation operations until their ordinary branch
+exists or the intent is explicitly reconciled. It must not add protected or
+origin-generation refs to do so.
 
 A failed or interrupted refresh leaves the last completed observation only as
 stale presentation data and marks current origin state unknown. It is not used
@@ -363,8 +379,11 @@ Git reachability and optionally observed origin branches. Runtime files and Git
 objects never travel inside the RPC request.
 
 Session discard/delete, missing/unreachable behavior, confirmation
-fingerprints, credential cleanup, and abandonment are defined in
+fingerprints and credential cleanup are defined in
 [session lifecycle](session-lifecycle.md#destructive-preflight).
+Unavailable Incus keeps confirmed cleanup incomplete and resumable; explicit
+abandonment and its associated tombstone/orphan-cleanup/forget workflow are
+outside MVP.
 Whole-project deletion is defined in
 [project lifecycle](project-lifecycle.md#project-deletion).
 

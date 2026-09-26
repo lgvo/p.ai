@@ -1,0 +1,12 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "org.p.tmux-host",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "interactive-host",
+  "placement": "internal-session",
+  "description": "Systemd-owned persistent tmux host with a fixed attachment entrypoint",
+  "runtime": {"kind": "assets"},
+  "requests": ["session.asset.install"],
+  "assets": ["p-session.target", "p-interactive.service", "p-attach"]
+}
