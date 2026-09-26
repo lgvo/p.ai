@@ -539,8 +539,49 @@ event handler; they are diagnostic commands, not daemon or lifecycle APIs.
 Daemon delivery selects an event handler by trusted host configuration and
 rechecks its package digest for each invocation. Handler calls are bounded and
 best effort; a full queue or failed call loses that event without rolling back
-the committed transition. Plugin installation, update and removal management
-remain separate from the read-only bundled selection command. Update requires staging a new digest and
-explicit trusted selection; removal disables new calls before retiring assets
-or credentials. A plugin failure returns a bounded diagnostic to core and
+the committed transition. Plugin management remains separate from the read-only
+bundled selection command. Update requires staging a new digest and explicit
+trusted selection; removal disables new calls before retiring assets or
+credentials. A plugin failure returns a bounded diagnostic to core and
 never changes identity, policy, or committed lifecycle state.
+
+### Managed package commands
+
+The CLI-first manager operates offline, using a private trusted host configuration
+and the instance's exclusive store lock. Stop that daemon before management;
+ordinary sessions are not automatically stopped or discarded. Commands are:
+
+```sh
+p plugins install HOST_JSON PACKAGE APPROVED_SHA256
+p plugins update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256
+p plugins remove HOST_JSON SHA256
+```
+
+Obtain and review the manifest and digest with `p plugins conformance PACKAGE`
+before approving it. Install retains the exact opened validated bytes in
+`STATE/plugins/packages/SHA256`, publishes them atomically, and prints the
+package and selection values. Update stages a new approved digest with the same
+plugin identity and retains the old version. Neither command activates it:
+explicitly edit the private trusted activation and host role selection, supply
+the capability's required configuration, validate, and restart the daemon.
+
+The protected registry belongs to one persistent instance and state directory;
+another instance cannot select its staged packages. The daemon holds shared
+package leases throughout its lifetime, including cached asset plans, and
+invocation snapshots also acquire leases and honor disable markers.
+
+Removal requires trusted deselection and no durable dependency. Existing
+session/operation evidence, unresolved provenance, indexed environment images,
+pending origin/publication recovery or a live package lease refuse removal.
+Finish supported lifecycle cleanup, image collection or recovery first; unknown
+holders require investigation and preserve the package. The manager rechecks
+trusted selection and dependencies under the exclusive package lease, syncs a
+disable marker and exact cleanup receipt before deleting bytes. Interrupted
+removal permits Retry for missing approved files and unchanged owned survivors;
+changed identities, bytes or unfamiliar survivors refuse without recursive
+deletion. Missing registry metadata remains a managed-path error and cannot
+rebind retained packages to another instance. The disabled digest cannot
+silently reinstall or reactivate; a new
+approved digest is required. Already installed session assets and credentials
+remain under their session lifecycle authority and are not deleted by package
+management.

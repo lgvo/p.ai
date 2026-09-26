@@ -126,6 +126,11 @@ func DispatchEvent(ctx context.Context, active []Active, event Event) (CommandRe
 		if m.Runtime.Kind == "wasi-command" {
 			return RunEvent(ctx, selected, event)
 		}
+		release, leaseErr := LeasePackage(selected.Package.Path)
+		if leaseErr != nil {
+			return result, leaseErr
+		}
+		defer release()
 		current, err := Conformance(selected.Package.Path)
 		if err != nil {
 			return result, fmt.Errorf("selected package digest changed or invalid: %w", err)

@@ -47,6 +47,16 @@ func Conformance(path string) (Package, error) {
 // before using retained bytes.
 func packageSnapshot(ctx context.Context, path string, capture map[string]bool) (Package, map[string][]byte, error) {
 	var result Package
+	release, err := LeasePackage(path)
+	if err != nil {
+		return result, nil, err
+	}
+	defer release()
+	return snapshotWithoutLease(ctx, path, capture)
+}
+
+func snapshotWithoutLease(ctx context.Context, path string, capture map[string]bool) (Package, map[string][]byte, error) {
+	var result Package
 	retained := map[string][]byte{}
 	if !filepath.IsAbs(path) {
 		return result, nil, errors.New("package path must be absolute")
@@ -123,13 +133,16 @@ func packageSnapshot(ctx context.Context, path string, capture map[string]bool) 
 				return result, nil, errors.New("manifest exceeds 64 KiB")
 			}
 			manifestData, err = readBoundedContext(ctx, file, info.Size())
+			if capture["*"] {
+				retained[name] = manifestData
+			}
 			if err == nil && int64(len(manifestData)) != info.Size() {
 				err = errors.New("manifest changed during read")
 			}
 			if err == nil {
 				_, err = h.Write(manifestData)
 			}
-		} else if capture[name] {
+		} else if capture[name] || capture["*"] {
 			if info.Size() > 8<<20 {
 				file.Close()
 				return result, nil, fmt.Errorf("captured package file too large: %s", name)

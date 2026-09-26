@@ -5,6 +5,9 @@
   git,
   openssh,
   python3,
+  proot,
+  bash,
+  coreutils,
   go-licenses,
 }:
 let
@@ -80,10 +83,48 @@ buildGoModule {
     git
     openssh
     python3
+    proot
+    bash
+    coreutils
   ];
   checkPhase = ''
     runHook preCheck
-    go test ./...
+    # Nix user namespaces can expose / as foreign-owned UID 65534. Keep
+    # production ancestry checks intact: run all Go checks in a private owned
+    # filesystem view, with actual euid/file owners/inodes and no fake root (-0).
+    # This is a unit fixture; selected VM checks use the ordinary host ancestry.
+    # Prove the real namespace foreign-root refusal separately; the same test
+    # asserts permitted ownership again inside the private fixture view.
+    go test ./internal/control -run '^TestProductionPathCheckRefusesForeignRoot$' -count=1 -v
+    p_check_root="$(mktemp -d "$TMPDIR/p.XXX")"
+    p_check_cache="$TMPDIR/p-unit-go-cache"
+    mkdir -m 0700 "$p_check_root/build" "$p_check_root/t" "$p_check_root/tmp" "$p_check_root/bin" "$p_check_root/usr" "$p_check_root/etc"
+    mkdir -m 0700 "$p_check_root/usr/bin"
+    ln -s ${bash}/bin/bash "$p_check_root/bin/sh"
+    ln -s ${coreutils}/bin/env "$p_check_root/usr/bin/env"
+    mkdir -p "$p_check_cache"
+    chmod 0700 "$p_check_root" "$p_check_cache"
+    p_check_uid="$(id -u)"
+    p_check_gid="$(id -g)"
+    # Inert account lookup data for ssh-keygen; no host account/credential files.
+    printf 'p-unit:x:%s:%s:P unit fixture:/nonexistent:/bin/sh\n' "$p_check_uid" "$p_check_gid" > "$p_check_root/etc/passwd"
+    printf 'p-unit:x:%s:\n' "$p_check_gid" > "$p_check_root/etc/group"
+    chmod 0600 "$p_check_root/etc/passwd" "$p_check_root/etc/group"
+    echo "P_UNIT_FIXTURE_ROOT real_uid=$(id -u) namespace_root_uid=$(stat -c %u /) fixture_root_uid=$(stat -c %u "$p_check_root")"
+    proot -r "$p_check_root" -b /nix -b /proc -b /dev \
+      -b "$PWD:/build/source" -b "$p_check_cache:/build/go-cache" \
+      -w /build/source ${bash}/bin/bash -euc '
+        test "$(id -u)" = "$1"
+        test "$(stat -c %u /)" = "$1"
+        test "$(stat -c %u /t)" = "$1"
+        test "$(stat -c %u /tmp)" = "$1"
+        test "$(stat -c %a /)" = 700
+        test "$(stat -c %a /t)" = 700
+        test "$(stat -c %a /tmp)" = 700
+        echo "P_UNIT_FIXTURE_VIEW real_uid=$(id -u) root_uid=$(stat -c %u /) tmp_uid=$(stat -c %u /t) literal_tmp_uid=$(stat -c %u /tmp)"
+        export TMPDIR=/t GOCACHE=/build/go-cache
+        go test ./...
+      ' p-unit-check "$p_check_uid"
     python3 -I -B -m unittest discover -s tests/unit -p '*_test.py'
     runHook postCheck
   '';

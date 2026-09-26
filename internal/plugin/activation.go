@@ -42,6 +42,10 @@ func LoadActivation(path string) ([]Active, error) {
 	if len(data) > 1<<20 {
 		return nil, errors.New("activation file exceeds 1 MiB")
 	}
+	return decodeActivation(data)
+}
+
+func decodeActivation(data []byte) ([]Active, error) {
 	var config Activation
 	if err := strictJSON(data, &config); err != nil {
 		return nil, err
@@ -141,4 +145,21 @@ func validateConfig(m Manifest, data []byte) error {
 		return errors.New("file-log max_bytes must be between 1024 and 104857600")
 	}
 	return nil
+}
+
+// LoadPrivateActivation enforces persistent host authority ownership and ancestry.
+func LoadPrivateActivation(path string) ([]Active, error) {
+	f, err := managedFile(path, syscall.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > 1<<20 {
+		return nil, errors.New("activation file exceeds 1 MiB")
+	}
+	return decodeActivation(data)
 }

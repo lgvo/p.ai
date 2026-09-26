@@ -89,6 +89,11 @@ type RuntimeBrokerReply struct {
 // closed over the core-selected session; native Incus remains authoritative.
 func RunRuntime(parent context.Context, selected Active, kind string, broker RuntimeBroker) (RuntimeState, error) {
 	var zero RuntimeState
+	release, leaseErr := LeasePackage(selected.Package.Path)
+	if leaseErr != nil {
+		return zero, leaseErr
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
 	select {

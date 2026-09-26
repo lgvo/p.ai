@@ -188,9 +188,9 @@ P never reclaims sessions automatically. The three destructive levels are:
 Before discard or delete, P inspects reachable running or stopped workspaces
 without activating the environment or starting the interactive command. If an
 instance is missing, P says its local state is already unavailable and offers
-cleanup. If Incus is unreachable, ordinary destruction is refused; an explicit
-abandonment override requires stronger confirmation and records the unknown
-machinery so it can later be recognized as orphaned.
+cleanup. If Incus is unreachable, cleanup remains incomplete and retains exact
+identity and confirmed intent for Retry when authority returns. Manual Incus
+investigation is supported; abandonment and orphan-forget are outside MVP.
 
 Delete separately itemizes Git refs and commits that lose their last retained
 reference. A configured origin is refreshed before P makes claims about what
@@ -201,15 +201,17 @@ Discard releases that assignment and leaves an ordinary P branch; continuing
 on it creates a new UUID and assigns that same retained branch. Creating a
 different branch from it is a separate choice that asks for a source.
 
-Creation, start, attachment, rename, stop, destructive preflight, repair,
-abandonment, and crash recovery are specified in
+Creation, start, attachment, rename, stop, destructive preflight, supported
+repair, and crash recovery are specified in
 [session lifecycle](docs/session-lifecycle.md).
 
 A separate project-level operation, **Delete project and all P data**, previews
 all sessions, retained branches, credentials, runtimes, and attachments that
-will be removed. Confirmation authorizes termination of the listed live
-attachments. P records a minimal durable tombstone and idempotently ensures
-each listed resource is absent; if some cleanup fails, the user retries and P
+will be removed. The implemented path requires stopped, detached sessions with
+fresh loss inspection, or acknowledged positively missing runtimes; incomplete
+creations need separate supported cleanup first. P records minimal durable
+confirmed intent and idempotently ensures each resource is absent; if some
+cleanup fails, the user retries and P
 reports the smaller remainder. Project creation, retained branches, origins,
 and whole-project deletion are specified in
 [project lifecycle](docs/project-lifecycle.md).
@@ -335,7 +337,8 @@ the isolated session as an ordinary command, and the user authenticates it
 within that session's private home. P does not copy, inject, or manage the
 host's Codex or OpenAI credentials. The lifecycle contract retains session-local
 authentication across Stop/Start and removes it with Discard/Delete; automated
-tests use dummy files, and public destructive cleanup is still being implemented.
+tests validate the public Discard/Delete paths with dummy files. Authenticated
+credential cleanup remains part of the user's manual acceptance.
 
 Codex use that requires network access uses the project's explicitly selected,
 validated `public-egress` grant. P supplies no model endpoint in MVP.
@@ -371,12 +374,13 @@ The [plugin foundation](docs/plugin-contract.md) defines package manifests,
 content-pinned activation, grants, and the selected execution boundary.
 The initial CLI validates packages, executes bounded WASI event handlers,
 exercises the declarative file-log handler, and produces fixed session asset
-plans. Automatic composition, installation, and approval UX remain
-implementation work. Track reviewed changes and VM evidence in the
+plans. Packaged bundled composition and managed install/update/removal are
+validated within the package contract's explicit boundaries. Track current
+changes and VM evidence in the
 [implementation progress record](docs/implementation-progress.md). See
 [product direction](docs/PRODUCT.md),
 [project guidance](PROJECT.md#make-extension-a-product-capability), and the
-[implementation tracker](docs/missing-pieces.md#plugin-contract).
+[package management contract](docs/plugin-contract.md#managed-package-commands).
 
 ## Configuration
 
@@ -404,7 +408,7 @@ images, storage, and runtime operations.
 
 ## Requirements
 
-MVP targets Linux and expects:
+MVP installation is supported on NixOS with local Incus and expects:
 
 - Git and OpenSSH;
 - a locally initialized Incus daemon and confined user project;
@@ -413,14 +417,14 @@ MVP targets Linux and expects:
 - systemd and tmux in the base image for the default persistent interactive
   host contract.
 
-Nix executes inside isolated builder and session instances. Host Nix is not a
-runtime installation dependency; a developer or distribution process may use
-it to build the P base image.
+Project Nix evaluation and builds execute inside isolated builder and session
+instances. Nix on the NixOS host builds and installs P's packages and base image;
+it does not evaluate project source with host authority.
 
 ### macOS and Windows
 
-The daemon, execution backends, and local client remain Linux-only in MVP. A
-user may use an ordinary SSH login to the Linux host and run the local TUI
+The supported MVP host is NixOS. A user may use an ordinary SSH login to that
+host and run the local CLI
 there, but P's client-initiated SSH-to-Unix transport and native macOS or
 Windows clients are post-MVP. They do not introduce a remote-runtime backend.
 
@@ -466,8 +470,9 @@ Implementation uncertainties that need real-machine evidence are tracked in
 affected milestone or capability unless evidence disproves a core invariant.
 
 The current documentation/readiness snapshot is in
-[MVP status](docs/mvp-status.md), and the complete remaining-work tracker is in
-[missing pieces](docs/missing-pieces.md).
+[MVP status](docs/mvp-status.md), and current implementation findings, remaining
+gates and validation evidence are in
+[implementation progress](docs/implementation-progress.md).
 
 The implementation choices and build-vs-buy decisions are in
 [technology stack](docs/technology-stack.md). The [FAQ](docs/FAQ.md) explains

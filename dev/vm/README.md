@@ -4,9 +4,12 @@ Run the runtime experiments from this repository without installing Incus on
 the workstation. Nix builds a NixOS VM and a container fixture from the locked
 Nixpkgs revision; QEMU runs the VM; Incus runs the containers inside it.
 
-This is an infrastructure lab, not a runnable P MVP. P's initial plugin CLI and
-daemon/RPC foundation and Git/SSH substrate now run in the product suite;
-session lifecycle, attachment leases, and connected TUI are still pending.
+The smoke command is an infrastructure lab. The separate CLI-first product
+suite exercises P's daemon/RPC, Git, session lifecycle, attachments, environments,
+policy and supported destructive recovery. Current validated boundaries and
+remaining delivery gates are recorded in
+[implementation progress](../../docs/implementation-progress.md); the connected
+TUI is deferred.
 The container fixture is not the production
 P base image and does not implement its persistent-host supervision contract.
 
@@ -14,7 +17,7 @@ P base image and does not implement its persistent-host supervision contract.
 
 - An `x86_64-linux` host with Nix and flakes enabled.
 - Access to the Nix daemon and, preferably, readable/writable `/dev/kvm`.
-- Capacity for an 8 GiB, two-vCPU VM, its sparse 24 GiB disk, and Nix build
+- Capacity for one 12 GiB, two-vCPU VM, its sparse 24 GiB disk, and Nix build
   outputs. Initial dependencies are downloaded through Nix.
 
 No host Incus, QEMU package installation, root invocation, or NixOS system

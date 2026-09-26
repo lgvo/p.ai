@@ -16,9 +16,12 @@
 - Bulk project deletion passed focused/broader/race checks, retained review and
   serial VM52, committed `c101b9d`, including the diagnosed CLI confirmation
   deadline correction.
-  Actual cached-session bulk deletion also passed serial VM53. No VM is running.
-- Remaining gates: plugin management and NixOS/Incus
-  installation/distribution acceptance. Complex unsupported creation/cleanup
+  Actual cached-session bulk deletion also passed serial VM53, committed
+  `ec507cd`. Managed package install/update/removal passed retained review,
+  focused/full/race checks, corrected Nix checks and serial VM54. No VM is running.
+- Remaining gates: NixOS/Incus
+  service installation acceptance and final full suite. Root owns the sole
+  implementation stream; installer source is unvalidated. Complex unsupported creation/cleanup
   states preserve resources; no universal replacement/repair is claimed.
   Latest full-suite checkpoint remains through VM28; final full suite is pending.
 - Authenticated Codex acceptance remains pending the user's manual procedure.
@@ -4453,3 +4456,190 @@ it does not close the installation or external-tool attribution gates.
   No Codex authentication or host credential access occurred. Existing retained
   core review covers these unchanged cleanup boundaries; only fixture selection
   and cached-image assertions were added, with Bash/ShellCheck/whitespace checks.
+
+- **Next installation acceptance boundary:** NixOS with local Incus only.
+  Expose the locked CLI and production image as reproducible package outputs
+  and a NixOS service module. Machine-owner provisioning remains responsible
+  for the confined user project, storage pools, profile and allowed disk paths;
+  P must not initialize or widen Incus. The service must run as a persistent
+  non-root account with only the confined Incus group, install private owned
+  trusted host configuration, preserve state across service restarts and expose
+  bounded health/capability/operation diagnostics through the same CLI. A clean
+  VM must exercise the declarative service with actual session creation, Git,
+  Stop/Start and daemon restart, plus preserved isolation denials. Public-egress
+  activation still requires its existing full proof and is not silently enabled
+  by installation. Backup/restore, upgrade/rollback, host rebuild/deployment and
+  authenticated Codex execution remain outside this automated batch. Only one
+  implementation stream is active; installation source edits follow the current
+  plugin-management stream rather than duplicating or running beside it.
+
+  Documentation consistency follow-up: README still advertised abandonment,
+  orphan recognition and live-attachment bulk termination, and described the
+  already-validated public dummy-credential cleanup as unimplemented. Updated
+  its summary to the governing narrowed scope and supported stopped/detached
+  aggregate boundary, preserving authenticated acceptance as pending. Current
+  implementation/evidence links now point to this sole progress record rather
+  than a competing remaining-work tracker. This changes no runtime behavior.
+
+- **Plugin-management acceptance/design before editing:** the retained Sol high
+  implementer owns the sole implementation stream. Protected content-addressed
+  staging must retain exactly the opened validated bytes and approved digest;
+  install/update return selection values without implicit activation. A running
+  daemon caches role selections, so activation-file edits alone cannot revoke
+  it. The proposed managed registry is instance-bound under STATE/plugins,
+  management acquires the existing store lock while that daemon is stopped,
+  daemon startup rejects a registry belonging to another instance and keeps
+  package leases for its lifetime. Invocation snapshots also check disable
+  markers/leases. Removal requires explicit trusted deselection, no durable
+  session/operation/cache dependency, and publishes a synced disable marker
+  before removing bytes; existing session assets/credentials remain untouched.
+  Ambiguous/unbounded holders refuse safely. Focused real-byte, digest, ownership,
+  symlink, concurrency and durable-holder tests precede retained completed-batch
+  review and a single authentication-free VM acceptance. No VM or authentication
+  was delegated and no second implementation stream is active.
+
+  Development VM README now distinguishes smoke-only substrate evidence from
+  the CLI product suite's validated lifecycle/attachment/environment scope and
+  reports the actual twelve-GiB single-VM memory setting. No memory or runtime
+  setting changed; this corrects stale documentation, not new validation.
+
+  Plugin batch focused checks passed: plugin 0.056s, control 0.044s, daemon
+  0.053s, CLI 0.087s; final selected-package CLI preflight recheck 0.081s.
+  Real ancestry tests used scoped host access because sandbox roots appear
+  foreign-owned; no production ancestry assertion was weakened. VM54 is
+  prepared and Bash/ShellCheck/whitespace checks pass, but it has not run.
+  Retained review identified two blockers: partial deletion after durable disable
+  cannot currently resume because whole-package digest verification refuses the
+  remaining subset; and cached host/agent asset comparison binds ID/digest but
+  lacks the actual instance-checked selection path. The same implementer is
+  adding exact bounded cleanup receipts/partial-restart-and-substitution tests
+  and same-digest/foreign-registry path-binding regression. A suspected selected
+  removal diagnostic self-lease issue was withdrawn after inspecting the fresh
+  CLI preflight; final changed-selection verification already refuses safely.
+  No successful managed-removal recovery or VM54 acceptance is claimed yet.
+
+  Retained review added one fail-closed provenance finding: SQL non-NULL fields
+  do not establish valid creator selection digests. Empty/non-hex or partially
+  populated optional-agent selection could otherwise evade a target match.
+  Decode and validate the bound creator's CreationSelection before permitting
+  removal; unknown/malformed provenance preserves the package. Reviewer sent
+  this specific finding to the same implementer with malformed/partial-agent
+  regressions, preserving valid unrelated-package removal.
+
+  Original plugin batch review completed with four product findings. The final
+  finding is reserved managed layout falling back to unmanaged handling when
+  `.p-registry.json` is missing, bypassing instance/disable checks. Managed paths
+  must fail closed on missing binding; regressions cover foreign-instance and
+  cached invocation after metadata loss. The reviewer paused original review;
+  only completed fixes for these four findings will be rechecked. The retained
+  implementation stream continues, no VM is running, and no new reviewer/model
+  escalation or unsafe integrity exception is introduced.
+
+  README consistency also narrows installation to NixOS/local Incus, separates
+  host package/image building from project Nix execution inside containers, and
+  acknowledges already-validated bundled composition while retaining managed
+  package acceptance as pending. No other host installation support is claimed.
+
+  All four reviewed fixes are implemented: exact durable removal receipt with
+  bounded unlink/rmdir recovery; asset path bound to leased instance snapshot;
+  decoded valid live creator selection; reserved managed layout denies missing
+  registry binding. Real partial-unlink/reopen, substituted/unknown survivors,
+  same-digest/foreign asset path, malformed/partial provenance and missing binding
+  checks pass. Empty-directory ReadDir EOF is positively empty, without weakening
+  exact identity checks. Expanded focused race checks passed (plugin 1.193s,
+  control 1.263s, daemon 1.049s, CLI 1.298s), and full touched-package checks passed
+  (plugin 5.821s, control 8.239s, daemon 0.493s, runtime adapter 3.633s, CLI 11.246s).
+  A final no-rebinding guard after metadata loss is under its focused check;
+  retained specific-finding recheck and VM54 remain pending. No VM is running.
+
+  Final managed-package race after lost-binding and parent-directory durability
+  fixes passed (1.180s), with all four completed fixes ready. Coordinator reran
+  only VM54 Bash/pinned ShellCheck/whitespace checks; retained reviewer is now
+  rechecking the four specific findings. Exact receipt and missing-binding
+  failure behavior are reflected in the authoritative package contract. VM54
+  remains unexecuted; no authenticated action is involved.
+
+  Retained reviewer approved all four specific fixes with no remaining batch
+  blockers: synced exact receipts/verified bounded recovery, actual asset path
+  binding, typed valid live creator selection and missing-registry/no-rebinding
+  denial. The real partial-delete/reopen and tampered/unknown-survivor regressions
+  cover recovery without recursive deletion or integrity exceptions. Launch only
+  selected serial VM54 for the completed batch; no other VM or implementation
+  stream is active.
+
+  First selected VM54 attempt stopped at the packaged Go check phase, before
+  booting any VM. Driver `/tmp/p-vm54-plugin-management-driver.out` reports
+  `foreign-owned path ancestor /` in CLI fixtures and `untrusted managed path
+  ancestry` in managed/daemon fixtures. These real ancestry tests passed with
+  scoped host execution; Nix build namespace ownership is a separate fixture
+  environment issue. No VM54 native integration pass is claimed. The same
+  implementer is diagnosing a private test filesystem/root view that can run all
+  required checks unchanged; production ownership checks, required assertions,
+  host Nix sandbox and Incus isolation must remain intact. No test skipping,
+  UID65534 trust exception or build sandbox disable is authorized. Installation
+  source edits have not started and wait behind this sole environment fix stream.
+
+  First private-view Nix package check failed, before any VM. Full log
+  `/tmp/p-managed-package-check-full.log` for
+  `/nix/store/rd6rgjbl6my8jq3ia31dvf9r4f92b1kn-p-0.1.0-dev.drv` establishes
+  actual UID1000, namespace-root UID65534, private-root/tmp UID1000 unchanged.
+  CLI and managed plugin tests pass. Three fresh fixture diagnostics identify
+  the correction: literal `/tmp` used by existing daemon socket fixtures is
+  absent; ssh-keygen needs an inert fixture passwd/group entry for the actual
+  build UID; the foreign-root regression incorrectly assumes every nonzero root
+  UID is foreign although the existing production rule also trusts actual euid.
+  Correct that test to assert both permitted-current-owner and actual-foreign
+  behavior, execute its negative case outside the private view, then the full
+  suite inside. Add private owned /tmp and inert account data, not host accounts
+  or credentials. No policy change, skipped security check, reduced selection,
+  weakened identity assertion or VM pass is claimed. Retained reviewer agrees
+  these specific diagnostics require fixture correction; the same implementer
+  handles it. This new evidence precedes another package attempt.
+
+  Corrected private-view Nix package check exited **0** and produced
+  `/nix/store/y23h9cl276xbfvzibwm44n0nwbypa5ns-p-0.1.0-dev`; full log
+  `/tmp/p-managed-package-check2-full.log` for
+  `/nix/store/lp07s2994bkfrb66qasg5ilq9nhcffvj-p-0.1.0-dev.drv` preserves the
+  exact root-ownership negative test outside the view and complete Go suite
+  inside, followed by all seventeen Python checks. Fixture root/tmp are real
+  actual-UID-owned directories; account data is inert and generated, with no
+  identity emulation or host credentials. Retained reviewer approved these
+  specific corrections, conditional on this now-passing package gate. Scoped
+  regression also proved UID65534 refusal, UID0 acceptance and private UID1000
+  acceptance with unchanged euid1000. No production policy or isolation change.
+  Retry only selected serial VM54, reusing this valid package build evidence.
+
+  First booted selected serial VM54
+  `.cache/p-vm/integration-20260926T210310Z-954370.log` had all product assertions
+  and selected pass marker, but exited overall **1**: the outer disposable-tree
+  teardown could not unlink files inside correctly read-only staged directories.
+  This is not an integration pass. Coordinator corrects only VM54's cleanup:
+  after daemon Stop and all assertions, make writable the exact recorded
+  fixture-owned package directories, validated by report digest/path, no symlink
+  and actual UID. Product permissions stay0500 during testing and are unchanged
+  in implementation. No global chmod, uncertain-resource deletion, weakened
+  assertion or concurrent VM. Bash/ShellCheck/whitespace checks pass. The VM
+  powered down and removed its disk; repeat only the corrected selection.
+
+  Lint correction: the teardown compound boolean guard initially emitted
+  ShellCheck SC2015 (the preceding pass statement was premature); rewrite it as
+  an explicit equivalent if/continue, preserving the exact safety conditions.
+  Focused Bash and pinned ShellCheck now pass. This is a readability-only
+  guard rewrite; product/teardown behavior and integration assertions are equal.
+
+  Corrected selected serial VM54 exited **0**; driver
+  `/tmp/p-vm54-plugin-management-driver3.out` contains the exact selected pass
+  and clean disk-removal result. Real installed CLI staged exact approved bytes,
+  refused stale approval, preserved source-edit versus trusted selection,
+  explicitly selected a new digest, refused live-daemon/selected/durable session
+  removal, rejected another instance, disabled/deleted the old unused package,
+  and preserved the new package/event log and actual stopped session's dummy
+  private bytes/key/credential sentinel. Original isolation assertions stayed
+  intact. Teardown restored write permission only to the fixture's exact recorded
+  directories after assertions; production permissions remain readonly. Actual
+  outage/partial-removal crash and substitution regressions are unit fixtures,
+  distinct from VM's real staging/daemon/native-session evidence. No authentication
+  occurred. All four review findings and the diagnosed Nix/private-view/teardown
+  corrections are preserved above. NixOS installation source is the next separate
+  unvalidated batch; do not include it in this package-management commit.
+  Passing VM54 console: `.cache/p-vm/integration-20260926T210630Z-987713.log`.

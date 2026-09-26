@@ -22,6 +22,7 @@ type AssetFile struct {
 }
 
 type AssetPlan struct {
+	PackagePath   string      `json:"-"`
 	Schema        string      `json:"schema"`
 	PackageID     string      `json:"package_id"`
 	PackageSHA256 string      `json:"package_sha256"`
@@ -44,6 +45,11 @@ var assetRoles = map[string]struct {
 // not write host or session files; the destination set is owned by core.
 func PlanAssets(selected Active) (AssetPlan, error) {
 	var plan AssetPlan
+	release, leaseErr := LeasePackage(selected.Package.Path)
+	if leaseErr != nil {
+		return plan, leaseErr
+	}
+	defer release()
 	m := selected.Package.Manifest
 	if !((m.Runtime.Kind == "assets" && m.Placement == "internal-session") || (m.Runtime.Kind == "wasi-command" && m.Capability == "source-git" && m.Placement == "hybrid")) {
 		return plan, errors.New("selected package is not a session asset package")
@@ -70,7 +76,7 @@ func PlanAssets(selected Active) (AssetPlan, error) {
 	if current.SHA256 != selected.Package.SHA256 || !reflect.DeepEqual(current.Manifest, m) {
 		return plan, errors.New("selected package digest changed")
 	}
-	plan = AssetPlan{Schema: "p.asset-plan/v1", PackageID: m.ID, PackageSHA256: current.SHA256, Scope: "internal-session"}
+	plan = AssetPlan{PackagePath: selected.Package.Path, Schema: "p.asset-plan/v1", PackageID: m.ID, PackageSHA256: current.SHA256, Scope: "internal-session"}
 	for _, name := range m.Assets {
 		role := assetRoles[name]
 		data := bytes[name]

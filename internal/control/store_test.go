@@ -320,12 +320,18 @@ func TestProductionPathCheckRefusesForeignRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	stat := root.Sys().(*syscall.Stat_t)
-	if stat.Uid == 0 {
-		t.Skip("root is owned by root on this host")
+	trustedOwner := stat.Uid == 0 || stat.Uid == uint32(os.Geteuid())
+	trustedMode := root.Mode().Perm()&0022 == 0 || stat.Uid == 0 && root.Mode()&os.ModeSticky != 0
+	err = CheckTrustedAncestors("/p-root-ownership-probe")
+	t.Logf("actual euid=%d root_uid=%d trusted_owner=%t trusted_mode=%t", os.Geteuid(), stat.Uid, trustedOwner, trustedMode)
+	if trustedOwner && trustedMode {
+		if err != nil {
+			t.Fatalf("permitted root/current-user ancestor refused: %v", err)
+		}
+	} else if err == nil {
+		t.Fatal("foreign-owned or writable root was trusted")
 	}
-	if err := CheckTrustedAncestors(filepath.Join(t.TempDir(), "probe")); err == nil {
-		t.Fatal("foreign-owned root was trusted")
-	}
+
 }
 
 func storePolicyRejectsDuplicate() error {

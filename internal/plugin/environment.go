@@ -50,6 +50,11 @@ type environmentResult struct {
 // native broker effect. It returns no Nix selection, path or activation data;
 // those remain in the core-owned adapter after a valid ready result.
 func RunEnvironment(parent context.Context, selected Active, kind string, broker EnvironmentBroker) error {
+	release, leaseErr := LeasePackage(selected.Package.Path)
+	if leaseErr != nil {
+		return leaseErr
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(parent, 7*time.Minute)
 	defer cancel()
 	select {

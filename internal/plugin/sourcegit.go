@@ -138,6 +138,11 @@ const GitCoreDurationMS int64 = 600000
 // and plan come only from broker observations, never from module output.
 func RunSourceGit(parent context.Context, selected Active, command GitCommand, broker GitBroker) (GitOutcome, error) {
 	var outcome GitOutcome
+	release, leaseErr := LeasePackage(selected.Package.Path)
+	if leaseErr != nil {
+		return outcome, leaseErr
+	}
+	defer release()
 	originCommand := command.Kind == "git.origin.observe" || command.Kind == "git.origin.fetch" || command.Kind == "git.origin.publish"
 	deadline := 2 * time.Second
 	slots := wasiSlots

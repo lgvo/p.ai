@@ -69,6 +69,11 @@ func (o *boundedOutput) Write(p []byte) (int, error) {
 // effect it can request is append of the core-provided reduced event.
 func RunEvent(parent context.Context, selected Active, event Event) (CommandResult, error) {
 	var result CommandResult
+	release, leaseErr := LeasePackage(selected.Package.Path)
+	if leaseErr != nil {
+		return result, leaseErr
+	}
+	defer release()
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	select {

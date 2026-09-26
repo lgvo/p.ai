@@ -131,6 +131,9 @@ func run(args []string) error {
 	if len(args) < 3 || args[0] != "plugins" {
 		return usage()
 	}
+	if args[1] == "install" || args[1] == "update" || args[1] == "remove" {
+		return managePlugins(args)
+	}
 	switch args[1] {
 	case "defaults":
 		if len(args) != 3 && len(args) != 4 {
@@ -277,5 +280,5 @@ func printJSON(value any) error {
 }
 
 func usage() error {
-	return errors.New("usage: p version | daemon <trusted-host.json> | attach <socket-path> <session-uuid> | api <socket-path> <method> [json-params] | plugins defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
+	return errors.New("usage: p version | daemon <trusted-host.json> | attach <socket-path> <session-uuid> | api <socket-path> <method> [json-params] | plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
 }

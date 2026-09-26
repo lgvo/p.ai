@@ -78,9 +78,12 @@ cleanup and restart retain the branch and uncertain identities. This is a narrow
 supported failure boundary, not universal replacement or cleanup support.
 The static CLI/runtime packages and installed dependency, supplementary vendor
 and pinned Go notices passed retained review and the selected VM48 distribution
-check. Plugin installation/update/removal and NixOS service installation remain open;
-this evidence does not establish the complete plugin MVP or authenticated
-Codex execution.
+check. Managed installation/update/removal passed reviewed focused/full/race
+checks, the Nix package suite and selected VM54, including durable dependency
+refusal and real session preservation. The instance-bound manager requires the
+daemon stopped and explicit trusted selection; the package contract owns its
+preparation/refusal boundaries. NixOS service installation and final full-suite
+acceptance remain open; authenticated Codex execution remains a manual gate.
 
 ## Settled model
 
