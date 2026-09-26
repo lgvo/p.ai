@@ -2,13 +2,10 @@
 
 ## Current state — 2026-09-26
 
-- Latest committed checkpoint: **VM46 passed** no-effect local new-branch Create
-  replacement at `1d025e9` on `feature/cli-first-mvp`; VM45 existing-branch replacement
-  passed at `8a3c8a6`. VM44 retained Delete, VM43 retained
-  Rename, VM42 both-absent
-  record cleanup, VM40 principal rotation, VM39 bare-present ref repair,
-  VM38 missing-image repair, and VM34 missing-runtime repair passed their
-  selected gates. Detailed findings and logs remain in the evidence log.
+- Latest committed checkpoint: **VM34 removal absence/recovery passed**,
+  `e7ef837` on `feature/cli-first-mvp`. VM46 local new-branch replacement
+  passed at `1d025e9`; VM45 existing-branch replacement passed at `8a3c8a6`.
+  Prior selected recovery/retained-branch evidence remains in the log below.
 - **8f1 passed:** public preview/confirmation atomically supersede an early
   no-effect blocked existing-branch Create with changed source/policy. Focused
   SQLite, native, socket and race tests, retained recovery review, affected
@@ -24,17 +21,21 @@
   and selected VM34 passed, commit `b4526b0`; no renamed runtime adoption was added.
 - UUID-aware Discard/Delete absence checks also passed selected VM34, including
   real `secrets-absent` Delete crash/restart with a competing UUID. The branch
-  and removing record stayed intact until the same operation could safely Retry.
+  and removing record stayed intact until the same operation could safely Retry;
+  commit `e7ef837`.
 - The 2026-09-25 model/approval-service 401 interruption is recorded below.
   The user reported the OpenAI outage resolved and authorized resumption on
   2026-09-26. No VM or prior agent was running at resumption.
 - Latest full VM checkpoint is **through VM28**, before subsequent changes;
   a final full-suite delivery checkpoint remains required. Actual VM runs stay
-  serial; VM46 powered down and removed its fresh disk.
+  serial; the latest selected VM34 powered down and removed its fresh disk.
 - Remaining implementation includes broader replacement, abandonment/orphan
   handling, bulk project deletion, and installation/upgrade/backup/restore
   acceptance. VM37 proved negative public-egress isolation and synthetic
   probes only; real public Nix fetch/DNS/redirect evidence remains unverified.
+- **8f3 in progress:** the retained implementer is adding durable cleanup of
+  reviewed P Git keys/principals and endpoints before a new creation, requiring
+  full old-runtime/builder absence. No source/test/VM pass is claimed yet.
 - Codex event/persistence and Discard/Delete cleanup used fixtures and dummy
   credentials. Real authenticated Codex acceptance remains **pending user
   validation** using the procedure below; no login or host credentials are used.
@@ -2984,3 +2985,36 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   cleanup. Sibling dummy credentials and final restart/no endpoint resurrection
   checks passed. No authentication was used. Runner powered down and removed
   its fresh disk. The finding and review recovery gap are closed.
+
+- **Next replacement batch 8f3 — verified key/endpoint cleanup:** acceptance
+  extends changed-request replacement when an early base-image local Create
+  left verified UUID-scoped P Git key/principal and endpoint resources, while
+  full native inventory proves its runtime and builder absent. Preview must
+  identify the exact resources and unavailable runtime-local state, preserve
+  all P refs, and refuse unexpected key/endpoint identity or unknown native
+  effects. Confirmation atomically supersedes old authority and admits one
+  new immutable creation; before new native effects it durably completes only
+  the reviewed local cleanup. Restart/exact replay/Retry must retain one new
+  UUID/request/operation/key and never resume old workers or drop unresolved
+  old cleanup identity. Focused real SQLite/identity tests, retained review and
+  a serial public-path VM must prove cleanup, stale refusal, recovery and
+  sibling preservation. Native runtime deletion, Nix publication/builder
+  ambiguity, dirty-workspace and origin-backed replacement remain separate
+  required batches; this slice does not claim those gates.
+  Resumption confirmed the retained implementer is the only active implementation
+  stream and no VM is running. SQLite Git principals have no session foreign-key
+  cascade: the handoff must explicitly disable the exact reviewed old principal
+  under Git authority, retain old cleanup identity in the new durable operation,
+  and finish verified local cleanup before allowing new creation effects.
+
+- **Independent public-egress diagnostic:** `dev/vm/machine.nix` still sets
+  `virtualisation.restrictNetwork = true`, including VM37. The local NixOS
+  QEMU module defines that setting as preventing guest packets from routing
+  through the host to the outside and emits `restrict=on` on the user network.
+  Thus the existing real public-fetch probe cannot establish the positive gate
+  under the current outer VM network configuration. This is source/configuration
+  evidence, not a new VM result or proof that it is the only network failure.
+  Keep prior negative-isolation evidence valid. A later bounded network batch
+  must provide deliberately constrained external test connectivity and fresh
+  diagnostics while preserving host/private-address restrictions; simply
+  removing isolation or accepting a synthetic fetch is not an acceptable fix.
