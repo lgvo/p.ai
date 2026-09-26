@@ -9,15 +9,13 @@
   retained review and selected serial VM55, committed `4f916dd`. No VM runs
   concurrently. The hardened service is network:none-only; public-egress remains
   the separately owner-run daemon path with unchanged VM37 evidence.
-- Remaining automated delivery gate: final full serial VM suite (all55 steps),
-  shared-guest attempt failed atVM06; grouped attempt diagnosed selector stdin
-  atVM05. Corrected focused orchestration and selected05/06/21 checks pass;
-  latest harness/VM07 fixes committed `d78cf81` and `71e2020`. VM05/06/21/07
-  acceptance passed. Full retry passed01–07 then exposed VM08 fixture-role
-  collision; focused real-WASI regressions and retained review passed, and
-  selected serial VM08 passed. Final grouped checkpoint is next. Root owns
-  the sole implementation
-  stream; retained reviewer is idle. Latest earlier checkpoint was throughVM28. No universal repair/replacement/cleanup is claimed.
+- Remaining automated delivery gate: final full serial VM suite (all55 steps).
+  Harness/VM07/VM08 corrections committed `d78cf81`, `71e2020`, `6e49231`
+  with selected passing evidence. Latest full run passed01–16 then failed VM17;
+  diagnostic VM17 identified fixture contention with the unchanged container
+  ceiling/helper reservation. Reviewed serial fixture phases passed selected
+  VM17; commit and full grouped retry follow. Root owns the sole stream.
+  No universal repair/replacement/cleanup is claimed.
 - Authenticated Codex acceptance remains pending user validation using the
   exact manual procedure below. Automated checks use fixtures/dummy files;
   no credentials or login. Production TUI, backup/restore, software rollback,
@@ -4890,3 +4888,38 @@ it does not close the installation or external-tool attribution gates.
   committed-source marker passed. VM powered off and disk removed. This is
   native Git integration evidence with test adapters, not authenticated Codex.
   Commit the reviewed fixture split and evidence before the full grouped retry.
+
+- **Full grouped checkpoint from6e49231:** restricted guest
+  `.cache/p-vm/integration-20260926T222022Z-1662173.log` passed01–16 including
+  VM08 and09b, then VM17 failed its exact error-kind/code assertion atline92.
+  All listed origin/create operations had completed; output lacked the actual
+  asserted response. No cause inferred or assertion weakened. Add bounded
+  method/expected-kind/actual-response diagnostics and run selected VM17 to
+  obtain new evidence before changing behavior or expectations. Full run exited1;
+  guest powered off and disk removed; later groups did not run.
+
+  Diagnostic selected VM17 also exited1, console
+  `.cache/p-vm/integration-20260926T222845Z-1719738.log`, driver
+  `/tmp/p-vm17-origin-diagnostic-driver.out`: before-first-push session.create
+  returned exact busy/-32003 instead of unavailable/-32004. Three existing
+  native containers plus a new reservation and required inspection-helper slot
+  exceed the unchanged four-container ceiling before source observation. The
+  fixture later attempted four concurrent sessions too; no resource widening.
+  Correction acceptance: move empty-origin/unborn-source check before the third
+  session, retain unavailable/no-new-record/no-ref assertions, verify all three
+  first-instance sessions before exact labeled fixture cleanup, then validate
+  existing-branch creation in a second private fixture instance. Keep captured
+  retry/origin replacement/transport isolation and exact source outcomes; do not
+  add a product forget/abandonment path. Shell syntax/lint/diff checks pass;
+  retained review precedes selected serial VM17 acceptance.
+
+  Retained Sol high reviewer approved serial fixture ordering, exact source and
+  replay assertions, no-effect counts, labeled teardown and separate private
+  registry. Selected serial VM17 passed, exit0, console
+  `.cache/p-vm/integration-20260926T223432Z-1777502.log`, driver
+  `/tmp/p-vm17-serial-phases-driver.out`. Original unborn-source unavailable
+  rejection, captured origin branch/tag OIDs and no new origin contact on retry,
+  existing-branch creation and all private-origin transport checks passed.
+  Required package checks passed; guest powered off/disk removed. This is real
+  local SSH/Git/Incus integration with generated fixture keys, not authenticated
+  Codex or an additional product cleanup/forget workflow. Commit before full retry.

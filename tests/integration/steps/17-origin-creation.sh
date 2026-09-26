@@ -89,10 +89,13 @@ expect_error() {
     echo "expected CLI exit 1 for $method/$kind, got $status: $response" >&2
     return 1
   fi
-  jq -e --arg kind "$kind" --argjson code "$code" \
+  if ! jq -e --arg kind "$kind" --argjson code "$code" \
     '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
      .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
-    <<< "$response" >/dev/null
+    <<< "$response" >/dev/null; then
+    printf 'unexpected %s response, expected %s: %.2048s\n' "$method" "$kind" "$response" >&2
+    return 1
+  fi
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
@@ -356,6 +359,43 @@ wait_operation "$branch_id" blocked | jq -e --arg oid "$second" \
 branches origin-full | jq -e --arg oid "$second" \
   '.result.refs==[{ref:"refs/heads/from-main",oid:$oid}]' >/dev/null
 
+# Empty-origin creation gets exactly one unborn-main bootstrap grant and no
+# artificial commit. Its first guest push creates the only main ref.
+write_ssh_config "$port" "$fixture_ssh/id_origin"
+empty_request=$(jq -nc --arg url "$empty_url" '{v:1,key:"origin-empty",project:"origin-empty",url:$url}')
+empty_created=$(rpc project.create "$empty_request")
+empty_id=$(operation_id "$empty_created")
+empty_uuid=$(wait_bootstrap_uuid "$empty_id")
+sessions+=("$empty_uuid")
+release_on_running "$empty_uuid" "$empty_id"
+wait_operation "$empty_id" completed >/dev/null
+wait_ready "$empty_uuid"
+test "$(rpc project.create "$empty_request" | jq -er '.result.operation.session_uuid')" = "$empty_uuid"
+expect_error busy project.create "$(jq -nc --arg url "$empty_url" \
+  '{v:1,key:"second-empty-bootstrap",project:"origin-empty",url:$url}')"
+rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==2 and .result.operations==3' >/dev/null
+rpc origin.inspect '{"v":1,"project":"origin-empty"}' | jq -e --arg url "$empty_url" \
+  '.result.origin | .url==$url and .status=="fresh" and .ref_count==0' >/dev/null
+branches origin-empty | jq -e '.result.refs==[]' >/dev/null
+test "$(exec_p "$empty_uuid" git symbolic-ref -q HEAD)" = refs/heads/main
+if exec_p "$empty_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out" 2> "$step_dir/api.err"; then
+  echo 'empty origin gained an artificial root commit' >&2
+  exit 1
+fi
+expect_error unavailable session.create '{"v":1,"key":"before-first-push","project":"origin-empty","branch":"early","choice":"new","source":"refs/heads/main"}'
+rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==2 and .result.operations==3' >/dev/null
+branches origin-empty | jq -e '.result.refs==[]' >/dev/null
+exec_p "$empty_uuid" git config user.name P
+exec_p "$empty_uuid" git config user.email p@example.invalid
+exec_p "$empty_uuid" sh -c 'printf "first\n" > README'
+exec_p "$empty_uuid" git add README
+exec_p "$empty_uuid" git commit -qm first
+exec_p "$empty_uuid" git push origin HEAD:main
+empty_oid=$(exec_p "$empty_uuid" git rev-parse HEAD)
+branches origin-empty | jq -e --arg oid "$empty_oid" \
+  '.result.refs==[{ref:"refs/heads/main",oid:$oid}]' >/dev/null
+test "$(git -C "$empty" for-each-ref --format='%(refname)' | wc -l)" -eq 0
+
 # An annotated tag captures its peeled commit, while its tag object remains
 # only in the origin observation. The P repository has only assigned branches.
 tag_request=$(jq -nc --arg oid "$first" \
@@ -399,7 +439,7 @@ daemon_pid=
 start_daemon
 test "$(rpc session.create "$branch_request" | jq -er '.result.operation.id')" = "$branch_id"
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
-rpc system.inspect | jq -e '.result.sessions==2 and .result.operations==3' >/dev/null
+rpc system.inspect | jq -e '.result.sessions==3 and .result.operations==4' >/dev/null
 retry=$(rpc operation.retry "$(jq -nc --arg id "$branch_id" '{v:1,id:$id}')")
 test "$(operation_id "$retry")" = "$branch_id"
 release_on_running "$branch_uuid" "$branch_id"
@@ -413,64 +453,10 @@ expect_error busy session.create "$(jq -nc --arg oid "$first" \
   '{v:1,key:"branch-source",project:"origin-full",branch:"from-main",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid}')"
 
-# Empty-origin creation gets exactly one unborn-main bootstrap grant and no
-# artificial commit. Its first guest push creates the only main ref.
-write_ssh_config "$port" "$fixture_ssh/id_origin"
-empty_request=$(jq -nc --arg url "$empty_url" '{v:1,key:"origin-empty",project:"origin-empty",url:$url}')
-empty_created=$(rpc project.create "$empty_request")
-empty_id=$(operation_id "$empty_created")
-empty_uuid=$(wait_bootstrap_uuid "$empty_id")
-sessions+=("$empty_uuid")
-release_on_running "$empty_uuid" "$empty_id"
-wait_operation "$empty_id" completed >/dev/null
-wait_ready "$empty_uuid"
-test "$(rpc project.create "$empty_request" | jq -er '.result.operation.session_uuid')" = "$empty_uuid"
-expect_error busy project.create "$(jq -nc --arg url "$empty_url" \
-  '{v:1,key:"second-empty-bootstrap",project:"origin-empty",url:$url}')"
-rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==3 and .result.operations==4' >/dev/null
-rpc origin.inspect '{"v":1,"project":"origin-empty"}' | jq -e --arg url "$empty_url" \
-  '.result.origin | .url==$url and .status=="fresh" and .ref_count==0' >/dev/null
-branches origin-empty | jq -e '.result.refs==[]' >/dev/null
-test "$(exec_p "$empty_uuid" git symbolic-ref -q HEAD)" = refs/heads/main
-if exec_p "$empty_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out" 2> "$step_dir/api.err"; then
-  echo 'empty origin gained an artificial root commit' >&2
-  exit 1
-fi
-expect_error unavailable session.create '{"v":1,"key":"before-first-push","project":"origin-empty","branch":"early","choice":"new","source":"refs/heads/main"}'
-exec_p "$empty_uuid" git config user.name P
-exec_p "$empty_uuid" git config user.email p@example.invalid
-exec_p "$empty_uuid" sh -c 'printf "first\n" > README'
-exec_p "$empty_uuid" git add README
-exec_p "$empty_uuid" git commit -qm first
-exec_p "$empty_uuid" git push origin HEAD:main
-empty_oid=$(exec_p "$empty_uuid" git rev-parse HEAD)
-branches origin-empty | jq -e --arg oid "$empty_oid" \
-  '.result.refs==[{ref:"refs/heads/main",oid:$oid}]' >/dev/null
-test "$(git -C "$empty" for-each-ref --format='%(refname)' | wc -l)" -eq 0
-
-# Seed one retained P ref as a fixture precondition, then exercise the public
-# existing-branch path. It selects P's committed tip without origin contact.
-git -C "$repo" update-ref refs/heads/retained "$first"
-trace_before=$(wc -l < "$step_dir/origin.trace")
-existing_request='{"v":1,"key":"existing-p-ref","project":"origin-full","branch":"retained","choice":"existing"}'
-existing_created=$(rpc session.create "$existing_request")
-existing_id=$(operation_id "$existing_created")
-existing_uuid=$(session_uuid "$existing_created")
-sessions+=("$existing_uuid")
-release_on_running "$existing_uuid" "$existing_id"
-wait_operation "$existing_id" completed | jq -e --arg oid "$first" \
-  '.result.operation.evidence | .captured_oid==$oid and .branch_existed==true and
-   (has("origin_url")|not) and (has("origin_ref")|not)' >/dev/null
-wait_ready "$existing_uuid"
-test "$(exec_p "$existing_uuid" git rev-parse HEAD)" = "$first"
-test "$(exec_p "$existing_uuid" git symbolic-ref -q HEAD)" = refs/heads/retained
-test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
-test "$(rpc session.create "$existing_request" | jq -er '.result.operation.id')" = "$existing_id"
-rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==4 and .result.operations==5' >/dev/null
-
 # The runtime sees only its P remote. Host origin authority never enters the
 # workspace, and the runtime Git identity differs from the host origin key.
 host_origin_key_sha=$(sha256sum "$fixture_ssh/id_origin" | cut -d' ' -f1)
+assert_origin_isolation() {
 for uuid in "${sessions[@]}"; do
   remote=$(exec_p "$uuid" git config --get remote.origin.url)
   project=origin-full
@@ -490,4 +476,57 @@ for uuid in "${sessions[@]}"; do
   case "$guest_config" in *origin-fixture*|*origin-later*|*empty.git*|*full.git*)
     echo "external origin leaked into session config $uuid" >&2; exit 1 ;; esac
 done
+}
+assert_origin_isolation
+
+# The admission guard reserves one disposable inspection-helper slot. Keep the
+# four-container project ceiling unchanged: release the first fixture instance
+# only after all three sessions and their isolation have been asserted, then
+# validate existing-branch creation in a separate private fixture instance.
+prior_repo="$repo"
+first_instance=$(rpc system.hello | jq -er '.result.instance_id')
+stop_process "$daemon_pid"
+daemon_pid=
+for uuid in "${sessions[@]}"; do
+  test "$(inc config get "p-$uuid" user.p.instance_uuid)" = "$first_instance"
+  test "$(inc config get "p-$uuid" user.p.session_uuid)" = "$uuid"
+  inc delete --force "p-$uuid"
+  rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
+done
+sessions=()
+state="$step_dir/existing-state"
+mkdir -m 0700 "$state"
+socket="$state/control.sock"
+jq --arg state "$state" '.state_dir=$state' "$step_dir/host.json" > "$step_dir/host-next.json"
+mv "$step_dir/host-next.json" "$step_dir/host.json"
+start_daemon
+write_ssh_config "$port" "$fixture_ssh/id_origin"
+existing_project=$(rpc project.create "$(jq -nc --arg url "$full_url" \
+  '{v:1,key:"existing-project",project:"origin-full",url:$url}')")
+wait_operation "$(operation_id "$existing_project")" completed | jq -e \
+  '(.result.operation.session_uuid // "")==""' >/dev/null
+repo="$state/repositories/$(printf %s origin-full | sha256sum | cut -d' ' -f1).git"
+# Import only test-owned committed objects as the retained-ref precondition.
+git -C "$repo" fetch --quiet --no-tags "$prior_repo" refs/heads/from-tag
+# Seed one retained P ref as a fixture precondition, then exercise the public
+# existing-branch path. It selects P's committed tip without origin contact.
+git -C "$repo" update-ref refs/heads/retained "$first"
+trace_before=$(wc -l < "$step_dir/origin.trace")
+existing_request='{"v":1,"key":"existing-p-ref","project":"origin-full","branch":"retained","choice":"existing"}'
+existing_created=$(rpc session.create "$existing_request")
+existing_id=$(operation_id "$existing_created")
+existing_uuid=$(session_uuid "$existing_created")
+sessions+=("$existing_uuid")
+release_on_running "$existing_uuid" "$existing_id"
+wait_operation "$existing_id" completed | jq -e --arg oid "$first" \
+  '.result.operation.evidence | .captured_oid==$oid and .branch_existed==true and
+   (has("origin_url")|not) and (has("origin_ref")|not)' >/dev/null
+wait_ready "$existing_uuid"
+test "$(exec_p "$existing_uuid" git rev-parse HEAD)" = "$first"
+test "$(exec_p "$existing_uuid" git symbolic-ref -q HEAD)" = refs/heads/retained
+test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
+test "$(rpc session.create "$existing_request" | jq -er '.result.operation.id')" = "$existing_id"
+rpc system.inspect | jq -e '.result.projects==1 and .result.sessions==1 and .result.operations==2' >/dev/null
+
+assert_origin_isolation
 echo P_ORIGIN_CREATION_PASS
