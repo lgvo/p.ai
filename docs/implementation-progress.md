@@ -2,8 +2,8 @@
 
 ## Current state — 2026-09-26
 
-- Latest passing checkpoint: **VM48 bundled distribution passed** on
-  `feature/cli-first-mvp`; checkpoint commit records this evidence.
+- Latest passing checkpoint: **VM48 bundled distribution passed**,
+  `24fcf32` on `feature/cli-first-mvp`.
   VM47 reviewed local-resource replacement passed at `572c8d0`.
   VM34 removal absence/recovery passed at `e7ef837`. VM46 local new-branch
   replacement passed at `1d025e9`; VM45 existing-branch replacement at `8a3c8a6`.
@@ -3384,3 +3384,29 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
   code. NixOS service/install/license/plugin management, complex cleanup, other
   lifecycle gates, real public DNS/fetch and final full suite remain open.
   Authenticated Codex acceptance remains pending user manual validation.
+
+- **Following NixOS distribution batch acceptance (before editing):** after the
+  single cleanup implementation stream finishes, ship a machine-owner-selected
+  NixOS service/module and an exact CLI-first installation procedure using the
+  pinned package and bundled catalog. Run the daemon as a fixed non-root user
+  with only the confined Incus user socket/project; administrative Incus setup
+  stays machine-owner provisioning. Configuration/activation are trusted host
+  inputs, never repository inputs or credentials. Fail closed for invalid
+  authority ceilings, daemon ownership, or missing images; do not enable
+  privileged containers, nesting or Nix build sandboxing inside containers.
+  Keep default network none; public-egress needs its unresolved positive gate.
+  Ship P and actual pinned vendored Go/dependency notices outside plugin
+  package conformance directories, and record external runtime-package pins
+  and license metadata. Focused module/configuration checks, retained isolation
+  review and one serial installed-service VM must demonstrate health, real
+  composed session use, daemon/systemd restart persistence and private socket
+  ownership. Do not add backup/restore or software upgrade/rollback. Authenticated
+  Codex remains manual. This acceptance definition is not implementation evidence.
+
+  Follow-up snapshot wording now reflects VM48's installed six-plugin
+  composition instead of leaving that already-passed scope pending. The
+  retained cleanup implementer reports focused real SQLite admission,
+  supersession/authority disabling, replay/reopen/new-Create, stale Retry
+  fencing and refusal checks passed; RPC/VM49 fixture/docs and remaining
+  focused/race checks are still in progress. This is interim unit evidence,
+  not cleanup integration approval.

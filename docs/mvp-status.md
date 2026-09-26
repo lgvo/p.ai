@@ -42,9 +42,10 @@ The fixture-backed TUI prototype now has a reviewed session-browser direction:
 Resource topology, a session picker, prefix-driven terminal navigation, and
 agent/service inspection pages. [Current interaction decisions](../.prototype/tui-options/DECISIONS.md)
 record that direction and its integration limits. Production TUI implementation
-and reconciliation of the agent/service extensions remain open. Plugin
-authoring, installation, composition, and approval interactions also remain
-open beyond the initial [package and activation contract](plugin-contract.md).
+and reconciliation of the agent/service extensions remain open. Installed
+first-party plugin composition passed selected VM48; plugin management and
+remaining approval interactions stay open beyond the
+[package and activation contract](plugin-contract.md).
 
 Concrete schemas, adapters, tests, packaging, and real-machine evidence remain
 implementation work. They should narrow unsupported claims without reopening
@@ -63,11 +64,13 @@ the structured file-log handler, and the Codex adapter. The usable public
 interfaces and this basic composition are sufficient for MVP; a separate
 agent-authored plugin is not a release gate. The [plugin contract](plugin-contract.md)
 now owns packaging, activation, compatibility, and the selected executable
-boundary. Initial event-handler, source-Git, and runtime executable methods are
-validated. Other
-capability-specific method schemas,
-installation, and automatic composition remain implementation work. The
-foundation does not yet establish the complete plugin MVP.
+boundary. Event-handler, source-Git, runtime and environment executable methods
+and host/agent assets are validated. Selected VM48 exercised the production
+package's exact six-plugin catalog and CLI default activation through real
+session creation, fixture status reporting and Stop/Start with daemon restart.
+Plugin installation/update/removal and NixOS service installation remain open;
+this evidence does not establish the complete plugin MVP or authenticated
+Codex execution.
 
 ## Settled model
 
