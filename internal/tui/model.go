@@ -341,6 +341,14 @@ func (m *Model) begin(method string, p params) tea.Cmd {
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	// Every update can change a list, including background inventory/results.
+	// Keep its selection valid before rendering or handling the next key.
+	next.clamp()
+	return next, cmd
+}
+
+func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = v.Width, v.Height
@@ -436,6 +444,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				m.form = "source"
 				m.choices = m.sources
 			} else if m.form == "project-url" {
+				m.navigate("form")
 				m.form = "project-name"
 				m.input = m.creation["project"].(string)
 			} else {
@@ -846,6 +855,7 @@ func (m *Model) back() tea.Cmd {
 		}
 		switch m.form {
 		case "branch":
+			m.navigate("create")
 			m.form = "project"
 			m.choices = []row{{id: "\x00new-project", label: "Create a new project"}}
 			for _, p := range m.data.projects {
@@ -854,7 +864,9 @@ func (m *Model) back() tea.Cmd {
 				}
 			}
 		case "source":
+			m.navigate("create")
 			m.form = "branch"
+			m.choices = nil
 			return m.begin("creation.branches", params{"project": m.creation["project"]})
 		default:
 			m.navigate("sessions")

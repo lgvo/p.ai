@@ -108,11 +108,13 @@ func (m *Model) choose(r row) tea.Cmd {
 			return nil
 		}
 		m.creation = params{"v": 1, "key": newKey(), "project": r.id}
+		m.navigate("create")
 		m.form = "branch"
 		m.choices = nil
 		return m.begin("creation.branches", params{"project": r.id})
 	case "branch":
 		if r.id == "\x00new-branch" {
+			m.navigate("create")
 			m.form = "source"
 			m.choices = m.sources
 			return nil
@@ -180,6 +182,7 @@ func (m *Model) submitForm() tea.Cmd {
 			return nil
 		}
 		m.creation["project"] = m.input
+		m.navigate("form")
 		m.form = "project-url"
 		m.input = ""
 	case "project-url":

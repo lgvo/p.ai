@@ -221,6 +221,18 @@ try:
         await_state(lambda: rpc("session.inspect", uuid=uuid)["session"]["attached_count"] == 0,
                     "detach lease teardown")
         expect("All project sessions")
+        # Exercise creation-step cancellation against the real branch RPCs.
+        # Deterministic model tests separately deliver old replies after Back.
+        send("c"); expect("Create · project")
+        send("j\r"); expect("Create · branch")
+        send("\x1b"); expect("Create · project")
+        send("j\r"); expect("Create · branch")
+        expect("Create new branch")
+        send("\r"); expect("Create · source")
+        send("\x1b"); expect("Create · branch")
+        expect("Create new branch")
+        send("\x1b"); expect("Create · project")
+        send("q"); expect("All project sessions")
         send("P"); expect("Select project")
         send("\x1b"); expect("All project sessions")
         send("/"); expect("fuzzy search>")

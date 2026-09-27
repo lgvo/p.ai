@@ -7,6 +7,8 @@
   Live TUI implemented at `e585a00`; focused tests, retained review and native
   VM56 passed. The final serial checkpoint covers all56 inventory steps,
   including corrected55+56 after the recorded terminal-observer failures.
+  Follow-up navigation fixes for shrinking lists and delayed creation responses
+  passed focused regressions, retained review and selected native VM56.
   CLI-first implementation and automated
   delivery acceptance are complete within the documented bounded MVP scope.
 - User-facing CLI walkthrough added in [Using P](user-guide.md), linked from
@@ -5262,3 +5264,42 @@ Implementation and review findings:
   No VM remains running. Authenticated Codex acceptance stays pending the exact
   manual procedure in this record; active-agent inventory and in-terminal inspection popup
   remain explicitly outside this implemented browser scope.
+
+## Live TUI navigation review corrections — 2026-09-27
+
+Acceptance: every changed list leaves its cursor within bounds (or zero for an
+empty list); Enter never indexes a removed choice. Changing creation steps
+invalidates pending responses, so a canceled project's branch result cannot
+replace project choices or alter a later project's confirmation. Preserve
+session identity restoration, captured origin/source and all authorization.
+
+- Confirmed both reported P2 findings: successful inventory refresh restored
+  only the sessions cursor; branch-to-project Back retained the request epoch,
+  pending method and working state. Branch results could overwrite project rows.
+- Model.Update now clamps the resulting selection for every message/return,
+  including inventory and asynchronous branch/retained results. Creation-step
+  transitions use the existing navigation epoch boundary; source-to-branch Back
+  clears old choices while obtaining its own fresh response.
+- Persistent regressions cover shrinking project/operation/branch/retained lists,
+  disappearing filtered results, actual Enter after refresh, delayed successful
+  and failed branch responses on the project picker and during another project's
+  request, and exact new project/branch confirmation binding. They fail using
+  committed HEAD model/workflows in a temporary Go overlay, and pass current code.
+  All internal/tui tests and vet pass. An initial fixture query matched the
+  visible All-projects row; corrected it to an actually disappearing-only query.
+- Native VM56 additionally navigates existing-project branches, immediately
+  goes Back, re-enters branches, opens source selection and returns across both
+  creation steps. Deterministic stale-response delivery remains unit-fixture
+  evidence; real PTY creation/service/lifecycle evidence remains separately
+  required. Retained reviewer requested after the focused checks. No VM was
+  running before starting the selected serial validation; no authentication.
+- Retained reviewer approved the selection invariant and step epoch fixes,
+  including unchanged source/origin confirmation binding, with no blockers.
+  Rebuilt package full Go suite and17 Python tests passed. Selected serial VM56
+  passed all4 observer fixtures plus native creation/attachment, the added
+  branch/source Back and re-entry sequence, user services/journals, default-No,
+  confirmed Delete and exact native cleanup. Evidence:
+  `.cache/p-vm/integration-20260927T142204Z-2669004.log` (exit0, selected-suite and
+  smoke pass). VM powered off, fresh disk removed, no QEMU process remains.
+  Reuse unaffected earlier checkpoint evidence; no costly full rerun was needed
+  for this bounded client-only fix. Authenticated Codex acceptance remains manual.
