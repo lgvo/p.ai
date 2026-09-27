@@ -114,3 +114,116 @@ func TestCreationBackRejectsDelayedBranchResults(t *testing.T) {
 		})
 	}
 }
+
+func TestHelpRestartsInterruptedBranchRead(t *testing.T) {
+	for _, page := range []string{"create", "retained"} {
+		for _, failed := range []bool{false, true} {
+			t.Run(page+"/"+map[bool]string{false: "success", true: "error"}[failed], func(t *testing.T) {
+				f := &fakeClient{fn: func(method string, p params) (any, error) {
+					if p["project"] != "app" {
+						t.Fatalf("read changed project: %+v", p)
+					}
+					switch method {
+					case "project.branches":
+						return map[string]any{}, nil
+					case "project.retained_branches":
+						return map[string]any{"branches": []ref{{Branch: "retained", OID: "tip"}}}, nil
+					case "origin.refresh":
+						return map[string]any{"origin": map[string]string{"status": "unknown"}}, nil
+					default:
+						t.Fatal("unexpected method " + method)
+						return nil, nil
+					}
+				}}
+				m := fixture()
+				m.client = f
+				m.data.projects = []control.ProjectSummary{{Path: "app", Registry: "active"}}
+				m.data.sessions[2].Project = "app"
+				// Open through actual keys with a response still outstanding.
+				if page == "create" {
+					m, _ = press(m, "c")
+					m, _ = press(m, "j")
+				}
+				key := "b"
+				if page == "create" {
+					key = "enter"
+				}
+				m, cmd := press(m, key)
+				if cmd == nil {
+					t.Fatal("branch read did not start")
+				}
+				old := cmd().(actionDone)
+				old.raw = json.RawMessage(`{"Retained":[{"branch":"obsolete","oid":"old"}]}`)
+				m, _ = press(m, "?")
+				if m.page != "help" {
+					t.Fatal("Help did not open")
+				}
+				m, restarted := press(m, "esc")
+				if m.page != page || restarted == nil || !m.working || m.pendingMethod != "creation.branches" {
+					t.Fatalf("Help return did not restart branch loading: page=%s working=%v pending=%s", m.page, m.working, m.pendingMethod)
+				}
+				updated, next := m.Update(old)
+				m = updated.(Model)
+				if next != nil || !m.working || len(m.choices) != 0 {
+					t.Fatal("old read interfered with restarted branch loading")
+				}
+				result := restarted().(actionDone)
+				if failed {
+					result.err = errors.New("branches unavailable")
+				}
+				updated, _ = m.Update(result)
+				m = updated.(Model)
+				if m.working || m.pendingMethod != "" {
+					t.Fatal("restarted read remained pending")
+				}
+				if failed {
+					if m.notice != "branches unavailable" || len(m.choices) != 0 {
+						t.Fatal("restarted read error was not surfaced")
+					}
+					m, _ = press(m, "esc")
+					if m.page == "help" || page == "create" && m.form != "project" {
+						t.Fatal("failed branch read prevented Back")
+					}
+				} else {
+					found := false
+					for _, choice := range m.choices {
+						found = found || choice.id == "retained"
+					}
+					if !found {
+						t.Fatal("fresh branch choices were not loaded")
+					}
+					m, _ = press(m, "?")
+					m, next = press(m, "esc")
+					if next != nil || m.working {
+						t.Fatal("Help restarted an already completed read")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestHelpReturnDoesNotReplayMutation(t *testing.T) {
+	m := fixture()
+	m.navigate("progress")
+	m.begin("session.create", params{"project": "app"})
+	m, _ = press(m, "?")
+	m, cmd := press(m, "esc")
+	if cmd != nil || m.page != "progress" || m.working || m.pendingMethod != "" {
+		t.Fatal("Help return replayed a mutating request")
+	}
+}
+
+func TestRepeatedHelpKeepsInterruptedReadContext(t *testing.T) {
+	m := fixture()
+	m.creation = params{"project": "app"}
+	m.navigate("create")
+	m.form = "branch"
+	m.begin("creation.branches", params{"project": "app"})
+	m, _ = press(m, "?")
+	m, _ = press(m, "?")
+	m, cmd := press(m, "esc")
+	if cmd == nil || m.page != "create" || m.form != "branch" || !m.working {
+		t.Fatal("repeated Help forgot its caller or interrupted read")
+	}
+}

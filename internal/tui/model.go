@@ -76,6 +76,7 @@ type Model struct {
 	sourceReview                       string
 	sourceOriginURL                    string
 	returnPage                         string
+	helpBranchProject                  string
 	lastInteraction                    map[string]time.Time
 }
 
@@ -569,8 +570,16 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
-	if key == "?" {
+	if key == "?" && m.page != "help" {
 		m.returnPage = m.page
+		m.helpBranchProject = ""
+		if m.working && m.pendingMethod == "creation.branches" {
+			if m.page == "create" && m.form == "branch" {
+				m.helpBranchProject, _ = m.creation["project"].(string)
+			} else if m.page == "retained" {
+				m.helpBranchProject = m.contextSession.Project
+			}
+		}
 		m.navigate("help")
 		return nil
 	}
@@ -902,12 +911,20 @@ func (m *Model) back() tea.Cmd {
 	}
 	if m.page == "help" {
 		page := m.returnPage
+		branchProject := m.helpBranchProject
+		m.returnPage, m.helpBranchProject = "", ""
 		if page == "" {
 			page = "sessions"
 		}
 		m.navigate(page)
 		if page == "sessions" {
 			m.restoreSelection()
+		}
+		if branchProject != "" && (page == "retained" || page == "create" && m.form == "branch") {
+			// Help invalidated the old response. Restart only its branch read,
+			// bound to the same project; never replay a mutation on return.
+			m.choices = nil
+			return m.begin("creation.branches", params{"project": branchProject})
 		}
 		return nil
 	}

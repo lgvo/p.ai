@@ -9,6 +9,8 @@
   including corrected55+56 after the recorded terminal-observer failures.
   Follow-up navigation fixes for shrinking lists and delayed creation responses
   passed focused regressions, retained review and selected native VM56.
+  Interrupted branch loading across Help is fixed; regressions, race checks,
+  retained review and the smallest serial native VM56 validation passed.
   CLI-first implementation and automated
   delivery acceptance are complete within the documented bounded MVP scope.
 - User-facing CLI walkthrough added in [Using P](user-guide.md), linked from
@@ -5303,3 +5305,34 @@ session identity restoration, captured origin/source and all authorization.
   smoke pass). VM powered off, fresh disk removed, no QEMU process remains.
   Reuse unaffected earlier checkpoint evidence; no costly full rerun was needed
   for this bounded client-only fix. Authenticated Codex acceptance remains manual.
+
+## Help during branch loading — 2026-09-27
+
+Acceptance: Help may invalidate an old branch response, but returning must
+restart that read for the same project and finish with usable choices or a
+clear error. Never replay a mutation; preserve the earlier Back/cursor fixes.
+
+- Confirmed the reported pre-existing P2: Help calls navigate, rejecting the
+  pending branch response; Back only restores the page, leaving no read pending.
+  Capture only the interrupted creation/retained branch-read project before
+  opening Help. Return clears that context and restarts a fresh branch read for
+  that project. Repeated Help does not overwrite its caller. No general request
+  replay was introduced, and old responses remain rejected by their epochs.
+- Regressions use actual creation and retained-branch keys, stale reply delivery,
+  successful/failed restarted reads, error Back, completed-read preservation,
+  repeated Help and no mutation replay. The original interrupted-read regression
+  fails against4ab184b using a temporary model overlay; current TUI tests,
+  race checks and vet pass. Native VM56 adds Help/Escape while entering branches;
+  deterministic delayed delivery remains unit-fixture evidence.
+- Retained reviewer requested after the focused checks. No VM was running before
+  the selected serial validation; no credentials or authenticated Codex actions.
+- Retained reviewer approved the captured-project read restart, consumed Help
+  context and non-replay guarantees with no blockers. Rebuilt package full Go
+  suite and17 Python tests passed; selected serial VM56 also passed all4 PTY
+  observer fixtures and native creation/Help-return navigation, services/journals,
+  default-No, reviewed deletion and exact cleanup. Evidence:
+  `.cache/p-vm/integration-20260927T143754Z-2749623.log` (exit0, selected-suite and
+  smoke pass). Deterministic interruption/error assertions are unit fixtures;
+  PTY/Incus effects are separate native evidence. VM powered off, fresh disk
+  removed; no QEMU process remains. Preserve unaffected earlier evidence and
+  pending manual authenticated Codex acceptance.

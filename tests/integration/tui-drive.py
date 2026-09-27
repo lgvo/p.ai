@@ -227,6 +227,8 @@ try:
         send("j\r"); expect("Create · branch")
         send("\x1b"); expect("Create · project")
         send("j\r"); expect("Create · branch")
+        send("?"); expect("P · keys")
+        send("\x1b"); expect("Create · branch")
         expect("Create new branch")
         send("\r"); expect("Create · source")
         send("\x1b"); expect("Create · branch")
