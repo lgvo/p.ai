@@ -2,7 +2,7 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, updated 2026-09-26.**
+> **Status: non-normative snapshot, updated 2026-09-27.**
 > [Project guidance](../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
@@ -11,8 +11,8 @@ Current snapshot of P's design and implementation readiness.
 
 ## Executive state
 
-P's CLI-first implementation is available. The serial delivery checkpoint
-covers all 55 automated validation gates. Package validation, trusted plugin
+P's CLI-first implementation and live session browser are available. The resumed
+serial delivery checkpoint covers all 56 automated validation steps. Package validation, trusted plugin
 activation, bounded WASI event handlers, session asset plans, the file-log
 broker, SQLite state, Git/SSH, the assembled base runtime, and the executable
 Incus plugin have passed independent review, unit tests, and the packaged VM
@@ -27,14 +27,14 @@ also pass. Explicit cache collection, interrupted-cleanup recovery, and
 concurrent cache reuse pass their selected VM gate. The selected Codex adapter
 passes authentication-free event, private initialization, dummy credential
 isolation, and Stop/Start VM checks. The serial delivery checkpoint covers all
-55 current steps, including bounded, non-activating workspace inspection and
+56 current steps, including the native live-TUI test, bounded workspace inspection and
 interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.
 Selected later VM checks also cover Discard/Delete, typed grants, guarded
 repairs, retained-branch rename/delete, and three early failed-creation
 replacement paths. The selected public-network VM now passes real DoH,
 hostname HTTPS, Nix fetch and public-to-private DNS/HTTPS redirect denials
-under the configured Incus and outer-VM restrictions. All 55 automated gates
+under the configured Incus and outer-VM restrictions. All 56 automated steps
 have passing coverage across the resumed serial checkpoint; the progress record
 preserves failed invocations and fixture fixes.
 Authenticated Codex acceptance is reserved for
@@ -63,7 +63,7 @@ is recorded separately from the preserved CLI checkpoint in the progress record.
 A [disposable NixOS/Incus lab](../dev/vm/README.md) now provides a pinned
 container fixture and an automated VM smoke test for runtime infrastructure.
 The separate product suite runs P's daemon and CLI against real Incus
-containers. Its delivery checkpoint covers all 55 automated gates listed above.
+containers. Its resumed checkpoint covers all 56 automated steps listed above.
 Authenticated Codex acceptance remains the user-run delivery gate.
 
 [Product direction](PRODUCT.md) requires MVP to prove P's composable plugin

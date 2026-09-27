@@ -41,7 +41,7 @@ agent report; `S` opens session-user project services and their journal tails.
 Press `?` for creation, Stop, rename, Discard/Delete and paging controls.
 
 Real terminal entry uses the existing attachment boundary and tmux. **Ctrl+B,
-then D** detaches back to the browser. Browse Agents/Services after detaching;
+then lowercase `d`** detaches back to the browser. Browse Agents/Services after detaching;
 the prototype's in-terminal inspection popup is not implemented. P does not
 invent active-agent inventories or conversation previews.
 

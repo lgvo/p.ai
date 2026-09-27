@@ -4,21 +4,23 @@
 
 - Branch: `feature/live-tui`. Production TUI implementation authorized, guided
   by `.prototype/tui-options/DECISIONS.md`; existing CLI evidence is preserved.
-  Live TUI focused tests, retained review and native VM56 passed. Final full
-  serial regression checkpoint is next; authenticated Codex remains manual.
+  Live TUI implemented at `e585a00`; focused tests, retained review and native
+  VM56 passed. The final serial checkpoint covers all56 inventory steps,
+  including corrected55+56 after the recorded terminal-observer failures.
   CLI-first implementation and automated
   delivery acceptance are complete within the documented bounded MVP scope.
 - User-facing CLI walkthrough added in [Using P](user-guide.md), linked from
   README. It explains everyday actions, persistence, statuses, publication,
   reviewed removal and supported recovery. Implementation scope is unchanged;
   authenticated Codex acceptance remains pending user validation.
-- All55 current VM inventory steps have passing serial checkpoint coverage:
-  first 37 restricted checks, dedicated actual-public VM37, later 38–52, then
-  combined 52–55 after fixture corrections. Inventory/log audit passed; original
-  failed invocations remain recorded and are not claimed to have exited0.
-- Final52–55 selection passed native cached-image deletion, managed plugins and
-  hardened NixOS service persistence and cleanup. Required package Go suite and 17
-  Python tests passed. All VMs powered off/disks removed; no QEMU process remains.
+- All56 current VM inventory steps have passing serial checkpoint coverage:
+  first37 restricted checks, dedicated actual-public VM37, later38–55, then
+  corrected55–56. Inventory/log audit passed; the initial full invocation and
+  failed observer rerun remain recorded and are not claimed to have exited0.
+- Final55–56 selection passed hardened-service persistence and real-PTY TUI
+  creation/attachment/navigation/services/journal/reviewed deletion and cleanup.
+  Required package Go suite and17 Python tests, plus4 distinct PTY observer
+  fixtures, passed. All VMs powered off/disks removed; no QEMU process remains.
 - Hardened NixOS service is `network:none` only; public-egress uses the separately
   owner-run daemon with scoped network proofs. Real public DoH/DNS/HTTPS/Nix-fetch
   and denial evidence passed; synthetic checks are labeled separately.
@@ -5215,3 +5217,48 @@ Implementation and review findings:
   run the complete 56-step inventory serially for the final delivery checkpoint.
   No authentication or credential access occurred; the existing manual Codex
   acceptance procedure remains pending user validation.
+- Committed implementation and selected passing evidence as `e585a00` on
+  `feature/live-tui`. Full serial checkpoint ran restricted/public/restricted:
+  first37 checks passed in `.cache/p-vm/integration-20260927T114734Z-2452105.log`;
+  actual public VM37 passed in `integration-20260927T121210Z-2454440.log`, with
+  separate real DoH/DNS/HTTPS/Nix-fetch and negative/outer-denial markers;
+  final restricted VM passed38–55 in `integration-20260927T121422Z-2455988.log`
+  but failed56. That invocation exited1 and is not a complete full-suite pass.
+- VM56's new bounded screen/native evidence shows bash received `6cprintf`
+  instead of `printf`, then command-not-found and an empty native marker. The
+  pinned observer's primary device response is ESC[?6c. Blocking RPC/native
+  subprocess observations starve PTY query handling; late responses can reach
+  the shell after tmux's query deadline. Keep servicing the terminal during
+  bounded subprocess waits, preserve outputs/errors and kill/reap on timeout.
+  A direct extracted-function fixture proves ongoing drains, output preservation,
+  deadline enforcement and child cleanup. Assertions and production authority
+  are unchanged. Retained reviewer requested for this bounded harness fix;
+  smallest contextual rerun is55+56. Earlier passing checks remain valid.
+- Retained reviewer approved continuous PTY draining. Its55+56 rerun still
+  failed with the same6cprintf evidence in
+  `.cache/p-vm/integration-20260927T123243Z-2513673.log` (exit1, powered off).
+  This disproves starvation as the sufficient explanation. New direct protocol
+  evidence identifies the actual duplicate-response bug: pinned pyte strips
+  the secondary DA '>' modifier, so ESC[c plus ESC[>c produces two ESC[?6c
+  primary replies. Distinguish exact secondary DA queries before that parser,
+  retain bounded partial-query suffixes across reads, and send a distinct
+  xterm secondary response. All4 persistent observer fixture tests passed,
+  including every query split boundary, text/private-cursor preservation,
+  region scrolling, continuous drains and bounded subprocess timeout. VM56 runs
+  these fixtures separately from actual PTY/native assertions. No production
+  code, authority, native-effect assertion or isolation was relaxed.
+- Corrected55+56 selection passed:
+  `.cache/p-vm/integration-20260927T123845Z-2571312.log` (exit0, fresh disk removed).
+  All4 observer fixtures passed inside the VM, then native PTY create/services/
+  remove, `P_LIVE_TUI_PASS` and selected-suite/smoke markers passed. Retained
+  reviewer approved exact secondary-query interception and bounded chunk handling.
+  Native execution, journal restart evidence, stopped manager state, default-No,
+  fresh reviewed deletion and native absence remain required and passed.
+- Final inventory audit matches all56 filenames: first37 restricted passes,
+  separate real-public VM37, final restricted38–55 before the recorded56 failure,
+  and corrected55+56. This is complete resumed serial checkpoint coverage,
+  not a claim that the initial full invocation exited0. No production behavior
+  changed after `e585a00`; final fixes concern the PTY observer/tests and docs.
+  No VM remains running. Authenticated Codex acceptance stays pending the exact
+  manual procedure in this record; active-agent inventory and in-terminal inspection popup
+  remain explicitly outside this implemented browser scope.

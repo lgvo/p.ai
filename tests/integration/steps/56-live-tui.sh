@@ -38,6 +38,7 @@ while ! rpc system.health | jq -e '.result.control_state=="ready"' >/dev/null 2>
 done
 
 # The driver sends real terminal keys; backend observations verify effects.
+python3 "$P_TEST_SOURCE/tests/integration/tui-terminal-test.py"
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" create "$socket" "$step_dir/uuid"
 uuid=$(cat "$step_dir/uuid")
 test -n "$uuid"

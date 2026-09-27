@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import select
 import struct
 import subprocess
@@ -19,10 +20,34 @@ class BusyObservation(Exception):
     pass
 
 
+def observe_process(args, *, timeout, text=False):
+    # Keep servicing terminal queries while a native/RPC observation waits.
+    # Blocking subprocess.run can outlast tmux's query deadline: a late reply
+    # then becomes ordinary shell input rather than a terminal response.
+    child = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(args, timeout)
+            try:
+                stdout, stderr = child.communicate(timeout=min(0.02, remaining))
+                if text:
+                    stdout, stderr = stdout.decode(), stderr.decode()
+                return subprocess.CompletedProcess(args, child.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                read(0)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate()
+
+
 def rpc(method, **params):
-    response = subprocess.run(
+    response = observe_process(
         ["p", "api", socket, method, json.dumps({"v": 1, **params})],
-        capture_output=True, text=True, timeout=40,
+        text=True, timeout=40,
     )
     envelope = json.loads(response.stdout)
     if response.returncode:
@@ -89,6 +114,30 @@ class TerminalStream(pyte.ByteStream):
     csi = {**pyte.ByteStream.csi, "S": "scroll_up", "T": "scroll_down"}
     events = pyte.ByteStream.events | {"scroll_up", "scroll_down"}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.query_tail = b""
+
+    def feed(self, data):
+        # pyte drops the '>' modifier and incorrectly answers secondary DA
+        # with another primary DA. tmux consumes the first; the duplicate can
+        # leak into the shell. Recognize secondary DA before pyte parses it,
+        # including queries split across PTY reads, and report xterm identity.
+        data = self.query_tail + data
+        self.query_tail = b""
+        queries = (b"\x1b[>c", b"\x1b[>0c")
+        for length in range(min(len(data), 5), 0, -1):
+            if any(query.startswith(data[-length:]) and len(query) > length for query in queries):
+                self.query_tail = data[-length:]
+                data = data[:-length]
+                break
+        offset = 0
+        for query in re.finditer(rb"\x1b\[>(?:0)?c", data):
+            super().feed(data[offset:query.start()])
+            self.listener.write_process_input("\x1b[>0;370;0c")
+            offset = query.end()
+        super().feed(data[offset:])
+
 
 screen = TerminalScreen(100, 28)
 terminal = TerminalStream(screen)
@@ -154,9 +203,9 @@ try:
         expect("P_TUI_REAL_ATTACH_OK")
 
         def executed():
-            observed = subprocess.run(["incus", "--force-local", "--project", "user-1000", "exec", "p-" + uuid,
+            observed = observe_process(["incus", "--force-local", "--project", "user-1000", "exec", "p-" + uuid,
                                        "--user", "1000", "--group", "1000", "--", "head", "-c", "128", "/workspace/tui-attachment"],
-                                      capture_output=True, timeout=15)
+                                      timeout=15)
             if observed.returncode or observed.stdout != b"native-terminal":
                 executed.diagnostic = f"exit={observed.returncode} bytes={observed.stdout.hex()} stderr={observed.stderr[-300:]!r}"
                 return False
@@ -216,11 +265,11 @@ try:
         service_ui_ready(("inactive (dead)", "unknown (not-loaded)"))
 
         def stopped():
-            result = subprocess.run(["incus", "--force-local", "--project", "user-1000", "exec", "p-" + uuid,
+            result = observe_process(["incus", "--force-local", "--project", "user-1000", "exec", "p-" + uuid,
                                      "--user", "1000", "--group", "1000", "--env", "XDG_RUNTIME_DIR=/run/user/1000",
                                      "--env", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus", "--",
                                      "/usr/libexec/p/systemctl", "--user", "show", "--property=ActiveState,SubState,MainPID",
-                                     "p-project-demo.service"], capture_output=True, text=True, timeout=15)
+                                     "p-project-demo.service"], text=True, timeout=15)
             properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
             return result.returncode == 0 and properties == {"ActiveState": "inactive", "SubState": "dead", "MainPID": "0"}
 
