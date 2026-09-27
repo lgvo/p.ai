@@ -1,9 +1,13 @@
 # MVP implementation progress
 
-## Current state — 2026-09-26
+## Current state — 2026-09-27
 
 - Branch: `feature/cli-first-mvp`. CLI-first implementation and automated
   delivery acceptance are complete within the documented bounded MVP scope.
+- User-facing CLI walkthrough added in [Using P](user-guide.md), linked from
+  README. It explains everyday actions, persistence, statuses, publication,
+  reviewed removal and supported recovery. Implementation scope is unchanged;
+  authenticated Codex acceptance remains pending user validation.
 - All55 current VM inventory steps have passing serial checkpoint coverage:
   first 37 restricted checks, dedicated actual-public VM37, later 38–52, then
   combined 52–55 after fixture corrections. Inventory/log audit passed; original
@@ -5027,3 +5031,29 @@ it does not close the installation or external-tool attribution gates.
   have resolving local file links and the manual-authentication heading/commands
   remain explicitly pending. Documentation-only status updates do not invalidate
   the passing native evidence. No further VM or authentication run was performed.
+
+## User experience documentation — 2026-09-27
+
+- User requested documentation of how P works, then narrowed the emphasis to
+  user experience. Added [Using P](user-guide.md) and linked it from README.
+  The non-normative guide follows setup, blank/origin project creation,
+  committed source, separate streams, detach/resume, Stop/Start, status,
+  publication, rename, loss review, Discard/Delete, and bounded recovery.
+  Subject documents remain authoritative; no implementation or scope changed.
+- Preserved key distinctions: workspace Git remote `origin` targets P;
+  external publication is explicit and bound to reviewed identity/OID;
+  Stop preserves files but ends processes; Discard retains an existing P branch
+  but removes private/unpushed data. Offline environment-builder limits,
+  hardened service `network:none`, and pending manual Codex acceptance are
+  explicit beside the affected workflows.
+- Retained Sol high reviewer found two corrections: origin-backed creation must
+  complete before source discovery; manually corrected precommit Rename failure
+  requires a new key/fresh tip, not replay of its failed operation. Both were
+  fixed and rechecked; reviewer approved with no remaining findings. Added its
+  suggested complete origin-source creation example.
+- Local links/anchors in guide and README passed. All 23 Bash blocks passed
+  `bash -n`; seven literal JSON requests parsed; `git diff --check` passed.
+  These are documentation syntax/schema checks, not execution of the examples.
+  No guide commands, VM/integration test, login, or credential access occurred.
+  Existing serial VM evidence remains valid; authenticated acceptance stays
+  **pending user validation** using the existing exact procedure.

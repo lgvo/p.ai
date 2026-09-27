@@ -15,7 +15,9 @@ without changing its project model.
 > The design documents under [`docs/`](docs/) are authoritative for their
 > subjects. This README is the product summary.
 
-Start with [NixOS installation](#nixos-installation) to use the implemented CLI.
+Start with the [user guide](docs/user-guide.md) for creating a project, working
+in sessions, resuming work, publishing commits, and reviewing cleanup.
+Machine owners can follow [NixOS installation](#nixos-installation) to set up the CLI.
 The [host API reference](docs/control-api.md) documents creation, inspection,
 attachment and lifecycle commands. All 55 automated VM gates have passing serial
 checkpoint coverage; [manual Codex acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
