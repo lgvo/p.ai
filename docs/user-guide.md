@@ -4,10 +4,10 @@ P gives each development stream its own Git branch, workspace, private home,
 and terminal. You can leave work running, return to it later, stop it without
 removing its files, or remove it after reviewing what would be lost.
 
-This guide follows the implemented CLI-first experience. It is a walkthrough,
+This guide follows the implemented CLI and terminal-browser experience. It is a walkthrough,
 not a replacement for the [API reference](control-api.md) or the lifecycle
-contracts. The production TUI is deferred; the browser in the repository runs
-on fixtures. Automated MVP validation has passing coverage of all 55 VM steps
+contracts. `p tui` connects to the real daemon; the original prototype runs on
+fixtures. The preserved CLI-first automated validation covers all 55 VM steps
 across serial checkpoints. **Authenticated Codex acceptance remains pending
 your manual test.** See [current scope](mvp-status.md) and
 [validation evidence](implementation-progress.md).
@@ -54,6 +54,90 @@ Stop/Start preserves files, including session-local credential files, but does
 not suspend and resume processes. Discard/Delete removes those private files.
 Neither action removes the external origin's branches or the contents of
 externally granted directories.
+
+## Use the terminal browser
+
+With a configured instance, run `sudo -u p p tui /var/lib/p/control.sock` for
+the standard service, or `p tui /absolute/path/to/control.sock` as the owner of
+your separately run daemon. The layout and navigation follow the
+[reviewed prototype decisions](../.prototype/tui-options/DECISIONS.md).
+
+| Key | Action |
+|---|---|
+| Arrows or `j/k` | Select a session; waiting streams precede other running work, then remaining states. |
+| PgUp/PgDn, Ctrl+B/F; Home/End, `gg`/`G` | Page or jump in the current list; Ctrl+U/D moves half a page. |
+| `P`, `/` | Select an exact project; fuzzy-search project/branch/status/report context. |
+| Enter | Start if needed and enter the real terminal. |
+| `s`, `c`, `R` | Confirm Stop; create Project → Branch → Policy; rename a session branch. |
+| `A`, `S` | Inspect real unattended agent reports; browse project user services. |
+| `O`, `p`, `b` | Inspect durable operations, captured policy/environment, or retained branches. |
+| `d`, `X` | Review Discard or session Delete after detaching and stopping. |
+| `?`, `q`/Escape | Show help; close the current interaction, then search, project scope, or browser. |
+
+The browser refreshes real state and retains selected identity while it exists.
+It adapts its list/detail layout to terminal size; 48×16 is the minimum.
+Search stays inside the list. In branch/project name fields, letters including
+`q`, `g` and `G` are text; Escape/Ctrl-C cancels or goes back. Confirmation
+defaults to **No**; Enter declines. Long confirmation and loss fields wrap and
+can be scrolled before explicit `y` authorizes the action.
+
+Leaving creation/startup progress does not cancel accepted daemon work and
+prevents automatic terminal entry afterward. Use Operations to inspect or
+Retry its durable intent. A connection failure marks cached inventory stale;
+it does not turn old state into proof that cleanup succeeded.
+
+Inside the actual terminal, tmux owns input. **Ctrl+B, then lowercase `d`** detaches and
+returns to the picker. Detach before opening Agents/Services: the prototype's
+in-terminal popup is not implemented. Agents shows the latest retained report,
+not an active-instance inventory or conversation history. Bulk project deletion,
+publication, plugin management and specialized repairs remain CLI/API workflows.
+
+Policy, agent reports, operation diagnostics and Help also support `j/k`, paging,
+and `gg/G` scrolling. Long fields wrap so they remain readable in small terminals.
+
+### Project services
+
+Services lists `p-project-*.service` units in the session user's systemd manager.
+It excludes system and internal P units. `s` starts/stops the selected unit;
+`r` restarts it; Enter opens its bounded recent journal. Use `/` for text find,
+`n/N` for matches, `h/l` to pan, and `f` to follow the refreshed tail. Back clears
+find first, then returns to Services, then the picker. This is a recent tail,
+not an unbounded journal archive.
+
+For example, inside a session built from the updated base image:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/p-project-example.service <<'UNIT'
+[Unit]
+Description=Example project service
+[Service]
+WorkingDirectory=/workspace
+ExecStart=/run/current-system/sw/bin/python3 -m http.server 8000 --bind 127.0.0.1
+UNIT
+export XDG_RUNTIME_DIR=/run/user/1000
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+systemctl --user daemon-reload
+```
+
+Detach and press `S` to select and start it. The base image enables the session
+user manager; older images without it report services unavailable. An installed
+unit that has not been loaded is shown as `unknown (not-loaded)` rather than
+inventing a runtime state. A stopped or unreachable session cannot be controlled
+through this page. Service ports remain inside the session; starting a unit does
+not add host port publication or network grants.
+
+If an inventory read is underway, one explicit service key can wait for it,
+bound to the selected session, unit and action. Back cancels an unissued request;
+a failed read or missing unit refuses it. Failed or uncertain actions are never
+automatically retried. A stopped unit may be unloaded by systemd and shown as
+`unknown (not-loaded)` until a new loaded observation is available.
+
+The unit file and other private files survive Stop/Start. Processes end on Stop;
+this example has no enablement rule, so start it again when needed. Project units
+execute with ordinary session-user authority, including that session's captured
+grants. Service requests are synchronous; after a timeout inspect the unit before
+issuing another restart.
 
 ## Before your first session
 
@@ -163,7 +247,7 @@ project's optional external origin. This push retains the commit in P; external
 publication is a separate action described below. Changes that you have only
 committed locally have not yet been retained by P's repository.
 
-With the bundled tmux configuration, detach by pressing **Ctrl+B, then D**.
+With the bundled tmux configuration, detach by pressing **Ctrl+B, then lowercase `d`**.
 Avoid exiting the last shell when you intend to leave it running: ending the
 last tmux session also ends its interactive host.
 

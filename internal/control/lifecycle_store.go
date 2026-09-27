@@ -94,7 +94,7 @@ type CapturedSource struct {
 }
 
 func ValidSessionCreateRequest(req ReserveSessionRequest) bool {
-	return len(req.Key) >= 1 && len(req.Key) <= 128 && validProject(req.Project) && validBranch(req.Branch) &&
+	return len(req.Key) >= 1 && len(req.Key) <= 128 && validProject(req.Project) && validBranch(req.Branch) && len(req.ExpectedOriginURL) <= 2048 && (req.ExpectedOriginURL == "" || req.OriginRef != "") &&
 		((req.Choice == "existing" && req.Source == "" && req.OriginRef == "" && req.ExpectedCommitOID == "") ||
 			(req.Choice == "new" && req.OriginRef == "" && req.ExpectedCommitOID == "" && req.Source != "" && len(req.Source) <= 255) ||
 			(req.Choice == "new" && req.Source == "" && plugin.ValidGitOriginRef(req.OriginRef) && validOID(req.ExpectedCommitOID)))
@@ -196,7 +196,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		return Operation{}, Session{}, err
 	}
 	oid, existed := selectionResult.OID, selectionResult.Existed
-	if !validOID(oid) || (req.Choice == "existing") != existed || (req.OriginRef != "" && (selectionResult.OriginURL == "" || selectionResult.OriginRef != req.OriginRef || oid != req.ExpectedCommitOID)) || (req.OriginRef == "" && (selectionResult.OriginURL != "" || selectionResult.OriginRef != "")) {
+	if !validOID(oid) || (req.Choice == "existing") != existed || (req.ExpectedOriginURL != "" && selectionResult.OriginURL != req.ExpectedOriginURL) || (req.OriginRef != "" && (selectionResult.OriginURL == "" || selectionResult.OriginRef != req.OriginRef || oid != req.ExpectedCommitOID)) || (req.OriginRef == "" && (selectionResult.OriginURL != "" || selectionResult.OriginRef != "")) {
 		return Operation{}, Session{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)

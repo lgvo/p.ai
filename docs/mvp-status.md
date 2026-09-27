@@ -46,16 +46,19 @@ assigned to their owner documents; the gateway retains a post-MVP design.
 The fixture-backed TUI prototype now has a reviewed session-browser direction:
 Resource topology, a session picker, prefix-driven terminal navigation, and
 agent/service inspection pages. [Current interaction decisions](../.prototype/tui-options/DECISIONS.md)
-record that direction and its integration limits. Production TUI implementation
-and reconciliation of the agent/service extensions remain open. Installed
+record that direction and its integration limits. The authorized production
+browser implements live sessions, terminal attachment, reports, policy inspection,
+and bounded session-user service control. The user guide records its supported
+keys and prototype-only features. Installed
 first-party plugin composition passed selected VM48; CLI managed package
 installation/update/removal passed VM54. Production TUI approval interactions
 remain deferred beyond the
 [package and activation contract](plugin-contract.md).
 
 The validated CLI-first scope retains bounded supported recovery and cleanup
-paths. Production TUI integration and arbitrary-failure recovery remain outside
-this delivery; the subject contracts define safe refusals and supported cleanup.
+paths. Arbitrary-failure recovery remains outside this delivery; the subject
+contracts define safe refusals and supported cleanup. Browser validation evidence
+is recorded separately from the preserved CLI checkpoint in the progress record.
 
 A [disposable NixOS/Incus lab](../dev/vm/README.md) now provides a pinned
 container fixture and an automated VM smoke test for runtime infrastructure.
@@ -198,8 +201,9 @@ Codex execution remains pending manual validation.
   inject or manage host Codex or OpenAI credentials. Networked use requires the
   project's validated `public-egress` grant.
 - Bifrost model-gateway integration is post-MVP.
-- P MVP does not orchestrate project services. Checks and attempts remain
-  reserved future concepts.
+- The live browser supports bounded control of session-user `p-project-*.service`
+  units and their recent journals. Cross-session orchestration, host/system units,
+  port publication, checks and attempts remain outside this extension.
 
 ## Current prototype interaction direction
 
@@ -221,8 +225,11 @@ goes directly to Policy; creating a new branch asks for its source and then its 
 The mock then boots and enters the session. Replacement/retry, policy,
 retained-branch, and destructive-operation screens remain older probes
 requiring further review in the new browser.
-The production TUI must remain a thin client of the subject-owned RPC and
-lifecycle semantics.
+The production browser is a thin client of the subject-owned RPC and lifecycle
+semantics. It uses real `p attach`, native tmux detach, latest unattended reports,
+and the bounded user-service API. It does not implement the prototype's fake
+terminal popup, active-agent inventory, conversation history, or grant editor.
+See [Using P](user-guide.md) for the available interface.
 
 ## Evidence still required
 

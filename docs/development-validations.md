@@ -277,6 +277,27 @@ gate above. Record authenticated acceptance as pending user validation in
 the session-local execution, hook/status, Stop/Start, and Discard/Delete checks.
 Other MVP work proceeds without that authentication.
 
+## Live terminal browser
+
+**Validate:** Model fixtures prove global waiting/running ordering, selection
+identity, project scope and fuzzy search, layered Back, literal text inputs,
+resize-aware frame and paging bounds, inert terminal controls, complete readable
+confirmation/loss fields, default-No and captured destructive identity, and no
+automatic entry after leaving progress. They are client/unit evidence.
+
+The native VM56 selection drives the installed `p tui` through a real PTY and
+daemon. Verify creation and confirmed attachment, command execution in the
+native workspace, detach lease teardown, actual navigation and default-No Stop,
+and native session-user service start/restart/stop and journal reads. Installed
+inactive units must be discoverable. Deny infrastructure names and preserve
+Incus identity/isolation; finish with confirmed cleanup and native absence.
+VM17 separately covers the optional reviewed-origin URL binding and captured
+creation replay. Run actual VM selections serially. Record passing and failed
+evidence in implementation progress; prototype simulations do not satisfy this gate.
+
+**Gate:** implemented browser and bounded user-service integration. Real Codex
+authentication remains the separate manual gate above.
+
 ## 10. Event handler
 
 **Validate:** For every MVP reduced event kind, verify the typed versioned

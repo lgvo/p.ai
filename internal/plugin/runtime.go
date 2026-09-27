@@ -36,6 +36,10 @@ type RuntimeAttachmentBroker interface {
 	Attach(context.Context) (RuntimeState, error)
 }
 
+type RuntimeServicesBroker interface {
+	Services(context.Context) (RuntimeState, error)
+}
+
 type RuntimeState struct {
 	AttachSpec          *AttachSpec `json:"-"`
 	Exists              bool        `json:"exists"`
@@ -110,7 +114,7 @@ func RunRuntime(parent context.Context, selected Active, kind string, broker Run
 		return zero, err
 	}
 	switch kind {
-	case "runtime.inspect", "runtime.create", "runtime.start", "runtime.stop", "runtime.delete", "runtime.assemble", "runtime.observe-host", "runtime.attach":
+	case "runtime.inspect", "runtime.create", "runtime.start", "runtime.stop", "runtime.delete", "runtime.assemble", "runtime.observe-host", "runtime.attach", "runtime.services":
 	default:
 		return zero, errors.New("unknown runtime command")
 	}
@@ -202,6 +206,14 @@ func RunRuntime(parent context.Context, selected Active, kind string, broker Run
 				return -1
 			}
 			state, e = attachment.Attach(callCtx)
+		case "runtime.services":
+			mutations++
+			service, ok := broker.(RuntimeServicesBroker)
+			if !ok {
+				brokerFailure = errors.New("runtime services unavailable")
+				return -1
+			}
+			state, e = service.Services(callCtx)
 		case "runtime.observe-host":
 			hostReads++
 			state, e = broker.ObserveHost(callCtx)
@@ -255,7 +267,7 @@ func RunRuntime(parent context.Context, selected Active, kind string, broker Run
 	if result.Status != "ready" || result.Message != "" {
 		return zero, errors.New("runtime plugin result invalid")
 	}
-	if calls == 0 || kind != "runtime.observe-host" && !inspected || mutations > 1 || kind == "runtime.inspect" && mutations != 0 || (kind == "runtime.assemble" || kind == "runtime.attach") && mutations != 1 || kind == "runtime.observe-host" && (hostReads == 0 || mutations != 0) {
+	if calls == 0 || kind != "runtime.observe-host" && !inspected || mutations > 1 || kind == "runtime.inspect" && mutations != 0 || (kind == "runtime.assemble" || kind == "runtime.attach" || kind == "runtime.services") && mutations != 1 || kind == "runtime.observe-host" && (hostReads == 0 || mutations != 0) {
 		return zero, errors.New("runtime plugin skipped required observation or operation")
 	}
 	// Always ask Incus again. A plugin cannot synthesize success or state.

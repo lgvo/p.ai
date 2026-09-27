@@ -21,7 +21,35 @@ Machine owners can follow [NixOS installation](#nixos-installation) to set up th
 The [host API reference](docs/control-api.md) documents creation, inspection,
 attachment and lifecycle commands. All 55 automated VM gates have passing serial
 checkpoint coverage; [manual Codex acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
-remains pending. The TUI below is a separate fixture-backed prototype.
+remains pending. The production TUI below connects to that daemon; the original
+prototype remains a separate fixture-backed design reference.
+
+## Use the session browser
+
+After [NixOS installation](#nixos-installation), run the browser as the daemon's
+owning account:
+
+```sh
+sudo -u p p tui /var/lib/p/control.sock
+```
+
+For an owner-run daemon, use `p tui /absolute/path/to/control.sock` as its owner.
+The browser reads real paginated projects, sessions, conditions and operations.
+Use arrows or `j/k`, `P` for project scope, `/` for fuzzy search, Enter to
+start/attach, and `q`/Escape to go back. `A` shows the actual latest unattended
+agent report; `S` opens session-user project services and their journal tails.
+Press `?` for creation, Stop, rename, Discard/Delete and paging controls.
+
+Real terminal entry uses the existing attachment boundary and tmux. **Ctrl+B,
+then D** detaches back to the browser. Browse Agents/Services after detaching;
+the prototype's in-terminal inspection popup is not implemented. P does not
+invent active-agent inventories or conversation previews.
+
+Project services are user units named `p-project-*.service`; the browser can
+start, stop and restart them, with fixed commands under the session UID. It
+cannot control host/system or P infrastructure units. See the
+[user guide](docs/user-guide.md#use-the-terminal-browser) and
+[API reference](docs/control-api.md#project-services) for setup and boundaries.
 
 ## Start from the current prototype
 

@@ -239,6 +239,7 @@ let
       socat
       util-linux
       systemd
+      (python3.withPackages (ps: [ ps.pyte ]))
     ];
     text = ''
       export P_TEST_SOURCE=${pPackage.src}

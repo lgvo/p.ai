@@ -31,7 +31,8 @@ let
   publicEgressFixture = automated && productTest != null
     && selectedSteps == [ "37-public-egress.sh" ];
   serviceFixture = automated && productTest != null
-    && (selectedSteps == [ ] || lib.elem "55-nixos-service.sh" selectedSteps);
+    && (selectedSteps == [ ] || lib.elem "55-nixos-service.sh" selectedSteps
+      || lib.elem "56-live-tui.sh" selectedSteps);
   serviceControl = pkgs.writeShellScriptBin "p-service-test-control" ''
     set -euo pipefail
     test "$#" -eq 1

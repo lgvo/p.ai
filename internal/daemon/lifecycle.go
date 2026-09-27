@@ -587,7 +587,7 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 			if e != nil {
 				return e
 			}
-			if state.URL == "" {
+			if state.URL == "" || req.ExpectedOriginURL != "" && state.URL != req.ExpectedOriginURL {
 				return control.ErrConflict
 			}
 			refs, e := scope.Observe(ctx, state.URL)

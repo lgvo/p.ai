@@ -425,6 +425,33 @@ down, leaving the session normally `stopped` and immediately retryable. Clean
 host exit likewise shuts down every process in the container. Detachment does
 not stop the host or container.
 
+## Project user services
+
+The production browser extends the CLI-first baseline with session-local user
+service inspection and control. Project services are `p-project-*.service`
+units installed by the session user in its systemd user manager. The base image
+enables lingering for user `p` (UID/GID 1000); the manager and all project
+processes remain inside the same unprivileged container and captured grants.
+This adds neither system-unit privileges nor host port publication.
+
+Host-only service RPC binds the exact established session, holds its lifecycle
+lock, excludes workspace-inspection/removal conflicts, and uses the selected
+runtime WASI package with a core-bound `runtime.services` broker. The package
+cannot choose a target, command, unit, action or UID. Core admits only validated
+project user service names and executes fixed systemctl/journalctl argv with
+UID/GID 1000 and the fixed `/run/user/1000` user-manager endpoint. Existing
+Incus ownership, security, filesystem, resource and network checks remain.
+Native UUID/generation is rechecked after observation/action; unavailable or
+changed authority never yields a success claim.
+
+Loaded unit observations and installed unit files are bounded to 64 distinct
+project units. Unloaded files have explicitly unknown process state. Journals
+are bounded recent tails. User service content has ordinary workspace-user
+authority and remains subject to Incus isolation. Root/system/P infrastructure
+units are outside the API allowlist. Older images without a usable user manager
+report unavailable and are not automatically modified. Service actions are
+synchronous; an uncertain timeout requires observation before another request.
+
 ## Credentials
 
 The session receives only:

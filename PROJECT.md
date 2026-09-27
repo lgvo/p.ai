@@ -171,10 +171,11 @@ or approved plans.
   activation contract is defined in [plugin contract](docs/plugin-contract.md);
   the default composition, executable methods and managed CLI installation
   have automated validation. Authenticated Codex acceptance remains a manual
-  gate; production TUI approval remains deferred.
+  gate; authenticated testing never blocks the browser's fixture-free lifecycle validation.
 - The [session-browser prototype](.prototype/tui-options/DECISIONS.md) records
-  the current reviewed layout and controls. Production TUI integration and
-  scope reconciliation remain open.
+  the reviewed layout and controls guiding the live API-client browser. The
+  [user guide](docs/user-guide.md) distinguishes implemented navigation from
+  prototype-only agent inventory and in-terminal management popups.
 - Additional runtime environments, multi-user operation, service
   orchestration, richer event handlers, and optional multi-instance
   coordination may be explored while preserving the confirmed guidance.

@@ -338,14 +338,17 @@ expect_error busy session.create "$stale_request"
 expect_error busy session.create "$(jq -nc --arg oid "$first" \
   '{v:1,key:"missing-source",project:"origin-full",branch:"missing",choice:"new",
     origin_ref:"refs/heads/absent",expected_commit_oid:$oid}')"
+expect_error busy session.create "$(jq -nc --arg oid "$second" \
+  '{v:1,key:"changed-reviewed-origin",project:"origin-full",branch:"review-refused",choice:"new",
+    origin_ref:"refs/heads/main",expected_commit_oid:$oid,expected_origin_url:"ssh://changed.invalid/repo"}')"
 rpc system.inspect | jq -e '.result.sessions==0 and .result.operations==1' >/dev/null
 branches origin-full | jq -e '.result.refs==[]' >/dev/null
 
 # Capture the moved branch. The gated host makes this operation durably blocked
 # after source capture, so restart and Retry exercise the recorded evidence.
-branch_request=$(jq -nc --arg oid "$second" \
+branch_request=$(jq -nc --arg oid "$second" --arg url "$full_url" \
   '{v:1,key:"branch-source",project:"origin-full",branch:"from-main",choice:"new",
-    origin_ref:"refs/heads/main",expected_commit_oid:$oid}')
+    origin_ref:"refs/heads/main",expected_commit_oid:$oid,expected_origin_url:$url}')
 branch_created=$(rpc session.create "$branch_request")
 branch_id=$(operation_id "$branch_created")
 branch_uuid=$(session_uuid "$branch_created")

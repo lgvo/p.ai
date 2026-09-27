@@ -61,6 +61,9 @@ in
 
   users.groups.p.gid = 1000;
   users.users.p = {
+
+    # Project services run under this user manager, never the system manager.
+    linger = true;
     isNormalUser = true;
     uid = 1000;
     group = "p";

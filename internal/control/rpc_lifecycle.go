@@ -215,6 +215,12 @@ type CreateReplaceAPI interface {
 func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life LifecycleAPI) Handler {
 	base := StateHandlerWithGit(store, git, info)
 	return func(ctx context.Context, method string, params json.RawMessage) (any, *RPCError) {
+		if method == "session.services" || method == "session.service.journal" || method == "session.service.action" {
+			if service, ok := life.(ServiceAPI); ok {
+				return serviceHandler(ctx, method, params, service)
+			}
+			return nil, lifecycleRPC(ErrNotFound)
+		}
 		if method == "session.attach" || method == "attachment.claim" || method == "attachment.confirm" || method == "attachment.ping" {
 			if attachment, ok := life.(AttachmentAPI); ok {
 				return attachmentHandler(ctx, method, params, attachment)
@@ -230,6 +236,9 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			object := result.(map[string]any)
 			available := object["available"].([]string)
 			object["available"] = append(available, "project.create", "session.create", "session.inspect", "session.list", "session.start", "session.stop", "operation.inspect", "operation.list", "operation.retry")
+			if _, ok := life.(ServiceAPI); ok {
+				object["available"] = append(object["available"].([]string), "session.services", "session.service.journal", "session.service.action")
+			}
 			if _, ok := life.(AttachmentAPI); ok {
 				object["available"] = append(object["available"].([]string), "session.attach")
 			}
@@ -311,11 +320,12 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Source            string `json:"source"`
 				OriginRef         string `json:"origin_ref"`
 				ExpectedCommitOID string `json:"expected_commit_oid"`
+				ExpectedOriginURL string `json:"expected_origin_url"`
 			}
 			if strictDecode(params, &p) != nil || p.V != 1 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.create request")
 			}
-			req := ReserveSessionRequest{Key: p.Key, Project: p.Project, Branch: p.Branch, Choice: p.Choice, Source: p.Source, OriginRef: p.OriginRef, ExpectedCommitOID: p.ExpectedCommitOID}
+			req := ReserveSessionRequest{Key: p.Key, Project: p.Project, Branch: p.Branch, Choice: p.Choice, Source: p.Source, OriginRef: p.OriginRef, ExpectedCommitOID: p.ExpectedCommitOID, ExpectedOriginURL: p.ExpectedOriginURL}
 			if !ValidSessionCreateRequest(req) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.create request")
 			}

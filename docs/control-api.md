@@ -590,6 +590,41 @@ requires the Incus instance running and `p-interactive.service` observed
 active and running. A running instance alone reports `starting` while
 readiness is unresolved.
 
+## Project services
+
+The production terminal browser adds these host-only methods. Each request uses
+`v:1` and a session `uuid`. Private session RPC does not expose them.
+
+| Method | Additional params | Result |
+|---|---|---|
+| `session.services` | None | `v`, `uuid`, `observed_at`, optional `services` array with `unit`, `description`, `active_state`, `sub_state`; an omitted array means no units observed. |
+| `session.service.action` | `unit`, `action:"start"`, `"stop"` or `"restart"` | `v`, `uuid`, `unit`, `observed_at`; inspect inventory for subsequent state. |
+| `session.service.journal` | `unit` | `v`, `uuid`, `unit`, optional `journal` (omitted when empty), optional `journal_truncated`, `observed_at`. |
+
+Only session-user `p-project-*.service` names are admitted. No host/system unit,
+P infrastructure unit, arbitrary command, credential path, journal path, native
+Incus target, or free-form systemctl action can be supplied. An established,
+ready owned runtime and compatible selected runtime package are required.
+The daemon holds its session/workspace guards, uses selected WASI
+`runtime.services`, executes fixed commands under guest UID/GID 1000, and checks
+native identity/generation before accepting results. See the
+[runtime service boundary](runtime-isolation.md#project-user-services).
+
+Inventory combines loaded user units with installed user unit files, at most
+64 distinct project units. An installed unit with no loaded observation has
+`active_state:"unknown"`, `sub_state:"not-loaded"`. Unavailable or oversized
+inventory fails rather than returning a misleading clean subset. Journal reads
+request at most 100 recent entries and bound the encoded result; they may return
+a truncated tail. Actions are synchronous and not durable operation receipts;
+after an uncertain transport outcome inspect the unit before repeating.
+
+Origin-backed `session.create` additionally accepts optional
+`expected_origin_url`, bound alongside `expected_commit_oid` to the source the
+user reviewed. The TUI supplies it. A changed current URL refuses before fetch;
+the SQLite reservation also rejects a captured URL mismatch. Exact replay keeps
+the original request/URL and does not recontact a changed origin. Older callers
+that omit this field retain their existing API behavior.
+
 ## Workspace inspection foundation
 
 This read-only foundation passed review and its selected VM gate; see

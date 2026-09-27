@@ -49,6 +49,33 @@ func (f *runtimeFixture) ObserveHost(context.Context) (RuntimeState, error) {
 	return f.state, nil
 }
 
+func (f *runtimeFixture) Services(context.Context) (RuntimeState, error) {
+	f.calls = append(f.calls, "services")
+	return f.state, nil
+}
+
+func TestRuntimeServicesUsesSelectedWASIExactlyOnce(t *testing.T) {
+	active := buildRuntimePackage(t, "../../plugins/bundled/runtime-incus")
+	f := &runtimeFixture{state: RuntimeState{Exists: true, Status: "Running"}}
+	if _, err := RunRuntime(context.Background(), active, "runtime.services", f); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, call := range f.calls {
+		if call == "services" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("services not exactly once: %v", f.calls)
+	}
+	active.Grants = nil
+	f.calls = nil
+	if _, err := RunRuntime(context.Background(), active, "runtime.services", f); err == nil || len(f.calls) != 0 {
+		t.Fatal("services bypassed selected grants")
+	}
+}
+
 func buildRuntimePackage(t *testing.T, source string) Active {
 	t.Helper()
 	goPath, err := exec.LookPath("go")

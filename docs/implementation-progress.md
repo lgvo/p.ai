@@ -2,7 +2,11 @@
 
 ## Current state — 2026-09-27
 
-- Branch: `feature/cli-first-mvp`. CLI-first implementation and automated
+- Branch: `feature/live-tui`. Production TUI implementation authorized, guided
+  by `.prototype/tui-options/DECISIONS.md`; existing CLI evidence is preserved.
+  Live TUI focused tests, retained review and native VM56 passed. Final full
+  serial regression checkpoint is next; authenticated Codex remains manual.
+  CLI-first implementation and automated
   delivery acceptance are complete within the documented bounded MVP scope.
 - User-facing CLI walkthrough added in [Using P](user-guide.md), linked from
   README. It explains everyday actions, persistence, statuses, publication,
@@ -20,7 +24,7 @@
   and denial evidence passed; synthetic checks are labeled separately.
 - Authenticated Codex acceptance is **pending user validation** with the exact
   CLI procedure below. Automated tests used fixtures/dummy files only; no login
-  or credential access. Production TUI, additional host platforms, backup/restore,
+  or credential access. Additional host platforms, backup/restore,
   software rollback, abandonment and uncertain-resource deletion are outside
   this delivery. No universal repair/replacement/cleanup is claimed.
 
@@ -84,8 +88,9 @@
 Execution record for the CLI-first implementation requested on 2026-09-23.
 This is a non-normative tracker. The [implementation plan](implementation-plan.md)
 and [project authority map](../PROJECT.md#authority-map) identify the governing
-contracts. The production TUI is deferred by the current user instruction;
-structured CLI/RPC results must expose the information it will need.
+contracts. The production TUI was initially deferred for CLI-first delivery;
+the 2026-09-27 browser authorization and separate acceptance record below
+supersede that deferral. Existing CLI/RPC behavior remains supported.
 
 ## Delivery procedure
 
@@ -5057,3 +5062,156 @@ it does not close the installation or external-tool attribution gates.
   No guide commands, VM/integration test, login, or credential access occurred.
   Existing serial VM evidence remains valid; authenticated acceptance stays
   **pending user validation** using the existing exact procedure.
+
+## Production TUI acceptance — 2026-09-27
+
+User authorized implementing the real interface using the reviewed prototype,
+with easy navigation across sessions/services. This supersedes deferring the
+production TUI, but does not authorize fabricated agent inventories or widening
+runtime authority. No VM is running at the start of this batch.
+
+1. Live browser: `p tui SOCKET` reads all paginated projects/sessions, refreshes
+   without losing selected identity, follows waiting/running/remaining priority,
+   project scope plus fuzzy search, resize-aware paging and layered Back. Enter
+   uses the existing real attachment boundary; detach returns to the picker.
+2. Lifecycle workflows: asynchronous creation and Start show actual readiness;
+   leaving progress never auto-attaches later. Stop captures identity and defaults
+   to No. Creation selects project, retained/new branch, committed source and
+   current trusted policy; no grant editor. Durable operations/errors remain
+   inspectable. Destructive flows use daemon loss evidence/preview/token checks.
+3. Services: inspect/control only session-user `p-project-*.service` units,
+   with bounded journal reads and fixed validated commands through the selected
+   runtime boundary. Never expose host/system/P infrastructure control. Enable
+   the session user manager without privileged containers or nesting. Agents
+   present real latest unattended reports with explicit inventory limitations.
+4. Validation: focused client/model/transport and authority tests, real terminal
+   navigation, smallest serial VM selection proving live TUI attachment and
+   native service/journal behavior, retained reviewer after the patch/tests.
+   Commit after relevant passing VM validation. No Codex authentication.
+
+Implementation and review findings:
+
+- Added live Bubble Tea v2/Lip Gloss v2 browser, bounded pagination/refresh,
+  identity-preserving selection, scope/search, responsive paging, layered Back,
+  actual attachment, creation/Stop/Rename, reviewed Discard/Delete, operations,
+  latest unattended report, captured policy/environment, and service journals.
+  Native tmux owns attached input: detach before management pages. The simulated
+  in-terminal management popup, active-agent inventory and conversations are
+  not claimed. Text input receives literal q/g/G; Esc/Ctrl-C cancels.
+- Services use fixed guest UID1000 user-manager commands and the selected WASI
+  runtime's exactly-one bound broker effect. Only p-project-*.service names and
+  start/stop/restart/list/journal are accepted. Installed unloaded units show
+  unknown/not-loaded. User-manager linger is enabled in the updated base image;
+  Incus isolation, nesting disabled and other restrictions remain unchanged.
+- Retained Sol high reviewer found three issues: canceled removal intent could
+  survive in a shared rename field; long review fields could be clipped; Create
+  omitted the reviewed source. Fixed with explicit UUID/kind/loss-operation
+  intent, wrapped scrollable reviews, and source/ref/OID/origin confirmation.
+  Optional expected_origin_url now binds creation to the reviewed origin under
+  its lock and SQLite durable intent; a real SQLite regression covers refusal
+  and exact replay. Review then found one stale URL field when navigating back
+  to an existing branch; it is cleared and the actual three-Esc regression passes.
+  Reviewer closed all findings without running a VM or accessing authentication.
+- Initial plugin regression exposed a missing runtime.services core allowlist
+  entry; added it and verified selected-WASI single-effect enforcement. The first
+  flake build excluded new untracked TUI files; staging made the source visible.
+  No production assertion or isolation requirement was weakened.
+- A broad local Go run failed because this sandbox forbids Unix sockets and
+  exposes foreign-owned /tmp ancestry. Focused affected regressions passed with
+  normal sockets and owned temporary paths (/tmp/p-tui-targeted-fixes.log).
+  Full package checks use the existing private owned PRoot fixture, which also
+  explicitly proves the foreign-root refusal. Its evidence is unit-fixture
+  evidence, distinct from actual native Incus/PTY integration.
+- Serial VM17+VM56 selection started to validate captured origin and actual
+  TUI/PTY creation, native terminal execution/detach, navigation/default-No,
+  user-service start/restart/stop/journal, infrastructure denial and cleanup.
+  Authenticated Codex acceptance remains pending user validation.
+
+- VM17 passed in the first combined selection. VM56 failed in its PTY observer
+  while awaiting the confirmation heading: Bubble Tea's incremental redraw
+  reused the existing C and emitted only “onfirm action”. The raw concatenation
+  observer lost the unchanged character, although the rendered confirmation and
+  default-No controls were present. Original log:
+  `.cache/p-vm/integration-20260927T110508Z-2030376.log` (selection exit1).
+  Use the pinned Nix Python pyte terminal emulator to assert reconstructed screen
+  state; keep native effect assertions. The VM powered off before the next run.
+- During bounded UX inspection, long policy/report/diagnostic/help content was
+  inaccessible on small screens. Added wrapping and shared navigation scrolling
+  with a long-field/end/top regression. This presentation-only correction needs
+  the smallest relevant VM56 rerun; VM17's passing origin evidence is reused.
+- The next VM56 run reached actual confirmed attachment but its observer raised
+  TypeError on tmux's DEC-private cursor-status query. Bounded traceback and the
+  pinned pyte 0.8.2 implementation identify its parser/handler signature mismatch.
+  Original log: `.cache/p-vm/integration-20260927T111125Z-2096643.log` (exit1).
+  The adapter now supports that query and writes actual terminal responses back
+  to the PTY; no native checks or isolation were weakened. VM powered off.
+- VM56 then passed real PTY creation, confirmed native execution, detach,
+  navigation/default-No Stop, installed-user-unit discovery, service start and
+  journal navigation. It failed before restart when a one-shot baseline journal
+  read encountered the TUI's inventory authority lock. Original log:
+  `.cache/p-vm/integration-20260927T111444Z-2154518.log` (exit1). The specific
+  baseline observation now uses the same bounded busy-only retry as other reads,
+  and the driver waits for refreshed UI readiness before subsequent keys.
+  Assertions remain unchanged. Added actual reviewed TUI Delete/default-No and
+  native registry/container absence before final project cleanup. No VM remained
+  running before the next invocation.
+- The next VM56 reached completed create/navigation but the independent native
+  workspace marker comparison failed (line39). Log:
+  `.cache/p-vm/integration-20260927T111903Z-2215889.log` (exit1). The driver had
+  waited for echoed text plus a fixed 300ms sleep, not native command completion.
+  Replace that guess with a bounded read of the exact fixture marker before
+  detaching, preserve the independent check afterwards, and report bounded native
+  byte/status diagnostics if it does not match. Do not attribute a native cause
+  without those observations. VM powered off before rerunning.
+- Native marker completion passed in the next run. Service restart produced a
+  new native journal entry, but the following Stop key arrived while a polling
+  observation had made the UI's refresh return busy and disable its controls.
+  The reconstructed screen explicitly reports unavailable/loading, disabled
+  controls, and busy. Log: `.cache/p-vm/integration-20260927T112242Z-2273578.log`
+  (exit1). This is new diagnostic evidence rather than another guessed delay.
+  Driver now waits for a fresh service UI observation with no pending/busy or
+  disabled-control state before keys, and observes changed UI start/stop state
+  before independent native reads. Native active/inactive and journal-count
+  assertions and authority locking remain intact. VM powered off.
+- The readiness-ordered VM56 still failed at initial service start. Its screen
+  tail mixes an old disabled/loading notice with overlapping range text, so
+  it does not yet establish whether the browser, observer, or native service is
+  wrong. Log: `.cache/p-vm/integration-20260927T112810Z-2331054.log` (exit1).
+  After two unsuccessful contention/readiness corrections, collect new evidence
+  before another fix: complete bounded screen, raw terminal tail, daemon service
+  inventory and native user-manager ActiveState/SubState/MainPID/Result. The next
+  invocation changes diagnostics only; no assertion, native behavior or isolation
+  is weakened. VM powered off.
+- Diagnostics-only VM56 failed with new concrete evidence:
+  `.cache/p-vm/integration-20260927T113259Z-2388465.log`. Daemon inventory and
+  native user systemd both prove active/running, MainPID444, Resultsuccess, while
+  the reconstructed screen retains old loading/range rows. The pinned renderer
+  emits CSI S/T scroll controls; pyte's default dispatch omits them. Add bounded
+  scrolling-region handlers, preserving cursor position, with direct protocol
+  verification before another VM. The retained reviewer separately identified
+  silently dropped keys during periodic reads. Add one captured service intent
+  that may wait for the current successful same-session/unit inventory; Back,
+  failed/invalid observations or missing units cancel/refuse it. Never replay an
+  issued action. Unit regressions cover exact action despite selection/state
+  change, one dispatch, Back/late response, failure, missing unit and wrong UUID.
+- Preserve unloaded-unit semantics. A native Stop may leave an installed unit
+  unknown/not-loaded; that alone cannot prove success. The driver accepts that
+  honest presentation only alongside native ActiveStateinactive, SubStatedead
+  and MainPID0. It retains independent start and restart journal evidence.
+- Selected VM56 passed after the diagnostic-backed observer and queued-input
+  fixes: `.cache/p-vm/integration-20260927T114340Z-2450412.log`, with
+  `P_TUI_PTY_OK` for create/services/remove and `P_LIVE_TUI_PASS`. Actual PTY
+  Create, native command completion, detach, scoped/search navigation, default-No
+  Stop, user-service start/restart/stop, journal search, infrastructure denial,
+  reviewed Delete and registry/native-container absence all passed. The runner
+  powered off and removed its fresh disk before reporting success.
+- Complete package Go suite and 17 Python checks passed in the VM build.
+  Focused TUI tests and vet passed; direct pinned terminal-protocol checks prove
+  private cursor responses and CSI S/T region scrolling with cursor preservation.
+  Retained Sol high reviewer closed the captured service-intent findings and
+  observer review with no blockers. These protocol/unit fixtures are distinct
+  from the native VM56 evidence above. VM17's passing origin evidence is reused.
+- Commit this coherent implementation after the passing VM56 selection, then
+  run the complete 56-step inventory serially for the final delivery checkpoint.
+  No authentication or credential access occurred; the existing manual Codex
+  acceptance procedure remains pending user validation.

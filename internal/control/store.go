@@ -70,6 +70,7 @@ type ReserveSessionRequest struct {
 	Source            string `json:"source,omitempty"`
 	OriginRef         string `json:"origin_ref,omitempty"`
 	ExpectedCommitOID string `json:"expected_commit_oid,omitempty"`
+	ExpectedOriginURL string `json:"expected_origin_url,omitempty"`
 }
 
 const migration1 = `

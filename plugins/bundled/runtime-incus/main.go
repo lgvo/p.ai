@@ -108,7 +108,7 @@ func run() error {
 		if !before.Exists || before.State != "Stopped" {
 			return errors.New("assembly requires stopped instance")
 		}
-	case "runtime.observe-host", "runtime.attach":
+	case "runtime.observe-host", "runtime.attach", "runtime.services":
 		// Native broker obtains systemd state and bounded diagnostics.
 	default:
 		return errors.New("unknown runtime command")

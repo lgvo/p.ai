@@ -349,11 +349,21 @@ locator, device, host path, native argv, or administrative credential.
 The module receives one newline-terminated `p.command/v1` JSON object with
 `kind` and an opaque `scope` token. `kind` is one of `runtime.inspect`,
 `runtime.create`, `runtime.assemble`, `runtime.start`, `runtime.observe-host`,
-`runtime.attach`, `runtime.stop`, or `runtime.delete`.
+`runtime.attach`, `runtime.services`, `runtime.stop`, or `runtime.delete`.
 It returns `p.command-result/v1` with `status` `ready`, or `refused` and an
 optional message of at most 256 bytes. Unknown fields fail. A `ready` result
 does not supply authoritative state; core re-inspects Incus and checks the
 requested postcondition.
+
+`runtime.services` delegates exactly one core-bound session-user service
+inventory, bounded journal read, or start/stop/restart action through the
+optional typed services broker. The module receives no unit/action arguments;
+core captures and validates them before invocation. It requires the usual
+initial inspection, exact operation/scope checks, at most one service effect,
+and fresh native post-inspection. The native result remains core-owned; the
+module cannot synthesize service inventory or journal content. The
+[runtime boundary](runtime-isolation.md#project-user-services) owns service
+authority and isolation.
 
 The module uses the WASI Preview 1 `_start` entry and only the
 `p_broker_v1.call` host import. Every broker request has `schema`

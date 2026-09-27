@@ -21,7 +21,7 @@ runner and typed session asset plans are now available.
 | Language | Go, latest pinned stable toolchain | one daemon/client binary |
 | State | SQLite through `database/sql` and `modernc.org/sqlite` | P identity, policy snapshots, operations, and indexes only |
 | API | NDJSON-RPC 2.0 over Unix streams | direct local Unix for MVP; SSH-to-Unix later |
-| TUI | Bubble Tea, Bubbles, Lip Gloss, `sahilm/fuzzy` after prototype validation | API client; exact interaction contract remains deferred |
+| TUI | Bubble Tea v2 and Lip Gloss v2 | Live API client; built-in subsequence filtering |
 | Git server | Wish SSH middleware around real `git-upload-pack` and `git-receive-pack` | P refs remain Git authority |
 | Runtime | local Incus, one confined user project | Incus owns instances, images, storage, state, and operations |
 | Session type | unprivileged Incus system container | one instance per session UUID |
@@ -337,11 +337,10 @@ owns framing, method/version errors, request IDs, cancellation, notifications,
 and bounded diagnostics. The stable method/event surface is documented in
 [communication boundaries](communication-boundaries.md).
 
-The TUI is a pure client. Bubble Tea, Bubbles, Lip Gloss, and `sahilm/fuzzy`
-remain the preferred implementation set, but exact layout, navigation, keys,
-and the first vertical slice require a prototype before becoming an MVP
-interaction contract. Lifecycle, authorization, and recovery decisions remain
-daemon-owned and equally available through `p api`.
+The TUI is a pure client implemented with Bubble Tea v2 and Lip Gloss v2.
+The reviewed prototype guides its responsive session browser; the user guide
+owns its implemented keys and limitations. Lifecycle, authorization, and
+recovery decisions remain daemon-owned and equally available through `p api`.
 
 ## Testing and version policy
 

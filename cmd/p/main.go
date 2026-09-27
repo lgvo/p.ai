@@ -19,6 +19,7 @@ import (
 	"github.com/lgvo/p.ai/internal/daemon"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/tui"
 )
 
 func main() {
@@ -75,6 +76,9 @@ func run(args []string) error {
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 		defer stop()
 		return attachment.Client(ctx, args[1], args[2])
+	}
+	if args[0] == "tui" {
+		return tui.Run(args[1:])
 	}
 	if args[0] == "daemon" {
 		if len(args) != 2 {
@@ -280,5 +284,5 @@ func printJSON(value any) error {
 }
 
 func usage() error {
-	return errors.New("usage: p version | daemon <trusted-host.json> | attach <socket-path> <session-uuid> | api <socket-path> <method> [json-params] | plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
+	return errors.New("usage: p version | daemon <trusted-host.json> | tui <socket-path> | attach <socket-path> <session-uuid> | api <socket-path> <method> [json-params] | plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
 }

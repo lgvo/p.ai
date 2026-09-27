@@ -271,8 +271,10 @@ notification protocol is not session semantics.
 
 ## Presentation contract
 
-The exact TUI layout and navigation remain deferred pending a prototype. Any
-presentation must nevertheless preserve these meanings:
+The live browser follows the reviewed session-browser prototype. Its available
+keys and boundaries are documented in [Using P](user-guide.md). Agent reports
+represent the daemon's latest unattended observation, not an invented inventory
+of agent processes or conversation history. Every presentation preserves these meanings:
 
 1. `missing`, `unreachable`, `discarding`, and `deleting` remain explicit;
 2. `starting` shows current operation/systemd progress and a bounded failure

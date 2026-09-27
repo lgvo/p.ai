@@ -142,6 +142,43 @@ func TestOriginSourceCaptureAndReplay(t *testing.T) {
 	}
 }
 
+func TestOriginSourceOptionalReviewedURLBoundInSQLite(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateProject(ctx, "reviewed", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	req := ReserveSessionRequest{Key: "reviewed-origin", Project: "reviewed", Branch: "work", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: strings.Repeat("a", 40), ExpectedOriginURL: "ssh://reviewed.example/repo"}
+	capture := func(context.Context, ReserveSessionRequest) (CapturedSource, error) {
+		return CapturedSource{OID: req.ExpectedCommitOID, OriginRef: req.OriginRef, OriginURL: "ssh://changed.example/repo"}, nil
+	}
+	if _, _, err := s.BeginSessionCreateCaptured(ctx, req, strings.Repeat("d", 64), testSelection(), capture); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("changed origin with same commit accepted: %v", err)
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE project_path='reviewed'`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("refusal reserved a session")
+	}
+	op, _, err := s.BeginSessionCreateCaptured(ctx, req, strings.Repeat("d", 64), testSelection(), func(context.Context, ReserveSessionRequest) (CapturedSource, error) {
+		return CapturedSource{OID: req.ExpectedCommitOID, OriginRef: req.OriginRef, OriginURL: req.ExpectedOriginURL}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := req
+	changed.ExpectedOriginURL = "ssh://changed.example/repo"
+	if _, _, err = s.BeginSessionCreateCaptured(ctx, changed, strings.Repeat("d", 64), testSelection(), capture); !errors.Is(err, ErrConflict) {
+		t.Fatal("key replay accepted changed reviewed URL")
+	}
+	replayed, _, err := s.BeginSessionCreateCaptured(ctx, req, "", CreationSelection{}, func(context.Context, ReserveSessionRequest) (CapturedSource, error) {
+		t.Fatal("exact replay recontacted origin")
+		return CapturedSource{}, nil
+	})
+	if err != nil || replayed.ID != op.ID {
+		t.Fatal("exact reviewed-URL replay failed")
+	}
+}
+
 type captureOriginLifecycle struct {
 	statusLife
 	project BlankProjectRequest
@@ -185,6 +222,9 @@ func TestOriginCreationRPCStrictInputs(t *testing.T) {
 	}
 	if life.session.OriginRef != "refs/tags/v1" || life.session.ExpectedCommitOID != oid {
 		t.Fatalf("source lost: %+v", life.session)
+	}
+	if e := call("session.create", `{"v":1,"key":"reviewed","project":"app","branch":"reviewed","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"`+oid+`","expected_origin_url":"ssh://reviewed.example/repo"}`); e != nil || life.session.ExpectedOriginURL != "ssh://reviewed.example/repo" {
+		t.Fatalf("reviewed origin lost: %+v", e)
 	}
 	for _, input := range []string{
 		`{"v":1,"key":"b","project":"app","branch":"work","choice":"existing","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `"}`,
