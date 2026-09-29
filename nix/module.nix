@@ -81,6 +81,7 @@ in {
       home = state;
     };
     environment.systemPackages = [ cfg.package ];
+    environment.variables.P_SOCKET = lib.mkDefault "${state}/control.sock";
     systemd.services.p = {
       description = "P local control plane";
       wantedBy = [ "multi-user.target" ];

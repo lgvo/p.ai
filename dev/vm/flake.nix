@@ -1,5 +1,5 @@
 {
-  description = "Disposable Linux/Incus development VM for P";
+  description = "Interactive P lab and disposable Incus validation VMs";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -18,6 +18,8 @@
           inherit system;
           specialArgs = {
             inherit image automated;
+            demo = false;
+            demoPublic = false;
             pPackage = null;
             productTest = null;
             runtimeImage = null;
@@ -28,7 +30,7 @@
       interactive = (mkVM false).config.system.build.vm;
       smoke = (mkVM true).config.system.build.vm;
       runner = pkgs.writeShellApplication {
-        name = "p-vm";
+        name = "p-incus-lab";
         runtimeInputs = [ pkgs.coreutils ];
         text = ''
           state_dir="$(realpath -m "''${P_VM_STATE_DIR:-.cache/p-vm}")"
@@ -36,6 +38,29 @@
           export NIX_DISK_IMAGE="$state_dir/disk.qcow2"
           echo "VM disk: $NIX_DISK_IMAGE"
           exec ${interactive}/bin/run-p-vm-vm "$@"
+        '';
+      };
+      # Resolve production sources from the checkout at launch time. Keeping
+      # the small infrastructure flake separate avoids copying persistent VM
+      # disks, caches, or unrelated checkout files into its source closure.
+      productRunner = pkgs.writeShellApplication {
+        name = "p-vm";
+        runtimeInputs = [
+          pkgs.nix
+          pkgs.bash
+          pkgs.git
+          pkgs.coreutils
+          pkgs.util-linux
+          pkgs.iproute2
+          pkgs.gawk
+        ];
+        text = ''
+          repo="''${P_VM_REPO_DIR:-$PWD}"
+          if ! [ -x "$repo/dev/demo-vm" ]; then
+            echo "Run from the P repository root, or set P_VM_REPO_DIR to its absolute path." >&2
+            exit 2
+          fi
+          exec "$repo/dev/demo-vm" "$@"
         '';
       };
       smokeRunner = pkgs.writeShellApplication {
@@ -66,7 +91,8 @@
     in
     {
       packages.${system} = {
-        default = runner;
+        default = productRunner;
+        incus-lab = runner;
         vm = interactive;
         smoke-vm = smoke;
         image = image.config.system.build.squashfs;
@@ -74,7 +100,11 @@
       apps.${system} = {
         default = {
           type = "app";
-          program = "${runner}/bin/p-vm";
+          program = "${productRunner}/bin/p-vm";
+        };
+        incus-lab = {
+          type = "app";
+          program = "${runner}/bin/p-incus-lab";
         };
         smoke = {
           type = "app";

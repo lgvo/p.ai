@@ -184,3 +184,134 @@ claims, attachment leases, origin workflows,
 or lifecycle recovery. Only the tested x86_64/KVM/dir configuration has runtime
 evidence here; software emulation and other host/storage combinations remain
 unverified.
+
+## Interactive P lab — 2026-09-28
+
+The default `nix run path:./dev/vm` now launches the current product checkout.
+The original infrastructure-only console remains under `#incus-lab`; the smoke
+runner and fresh product validation selections remain separate.
+
+After changing the lab to open a shell by default, a fresh native KVM boot in
+`/tmp/p-lab-shell-check` reached the `pdev` prompt without launching the TUI.
+`p-demo-api system.health` reported `ready`, and direct CLI access through
+`p api "$P_SOCKET" session.list '{"v":1,"limit":8}'` returned an empty list.
+Explicit `p-demo` opened the real TUI, `q` returned to the shell, and
+`p-demo-poweroff` shut the guest down cleanly. The temporary disk was removed.
+The Nix build, shell syntax check and `git diff --check` passed.
+
+Native KVM console exploration used only new validation disks in
+`/tmp/p-lab-check-offline` and `/tmp/p-lab-check-public`, with no credentials
+imported or authenticated agent execution. Before the shell-default change,
+it proved automatic real TUI entry,
+JSON health and lifecycle access, actual project/session creation and tmux
+attachment/detachment. The offline workspace's `lab-persistence` file and its
+retained P Git commit survived shutdown, a changed VM build, and session Start.
+The public session completed creation with `public-egress`, reached
+`https://example.com` with certificate verification (`P_LAB_PUBLIC_HTTPS 200`),
+and returned `ready` after a second boot. Repeated bridge/ACL provisioning and
+bundled-plugin loading succeeded; activation remained mode `0600`, owned by UID 1000.
+
+Exploration exposed two implementation gaps: the tmux host did not inherit the
+fixed Git SSH wrapper, and activation paths into the previous VM's read-only
+Nix store disappeared after rebuilding. The first is covered by an ordinary
+terminal Git push in VM56; the second is handled by versioned bundled packages
+copied into private persistent lab state. Customized activations are retained;
+the customization probe initially used an invalid metadata mode and was refused
+as designed, then loaded successfully after correcting it to `0600`.
+The final preparation script pins `cmp` from diffutils instead of depending on
+the service PATH.
+
+Console records are `.cache/p-vm/lab-offline-20260928.log`,
+`lab-public-20260928.log`, and `lab-public-restart-20260928.log`. The offline
+record includes the expected refusal of invalid metadata and the corrected
+successful health/selection observations; it is exploratory evidence, not an
+asserting automated suite.
+
+The selected VM55+56 invocation exited with code 0 with smoke, hardened-service and live-TUI
+markers in `.cache/p-vm/integration-20260928T154712Z-67914.log`. It includes the
+new native interactive Git push check. The package build ran the full Go suite
+and 17 Python tests; all passed. The existing VM-selection unit checks and
+`nix flake check --no-build path:./dev/vm` passed. Flake evaluation also caught
+and corrected the infrastructure module's unconditional out-of-flake import of
+the production service module.
+
+The selected VM37 public-egress invocation also exited with code 0, with
+`P_PUBLIC_EGRESS_PASS`, selected-suite and smoke markers in
+`.cache/p-vm/integration-20260928T155835Z-75337.log`. This exercised the shared
+ACL provisioning through real outer/session DoH, HTTPS, fresh Nix fetch and
+the existing host/private/metadata/sibling/redirect/DNAT denial probes. All
+validation VMs powered off before the next started; their disposable disks
+were removed. The final interactive validation disks were also removed after
+retaining the console records. No QEMU process remained.
+
+### Committed repository seed — 2026-09-28
+
+The launcher now bundles committed `HEAD` and its reachable history. First-boot
+provisioning creates local-only `p-ai/main`, transfers the bundle through the
+confined Incus file API, and pushes from the ordinary session user through P's
+scoped Git endpoint. A persistent completion record prevents later launches
+from overwriting VM work or recreating deliberately removed projects.
+
+The final Nix runner build, public-mode service evaluation, Bash syntax,
+ShellCheck and `git diff --check` passed. A bundle clone matched host commit
+`b8317f46c6c6ed92008f0cea2fec67641983d57b` and all 45 reachable commits;
+the uncommitted lab launcher was absent. Isolated loader checks used real Git
+and proot over disposable directories, proving initial push, safe replay,
+refusal of occupied workspaces, and preservation of later files and commits.
+The first proot attempt was refused by sandbox ptrace restrictions; approved
+host execution passed with `P_LAB_LOADER_PASS`.
+
+The initial native seed check was deferred while the user's existing lab held
+the checkout's VM lock. It was left running. After it shut down, the default
+socket validation below completed native seed and reboot checks as well.
+
+### Default host socket and ordinary lab commands — 2026-09-28
+
+`p api`, `p tui`, and `p attach` now share endpoint selection: explicit socket,
+then nonempty `P_SOCKET`, then `/var/lib/p/control.sock`. Tests exercise actual
+Unix-socket requests for short commands and legacy arguments, snapshot flags,
+default selection, and invalid override refusal. The initial focused run was
+blocked by sandbox socket restrictions; approved host execution passed.
+The final production package ran the full Go suite and all 17 Python tests;
+all passed. The final lab build, public-mode endpoint evaluation, ShellCheck,
+Bash syntax, flake evaluation and `git diff --check` also passed.
+
+A fresh native KVM lab at `/tmp/p-default-socket-check` logged into a shell and
+seeded the local-only project `p-ai/main` successfully. Ordinary `p api` calls
+reported ready health, active project identity and `origin.status: local-only`.
+`p tui` displayed the real session; `p attach UUID` entered its terminal without
+a socket argument. The workspace contained source commit `b8317f4` and all 45
+reachable commits, with only P as its Git remote. Uncommitted host launcher
+files were absent. An ordinary session Git commit and push advanced `main` to
+`6336721` through P's scoped endpoint.
+
+After clean shutdown and a changed VM store build, the same UUID returned ready.
+Its new commit (46 reachable commits) and uncommitted `lab-uncommitted-work`
+file survived. Checked file/count comparisons emitted
+`P_LAB_REBOOT_PRESERVATION_OK`. An explicit socket overrode an unavailable
+`P_SOCKET`; clearing the variable selected the absent standard socket instead
+of falling back to the lab, and a relative override was refused. Both guest
+shutdowns and launcher exits succeeded. The temporary validation disk was
+removed; the user's persistent lab disk was not changed by these checks.
+
+Console records are `.cache/p-vm/lab-default-socket-20260928.log` and
+`lab-default-socket-restart-20260928.log`. They are exploratory console evidence,
+including expected negative probes and two pager-consumed command prefixes
+that were subsequently reissued; the unit tests provide repeatable assertions.
+
+### Independent review follow-up — 2026-09-28
+
+An independent review of the complete uncommitted change set found two issues:
+service-account command examples dropped `P_SOCKET` through sudo, and the
+public lab launcher did not package `ip` and `awk`. The examples now preserve
+only `P_SOCKET`; the launcher includes iproute2 and gawk. Direct-script
+prerequisites are documented, with an explicit diagnostic for missing public
+network tools.
+
+The rebuilt default launcher passed a probe with the host PATH removed:
+its packaged `ip` and `awk` successfully collected and parsed host addresses
+and connected routes, emitting `P_LAB_PACKAGED_TOOLS_PASS`. Bash syntax,
+ShellCheck, Nix formatting and `git diff --check` passed. The local sudo manual
+confirms `--preserve-env=list` semantics; an attempted runtime preservation
+probe could not execute because host sudo requires a password. No additional
+VM boot or runtime sudo result is claimed for these focused fixes.

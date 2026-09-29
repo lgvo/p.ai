@@ -94,6 +94,9 @@ daemon boundaries before runtime work. Service Stop or restart retains the
 private state and native sessions; normal lifecycle cleanup retains its existing
 authority and recovery rules. The module supplies no backup, restore or software
 upgrade/rollback behavior.
+The module sets the client environment's `P_SOCKET` for its configured state
+directory; [the control API reference](control-api.md#host-framing-and-request-envelope)
+owns endpoint selection and overrides.
 
 MVP uses local Incus only. Incus remote servers and clusters do not turn other
 machines into backends of this P daemon. A future P deployment may define a

@@ -1,7 +1,49 @@
 # MVP implementation progress
 
-## Current state — 2026-09-27
+## Current state — 2026-09-28
 
+- P's root development shell now uses the pinned `nix-dev-templates` Go and
+  Just modules at `29c709b`, following P's existing Nixpkgs pin. Go is selected
+  with `lang.go.enable = true`; `lang.go.ciLint.enable = false` keeps the
+  optional linter disabled. The root `justfile` provides
+  package build, unit test, flake check, Go formatting and existing VM runner
+  commands. `nix develop -c just test` passed the full Go suite and 17 Python
+  tests; `nix develop -c just check`, runner help/argument forwarding and
+  `git diff --check` passed. The first test invocation exposed Nix's long
+  temporary-directory path exceeding Linux's Unix socket path limit; the
+  recipe now creates and cleans a short private temporary directory.
+- The default [interactive lab](../dev/vm/README.md) now builds this checkout
+  and opens a shell with a configured daemon, bundled plugins and
+  production runtime image. The CLI/API is available directly; `p tui` opens
+  the actual P TUI on request. `--public` selects the existing bounded public-egress
+  contract; offline/public disks persist separately. The infrastructure-only
+  lab remains available as `#incus-lab`. People and agents can use the same PTY
+  console, JSON API helpers and live TUI snapshots.
+- First boot seeds a local-only `p-ai/main` session from a Git bundle of the
+  host checkout's committed `HEAD` and history, using ordinary project creation
+  and a session-authorized Git push. No uncommitted host files or workstation
+  Git configuration are copied. Later launches preserve VM work and do not
+  reseed deliberately removed projects after successful initialization.
+- Host client commands now use `/var/lib/p/control.sock` by default, with
+  `P_SOCKET` as an override and existing explicit socket arguments taking
+  precedence. NixOS and the lab configure their state directory's socket;
+  ordinary `p api`, `p tui`, and `p attach` need no repeated socket arguments.
+  The full Go suite and 17 Python tests passed. A fresh native lab seeded the
+  local-only repository, supported all three short commands, and retained a
+  pushed commit and uncommitted VM file after reboot; see
+  [default-socket validation](../dev/vm/VALIDATION.md#default-host-socket-and-ordinary-lab-commands--2026-09-28).
+- Lab exploration found and fixed missing `GIT_SSH` in the persistent host's
+  closed environment. Native VM55+56 passed, including ordinary Git push from
+  the attached TUI terminal; the rebuilt full Go suite and 17 Python tests passed.
+  Bundled lab packages now persist below the private state directory so a new
+  VM store image does not invalidate activation paths. Untouched defaults follow
+  the checkout; customized activations are preserved.
+- Offline and public lab consoles were booted and restarted serially on
+  disposable KVM disks. A retained workspace resumed after a changed build;
+  a real public HTTPS request returned HTTP 200 and the public session returned ready
+  after reboot. Native VM37 passed the shared public-egress provisioning and
+  its detailed network/denial probes. [Lab validation](../dev/vm/VALIDATION.md#interactive-p-lab--2026-09-28)
+  records the passing evidence and initial failures that informed the fixes.
 - Branch: `feature/live-tui`. Production TUI implementation authorized, guided
   by `.prototype/tui-options/DECISIONS.md`; existing CLI evidence is preserved.
   Live TUI implemented at `e585a00`; focused tests, retained review and native

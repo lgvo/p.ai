@@ -30,10 +30,12 @@ After [NixOS installation](#nixos-installation), run the browser as the daemon's
 owning account:
 
 ```sh
-sudo -u p p tui /var/lib/p/control.sock
+sudo --preserve-env=P_SOCKET -u p p tui
 ```
 
-For an owner-run daemon, use `p tui /absolute/path/to/control.sock` as its owner.
+For an owner-run daemon, set `P_SOCKET` to its absolute control-socket path and
+run `p tui` as its owner. The standard default is `/var/lib/p/control.sock`;
+an explicit positional socket argument still overrides both.
 The browser reads real paginated projects, sessions, conditions and operations.
 Use arrows or `j/k`, `P` for project scope, `/` for fuzzy search, Enter to
 start/attach, and `q`/Escape to go back. `A` shows the actual latest unattended
@@ -50,6 +52,29 @@ start, stop and restart them, with fixed commands under the session UID. It
 cannot control host/system or P infrastructure units. See the
 [user guide](docs/user-guide.md#use-the-terminal-browser) and
 [API reference](docs/control-api.md#project-services) for setup and boundaries.
+
+## Develop P
+
+Enter the development shell and list the available tasks:
+
+```sh
+nix develop
+just
+```
+
+The shell uses [nix-dev-templates](https://github.com/lgvo/nix-dev-templates)
+to provide Go and Just, alongside P's test tools. `lang.go.enable` selects Go;
+`lang.go.ciLint.enable` is explicitly `false`, leaving golangci-lint optional.
+Use `just test` for the Go and Python unit suites, `just build` for the packaged
+CLI and its build checks,
+and `just check` to evaluate the flake. Packaging uses Git-tracked sources;
+add new source files to Git before building the package. Unit tests read the
+working checkout, including uncommitted files.
+
+`just lab` opens the interactive VM, `just lab-public` enables its public mode,
+and `just test-vm --step 56-live-tui.sh` runs a selected disposable VM check.
+These recipes call the existing runners and preserve their locking, logs,
+and disk behavior. `just lab --help` and `just test-vm --help` show runner options.
 
 ## Start from the current prototype
 
@@ -78,12 +103,18 @@ the chosen browser, improving the existing creation/retry and policy probes
 into coherent workflows. Layout selection is settled for this iteration;
 the gallery remains historical reference.
 
-For backend development, the [disposable Incus VM](dev/vm/README.md) provides
-a repository-owned Linux lab and an automated infrastructure smoke test:
-`nix run path:./dev/vm#smoke`. The separate `./dev/test-vm` suite runs the P
-daemon and CLI against real containers, including session creation, Git, retry,
-restart, and Stop/Start. See the [progress record](docs/implementation-progress.md)
-for passed gates and remaining MVP work.
+Try the current implementation in the [interactive P lab](dev/vm/README.md):
+`nix run path:./dev/vm` builds this checkout, boots a configured NixOS/Incus VM,
+and opens a guest shell. Use `p api` there or run `p tui` for the browser.
+The first boot seeds a local-only `p-ai/main` session from committed `HEAD`
+and its Git history. Its disk persists between runs. Add `-- --public` for
+public DNS/HTTP(S) access. People and coding agents can explore through the VM
+console; no workstation checkout, credentials, or Nix store is shared.
+
+For repeatable validation, `./dev/test-vm` exercises the daemon, CLI, TUI, and
+real containers in fresh VMs. `nix run path:./dev/vm#smoke` checks infrastructure;
+`nix run path:./dev/vm#incus-lab` retains the original infrastructure-only lab.
+See the [progress record](docs/implementation-progress.md) for validation evidence.
 
 ## The idea
 
@@ -505,11 +536,14 @@ After applying your NixOS configuration, use the service account for CLI calls:
 
 ```sh
 sudo systemctl start p.service
-sudo -u p p api /var/lib/p/control.sock system.health
-sudo -u p p api /var/lib/p/control.sock system.capabilities
-sudo -u p p api /var/lib/p/control.sock project.list '{"v":1,"limit":20}'
+sudo --preserve-env=P_SOCKET -u p p api system.health
+sudo --preserve-env=P_SOCKET -u p p api system.capabilities
+sudo --preserve-env=P_SOCKET -u p p api project.list '{"v":1,"limit":20}'
 sudo journalctl -u p.service -n 30 --no-pager
 ```
+
+Preserving `P_SOCKET` carries the configured socket or your exported override
+through sudo's environment reset.
 
 Host configuration is privately generated from declarative settings at service
 start. Existing trusted activation and state survive restarts. Installation

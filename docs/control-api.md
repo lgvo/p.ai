@@ -237,10 +237,21 @@ sent for each valid request, with the same ID, `jsonrpc:"2.0"`, and exactly one
 of `result` or `error`. Responses may arrive out of order. JSON object keys
 must be unique at every depth.
 
-The CLI `p api <socket-path> <method> [json-params]` sends one request with
+The CLI `p api [socket-path] <method> [json-params]` sends one request with
 `{"v":1}` by default and writes the full JSON response envelope to stdout.
 An RPC error exits nonzero. A connection failure writes a JSON object with
 `error.kind:"transport"` and exits nonzero.
+
+The host client commands `p api`, `p tui`, and `p attach` select their control
+socket in this order: an explicit positional socket argument, a nonempty
+`P_SOCKET` environment variable, then `/var/lib/p/control.sock`. An empty or
+unset `P_SOCKET` uses the standard location. Selected paths must be absolute;
+an invalid override fails without falling back to another instance. For an
+owner-run daemon in another state directory, export
+`P_SOCKET=/absolute/private/state/control.sock` once, then use the ordinary
+commands. The NixOS service module configures this variable for its declared
+state directory. Socket selection does not change the same-owner access rule
+or the daemon's private socket permissions.
 
 ## Private session RPC
 
@@ -978,9 +989,10 @@ than selecting another generation.
 
 ## Terminal attachment
 
-Run `p attach /absolute/control.sock SESSION_UUID` on the P host, directly or
-inside a client-initiated SSH terminal. The CLI restores local terminal settings
-on exit and forwards terminal size changes. TUI navigation is not implemented.
+Run `p attach SESSION_UUID` on the P host using the configured control socket,
+or `p attach /absolute/control.sock SESSION_UUID` to select it explicitly.
+Run it directly or inside a client-initiated SSH terminal. The CLI restores local
+terminal settings on exit and forwards terminal size changes.
 
 `session.attach` returns a 30-second, one-use pending token after the selected
 runtime WASI capability and native checks approve the fixed

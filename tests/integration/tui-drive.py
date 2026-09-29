@@ -217,6 +217,13 @@ try:
             await_state(executed, "native terminal command completed")
         except AssertionError as error:
             raise AssertionError(f"{error}; native marker: {getattr(executed, 'diagnostic', 'no observation')}") from error
+        # Exercise ordinary Git from the actual interactive environment. Native
+        # exec fixtures set GIT_SSH explicitly and cannot catch a missing wrapper
+        # in the tmux host environment.
+        send("git add tui-attachment && git -c user.name=P -c user.email=p@example.invalid commit -qm native-terminal && git push origin HEAD:main\r")
+        await_state(lambda: any(ref["ref"] == "refs/heads/main"
+                                for ref in rpc("project.branches", project="tui56", limit=8)["refs"]),
+                    "interactive Git push reached P")
         send(b"\x02d")
         await_state(lambda: rpc("session.inspect", uuid=uuid)["session"]["attached_count"] == 0,
                     "detach lease teardown")

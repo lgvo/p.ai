@@ -6,19 +6,24 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/lgvo/p.ai/internal/control"
 )
 
 func Run(args []string) error {
-	if len(args) == 0 {
-		return errors.New("usage: p tui CONTROL_SOCKET [--snapshot --page sessions|services|agents|policy --uuid UUID --width N --height N]")
+	explicit := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		explicit, args = args[0], args[1:]
+		if explicit == "" {
+			return errors.New("control socket must be an absolute path")
+		}
 	}
-	socket := args[0]
-	if !filepath.IsAbs(socket) {
-		return errors.New("control socket must be an absolute path")
+	socket, err := control.ClientSocket(explicit)
+	if err != nil {
+		return err
 	}
 	flags := flag.NewFlagSet("tui", flag.ContinueOnError)
 	snapshot := flags.Bool("snapshot", false, "render one live frame without attaching or mutating")
@@ -26,7 +31,7 @@ func Run(args []string) error {
 	id := flags.String("uuid", "", "snapshot session UUID")
 	width := flags.Int("width", 120, "snapshot columns")
 	height := flags.Int("height", 35, "snapshot rows")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -46,6 +51,6 @@ func Run(args []string) error {
 		_, err = fmt.Fprintln(os.Stdout, frame)
 		return err
 	}
-	_, err := tea.NewProgram(New(c, socket)).Run()
+	_, err = tea.NewProgram(New(c, socket)).Run()
 	return err
 }

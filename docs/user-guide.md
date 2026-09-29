@@ -57,9 +57,9 @@ externally granted directories.
 
 ## Use the terminal browser
 
-With a configured instance, run `sudo -u p p tui /var/lib/p/control.sock` for
-the standard service, or `p tui /absolute/path/to/control.sock` as the owner of
-your separately run daemon. The layout and navigation follow the
+With a configured instance, run `sudo --preserve-env=P_SOCKET -u p p tui` for the standard service,
+or `p tui` as the owner of your separately run daemon with `P_SOCKET` configured.
+The layout and navigation follow the
 [reviewed prototype decisions](../.prototype/tui-options/DECISIONS.md).
 
 | Key | Action |
@@ -153,22 +153,29 @@ restricted public-egress configuration. A session cannot grant itself network
 access or host directory mounts. Ask the instance owner to configure those
 capabilities before planning an online agent task.
 
-The following host commands use **Bash, jq, and p on PATH**. For the standard
-NixOS service, define these shell helpers:
+The following host commands use **Bash, jq, and p on PATH**. Ordinary commands
+such as `p api system.health`, `p tui`, and `p attach SESSION_UUID` use the
+configured instance. The standard socket is `/var/lib/p/control.sock`; export
+`P_SOCKET` to override it. Existing explicit socket arguments remain supported.
+See [socket selection](control-api.md#host-framing-and-request-envelope).
+
+For the standard NixOS service, this guide uses these shell helpers to run
+commands as the owning account:
 
 ```bash
-P_SOCKET=/var/lib/p/control.sock
-api() { sudo -u p p api "$P_SOCKET" "$@"; }
-attach() { sudo -u p p attach "$P_SOCKET" "$1"; }
+api() { sudo --preserve-env=P_SOCKET -u p p api "$@"; }
+attach() { sudo --preserve-env=P_SOCKET -u p p attach "$1"; }
 ```
 
-`api` and `attach` here are convenience functions, not additional P commands.
+Preserving `P_SOCKET` carries the configured socket or your exported override
+through sudo's environment reset. `api` and `attach` here are convenience
+functions, not additional P commands.
 If you run your own daemon, use its absolute socket path and its owning account:
 
 ```bash
-P_SOCKET=/absolute/path/to/control.sock
-api() { p api "$P_SOCKET" "$@"; }
-attach() { p attach "$P_SOCKET" "$1"; }
+export P_SOCKET=/absolute/path/to/control.sock
+api() { p api "$@"; }
+attach() { p attach "$1"; }
 ```
 
 Use one of these configurations, then check the instance:

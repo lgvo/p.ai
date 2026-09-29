@@ -70,12 +70,23 @@ func run(args []string) error {
 		return attachment.Helper(os.NewFile(3, "attachment-carrier"))
 	}
 	if args[0] == "attach" {
-		if len(args) != 3 {
-			return errors.New("usage: p attach CONTROL_SOCKET SESSION_UUID")
+		if len(args) != 2 && len(args) != 3 {
+			return errors.New("usage: p attach [CONTROL_SOCKET] SESSION_UUID")
+		}
+		explicit, id := "", args[len(args)-1]
+		if len(args) == 3 {
+			explicit = args[1]
+			if explicit == "" {
+				return errors.New("control socket must be an absolute path")
+			}
+		}
+		socket, err := control.ClientSocket(explicit)
+		if err != nil {
+			return err
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 		defer stop()
-		return attachment.Client(ctx, args[1], args[2])
+		return attachment.Client(ctx, socket, id)
 	}
 	if args[0] == "tui" {
 		return tui.Run(args[1:])
@@ -98,22 +109,19 @@ func run(args []string) error {
 		return daemon.Serve(ctx, cfg, store)
 	}
 	if args[0] == "api" {
-		if len(args) != 3 && len(args) != 4 {
-			return usage()
-		}
-		params := json.RawMessage(`{"v":1}`)
-		if len(args) == 4 {
-			params = json.RawMessage(args[3])
+		socket, method, params, err := apiArguments(args[1:])
+		if err != nil {
+			return err
 		}
 		deadline := 10 * time.Second
-		if args[2] == "project.delete.confirm" {
+		if method == "project.delete.confirm" {
 			// Aggregate confirmation performs fresh durable loss inspections before
 			// retiring authority. Its preview still enforces the two-minute expiry.
 			deadline = 2 * time.Minute
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), deadline)
 		defer cancel()
-		response, err := control.Call(ctx, args[1], args[2], params)
+		response, err := control.Call(ctx, socket, method, params)
 		if err != nil {
 			_ = printJSON(map[string]any{"error": map[string]any{"kind": "transport", "message": err.Error()}})
 			return errAPIExit
@@ -284,5 +292,5 @@ func printJSON(value any) error {
 }
 
 func usage() error {
-	return errors.New("usage: p version | daemon <trusted-host.json> | tui <socket-path> | attach <socket-path> <session-uuid> | api <socket-path> <method> [json-params] | plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
+	return errors.New("usage: p version | daemon <trusted-host.json> | tui [socket-path] [--snapshot ...] | attach [socket-path] <session-uuid> | api [socket-path] <method> [json-params] | plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>\nControl socket: explicit argument, then P_SOCKET, then /var/lib/p/control.sock.")
 }

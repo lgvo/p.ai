@@ -276,6 +276,8 @@ let
           selectedSteps
           ;
         automated = true;
+        demo = false;
+        demoPublic = false;
       };
       modules = [ ./vm/machine.nix ];
     }).config.system.build.vm;

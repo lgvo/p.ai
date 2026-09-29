@@ -172,7 +172,7 @@ func StartHost() error {
 	if err := os.Chdir("/workspace"); err != nil {
 		return err
 	}
-	closed := []string{"HOME=/home/p", "USER=p", "LOGNAME=p", "SHELL=/run/current-system/sw/bin/bash", "PATH=/run/current-system/sw/bin:/usr/bin:/bin", "LANG=C.UTF-8", "NIX_REMOTE=daemon"}
+	closed := []string{"HOME=/home/p", "USER=p", "LOGNAME=p", "SHELL=/run/current-system/sw/bin/bash", "PATH=/run/current-system/sw/bin:/usr/bin:/bin", "LANG=C.UTF-8", "NIX_REMOTE=daemon", "GIT_SSH=/usr/libexec/p/git-ssh"}
 	if cfg.Activation == "devshell" {
 		if err := VerifyDevShellMaterial(cfg.MaterialSHA256); err != nil {
 			return err

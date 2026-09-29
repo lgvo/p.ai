@@ -5,6 +5,8 @@
   modulesPath,
   image,
   automated,
+  demo ? false,
+  demoPublic ? false,
   pPackage ? null,
   productTest ? null,
   selectedSteps ? [ ],
@@ -33,6 +35,10 @@ let
   serviceFixture = automated && productTest != null
     && (selectedSteps == [ ] || lib.elem "55-nixos-service.sh" selectedSteps
       || lib.elem "56-live-tui.sh" selectedSteps);
+  publicNetwork = publicEgressFixture || demoPublic;
+  pService = serviceFixture || demo;
+  pStateDirectory = if demo then "p-demo" else "p-service55";
+  pState = "/var/lib/${pStateDirectory}";
   serviceControl = pkgs.writeShellScriptBin "p-service-test-control" ''
     set -euo pipefail
     test "$#" -eq 1
@@ -50,6 +56,17 @@ let
     "224.0.0.0/3"
   ];
   publicEgressDeniedText = lib.concatStringsSep "," publicEgressDeniedCIDRs;
+  publicACL = pkgs.writeText "p-public-acl.json" (builtins.toJSON {
+    description = "";
+    config = {};
+    ingress = [];
+    egress = [{ action = "drop"; state = "enabled"; destination = publicEgressDeniedText; }]
+      ++ lib.concatMap (dns: map (protocol: {
+        action = "allow"; state = "enabled"; destination = dns;
+        inherit protocol; destination_port = "53";
+      }) [ "udp" "tcp" ]) [ "1.1.1.1" "9.9.9.9" ]
+      ++ [{ action = "allow"; state = "enabled"; protocol = "tcp"; destination_port = "80,443"; }];
+  });
   publicNetworkProof = pkgs.writeShellScriptBin "p-public-network-proof" ''
     set -euo pipefail
     test "$#" -eq 0
@@ -153,77 +170,87 @@ PY
   '';
 in
 {
-  systemd.services.p = lib.mkIf serviceFixture {
+  systemd.services.p = lib.mkIf pService {
     after = [ "p-vm-prepare.service" ];
     requires = [ "p-vm-prepare.service" ];
   };
-  imports = [ ../../nix/module.nix "${modulesPath}/virtualisation/qemu-vm.nix" ]
+  _module.args.demoPublicEgress = {
+    network = "p-public-v1"; acl = "p-public-v1-acl";
+    bridge_ipv4 = "10.233.0.1/24"; dns = [ "1.1.1.1" "9.9.9.9" ];
+    sudo_binary = "/run/wrappers/bin/sudo";
+    nft_binary = "${pkgs.nftables}/bin/nft";
+    bridge_proof_binary = "${publicNetworkProof}/bin/p-public-network-proof";
+  };
+  imports = [ "${modulesPath}/virtualisation/qemu-vm.nix" ]
+    ++ lib.optional (pPackage != null) ../../nix/module.nix
     ++ lib.optional (dnsOverHTTPSModule != null) dnsOverHTTPSModule;
   system.stateVersion = "26.05";
-  assertions = lib.optional publicEgressFixture {
+  assertions = lib.optional publicNetwork {
     assertion = outerHostIPv4 != [ ] && dnsOverHTTPSModule != null;
-    message = "Public-egress validation requires captured outer host IPv4 addresses; use dev/test-vm.";
+    message = "Public egress requires captured outer host IPv4 addresses; use dev/demo-vm --public or dev/test-vm.";
   };
   networking.hostName = "p-vm";
   networking.nftables.enable = true;
-  networking.enableIPv6 = lib.mkIf publicEgressFixture false;
-  networking.nameservers = lib.mkIf publicEgressFixture [ "127.0.0.1" ];
-  services = {
-    p = lib.mkIf serviceFixture {
-    enable = true;
-    package = pPackage;
-    user = "pdev";
-    group = "users";
-    createUser = false;
-    stateDirectory = "p-service55";
-    bundledActivation = true;
-    settings = {
-      git = {
-        activation_path = "/var/lib/p-service55/activation.json";
-        source_plugin_id = "org.p.git";
-        listen = "127.0.0.1:0";
-      };
-      events = {
-        activation_path = "/var/lib/p-service55/activation.json";
-        plugin_id = "org.p.filelog";
-      };
-      runtime = {
-        activation_path = "/var/lib/p-service55/activation.json";
-        runtime_plugin_id = "org.p.runtime.incus";
-        host_plugin_id = "org.p.tmux-host";
-        incus_binary = "${pkgs.incus}/bin/incus";
-        incus_user_socket = "/var/lib/incus/unix.socket.user";
-        incus_project = "user-1000";
-        endpoint_prefix = "/var/lib/p-vm/endpoints/pdev";
-        disk_source_ceilings = [ "/var/lib/p-vm/endpoints" "/var/lib/p-vm/grants" ];
-        base_image_fingerprint = lib.removeSuffix "\n" (builtins.readFile
-          (pkgs.runCommand "p-service-runtime-fingerprint" {} ''
-            cat ${runtimeImage.config.system.build.metadata}/tarball/*.tar.xz \
-              ${runtimeImage.config.system.build.squashfs}/*.squashfs | sha256sum | cut -d' ' -f1 > "$out"
-          ''));
-        project_policy = {
-          network = "none"; filesystem_mounts = []; command = [ "/run/current-system/sw/bin/bash" ];
+  networking.enableIPv6 = lib.mkIf publicNetwork false;
+  networking.nameservers = lib.mkIf publicNetwork [ "127.0.0.1" ];
+  services = lib.optionalAttrs pService {
+    p = {
+      enable = !demoPublic;
+      package = pPackage;
+      user = "pdev";
+      group = "users";
+      createUser = false;
+      stateDirectory = pStateDirectory;
+      bundledActivation = true;
+      settings = {
+        git = {
+          activation_path = "${pState}/activation.json";
+          source_plugin_id = "org.p.git";
+          listen = "127.0.0.1:0";
         };
-        environment = {
-          activation_path = "/var/lib/p-service55/activation.json";
-          plugin_id = "org.p.environment.nix";
-          system = "x86_64-linux";
-          builder_storage_pool = "builders";
+        events = {
+          activation_path = "${pState}/activation.json";
+          plugin_id = "org.p.filelog";
         };
-        agent_adapter = {
-          activation_path = "/var/lib/p-service55/activation.json";
-          plugin_id = "org.p.codex-adapter";
+        runtime = {
+          activation_path = "${pState}/activation.json";
+          runtime_plugin_id = "org.p.runtime.incus";
+          host_plugin_id = "org.p.tmux-host";
+          incus_binary = "${pkgs.incus}/bin/incus";
+          incus_user_socket = "/var/lib/incus/unix.socket.user";
+          incus_project = "user-1000";
+          endpoint_prefix = "/var/lib/p-vm/endpoints/pdev";
+          disk_source_ceilings = [ "/var/lib/p-vm/endpoints" "/var/lib/p-vm/grants" ];
+          base_image_fingerprint = lib.removeSuffix "\n" (builtins.readFile
+            (pkgs.runCommand "p-service-runtime-fingerprint" {} ''
+              cat ${runtimeImage.config.system.build.metadata}/tarball/*.tar.xz \
+                ${runtimeImage.config.system.build.squashfs}/*.squashfs | sha256sum | cut -d' ' -f1 > "$out"
+            ''));
+          project_policy = {
+            network = "none"; filesystem_mounts = []; command = [ "/run/current-system/sw/bin/bash" ];
+          };
+          environment = {
+            activation_path = "${pState}/activation.json";
+            plugin_id = "org.p.environment.nix";
+            system = "x86_64-linux";
+            builder_storage_pool = "builders";
+          };
+          agent_adapter = {
+            activation_path = "${pState}/activation.json";
+            plugin_id = "org.p.codex-adapter";
+          };
         };
       };
     };
-  };
+  } // {
     openssh.enable = false;
     getty.autologinUser = lib.mkIf (!automated) "pdev";
-    getty.helpLine = "P infrastructure lab. Run p-vm-smoke. Console root password: p-vm.";
+    getty.helpLine = if demo then "P lab. Run p api, p tui, or p-demo-poweroff."
+      else "P infrastructure lab. Run p-vm-smoke. Console root password: p-vm.";
   } // lib.optionalAttrs (dnsOverHTTPSModule != null) {
-    p-dns-over-https.enable = publicEgressFixture;
+    p-dns-over-https.enable = publicNetwork;
   };
-  networking.dhcpcd.extraConfig = lib.mkIf publicEgressFixture (lib.mkAfter ''
+  networking.dhcpcd.extraConfig = lib.mkIf publicNetwork (lib.mkAfter ''
     nooption domain_name_servers
   '');
   security.apparmor.enable = true;
@@ -244,9 +271,9 @@ in
     writableStore = true;
     writableStoreUseTmpfs = false;
     sharedDirectories = lib.mkForce { };
-    # Public tests need an actual outside route. Guest nftables constrains
-    # this one selection; smoke and all other selections retain SLIRP isolation.
-    restrictNetwork = !publicEgressFixture;
+    # Public tests and the online lab need an outside route. Guest nftables
+    # constrains it; offline labs and other selections retain SLIRP isolation.
+    restrictNetwork = !publicNetwork;
     incus = {
       enable = true;
       package = pkgs.incus;
@@ -272,7 +299,7 @@ in
               "ipv6.address" = "none";
             };
           }
-        ] ++ lib.optionals publicEgressFixture [
+        ] ++ lib.optionals publicNetwork [
           {
             name = "p-public-v1";
             type = "bridge";
@@ -301,12 +328,12 @@ in
               "restricted.containers.lowlevel" = "block";
               "restricted.devices.disk" = "allow";
               "restricted.devices.disk.paths" = "/var/lib/p-vm/endpoints,/var/lib/p-vm/grants";
-              "restricted.devices.nic" = if publicEgressFixture then "managed" else "block";
+              "restricted.devices.nic" = if publicNetwork then "managed" else "block";
               "restricted.devices.gpu" = "block";
               "restricted.storage-pools.access" = "default,builders";
               "limits.containers" = "4";
               "limits.virtual-machines" = "0";
-            } // lib.optionalAttrs publicEgressFixture {
+            } // lib.optionalAttrs publicNetwork {
               "restricted.networks.access" = "p-public-v1";
             };
           }
@@ -371,11 +398,17 @@ in
         }
       ];
     }
-  ] ++ lib.optionals serviceFixture [{
+  ] ++ lib.optionals demoPublic [{
+    users = [ "pdev" ];
+    commands = [
+      { command = "${pkgs.nftables}/bin/nft -j list table inet p_egress_p_public_v1"; options = [ "NOPASSWD" ]; }
+      { command = "${publicNetworkProof}/bin/p-public-network-proof \"\""; options = [ "NOPASSWD" ]; }
+    ];
+  }] ++ lib.optionals serviceFixture [{
     users = [ "pdev" ];
     commands = [{ command = "${serviceControl}/bin/p-service-test-control"; options = [ "NOPASSWD" ]; }];
   }];
-  networking.nftables.tables = lib.mkIf publicEgressFixture {
+  networking.nftables.tables = lib.mkIf publicNetwork {
     p_vm_outer = {
       family = "inet";
       content = ''
@@ -417,7 +450,7 @@ in
     };
     # Disposable integration probe only. The separate production table below
     # still drops every forwarded packet whose destination was rewritten.
-    p_vm_dnat_probe = {
+    p_vm_dnat_probe = lib.mkIf publicEgressFixture {
       family = "ip";
       content = ''
         counter prerouting_hits { }
@@ -466,7 +499,7 @@ in
       tmux
       btrfs-progs
     ])
-    ++ lib.optional publicEgressFixture pkgs.python3
+    ++ lib.optional publicNetwork pkgs.python3
     ++ lib.optional serviceFixture serviceControl
     ++ lib.optional (pPackage != null) pPackage
     ++ lib.optional (productTest != null) productTest;
@@ -481,7 +514,7 @@ in
     "d /var/lib/p-vm/grants/pdev 0700 pdev users -"
   ];
 
-  systemd.services.p-dns-over-https = lib.mkIf publicEgressFixture {
+  systemd.services.p-dns-over-https = lib.mkIf publicNetwork {
     serviceConfig.StandardOutput = "journal+console";
     serviceConfig.StandardError = "journal+console";
   };
@@ -532,26 +565,15 @@ in
         ip netns exec p-vm-dnat-target ip link set p-vm-dnat-peer up
         ip netns exec p-vm-dnat-target ip route add default via 8.8.4.9
       ''}
-      ${lib.optionalString publicEgressFixture ''
-        incus network acl create p-public-v1-acl
-        incus network acl rule add p-public-v1-acl egress \
-          action=drop state=enabled destination=${publicEgressDeniedText}
-        for dns in 1.1.1.1 9.9.9.9; do
-          incus network acl rule add p-public-v1-acl egress \
-            action=allow state=enabled destination="$dns" protocol=udp destination_port=53
-          incus network acl rule add p-public-v1-acl egress \
-            action=allow state=enabled destination="$dns" protocol=tcp destination_port=53
-        done
-        incus network acl rule add p-public-v1-acl egress \
-          action=allow state=enabled protocol=tcp destination_port=80,443
+      ${lib.optionalString publicNetwork ''
+        if ! incus network acl show p-public-v1-acl >/dev/null 2>&1; then
+          incus network acl create p-public-v1-acl
+        fi
+        incus network acl edit p-public-v1-acl < ${publicACL}
         incus network set p-public-v1 \
           security.acls=p-public-v1-acl \
           security.acls.default.ingress.action=reject \
           security.acls.default.egress.action=reject
-        echo 'root Incus public bridge configuration after provisioning:'
-        incus network show p-public-v1
-        echo 'root Incus public ACL after provisioning:'
-        incus network acl show p-public-v1-acl
       ''}
       # Incus split-image identity is SHA-256(metadata || rootfs).
       fingerprint=$(cat ${image.config.system.build.metadata}/tarball/*.tar.xz \
