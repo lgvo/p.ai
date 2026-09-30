@@ -65,16 +65,24 @@ just
 The shell uses [nix-dev-templates](https://github.com/lgvo/nix-dev-templates)
 to provide Go and Just, alongside P's test tools. `lang.go.enable` selects Go;
 `lang.go.ciLint.enable` is explicitly `false`, leaving golangci-lint optional.
-Use `just test` for the Go and Python unit suites, `just build` for the packaged
-CLI and its build checks,
-and `just check` to evaluate the flake. Packaging uses Git-tracked sources;
+Use `just test` for complete automated validation: flake evaluation, Go and
+Python unit tests, mocked VM runner checks, package build checks, and the full
+VM integration suite.
+For focused runs, use `just unit-tests` for the unit suites, `just vm-tests`
+for the full VM suite, or `just vm-incus-tests` for the Incus backend
+infrastructure checks alone. The unit recipe also checks VM runner selection
+and locking with mocks, without booting a VM. The full VM suite includes the Incus
+checks.
+
+`just build` builds the packaged CLI and runs its build checks; `just check`
+evaluates the flake without building. Packaging uses Git-tracked sources;
 add new source files to Git before building the package. Unit tests read the
 working checkout, including uncommitted files.
 
 `just lab` opens the interactive VM, `just lab-public` enables its public mode,
-and `just test-vm --step 56-live-tui.sh` runs a selected disposable VM check.
+and `just vm-tests --step 56-live-tui.sh` runs a selected disposable VM check.
 These recipes call the existing runners and preserve their locking, logs,
-and disk behavior. `just lab --help` and `just test-vm --help` show runner options.
+and disk behavior. `just lab --help` and `just vm-tests --help` show runner options.
 
 ## Start from the current prototype
 
@@ -111,8 +119,8 @@ and its Git history. Its disk persists between runs. Add `-- --public` for
 public DNS/HTTP(S) access. People and coding agents can explore through the VM
 console; no workstation checkout, credentials, or Nix store is shared.
 
-For repeatable validation, `./dev/test-vm` exercises the daemon, CLI, TUI, and
-real containers in fresh VMs. `nix run path:./dev/vm#smoke` checks infrastructure;
+For repeatable validation, `just vm-tests` exercises the daemon, CLI, TUI, and
+real containers in fresh VMs. `just vm-incus-tests` checks the Incus backend;
 `nix run path:./dev/vm#incus-lab` retains the original infrastructure-only lab.
 See the [progress record](docs/implementation-progress.md) for validation evidence.
 

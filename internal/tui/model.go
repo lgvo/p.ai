@@ -90,6 +90,7 @@ type Model struct {
 	helpBranchProject                  string
 	helpRemovalRead                    *suspendedRemovalRead
 	lastInteraction                    map[string]time.Time
+	attachmentScreen                   *attachmentScreen
 }
 
 func New(c Client, socket string) Model {
@@ -1018,7 +1019,7 @@ func (m *Model) launchAttachment() tea.Cmd {
 	m.attachOnComplete = false
 	m.working = true
 	cmd := exec.Command(executable, "attach", m.socket, m.contextSession.UUID)
-	return tea.ExecProcess(cmd, func(e error) tea.Msg { return attached{e} })
+	return attachmentProcess(cmd, m.attachmentScreen)
 }
 
 func newKey() string {

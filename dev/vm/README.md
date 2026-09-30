@@ -145,18 +145,19 @@ An agent sandbox may need approved host execution for the Nix daemon and KVM.
 
 For a clean experiment, choose a fresh `P_DEMO_STATE_DIR`. This lab can produce
 runtime evidence, but exploratory commands have no automatic assertions; use
-`./dev/test-vm --step STEP.sh` for repeatable acceptance checks.
+`just vm-tests --step STEP.sh` for repeatable acceptance checks.
 
-## Automated infrastructure test
+## Automated Incus backend tests
 
 From the repository root:
 
 ```sh
-nix run path:./dev/vm#smoke
+just vm-incus-tests
 ```
 
-This builds the fixtures, boots a fresh VM, runs the smoke test as its confined
-`pdev` account, powers off, and removes the temporary VM disk. A nonzero exit
+This calls `nix run path:./dev/vm#smoke`, builds the fixtures, boots a fresh VM,
+runs the Incus infrastructure checks as its confined `pdev` account, powers
+off, and removes the temporary VM disk. A nonzero exit
 means failure, including boot/timeout failure or a missing success marker.
 Console output is retained under `.cache/p-vm/smoke-*.log`.
 
@@ -183,9 +184,10 @@ or P lifecycle recovery. Those remain in the
 
 ## Automated P validation
 
-For the growing CLI product suite, run `./dev/test-vm` from the repository
-root. It builds P with the same pinned Nixpkgs, runs all Go unit tests, and
-boots serial fresh VMs containing the packaged CLI and explicit source fixtures.
+For the growing CLI product suite, run `just vm-tests` from the repository
+root. It calls `./dev/test-vm`, builds P with the same pinned Nixpkgs, runs all
+Go unit tests, and boots serial fresh VMs containing the packaged CLI and
+explicit source fixtures.
 Full validation partitions the steps into restricted tests01–36, dedicated
 public-egress test37, then restricted tests38 onward. Each VM runs the
 infrastructure smoke test followed by its selected product steps. Only test37
@@ -194,7 +196,7 @@ networking. A checkout-wide lock covers all groups and rejects overlapping
 product integration runs. Console logs are retained under
 `.cache/p-vm/integration-*.log`; the disposable disk is removed on exit.
 To debug specific steps, pass their exact filenames, repeating `--step` as
-needed: `./dev/test-vm --step 12-attachment.sh --step 13-daemon-events.sh`.
+needed: `just vm-tests --step 12-attachment.sh --step 13-daemon-events.sh`.
 Step filenames must start with a letter or digit, use only letters, digits,
 dots, underscores, and hyphens, and end in `.sh`.
 Selected steps run in repository order and still run the VM smoke test. Their
@@ -203,8 +205,14 @@ only a full invocation produces `P_PRODUCT_INTEGRATION_PASS`, after every
 group succeeds and removes its disk. Selections containing test37 are split
 the same way. Multi-step runs use a bounded 10800s guest-runner budget and
 single steps keep 1200s; per-test operation deadlines remain unchanged.
+
+`just test` evaluates the root flake, runs `just unit-tests` (Go, Python, and
+mocked VM runner checks), builds the packaged CLI with its checks, and runs
+the full VM suite. The Incus infrastructure checks run as part of that VM suite.
+
 `tests/integration/test-vm-selection.sh` checks selection and markers with mock
-commands without starting a VM.
+commands in an isolated fixture checkout without starting a VM or sharing a
+running lab's lock. It runs as part of `just unit-tests`.
 See [implementation progress](../../docs/implementation-progress.md) for
 the exact supported CLI scope and acceptance evidence. The suite exercises
 plugin management, durable lifecycle/RPC, Git/SSH, isolated environments,

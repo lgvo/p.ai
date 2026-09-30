@@ -155,6 +155,7 @@ def read(timeout=0.2):
         terminal.feed(data)
         if len(captured) > 2_000_000:
             del captured[:-1_000_000]
+        return True
 
 
 def plain():
@@ -319,6 +320,15 @@ try:
         raise AssertionError(f"unknown mode {mode}")
     process.wait(timeout=15)
     assert process.returncode == 0, plain()[-2000:]
+    while read(0):
+        pass
+    # Save the console once on browser entry and restore it once on final exit.
+    # Neither the attachment handshake nor tmux detach may reveal it in between.
+    screen_switches = [match[2] for match in re.finditer(
+        rb"\x1b\[\?([0-9;]+)([hl])", captured)
+        if any(int(parameter) in (47, 1047, 1049)
+               for parameter in match[1].split(b";"))]
+    assert screen_switches == [b"h", b"l"], screen_switches
     print(f"P_TUI_PTY_OK {mode}")
 except Exception:
     print("P_TUI_DIAGNOSTIC_SCREEN\n" + plain(), flush=True)

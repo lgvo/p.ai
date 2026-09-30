@@ -11,6 +11,19 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$fixture/bin" "$fixture/runner/bin" "$fixture/source/tests/integration/steps"
 
+# Keep mocked selection/locking checks independent of a running lab's lock.
+# Use the current scripts and step inventory in an isolated fixture checkout.
+fixture_repo="$fixture/checkout"
+mkdir -p "$fixture_repo/dev/vm" "$fixture_repo/tests/integration/steps"
+cp "$repo/dev/test-vm" "$fixture_repo/dev/test-vm"
+cp "$repo/tests/integration/run.sh" "$fixture_repo/tests/integration/run.sh"
+cp "$repo/dev/vm/verify-markers.sh" "$fixture_repo/dev/vm/verify-markers.sh"
+for step in "$repo"/tests/integration/steps/*.sh; do
+  [[ -f $step && ! -L $step ]] || continue
+  : > "$fixture_repo/tests/integration/steps/${step##*/}"
+done
+repo=$fixture_repo
+
 cat > "$fixture/bin/nix-build" <<'EOF'
 #!/usr/bin/env bash
 if flock -n "$P_TEST_GLOBAL_LOCK" true; then

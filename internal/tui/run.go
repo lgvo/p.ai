@@ -51,6 +51,13 @@ func Run(args []string) error {
 		_, err = fmt.Fprintln(os.Stdout, frame)
 		return err
 	}
-	_, err = tea.NewProgram(New(c, socket)).Run()
+	screen := newAttachmentScreen(os.Stdout)
+	defer screen.restore()
+	if err := screen.start(); err != nil {
+		return err
+	}
+	model := New(c, socket)
+	model.attachmentScreen = screen
+	_, err = tea.NewProgram(model, tea.WithOutput(attachmentScreenTTY{os.Stdout, screen})).Run()
 	return err
 }
