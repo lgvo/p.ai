@@ -37,6 +37,10 @@ type observedFacts struct{ condition, policy string }
 type eventContext struct{ project, branch string }
 
 func (l *lifecycle) seedRecoveredSession(s control.Session, policy string) {
+	condition, err := l.registryCondition(l.ctx, s)
+	if err != nil {
+		condition = "unreachable"
+	}
 	l.eventMu.Lock()
 	defer l.eventMu.Unlock()
 	if l.observed == nil {
@@ -44,13 +48,6 @@ func (l *lifecycle) seedRecoveredSession(s control.Session, policy string) {
 	}
 	if l.eventContexts == nil {
 		l.eventContexts = make(map[string]eventContext)
-	}
-	condition := ""
-	if s.Registry == "creating" {
-		condition = "creating"
-	}
-	if s.Registry == "removing" {
-		condition = "deleting"
 	}
 	l.observed[s.UUID] = observedFacts{condition: condition, policy: policy}
 	l.eventContexts[s.UUID] = eventContext{s.Project, s.Branch}

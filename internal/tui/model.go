@@ -31,6 +31,17 @@ type actionDone struct {
 }
 type attached struct{ err error }
 type removalIntent struct{ UUID, Kind, LossOperationID string }
+
+// Help suspends this captured read without replaying an accepted inspection.
+// The original epoch stays bound until its one reply is consumed or abandoned.
+type suspendedRemovalRead struct {
+	epoch   int
+	method  string
+	intent  removalIntent
+	working bool
+	reply   *actionDone
+}
+
 type serviceIntent struct{ UUID, Unit, Action string }
 
 type Model struct {
@@ -77,6 +88,7 @@ type Model struct {
 	sourceOriginURL                    string
 	returnPage                         string
 	helpBranchProject                  string
+	helpRemovalRead                    *suspendedRemovalRead
 	lastInteraction                    map[string]time.Time
 }
 
@@ -110,6 +122,7 @@ func (m Model) call(method string, p params) tea.Cmd {
 	}
 }
 func (m *Model) navigate(page string) {
+	m.helpRemovalRead = nil
 	m.page = page
 	m.cursor = 0
 	m.epoch++
@@ -407,6 +420,21 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.refreshing = true
 		return m, m.refresh()
 	case actionDone:
+		if suspended := m.helpRemovalRead; suspended != nil && v.epoch == suspended.epoch && v.method == suspended.method {
+			if !m.matchesRemovalRead(suspended) || m.page != "help" && m.page != "progress" {
+				return m, nil
+			}
+			if m.page == "help" {
+				if suspended.reply == nil {
+					copy := *suspended
+					copy.reply = &v
+					m.helpRemovalRead = &copy
+				}
+				return m, nil
+			}
+			m.helpRemovalRead = nil
+			v.epoch = m.epoch
+		}
 		// A completed background action must not reopen a page the user left.
 		if v.epoch != m.epoch {
 			return m, nil
@@ -580,7 +608,15 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				m.helpBranchProject = m.contextSession.Project
 			}
 		}
+		suspended := m.helpRemovalRead
+		if m.page == "progress" && m.removal != nil && suspended == nil {
+			switch m.pendingMethod {
+			case "", "workspace.loss.inspect", "operation.inspect", "session.removal.preview":
+				suspended = &suspendedRemovalRead{epoch: m.epoch, method: m.pendingMethod, intent: *m.removal, working: m.working}
+			}
+		}
 		m.navigate("help")
+		m.helpRemovalRead = suspended
 		return nil
 	}
 	if isMove(key) {
@@ -837,6 +873,10 @@ func (m *Model) findNext(backward bool) {
 	m.notice = "No journal match"
 }
 
+func (m *Model) matchesRemovalRead(suspended *suspendedRemovalRead) bool {
+	return m.removal != nil && *m.removal == suspended.intent && m.contextSession.UUID == suspended.intent.UUID
+}
+
 func (m *Model) back() tea.Cmd {
 	if m.page == "sessions" {
 		if m.query != "" {
@@ -912,6 +952,14 @@ func (m *Model) back() tea.Cmd {
 	if m.page == "help" {
 		page := m.returnPage
 		branchProject := m.helpBranchProject
+		suspended := m.helpRemovalRead
+		contextChanged := suspended != nil && !m.matchesRemovalRead(suspended)
+		if contextChanged {
+			suspended = nil
+			m.removal = nil
+			m.operationID = ""
+			m.attachOnComplete = false
+		}
 		m.returnPage, m.helpBranchProject = "", ""
 		if page == "" {
 			page = "sessions"
@@ -919,6 +967,25 @@ func (m *Model) back() tea.Cmd {
 		m.navigate(page)
 		if page == "sessions" {
 			m.restoreSelection()
+		}
+		if contextChanged {
+			m.notice = "Removal inspection context changed. Return to sessions to review again."
+			return nil
+		}
+		if page == "progress" && suspended != nil {
+			if suspended.reply != nil {
+				reply := *suspended.reply
+				reply.epoch = m.epoch
+				next, cmd := m.update(reply)
+				*m = next
+				return cmd
+			}
+			if suspended.working {
+				m.helpRemovalRead = suspended
+				m.working = true
+				m.pendingMethod = suspended.method
+			}
+			return nil
 		}
 		if branchProject != "" && (page == "retained" || page == "create" && m.form == "branch") {
 			// Help invalidated the old response. Restart only its branch read,

@@ -15,6 +15,8 @@ uuid=
 uuid_b=
 renamed=
 competing=
+readiness_session=
+diagnosed_session=
 incus_real=$(command -v incus)
 host_git=$(command -v git)
 
@@ -59,8 +61,56 @@ cleanup() {
   fi
   rmdir "$endpoint_prefix" 2>/dev/null || true
 }
+diagnose_session() {
+  local id="$1" output="$step_dir/readiness-diagnostic.out"
+  if test -z "$id" || test "$diagnosed_session" = "$id"; then return; fi
+  diagnosed_session="$id"
+  printf 'P_MISSING_RUNTIME_REPAIR_DIAGNOSTIC session=%s\n' "$id" >&2
+  # Whitelist public state and confined identity; never dump config, keys or
+  # process environment. Each read has its own deadline and bounded output.
+  if timeout 15 p api "$socket" session.inspect \
+    "$(jq -nc --arg uuid "$id" '{v:1,uuid:$uuid}')" > "$output" 2>/dev/null; then
+    jq -c '.result.session | {uuid,registry_state,session_condition,policy_condition,
+      diagnostic:(.diagnostic // "")[:2048]}' "$output" >&2 || true
+  else
+    echo 'public session inspection unavailable' >&2
+  fi
+  if timeout 15 "$incus_real" --force-local --project user-1000 list --format json \
+    > "$output" 2>/dev/null; then
+    jq -c --arg uuid "$id" '[.[] | select(.name==("p-"+$uuid) or
+      .config["user.p.session_uuid"]==$uuid) | {name,status,
+      session_uuid:.config["user.p.session_uuid"],
+      native_uuid:.config["volatile.uuid"]}] | {count:length,instances:.[0:8]}' \
+      "$output" >&2 || true
+  else
+    echo 'confined instance inspection unavailable' >&2
+  fi
+  if timeout 15 "$incus_real" --force-local --project user-1000 exec "p-$id" \
+    --mode non-interactive -- /usr/libexec/p/systemctl show \
+    p-session.target p-interactive.service nix-daemon.service \
+    --property=Id,LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,Job \
+    --no-pager > "$output" 2>/dev/null; then
+    echo 'session host unit state:' >&2
+    tail -c 4096 "$output" >&2 || true
+  else
+    echo 'session host unit inspection unavailable (instance may be stopped)' >&2
+  fi
+  # PID 1's unit events expose transitions without collecting application
+  # output. The public inspection above supplies bounded runtime diagnostics.
+  if timeout 15 "$incus_real" --force-local --project user-1000 exec "p-$id" \
+    --mode non-interactive -- /usr/libexec/p/journalctl -b -n 24 --no-pager \
+    --output=json _PID=1 -u p-interactive.service -u p-session.target \
+    > "$output" 2>/dev/null; then
+    echo 'session host system events:' >&2
+    jq -c '{time:.__REALTIME_TIMESTAMP,unit:(.UNIT // ._SYSTEMD_UNIT),
+      message:(.MESSAGE // "")[:512]}' "$output" | tail -c 8192 >&2 || true
+  else
+    echo 'session host system events unavailable (instance may be stopped)' >&2
+  fi
+}
 on_error() {
   printf 'P_MISSING_RUNTIME_REPAIR_FAIL line=%s status=%s\n' "$2" "$1" >&2
+  diagnose_session "${readiness_session:-$uuid}"
   tail -c 3072 "$step_dir/daemon.err" >&2 || true
 }
 trap cleanup EXIT
@@ -129,12 +179,17 @@ wait_operation() {
 }
 wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
+  readiness_session="$id"
   while ((SECONDS < deadline)); do
     if rpc session.inspect "$(jq -nc --arg uuid "$id" '{v:1,uuid:$uuid}')" |
-      jq -e '.result.session.session_condition=="ready"' >/dev/null; then return; fi
+      jq -e '.result.session.session_condition=="ready"' >/dev/null; then
+      readiness_session=
+      return
+    fi
     sleep 0.3
   done
   echo "session $id did not become ready" >&2
+  diagnose_session "$id"
   return 1
 }
 # Pause only Delete's read after durable secrets cleanup, before its ref effect

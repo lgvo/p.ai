@@ -38,6 +38,7 @@ type lifecycle struct {
 	ctx                     context.Context
 	mu                      sync.Mutex
 	working                 map[string]bool
+	pending                 []string
 	queueSlots              chan struct{}
 	sessionLocks            map[string]chan struct{}
 	confinementCheck        func(context.Context) error
@@ -268,70 +269,10 @@ func (l *lifecycle) currentProjectPolicy(ctx context.Context, project string) er
 
 func (l *lifecycle) Close() { l.endpoints.Close() }
 func (l *lifecycle) Recover() error {
-	ops, err := l.store.UnfinishedCreates(l.ctx)
+	ops, err := l.unfinishedOperations()
 	if err != nil {
 		return err
 	}
-	collections, err := l.store.UnfinishedEnvironmentCollections(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, collections...)
-	projectDeletes, e := l.store.UnfinishedProjectDeletes(l.ctx)
-	if e != nil {
-		return e
-	}
-	ops = append(ops, projectDeletes...)
-	workspace, err := l.store.UnfinishedWorkspaceInspects(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, workspace...)
-	discards, err := l.store.UnfinishedRemovals(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, discards...)
-	renames, err := l.store.UnfinishedRenames(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, renames...)
-	retainedRenames, err := l.store.UnfinishedRetainedRenames(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, retainedRenames...)
-	retainedDeletes, err := l.store.UnfinishedRetainedDeletes(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, retainedDeletes...)
-	repairs, err := l.store.UnfinishedRepairs(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, repairs...)
-	preparations, err := l.store.UnfinishedRepairPreparations(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, preparations...)
-	refRepairs, err := l.store.UnfinishedRefRepairs(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, refRepairs...)
-	principalRepairs, err := l.store.UnfinishedPrincipalRepairs(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, principalRepairs...)
-	recordRepairs, err := l.store.UnfinishedRecordRepairs(l.ctx)
-	if err != nil {
-		return err
-	}
-	ops = append(ops, recordRepairs...)
 	after := ""
 	for {
 		sessions, next, e := l.store.ListSessions(l.ctx, after, 100)
@@ -339,11 +280,10 @@ func (l *lifecycle) Recover() error {
 			return e
 		}
 		for _, s := range sessions {
-			if s.Registry == "removing" {
-				continue
-			}
-			if e = recoverSessionEndpoint(l.ctx, s, l.store.CreationForSession, l.endpoints.Ensure); e != nil {
-				return e
+			if s.Registry != "removing" {
+				if e = recoverSessionEndpoint(l.ctx, s, l.store.CreationForSession, l.endpoints.Ensure); e != nil {
+					return e
+				}
 			}
 			if l.events != nil {
 				policy := l.policyCondition(l.ctx, s)
@@ -387,34 +327,11 @@ func (l *lifecycle) schedule() {
 		case <-l.ctx.Done():
 			return
 		case <-ticker.C:
-			ops, err := l.store.UnfinishedCreates(l.ctx)
+			ops, err := l.unfinishedOperations()
 			if err != nil {
-				log.Printf("creation reconciliation: %v", err)
+				log.Printf("lifecycle reconciliation: %v", err)
 				continue
 			}
-			collections, err := l.store.UnfinishedEnvironmentCollections(l.ctx)
-			if err != nil {
-				log.Printf("collection reconciliation: %v", err)
-				continue
-			}
-			ops = append(ops, collections...)
-			projectDeletes, e := l.store.UnfinishedProjectDeletes(l.ctx)
-			if e != nil {
-				continue
-			}
-			ops = append(ops, projectDeletes...)
-			workspace, err := l.store.UnfinishedWorkspaceInspects(l.ctx)
-			if err != nil {
-				log.Printf("workspace reconciliation: %v", err)
-				continue
-			}
-			ops = append(ops, workspace...)
-			discards, err := l.store.UnfinishedRemovals(l.ctx)
-			if err != nil {
-				log.Printf("discard reconciliation: %v", err)
-				continue
-			}
-			ops = append(ops, discards...)
 			for _, op := range ops {
 				if op.Status == "running" {
 					_ = l.enqueue(op.ID)
@@ -436,23 +353,75 @@ func (l *lifecycle) enqueue(id string) error {
 		}
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ctx.Err() != nil {
+		return l.ctx.Err()
+	}
 	if l.working[id] {
-		l.mu.Unlock()
 		return nil
 	}
-	select {
-	case l.queueSlots <- struct{}{}:
-	default:
-		l.mu.Unlock()
-		return nil
-	}
+	// Accepted work stays pending when all workers are busy. The working map
+	// deduplicates both queued and executing IDs; the durable journal supplies
+	// the same intents again on restart.
 	l.working[id] = true
-	l.mu.Unlock()
-	go func() {
-		defer func() { l.mu.Lock(); delete(l.working, id); l.mu.Unlock(); <-l.queueSlots }()
-		l.process(id)
-	}()
+	l.pending = append(l.pending, id)
+	l.dispatchLocked()
 	return nil
+}
+
+// dispatchLocked starts only as many workers as the execution limit allows.
+// Workers drain the FIFO as they finish, including recovery intents admitted
+// while every slot was occupied.
+func (l *lifecycle) dispatchLocked() {
+	for len(l.pending) != 0 && l.ctx.Err() == nil {
+		select {
+		case l.queueSlots <- struct{}{}:
+		default:
+			return
+		}
+		id := l.pending[0]
+		l.pending[0] = ""
+		l.pending = l.pending[1:]
+		go func() {
+			defer func() {
+				l.mu.Lock()
+				defer l.mu.Unlock()
+				delete(l.working, id)
+				<-l.queueSlots
+				l.dispatchLocked()
+			}()
+			l.process(id)
+		}()
+	}
+}
+
+// Recovery and polling share the full set of durable workflow kinds. Callers
+// retain their distinct eligibility rules: recovery may reconcile eligible
+// blocked intents once, while periodic polling only dispatches running work.
+func (l *lifecycle) unfinishedOperations() ([]control.Operation, error) {
+	var ops []control.Operation
+	for _, list := range []func(context.Context) ([]control.Operation, error){
+		l.store.UnfinishedCreates,
+		l.store.UnfinishedEnvironmentCollections,
+		l.store.UnfinishedProjectDeletes,
+		l.store.UnfinishedWorkspaceInspects,
+		l.store.UnfinishedRemovals,
+		l.store.UnfinishedRenames,
+		l.store.UnfinishedRetainedRenames,
+		l.store.UnfinishedRetainedDeletes,
+		l.store.UnfinishedRepairs,
+		l.store.UnfinishedRepairPreparations,
+		l.store.UnfinishedRefRepairs,
+		l.store.UnfinishedPrincipalRepairs,
+		l.store.UnfinishedRecordRepairs,
+	} {
+		items, err := list(l.ctx)
+		if err != nil {
+			return nil, err
+		}
+		ops = append(ops, items...)
+	}
+	return ops, nil
 }
 
 func (l *lifecycle) selection() control.CreationSelection {
@@ -1326,6 +1295,32 @@ func startEligible(ctx context.Context, id string, session func(context.Context,
 	return s, nil
 }
 
+// registryCondition queries durable removal authority before taking eventMu.
+// A registry marker alone cannot say whether the assigned branch is retained.
+func (l *lifecycle) registryCondition(ctx context.Context, s control.Session) (string, error) {
+	if s.Registry == "creating" {
+		return "creating", nil
+	}
+	if s.Registry != "removing" {
+		return "", nil
+	}
+	if l.store == nil {
+		return "", control.ErrNotFound
+	}
+	kind, err := l.store.SessionRemovalKind(ctx, s.UUID)
+	if err != nil {
+		return "", err
+	}
+	switch kind {
+	case "session.discard", "session.create.cleanup":
+		return "discarding", nil
+	case "session.delete", "project.delete", "session.record.repair":
+		return "deleting", nil
+	default:
+		return "", control.ErrConflict
+	}
+}
+
 func (l *lifecycle) InspectSession(ctx context.Context, id string) (result control.SessionView, resultErr error) {
 	defer func() {
 		if resultErr != nil {
@@ -1366,7 +1361,11 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result contr
 		return v, nil
 	}
 	if s.Registry == "removing" {
-		v.Condition = "deleting"
+		v.Condition, err = l.registryCondition(ctx, s)
+		if err != nil {
+			v.Condition = "unreachable"
+			v.Diagnostic = "committed session removal intent unavailable"
+		}
 		return v, nil
 	}
 	native, err := l.runtimeSession(ctx, s)

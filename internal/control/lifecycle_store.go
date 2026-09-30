@@ -168,6 +168,12 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		}
 		session, e := getSessionTx(ctx, tx, op.SessionUUID)
 		if errors.Is(e, sql.ErrNoRows) {
+			// Discard/Delete may remove the session before this retained
+			// completed request is replayed. Its result remains authoritative;
+			// a completed replay must not reserve or reconstruct the session.
+			if op.Status == "completed" {
+				return op, Session{}, true, nil
+			}
 			e = ErrNotFound
 		}
 		return op, session, true, e

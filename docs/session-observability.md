@@ -52,8 +52,14 @@ readiness matrix:
 | `discarding` | Confirmed Discard is ending the session while retaining its assigned branch. |
 | `deleting` | Confirmed Delete is ending the session and removing its assigned branch. |
 
-Registry intent supplies `creating`, `discarding`, and `deleting`. For an
-established session P freshly inspects Incus and `p-interactive.service`.
+Registry intent supplies `creating`. A committed removal operation supplies
+`discarding` for Discard or failed-create cleanup, which retain the branch,
+and `deleting` for session or project Delete. Record removal repair also
+reports `deleting`: its confirmed precondition is that the branch and runtime
+are already absent. An unavailable or ambiguous removal intent reports
+`unreachable` rather than guessing branch loss. These conditions survive
+daemon restart through the durable operation. For an established session P
+freshly inspects Incus and `p-interactive.service`.
 `ready` requires the systemd unit to have completed endpoint validation,
 environment activation, persistent-host startup, and its attachability
 contract. Incus merely reporting a running container is insufficient.

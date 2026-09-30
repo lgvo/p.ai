@@ -281,12 +281,12 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.notice = e.Error()
 			return nil
 		}
-		m.operation = r.Operation
-		m.operationID = r.Operation.ID
-		if m.removal == nil || r.Operation.SessionUUID != m.removal.UUID {
+		if m.removal == nil || r.Operation.SessionUUID != m.removal.UUID || r.Operation.Kind != "workspace.loss.inspect" || r.Operation.ID == "" {
 			m.notice = "Loss operation does not match the captured removal session."
 			return nil
 		}
+		m.operation = r.Operation
+		m.operationID = r.Operation.ID
 		m.removal.LossOperationID = r.Operation.ID
 		return m.begin("operation.inspect", params{"v": 1, "id": m.operationID})
 	case "operation.inspect":
@@ -295,6 +295,10 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		}
 		if e := json.Unmarshal(v.raw, &r); e != nil {
 			m.notice = e.Error()
+			return nil
+		}
+		if m.removal != nil && (r.Operation.ID != m.removal.LossOperationID || r.Operation.SessionUUID != m.removal.UUID || r.Operation.Kind != "workspace.loss.inspect") {
+			m.notice = "Loss operation does not match the captured removal session."
 			return nil
 		}
 		m.operation = r.Operation

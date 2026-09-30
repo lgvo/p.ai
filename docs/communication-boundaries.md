@@ -144,6 +144,14 @@ credential placement and ownership follow
 - Hidden/private namespaces are not advertised and arbitrary object-ID fetches
   are disabled.
 
+The endpoint manager admits at most eight Git proxy connections per session
+and 64 across the instance. The listener's session UUID determines admission;
+SSH still authenticates the Git principal. Each proxy has an independent
+ten-minute lifetime, including connection setup, matching the Git SSH service
+duration limit. Client input EOF permits the upstream response to drain.
+Upstream EOF, the lifetime deadline, daemon shutdown, or context cancellation
+closes both proxy directions and releases its connection slots.
+
 ### Host principal
 
 The per-instance host SSH key is read-only on the P Git server.

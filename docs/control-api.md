@@ -264,9 +264,12 @@ defines the boundary.
 Session RPC uses newline-delimited JSON-RPC 2.0 over one persistent Unix
 connection. Each line must be UTF-8 and at most 64 KiB including the newline.
 An oversized or unterminated line receives a bounded parse error and closes
-the connection; an idle connection closes after two minutes. At most 16
-session connections are admitted by the endpoint manager. Object keys must
-be unique, and methods reject unknown parameter fields. Requests use a string
+the connection; an idle connection closes after two minutes. The endpoint
+manager admits at most four connections per session UUID and 16 across the
+instance, including idle connections. Closing a connection releases both
+limits. Recreating a session listener preserves its UUID admission limit.
+Object keys must be unique, and methods reject unknown parameter fields.
+Requests use a string
 or integer `id`; notifications omit `id` and receive no response.
 
 | Method | Params | Result |

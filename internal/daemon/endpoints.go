@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -28,7 +29,9 @@ type endpointManager struct {
 	opened             map[string]*endpointPair
 	conns              map[net.Conn]struct{}
 	gitSlots           chan struct{}
+	gitBySession       map[string]int
 	sessionSlots       chan struct{}
+	sessionByUUID      map[string]int
 	closed             bool
 }
 
@@ -44,7 +47,7 @@ func newEndpointManager(prefix, gitAddress string, store *control.Store) (*endpo
 	if !ok || !info.IsDir() || info.Mode().Perm() != 0700 || st.Uid != uint32(os.Geteuid()) {
 		return nil, errors.New("endpoint prefix must be private and daemon-owned")
 	}
-	m := &endpointManager{prefix: prefix, gitAddress: gitAddress, store: store, opened: map[string]*endpointPair{}, conns: map[net.Conn]struct{}{}, gitSlots: make(chan struct{}, 64), sessionSlots: make(chan struct{}, 16)}
+	m := &endpointManager{prefix: prefix, gitAddress: gitAddress, store: store, opened: map[string]*endpointPair{}, conns: map[net.Conn]struct{}{}, gitSlots: make(chan struct{}, 64), gitBySession: map[string]int{}, sessionSlots: make(chan struct{}, 16), sessionByUUID: map[string]int{}}
 	return m, nil
 }
 
@@ -106,7 +109,7 @@ func (m *endpointManager) Ensure(ctx context.Context, uuid string) (string, erro
 	}
 	pair := &endpointPair{git: git, session: session, dir: dir}
 	m.opened[uuid] = pair
-	go m.serveGit(ctx, git)
+	go m.serveGit(ctx, git, uuid)
 	go m.serveSession(ctx, session, uuid)
 	return dir, nil
 }
@@ -254,52 +257,125 @@ func (m *endpointManager) addConn(c net.Conn) bool {
 }
 func (m *endpointManager) removeConn(c net.Conn) { m.mu.Lock(); delete(m.conns, c); m.mu.Unlock() }
 
-func (m *endpointManager) serveGit(ctx context.Context, l net.Listener) {
+const gitConnectionsPerSession = 8
+
+func (m *endpointManager) admitGit(conn net.Conn, uuid string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.gitBySession[uuid] >= gitConnectionsPerSession {
+		return false
+	}
+	select {
+	case m.gitSlots <- struct{}{}:
+	default:
+		return false
+	}
+	m.gitBySession[uuid]++
+	m.conns[conn] = struct{}{}
+	return true
+}
+
+func (m *endpointManager) releaseGit(conn net.Conn, uuid string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.conns, conn)
+	m.gitBySession[uuid]--
+	if m.gitBySession[uuid] == 0 {
+		delete(m.gitBySession, uuid)
+	}
+	<-m.gitSlots
+}
+
+func (m *endpointManager) serveGit(ctx context.Context, l net.Listener, uuid string) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
 			return
 		}
-		select {
-		case m.gitSlots <- struct{}{}:
-		default:
+		if !m.admitGit(conn, uuid) {
 			conn.Close()
 			continue
 		}
-		if !m.addConn(conn) {
-			<-m.gitSlots
-			conn.Close()
-			return
-		}
 		go func() {
-			defer func() { m.removeConn(conn); conn.Close(); <-m.gitSlots }()
-			remote, e := net.DialTimeout("tcp", m.gitAddress, 5*time.Second)
-			if e != nil {
-				return
-			}
-			if !m.addConn(remote) {
-				remote.Close()
-				return
-			}
-			defer func() { m.removeConn(remote); remote.Close() }()
-			done := make(chan struct{}, 1)
-			go func() {
-				io.Copy(remote, conn)
-				if tcp, ok := remote.(*net.TCPConn); ok {
-					tcp.CloseWrite()
-				}
-				done <- struct{}{}
-			}()
-			io.Copy(conn, remote)
-			if unix, ok := conn.(*net.UnixConn); ok {
-				unix.CloseWrite()
-			}
-			select {
-			case <-done:
-			case <-ctx.Done():
-			}
+			defer m.releaseGit(conn, uuid)
+			m.proxyGit(ctx, conn, gitservice.Timeout)
 		}()
 	}
+}
+
+// proxyGit bounds the raw transport independently of SSH authentication and
+// service execution. A guest input half-close still permits the full upstream
+// response, while upstream EOF ends both directions and joins the input pump.
+func (m *endpointManager) proxyGit(ctx context.Context, conn net.Conn, lifetime time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, lifetime)
+	defer cancel()
+	defer conn.Close()
+	stopGuest := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stopGuest()
+	deadline, _ := ctx.Deadline()
+	if err := conn.SetDeadline(deadline); err != nil {
+		return
+	}
+	remote, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", m.gitAddress)
+	if err != nil {
+		return
+	}
+	defer remote.Close()
+	if !m.addConn(remote) {
+		return
+	}
+	defer m.removeConn(remote)
+	stopRemote := context.AfterFunc(ctx, func() { remote.Close() })
+	defer stopRemote()
+	if err := remote.SetDeadline(deadline); err != nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := io.Copy(remote, conn); err != nil {
+			remote.Close()
+			return
+		}
+		if tcp, ok := remote.(*net.TCPConn); ok {
+			tcp.CloseWrite()
+		}
+	}()
+	io.Copy(conn, remote)
+	// Closing both peers unblocks either a guest read or an upstream write.
+	// The slot cannot be released until this accepted connection's pump exits.
+	conn.Close()
+	remote.Close()
+	<-done
+}
+
+const rpcConnectionsPerSession = 4
+
+func (m *endpointManager) admitSession(conn net.Conn, uuid string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.sessionByUUID[uuid] >= rpcConnectionsPerSession {
+		return false
+	}
+	select {
+	case m.sessionSlots <- struct{}{}:
+	default:
+		return false
+	}
+	m.sessionByUUID[uuid]++
+	m.conns[conn] = struct{}{}
+	return true
+}
+
+func (m *endpointManager) releaseSession(conn net.Conn, uuid string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.conns, conn)
+	m.sessionByUUID[uuid]--
+	if m.sessionByUUID[uuid] == 0 {
+		delete(m.sessionByUUID, uuid)
+	}
+	<-m.sessionSlots
 }
 
 func (m *endpointManager) serveSession(ctx context.Context, l net.Listener, uuid string) {
@@ -308,19 +384,12 @@ func (m *endpointManager) serveSession(ctx context.Context, l net.Listener, uuid
 		if err != nil {
 			return
 		}
-		select {
-		case m.sessionSlots <- struct{}{}:
-		default:
+		if !m.admitSession(conn, uuid) {
 			conn.Close()
 			continue
 		}
-		if !m.addConn(conn) {
-			<-m.sessionSlots
-			conn.Close()
-			return
-		}
 		go func() {
-			defer func() { m.removeConn(conn); conn.Close(); <-m.sessionSlots }()
+			defer func() { conn.Close(); m.releaseSession(conn, uuid) }()
 			var session control.Session
 			var instance string
 			contextReady := false

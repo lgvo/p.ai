@@ -525,3 +525,81 @@ func TestEndpointBoundaryBlocksChangedSocket(t *testing.T) {
 		t.Fatal("symlink endpoint accepted")
 	}
 }
+
+// Native inventory fixture for recovery after init/device attachment but
+// before runtime-created is durable. Source images are independent of this
+// retained instance inventory; no Incus fault injection is performed here.
+func TestInspectCreatedRetainsExactCapturedDevices(t *testing.T) {
+	grant := FilesystemGrant{Name: "notice", Source: "/var/lib/p-vm/grants/pdev/notice", Type: "file", Access: "read-only", Device: 1, Inode: 2}
+	for _, public := range []bool{false, true} {
+		name := "filesystem"
+		if public {
+			name = "filesystem-and-public-nic"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := &fakeIncus{instance: true, status: "Stopped", grant: &grant, grantDeviceAdded: true, diskPaths: "/var/lib/p-vm/grants"}
+			b := fakeBackend(f)
+			b.config.DiskSourceCeilings = []string{"/var/lib/p-vm/grants"}
+			b.config.EndpointPrefix = "/var/lib/p-vm/endpoints"
+			native := testSession()
+			native.Grants = []FilesystemGrant{grant}
+			native.EndpointSource = "/var/lib/p-vm/endpoints/" + native.SessionUUID
+			if public {
+				b.config.PublicEgress = &PublicEgressConfig{Network: "p-public-v1", ACL: "p-public-v1-acl", BridgeIPv4: "10.233.0.1/24"}
+				native.PublicIPv4 = "10.233.0.10/24"
+			}
+			nicPresent := public
+			b.run = func(ctx context.Context, binary string, args, env []string) ([]byte, error) {
+				raw, err := f.run(ctx, binary, args, env)
+				if err != nil || len(args) < 4 || args[3] != "list" || !nicPresent {
+					return raw, err
+				}
+				var instances []instanceJSON
+				if err = json.Unmarshal(raw, &instances); err != nil {
+					return nil, err
+				}
+				device := publicNICDevice(b.config.PublicEgress, native)
+				instances[0].Devices[publicNICName] = device
+				instances[0].ExpandedDevices[publicNICName] = device
+				return json.Marshal(instances)
+			}
+			if got, err := b.InspectCreated(context.Background(), native); err != nil || !got.Exists || !got.MountedGrants["notice"] || got.PublicNIC != public {
+				t.Fatalf("complete captured devices refused: %+v %v", got, err)
+			}
+			incomplete := native
+			incomplete.Grants = nil
+			if _, err := b.InspectCreated(context.Background(), incomplete); err == nil {
+				t.Fatal("mounted grant accepted without captured authority")
+			}
+			changed := native
+			changed.Grants = []FilesystemGrant{grant}
+			changed.Grants[0].Source = "/var/lib/p-vm/grants/pdev/other"
+			if _, err := b.InspectCreated(context.Background(), changed); err == nil {
+				t.Fatal("changed captured grant source accepted")
+			}
+			if public {
+				withoutNIC := native
+				withoutNIC.PublicIPv4 = ""
+				if _, err := b.InspectCreated(context.Background(), withoutNIC); err == nil {
+					t.Fatal("mounted NIC accepted without reserved address")
+				}
+			}
+			f.altered = true
+			if _, err := b.InspectCreated(context.Background(), native); err == nil {
+				t.Fatal("foreign native ownership adopted")
+			}
+			f.altered = false
+			f.grantDeviceAdded = false
+			nicPresent = false
+			if got, err := b.InspectCreated(context.Background(), native); err != nil || !got.Exists || got.GrantsMounted || got.PublicNIC {
+				t.Fatalf("pending assembly refused: %+v %v", got, err)
+			}
+			if _, err := b.Inspect(context.Background(), native); err == nil {
+				t.Fatal("pending assembly passed strict ready inspection")
+			}
+			if len(f.mutations) != 0 {
+				t.Fatalf("inspection mutated native runtime: %v", f.mutations)
+			}
+		})
+	}
+}

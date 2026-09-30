@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"path/filepath"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
@@ -15,9 +14,20 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
+type environmentRecoveryRuntime interface {
+	ReconcileBuilderPublication(context.Context, runtimeincus.BuilderImageClaim) (runtimeincus.BuilderImageInfo, error)
+	VerifyBuilderImage(context.Context, runtimeincus.BuilderImageClaim) (runtimeincus.BuilderImageInfo, bool, error)
+	InspectCreated(context.Context, runtimeincus.Session) (runtimeincus.Observation, error)
+}
+
 // ensureEnvironment consumes only the committed OID in durable creation
 // evidence. It never observes the current branch or origin during exact retry.
 func (l *lifecycle) ensureEnvironment(ctx context.Context, op *control.Operation, ev control.CreationEvidence) (string, error) {
+	return l.ensureEnvironmentWithRuntime(ctx, op, ev, l.runtime, l.buildEnvironment)
+}
+
+func (l *lifecycle) ensureEnvironmentWithRuntime(ctx context.Context, op *control.Operation, ev control.CreationEvidence,
+	runtime environmentRecoveryRuntime, rebuild func(context.Context, *control.Operation, *control.CreationEvidence) (string, error)) (string, error) {
 	current := l.environmentIntent()
 	if current == nil || ev.Environment == nil || *current != *ev.Environment || ev.CapturedOID == "" {
 		return "", errors.New("pinned environment selection unavailable; repair required")
@@ -35,7 +45,7 @@ func (l *lifecycle) ensureEnvironment(ctx context.Context, op *control.Operation
 			return "", err
 		}
 		claim := environmentClaimForProject(ev, op.Project)
-		info, err := l.runtime.ReconcileBuilderPublication(ctx, claim)
+		info, err := runtime.ReconcileBuilderPublication(ctx, claim)
 		if err != nil {
 			return "", err
 		}
@@ -60,7 +70,7 @@ func (l *lifecycle) ensureEnvironment(ctx context.Context, op *control.Operation
 			return ev.ImageFingerprint, nil
 		}
 		claim := environmentClaimForProject(ev, op.Project)
-		_, exists, err := l.runtime.VerifyBuilderImage(ctx, claim)
+		_, exists, err := runtime.VerifyBuilderImage(ctx, claim)
 		if err != nil {
 			return "", err
 		}
@@ -71,17 +81,19 @@ func (l *lifecycle) ensureEnvironment(ctx context.Context, op *control.Operation
 		// private root remains valid after the source image is removed, so
 		// inspect the exact durable instance identity before cache eviction.
 		session, err := l.store.GetSession(ctx, op.SessionUUID)
-		if err != nil || session.Project != op.Project {
+		if err != nil || session.Project != op.Project || session.Registry != "creating" || session.PolicySHA256 != ev.PolicySHA256 {
 			return "", errors.Join(err, errors.New("creating session identity unavailable"))
 		}
-		owned := runtimeincus.Session{
-			InstanceUUID: l.instanceID, SessionUUID: session.UUID,
-			ProjectPath: session.Project, AssignedBranch: session.Branch,
-			InitialOID: ev.CapturedOID, ContractVersion: "1",
-			ImageFingerprint: ev.ImageFingerprint,
-			EndpointSource:   filepath.Join(l.cfg.EndpointPrefix, session.UUID),
+		owned, err := l.runtimeSession(ctx, session)
+		if err != nil {
+			return "", err
 		}
-		observed, err := l.runtime.InspectCreated(ctx, owned)
+		// Creation recovery cannot substitute a later repair image or source.
+		// The stored session policy and reserved address supply every device.
+		if owned.ImageFingerprint != ev.ImageFingerprint || owned.InitialOID != ev.CapturedOID {
+			return "", errors.New("creating runtime image or source differs from captured request")
+		}
+		observed, err := runtime.InspectCreated(ctx, owned)
 		if err != nil {
 			return "", err
 		}
@@ -96,7 +108,7 @@ func (l *lifecycle) ensureEnvironment(ctx context.Context, op *control.Operation
 		// A verified external removal is a cache miss. Rebuild from the
 		// captured commit, without touching any existing session instance.
 	}
-	return l.buildEnvironment(ctx, op, &ev)
+	return rebuild(ctx, op, &ev)
 }
 
 func environmentClaimForProject(ev control.CreationEvidence, project string) runtimeincus.BuilderImageClaim {

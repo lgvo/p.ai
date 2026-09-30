@@ -1,5 +1,83 @@
 # MVP implementation progress
 
+## Follow-up correctness and security fixes — 2026-09-30
+
+Seven review findings were fixed sequentially using one implementer and one
+independent reviewer. Both agreed on each fix before the next began. Review
+feedback was resolved, including project-deletion authority fallback, abandoned
+TUI removal context, and regression-fixture ordering and model-state mistakes.
+Production changes are frozen for the final validation checkpoint.
+
+| Finding | Fix and meaningful regression evidence | Focused race evidence |
+|---|---|---|
+| Saturated lifecycle dispatch lost work | Accepted operations wait for bounded workers; recovery and polling enumerate supported resumable kinds. Regressions cover saturation, duplicate admission, SQLite reopen/startup overflow, actual retained Git rename effects, and durable-only polling while blocked work stays dormant. | Implementer daemon/control suites: 24.764s/60.087s; independent focused daemon suite: 22.6s. Restoring the old code failed both new regressions. |
+| Git proxy connections retained slots and lacked session fairness | Upstream termination closes and joins both copy directions; clean client half-close still drains the response. Session admission and a separate lifetime bound prevent one session from exhausting the manager. Socket regressions cover released slots, sibling access, duplex traffic, half-close, cancellation, lifetime, and shutdown. | Implementer focused suite: 1.300s; full daemon suite: 32.796s; independent Git/endpoint suite: 2.3s. |
+| Idle private RPC connections exhausted shared admission | Atomic UUID admission survives listener recreation and releases on every handler exit. Two-session regressions cover rejected connections, sibling persistent identity/capability calls, global admission, quota reuse, and shutdown; existing framing/status budgets remain covered. | Implementer admission suite: 2.100s and control session suite: 2.239s; independent daemon/control suites: 1.97s/2.49s. |
+| Missing environment image recovery omitted captured runtime authority | Recovery restores stored grants and the reserved public address, verifies the creating identity and captured image/source, and refuses captured policy digest or substrate conflicts and native ownership conflicts. Regressions exercise retained runtime identity, preservation of captured authority across current-policy changes, and absent-runtime rebuilding. | Implementer daemon/runtime suites: 3.263s/1.028s; independent suites: 3.4s/1.02s. Restoring the omitted fields failed both retention regressions. |
+| Completed creation replay failed after session removal | Exact completed replay returns the retained operation after Discard/Delete without recapturing source, admitting work, or resurrecting the session. Regressions cover both real store removals, reopen, branch reassignment, live-session replay, conflicts, unfinished missing identity, daemon replay, and retired project keys. | Implementer control/daemon suites: 2.452s/1.370s; independent suites: 2.80s/1.55s. |
+| Removing sessions projected the wrong action | Inspection and recovery seeding derive Discard/Delete conditions from committed durable intent. Project deletion takes precedence; unavailable or ambiguous authority reports unreachable. Regressions cover active/blocked intent, history and ambiguity, missing project-deletion ownership, SQLite reopen, condition events, and no removal endpoint reopening. | Implementer control/daemon suites: 6.321s/3.184s; independent suites: 6.30s/3.08s. |
+| Help interrupted TUI removal inspection | Help suspends the original reply binding and consumes it once on return. Real departure or changed context abandons the workflow. Actual-key regressions cover Discard/Delete, initial loss acceptance, polling and preview, repeated Help cycles, replies during/after Help, errors and stale/foreign replies, and explicit confirmation without mutation replay. | Implementer full TUI suite: 1.081s; independent full TUI suite: 1.08s. |
+
+These are local Go regressions. Git uses a source-plugin/repository fixture;
+endpoint tests use local sockets and an accelerated lifetime test. Environment
+recovery uses the production helper with retained-identity fixtures and the
+actual Incus backend device validator; it does not reproduce a native crash
+sequence. Removal projection uses durable SQLite state without a fake runtime.
+TUI tests send actual keys through the model with a fixture API client rather
+than a real terminal. None of these results establishes a new native VM pass.
+Exact endpoint limits remain in [communication boundaries](communication-boundaries.md)
+and [the control API](control-api.md). Removal-condition mapping remains in
+[session observability](session-observability.md). This record is non-normative.
+
+The coordinator observed passing aggregate Go and 17 Python tests
+(`/tmp/p-reviewed-fixes-unit.log`), flake evaluation with the existing missing
+metadata warning (`/tmp/p-reviewed-fixes-check.log`), and the package build and
+checks (`/tmp/p-reviewed-fixes-package-build.log`). The package was built from a
+filtered raw checkout with the pinned Nixpkgs, including the new files without
+index staging; its output is
+`/nix/store/840nzcvnpinv2ml0d4njz05c4cv8bc5y-p-0.1.0-dev`.
+The ordinary `just build` also passed before the VM diagnostic changes, after
+the ten new files were indexed without a commit; it produced the same package
+output (`/tmp/p-reviewed-fixes-standard-build.log`).
+After the reviewed VM diagnostics, the final ordinary `just build` exited 0
+(`/tmp/p-reviewed-fixes-final-build.log`) and produced
+`/nix/store/9yfglbj3w92vknjkz8y0b3kfgv9fz9ka-p-0.1.0-dev`. The earlier package
+output records the pre-diagnostic checkout; no commit was made.
+
+The first full serial 56-step VM invocation passed steps 1–33 and exited 1 in
+VM34 at the readiness wait after native rename/rename-back and `session.start`,
+before the missing-runtime fault fixture. Its log is
+`.cache/p-vm/integration-20260930T151800Z-148600.log`; the driver log is
+`/tmp/p-reviewed-fixes-vm-driver.log`. The original failure recorded no session
+condition or unit state, and the daemon error tail was empty.
+
+Selected VM34 passed with reviewed failure diagnostics and the original
+80-second readiness deadline: the runner exited 0, emitted
+`P_MISSING_RUNTIME_REPAIR_PASS` and `P_UUID_REMOVAL_ABSENCE_PASS`. Its log is
+`.cache/p-vm/integration-20260930T154932Z-211844.log`. The cause of the first
+full-run failure remains unproven; no production change was made. The selected
+runner log is `/tmp/p-reviewed-fixes-vm34-driver.log`.
+
+The second full checkpoint **passed all 56 inventory steps**, with runner exit 0
+and `P_PRODUCT_INTEGRATION_PASS` in `/tmp/p-reviewed-fixes-vm-final-driver.log`.
+The inventory audit (`/tmp/p-reviewed-fixes-vm-audit.json`) confirms 56 executed,
+56 unique, no missing, unexpected or duplicate steps, and passing selected and
+smoke checks in all three serial groups (37 restricted, 1 public, 18 restricted).
+Each VM powered off and its fresh disk was removed. The native logs are:
+
+- `.cache/p-vm/integration-20260930T155211Z-213500.log`
+- `.cache/p-vm/integration-20260930T161654Z-215993.log`
+- `.cache/p-vm/integration-20260930T161919Z-217830.log`
+
+The coordinator's final read-only `pgrep '^qemu-system'` check returned no
+matches (exit 1), confirming that no QEMU process remained.
+
+This checkpoint includes VM34 passing in sequence with the original readiness
+deadline, VM37's actual public-network positive and denial checks, and VM56's
+real-terminal TUI creation, services and reviewed removal. The first timeout
+remains unexplained; the reruns do not establish a cause or a production fix for
+it. Earlier VM evidence below is preserved as history and predates these fixes.
+
 ## Current state — 2026-09-28
 
 - P's root development shell now uses the pinned `nix-dev-templates` Go and
