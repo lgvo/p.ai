@@ -151,10 +151,12 @@ The canonical terms below are defined in the [glossary](GLOSSARY.md).
 | Session lifecycle | [docs/session-lifecycle.md](docs/session-lifecycle.md) | Session identity, operations, loss analysis, and recovery |
 | Runtime and isolation | [docs/runtime-isolation.md](docs/runtime-isolation.md) | Runtime placement, systemd hosting, grants, storage, networking, attachment execution, and cleanup |
 | Communication | [docs/communication-boundaries.md](docs/communication-boundaries.md) | Git, RPC, SSH, attachment, build, gateway, and event-handler channel boundaries |
+| Implemented host API | [docs/control-api.md](docs/control-api.md) | Current trusted configuration, versioned RPC framing, and implemented method schemas; subject owners retain lifecycle semantics |
 | Observability | [docs/session-observability.md](docs/session-observability.md) | Public conditions, attachment presence, status reduction, and P events |
 | Environments | [docs/environment-building.md](docs/environment-building.md) | Nix selection, isolated realization, activation, image caching, and collection |
 | Post-MVP model gateway | [docs/model-gateway.md](docs/model-gateway.md) | Retained Bifrost boundary, policy, principal lifecycle, and evolution |
-| Implementation choices | [docs/technology-stack.md](docs/technology-stack.md) | Stack choices, internal seams, dependencies, and unresolved plugin contract |
+| Implementation choices | [docs/technology-stack.md](docs/technology-stack.md) | Stack choices, internal seams, dependencies, and capability behavior |
+| Plugin package and activation contract | [docs/plugin-contract.md](docs/plugin-contract.md) | Public package format, capability classes, compatibility, trusted selection and grants, execution containment, and conformance |
 | Validation | [docs/development-validations.md](docs/development-validations.md) | Evidence gates; product behavior remains with its subject owner |
 | Current state and work | [docs/mvp-status.md](docs/mvp-status.md) and [docs/missing-pieces.md](docs/missing-pieces.md) | Non-normative snapshot and implementation tracker |
 | Explanation and context | [docs/FAQ.md](docs/FAQ.md), [docs/PR.md](docs/PR.md), and [docs/design-space.md](docs/design-space.md) | Tradeoffs, product narrative, external landscape, positioning, and validation wedges; non-normative |
@@ -165,16 +167,22 @@ Open directions preserve possibilities; they are not commitments, requirements,
 or approved plans.
 
 - MVP must prove the first-class plugin goal through a basic working
-  composition of secure first-party implementations. Packaging, process
-  model, transport, compatibility, capability manifests, installation, and
-  approval UX remain unresolved.
+  composition of secure first-party implementations. The package and
+  activation contract is defined in [plugin contract](docs/plugin-contract.md);
+  the default composition, executable methods and managed CLI installation
+  have automated validation. Authenticated Codex acceptance remains a manual
+  gate; authenticated testing never blocks the browser's fixture-free lifecycle validation.
 - The [session-browser prototype](.prototype/tui-options/DECISIONS.md) records
-  the current reviewed layout and controls. Production TUI integration and
-  scope reconciliation remain open.
+  the reviewed layout and controls guiding the live API-client browser. The
+  [user guide](docs/user-guide.md) distinguishes implemented navigation from
+  prototype-only agent inventory and in-terminal management popups.
 - Additional runtime environments, multi-user operation, service
   orchestration, richer event handlers, and optional multi-instance
   coordination may be explored while preserving the confirmed guidance.
 
-The repository currently contains design rather than a production
-implementation. [Development validations](docs/development-validations.md)
-identify the evidence required before support claims are made.
+The repository contains a CLI-first control plane with passing coverage of all 55
+serial NixOS/Incus VM validation gates within its documented support boundary.
+[Implementation progress](docs/implementation-progress.md) records the evidence
+and pending manual authenticated Codex acceptance.
+[Development validations](docs/development-validations.md) identify
+the evidence required before support claims are made.

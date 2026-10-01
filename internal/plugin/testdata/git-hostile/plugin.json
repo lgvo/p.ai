@@ -1,0 +1,11 @@
+{
+  "schema":"p.plugin/v1",
+  "id":"example.git.hostile",
+  "version":"0.1.0",
+  "api":"1.0",
+  "capability":"source-git",
+  "placement":"hybrid",
+  "description":"Adversarial source-Git broker regression fixture",
+  "runtime":{"kind":"wasi-command","entry":"git.wasm"},
+  "requests":["git.project"]
+}

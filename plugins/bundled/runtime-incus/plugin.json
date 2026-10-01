@@ -1,0 +1,11 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "org.p.runtime.incus",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "runtime",
+  "placement": "host",
+  "description": "Confined local Incus runtime sequencing through scoped native operations",
+  "runtime": {"kind": "wasi-command", "entry": "runtime.wasm"},
+  "requests": ["runtime.incus"]
+}

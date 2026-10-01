@@ -1,0 +1,11 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "example.git.alternate",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "source-git",
+  "placement": "hybrid",
+  "description": "Independent source adapter with single-ref queries and a 64 KiB receive ceiling",
+  "runtime": {"kind": "wasi-command", "entry": "git.wasm"},
+  "requests": ["git.project"]
+}

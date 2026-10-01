@@ -52,8 +52,14 @@ readiness matrix:
 | `discarding` | Confirmed Discard is ending the session while retaining its assigned branch. |
 | `deleting` | Confirmed Delete is ending the session and removing its assigned branch. |
 
-Registry intent supplies `creating`, `discarding`, and `deleting`. For an
-established session P freshly inspects Incus and `p-interactive.service`.
+Registry intent supplies `creating`. A committed removal operation supplies
+`discarding` for Discard or failed-create cleanup, which retain the branch,
+and `deleting` for session or project Delete. Record removal repair also
+reports `deleting`: its confirmed precondition is that the branch and runtime
+are already absent. An unavailable or ambiguous removal intent reports
+`unreachable` rather than guessing branch loss. These conditions survive
+daemon restart through the durable operation. For an established session P
+freshly inspects Incus and `p-interactive.service`.
 `ready` requires the systemd unit to have completed endpoint validation,
 environment activation, persistent-host startup, and its attachability
 contract. Incus merely reporting a running container is insufficient.
@@ -196,6 +202,33 @@ status. Ordinary natural-language questions are not reliably distinguishable
 from turn completion unless the agent emits an explicit input event. P does
 not parse terminal output to compensate.
 
+The bundled Codex `0.151.0` adapter has a deliberately narrow mapping:
+
+| Pinned input | P condition |
+|---|---|
+| `UserPromptSubmit` or `PreToolUse` command hook | `running` |
+| `PermissionRequest` command hook | `attention` |
+| Legacy `notify` callback with `type: "agent-turn-complete"` | `idle` |
+
+Hooks without `agent_id` use `source: "codex/session/<session_id>"`, a shared
+Codex scope that may include unmarked review subagents. Identified child hooks
+use `codex/thread/<agent_id>`; completion callbacks use
+`codex/thread/<thread-id>`. A child's completion can become the latest signal
+while its parent continues working; `idle` does not claim that all Codex work
+has stopped. P keeps no thread inventory or aggregate activity state.
+
+Only that bounded source, constant reason text, condition, and adapter
+identity leave the adapter. Prompt, tool input, answer, and transcript path
+remain in the session. Unknown versions, unsupported events, and malformed
+inputs emit no report. `Stop` is omitted because the pinned implementation can
+continue the turn after that hook. There is no generic failure hook in this
+release, so the adapter does not synthesize `failed`. The completion callback
+is asynchronous; P still presents only the latest signal in receive order.
+
+This mapping is based on pinned source and passing authentication-free unit/VM
+fixtures. [Manual user validation](implementation-progress.md#manual-codex-acceptance--pending-user-validation)
+remains pending. Fixture checks cannot establish real execution or native hook behavior.
+
 ## Typed P events
 
 After committing a reduced domain transition, P may emit one versioned event
@@ -215,6 +248,21 @@ unattended condition, policy condition, and operation progress. A
 arbitrary RPC line. No unattended-change event is emitted for a semantic report
 received while attached.
 
+The v1 reduced fields accepted by the bundled file-log handler use one field
+per event kind. `session.condition_changed` carries `condition` with one of
+`creating`, `starting`, `ready`, `stopped`, `missing`, `unreachable`,
+`discarding`, or `deleting`. `session.attachment_changed` carries a canonical
+nonnegative decimal `count` capped at 1,000,000. `session.unattended_changed` carries
+`unattended_condition` with `running`, `attention`, `idle`, `failed`, `unknown`,
+or `none` for a cleared nullable value. `session.policy_changed` carries
+`policy_condition` with `current`, `outdated`, or `invalid`.
+`operation.progress` carries a coarse `phase`: `accepted`, `running`,
+`blocked`, `completed`, `failed`, or `cancelled`. These are event reductions,
+not the journal's internal workflow phase names. The event envelope has a
+version, ID, occurrence time, instance identity, and optional project,
+session, and branch context; it cannot contain arbitrary metadata or a raw
+agent report.
+
 Handler execution occurs after authoritative state changes. Handler failure is
 diagnostic only and cannot roll back domain state. P has no durable event
 outbox, acknowledgement/retry protocol, replay cursor, or authoritative event
@@ -229,8 +277,10 @@ notification protocol is not session semantics.
 
 ## Presentation contract
 
-The exact TUI layout and navigation remain deferred pending a prototype. Any
-presentation must nevertheless preserve these meanings:
+The live browser follows the reviewed session-browser prototype. Its available
+keys and boundaries are documented in [Using P](user-guide.md). Agent reports
+represent the daemon's latest unattended observation, not an invented inventory
+of agent processes or conversation history. Every presentation preserves these meanings:
 
 1. `missing`, `unreachable`, `discarding`, and `deleting` remain explicit;
 2. `starting` shows current operation/systemd progress and a bounded failure

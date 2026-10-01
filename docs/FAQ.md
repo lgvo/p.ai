@@ -192,8 +192,10 @@ reruns activation and interactive-host preparation.
 
 P inspects runtime-local and Git-ref loss before destructive actions. If Incus
 cannot be reached, ordinary discard/delete is refused because P cannot
-truthfully itemize local loss. The explicit abandon path is stronger and leaves
-an orphan record. See
+truthfully itemize local loss. An already-confirmed cleanup remains incomplete
+with identity, operation state and restrictions retained until Incus returns.
+Manual investigation is supported; abandonment and its orphan-cleanup/forget
+workflow are outside MVP. See
 [destructive preflight](session-lifecycle.md#destructive-preflight).
 
 ### How do I continue after discard?
@@ -217,11 +219,13 @@ delete.
 Yes. **Delete project and all P data** performs one aggregated preflight over
 the project's sessions, retained branches, runtimes, credentials, and live
 attachments. Its confirmation explicitly authorizes termination of the listed
-attachments. P records a minimal tombstone and then idempotently ensures every
+attachments. P records durable deletion intent and then idempotently ensures every
 listed P-owned resource is absent. If a subset fails, retrying repeats the same
 ensure-absent operation and shows the smaller remainder; there is no rollback
-or separate recovery-mode state machine. Unreachable machinery still requires
-the explicit abandonment posture. See
+or separate recovery-mode state machine. Unavailable Incus leaves deletion
+incomplete with project/session identity and restrictions retained; Retry or
+reconciliation resumes confirmed work when it returns. It does not report
+success or forget uncertain resources. See
 [project lifecycle](project-lifecycle.md#project-deletion).
 
 ## Git and publication

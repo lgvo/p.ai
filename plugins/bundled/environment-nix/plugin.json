@@ -1,0 +1,11 @@
+{
+  "schema": "p.plugin/v1",
+  "id": "org.p.environment.nix",
+  "version": "0.1.0",
+  "api": "1.0",
+  "capability": "environment",
+  "placement": "host",
+  "description": "Closed native Nix resolution and realization through a scoped host broker",
+  "runtime": {"kind": "wasi-command", "entry": "environment.wasm"},
+  "requests": ["environment.nix"]
+}

@@ -1,0 +1,5 @@
+#!/bin/sh
+if [ "$#" -ne 0 ]; then
+  exit 64
+fi
+exec /usr/libexec/p/tmux -S /run/p-interactive/tmux.sock attach-session -t =p

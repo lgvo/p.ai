@@ -125,6 +125,46 @@ creation completes.
 Resolution receives a read-only tree for the exact committed source. It never
 reads the user's current checkout or dirty session workspace.
 
+The staged source-capture substrate first resolves a core-selected branch or
+reachable full commit ID through the selected `source-git` WASI operation. Core
+then materializes that fixed commit's Git tree and blob objects into a private,
+disposable staging directory. It preserves tracked files, executable modes,
+and relative symlinks whose complete in-tree resolution cannot escape the
+source root, without checkout filters or `export-ignore` rules.
+It rejects gitlinks/submodules and unsafe or oversized trees. The staging tree
+is read-only and carries its commit and tree OIDs plus bounded entry and byte
+counts; a future builder must transfer its bytes through the restricted Incus
+file API and remove the staging directory when finished. This capture stage
+does not evaluate Nix or activate an environment image.
+
+The staged native Incus builder substrate uses a separate request identity and
+the confined project/user socket checks already used by session runtimes. It
+requires a trusted, separately selected btrfs storage pool because the pinned
+Incus `dir` driver may accept a root size while silently skipping its quota.
+It creates a stopped, resource-bounded private builder root from a pinned base
+fingerprint, then transfers the captured tree through the instance file API to
+a read-only build source directory. It verifies identity before transitions or
+cleanup and refuses to adopt an unknown instance at the expected name. This
+substrate alone does not run repository code, resolve a flake, realize Nix
+outputs, or publish an environment image. The native adapter described below
+adds those stages. The pinned guest activation compatibility gate has passed, as recorded in
+[implementation progress](implementation-progress.md).
+
+A separate closed native adapter now resolves and realizes an offline
+devShell inside that verified builder and captures activation material. Its
+VM gate covers absent and invalid defaults, pure evaluation with a hashed
+source reference, committed-lock enforcement, and builder identity refusal.
+It has no network device or substituters. The content-pinned executable
+environment plugin also passes its VM gate through this adapter, using the
+[closed environment ABI](plugin-contract.md#wasi-environment-abi). Native private
+image publication also passes its VM gate, including stopped-builder scrub,
+closure retention, activation in two private roots, and independent Nix state
+across Stop/Start. The separate public CLI/daemon gate now covers offline
+devShell creation, project-scoped cache reuse and loss/rebuild, exact retry,
+and ordinary session activation. Explicit collection and interrupted-cleanup
+recovery also pass their public VM gate. General public fetching remains
+pending; offline fixtures do not establish network access.
+
 For flakes, P:
 
 - evaluates in pure mode;
@@ -144,7 +184,7 @@ P publishes and pins one base image per supported architecture and runtime-kit
 contract. It contains:
 
 - a functional local Nix daemon and client configured for a private instance
-  store, with build-sandbox posture recorded;
+  store and the [container Nix isolation policy](runtime-isolation.md#runtime-process-model);
 - Git, OpenSSH, CA certificates, shell, and basic userland;
 - tmux and the P runtime helper;
 - the fixed unprivileged session user and fixed runtime paths; and
@@ -192,8 +232,11 @@ without writing the source.
 
 The builder's local Nix daemon realizes the environment in its own writable
 `/nix` using only configured public substituters/fetches. It receives no host
-Nix daemon or store. Nix's build sandbox remains enabled unless a pinned
-validation records a specific safe limitation.
+Nix daemon or store. It follows the
+[container Nix isolation policy](runtime-isolation.md#runtime-process-model):
+Incus provides the required isolation, and Nix build sandboxing is disabled
+inside the builder. Pure evaluation and the committed-source/lock rules remain
+in force.
 
 ### 3. Capture
 
@@ -234,6 +277,13 @@ P stops the builder and asks Incus to publish it as a private immutable image.
 Incus supplies the fingerprint and owns the bytes. P verifies the fingerprint
 and image metadata before registering the environment-key index.
 
+The staged MVP publisher explicitly selects an uncompressed Incus archive.
+This avoids the pinned NixOS gzip wrapper's incompatibility with Incus's
+confined extractor without changing the extractor or container isolation.
+The archive choice contributes to the environment image-format key; it must
+not depend on mutable host compression defaults. This costs more image storage
+than compression, which the reported logical image size must reflect.
+
 ### 8. Clean builder
 
 P deletes the builder instance after the image is verified. A failed cleanup
@@ -263,6 +313,34 @@ accepted; cached images retain their recorded adapter contract.
 
 See the upstream [`nix print-dev-env` reference](https://nix.dev/manual/nix/stable/command-ref/new-cli/nix3-print-dev-env),
 including its experimental-interface warning.
+
+The staged internal adapter in `internal/nixenv` targets Nix `2.34.8` and
+material schema `p.nix-activation/v1`. It reads only the `variables`,
+`bashFunctions`, and optional `structuredAttrs` fields emitted by that release;
+accepted variable types are `var`, `exported`, `array`, and `associative`.
+There is no JSON unset type in this release. Activation clears `shellHook`
+before applying captured values and clears each applied variable before
+setting its captured type. It rewrites derivation output paths to
+`/workspace/outputs/<output>` and structured-attribute file references to
+`/etc/p/devshell/.attrs.{sh,json}`. The fixed session identity, workspace,
+runtime, Git, and SSH settings take precedence over captured values.
+The key inputs include the exact Nix version. Material carries the SHA-256 of
+the captured JSON, and a canonical material digest can bind an image handle
+to the bytes selected by a trusted builder. These hashes provide identity,
+not authentication: image assembly must still verify image ownership and
+root-owned activation files before guest use.
+
+This adapter has host-side parser, renderer, sourced fixture, and Bash syntax
+tests, plus a passing pinned VM compatibility gate comparing generated
+activation against `nix develop`, including shell hooks and structured
+attributes. The sourced host fixture runs only known test code; repository
+Nix expressions and captured project hooks run only in the guest. See
+[implementation progress](implementation-progress.md) for the evidence and its
+limits. Offline native builder realization and capture have also passed their
+VM gate. Native image publication and offline public session/cache composition
+have passed their separate gates. Trusted environment configuration enables
+that devShell path; omitting it retains base-only creation. Explicit collection
+has also passed its gate; public fetching remains pending.
 
 ## Cached Nix store model
 
@@ -340,6 +418,17 @@ if it is later lost and its branch environment has changed. This warning does
 not introduce a lease or implicit retention rule. A missing externally removed
 image is a cache miss. MVP has no automatic age- or pressure-based collection.
 
+If a missing session runtime also lost its recorded derived image, P does not
+infer a replacement from the old cache key or the branch name. Explicit
+repair preparation resolves the current committed assigned P tip using the
+same restricted builder and pinned base image contract as creation. It
+finishes only after that builder is exactly absent, and yields a bounded key
+and selection for a separate read-only repair preview. Confirmed repair
+re-resolves the same key, realizes/publishes or accepts an exact project cache
+entry, then creates the original session UUID. The session's accepted image
+locator changes only at completed repair; interrupted preparation or
+publication leaves durable evidence for reconciliation.
+
 The other explicit removal path is confirmed **Delete project and all P data**.
 Its aggregate project preflight includes these project-scoped keys and images,
 and its ensure-absent retry applies the same image-authority rules. Session
@@ -399,7 +488,8 @@ P specifies no universal cold-build threshold. It records:
 The acceptance target is fast session creation after an environment-image hit.
 Cold build performance depends on the project and cache state. Evidence must
 cover empty, substituted, and warm cases on supported architectures and the
-real homelab repository.
+user-selected real repository. The current target is this project's latest
+remote `main`, as recorded in [implementation progress](implementation-progress.md#real-repository-fixture).
 
 ## API and channel boundary
 
@@ -458,7 +548,7 @@ The MVP environment path is supported when tests prove:
    source/session corruption;
 8. the configured Incus storage driver's actual sharing and private growth are
    measured rather than assumed;
-9. the homelab validation completes its accepted evaluate/build workflow with
+9. the selected real-repository validation completes its accepted workflow with
    no host Nix daemon, Incus socket, ambient credentials, or fleet route;
 10. every supported Nix version passes the experimental `print-dev-env --json`
     schema/activation compatibility suite and unsupported versions fail

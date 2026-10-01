@@ -30,7 +30,9 @@ helper.
 Run on each claimed storage driver and architecture. Measure logical and
 physical image/session sizes, but do not generalize copy-on-write or
 deduplication behavior across drivers. Test interruption, duplicate detection,
-builder/session orphans, and external image deletion.
+unexpected instance metadata, manually changed containers, and external image
+deletion. Unfamiliar machinery must not be silently adopted or used as proof
+that the expected runtime is absent.
 
 **Gate:** the claimed Incus/storage-driver/architecture combination.
 
@@ -42,6 +44,16 @@ while denying host, RFC1918/ULA, link-local, carrier-grade NAT, metadata,
 multicast, gateway administration, sibling instances, Incus API, and undeclared
 services. Cover IPv4, IPv6, DNS rebinding, redirects, literal addresses, and
 host aliases.
+
+For the dedicated public-egress VM selection, enable outbound public routing
+with explicit outer-VM host/LAN/private/metadata/inbound denial rules; other
+selections retain restricted networking. Validate the session-local and outer
+loopback resolvers against real DNS-over-HTTPS upstreams with literal bootstrap
+addresses and verified TLS names on TCP 443. Preserve existing pinned port-53
+allowances at the VM boundary; prove from the resolver configuration and
+bounded network evidence that hostname HTTPS and a fresh Nix fetch use DoH
+without plaintext bootstrap or fallback. Require actual public-to-private hostname
+resolution and HTTPS redirect denial evidence; synthetic fixtures are separate.
 
 Incus network/ACL defaults are not sufficient evidence; capture the actual
 configured routing and packet-level test results.
@@ -117,19 +129,54 @@ container must stop, the durable operation must identify the failed phase, and
 diagnostics must remain available after the container has stopped. Exact Retry
 must preserve its operation/session/source/policy identity, clean only verified
 partial derived resources, and rebuild without creating a retry chain. Also
-test **Try again with changes** as a new creation that supersedes and cleans the
-failed provisional creation before reusing the desired branch name.
+test the supported **Try again with changes** paths as a new creation that
+supersedes and cleans the failed provisional creation before reusing the desired
+branch name. For complex cases that refuse integrated replacement, validate the
+documented cleanup followed by a separate new Create. Cleanup must preview
+losses, require explicit confirmation, recheck identity/ownership, recover
+durably, and preserve shared or unrelated resources. Uncertain cleanup must
+explain the unresolved condition and leave uncertain resources intact.
 
-**Gate:** reliable status/control from sessions and local Linux client support.
+For the narrow assembled failed-creation inspection path, use an actual failed
+host startup with a stopped, committed local base-image workspace. Prove that
+the non-activating loss helper preserves workspace/private files and the assigned
+P ref, removes only its helper, and leaves the original session `creating`.
+Exercise durable creator fencing across Retry, replay and daemon restart;
+reject changed native identity, unsupported policy/layout and uncertain init.
+Read-only inspection evidence does not establish confirmed cleanup acceptance.
+
+For confirmed assembled cleanup, change workspace bytes after preview and prove
+fresh quiescent comparison refuses source deletion, preserves private/dummy
+credential files and releases only the settled precommit helper/guards. Fresh
+inspection/review/confirmation must then remove only the exact owned source and
+reviewed local authority, retaining the P branch, sibling and shared base image.
+Crash after native deletion/local cleanup; unavailable or competing authority
+must retain the removing identity and accepted intent until exact recovery.
+Reject retired Create replay and prove a separate corrected Create receives a
+new UUID. Label injected outage/crash evidence separately from real native work;
+whole-runtime loss warnings do not claim private credential enumeration.
+
+**Gate:** reliable status/control from sessions and local NixOS client support.
 
 ## 6. Lifecycle and authority recovery
 
 **Validate:** Crash at every documented cross-authority commit point. Verify
 create/rename/discard/delete converge without duplicate Incus instances or
 silent Git ref loss. Verify Incus-owned start/stop uses Incus operation/state
-without a duplicate P workflow. Test missing versus unreachable, repair,
-abandonment, orphan recognition, image cache misses, immutable-policy
-current/outdated/invalid comparison, and cleanup failures.
+without a duplicate P workflow. Test missing versus unreachable, supported
+repair, identity conflicts, image cache misses, immutable-policy
+current/outdated/invalid comparison, and cleanup failures. Branch/upstream
+mismatches must show expected and actual values, block dependent actions, and
+recheck on the next attempt after manual Git correction. No dedicated mismatch
+repair action or automatic checkout/reset is required.
+
+When Incus is unavailable, verify cleanup remains incomplete, session/project
+identity and durable confirmed operation state survive restart, and existing
+authorization restrictions remain intact. Restore Incus and resume that same
+confirmed operation through Retry/reconciliation. Do not report deletion
+success, forget uncertain machinery or create a replacement while existence
+is uncertain. Explicit abandonment, abandonment tombstones and the associated
+orphan-cleanup/forget workflow are outside MVP; manual investigation is supported.
 
 Create projects from a reachable SSH origin and as blank repositories. Verify
 failed origin contact leaves no new association, an empty origin produces the
@@ -143,10 +190,22 @@ refs. Exercise retained-branch assignment/list/source/fetch,
 rename, fast-forward publication, and deletion after the loss preview.
 
 For **Delete project and all P data**, confirm the aggregate preview enumerates
-and terminates listed live attachments, the minimal tombstone survives daemon
+and terminates listed live attachments, the minimal deletion record survives daemon
 restart, partial failures leave an idempotent ensure-absent retry with a smaller
-remainder, and unreachable resources require explicit abandonment. Verify
+remainder, and unavailable Incus keeps identity and cleanup incomplete until
+the confirmed operation can resume. Verify
 there is no rollback or hidden multi-phase recovery mode.
+
+For the implemented quiescent aggregate boundary, also prove stale ref/workspace
+refusal before retirement; atomic project/session/principal closure; partial
+resource absence and blocked competing/renamed/unavailable identities across
+restart; no repeat dispatch of an issued source DELETE; repository/registry-last
+removal; and retired Create/origin/publication keys that cannot revive deleted
+authority. VM52 is the base-session fixture for this batch. Production-path
+cached-session/image deletion requires separate actual builder/cache evidence;
+synthetic indexes or base-only sessions do not establish that gate. Running/live
+attachment preparation and oversized/unsupported inventory refusals remain
+explicit boundaries, not proof of automatic deletion in those states.
 
 **Gate:** each lifecycle mutation as it enters the implementation.
 
@@ -208,6 +267,37 @@ Claude Code and other agent mappings require post-MVP evidence.
 
 **Gate:** semantic status-adapter support for that agent/version.
 
+For the current CLI-first implementation, authenticated Codex acceptance is
+reserved for the user's final manual test. Automated unit and VM checks use
+event fixtures and dummy credential files for persistence, isolation, and
+deletion. They must not log in, request credentials, or access host Codex or
+OpenAI credentials. Fixture results do not satisfy the real versioned-trace
+gate above. Record authenticated acceptance as pending user validation in
+[implementation progress](implementation-progress.md) until the user completes
+the session-local execution, hook/status, Stop/Start, and Discard/Delete checks.
+Other MVP work proceeds without that authentication.
+
+## Live terminal browser
+
+**Validate:** Model fixtures prove global waiting/running ordering, selection
+identity, project scope and fuzzy search, layered Back, literal text inputs,
+resize-aware frame and paging bounds, inert terminal controls, complete readable
+confirmation/loss fields, default-No and captured destructive identity, and no
+automatic entry after leaving progress. They are client/unit evidence.
+
+The native VM56 selection drives the installed `p tui` through a real PTY and
+daemon. Verify creation and confirmed attachment, command execution in the
+native workspace, detach lease teardown, actual navigation and default-No Stop,
+and native session-user service start/restart/stop and journal reads. Installed
+inactive units must be discoverable. Deny infrastructure names and preserve
+Incus identity/isolation; finish with confirmed cleanup and native absence.
+VM17 separately covers the optional reviewed-origin URL binding and captured
+creation replay. Run actual VM selections serially. Record passing and failed
+evidence in implementation progress; prototype simulations do not satisfy this gate.
+
+**Gate:** implemented browser and bounded user-service integration. Real Codex
+authentication remains the separate manual gate above.
+
 ## 10. Event handler
 
 **Validate:** For every MVP reduced event kind, verify the typed versioned
@@ -223,12 +313,33 @@ not be able to configure handlers.
 
 **Validate:** Record the exact Go, Bubble Tea ecosystem, Wish, Git, OpenSSH,
 Incus, Nix, tmux, Codex adapter, and SQLite driver versions used by MVP. Pin
-every CLI JSON/API field and protocol behavior parsed by P. Verify upgrades
-through the relevant conformance suites before widening supported ranges.
+every CLI JSON/API field and protocol behavior parsed by P. MVP installation
+support is NixOS with Incus only. Backup/restore and software upgrade/rollback
+are outside delivery gates; normal Stop/Start and daemon-restart persistence
+and operation-level crash recovery remain required. Future changes to supported
+dependency ranges require the relevant conformance suites.
 Bifrost and the SSH client transport receive their own pins when those
 post-MVP capabilities are enabled.
 
 **Gate:** release support for each affected integration.
+
+The distribution selection (VM48) inspects installed CLI and runtime-kit ELF
+headers for absence of an interpreter and linked shared libraries, verifies
+installed dependency and pinned Go notices, and exercises the installed plugin
+catalog through actual CLI/daemon and Incus session creation, Git and Stop/Start.
+Its Codex adapter notification remains an authentication-free event fixture;
+authenticated execution is a separate manual acceptance gate.
+
+The NixOS service selection (VM55) must exercise the actual module-generated
+service and private account-owned configuration, explicit bundled activation,
+real isolated session creation and Git, live-host continuity through daemon
+restart, stopped-state restart, Stop/Start persistence, and confirmed cleanup.
+Focused module evaluation must reject root or administrative Incus accounts,
+unavailable Incus, unsafe state directory names and public-egress settings.
+The hardened service supports `network: none`; the separate owner-run daemon's
+public-egress evidence must not be described as service-module acceptance.
+Authentication-free dummy private files prove persistence and removal only;
+authenticated Codex execution remains the user's manual gate.
 
 ## 12. Performance and capacity
 
@@ -250,3 +361,13 @@ project/storage/network configuration, commands/test cases, raw result, and
 resulting implementation constraint beside the dependent test or code. A
 failure narrows or postpones that support claim; it does not block unrelated
 milestones.
+
+## Cached-session bulk deletion
+
+Selected `53-project-delete-cached.sh` exercises the public environment build,
+native image import/index and aggregate preview before exact project deletion.
+It requires removal of the owned image/index after runtime absence, preservation
+of shared base/unrelated resources, and the same outage/restart/competing-identity
+checks as VM52. Its offline fixture source does not establish external-repository
+or public-fetch acceptance. Evidence and remaining gates belong in the progress
+record.
