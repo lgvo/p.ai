@@ -152,7 +152,7 @@ func (m *Model) navigate(page string) {
 	m.choiceSearching = false
 	m.pendingMethod = ""
 	m.queuedService = nil
-	if page == "confirm" || page == "review" || m.inspectionPage() {
+	if page == "creation-review" || page == "confirm" || page == "review" || m.inspectionPage() {
 		m.reviewOffset = 0
 	}
 }
@@ -351,7 +351,7 @@ func (m Model) capacity() int {
 		return m.browserLayout().capacity
 	case "create":
 		n -= 2
-	case "agents", "policy", "progress", "help", "details":
+	case "creation-review", "agents", "policy", "progress", "help", "details":
 		n = m.height - 8
 	case "retained":
 		n--
@@ -586,7 +586,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if m.page == "journal" {
 				m.journalOffset = 0
 				m.follow = false
-			} else if m.page == "review" || m.page == "confirm" || m.inspectionPage() {
+			} else if m.page == "creation-review" || m.page == "review" || m.page == "confirm" || m.inspectionPage() {
 				m.reviewOffset = 0
 			} else {
 				m.cursor = 0
@@ -598,6 +598,16 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	}
 	m.gg = false
+	if m.page == "creation-review" {
+		if key == "enter" {
+			if m.working {
+				return nil
+			}
+			return m.begin(m.confirmMethod, m.confirmParams)
+		}
+		m.scroll(key, &m.reviewOffset)
+		return nil
+	}
 	if m.page == "confirm" {
 		switch key {
 		case "y", "Y":
@@ -997,7 +1007,7 @@ func (m *Model) back() tea.Cmd {
 		}
 		return nil
 	}
-	if m.page == "confirm" && m.confirmMethod == "session.create" {
+	if m.page == "creation-review" && m.confirmMethod == "session.create" {
 		if m.creation["choice"] == "new" {
 			m.navigate("form")
 			m.form = "branch-name"
@@ -1009,10 +1019,10 @@ func (m *Model) back() tea.Cmd {
 		}
 		return nil
 	}
-	if m.page == "confirm" && m.confirmMethod == "project.create" {
+	if m.page == "creation-review" && m.confirmMethod == "project.create" {
 		m.navigate("form")
 		m.form = "project-url"
-		m.input = ""
+		m.input, _ = m.creation["url"].(string)
 		return nil
 	}
 	if m.page == "journal" {

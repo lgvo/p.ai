@@ -1,0 +1,35 @@
+                                                                                                                        
+[p@p-session:/workspace]$ python3 examples/notes/client.py health                                                       
+{"status": "ready", "database": "ready"}                                                                                
+                                                                                                                        
+[p@p-session:/workspace]$                                                                                               
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+[p] 0:bash*                                                                      "p@p-session: /workspa" 20:55 01-Oct-26

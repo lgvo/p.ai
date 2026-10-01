@@ -230,6 +230,15 @@ func (m Model) View() tea.View {
 	case "operations":
 		content = m.listPage("Durable operations", m.rows(), width, "Enter inspect · j/k select · q/Esc back", nil)
 
+	case "creation-review":
+		lines := m.reviewLines()
+		start := min(m.reviewOffset, max(0, len(lines)-m.capacity()))
+		lines = lines[start:min(len(lines), start+m.capacity())]
+		commands := "Enter create, boot and enter · j/k/Pg scroll · q/Esc back"
+		if m.confirmMethod == "project.create" {
+			commands = "Enter create project · j/k/Pg scroll · q/Esc back"
+		}
+		content = m.textPage("Create · policy review", lines, width, commands)
 	case "confirm":
 		lines := m.reviewLines()
 		start := min(m.reviewOffset, max(0, len(lines)-1))

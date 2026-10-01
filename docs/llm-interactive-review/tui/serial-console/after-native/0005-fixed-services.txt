@@ -1,0 +1,35 @@
+            ╭──────────────────────────────────────────────────────────────────────────────────────────────╮            
+            │ Project services                                                                             │            
+            │ 0–0 of 0 · selected 0                                                                        │            
+            │ Loading service inventory…                                                                   │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            ╰──────────────────────────────────────────────────────────────────────────────────────────────╯            
+            q/Esc back                                                                                                  
+            Session: notes / test-note-feature                                                                          
+            Session-user p-project-*.service units only.                                                                
+            Ports are session-local; no host publication is added.                                                      
+            Service observation unavailable/loading; controls disabled.                                                 
+            Waiting for daemon… (Back leaves accepted work running)                                                     
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

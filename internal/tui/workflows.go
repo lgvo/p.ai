@@ -161,7 +161,10 @@ func (m *Model) confirmCreation(method string) {
 	} else {
 		m.review += "\nLocal-only empty project; no source commit yet."
 	}
-	m.navigate("confirm")
+	if method == "project.create" {
+		m.review += "\nAn empty project/origin boots and enters main; a nonempty origin creates the project only."
+	}
+	m.navigate("creation-review")
 }
 func cloneParams(p params) params {
 	out := params{}

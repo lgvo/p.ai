@@ -1,4 +1,4 @@
-{ repositoryBundle, public ? false, notes ? false, outerHostIPv4Text ? "", outerHostLANIPv4Text ? "" }:
+{ repositoryBundle, public ? false, outerHostIPv4Text ? "", outerHostLANIPv4Text ? "" }:
 let
   lab = builtins.getFlake "path:${toString ./vm}";
   nixpkgs = lab.inputs.nixpkgs;
@@ -28,8 +28,21 @@ let
   };
   runtimeImage = nixpkgs.lib.nixosSystem {
     inherit system;
-    modules = [ ../runtime/image.nix ] ++ lib.optional notes ./notes-runtime.nix;
+    modules = [ ../runtime/image.nix ] ++ lib.optional public ./notes-runtime.nix;
   };
+  notesBundle = if public then pkgs.runCommand "p-lab-notes.bundle" {
+    nativeBuildInputs = [ pkgs.git ];
+  } ''
+    mkdir -p source/examples/notes
+    cp -R ${runtimeImage.config.environment.etc."p-notes-example".source}/. source/examples/notes/
+    chmod -R u+w source
+    cd source
+    git init -q -b main
+    git add examples/notes
+    GIT_COMMITTER_DATE=2026-01-01T00:00:00Z git -c user.name=P -c user.email=p@example.invalid \
+      commit -qm 'Seed the notes application' --date=2026-01-01T00:00:00Z
+    git bundle create "$out" HEAD
+  '' else null;
   machine = nixpkgs.lib.nixosSystem {
     inherit system;
     specialArgs = {
@@ -41,7 +54,8 @@ let
       automated = false;
       demo = true;
       demoPublic = public;
-      demoNotes = notes;
+      demoNotes = public;
+      demoNotesBundle = notesBundle;
       demoOriginFixture = originFixture;
       productTest = null;
       selectedSteps = [];
@@ -64,7 +78,7 @@ let
         echo "Run ./dev/demo-vm in an interactive terminal." >&2
         exit 2
       fi
-      state_dir="$(realpath -m "''${P_DEMO_STATE_DIR:-.cache/p-vm/${if notes then (if public then "demo-notes-public" else "demo-notes") else if public then "demo-public" else "demo"}}")"
+      state_dir="$(realpath -m "''${P_DEMO_STATE_DIR:-.cache/p-vm/${if public then "demo-public" else "demo"}}")"
       mkdir -p -- "$state_dir"
       exec 9>"$state_dir/vm.lock"
       if ! flock -n 9; then
@@ -76,7 +90,7 @@ let
       echo "The guest opens a shell. Use p api for the API or p tui for the TUI."
       echo "Detach from a session with Ctrl+B, d. Shut down with p-demo-poweroff."
       echo "QEMU emergency exit: Ctrl+A, X. The demo disk is retained."
-      ${vm}/bin/run-p-vm-vm
+      ${pkgs.bash}/bin/bash ${./vm/run-console.sh} ${vm}/bin/run-p-vm-vm
     '';
   };
 in

@@ -4,7 +4,8 @@ set -euo pipefail
 umask 077
 state=/var/lib/p-demo
 export P_SOCKET="$state/control.sock"
-record="$state/lab-repository.json"
+project=${P_LAB_PROJECT:-p-ai}
+record="$state/${P_LAB_RECORD:-lab-repository.json}"
 if test -e "$record"; then exit 0; fi
 export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 rpc() { timeout 20 p api "$@"; }
@@ -16,15 +17,16 @@ until rpc system.health | jq -e '.result.control_state=="ready"' >/dev/null 2>&1
 done
 
 # Pin the first bundle across interrupted seeding and changed VM builds.
-mkdir -p "$state/lab-seed"
-bundle="$state/lab-seed/repository.bundle"
+seed="$state/${P_LAB_SEED:-lab-seed}"
+mkdir -p "$seed"
+bundle="$seed/repository.bundle"
 if ! test -e "$bundle"; then
   cp "$P_LAB_REPOSITORY_BUNDLE" "$bundle.pending"
   mv -T "$bundle.pending" "$bundle"
 fi
 source_commit=$(git bundle list-heads "$bundle" HEAD | cut -d ' ' -f 1)
 test -n "$source_commit"
-created=$(rpc project.create '{"v":1,"key":"p-lab-repository-v1","project":"p-ai"}')
+created=$(rpc project.create "$(jq -nc --arg key "${P_LAB_KEY:-p-lab-repository-v1}" --arg project "$project" '{v:1,key:$key,project:$project}')")
 operation=$(jq -er '.result.operation.id' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
 while :; do
@@ -50,7 +52,7 @@ inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
   /run/current-system/sw/bin/bash /home/p/p-lab-load-repository.sh "$source_commit"
 pending=$(mktemp "$state/lab-repository.XXXXXXXX")
 trap 'rm -f -- "$pending"' EXIT
-jq -n --arg uuid "$uuid" --arg source "$source_commit" \
-  '{project:"p-ai",branch:"main",session_uuid:$uuid,source_commit:$source}' > "$pending"
+jq -n --arg uuid "$uuid" --arg source "$source_commit" --arg project "$project" \
+  '{project:$project,branch:"main",session_uuid:$uuid,source_commit:$source}' > "$pending"
 mv -T "$pending" "$record"
-echo "P_LAB_REPOSITORY_READY project=p-ai branch=main session=$uuid commit=$source_commit"
+echo "P_LAB_REPOSITORY_READY project=$project branch=main session=$uuid commit=$source_commit"

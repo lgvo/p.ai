@@ -1,0 +1,16 @@
+[  OK  ] Stopped target Swaps.                  
+[  OK  ] Reached target Unmount All Filesystems.
+[  OK  ] Stopped Remount Root and Kernel File Sy
+stems.                                          
+[  OK  ] Stopped File System Check on Root Devic
+e.                                              
+[  OK  ] Stopped Create Static Device Nodes in /
+dev.                                            
+[  OK  ] Stopped Create Static Device Nodes in /
+dev gracefully.                                 
+[  OK  ] Reached target System Shutdown.        
+[  OK  ] Reached target Late Shutdown Services. 
+[  OK  ] Finished System Power Off.             
+[  OK  ] Reached target System Power Off.       
+[  548.232632] reboot: Power down               
+                                                

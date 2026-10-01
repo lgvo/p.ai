@@ -1,0 +1,35 @@
+            ╭──────────────────────────────────────────────────────────────────────────────────────────────╮            
+            │ Project services                                                                             │            
+            │ 1–3 of 3 · selected 1                                                                        │            
+            │ › p-project-api.service                                                     active (running) │            
+            │   p-project-database.service                                                active (running) │            
+            │   p-project-worker.service                                                   inactive (dead) │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            ╰──────────────────────────────────────────────────────────────────────────────────────────────╯            
+            Enter/J journal · s stop · r restart · q/Esc back                                                           
+            Session: forge / feat/device-login                                                                          
+            Session-user p-project-*.service units only.                                                                
+            Ports are session-local; no host publication is added.                                                      
+                                                                                                                        
+            Mock notes API                                                                                              
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

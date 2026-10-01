@@ -1,0 +1,35 @@
+[    5.409061] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Sorted latencies:                                    
+[    5.410033] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] -     7ms p-quad9                                    
+[    5.410955] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] -    48ms p-cloudflare                               
+[    5.411912] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Server with the lowest initial latency: p-quad9 (rtt:
+ 7ms), live servers: 2                                                                                                  
+[  OK  ] Started Incus Container and Virtual Machine Management Daemon.                                                 
+         Starting Incus initialization with preseed file...                                                             
+         Starting Incus Instances Startup/Shutdown...                                                                   
+[  OK  ] Finished Incus Instances Startup/Shutdown.                                                                     
+[  OK  ] Finished Incus initialization with preseed file.                                                               
+         Starting Prepare the confined Incus lab and pinned fixture image...                                            
+[  OK  ] Started Incus Container and Virtual Machine Management User Daemon.                                            
+[  OK  ] Finished Prepare the confined Incus lab and pinned fixture image.                                              
+[  OK  ] Reached target Login Prompts.                                                                                  
+         Starting P public lab daemon (confined Incus owner)...                                                         
+[  OK  ] Started P public lab daemon (confined Incus owner).                                                            
+         Starting Seed the local-only P repository and main session...                                                  
+[  OK  ] Finished Seed the local-only P repository and main session.                                                    
+         Starting Seed the notes project and its three session-user services...                                         
+[  OK  ] Finished Seed the notes project and its three session-user services.                                           
+[  OK  ] Reached target Multi-User System.                                                                              
+                                                                                                                        
+                                                                                                                        
+<<< Welcome to NixOS 26.11.20260905.c043004 (x86_64) - ttyS0 >>>                                                        
+P lab. Run p api, p tui, or p-demo-poweroff.                                                                            
+                                                                                                                        
+p-vm login: pdev (automatic login)                                                                                      
+                                                                                                                        
+P lab shell: p api calls the API; p tui opens the TUI; p-demo-poweroff shuts down.                                      
+The P instance is configured. The daemon starts in the background.                                                      
+Project p-ai/main is seeded from committed source on first boot. Check systemctl status p-lab-repository.               
+Public DNS/HTTP(S) enabled; host/LAN/private destinations blocked.                                                      
+Project notes/main is seeded with database, web and worker services. Check systemctl status p-lab-notes.                
+                                                                                                                        
+[pdev@p-vm:~]$                                                                                                          

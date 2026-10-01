@@ -1,0 +1,24 @@
+ P · Sessions · waiting → running → other                                       
+ ╭────────────────────────────────────────────────────────────────────────────╮ 
+ │ All project sessions                                                       │ 
+ │ 1–3 of 4 · selected 1                                                      │ 
+ │ › forge             └─ feat/device-login                  running !waiting │ 
+ │   orbit             └─ fix/cache-race                     running !waiting │ 
+ │   forge             └─ fix/token-refresh                  running          │ 
+ ╰────────────────────────────────────────────────────────────────────────────╯ 
+ j/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create         
+ P project · / search · D details · A reports · S services · O operations       
+ ? help                                                                         
+ p policy · b branches · R rename · d discard · X delete · q/Esc back           
+ ╭────────────────────────────────────────────────────────────────────────────╮ 
+ │ Session details                                                            │ 
+ │ forge / feat/device-login                                                  │ 
+ │ UUID: 8b855783-28cf-533c-b6bc-fb2813ed4922                                 │ 
+ │ Runtime: running · Policy: current · Terminals: unattended                 │ 
+ │ ├─ Agents [A] · latest: Codex · waiting · Waiting for review               │ 
+ │ └─ Project services [S]: 3 units observed                                  │ 
+ │    p-project-api.service                                                   │ 
+ │    active (running)                                                        │ 
+ ╰────────────────────────────────────────────────────────────────────────────╯ 
+                                                                                
+                                                                                

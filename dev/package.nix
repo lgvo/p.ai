@@ -22,6 +22,14 @@ let
       in
       (
         toString path == toString ../.
+        # Unit checks exercise these production helpers. Admit their parents
+        # without copying other dev files or VM state.
+        || builtins.elem relative [
+          "dev"
+          "dev/reset-lab-vm"
+          "dev/vm"
+          "dev/vm/run-console.sh"
+        ]
         || builtins.elem top [
           "cmd"
           "internal"

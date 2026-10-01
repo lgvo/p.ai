@@ -98,6 +98,8 @@ seed has its own readiness check above. Quit the TUI
 to return to the shell.
 If the serial console reports the wrong dimensions, set them with
 `stty rows 30 cols 100` before reopening P.
+The interactive launchers preserve guest newline/cursor movements through
+QEMU's serial console and restore your original terminal modes on exit.
 
 The default policy is `network:none`. To explore public DNS/HTTP(S), online
 Nix builds, and agent commands, launch the public mode instead:
@@ -118,8 +120,27 @@ Public-egress permits DNS and HTTP(S); it does not grant arbitrary outbound port
 The offline disk is `.cache/p-vm/demo/disk.qcow2`; public mode uses
 `.cache/p-vm/demo-public/disk.qcow2`. Both persist between runs. Set
 `P_DEMO_STATE_DIR` (or the existing `P_VM_STATE_DIR`) to an alternate directory.
-To reset, shut down first and delete only that mode's disk; this deletes its
-projects, sessions, and private files. Bundled plugin packages are copied into
+To reset the public lab, shut it down with `p-demo-poweroff`, wait for QEMU to
+exit, then run:
+
+```sh
+just lab-reset             # public lab by default
+just lab-reset --offline   # select the separate offline lab
+# Select an alternate lab using the same override as its launcher:
+P_DEMO_STATE_DIR=/path/to/lab just lab-reset
+```
+
+The reset command requires Python 3, previews the exact disk path and loss,
+and requires typing `yes`; an empty answer or EOF preserves the disk. It
+refuses an active checkout VM/integration run or an active VM in the selected
+state directory. It deletes only `disk.qcow2`, including every guest project,
+session, Git commit, workspace edit, private file, database, credential, and
+guest Nix store stored there. Host Nix build outputs, logs, other files in the
+state directory, and other lab disks are retained. State paths containing
+symlinks or `..`, symlinked locks/disks, and disks with multiple hard links
+are refused; select the actual dedicated state directory.
+
+Bundled plugin packages are copied into
 private persistent state. An untouched bundled selection follows the current
 checkout on launch; customized activations are preserved. Existing sessions
 retain their captured runtime image; use a fresh disk to explore a completely
@@ -131,6 +152,15 @@ not yet been seeded. Later launches preserve VM commits and uncommitted work;
 they do not replace the copied repository with newer host commits. Deliberately
 removed projects/sessions are not recreated once seeding completed. Use a fresh
 `P_DEMO_STATE_DIR` for a new copy of the current committed source.
+
+An unfinished session creation also pins its base image. If the lab is rebuilt
+with a different runtime image before creation finishes, its operation can
+remain blocked by the base-image mismatch. Retry requires a matching
+configuration; ordinary Delete/Discard can remain unavailable while creation
+is unsettled and its builder is present. See the
+[recorded lab diagnosis](../../docs/implementation-progress.md) for the observed
+case. Resetting the disk removes the entire selected lab, including unrelated
+sessions and private work; it does not recover that individual operation.
 
 The guest shares no workstation checkout, home, credentials, or Nix store.
 No credentials are imported. Any real agent authentication is an explicit
@@ -192,13 +222,22 @@ or P lifecycle recovery. Those remain in the
 
 ### Three-service development sample
 
-`just lab-notes` (or `./dev/demo-vm --notes`) uses a separate
-`.cache/p-vm/demo-notes/disk.qcow2` and adds PostgreSQL and Python with Psycopg
-to its session runtime. It also supplies `/etc/p-notes-example` inside each
-session. Follow the [notes walkthrough](../../examples/notes/README.md) to copy
-it into a blank project, commit/push, install three user services and develop
-in independent branch sessions. No cluster or application data is seeded.
-The default lab continues to use its ordinary runtime and disk.
+`just lab-public` (or `./dev/demo-vm --public`) consolidates the P repository
+and notes sample in `.cache/p-vm/demo-public/disk.qcow2`. `just lab-notes` and
+`--notes` are compatibility aliases for this same public lab. It supplies
+PostgreSQL, Python/Psycopg and `/etc/p-notes-example` in new session runtimes.
+On first provisioning it creates `notes/main`, commits and pushes the small
+sample source, and installs, enables and starts its three session-user services.
+The database starts empty. Open `p tui` and enter either `p-ai/main` or
+`notes/main`; in notes run `python3 examples/notes/client.py health` or
+`python3 examples/notes/client.py add 'my first note'`.
+Check `systemctl status p-lab-notes` for sample readiness and
+`journalctl -u p-lab-notes` as root for errors. Seeding runs once per disk and
+does not replace later edits or recreate a deliberately removed sample.
+Follow the [notes walkthrough](../../examples/notes/README.md) for services and
+independent branch sessions. Newly created branch sessions need their own
+service installation and enablement; private SQL data is not copied by Git.
+The offline default lab continues to use its ordinary runtime and disk.
 
 The outer notes-lab owner also has a disposable localhost SSH origin fixture:
 `bash /etc/p-notes-origin-fixture.sh setup` seeds the exact sample source and
@@ -211,15 +250,28 @@ and repositories live in its private `/var/lib/p-demo/notes-origin-review`
 directory. This optional lab configuration preserves the default hardened
 service module.
 
-Shut down with `p-demo-poweroff` to retain the notes lab. To reset it, first
-shut down, then delete only `.cache/p-vm/demo-notes/disk.qcow2`.
-`--public --notes` has its own `demo-notes-public` directory; an explicit
-`P_DEMO_STATE_DIR` overrides these paths.
+Shut down with `p-demo-poweroff` to retain the consolidated lab. To reset it,
+first shut down and wait for QEMU to exit, then run `just lab-reset` and review
+the disk path and loss before typing `yes`.
+An explicit `P_DEMO_STATE_DIR` overrides this path. Older `demo-notes` and
+`demo-notes-public` disks are preserved; select one explicitly with
+`P_DEMO_STATE_DIR` to continue its state. Existing sessions keep their captured
+runtime image. Use a fresh disk for a new sample and both current seed projects.
 
 `just notes-tests` uses a temporary real PostgreSQL cluster in the pinned
 sample shell. `just vm-tests --step 57-developer-workflow.sh` exercises the
 sample through the installed owner API and confined session tools. Live TUI
 experience review and persistent lab relaunch require their separate evidence.
+
+To check the consolidated lab on a fresh **test-owned** disk, launch with an
+alternate `P_DEMO_STATE_DIR`, wait for `p-lab-repository` and `p-lab-notes` to
+finish, then run `bash /etc/p-lab-public-check.sh prepare` as `pdev`. This
+asserts both projects and three active services, writes a note through HTTP,
+checks the worker's SQL result, and leaves private/source markers. Shut down,
+relaunch the same directory with `just lab-notes` or `just lab-public`, wait
+for the seed units, then run `bash /etc/p-lab-public-check.sh check`. The check
+starts the notes session if stopped and asserts retained identities, commit,
+source edits, private files and SQL data without duplicate projects.
 
 For the automated relaunch check in a dedicated test-owned notes lab, run
 `bash /etc/p-notes-persistence-check.sh prepare` as `pdev`, shut down with

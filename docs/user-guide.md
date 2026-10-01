@@ -90,9 +90,12 @@ diagnostics at every supported size; `A`, `S` and `p` opened there return to
 Details with Back. Page movement uses the capacity of the visible layout.
 
 Search stays inside the list. In branch/project name fields, letters including
-`q`, `g` and `G` are text; Escape/Ctrl-C cancels or goes back. Confirmation
-defaults to **No**; Enter declines. Long confirmation and loss fields wrap and
-can be scrolled before explicit `y` authorizes the action.
+`q`, `g` and `G` are text; Escape/Ctrl-C cancels or goes back. On the final
+creation policy review, Enter creates the project or creates, boots and enters
+the session. Back returns to the previous editor or branch choices. Stop and
+Rename confirmations default to **No**; Enter declines. Long policy, source,
+confirmation and loss fields wrap and can be scrolled; explicit `y` authorizes
+Stop, Rename and removal.
 
 Leaving creation/startup progress does not cancel accepted daemon work and
 prevents automatic terminal entry afterward. Use Operations to inspect or
@@ -111,7 +114,8 @@ and `gg/G` scrolling. Long fields wrap so they remain readable in small terminal
 ### Project services
 
 For a complete application with a database, HTTP server and background worker,
-use the [notes example](../examples/notes/README.md) in `just lab-notes`.
+use the seeded `notes/main` project in `just lab-public`
+([notes walkthrough](../examples/notes/README.md)).
 Its walkthrough includes installation, edit/test/run, service failure and
 recovery, new branch sessions and private database state.
 

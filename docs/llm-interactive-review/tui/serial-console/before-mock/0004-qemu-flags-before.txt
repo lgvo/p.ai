@@ -1,0 +1,35 @@
+ P · Sessions · waiting → running → other                                                                               
+ ╭──────────────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────╮ 
+ │ All project sessions                                                     │ │ Session details                       │ 
+ │ 1–4 of 4 · selected 2                                                    │ │ Project: orbit                        │ 
+ │   forge            └─ feat/device-login                 running !waiting │ │ Branch: fix/cache-race                │ 
+ │ › orbit            └─ fix/cache-race                    running !waiting │ │ UUID:                                 │ 
+ │   forge            └─ fix/token-refresh                 running          │ │ 9b78e970-b341-511c-9c9e-e194c8718b88  │ 
+ │   orbit            └─ feat/job-retries                  running          │ │ Runtime: running · Policy: current    │ 
+ │                                                                          │ │ Terminals: unattended (0 attached)    │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │ ├─ Agents [A] · latest report         │ 
+ │                                                                          │ │ │  Codex · waiting · Waiting for      │ 
+ │                                                                          │ │ review                                │ 
+ │                                                                          │ │ │  Adapter: fixture                   │ 
+ │                                                                          │ │ │  Source: Codex                      │ 
+ │                                                                          │ │ │  Received: 2026-10-01T12:00:00Z     │ 
+ │                                                                          │ │ │                                     │ 
+ │                                                                          │ │ └─ Project services [S] · 3 units     │ 
+ │                                                                          │ │ observed                              │ 
+ │                                                                          │ │    p-project-api.service              │ 
+ │                                                                          │ │    active (running)                   │ 
+ │                                                                          │ │    p-project-database.service         │ 
+ │                                                                          │ │    active (running)                   │ 
+ │                                                                          │ │    p-project-worker.service           │ 
+ │                                                                          │ │    inactive (dead)                    │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │ D complete details · A report · S all │ 
+ │                                                                          │ │ units                                 │ 
+ ╰──────────────────────────────────────────────────────────────────────────╯ │                                       │ 
+ j/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create       │                                       │ 
+ P project · / search · D details · A reports · S services · O operations     │                                       │ 
+ ? help                                                                       │                                       │ 
+ p policy · b branches · R rename · d discard · X delete · q/Esc back         ╰───────────────────────────────────────╯ 
+                                                                                                                        
+                                                                                                                        

@@ -1,0 +1,35 @@
+P demo disk: /home/lgvo/p.ai/.cache/p-vm/demo-public/disk.qcow2                                                         
+                                                               The guest opens a shell. Use p api for the API or p tui f
+or the TUI.                                                                                                             
+           Detach from a session with Ctrl+B, d. Shut down with p-demo-poweroff.                                        
+                                                                                QEMU emergency exit: Ctrl+A, X. The demo
+ disk is retained.                                                                                                      
+                  Creating Nix store image...                                                                           
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

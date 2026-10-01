@@ -1,0 +1,35 @@
+            Operation / readiness                                                                                       
+            notes / main                                                                                                
+            Session: 518a9a25-561d-4c57-900d-cb101ffda071                                                               
+            Condition: ready                                                                                            
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+            Leaving startup prevents automatic entry when it finishes.                                                  
+            j/k/Pg scroll · r retry operation · q/Esc back                                                              
+            Waiting for daemon… (Back leaves accepted work running)                                                     
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

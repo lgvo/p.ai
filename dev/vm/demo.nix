@@ -1,4 +1,4 @@
-{ config, lib, pkgs, demoPublic, demoPublicEgress, demoRepositoryBundle, demoNotes ? false, demoOriginFixture ? null, ... }:
+{ config, lib, pkgs, demoPublic, demoPublicEgress, demoRepositoryBundle, demoNotes ? false, demoNotesBundle ? null, demoOriginFixture ? null, ... }:
 let
   socket = "/var/lib/p-demo/control.sock";
   browser = pkgs.writeShellApplication {
@@ -80,6 +80,7 @@ in
     "p-notes-example".source = ../../examples/notes;
     "p-notes-persistence-check.sh".source = ../../tests/integration/notes-lab-persistence.sh;
     "p-notes-origin-fixture.sh".source = ../../tests/integration/notes-origin-fixture.sh;
+    "p-lab-public-check.sh".source = ../../tests/integration/lab-public-check.sh;
   };
   # Expose the guest owner's trusted SSH configuration to the notes daemon
   # while hiding the rest of its home. Fixture keys live in private daemon
@@ -138,6 +139,27 @@ in
       ExecStart = "${pkgs.bash}/bin/bash ${./seed-repository.sh}";
     };
   };
+  systemd.services.p-lab-notes = lib.mkIf demoNotes {
+    description = "Seed the notes project and its three session-user services";
+    wantedBy = [ "multi-user.target" ];
+    requires = [ "p.service" ];
+    after = [ "p-lab-repository.service" "p.service" ];
+    path = [ cfg.package pkgs.incus pkgs.git pkgs.coreutils pkgs.jq pkgs.bash ];
+    environment = {
+      P_LAB_REPOSITORY_BUNDLE = toString demoNotesBundle;
+      P_LAB_REPOSITORY_LOADER = "${./load-repository.sh}";
+      P_LAB_REPOSITORY_SEEDER = "${./seed-repository.sh}";
+    };
+    serviceConfig = {
+      Type = "oneshot";
+      User = "pdev";
+      Group = "users";
+      UMask = "0077";
+      TimeoutStartSec = 900;
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.bash}/bin/bash ${./seed-notes.sh}";
+    };
+  };
   security.sudo.extraRules = [{
     users = [ "pdev" ];
     commands = [{
@@ -156,7 +178,7 @@ in
       echo "The P instance is configured. The daemon starts in the background."
       echo "Project p-ai/main is seeded from committed source on first boot. Check systemctl status p-lab-repository."
       echo "${if demoPublic then "Public DNS/HTTP(S) enabled; host/LAN/private destinations blocked." else "Sessions have no network access."}"
-      ${lib.optionalString demoNotes ''echo "Three-service notes sample: /etc/p-notes-example. New sessions have PostgreSQL and Python/Psycopg tools."''}
+      ${lib.optionalString demoNotes ''echo "Project notes/main is seeded with database, web and worker services. Check systemctl status p-lab-notes."''}
     fi
   '';
 }

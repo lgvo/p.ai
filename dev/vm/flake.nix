@@ -37,7 +37,7 @@
           mkdir -p "$state_dir"
           export NIX_DISK_IMAGE="$state_dir/disk.qcow2"
           echo "VM disk: $NIX_DISK_IMAGE"
-          exec ${interactive}/bin/run-p-vm-vm "$@"
+          exec ${pkgs.bash}/bin/bash ${./run-console.sh} ${interactive}/bin/run-p-vm-vm "$@"
         '';
       };
       # Resolve production sources from the checkout at launch time. Keeping

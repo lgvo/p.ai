@@ -5,6 +5,8 @@ The LLM read rendered frames, chose the next visible action, and inspected the
 result before continuing. `actions.ndjson` records those choices. Selected PNGs
 retain terminal coordinates, colors, selection and cursor. Complete cell JSON,
 text and raw ANSI remain in ignored `.cache/p-vm/tui-review-evidence/`.
+The serial-console correction record also archives those artifacts beside its
+screenshots to make the original transport defect directly inspectable.
 There are no developer credentials or authenticated agent runs in this evidence.
 
 The screenshots and action records in this directory come from explicit
@@ -21,6 +23,44 @@ powered off and removed their disposable disks. The
 [implementation progress](../../implementation-progress.md#final-delivery-checkpoint--2026-10-01)
 records acceptance and retained limitations. The real devShell extension and
 authenticated Codex acceptance remain separate pending milestones.
+
+## VM serial-console redraw correction
+
+The [before/after review](serial-console/README.md) reproduces the reported
+UUID/service-text leakage in the unchanged public VM and reviews the corrected
+`just lab-public` at 120×35, 80×24 and 48×16. Real service inventory/journals,
+application health, entry/detach/re-entry, and mock error feedback passed.
+The production console now preserves guest cursor movements; the observer no
+longer changes output modes to conceal serial translation. All 29 automated
+TUI checks passed separately. The persistent lab was preserved and shut down.
+
+## Creation finishes with Enter
+
+The [creation Enter checkpoint](creation-enter/checkpoint.json) records the
+2026-10-01 control change. The LLM inspected the current prototype and production
+before editing: both used creation `[y/N]`, and production Enter returned to
+branch choices. The user's Enter direction supersedes that prototype control;
+prototype code was preserved.
+
+The changed production review keeps policy, request key, source commit and
+origin visible, with Enter to create and Back to edit. Adaptive captures cover
+[local project review](creation-enter/after-0005-local-project-review-120.png),
+80×24 and compact scrolling, Back, actual local tmux entry,
+[retained branch review](creation-enter/after-0019-retained-review.png), and
+[captured origin review](creation-enter/after-0026-origin-source-review.png)
+followed by Enter attachment. The
+[Stop review](creation-enter/after-0015-stop-still-default-no.png) still defaults
+to No; Enter visibly declines it. No affected experience defects remained.
+The [action record](creation-enter/actions.ndjson) retains LLM choices separately
+from the passing 27-test TUI gate. These are mock/socket and local transport
+results; unchanged backend behavior received no new native VM acceptance claim.
+
+The [independent fresh-context review](creation-enter/reviewer/checkpoint.json)
+accepted the same build with zero findings. Its adaptive new-branch Back/edit,
+local-project and retained-branch Enter paths reached the actual local terminal;
+compact source scrolling and Stop Enter decline also passed. Four representative
+PNG frames, the complete chosen-action record and a read-only fixture effect
+record are retained separately under `creation-enter/reviewer/`.
 
 ## Persistent observation helper
 
@@ -74,9 +114,12 @@ The shared `tui_terminal.py` handles pyte's scrolling omissions, primary and
 secondary device attributes, DEC-private cursor reports, Kitty query/mode
 controls, xterm modifyOtherKeys, color queries and negative termcap replies.
 Alternate-screen save/restore includes resize and cursor bounds. The observer
-continuously disables outer PTY output translation because QEMU re-enables it
-during startup. Regression tests include real idle query servicing between
-control requests. This prevents capture defects from becoming UI findings.
+leaves terminal output modes unchanged. Interactive VM launchers use the shared
+production console wrapper to preserve guest newline/cursor semantics before
+QEMU snapshots its modes. Regression tests cover real idle query servicing,
+unchanged child modes and byte-preserving console output. See the
+[serial-console review](serial-console/README.md) for the earlier observer
+workaround that masked a production defect.
 
 ## Initial prototype and production baseline — 2026-09-30
 
@@ -95,13 +138,15 @@ fresh and then safely rebooted to correct observer fidelity. Guest NixOS
 unattached, with no environment projection. The terminal was matched at
 120×35, 80×24 and 48×16; guest TERM was set to `xterm-256color`.
 
-The first provisional capture run exposed observer problems: QEMU outer
-ONLCR translation displaced cursor-relative output; unsupported
-modifyOtherKeys became underline styling; pyte lacked alternate-screen
-restoration. Those were corrected and tested. The representative baseline
-frames were reconstructed from the actual recorded PTY bytes using the
-corrected parser. Provisional captures are retained only in ignored cache and
-do not establish product defects.
+The first provisional capture run exposed unsupported modifyOtherKeys styling
+and missing pyte alternate-screen restoration. Parser corrections resolved
+those capture defects; representative baseline frames were reconstructed from
+recorded PTY bytes using the corrected parser. The helper also normalized outer
+PTY output modes because QEMU's ONLCR translation displaced cursor-relative
+output. That normalization masked a production serial-console defect, confirmed
+later by the [native before/after review](serial-console/README.md). These
+normalized baseline captures therefore do not establish fidelity of the
+uncorrected VM transport. Provisional captures remain in ignored cache.
 
 Navigation and findings:
 

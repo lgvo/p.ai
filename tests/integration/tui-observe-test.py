@@ -5,8 +5,10 @@ import os
 from pathlib import Path
 import sys
 import subprocess
+import shutil
 import socket
 import tempfile
+import termios
 import time
 import unittest
 
@@ -17,6 +19,62 @@ spec.loader.exec_module(observer)
 
 
 class ObserverTests(unittest.TestCase):
+    def test_output_processing_is_observed_without_changing_child_modes(self):
+        child = r"""import os,termios,time
+state=termios.tcgetattr(0)
+assert state[1] & termios.OPOST and state[1] & termios.ONLCR
+time.sleep(.1)
+assert termios.tcgetattr(0)[1] & termios.OPOST, 'observer changed child output processing'
+os.write(1,b'\x1b[1;21HA\nB')
+time.sleep(.1)
+assert termios.tcgetattr(0)[1] & termios.OPOST, 'observer changed child output processing'
+"""
+        with tempfile.TemporaryDirectory() as out:
+            terminal = observer.Observer([sys.executable, "-c", child], out, 80, 24)
+            try:
+                terminal.pump(.4)
+                self.assertEqual(terminal.process.wait(timeout=2), 0)
+                terminal.pump(.05)
+                self.assertEqual(terminal.screen.display[0][20], "A")
+                self.assertEqual(terminal.screen.display[1][0], "B")
+                self.assertIn(b'A\r\nB', (Path(out) / "terminal.ansi").read_bytes())
+            finally:
+                terminal.close()
+
+    def test_interactive_console_preserves_newline_columns_and_restores_modes(self):
+        child = r"""import copy,os,termios,time
+saved=termios.tcgetattr(0)
+assert not saved[1] & termios.ONLCR
+active=copy.deepcopy(saved)
+active[1] |= termios.OPOST
+active[3] &= ~(termios.ECHO | termios.ICANON | termios.ISIG)
+termios.tcsetattr(0,termios.TCSANOW,active)
+os.write(1,b'\x1b[1;21HDETAIL\nNEXT')
+time.sleep(.1)
+os.write(1,b'\x1b[1;21HZ\nW')
+termios.tcsetattr(0,termios.TCSANOW,saved)
+"""
+        wrapper = Path(__file__).resolve().parents[2] / "dev" / "vm" / "run-console.sh"
+        with tempfile.TemporaryDirectory() as out:
+            terminal = observer.Observer([shutil.which("bash"), str(wrapper), sys.executable, "-c", child],
+                                         out, 120, 35)
+            try:
+                terminal.pump(.3)
+                self.assertEqual(terminal.process.wait(timeout=2), 0)
+                terminal.pump(.05)
+                self.assertEqual(terminal.screen.display[0][20:26], "ZETAIL")
+                self.assertEqual(terminal.screen.display[1][26:30], "NEXT")
+                self.assertEqual(terminal.screen.display[1][21], "W")
+                self.assertEqual(terminal.screen.display[1][:20], " " * 20)
+                self.assertEqual((terminal.screen.cursor.x, terminal.screen.cursor.y), (22, 1))
+                raw = (Path(out) / "terminal.ansi").read_bytes()
+                self.assertEqual(raw, b'\x1b[1;21HDETAIL\nNEXT\x1b[1;21HZ\nW')
+                restored = termios.tcgetattr(terminal.master)
+                self.assertTrue(restored[1] & termios.OPOST)
+                self.assertTrue(restored[1] & termios.ONLCR)
+            finally:
+                terminal.close()
+
     def test_backward_tabs_preserve_diff_cell_positions(self):
         screen = observer.TerminalScreen(48, 16, lambda _: None)
         stream = observer.TerminalStream(screen)

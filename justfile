@@ -31,17 +31,20 @@ check:
 fmt:
     gofmt -w cmd internal pkg plugins runtime
 
-# Open the persistent P lab; accepts --public, --notes or --help.
+# Open the persistent P lab; accepts --public or --help.
 lab *args:
     ./dev/demo-vm "$@"
 
-# Open the persistent lab with public DNS/HTTP(S) enabled.
+# Open the public lab with seeded P and three-service notes projects.
 lab-public:
     ./dev/demo-vm --public
 
-# Open the separate persistent lab with the three-service notes sample tools.
-lab-notes:
-    ./dev/demo-vm --notes
+# Reset the stopped public lab after explicit confirmation; --offline selects the offline lab.
+lab-reset *args:
+    python3 ./dev/reset-lab-vm "$@"
+
+# Compatibility alias for the consolidated public lab.
+alias lab-notes := lab-public
 
 # Test the notes sample against a temporary real PostgreSQL cluster.
 notes-tests:

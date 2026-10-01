@@ -1,0 +1,35 @@
+P · Sessions · waiting → running → other                                                                                
+╭──────────────────────────────────────────────────────────────────────────╮   ╭─────────────────────────────────────╮  
+│ All project sessions                                                     │   │ Session details                     │  
+│ 1–23 of 120 · selected 1                                                 │   │ forge / feat/device-login           │  
+│ › forge                   └─ feat/device-login        running !waiting   │   │ UUID 8fe6a45e-1789-4a36-bc85-       │  
+│   orbit                   └─ fix/cache-race           running !waiting   │   │ 545eb60387ae                        │  
+│   forge                   ├─ fix/token-refresh        running            │   │ Runtime running · Policy current    │  
+│   forge                   ├─ docs/plugin-guide        running            │   │ Terminals unattended                │  
+│   forge                   └─ test/auth-regressions    running            │   │ ├─ Agents [A]                       │  
+│   orbit                   └─ feat/job-retries         running            │   │ │  └─ Codex [device login] ·        │  
+│   p.ai                    ├─ feat/session-creation    running            │   │ waiting                             │  
+│   p.ai                    └─ fix/project-selector     running            │   │ │     └─ Approve the device login   │  
+│   atlas                   ├─ feat/offline-maps        stopped            │   │ flow before …                       │  
+│   atlas                   ├─ fix/tile-seams           stopped            │   │ └─ Project services [S]             │  
+│   atlas                   ├─ perf/route-search        stopped            │   │    └─ api.service · active          │  
+│   atlas                   ├─ test/geocoding           stopped            │   │ (running) (:3000)                   │  
+│   atlas                   └─ docs/map-providers       stopped            │   │ Last interaction Sep 09 10:00 UTC   │  
+│   beacon                  ├─ feat/alert-routing       stopped            │   │ Actions inspect · enter · stop      │  
+│   beacon                  ├─ fix/silence-expiry       stopped            │   ╰─────────────────────────────────────╯  
+│   beacon                  ├─ perf/metric-ingest       stopped            │                                            
+│   beacon                  ├─ test/pager-fallback      stopped            │                                            
+│   beacon                  └─ docs/escalations         stopped            │                                            
+│   cedar                   ├─ feat/invoice-pdf         stopped            │                                            
+│   cedar                   ├─ fix/tax-rounding         stopped            │                                            
+│   cedar                   ├─ test/refund-totals       stopped            │                                            
+│   cedar                   ├─ chore/currency-table     stopped            │                                            
+│   cedar                   └─ docs/accounting-export   stopped            │                                            
+╰──────────────────────────────────────────────────────────────────────────╯                                            
+j/k move · Enter session · s stop · c create · b branches · p policy · X                                                
+delete                                                                                                                  
+P project · A agents · S services · / search · ? help · q | Esc | Ctrl-C                                                
+back/quit                                                                                                               
+PgUp/PgDn · ^B/^F page · ^U/^D half · gg/G ends                                                                         
+                                                                                                                        
+                                                                                                                        

@@ -1,0 +1,24 @@
+         Starting Incus initialization with preseed file...                     
+         Starting Incus Instances Startup/Shutdown...                           
+[  OK  ] Finished Incus Instances Startup/Shutdown.                             
+[  OK  ] Finished Incus initialization with preseed file.                       
+         Starting Prepare the confined Incus lab and pinned fixture image...    
+[  OK  ] Started Incus Container and Virtual Machine Management User Daemon.    
+                                                                                
+                                                                                
+<<< Welcome to NixOS 26.11.20260905.c043004 (x86_64) - ttyS0 >>>                
+P lab. Run p api, p tui, or p-demo-poweroff.                                    
+                                                                                
+p-vm login: pdev (automatic login)                                              
+                                                                                
+P lab shell: p api calls the API; p tui opens the TUI; p-demo-poweroff shuts dow
+The P instance is configured. The daemon starts in the background.              
+Project p-ai/main is seeded from committed source on first boot. Check systemctl
+Public DNS/HTTP(S) enabled; host/LAN/private destinations blocked.              
+Project notes/main is seeded with database, web and worker services. Check syste
+                                                                                
+[pdev@p-vm:~]$ export TERM=xterm-256color; stty rows 35 cols 120; p tui         
+                                                                                
+[pdev@p-vm:~]$ stty rows 24 cols 80; p tui                                      
+                                                                                
+[pdev@p-vm:~]$                                                                  

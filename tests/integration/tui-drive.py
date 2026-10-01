@@ -129,8 +129,8 @@ try:
         send("c"); expect("Create · project")
         send("\r"); expect("Project path>")
         send("tui56\r"); expect("SSH origin URL")
-        send("\r"); expect("Confirm action")
-        send("y")
+        send("\r"); expect("Create · policy review")
+        send("\r")
 
         def created():
             sessions = rpc("session.list", limit=8)["sessions"]

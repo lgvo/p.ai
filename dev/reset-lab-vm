@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""Remove one stopped P lab's disk after reviewing its loss boundary."""
+
+import argparse
+import contextlib
+import fcntl
+import os
+from pathlib import Path
+import stat
+import sys
+
+
+def directory(path, *, create=False):
+    """Open a directory without following symlinks in any path component."""
+    path = os.fspath(path)
+    if ".." in Path(path).parts:
+        raise ValueError("State paths must not contain '..'.")
+    absolute = os.path.abspath(path)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open("/", flags)
+    try:
+        for part in Path(absolute).parts[1:]:
+            if create:
+                try:
+                    os.mkdir(part, dir_fd=fd)
+                except FileExistsError:
+                    pass
+            child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        return fd, absolute
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def lock(stack, directory_fd, name, message):
+    fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC,
+                 0o600, dir_fd=directory_fd)
+    stack.callback(os.close, fd)
+    metadata = os.fstat(fd)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ValueError(f"Unsafe lock file: {name}")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise ValueError(message) from None
+
+
+def disk_metadata(fd):
+    metadata = os.stat("disk.qcow2", dir_fd=fd, follow_symlinks=False)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise ValueError("Refusing a disk.qcow2 that is not a single regular file.")
+    return metadata
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Reset the public P lab (default), after shutdown and explicit confirmation.",
+        epilog="P_DEMO_STATE_DIR (or P_VM_STATE_DIR) overrides the selected disk directory.")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--public", "--notes", dest="public", action="store_true",
+                       help="select the public lab (default)")
+    modes.add_argument("--offline", action="store_true", help="select the offline lab")
+    args = parser.parse_args()
+    repo = Path(__file__).resolve().parent.parent
+    cache = repo / ".cache" / "p-vm"
+    default = cache / ("demo" if args.offline else "demo-public")
+    selected = os.environ.get("P_DEMO_STATE_DIR") or os.environ.get("P_VM_STATE_DIR") or default
+    absolute = os.path.abspath(selected)
+    if absolute in {"/", str(repo), str(cache), str(Path.home())}:
+        raise ValueError("Select a dedicated P lab state directory.")
+
+    with contextlib.ExitStack() as stack:
+        checkout_fd, _ = directory(cache, create=True)
+        stack.callback(os.close, checkout_fd)
+        lock(stack, checkout_fd, "integration.lock",
+             "Another P lab or VM integration run is active for this checkout. Shut it down first.")
+        try:
+            state_fd, state_path = directory(selected)
+        except FileNotFoundError:
+            print(f"No lab disk exists at {absolute}/disk.qcow2; nothing to reset.")
+            return
+        stack.callback(os.close, state_fd)
+        lock(stack, state_fd, "vm.lock",
+             f"A VM is already using {state_path}. Shut it down first.")
+        try:
+            before = disk_metadata(state_fd)
+        except FileNotFoundError:
+            print(f"No lab disk exists at {state_path}/disk.qcow2; nothing to reset.")
+            return
+
+        print(f"Reset disk: {state_path}/disk.qcow2")
+        print("This permanently deletes every guest project, session, commit, workspace, private file,")
+        print("database, credential, and guest Nix store on this disk.")
+        print("Host Nix build outputs, other lab disks, logs, and other state-directory files are preserved.")
+        try:
+            answer = input("Type yes to delete this disk [default: no]: ")
+        except EOFError:
+            answer = ""
+        if answer.strip() != "yes":
+            print("Reset cancelled; the disk is preserved.")
+            return
+        after = disk_metadata(state_fd)
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+            raise ValueError("The disk changed during confirmation; reset refused.")
+        os.unlink("disk.qcow2", dir_fd=state_fd)
+        print("Lab disk removed. The next launch creates a fresh lab from the current committed source.")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError) as error:
+        print(f"Lab reset refused: {error}", file=sys.stderr)
+        sys.exit(1)

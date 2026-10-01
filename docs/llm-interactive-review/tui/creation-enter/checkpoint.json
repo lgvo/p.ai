@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-01",
+  "base_revision": "0dfc4adc0d7d40c668c3370820133e82f083cd36",
+  "state": "uncommitted creation Enter change",
+  "setup": "fresh independent prototype, before and after observer sessions; production ./dev/tui-mock --dataset small --theme dark",
+  "dimensions": [
+    [
+      120,
+      35
+    ],
+    [
+      80,
+      24
+    ],
+    [
+      48,
+      16
+    ]
+  ],
+  "review_result": "passed affected creation controls and Back; prototype default-No intentionally superseded by user Enter direction",
+  "tests": {
+    "focused": "go test ./internal/tui ./tests/integration/cmd/tui-mock passed",
+    "tui_gate": "just tui-tests passed: 8 terminal, 7 observer, 12 mock cases"
+  },
+  "boundary": "mock/socket navigation and local tmux transport; backend RPC/lifecycle unchanged; no new native Incus/Git/systemd acceptance or VM rerun claimed",
+  "raw_capture_destination": "/tmp/p-creation-enter-evidence",
+  "sha256": {
+    "internal/tui/model.go": "b81805ee5ca68bc022b8d8e8967c640b20aaab9a389544d8abdcf0bdbdedfc3f",
+    "internal/tui/workflows.go": "82f65476d2738476b9fa1a30885b54bb103646c25697d6b87c7e797b5d9a579a",
+    "internal/tui/view.go": "a40a671c1e015b2895ca2cae8027cbb8c17c69b143bc4929053f64039ee36ef2",
+    "/tmp/p-tui.gc4UF9/p": "feba42950243ad08e4c677e72cab3867d64f1c7e5321c8141e069855a4ed34bd",
+    "/tmp/p-tui.vTjhTI/p": "8583448326d084c1f32c350ecb669eeb1af4bbfc9e1604fc23854d192222d58a",
+    "/tmp/p-creation-prototype": "c2c3dba7f0f2e7b250a274f0033f2c4a9e5f0374b8c84827a549e2b1301bbe7f"
+  },
+  "artifacts": {
+    "after-0029-origin-enter-attached.png": "c22dd4c4263a9b2d17a96dfaa52c38135d197b238bca1b2777fc1c8dcedc4aa6",
+    "prototype-0004-policy.png": "ceb4cb8c6f8ca35729d4c91f37097d834b90e55173ba761977ae24b605fc835f",
+    "after-0009-project-back-editor.png": "a4ee534cc4195a5db0db34e38e5b472830970e4bc2cf0e1e49f29698d4c8fab9",
+    "after-0015-stop-still-default-no.png": "12ea4c0ce1248b38c84cc8f731a3ed86324104304322ead771d7f113009b6b32",
+    "after-0006-local-project-review-80.png": "39bea0dd2f9d47897d4ee82690204e9d0ecc269d2b3fe4e03a5cb6e8a925d1b0",
+    "after-0016-stop-enter-declines.png": "30bee6faba9ad179a17c5ca823544e71a9773914c288dcdc047429bbb19fd8c6",
+    "after-0019-retained-review.png": "a3957ccf7f03d5adf586d9956182c7a116ca2e7ca700b8d6d5b262b6b3f8a568",
+    "after-0026-origin-source-review.png": "07cd8f22790bfb238a0147894edff38f7b2b9c3d4a4d59e06780edfe4f24a944",
+    "after-0005-local-project-review-120.png": "aa331d29fb5c4ba201f082aa36b3683f00f673610888709120c2ccc781150483",
+    "after-0027-origin-back-name.png": "9d9585c07226d066e2981be298494c04759c5d91712b509cd2bdccfdea5f9764",
+    "before-0007-final-confirmation.png": "9da5007801a9906461fc56e0f537c84993dd53d9a28d91500dd26a30caf673e2",
+    "after-0013-project-attached.png": "5a094d8919f40522caf9ec24bc017683a42f745b940525737e886490ad6526b7",
+    "after-0008-local-project-review-bottom-48.png": "b4be1d194cc26824168afcf2a097d77df61cfb0baba0e4e8fb1c1b3921f7b597",
+    "before-0008-enter-declines.png": "967aced2d2fb08f965cce867e0f5fbcd619b412772069c96f0f92394c60768ff",
+    "after-0020-retained-enter.png": "93f023fc9cd94ad15265ae2da15174e0b9ec77a187750e391e4c9fbcba7ba976",
+    "after-0012-project-enter-dispatch.png": "84be52fc648c4bf8fd1fb024e3d0866b2a22ea2872db371a6c0491f849e3f459"
+  }
+}

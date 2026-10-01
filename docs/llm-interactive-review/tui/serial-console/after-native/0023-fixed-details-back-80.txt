@@ -1,0 +1,24 @@
+ P · Sessions · waiting → running → other                                       
+ ╭────────────────────────────────────────────────────────────────────────────╮ 
+ │ All project sessions                                                       │ 
+ │ 1–3 of 3 · selected 1                                                      │ 
+ │ › notes             ├─ main                               running          │ 
+ │   notes             └─ test-note-feature                  running          │ 
+ │   p-ai              └─ main                               running          │ 
+ ╰────────────────────────────────────────────────────────────────────────────╯ 
+ j/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create         
+ P project · / search · D details · A reports · S services · O operations       
+ ? help                                                                         
+ p policy · b branches · R rename · d discard · X delete · q/Esc back           
+ ╭────────────────────────────────────────────────────────────────────────────╮ 
+ │ Session details                                                            │ 
+ │ notes / main                                                               │ 
+ │ UUID: 518a9a25-561d-4c57-900d-cb101ffda071                                 │ 
+ │ Runtime: running · Policy: current · Terminals: unattended                 │ 
+ │ ├─ Agents [A] · latest: unknown · no retained report                       │ 
+ │ └─ Project services [S]: 3 units observed                                  │ 
+ │    p-project-notes-db.service                                              │ 
+ │    active (running)                                                        │ 
+ ╰────────────────────────────────────────────────────────────────────────────╯ 
+                                                                                
+                                                                                

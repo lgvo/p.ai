@@ -1,0 +1,35 @@
+[  OK  ] Listening on Load/Save RF Kill Switch Status /dev/rfkill Watch.                                                
+[  OK  ] Started Name Service Cache Daemon (nsncd).                                                                     
+[  OK  ] Reached target Host and Network Name Lookups.                                                                  
+[  OK  ] Reached target User and Group Name Lookups.                                                                    
+         Starting Permit User Sessions...                                                                               
+[  OK  ] Finished Permit User Sessions.                                                                                 
+[  OK  ] Started Getty on tty1.                                                                                         
+[  OK  ] Started Serial Getty on ttyS0.                                                                                 
+[  OK  ] Started DHCP Client.                                                                                           
+[  OK  ] Reached target Network is Online.                                                                              
+         Starting Incus Container and Virtual Machine Management Daemon...                                              
+         Starting P fixed DNS-over-HTTPS resolver...                                                                    
+[  OK  ] Started P fixed DNS-over-HTTPS resolver.                                                                       
+[    6.460115] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] dnscrypt-proxy 2.1.18                                
+[    6.475226] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Using default Weighted Power of Two (WP2) load balanc
+ing strategy                                                                                                            
+[    6.477190] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Now listening to 127.0.0.1:53 [UDP]                  
+[    6.478812] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Now listening to 127.0.0.1:53 [TCP]                  
+[    6.480273] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Firefox workaround initialized                       
+[    6.481675] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Hot reload is disabled                               
+[    6.533092] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] [p-quad9] OK (DoH) - rtt: 12ms                       
+[    6.619888] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] [p-cloudflare] OK (DoH) - rtt: 53ms                  
+[    6.621131] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Sorted latencies:                                    
+[    6.622125] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] -    12ms p-quad9                                    
+[    6.623102] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] -    53ms p-cloudflare                               
+[    6.624132] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Server with the lowest initial latency: p-quad9 (rtt:
+ 12ms), live servers: 2                                                                                                 
+[  OK  ] Started Incus Container and Virtual Machine Management Daemon.                                                 
+         Starting Incus initialization with preseed file...                                                             
+         Starting Incus Instances Startup/Shutdown...                                                                   
+[  OK  ] Finished Incus Instances Startup/Shutdown.                                                                     
+[  OK  ] Finished Incus initialization with preseed file.                                                               
+         Starting Prepare the confined Incus lab and pinned fixture image...                                            
+[  OK  ] Started Incus Container and Virtual Machine Management User Daemon.                                            
+                                                                                                                        

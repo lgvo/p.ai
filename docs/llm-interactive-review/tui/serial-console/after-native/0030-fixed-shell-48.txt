@@ -1,0 +1,16 @@
+                                                
+p-vm login: pdev (automatic login)              
+                                                
+P lab shell: p api calls the API; p tui opens th
+The P instance is configured. The daemon starts 
+Project p-ai/main is seeded from committed sourc
+Public DNS/HTTP(S) enabled; host/LAN/private des
+Project notes/main is seeded with database, web 
+                                                
+[pdev@p-vm:~]$ export TERM=xterm-256color; stty 
+                                                
+[pdev@p-vm:~]$ stty rows 24 cols 80; p tui      
+                                                
+[pdev@p-vm:~]$ stty rows 16 cols 48; p tui      
+                                                
+[pdev@p-vm:~]$                                  

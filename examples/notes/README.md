@@ -9,10 +9,17 @@ socket, with peer authentication and its TCP listener disabled.
 
 ## Provision tools and copy the sample
 
-Use the dedicated pinned notes runtime, which supplies PostgreSQL and Python
-with Psycopg and libpq. From the host checkout, `./dev/demo-vm --notes` starts
-the optional sample lab. The guest owner can open `p tui`. Create a blank
-project and enter its bootstrap session, then copy the provisioned sample:
+From the host checkout, `just lab-public` supplies the pinned notes runtime
+with PostgreSQL, Python/Psycopg and libpq. Both `p-ai/main` and `notes/main`
+are seeded in this lab. Open `p tui`, select `notes/main` and press Enter:
+its source is committed in `examples/notes`, and its database, web and worker
+services are installed, enabled and started on first provisioning. Run
+`python3 examples/notes/client.py health` or `add 'my first note'` inside it.
+`just lab-notes` and `./dev/demo-vm --notes` are compatibility aliases for this
+same public lab and disk.
+
+To practice creating a separate blank project, enter its bootstrap session
+and copy the provisioned sample:
 
 ```sh
 mkdir -p /workspace/examples/notes

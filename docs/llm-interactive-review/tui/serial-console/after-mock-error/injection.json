@@ -1,0 +1,19 @@
+{
+  "configure": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "mock.configure",
+    "params": {
+      "v": 1,
+      "method": "session.services",
+      "error": "Interactive review: service inventory unavailable"
+    }
+  },
+  "reply": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "v": 1
+    }
+  }
+}

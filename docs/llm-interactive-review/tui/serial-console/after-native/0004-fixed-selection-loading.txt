@@ -1,0 +1,35 @@
+ P · Sessions · waiting → running → other                                                                               
+ ╭──────────────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────╮ 
+ │ All project sessions                                                     │ │ Session details                       │ 
+ │ 1–3 of 3 · selected 2                                                    │ │ Project: notes                        │ 
+ │   notes            ├─ main                              running          │ │ Branch: test-note-feature             │ 
+ │ › notes            └─ test-note-feature                 running          │ │ UUID:                                 │ 
+ │   p-ai             └─ main                              running          │ │ 1dca4948-6056-4a54-9499-6cf9872e78a0  │ 
+ │                                                                          │ │ Runtime: running · Policy: current    │ 
+ │                                                                          │ │ Terminals: unattended (0 attached)    │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │ ├─ Agents [A] · latest report         │ 
+ │                                                                          │ │ │  Activity unknown · no retained     │ 
+ │                                                                          │ │ report                                │ 
+ │                                                                          │ │ │                                     │ 
+ │                                                                          │ │ └─ Project services [S] · loading…    │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │ D complete details · A report · S all │ 
+ │                                                                          │ │ units                                 │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ ╰──────────────────────────────────────────────────────────────────────────╯ │                                       │ 
+ j/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create       │                                       │ 
+ P project · / search · D details · A reports · S services · O operations     │                                       │ 
+ ? help                                                                       │                                       │ 
+ p policy · b branches · R rename · d discard · X delete · q/Esc back         ╰───────────────────────────────────────╯ 
+                                                                                                                        
+                                                                                                                        

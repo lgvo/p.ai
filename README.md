@@ -84,12 +84,17 @@ and `just vm-tests --step 56-live-tui.sh` runs a selected disposable VM check.
 These recipes call the existing runners and preserve their locking, logs,
 and disk behavior. `just lab --help` and `just vm-tests --help` show runner options.
 
-`just lab-notes` opens a separate persistent lab with PostgreSQL and Python
-with Psycopg. Follow the [three-service notes walkthrough](examples/notes/README.md)
-to create a project, run the application, manage services and develop in
-separate branches. `just notes-tests` runs its real database tests;
+`just lab-public` includes both `p-ai/main` and `notes/main`, with PostgreSQL,
+web and worker services ready in the notes session. `just lab-notes` is an alias
+for the same lab and persistent disk. Follow the
+[three-service notes walkthrough](examples/notes/README.md) to manage services
+and develop in separate branches. `just notes-tests` runs its real database tests;
 `just tui-tests` runs fast socket-backed TUI integration and terminal transport
 checks without a VM.
+
+After shutting down the lab, `just lab-reset` previews and confirms deletion of
+the public lab disk; `--offline` selects the separate offline disk. This loses
+all guest work and data on that disk. See the [reset procedure](dev/vm/README.md).
 
 Use `just tui-mock` to explore the **production TUI** against a disposable
 background mock socket. It starts with 24 projects and 120 sessions; use

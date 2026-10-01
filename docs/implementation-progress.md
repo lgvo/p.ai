@@ -1,5 +1,152 @@
 # MVP implementation progress
 
+## Serial-console redraw correction — 2026-10-01
+
+The unchanged public lab reproduced the developer's report: selection and
+services updates leaked UUID/loading text into the sessions panel. QEMU's host
+TTY enabled OPOST with ONLCR, converting guest LF cursor movements into CRLF.
+The interactive console wrapper now clears ONLCR before QEMU snapshots its
+modes, forwards cancellation, and restores the exact original modes on exit.
+Both product and infrastructure interactive launchers use it. The Nix source
+filter includes only the required helper and parents for packaged unit checks.
+
+The observation helper no longer disables output processing at startup or
+during capture. Its former recurring correction had masked this production
+defect; historical evidence now states that limitation. The
+[interactive review](llm-interactive-review/tui/serial-console/README.md)
+archives native before/after frames, exact source/build provenance and adaptive
+actions separately from integration tests. The LLM reviewed the prototype and
+current production mock before the fix, then the actual corrected
+`just lab-public` at 120×35, 80×24 and 48×16. Native loading/empty/ready services,
+the three active Notes units, database journal, real tmux entry, a read-only
+HTTP/database health query, detach/re-entry and compact details scrolling
+passed. A disposable mock service-inventory failure and Back were also reviewed.
+Serial resizing still requires matching guest stty dimensions and reopening
+the TUI; this review does not establish automatic guest resize propagation.
+
+The launcher build passed packaged Go checks and all 36 Python tests, including
+six real-PTY console tests. After native interactive acceptance, `just tui-tests`
+passed eight terminal, nine observer and twelve mock tests (29 total).
+ShellCheck, Bash syntax and diff checks passed. Independent code/PTY-test and
+native-frame review had zero remaining findings after signal forwarding was
+corrected. The session's new-agent limit required reusing an existing reviewer;
+this is independent review, not a new fresh-context review.
+
+The existing public disk and all three sessions (`notes/main`, the developer's
+`notes/test-note-feature`, and `p-ai/main`) were preserved. Both verification
+VMs powered off normally, owned observers closed and the shared lab lock was
+released. No reset, application write, service mutation or removal was issued.
+
+## Reset helper packaged-build correction — 2026-10-01
+
+The reset tests passed in the working checkout, but the next `just lab-public`
+build failed before boot. Its Nix source filter included all Python tests while
+excluding `dev/reset-lab-vm`, so all 13 reset cases failed with the same missing
+file. Reset did not cause these errors. The reset delivery lacked validation
+through the packaged build used by the launcher.
+
+The source filter now admits only `dev` for traversal and `dev/reset-lab-vm`.
+Other development files, VM state, caches and documentation remain excluded;
+checks stay enabled and test the actual production helper. All 30 Python tests
+passed from the filtered Nix source. The actual `just lab-public` command also
+passed its packaged Go/Python checks and booted the user's freshly reset public
+disk. Both `p-ai/main` and `notes/main` reported `ready`, all three notes services
+were active, and the HTTP/database health response was ready. The check added
+no application notes or source edits. The lab was then shut down cleanly.
+
+The original build failure and successful launch logs are retained locally at
+`.cache/p-vm/lab-reset-package-before.log` and
+`.cache/p-vm/lab-reset-package-fixed-launch.log`. A fresh-context reviewer
+independently checked the source boundary and passed the 13 reset tests.
+
+## Persistent-lab blocked creation — 2026-10-01
+
+`just lab-reset` now previews the public lab disk and requires typing `yes`
+before deleting only `disk.qcow2`; `--offline` selects the separate offline
+lab and the launcher state-directory overrides are supported. It holds both
+checkout and disk locks, preserves other disks/logs/build outputs, and rejects
+unsafe path/file identities. All 30 Python unit tests passed, including 13
+isolated reset cases. A fresh-context reviewer independently passed those 13
+cases and accepted the reset and diagnosis with no actionable findings.
+The developer's disk was not reset.
+
+Read-only inspection of the existing public disk found `p-ai/test-something`
+(`983544e2-9fcc-42ec-9bb0-6778e09d8917`) still `creating`. Its Create operation
+`6184f2ba-47f1-4649-9d9a-8f38a10c8e98` is blocked at `branch-assigned` with
+`pinned environment selection unavailable; repair required`. The captured
+base image is `c1a6af8ec4df403b478d9f9f94e20a27bf67a79585eae7f85edef98d4acb0927`;
+the current notes-enabled lab selects
+`3653cdfacfce5b9a81f82f887b0589a338a77b15e70916068230407a662f711b`.
+The environment module digest and empty module configuration still match.
+The changed base alone explains the current immutable-selection refusal;
+these observations do not establish what originally interrupted the build.
+
+Native inventory contains the stopped builder `p-builder-6184f2ba-47f1-4649-9d9a-8f38a10c8e98`
+with the captured source/base metadata, and no runtime for this session.
+Durable evidence records builder cycle 1 as `owned` and runtime initialization
+as `not-attempted`. Both ordinary Discard and Delete previews return `busy`
+because they require an established session. Failed-create cleanup preview is
+ineligible because builder dispatch/cleanup is unsettled and the builder still
+exists. No cleanup confirmation or Retry was issued; no session, ref or disk
+was removed. The diagnostic console log is retained locally at
+`.cache/p-vm/lab-creating-diagnostic.log`.
+
+The preceding consolidation checks prove fresh provisioning and established-
+session persistence, not interrupted environment-build recovery across a base-
+image change. That recovery case remains unsupported by the inspected cleanup
+path. Exact Retry requires the captured environment selection; a whole-lab
+reset instead deliberately loses all state on the selected disk. The diagnostic
+boot was shut down cleanly after inspection.
+
+## Consolidated public lab — 2026-10-01
+
+`just lab-public` now supplies both the committed P repository and a small
+`notes/main` project with PostgreSQL, web and worker session-user services.
+`just lab-notes` and `--notes` select the same public mode and persistent disk.
+The offline lab remains separate. Notes provisioning pins its first source,
+uses ordinary P/Git/Incus operations, installs and enables the three units,
+and waits for HTTP/database health before recording completion. Later boots
+preserve edits/data and do not recreate an intentionally removed sample.
+
+Native verification used a fresh alternate disk: the
+[lab assertions](../tests/integration/lab-public-check.sh) passed both
+`prepare` through `just lab-public` and `check` after full shutdown/relaunch
+through `just lab-notes`. These checks established both project/session
+identities, three active services, HTTP note creation, PostgreSQL worker
+completion, and retained source edits/private files/SQL without duplicates.
+The existing `demo-public` disk also provisioned notes successfully, retained
+its prior P sessions, started `p-ai/main`, and accepted real notes terminal
+entry, a healthy HTTP/database query and detach. No existing disk was reset.
+
+Shell syntax, ShellCheck, offline runner evaluation and documentation links
+passed. A fresh-context reviewer accepted the scoped changes with no findings.
+Native console logs are retained in `.cache/p-vm/lab-public-consolidation-*.log`;
+these assertions are distinct from interactive LLM TUI experience reviews.
+
+## Creation finishes with Enter — 2026-10-01
+
+The final project/session policy review now uses Enter to create, with Back
+returning to the origin/name editor or branch choices. It preserves the captured
+request, source and policy information, repeat-submission guard and stale-reply
+protection. Stop/Rename and removal retain their existing explicit confirmations.
+This intentionally supersedes the old prototype's creation `[y/N]` control.
+
+The [interactive checkpoint](llm-interactive-review/tui/creation-enter/checkpoint.json)
+binds prototype/before/after builds, source hashes and adaptive actions. Review
+passed local project and retained/origin-source session entry, Back editing,
+120×35 / 80×24 / 48×16 scrolling, and unchanged default-No Stop. Focused Go tests
+passed; `just tui-tests` passed all 27 cases (8 terminal, 7 observer, 12 mock).
+Native TUI drivers were updated to the reviewed Enter action. Backend contracts
+and RPC payloads are unchanged, so this checkpoint adds mock/socket/local tmux
+evidence without rerunning native VM workflows or widening earlier support claims.
+
+A separate fresh-context reviewer accepted the same product build with zero
+findings after live new-branch Back/edit/Enter, local-project Enter and retained-
+branch Back/Enter entry, 80×24 / 48×16 review scrolling, and Stop Enter decline.
+The [independent checkpoint](llm-interactive-review/tui/creation-enter/reviewer/checkpoint.json)
+records its actions, rendered frames, exact creation requests, zero Stop requests,
+and clean shutdown of its owned fixture and observer.
+
 ## TUI and three-service developer workflows — 2026-09-30
 
 The [authorized plan](tui-developer-workflow-plan.md) was delivered through

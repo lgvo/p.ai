@@ -345,14 +345,14 @@ class MockTUITests(unittest.TestCase):
                 self.choose_project()
                 if choice == "retained":
                     self.key("/retained/00\r")
-                    self.key("\r", "Confirm action")
+                    self.key("\r", "Create · policy review")
                 else:
                     self.key("\r", "Create · source")
                     if choice == "origin":
                         self.key("/External\r")
                     self.key("\r", "New branch name")
-                    self.key(branch + "\r", "Confirm action")
-                self.key("y", "MOCK · Ctrl-B d detach")
+                    self.key(branch + "\r", "Create · policy review")
+                self.key("\r", "MOCK · Ctrl-B d detach")
                 self.assertEqual(self.session(branch)["session_condition"], "ready")
                 self.detach()
         calls = [c["params"] for c in self.rpc("mock.inspect")["calls"] if c["method"] == "session.create"]
@@ -362,11 +362,11 @@ class MockTUITests(unittest.TestCase):
         self.key("c", "Create · project")
         self.key("\r", "Project path")
         self.key("new-project\r", "SSH origin URL")
-        self.key("\r", "Confirm action")
-        self.key("\r", "SSH origin URL")
+        self.key("\r", "Create · policy review")
+        self.key("q", "SSH origin URL")
         self.assertNotIn("new-project", self.rpc("mock.inspect")["projects"])
-        self.key("\r", "Confirm action")
-        self.key("y", "MOCK · Ctrl-B d detach")
+        self.key("\r", "Create · policy review")
+        self.key("\r", "MOCK · Ctrl-B d detach")
         self.assertEqual(self.session("main", "new-project")["session_condition"], "ready")
         self.detach()
 

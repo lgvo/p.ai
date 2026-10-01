@@ -1,0 +1,531 @@
+P demo disk: /home/lgvo/p.ai/.cache/p-vm/demo-public/disk.qcow2
+The guest opens a shell. Use p api for the API or p tui for the TUI.
+Detach from a session with Ctrl+B, d. Shut down with p-demo-poweroff.
+QEMU emergency exit: Ctrl+A, X. The demo disk is retained.
+Creating Nix store image...
+Created Nix store image.
+c[?7l[2J[0mSeaBIOS (version rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7EFCA6F0+7EF2A6F0 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from ROM...
+Probing EDD (edd=off to disable)... ok
+c[?7l[2JP+q6E616D65\[18t7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J[0;1;39mBooting initrd of [0m[0;38;2;126;186;228mNixOS 26.11 (Zokor) (Initrd)[0m[0;1;39m.[0m
+]3008;start=99c006ebce154d52b6928206055ef010;user=root;hostname=p-vm;machineid=460776d3756142e88086b1cac8d41143;bootid=001dc058429f4fdaa80d0b162232a15f;pid=1;pidfdid=2;comm=systemd;type=boot\[[0;32m  OK  [0m] Created slice [0;1;39mSlice /system/modprobe[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+         Expecting device [0;1;39m/dev/disk/by-label/nix-store[0m...
+         Expecting device [0;1;39m/dev/disk/by-label/nixos[0m...
+[[0;32m  OK  [0m] Reached target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mD-Bus System Message Bus Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Socket (/dev/log)[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Sockets[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Control Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Kernel Socket[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSocket Units[0m.
+         Starting [0;1;39mCreate List of Static Device Nodes[0m...
+         Starting [0;1;39mLoad Kernel Module configfs[0m...
+         Starting [0;1;39mJournal Service[0m...
+         Starting [0;1;39mLoad Kernel Modules[0m...
+         Starting [0;1;39mColdplug All udev Devices[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate List of Static Device Nodes[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Module configfs[0m.
+         Starting [0;1;39mCreate Static Device Nodes in /dev gracefully[0m...
+[[0;32m  OK  [0m] Started [0;1;39mJournal Service[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Modules[0m.
+         Starting [0;1;39mApply Kernel Variables[0m...
+         Starting [0;1;39mCreate Static Device Nodes in /dev[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mApply Kernel Variables[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPreparation for Local File Systems[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mLocal File Systems[0m.
+         Starting [0;1;39mCreate System Files and Directories[0m...
+         Starting [0;1;39mRule-based Manager for Device Events and Files[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mColdplug All udev Devices[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate System Files and Directories[0m.
+[[0;32m  OK  [0m] Started [0;1;39mRule-based Manager for Device Events and Files[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mBasic System[0m.
+[[0;32m  OK  [0m] Found device [0;1;39m/dev/disk/by-label/nix-store[0m.
+         Starting [0;1;39mVirtual Console Setup[0m...
+[[0;32m  OK  [0m] Found device [0;1;39m/dev/disk/by-label/nixos[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd Root Device[0m.
+         Starting [0;1;39mFile System Check on /dev/disk/by-label/nixos[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mVirtual Console Setup[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mFile System Check on /dev/disk/by-label/nixos[0m.
+         Mounting [0;1;39m/sysroot[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd Root File System[0m.
+         Mounting [0;1;39m/sysroot/nix/.ro-store[0m...
+         Mounting [0;1;39m/sysroot/run[0m...
+         Starting [0;1;39mMountpoints Configured in the Real Root[0m...
+         Starting [0;1;39mrw-sysroot-nix-store.service[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot/run[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mrw-sysroot-nix-store.service[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot/nix/.ro-store[0m.
+         Starting [0;1;39mrw-sysroot-nix-store.service[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mMountpoints Configured in the Real Root[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mrw-sysroot-nix-store.service[0m.
+         Mounting [0;1;39m/sysroot/nix/store[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot/nix/store[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd File Systems[0m.
+         Starting [0;1;39mFind NixOS closure[0m...
+         Starting [0;1;39mCreate Volatile Files and Directories in the Real Root[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Volatile Files and Directories in the Real Root[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mFind NixOS closure[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd Default Target[0m.
+         Starting [0;1;39mCleaning Up and Shutting Down Daemons[0m...
+[[0;32m  OK  [0m] Stopped target [0;1;39mInitrd Default Target[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mBasic System[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mInitrd Root Device[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSocket Units[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mD-Bus System Message Bus Socket[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mFind NixOS closure[0m.
+         Starting [0;1;39mrw-sysroot-nix-store.service[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mApply Kernel Variables[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad Kernel Modules[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Volatile Files and Directories in the Real Root[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate System Files and Directories[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLocal File Systems[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPreparation for Local File Systems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mColdplug All udev Devices[0m.
+         Stopping [0;1;39mRule-based Manager for Device Events and Files[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mVirtual Console Setup[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCleaning Up and Shutting Down Daemons[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mrw-sysroot-nix-store.service[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mRule-based Manager for Device Events and Files[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mudev Control Socket[0m.
+         Starting [0;1;39mCleanup udev Database[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate List of Static Device Nodes[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCleanup udev Database[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSwitch Root[0m.
+         Starting [0;1;39mNixOS Activation[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mNixOS Activation[0m.
+         Starting [0;1;39mSwitch Root[0m...
+P+q6E616D65\[18t7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J
+[0;1;39mWelcome to [0m[0;38;2;126;186;228mNixOS 26.11 (Zokor)[0m[0;1;39m![0m
+
+]3008;start=6d4560e438e74a2eb106713518d109eb;user=root;hostname=p-vm;machineid=1b15ff137f35412d9e71700e14a3af4e;bootid=001dc058429f4fdaa80d0b162232a15f;pid=1;pidfdid=2;comm=systemd;type=boot\[[0;32m  OK  [0m] Stopped [0;1;39minitrd-switch-root.service[0m.
+[[0;32m  OK  [0m] Created slice [0;1;39mSlice /system/getty[0m.
+[[0;32m  OK  [0m] Created slice [0;1;39mSlice /system/serial-getty[0m.
+[[0;32m  OK  [0m] Created slice [0;1;39mUser and Session Slice[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+[[0;32m  OK  [0m] Started [0;1;39mForward Password Requests to Wall Directory Watch[0m.
+         Expecting device [0;1;39m/dev/ttyS0[0m...
+[[0;32m  OK  [0m] Reached target [0;1;39mLocal Encrypted Volumes[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39minitrd-fs.target[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39minitrd-root-fs.target[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39minitrd-switch-root.target[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mVirtual Machines and Containers[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mRemote File Systems[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mQuery the User Interactively for a Password[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mProcess Core Dump Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mCredential Encryption/Decryption[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mFactory Reset Management[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mHostname Service Socket[0m.
+         Starting [0;1;39mJournal Log Access Socket[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Audit Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mConsole Output Muting Service Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mUserspace Out-Of-Memory (OOM) Killer Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mDisk Repartitioning Service Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Control Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Varlink Socket[0m.
+         Mounting [0;1;39mHuge Pages File System[0m...
+         Mounting [0;1;39mPOSIX Message Queue File System[0m...
+         Mounting [0;1;39mKernel Debug File System[0m...
+         Mounting [0;1;39mKernel Trace File System[0m...
+         Starting [0;1;39mCreate List of Static Device Nodes[0m...
+         Starting [0;1;39mLoad Kernel Module configfs[0m...
+         Mounting [0;1;39mFUSE Control File System[0m...
+         Starting [0;1;39mJournal Service[0m...
+         Starting [0;1;39mLoad Kernel Modules[0m...
+         Starting [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m...
+         Starting [0;1;39mRemount Root and Kernel File Systems[0m...
+         Starting [0;1;39mColdplug All udev Devices[0m...
+[[0;32m  OK  [0m] Started [0;1;39mJournal Service[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Log Access Socket[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mHuge Pages File System[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mPOSIX Message Queue File System[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mKernel Debug File System[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mKernel Trace File System[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate List of Static Device Nodes[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Module configfs[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mFUSE Control File System[0m.
+         Mounting [0;1;39mKernel Configuration File System[0m...
+         Starting [0;1;39mCreate Static Device Nodes in /dev gracefully[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39mKernel Configuration File System[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mRemount Root and Kernel File Systems[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mDisk Image Download Service Socket[0m.
+         Starting [0;1;39mFlush Journal to Persistent Storage[0m...
+         Starting [0;1;39mLoad/Save OS Random Seed[0m...
+[[0;32m  OK  [0m] Started [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mColdplug All udev Devices[0m.
+         Starting [0;1;39mCreate Static Device Nodes in /dev[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad/Save OS Random Seed[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPreparation for Local File Systems[0m.
+         Starting [0;1;39mRule-based Manager for Device Events and Files[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mFlush Journal to Persistent Storage[0m.
+[[0;32m  OK  [0m] Started [0;1;39mRule-based Manager for Device Events and Files[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Modules[0m.
+         Starting [0;1;39mApply Kernel Variables[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mApply Kernel Variables[0m.
+         Starting [0;1;39mVirtual Console Setup[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mVirtual Console Setup[0m.
+         Starting [0;1;39mVirtual Console Setup[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mVirtual Console Setup[0m.
+         Starting [0;1;39mVirtual Console Setup[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mVirtual Console Setup[0m.
+         Mounting [0;1;39m/run/wrappers[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/run/wrappers[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mLocal File Systems[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mBoot Loader Control Service Socket[0m.
+         Starting [0;1;39mLoad AppArmor policies[0m...
+         Starting [0;1;39mregister-nix-paths.service[0m...
+         Starting [0;1;39mCreate SUID/SGID Wrappers[0m...
+         Starting [0;1;39mCreate System Files and Directories[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate System Files and Directories[0m.
+         Starting [0;1;39mRecord System Boot/Shutdown in UTMP[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mRecord System Boot/Shutdown in UTMP[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate SUID/SGID Wrappers[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mregister-nix-paths.service[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad AppArmor policies[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDiscard unused filesystem blocks once a week[0m.
+[[0;32m  OK  [0m] Started [0;1;39mlogrotate.timer[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDaily Cleanup of Temporary Directories[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mD-Bus System Message Bus Socket[0m.
+         Starting [0;1;39mIncus user UNIX socket[0m...
+         Starting [0;1;39mIncus UNIX socket[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mNix Daemon Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mVirtual Machine and Container Registration Service Socket[0m.
+         Starting [0;1;39mnftables firewall[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mIncus user UNIX socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mIncus UNIX socket[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSocket Units[0m.
+         Starting [0;1;39mD-Bus System Message Bus[0m...
+[[0;32m  OK  [0m] Started [0;1;39mD-Bus System Message Bus[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mBasic System[0m.
+         Starting [0;1;39mLogrotate configuration check[0m...
+         Starting [0;1;39mFUSE filesystem for LXC[0m...
+         Starting [0;1;39mName Service Cache Daemon (nsncd)[0m...
+         Starting [0;1;39mPost-Boot Actions[0m...
+[[0;32m  OK  [0m] Started [0;1;39mReset console on configuration changes[0m.
+         Starting [0;1;39mresolvconf update[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mLogrotate configuration check[0m.
+[[0;32m  OK  [0m] Started [0;1;39mFUSE filesystem for LXC[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mPost-Boot Actions[0m.
+[[0;32m  OK  [0m] Started [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUser and Group Name Lookups[0m.
+         Starting [0;1;39mUser Login Management[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mnftables firewall[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mHost and Network Name Lookups[0m.
+         Stopping [0;1;39mHost and Network Name Lookups[0m...
+[[0;32m  OK  [0m] Stopped target [0;1;39mUser and Group Name Lookups[0m.
+         Stopping [0;1;39mUser and Group Name Lookups[0m...
+         Stopping [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Started [0;1;39mUser Login Management[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mName Service Cache Daemon (nsncd)[0m.
+         Starting [0;1;39mlinger-users.service[0m...
+         Starting [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Started [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mlinger-users.service[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUser and Group Name Lookups[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mresolvconf update[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPreparation for Network[0m.
+         Starting [0;1;39mDHCP Client[0m...
+         Starting [0;1;39mExtra networking commands.[0m...
+[[0;32m  OK  [0m] Stopped target [0;1;39mHost and Network Name Lookups[0m.
+         Stopping [0;1;39mHost and Network Name Lookups[0m...
+[[0;32m  OK  [0m] Stopped target [0;1;39mUser and Group Name Lookups[0m.
+         Stopping [0;1;39mUser and Group Name Lookups[0m...
+         Stopping [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mExtra networking commands.[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mNetwork[0m.
+         Starting [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Started [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUser and Group Name Lookups[0m.
+         Starting [0;1;39mPermit User Sessions[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mLoad/Save RF Kill Switch Status /dev/rfkill Watch[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mPermit User Sessions[0m.
+[[0;32m  OK  [0m] Started [0;1;39mGetty on tty1[0m.
+[[0;32m  OK  [0m] Started [0;1;39mSerial Getty on ttyS0[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDHCP Client[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mNetwork is Online[0m.
+         Starting [0;1;39mIncus Container and Virtual Machine Management Daemon[0m...
+         Starting [0;1;39mP fixed DNS-over-HTTPS resolver[0m...
+[[0;32m  OK  [0m] Started [0;1;39mP fixed DNS-over-HTTPS resolver[0m.
+[    5.228072] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] dnscrypt-proxy 2.1.18
+[    5.240226] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Using default Weighted Power of Two (WP2) load balancing strategy
+[    5.241665] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Now listening to 127.0.0.1:53 [UDP]
+[    5.242917] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Now listening to 127.0.0.1:53 [TCP]
+[    5.244397] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Firefox workaround initialized
+[    5.245590] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Hot reload is disabled
+[    5.285620] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] [p-quad9] OK (DoH) - rtt: 7ms
+[    5.407761] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] [p-cloudflare] OK (DoH) - rtt: 48ms
+[    5.409061] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Sorted latencies:
+[    5.410033] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] -     7ms p-quad9
+[    5.410955] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] -    48ms p-cloudflare
+[    5.411912] dnscrypt-proxy[693]: [2026-10-01 20:46:03] [NOTICE] Server with the lowest initial latency: p-quad9 (rtt: 7ms), live servers: 2
+[[0;32m  OK  [0m] Started [0;1;39mIncus Container and Virtual Machine Management Daemon[0m.
+         Starting [0;1;39mIncus initialization with preseed file[0m...
+         Starting [0;1;39mIncus Instances Startup/Shutdown[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mIncus Instances Startup/Shutdown[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mIncus initialization with preseed file[0m.
+         Starting [0;1;39mPrepare the confined Incus lab and pinned fixture image[0m...
+[[0;32m  OK  [0m] Started [0;1;39mIncus Container and Virtual Machine Management User Daemon[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mPrepare the confined Incus lab and pinned fixture image[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mLogin Prompts[0m.
+         Starting [0;1;39mP public lab daemon (confined Incus owner)[0m...
+[[0;32m  OK  [0m] Started [0;1;39mP public lab daemon (confined Incus owner)[0m.
+         Starting [0;1;39mSeed the local-only P repository and main session[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mSeed the local-only P repository and main session[0m.
+         Starting [0;1;39mSeed the notes project and its three session-user services[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mSeed the notes project and its three session-user services[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mMulti-User System[0m.
+[!p]104\[0m[?7h[1G[0J7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J7[32766;32766H[6n8]3008;start=6a8dfbeb79c14c6c868ce4692b69b473;user=root;hostname=p-vm;machineid=1b15ff137f35412d9e71700e14a3af4e;bootid=001dc058429f4fdaa80d0b162232a15f;pid=671;pidfdid=672;comm=(agetty);servicename=serial-getty@ttyS0.service;invocationid=cebefd42b8b342b18b846ede92b87cfc;type=service\P+q6E616D65\
+
+[1;32m<<< Welcome to NixOS 26.11.20260905.c043004 (x86_64) - ttyS0 >>>[0m
+P lab. Run p api, p tui, or p-demo-poweroff.
+
+p-vm login: pdev (automatic login)
+
+]3008;start=d2144b609b4f44468225c4f7344d2906;user=root;hostname=p-vm;machineid=1b15ff137f35412d9e71700e14a3af4e;bootid=001dc058429f4fdaa80d0b162232a15f;pid=671;pidfdid=672;comm=login;targetuser=pdev;sessionid=5;type=session\P lab shell: p api calls the API; p tui opens the TUI; p-demo-poweroff shuts down.
+The P instance is configured. The daemon starts in the background.
+Project p-ai/main is seeded from committed source on first boot. Check systemctl status p-lab-repository.
+Public DNS/HTTP(S) enabled; host/LAN/private destinations blocked.
+Project notes/main is seeded with database, web and worker services. Check systemctl status p-lab-notes.
+[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m export TERM=xterm-256color; stty rows 35 cols 120; p tui\n[C[C[C[C[C[C[C[C[C[C[C[C[C[C[C[Kexport TERM=xterm-256color; stty rows 35 cols 120; p tui
+[?2004l[?1049h[?2026$p[?2027$p]11;?[>4m[2J[H[?25l[?5W[?2004h[>4;2m[>1u[?u[H[2J [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭──────────────────────────────────────────────────────────────────────────╮[m [38;5;237m╭───────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[53X[3;77H[38;5;237m│[m [38;5;237m│[m [38;5;183;1mSession details[m[23X[23C[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m0–0 of 0 · selected 0[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mSelect a session to inspect its real…[m [38;5;237m│[m
+ [38;5;237m│[m [38;5;103mNo matching entries[m[54X[5;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[6;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[7;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[8;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[9;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[10;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[11;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[12;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[13;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[14;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[15;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[17;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[18;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[19;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[20;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[21;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[22;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[23;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[24;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[25;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[26;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[27;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[28;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m╰──────────────────────────────────────────────────────────────────────────╯[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m       [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m     [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103m? help[m[71X[32;79H[38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m         [38;5;237m╰───────────────────────────────────────╯[m[4;4H[38;5;103m1–3 of 3 · selected 1[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mProject: notes[m[23X
+[4G[38;5;195;48;5;54;1m› notes            ├─ main[30X[5;60H[38;5;77;49;22mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: main[m
+[6G[38;5;195mnotes            └─ test-note-feature[17X[6;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mUUID:[m
+[6G[38;5;195mp-ai[13X[7;23H└─ main[30X[7;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195m518a9a25-561d-4c57-900d-cb101ffda071[m[8;81H[38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m[9;81H[38;5;195mTerminals: unattended (0 attached)[m[11;81H[38;5;195m├─ Agents [A] · latest report[m[12;81H[38;5;195m│  Activity unknown · no retained[m[13;81H[38;5;195mreport[m
+[Z[38;5;195m│[m 
+[38;5;195m└─ Project services [S] · loading…[m[17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[4;24H[38;5;103m2[m 
+[4G  [38;5;195mnotes            ├─ main[30X[5;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: test-note-feature[m
+[4G[38;5;195;48;5;54;1m› notes            └─ test-note-feature[17X[m[7;81H[38;5;195m1dca4948-6056-4a54-9499-6cf9872e78a0[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [16;28r[16;1HM[1;35r[15;107H[38;5;195mno project[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[m [38;5;237m│[m [38;5;195munits observed[m[24X[24C[38;5;237m│[m[>4m[<1u[35d[?25h[?2004l[?1049l[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m p-demo-poweroff
+[?2004l
+Broadcast message from root@p-vm on pts/0 (Thu 2026-10-01 20:47:45 UTC):
+
+The system will power off now!
+
+[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m          Stopping [0;1;39mSession 4 of User pdev[0m...
+         Stopping [0;1;39mSession 5 of User pdev[0m...
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /system/modprobe[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mMulti-User System[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLogin Prompts[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mVirtual Machines and Containers[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDiscard unused filesystem blocks once a week[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mlogrotate.timer[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDaily Cleanup of Temporary Directories[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mLoad/Save RF Kill Switch Status /dev/rfkill Watch[0m.
+         Mounting [0;1;39m/run/initramfs[0m...
+         Stopping [0;1;39mGetty on tty1[0m...
+         Stopping [0;1;39mIncus Instances Startup/Shutdown[0m...
+         Stopping [0;1;39mIncus Container and Virtual Machine Management User Daemon[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mLogrotate configuration check[0m.
+         Stopping [0;1;39mP fixed DNS-over-HTTPS resolver[0m...
+[  107.423367] dnscrypt-proxy[693]: [2026-10-01 20:47:45] [NOTICE] Stopped.
+[[0;32m  OK  [0m] Stopped [0;1;39mSeed the notes project and its three session-user services[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSeed the local-only P repository and main session[0m.
+         Stopping [0;1;39mP public lab daemon (confined Incus owner)[0m...
+         Stopping [0;1;39mPost-Boot Actions[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mReset console on configuration changes[0m.
+         Stopping [0;1;39mSerial Getty on ttyS0[0m...
+         Stopping [0;1;39mLoad/Save OS Random Seed[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mGetty on tty1[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSerial Getty on ttyS0[0m.
+[!p]104\[0m[?7h[1G[0J7[32766;32766H[6n8[[0;32m  OK  [0m] Stopped [0;1;39mP fixed DNS-over-HTTPS resolver[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mP public lab daemon (confined Incus owner)[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus Container and Virtual Machine Management User Daemon[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39m/run/initramfs[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mPost-Boot Actions[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad/Save OS Random Seed[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSession 5 of User pdev[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSession 4 of User pdev[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /system/getty[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /system/serial-getty[0m.
+         Starting [0;1;39mGenerate shutdown ramfs[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mPrepare the confined Incus lab and pinned fixture image[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus initialization with preseed file[0m.
+         Stopping [0;1;39mPermit User Sessions[0m...
+         Stopping [0;1;39mUser Manager for UID 1000[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mPermit User Sessions[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mRemote File Systems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mUser Manager for UID 1000[0m.
+         Stopping [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m...
+         Stopping [0;1;39mUser Runtime Directory /run/user/1000[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/run/user/1000[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mGenerate shutdown ramfs[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mUser Runtime Directory /run/user/1000[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /user/1000[0m.
+         Stopping [0;1;39mUser Login Management[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mUser Login Management[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mUser and Group Name Lookups[0m.
+         Stopping [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0m[0;31m*     [0m] A stop job is running for Incus Instances Startup/Shutdown (2s / 10min)
+M[K[[0;1;31m*[0m[0;31m*    [0m] A stop job is running for Incus Instances Startup/Shutdown (2s / 10min)
+M[K[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/storage-pools/builders[0m.
+[K[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/guestapi[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/shmounts[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/devices[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus Instances Startup/Shutdown[0m.
+         Stopping [0;1;39mIncus Container and Virtual Machine Management Daemon[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus Container and Virtual Machine Management Daemon[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mNetwork is Online[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mNetwork[0m.
+         Stopping [0;1;39mDHCP Client[0m...
+         Stopping [0;1;39mFUSE filesystem for LXC[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mExtra networking commands.[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPreparation for Network[0m.
+         Stopping [0;1;39mnftables firewall[0m...
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/lxcfs[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDHCP Client[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mresolvconf update[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mFUSE filesystem for LXC[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mBasic System[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mUser and Session Slice[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSocket Units[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mIncus user UNIX socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mIncus UNIX socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mNix Daemon Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mHostname Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mDisk Image Download Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mVirtual Machine and Container Registration Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mConsole Output Muting Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mUserspace Out-Of-Memory (OOM) Killer Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mDisk Repartitioning Service Socket[0m.
+         Stopping [0;1;39mD-Bus System Message Bus[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mD-Bus System Message Bus[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mD-Bus System Message Bus Socket[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mnftables firewall[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLocal Encrypted Volumes[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mForward Password Requests to Wall Directory Watch[0m.
+         Stopping [0;1;39mLoad AppArmor policies[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mregister-nix-paths.service[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mApply Kernel Variables[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mProcess Core Dump Socket[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad Kernel Modules[0m.
+         Stopping [0;1;39mRecord System Boot/Shutdown in UTMP[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mRecord System Boot/Shutdown in UTMP[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate System Files and Directories[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad AppArmor policies[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLocal File Systems[0m.
+         Unmounting [0;1;39m/run/keys[0m...
+         Unmounting [0;1;39m/run/wrappers[0m...
+[[0;32m  OK  [0m] Unmounted [0;1;39m/run/wrappers[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/run/keys[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPreparation for Local File Systems[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUnmount All Filesystems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mRemount Root and Kernel File Systems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mFile System Check on Root Device[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Shutdown[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mLate Shutdown Services[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mSystem Power Off[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Power Off[0m.
+]3008;end=6d4560e438e74a2eb106713518d109eb\[18t7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J[  111.154539] reboot: Power down

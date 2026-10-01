@@ -241,7 +241,7 @@ func TestCreationBackRejectsDelayedBranchResults(t *testing.T) {
 			m = updated.(Model)
 			m, _ = press(m, "j")
 			m, _ = press(m, "enter")
-			if m.page != "confirm" || m.confirmParams["project"] != "b" || m.confirmParams["branch"] != "b-branch" {
+			if m.page != "creation-review" || m.confirmParams["project"] != "b" || m.confirmParams["branch"] != "b-branch" {
 				t.Fatalf("new project was not kept bound: %+v", m.confirmParams)
 			}
 		})

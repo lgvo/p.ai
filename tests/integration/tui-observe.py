@@ -105,12 +105,6 @@ class Observer:
         self.font = font
         self.master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-        # We emulate a terminal, whose output reaches the renderer verbatim.
-        # QEMU serial forwarding does not itself disable the outer PTY's
-        # ONLCR translation; CR insertion would corrupt cursor-relative frames.
-        attributes = termios.tcgetattr(slave)
-        attributes[1] &= ~termios.OPOST
-        termios.tcsetattr(slave, termios.TCSANOW, attributes)
         environment = {key: value for key, value in os.environ.items()
                        if key not in ("NO_COLOR", "TERM_PROGRAM", "TERM_PROGRAM_VERSION")}
         # start deliberately outlives its invoking shell. nix-shell --run
@@ -138,12 +132,6 @@ class Observer:
     def pump(self, duration=0):
         deadline = time.monotonic() + duration
         while not self.eof:
-            # QEMU re-enables OPOST when initializing its serial console. Keep
-            # the outer emulator transport byte-preserving throughout its life.
-            attributes = termios.tcgetattr(self.master)
-            if attributes[1] & termios.OPOST:
-                attributes[1] &= ~termios.OPOST
-                termios.tcsetattr(self.master, termios.TCSANOW, attributes)
             if select.select([self.master], [], [], max(0, min(.02, deadline - time.monotonic())))[0]:
                 try:
                     data = os.read(self.master, 65536)

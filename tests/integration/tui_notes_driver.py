@@ -165,15 +165,15 @@ def run_notes(driver):
                                          unit=name).get("journal", ""),
                     "native " + unit + " journal contains " + content)
 
-    # Actual blank project creation and default-No review precede first source.
+    # Actual blank project creation and Back editing precede first source.
     send("c"); page_ready("Create · project", "› Create a new project")
     send("\r"); expect("Project path>")
     send(project + "\r"); expect("SSH origin URL")
-    send("\r"); page_ready("Confirm action", "Confirm [y/N]")
-    send("\r"); expect("SSH origin URL")
-    assert not sessions(), "default-No creation accepted a session"
-    send("\r"); page_ready("Confirm action", "Confirm [y/N]")
-    send("y")
+    send("\r"); page_ready("Create · policy review", "Enter create project")
+    send("q"); expect("SSH origin URL")
+    assert not sessions(), "Back from creation review accepted a session"
+    send("\r"); page_ready("Create · policy review", "Enter create project")
+    send("\r")
     created = await_state(lambda: next((item for item in sessions() if item["branch"] == "main" and item["attached_count"] == 1), None),
                           "notes bootstrap and confirmed terminal attachment")
     uuid = created["uuid"]
@@ -300,8 +300,8 @@ def run_notes(driver):
     send("\r"); page_ready("Create · branch", "› Create new branch")
     send("\r"); page_ready("Create · source", "› P · refs/heads/main")
     send("\r"); expect("New branch name>")
-    send(branch + "\r"); page_ready("Confirm action", source_oid, "Confirm [y/N]")
-    send("y"); expect("Operation / readiness")
+    send(branch + "\r"); page_ready("Create · policy review", source_oid, "Enter create, boot and enter")
+    send("\r"); expect("Operation / readiness")
     send("q"); expect("All project sessions")
     branch_session = await_state(lambda: next((item for item in sessions()
                                               if item["branch"] == branch and item["session_condition"] == "ready"), None),
@@ -390,8 +390,8 @@ def run_notes(driver):
     send("j"); page_ready("Create · project", "› " + project)
     send("\r"); page_ready("Create · branch", "› Create new branch", renamed)
     send("j"); page_ready("Create · branch", "› " + renamed)
-    send("\r"); page_ready("Confirm action", "Existing retained P branch: " + renamed, source_oid, "Confirm [y/N]")
-    send("y")
+    send("\r"); page_ready("Create · policy review", "Existing retained P branch: " + renamed, source_oid, "Enter create, boot and enter")
+    send("\r")
     reassigned = await_state(lambda: next((item for item in sessions()
                                           if item["branch"] == renamed and item["attached_count"] == 1), None),
                              "retained branch reassigned and confirmed native attachment")
