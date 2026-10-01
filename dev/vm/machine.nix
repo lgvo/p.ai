@@ -34,7 +34,9 @@ let
     && selectedSteps == [ "37-public-egress.sh" ];
   serviceFixture = automated && productTest != null
     && (selectedSteps == [ ] || lib.elem "55-nixos-service.sh" selectedSteps
-      || lib.elem "56-live-tui.sh" selectedSteps);
+      || lib.elem "56-live-tui.sh" selectedSteps
+      || lib.elem "57-developer-workflow.sh" selectedSteps
+      || lib.elem "58-notes-tui.sh" selectedSteps);
   publicNetwork = publicEgressFixture || demoPublic;
   pService = serviceFixture || demo;
   pStateDirectory = if demo then "p-demo" else "p-service55";

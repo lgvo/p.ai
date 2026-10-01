@@ -336,7 +336,10 @@ func runCommandBounded(ctx context.Context, binary string, argv, env []string, s
 		if diagnostic {
 			return nil, fmt.Errorf("Incus command failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 		}
-		return nil, fmt.Errorf("Incus command failed: %w", err)
+		// Preserve bounded stdout with the typed process error. A caller can
+		// recognize a command-specific exit convention without treating other
+		// failures as success; output overflows still return no data above.
+		return stdout.Bytes(), fmt.Errorf("Incus command failed: %w", err)
 	}
 	return stdout.Bytes(), nil
 }

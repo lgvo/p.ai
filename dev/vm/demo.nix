@@ -1,4 +1,4 @@
-{ config, lib, pkgs, demoPublic, demoPublicEgress, demoRepositoryBundle, ... }:
+{ config, lib, pkgs, demoPublic, demoPublicEgress, demoRepositoryBundle, demoNotes ? false, demoOriginFixture ? null, ... }:
 let
   socket = "/var/lib/p-demo/control.sock";
   browser = pkgs.writeShellApplication {
@@ -74,14 +74,31 @@ let
   }));
 in
 {
-  environment.systemPackages = [ browser api shutdown ];
+  environment.systemPackages = [ browser api shutdown ] ++ lib.optional (demoNotes && demoOriginFixture != null) demoOriginFixture;
   environment.variables.P_SOCKET = socket;
+  environment.etc = lib.optionalAttrs demoNotes {
+    "p-notes-example".source = ../../examples/notes;
+    "p-notes-persistence-check.sh".source = ../../tests/integration/notes-lab-persistence.sh;
+    "p-notes-origin-fixture.sh".source = ../../tests/integration/notes-origin-fixture.sh;
+  };
+  # Expose the guest owner's trusted SSH configuration to the notes daemon
+  # while hiding the rest of its home. Fixture keys live in private daemon
+  # state, which is already available to this unit. Create the empty directory
+  # before the bind so a fresh lab needs no restart after fixture setup.
+  systemd.tmpfiles.rules = lib.optional demoNotes "d /home/pdev/.ssh 0700 pdev users -";
   services.p.bundledActivation = lib.mkForce false;
   # The public mode follows the owner-run daemon contract. Its two read-only
   # root proofs require sudo; the hardened services.p unit forbids privilege
   # transitions and is used unchanged in the default offline mode.
   systemd.services.p = lib.mkMerge [
     { serviceConfig.ExecStartPre = lib.mkBefore [ preparePlugins ]; }
+    (lib.mkIf demoNotes {
+      after = [ "systemd-tmpfiles-setup.service" ];
+      serviceConfig = {
+        ProtectHome = lib.mkForce "tmpfs";
+        BindReadOnlyPaths = [ "/home/pdev/.ssh" ];
+      };
+    })
     (lib.mkIf demoPublic {
       description = "P public lab daemon (confined Incus owner)";
       wantedBy = [ "multi-user.target" ];
@@ -139,6 +156,7 @@ in
       echo "The P instance is configured. The daemon starts in the background."
       echo "Project p-ai/main is seeded from committed source on first boot. Check systemctl status p-lab-repository."
       echo "${if demoPublic then "Public DNS/HTTP(S) enabled; host/LAN/private destinations blocked." else "Sessions have no network access."}"
+      ${lib.optionalString demoNotes ''echo "Three-service notes sample: /etc/p-notes-example. New sessions have PostgreSQL and Python/Psycopg tools."''}
     fi
   '';
 }

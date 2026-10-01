@@ -1,5 +1,264 @@
 # MVP implementation progress
 
+## TUI and three-service developer workflows — 2026-09-30
+
+The [authorized plan](tui-developer-workflow-plan.md) was delivered through
+separate application, native workflow and adaptive experience checks. The final
+`just test` checkpoint passed all 58 scenarios on 2026-10-01; the provisioned
+sample delivery is complete. The committed default-devShell extension retains
+its separately pending offline-input-resolution milestone. The
+[experience record](llm-interactive-review/tui/README.md) indexes exact
+builds, test-owned lab state, chosen actions and original rendered frames.
+Earlier checkpoints below retain their scope and do not establish a full-suite
+pass for this checkout.
+
+The LLM first navigated the current prototype and installed product at matched
+120×35, 80×24 and 48×16 dimensions. That comparison found clipped details,
+hidden status after long names, concatenated project counts and compact
+controls. The changed browser reserves runtime/attention space, frames and
+wraps details, aligns counts and wraps controls and diagnostics. Native empty
+inventories, long literal names, creation-list scrolling, preparation feedback,
+Back/cancel, default-No, entry/detach/re-entry and error pages received adaptive
+review. The reviewed handoff frames did not expose the earlier console; this
+is not a guarantee about every transient frame.
+
+The [notes example](../examples/notes/README.md) contains a Python HTTP app,
+PostgreSQL and a queued word-count worker, each with its own session-user unit.
+The optional notes runtime provides PostgreSQL 18.6 and Python 3.14.7 with
+Psycopg 3.3.4, preserving the ordinary production image. Source is copied into
+each workspace; every session initializes its own private cluster and socket.
+No application data is baked into the image. The thirteen real SQL/HTTP tests
+also cover transaction interruption, concurrency, readiness, repeat setup,
+damaged/incompatible cluster and schema state, unknown schema and actual unit
+parsing with spaces and literal `%` paths. A committed default devShell remains a separately
+pending offline-input-resolution milestone.
+
+Native CLI/API57 passed its complete selected run with exit 0, clean poweroff
+and fresh disk removal in
+`.cache/p-vm/integration-20260930T225141Z-975736.log`, runner
+`/nix/store/bnmbg6dccwz7j5z51qva475p01a6clsi-p-vm-integration-test`.
+Its actual image was
+`d6135b1d5d0d48c04f2a7a5aafc7f60afb3b1feef65a57f9da49a59f783d7e98`;
+step SHA256 was
+`e4dae025c7c19c9a8114b246e2ba14bfe6c6c6b326eead71df2a44a5bbaa3173`.
+The scenario covers bootstrap/refusal, real application tests, services,
+DB/dependent failure and refused writes, interrupted jobs, CLI attachment,
+edit/fail/fix, exact pushed source, private schema/data, Stop/Start, daemon
+restart, rename, Discard/reassignment/Delete and aggregate cleanup. Later test57
+adds native empty-inventory and unexported attached-shell installation checks;
+its final revision requires the aggregate checkpoint.
+
+A separate dedicated persistent-lab CLI/API proof passed clean shutdown and
+relaunch on the same disk, with different boot IDs and retained source,
+local-only/dirty/private files, principals, units, SQL rows and a pending job.
+Explicit startup resumed the job. Both shutdowns exited 0; the
+[exact persistence record](llm-interactive-review/tui/README.md#persistent-notes-lab-cliapi-evidence--2026-09-30)
+distinguishes this from daemon restart and TUI navigation.
+
+Adaptive sample review completed actual terminal edit/fail/fix and application
+tests, selected service actions/journals, worker pause/resume, Stop/Start,
+new/existing branch paths, concurrent source/data/schema isolation, rename,
+reviewed Discard/recreation/Delete and owner API project cleanup. Independent
+native observations establish private SQL and ref/runtime absence. Fault
+injection narrowly changed one exactly identified helper's process limit from
+256 to 255; restoring it enabled same-operation Retry to finish held cleanup.
+That operation finished `failed/cleaned`, not successful reanalysis. A fresh
+visible inspection then completed, preserving the source's SQL/private data.
+
+Live and native work exposed and corrected additional boundaries:
+
+- Empty installed-unit inventory accepts only actual exit 1 plus bounded,
+  non-null JSON `[]`; other execution/encoding failures remain unavailable.
+- The closed interactive environment supplies the fixed session-user bus;
+  devShell activation restores it or fails. The unmodified installer and
+  ordinary `systemctl --user` now work in attached shells.
+- Help and journal Back preserve the selected service. The next visible Stop
+  affected only the worker while database/web PIDs remained unchanged.
+- Capacity admission retains the inspection-helper slot and explains that
+  Stop retains capacity while Discard/Delete frees it. Full diagnostics were
+  reviewed at all three dimensions. An early polling-contention hypothesis
+  was rejected and its tentative patch reverted.
+- Git's ignored-directory slash marker is normalized narrowly, preserving
+  traversal rejection. Native loss inspection now handles generated caches.
+- READDIR alone accepts bounded 128 KiB NAME pages; other readers retain 16 KiB.
+  A valid native 128-entry page no longer fails the generic packet bound.
+  The seeded P repository still exceeds the independent 512-entry inventory
+  limit; it was preserved, and no successful large-tree cleanup is claimed.
+- Finalized `failed/cleaned` workspace inspections refuse Retry without
+  enqueueing work or reacquiring released authority. The final browser omits
+  Retry, ignores `r`, and requests a fresh inspection. Its affected pages were
+  adaptively reviewed at 120×35, 80×24 and 48×16.
+
+Focused real-process/Bash, Git, serialized-SFTP, authority and actual-key
+regressions passed, followed by packaged Go and seventeen Python checks. The
+final UI review runner was
+`/nix/store/l2mx5vbihqw2vlab0xfsmcpa9d8sikyl-p-demo-vm`, containing P
+`/nix/store/jpb15rgari018aiby5l6c8pklf574q7y-p-0.1.0-dev` and runtime
+`/nix/store/gmzbdgwhrnb7bl2axqp25ddaxh3kg0yx-nixos-lxc-image-x86_64-linux`.
+Every subsequent product UI change required a new affected live review.
+
+The first selected VM56+58 run passed test56, then test58 stopped at an offscreen
+journal-word expectation. The selected worker journal was correctly visible;
+the driver now synchronizes on that heading and independently checks native
+journal data and `Result=signal`. This failure is not passing test58 evidence and
+required no product UI change.
+
+Supplemental live review now proves database Stop/dependent shutdown, an
+explicitly refused HTTP write with exit 1, three visible recovery Starts and
+preservation of exactly the accepted SQL row. Actual external daemon restart
+changed its PID while runtime configuration, tmux/database/web/worker PIDs,
+source and SQL stayed unchanged through browser reconnection and entry.
+An individually selected worker Restart changed only that unit's PID.
+
+The actual sample-origin CLI/API journey also passed import, all eleven
+application tests, three service Starts, SQL/worker execution and explicit
+publication. P retained the new source while the remote stayed at its seed
+until publication; P, native SSH and the bare remote then agreed on the exact
+published OID. The default offline lab's hidden home initially blocked its
+fixture SSH configuration. A narrow read-only bind with `ProtectHome=tmpfs`
+proved access and exact-intent Retry completed the original import. The final
+optional notes configuration keeps fixture keys in private daemon state and
+exposes only the guest `.ssh` directory. Runner
+`/nix/store/j867s09yayvfgps6vrsla1arbfzv6k2c-p-demo-vm` proved sample SSH
+setup and native API contact on the initial daemon without a restart or
+temporary drop-in. Its exact source predates the later schema-readiness fix.
+The first native setup invocation inferred interactive Incus mode and hung;
+the corrected noninteractive invocation supplies the passing evidence.
+
+The corrected selected58 journal read then hit an explicit authority-busy
+response while the TUI fetched the same journal. Notes-driver observations
+now allow only six read methods, retry only that explicit conflict under one
+bounded deadline, and preserve successful empty/negative assertions.
+Mutations cannot enter that retry boundary. A subsequent run reached the
+processed-note assertion but counted the API response wrapper instead of its
+`notes` array. This is a driver assertion defect, not passing VM58 evidence.
+
+The separate live TUI origin journey has now completed nonempty project import,
+explicit source selection and session entry, the real eleven-test sample suite,
+three service Starts, private SQL and worker execution, P-only push, explicit
+owner publication, reviewed Delete and empty-project cleanup. P, native SSH
+and the remote agreed on the exact final published source. The
+[origin record](llm-interactive-review/tui/README.md#sample-ssh-origin-through-api-and-visible-import--2026-10-01-utc)
+distinguishes terminal navigation from owner API publication and records clean
+removal of the generated SSH fixture and temporary service override.
+
+At this intermediate checkpoint, corrected native CLI/API57, major VM58 and
+the aggregate `just test` run were still required. Their final passing results
+are recorded below. The provisioned sample and real devShell extension retain
+separate acceptance scopes.
+
+Fresh-context implementation review found two required corrections. The sample
+had trusted schema version 1 even when required tables or columns were missing.
+A shared read-only validator now checks required public tables, columns and
+built-in types; migration and health refuse damaged state without repair or
+data loss, while additional application columns remain supported. All thirteen
+real PostgreSQL tests passed, including damaged-schema preservation and
+extra-column compatibility. Earlier eleven-test/source-byte records retain
+their historical scope; corrected-source native and terminal evidence is
+recorded separately below.
+
+The major TUI driver also needed database and web journal pages in addition
+to the worker. Its generic selected-unit journal check requires the exact
+heading, a loaded nonempty range and visible nonblank rows, then independently
+verifies the native signature. The LLM separately opened those actual pages.
+The fresh reviewer accepted both corrections and found no further concrete
+lifecycle, authority or implementation defects at that checkpoint. Final native
+delivery gates remained distinct from that review result.
+
+The final paired native run completed CLI/API57 with all thirteen sample tests
+and `P_NOTES_WORKFLOW_PASS`, then exposed a premature driver Enter during branch
+inventory loading. The idle selected branch page confirmed that the key had
+been correctly ignored; this was not a passing VM58 or combined selection.
+Log: `.cache/p-vm/integration-20261001T024515Z-1745091.log`, runner
+`/nix/store/2jnrpc0ljvpmlg2q6hsyyslmx9x02awj-p-vm-integration-test`.
+The VM powered off cleanly and its disposable disk was removed. Driver choices
+now wait for exact selected options/review content without loading/error/stale
+feedback. Stop waits for `stopped` on the intended selected row before Start or
+removal. Fresh review verified those waits preserve single-shot inputs and all
+native assertions; the updated native selection required a rerun.
+
+The next selected58 run exposed overlapping native service polling while the
+TUI action/read was pending. Its terminal showed the intended worker installed,
+controls disabled and an explicit authority-busy diagnostic; the log does not
+prove which request won. Log:
+`.cache/p-vm/integration-20261001T030048Z-1870567.log`. The VM powered off
+cleanly; this run is failed evidence. Every driver service action now waits for
+the exact selected unit and usable controls, sends one input, waits for that
+unit's rendered target state, and only then independently reads native state.
+Journal entry uses the same selected-unit readiness boundary. Fresh review
+verified the action order and rejection of loading, busy, disabled and sibling
+state frames; no mutation retries or weakened native outcomes were introduced.
+
+The following selected58 run passed service actions, all three journals,
+Stop/Start, branch creation, isolation and rename, then exposed a production
+`session.list` removal race during Discard. Log:
+`.cache/p-vm/integration-20261001T031006Z-1934910.log`; the run failed and powered
+off cleanly. Fresh review confirmed two deletion windows: listing UUIDs before
+re-reading their rows, then inspecting each listed session after removal.
+Listing now reads complete rows in one SQL snapshot, and RPC inspection omits
+only an exact UUID freshly confirmed absent. Surviving missing authority and
+other errors still propagate; empty filtered pages retain their original
+continuation cursor. Deterministic removal, sibling, pagination and error
+regressions passed the complete control/daemon suites. The driver also waits
+for visible rename/removal operation completion before independent native
+checks. Updated live acceptance and native delivery gates were required;
+generic unavailable errors are not retried.
+
+The updated binary subsequently passed narrow adaptive live removal review:
+fresh sample source creation, full Discard, refreshed retained-branch selection,
+existing-branch reassignment to a new UUID and empty private home, full Delete,
+and refreshed session/project inventories. Independent native observations
+confirmed both completed operations, no remaining branch/ref/runtime, and
+preservation of the seeded P session. The empty test project and generated
+origin fixture were cleaned up; the lab runner exited 0 on poweroff. Runner:
+`/nix/store/8b8m97ivhkcv1sjrik4z750pns7pw27g-p-demo-vm`; P binary SHA256:
+`c07c9532296ce2d9d77a2f270c8fe8500cf3b92b58819401de216b76b3718101`.
+Fresh review accepted the race fix, regressions and final live evidence.
+
+The final selected VM58 then passed with exit 0, clean poweroff and fresh disk
+removal. Log: `.cache/p-vm/integration-20261001T033525Z-2009554.log`; runner:
+`/nix/store/j3jlc0mhplysr71by0xb9kz0f27qkd5k-p-vm-integration-test`.
+The native log contains `P_NOTES_TUI_PASS`, the exact selected-step pass marker
+and `P_VM_SMOKE_PASS`. The final driver SHA256 is
+`abb2443dccc4879a6392cad1b8abd904f080276f78d83cba77a35e8a3adcae22`.
+This established the reviewed major TUI integration effects before the full
+aggregate checkpoint.
+
+### Final delivery checkpoint — 2026-10-01
+
+`nix develop -c just test` exited 0. Flake evaluation, the complete Go suite,
+seventeen Python unit tests, mocked VM selection, eight terminal protocol tests,
+three real-PTY observer tests and the package build passed. The three serial VM
+groups executed all 58 repository scenarios exactly once: 37 restricted,
+one public-network and 20 restricted/sample scenarios. Each group emitted its
+selected pass and smoke pass markers, powered off and removed its fresh disk.
+The aggregate emitted `P_PRODUCT_INTEGRATION_PASS`. The final group passed
+CLI/API57 with all thirteen real PostgreSQL/HTTP tests and major TUI58 with
+native SQL, services/journals, branch isolation, attachment and reviewed cleanup.
+
+| Serial group | Native console log | SHA256 |
+|---|---|---|
+| Restricted, 37 steps | `.cache/p-vm/integration-20261001T034040Z-2025347.log` | `13dc44d86d50e0708aaa6e6bfa02aa31ec4703d2956c8921f1dd80ca471bb322` |
+| Public network, 1 step | `.cache/p-vm/integration-20261001T040510Z-2027733.log` | `926f89beb121f273cca3ab9249428da300f3689d35f4f07fc69a4cdbb0a09c3d` |
+| Restricted/sample, 20 steps | `.cache/p-vm/integration-20261001T040719Z-2029340.log` | `9feac2940ba1f220107d4782f13df4ddc85c6b514c158953b1c9914bcfd9c79d` |
+
+The [checkpoint audit](llm-interactive-review/tui/delivery-checkpoint.json)
+records the exact command, counts, log and source hashes, binary and sample
+runtime identities. No scenario was missing, duplicated or unexpected. The
+integration lock was released and an actual host process check found no QEMU
+remaining. All twelve task-owned observers were closed; developer disks and
+the preserved seeded P session were retained.
+
+Fresh-context review accepted the final implementation and adaptive evidence
+after its schema, journal, driver synchronization and concurrent-removal findings
+were resolved. The [270-frame experience record](llm-interactive-review/tui/README.md)
+maps every required provisioned-sample journey to separate CLI/API and adaptive
+navigation evidence. Every product UI change received affected live review
+before driver acceptance. These results complete the initial provisioned-sample
+plan; real committed-devShell input resolution and authenticated Codex acceptance
+remain separately pending. The seeded P tree still exceeds the bounded
+512-entry loss inventory; no successful large-tree cleanup is claimed.
+
 ## Follow-up correctness and security fixes — 2026-09-30
 
 Seven review findings were fixed sequentially using one implementer and one
@@ -5456,3 +5715,149 @@ clear error. Never replay a mutation; preserve the earlier Back/cursor fixes.
   PTY/Incus effects are separate native evidence. VM powered off, fresh disk
   removed; no QEMU process remains. Preserve unaffected earlier evidence and
   pending manual authenticated Codex acceptance.
+
+## Mock socket TUI exploration and fast gate — 2026-10-01
+
+Added `just tui-mock`: it builds the working production CLI, starts a stateful
+fixture socket in the background, and opens normal `p tui SOCKET`. Portfolio,
+small, and empty datasets start fresh on every invocation. The fixture covers
+the current TUI methods and simulates project/session/ref/operation/service
+state; attachment uses the production helper with a real disposable local tmux
+shell. The launcher cleans up its server, private socket, and temporary home
+and workspace on exit. The local shell runs as the developer's host user.
+
+LLM experience evidence: adaptively inspected rendered browser, services and
+journal frames, then entered a session, executed a marker and wrote an owned
+workspace file, resized the attached terminal, detached, re-entered and read
+the retained file. Reviewed creation's project/source selector and default-No
+confirmation, then authorized and entered the new fixture branch. Browser
+frames were inspected at 120×35, 80×24, and 48×16. A final stable-launcher review
+at 80×24 confirmed entry, detach, and clean quit. Editing the launcher during
+an earlier review caused its running shell to return 2 on quit; after edits
+finished, the repeat and automated launcher test returned 0 and removed the
+owned server/directory. Representative frames, chosen actions, code hashes and
+scope are retained in the [mock checkpoint](llm-interactive-review/tui/mock/checkpoint.json).
+
+Validation: `just tui-tests` passed eight terminal parser tests, three observer
+PTY tests, and ten socket/PTY integration tests. The final integration slice
+took 14.750 seconds with a warm Go cache, including builds. Every current TUI
+RPC action was observed; queued service targeting/cancel, default No, simulated
+backend refusals, stale responses, real tmux resize/retention, and launcher
+cleanup have independent effect assertions. `just unit-tests`, ShellCheck and
+fixture race checks passed. Flake evaluation and the final `just build` passed;
+the packaged check phase also ran the full Go and 17-test Python suites. Final
+package: `/nix/store/yha0bw7qi99115yn1310dxczlwcd12jf-p-0.1.0-dev`.
+A fresh-context reviewer reproduced the initial
+passing suite and found three gaps: direct launcher TERM, removal-preview
+schema fidelity, and movement inputs without outcome assertions. Fixed all
+three and added regressions. The reviewer independently passed the final ten
+tests (15.453 seconds), confirmed TERM cleanup while attached and resized with
+no remaining owned processes, and verified that suppressing a movement now
+fails. The LLM repeated the affected preview and terminal path: Discard omits
+branch loss, Delete includes it, long previews scroll with cancel controls
+retained, command input and detach work through the owned background child.
+The [action matrix](development-validations.md#mock-socket-tui-exploration-and-fast-integration)
+states the tested scope and future coverage gate.
+
+This accepts the mock exploration and fast integration harness. It does not
+establish Incus/Git/systemd effects, host isolation, authenticated agents, or
+prototype visual parity. Production TUI palette/layout and in-tmux P panels
+remain the previously identified product work. The earlier 58-scenario native
+delivery checkpoint retains its historical scope; this fixture-only change did
+not rerun those VMs or change production TUI/backend code.
+
+## Browser palette and light/dark modes — 2026-10-01
+
+Step 1 replaces the fixed ANSI palette with the selected prototype's exact
+light/dark colors. `Theme` carries both palettes and `NewWithTheme` supplies
+model-owned styles, keeping future theme selection separate from rendering.
+The production browser requests the terminal background in automatic mode;
+`p tui --theme light|dark` and `just tui-mock --theme light|dark` provide explicit
+selection. Automatic mode and noninteractive snapshots use dark colors until
+background detection succeeds; snapshot users can choose a palette explicitly.
+Spacing and selected-session detail expansion remain separate step 2 work.
+
+LLM presentation review inspected the running selected prototype and production
+browser before edits, then the corrected production browser in light and dark
+at 120×35, 80×24 and 48×16, including project selection and Back. Running status
+is green, attention amber, and headings, ordinary text, muted controls,
+selection and panel edges use their central palette roles. A fresh-context
+reviewer independently accepted the palette and light contrast with zero
+findings after reviewing those sizes, project selection/Back, reports and
+unavailable feedback, and an empty search. Representative frames, actions,
+source hashes, fixture scope and checks are retained in the
+[theme checkpoint](llm-interactive-review/tui/theme/checkpoint.json).
+
+The light review uncovered an observer defect: numeric-only RGB hex `137333`
+was interpreted as an ANSI index and rendered white. The helper now distinguishes
+six-digit RGB; corrected captures use the original cell records. The apparent
+light-green defect in earlier prototype captures was an observation artifact,
+and no prototype code changed. The older prototype renderer also required
+`COLORFGBG=0;15` to select its light palette in the emulated light terminal.
+
+Validation: `go test ./internal/tui` passed theme switching, semantic rendering,
+unchanged frame text/geometry, injected-theme isolation, and existing behavior.
+The `just tui-tests` commands passed eight terminal, four observer and eleven
+mock integration tests. New real-PTY assertions verify the actual background
+query/decoder, automatic updates, explicit-mode stability, readable light green,
+invalid theme arguments and launcher propagation. RGB frames are longer than
+the old ANSI frames; the fixture test now waits for the initial controls before
+asserting the inventory range. This evidence accepts theme presentation and
+socket/PTY wiring. No backend changed and no native VM run was needed; earlier
+native lifecycle evidence retains its existing scope.
+
+
+## Session browser layout and information parity — 2026-10-01
+
+The production browser now uses the reviewed prototype's hierarchy: the P /
+Sessions ordering header, horizontally inset rounded panels, a top range,
+aligned project/tree/branch/runtime columns, a centered bounded viewport and a
+one-cell gap between wide columns. Shared layout sizing drives page movement.
+Medium presentation reserves stable list and detail sizes and includes UUID,
+runtime, captured policy, terminal presence, latest report and an observed
+project unit state. Compact presentation retains all actions and range while
+`D` exposes complete scrollable details; nested report/service/policy pages
+return to that disclosure. Short wide terminals use the compact sizing plan.
+
+The selected-session services summary reads the existing API asynchronously:
+a 150 ms debounce coalesces navigation, one bounded read runs at a time,
+selection/page changes cancel it, and request generation plus session identity
+fence late replies. Stopped, loading, unavailable and empty observations remain
+explicit. Successful service-page observations refresh the browser summary.
+The overview labels unattended status as a latest report, presents attention
+as waiting with retained source/adapter/date provenance, and uses the model's
+injected semantic styles. It invents neither active-agent inventory nor ports.
+
+The implementer and a separate fresh reviewer independently navigated the
+current prototype and actual production mock at 120×35, 80×24 and 48×16, plus
+48→120 expansion and 120×16. Both agree **zero remaining findings**. Their
+adaptive checks covered selection/paging, long identities, waiting/stopped
+streams, service loading/error/empty observations, service-page refresh,
+search/project scope, nested disclosure/Back and resize. Seven review findings
+were resolved and repeated: lost fact colors; terminal-edge frame geometry;
+closed empty-fixture schema; omitted CSI Z decoding; tab stops after expansion;
+competing wide/compact sizing in short terminals; and phantom service loading
+after an inventory failure. Stale inventory now cancels the read and explicitly
+shows unavailable service observations; a fresh inventory restarts observation. The shared terminal
+parser now handles backward tabs and seeds default stops through its bounded
+resize domain, preserving custom stops and CSI 3g across resizing. Curated
+before/prototype/after PNGs, chosen actions and build/source hashes are in the
+[layout checkpoint](llm-interactive-review/tui/layout/checkpoint.json).
+
+Validation: focused layout/information/page-capacity, theme fact rendering,
+disclosure/Back, selected-read coalescing/cancellation/generation and malformed
+reply tests passed; the fresh reviewer also passed race checks. The final
+`just tui-tests` passed 8 terminal, 7 observer and 12 mock tests, including
+actual empty/loading/error summary reads, service-page refresh, `D` navigation
+and paging at each size. This establishes mock-backed presentation and local
+socket/PTY behavior. No backend contracts changed; this work makes no new
+native Incus/systemd/Git acceptance claim.
+
+The root's broader unit and repository checks also passed. Their scope and
+exact log hashes, package output and final TUI gate are recorded in the layout
+checkpoint. Package checks include complete Go/Python validation.
+
+The final accepted package build passed at
+`/nix/store/pnlqjma4sa0lfbyijk02v232l0pav8qi-p-0.1.0-dev`, repeating complete
+Go/Python checks after the stale-inventory feedback fix. Both reviewers renewed
+zero-finding agreement after its actual failure/cancellation/recovery review.

@@ -1,0 +1,19 @@
+[Unit]
+Description=Notes queued word-count worker
+Requires=p-project-notes-db.service
+BindsTo=p-project-notes-db.service
+After=p-project-notes-db.service
+
+[Service]
+Type=exec
+WorkingDirectory=@SOURCE@
+Environment=PYTHONUNBUFFERED=1
+@STATE@
+ExecStartPre=@PYTHON@ @SOURCE@/manage.py ready
+ExecStart=@PYTHON@ @SOURCE@/worker.py
+TimeoutStartSec=35
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=default.target

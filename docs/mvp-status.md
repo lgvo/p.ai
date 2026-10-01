@@ -2,7 +2,7 @@
 
 Current snapshot of P's design and implementation readiness.
 
-> **Status: non-normative snapshot, updated 2026-09-27.**
+> **Status: non-normative snapshot, updated 2026-10-01.**
 > [Project guidance](../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
@@ -11,8 +11,8 @@ Current snapshot of P's design and implementation readiness.
 
 ## Executive state
 
-P's CLI-first implementation and live session browser are available. The resumed
-serial delivery checkpoint covers all 56 automated validation steps. Package validation, trusted plugin
+P's CLI-first implementation and live session browser are available. The latest
+serial delivery checkpoint passed all 58 automated validation steps. Package validation, trusted plugin
 activation, bounded WASI event handlers, session asset plans, the file-log
 broker, SQLite state, Git/SSH, the assembled base runtime, and the executable
 Incus plugin have passed independent review, unit tests, and the packaged VM
@@ -26,16 +26,16 @@ creation, project cache reuse/rebuild, activation, and private-state persistence
 also pass. Explicit cache collection, interrupted-cleanup recovery, and
 concurrent cache reuse pass their selected VM gate. The selected Codex adapter
 passes authentication-free event, private initialization, dummy credential
-isolation, and Stop/Start VM checks. The serial delivery checkpoint covers all
-56 current steps, including the native live-TUI test, bounded workspace inspection and
+isolation, and Stop/Start VM checks. That serial delivery checkpoint covered all
+58 steps at its tested revision, including the native live-TUI test, bounded workspace inspection and
 interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.
 Selected later VM checks also cover Discard/Delete, typed grants, guarded
 repairs, retained-branch rename/delete, and three early failed-creation
 replacement paths. The selected public-network VM now passes real DoH,
 hostname HTTPS, Nix fetch and public-to-private DNS/HTTPS redirect denials
-under the configured Incus and outer-VM restrictions. All 56 automated steps
-have passing coverage across the resumed serial checkpoint; the progress record
+under the configured Incus and outer-VM restrictions. All 58 automated steps in that checkpoint
+have passing coverage; the progress record
 preserves failed invocations and fixture fixes.
 Authenticated Codex acceptance is reserved for
 the user's final manual test; automated tests use fixtures and dummy files.
@@ -63,7 +63,8 @@ is recorded separately from the preserved CLI checkpoint in the progress record.
 A [disposable NixOS/Incus lab](../dev/vm/README.md) now provides a pinned
 container fixture and an automated VM smoke test for runtime infrastructure.
 The separate product suite runs P's daemon and CLI against real Incus
-containers. Its resumed checkpoint covers all 56 automated steps listed above.
+containers. Its latest checkpoint covers all 58 repository scenarios; see the
+[final delivery record](implementation-progress.md#final-delivery-checkpoint--2026-10-01).
 Authenticated Codex acceptance remains the user-run delivery gate.
 
 [Product direction](PRODUCT.md) requires MVP to prove P's composable plugin
@@ -91,8 +92,21 @@ daemon stopped and explicit trusted selection; the package contract owns its
 preparation/refusal boundaries. NixOS service installation passed selected VM55 with private configuration,
 real Git and restart/Stop/Start persistence and confirmed cleanup. Its hardened
 service supports network:none; public-egress uses the separate owner-run daemon.
-Automated delivery acceptance covers all 55 current VM steps; authenticated
+NixOS service installation is included in that 58-step checkpoint; authenticated
 Codex execution remains pending manual validation.
+
+The initial [TUI and developer-workflow delivery](tui-developer-workflow-plan.md)
+is complete for its provisioned three-service Python/PostgreSQL/worker sample.
+Live prototype/product comparison preceded interface changes; every UI change
+received affected adaptive navigation review before driver acceptance. Native
+CLI/API and TUI workflows passed, alongside separate persistent-lab relaunch
+and actual SSH import/publication evidence. Fresh-context review accepted the
+final implementation after schema readiness, journal coverage, synchronization
+and concurrent-removal listing fixes. The final `just test` checkpoint passed
+all 58 scenarios across three cleanly shut down serial VMs. A real committed
+default-devShell remains a separately pending offline-input-resolution extension;
+the seeded P tree still exceeds the independent 512-entry loss inventory bound.
+See [the current evidence](implementation-progress.md#tui-and-three-service-developer-workflows--2026-09-30).
 
 ## Settled model
 

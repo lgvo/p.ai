@@ -1,0 +1,56 @@
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1790867465.6167326, "bytes": 0, "role": "production baseline"}
+{"op": "observe", "label": "before-wide", "wait": 1, "frame": "0002-before-wide", "timestamp": 1790867477.6203918, "bytes": 5695, "role": "production baseline", "retained_png": "before-wide.png"}
+{"op": "resize", "cols": 80, "rows": 24, "label": "before-medium", "frame": "0003-before-medium", "timestamp": 1790867489.1975176, "bytes": 8811, "role": "production baseline", "retained_png": "before-medium.png"}
+{"op": "resize", "cols": 48, "rows": 16, "label": "before-compact", "frame": "0004-before-compact", "timestamp": 1790867499.859763, "bytes": 10316, "role": "production baseline", "retained_png": "before-compact.png"}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1790867436.0712135, "bytes": 7755, "role": "current prototype", "retained_png": "prototype-wide.png"}
+{"op": "resize", "cols": 80, "rows": 24, "label": "prototype-medium", "frame": "0002-prototype-medium", "timestamp": 1790867446.7572124, "bytes": 11424, "role": "current prototype", "retained_png": "prototype-medium.png"}
+{"op": "resize", "cols": 48, "rows": 16, "label": "prototype-compact", "frame": "0003-prototype-compact", "timestamp": 1790867460.5877469, "bytes": 13125, "role": "current prototype", "retained_png": "prototype-compact.png"}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1790869054.5829525, "bytes": 0, "role": "unchanged medium project scope"}
+{"op": "observe", "label": "wide", "wait": 1, "frame": "0002-wide", "timestamp": 1790869104.4719489, "bytes": 14496, "role": "unchanged medium project scope"}
+{"op": "resize", "cols": 80, "rows": 24, "label": "medium", "frame": "0003-medium", "timestamp": 1790869144.287837, "bytes": 22315, "role": "unchanged medium project scope"}
+{"op": "send", "text": "/", "label": "search", "frame": "0004-search", "timestamp": 1790869211.5849986, "bytes": 26049, "role": "unchanged medium project scope"}
+{"op": "send", "text": "zzzz", "label": "search-empty", "frame": "0005-search-empty", "timestamp": 1790869229.1285558, "bytes": 26930, "role": "unchanged medium project scope"}
+{"op": "send", "text": "\u001b", "label": "search-cancel", "frame": "0006-search-cancel", "timestamp": 1790869243.253432, "bytes": 27939, "role": "unchanged medium project scope"}
+{"op": "send", "text": "P", "label": "projects", "frame": "0007-projects", "timestamp": 1790869265.58096, "bytes": 33390, "role": "unchanged medium project scope"}
+{"op": "send", "text": "/orbit\r", "label": "project-search", "frame": "0008-project-search", "timestamp": 1790869302.2113512, "bytes": 33777, "role": "unchanged medium project scope"}
+{"op": "send", "text": "\r", "label": "project-scope", "frame": "0009-project-scope", "timestamp": 1790869360.5115783, "bytes": 36920, "role": "unchanged medium project scope", "retained_png": "project-scope.png"}
+{"op": "close", "frame": "0010-close", "timestamp": 1790869465.8579967, "bytes": 42139, "role": "unchanged medium project scope"}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 48, "rows": 16, "frame": "0001-start", "timestamp": 1790870009.341599, "bytes": 0, "role": "final dark navigation"}
+{"op": "observe", "label": "compact", "wait": 1, "frame": "0002-compact", "timestamp": 1790870047.7476096, "bytes": 2093, "role": "final dark navigation"}
+{"op": "resize", "cols": 120, "rows": 16, "label": "short-wide", "frame": "0003-short-wide", "timestamp": 1790870060.6831434, "bytes": 4263, "role": "final dark navigation"}
+{"op": "resize", "cols": 120, "rows": 35, "label": "wide", "frame": "0004-wide", "timestamp": 1790870072.8512325, "bytes": 12517, "role": "final dark navigation"}
+{"op": "send", "text": "R", "label": "rename-long-identity", "frame": "0005-rename-long-identity", "timestamp": 1790870085.848555, "bytes": 14355, "role": "final dark navigation"}
+{"op": "send", "text": "feat/session-details-with-truthful-reports-and-observed-services-deliberately-long-branch-name", "label": "long-branch-form", "frame": "0006-long-branch-form", "timestamp": 1790870122.900258, "bytes": 14454, "role": "final dark navigation"}
+{"op": "send", "text": "\r", "label": "long-branch-ready", "wait": 1, "frame": "0007-long-branch-ready", "timestamp": 1790870139.043769, "bytes": 15076, "role": "final dark navigation"}
+{"op": "send", "text": "q", "label": "long-wide", "frame": "0008-long-wide", "timestamp": 1790870154.250754, "bytes": 23142, "role": "final dark navigation"}
+{"op": "send", "text": "R", "label": "rename-long", "frame": "0009-rename-long", "timestamp": 1790870196.688447, "bytes": 28835, "role": "final dark navigation"}
+{"op": "send", "text": "feat/session-details-with-truthful-reports-and-observed-services-deliberately-long-branch-name\r", "label": "long-branch-confirm", "frame": "0010-long-branch-confirm", "timestamp": 1790870283.5312462, "bytes": 29457, "role": "final dark navigation"}
+{"op": "send", "text": "y", "label": "long-branch-renamed", "wait": 1, "frame": "0011-long-branch-renamed", "timestamp": 1790870341.297074, "bytes": 29631, "role": "final dark navigation"}
+{"op": "send", "text": "q", "label": "long-selected-wide", "frame": "0012-long-selected-wide", "timestamp": 1790870362.575124, "bytes": 37697, "role": "final dark navigation"}
+{"op": "close", "frame": "0013-close", "timestamp": 1790870613.6458328, "bytes": 70079, "role": "final dark navigation"}
+{"op": "start", "label": "start", "wait": 1.0, "background": "light", "cols": 48, "rows": 16, "frame": "0001-start", "timestamp": 1790869962.7366717, "bytes": 1509, "role": "fresh reviewer final"}
+{"op": "resize", "cols": 120, "rows": 16, "label": "short-wide-fixed", "frame": "0002-short-wide-fixed", "timestamp": 1790870014.445334, "bytes": 4254, "role": "fresh reviewer final"}
+{"op": "resize", "cols": 120, "rows": 35, "label": "wide-expanded-tabs-fixed", "frame": "0003-wide-expanded-tabs-fixed", "timestamp": 1790870030.0599518, "bytes": 13814, "role": "fresh reviewer final"}
+{"op": "resize", "cols": 80, "rows": 24, "label": "medium-final", "frame": "0004-medium-final", "timestamp": 1790870046.1457663, "bytes": 18500, "role": "fresh reviewer final"}
+{"op": "close", "label": "review-accepted-close", "frame": "0005-review-accepted-close", "timestamp": 1790870155.6674342, "bytes": 24029, "role": "fresh reviewer final"}
+{"op": "start", "label": "start", "wait": 1.0, "background": "light", "cols": 48, "rows": 16, "frame": "0001-start", "timestamp": 1790869462.5677238, "bytes": 1551, "role": "fresh reviewer long identity"}
+{"op": "send", "text": "jj", "label": "waiting-to-unknown-fixed", "frame": "0002-waiting-to-unknown-fixed", "timestamp": 1790869521.6706324, "bytes": 2553, "role": "fresh reviewer long identity"}
+{"op": "send", "text": "j", "label": "empty-observed-fixed", "frame": "0003-empty-observed-fixed", "timestamp": 1790869547.5455186, "bytes": 3082, "role": "fresh reviewer long identity"}
+{"op": "resize", "cols": 80, "rows": 24, "label": "medium-complete", "frame": "0004-medium-complete", "timestamp": 1790869565.561559, "bytes": 6531, "role": "fresh reviewer long identity"}
+{"op": "send", "text": "/review-", "label": "longname-search", "wait": 1, "frame": "0005-longname-search", "timestamp": 1790869592.3116918, "bytes": 8918, "role": "fresh reviewer long identity"}
+{"op": "send", "hex": "0d", "label": "longname-selected", "wait": 1, "frame": "0006-longname-selected", "timestamp": 1790869609.8470147, "bytes": 9791, "role": "fresh reviewer long identity"}
+{"op": "send", "text": "D", "label": "long-details", "wait": 0.2, "frame": "0007-long-details", "timestamp": 1790869668.825589, "bytes": 13471, "role": "fresh reviewer long identity"}
+{"op": "send", "text": "q", "label": "long-details-back", "frame": "0008-long-details-back", "timestamp": 1790869680.7719996, "bytes": 17494, "role": "fresh reviewer long identity"}
+{"op": "resize", "cols": 120, "rows": 35, "label": "wide-long-complete", "frame": "0009-wide-long-complete", "timestamp": 1790869697.7362556, "bytes": 27134, "role": "fresh reviewer long identity"}
+{"op": "send", "text": "q", "label": "long-search-cleared", "frame": "0010-long-search-cleared", "timestamp": 1790869711.8712263, "bytes": 31822, "role": "fresh reviewer long identity"}
+{"op": "resize", "cols": 120, "rows": 16, "label": "short-wide", "frame": "0011-short-wide", "timestamp": 1790869815.0680907, "bytes": 46368, "role": "fresh reviewer long identity"}
+{"op": "close", "label": "finalfix-restart", "frame": "0012-finalfix-restart", "timestamp": 1790869961.5673683, "bytes": 48432, "role": "fresh reviewer long identity"}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 80, "rows": 24, "frame": "0001-start", "timestamp": 1790870618.4170604, "bytes": 0, "role": "final stale cancellation/recovery"}
+{"op": "observe", "label": "medium-fresh", "wait": 1, "frame": "0002-medium-fresh", "timestamp": 1790870622.3162246, "bytes": 3380, "role": "final stale cancellation/recovery"}
+{"op": "send", "text": "A", "label": "before-delayed", "frame": "0003-before-delayed", "timestamp": 1790870648.8564243, "bytes": 5326, "role": "final stale cancellation/recovery"}
+{"op": "send", "text": "qj", "label": "delayed-loading", "wait": 0.3, "frame": "0004-delayed-loading", "timestamp": 1790870713.881793, "bytes": 8647, "role": "final stale cancellation/recovery"}
+{"op": "send", "text": "r", "label": "stale-unavailable", "wait": 0.4, "frame": "0005-stale-unavailable", "timestamp": 1790870726.8455503, "bytes": 9261, "role": "final stale cancellation/recovery"}
+{"op": "send", "text": "A", "label": "prepare-owned-read", "frame": "0006-prepare-owned-read", "timestamp": 1790870814.3734565, "bytes": 14274, "role": "final stale cancellation/recovery"}
+{"op": "send", "text": "qk", "label": "owned-read-loading", "wait": 0.3, "frame": "0007-owned-read-loading", "timestamp": 1790870835.228778, "bytes": 17432, "role": "final stale cancellation/recovery"}
+{"op": "send", "text": "r", "label": "owned-stale-unavailable", "wait": 0.4, "frame": "0008-owned-stale-unavailable", "timestamp": 1790870848.6329863, "bytes": 17979, "role": "final stale cancellation/recovery"}
+{"op": "send", "text": "r", "label": "owned-fresh-recovery", "wait": 1, "frame": "0009-owned-fresh-recovery", "timestamp": 1790870862.268687, "bytes": 18808, "role": "final stale cancellation/recovery"}

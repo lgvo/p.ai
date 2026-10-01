@@ -29,6 +29,7 @@ let
           "plugins"
           "runtime"
           "tests"
+          "examples"
           "go.mod"
           "go.sum"
           "LICENSE"

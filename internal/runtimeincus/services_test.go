@@ -3,6 +3,8 @@ package runtimeincus
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -61,6 +63,98 @@ func TestServicesUseFixedUserCommandsAndDenyInfrastructure(t *testing.T) {
 	f.status = "Stopped"
 	if _, err = b.Services(context.Background(), testSession(), "", "list"); err == nil {
 		t.Fatal("stopped runtime accepted")
+	}
+}
+
+func TestServiceCommandOutputHelper(t *testing.T) {
+	switch os.Getenv("P_SERVICE_OUTPUT_HELPER") {
+	case "one":
+		fmt.Print("[]")
+		os.Exit(1)
+	case "two":
+		fmt.Print("[]")
+		os.Exit(2)
+	case "stdout-overflow":
+		fmt.Print(strings.Repeat(" ", 33000) + "[]")
+		os.Exit(1)
+	case "stderr-overflow":
+		fmt.Print("[]")
+		fmt.Fprint(os.Stderr, strings.Repeat("x", 33000))
+		os.Exit(1)
+	}
+}
+
+func serviceCommandFixture(t *testing.T, mode string) ([]byte, error) {
+	t.Helper()
+	return runCommandBounded(context.Background(), os.Args[0], []string{"-test.run=^TestServiceCommandOutputHelper$"},
+		[]string{"P_SERVICE_OUTPUT_HELPER=" + mode}, 32000, 32000, false)
+}
+
+func TestEmptyInstalledServiceInventoryExitConvention(t *testing.T) {
+	empty, exitOne := serviceCommandFixture(t, "one")
+	if string(empty) != "[]" || !emptyUnitFileInventory(context.Background(), empty, exitOne) {
+		t.Fatalf("actual exit 1 empty inventory was lost: %q %v", empty, exitOne)
+	}
+	_, exitTwo := serviceCommandFixture(t, "two")
+	for _, tc := range []struct {
+		name string
+		data []byte
+		err  error
+	}{
+		{"exit-two", empty, exitTwo},
+		{"transport", empty, errors.New("transport unavailable")},
+		{"context-canceled", empty, errors.Join(exitOne, context.Canceled)},
+		{"context-deadline", empty, errors.Join(exitOne, context.DeadlineExceeded)},
+		{"malformed", []byte("["), exitOne},
+		{"null", []byte("null"), exitOne},
+		{"object", []byte("{}"), exitOne},
+		{"nonempty", []byte(`[{"unit_file":"p-project-worker.service"}]`), exitOne},
+		{"oversized", []byte(strings.Repeat(" ", 32001) + "[]"), exitOne},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if emptyUnitFileInventory(context.Background(), tc.data, tc.err) {
+				t.Fatalf("failed inventory accepted: %q %v", tc.data, tc.err)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if emptyUnitFileInventory(ctx, empty, exitOne) {
+		t.Fatal("canceled caller accepted a stale inventory")
+	}
+	for _, mode := range []string{"stdout-overflow", "stderr-overflow"} {
+		data, err := serviceCommandFixture(t, mode)
+		if data != nil || err == nil || emptyUnitFileInventory(context.Background(), data, err) {
+			t.Fatalf("overflow became an empty inventory: %s %q %v", mode, data, err)
+		}
+	}
+}
+
+func TestEmptyServiceInventoryStillChecksNativeIdentity(t *testing.T) {
+	empty, exitOne := serviceCommandFixture(t, "one")
+	f := &fakeIncus{instance: true, status: "Running"}
+	b := fakeBackend(f)
+	changeIdentity := false
+	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if slices.Contains(argv, "list-unit-files") {
+			f.altered = changeIdentity
+			return empty, exitOne
+		}
+		if slices.Contains(argv, "list-units") {
+			return []byte(`[]`), nil
+		}
+		if slices.Contains(argv, "show") {
+			return []byte("ActiveState=active\nSubState=running\nResult=success\n"), nil
+		}
+		return f.run(ctx, binary, argv, env)
+	}
+	result, err := b.Services(context.Background(), testSession(), "", "list")
+	if err != nil || result.Services == nil || len(result.Services) != 0 {
+		t.Fatalf("ready empty service list: %+v %v", result, err)
+	}
+	changeIdentity = true
+	if _, err := b.Services(context.Background(), testSession(), "", "list"); err == nil {
+		t.Fatal("empty inventory bypassed runtime identity proof")
 	}
 }
 

@@ -5,6 +5,10 @@
 > the subject design documents, and [development validations](development-validations.md)
 > remain authoritative. [Missing pieces](missing-pieces.md) remains the work tracker.
 
+For the current interface and developer-journey work, follow the
+[TUI experience and developer workflow plan](tui-developer-workflow-plan.md).
+The MVP sequence below remains the historical delivery plan.
+
 ## Target
 
 Deliver a personal-use build that lets the developer create two isolated

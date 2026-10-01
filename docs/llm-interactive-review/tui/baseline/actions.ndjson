@@ -1,0 +1,35 @@
+{"op": "start", "label": "corrected-vm-start", "wait": 1.0, "cols": 120, "rows": 35, "frame": "baseline/0001-corrected-vm-start", "timestamp": 1790805835.9837337, "bytes": 298}
+{"op": "observe", "label": "guest-ready", "wait": 1.0, "frame": "baseline/0002-guest-ready", "timestamp": 1790805866.4267821, "bytes": 21663}
+{"op": "send", "label": "wide-picker", "wait": 0.6, "text": "p api system.health; systemctl is-active p-lab-repository; export TERM=xterm-256color COLORTERM=truecolor; stty cols 120 rows 35; p tui\r", "hex": null, "frame": "baseline/0003-wide-picker", "timestamp": 1790805882.2093263, "bytes": 23652}
+{"op": "send", "label": "wide-projects", "wait": 0.2, "text": "P", "hex": null, "frame": "baseline/0004-wide-projects", "timestamp": 1790805906.2561219, "bytes": 25599}
+{"op": "send", "label": "wide-picker-corrected", "wait": 0.2, "text": null, "hex": "1b", "frame": "baseline/0005-wide-picker-corrected", "timestamp": 1790805941.1863265, "bytes": 26917}
+{"op": "send", "label": "create-project", "wait": 0.2, "text": "c", "hex": null, "frame": "baseline/0006-create-project", "timestamp": 1790806001.4558167, "bytes": 28791}
+{"op": "send", "label": "create-branch", "wait": 0.5, "text": "j\r", "hex": null, "frame": "baseline/0007-create-branch", "timestamp": 1790806007.146626, "bytes": 29101}
+{"op": "send", "label": "create-source", "wait": 0.5, "text": null, "hex": "0d", "frame": "baseline/0008-create-source", "timestamp": 1790806024.5013518, "bytes": 29181}
+{"op": "send", "label": "branch-name", "wait": 0.2, "text": null, "hex": "0d", "frame": "baseline/0009-branch-name", "timestamp": 1790806029.1123376, "bytes": 29386}
+{"op": "send", "label": "creation-review", "wait": 0.2, "text": "feat/very-long-branch-name-to-test-runtime-column-qgG\r", "hex": null, "frame": "baseline/0010-creation-review", "timestamp": 1790806048.4753346, "bytes": 29948}
+{"op": "send", "label": "accepted-creation", "wait": 0.1, "text": "y", "hex": null, "frame": "baseline/0011-accepted-creation", "timestamp": 1790806051.9324338, "bytes": 30027}
+{"op": "observe", "label": "creation-progress", "wait": 1.0, "frame": "baseline/0012-creation-progress", "timestamp": 1790806070.2632308, "bytes": 30537}
+{"op": "send", "label": "progress-back", "wait": 0.2, "text": "q", "hex": null, "frame": "baseline/0013-progress-back", "timestamp": 1790806092.3266718, "bytes": 32093}
+{"op": "send", "label": "entry-transition", "wait": 0.1, "text": null, "hex": "0d", "frame": "baseline/0014-entry-transition", "timestamp": 1790806114.9268646, "bytes": 32520}
+{"op": "observe", "label": "terminal-entered", "wait": 0.6, "frame": "baseline/0015-terminal-entered", "timestamp": 1790806118.8429358, "bytes": 33923}
+{"op": "send", "label": "native-command", "wait": 0.8, "text": "printf P_BASELINE_NATIVE; pwd; git push origin HEAD:retained-baseline\r", "hex": null, "frame": "baseline/0016-native-command", "timestamp": 1790806140.4567776, "bytes": 34345}
+{"op": "send", "label": "detach", "wait": 0.5, "text": null, "hex": "0264", "frame": "baseline/0017-detach", "timestamp": 1790806145.0981529, "bytes": 36198}
+{"op": "send", "label": "services-empty", "wait": 0.5, "text": "S", "hex": null, "frame": "baseline/0018-services-empty", "timestamp": 1790806162.2750087, "bytes": 38249}
+{"op": "send", "label": "browser-exit", "wait": 0.2, "text": "qq", "hex": null, "frame": "baseline/0019-browser-exit", "timestamp": 1790806211.6305218, "bytes": 43212}
+{"op": "resize", "label": "host-stacked", "wait": 0.2, "cols": 80, "rows": 24, "frame": "baseline/0020-host-stacked", "timestamp": 1790806216.260336, "bytes": 43212}
+{"op": "send", "label": "stacked-picker", "wait": 0.5, "text": "printf \"\\033[0m\"; stty cols 80 rows 24; p tui\r", "hex": null, "frame": "baseline/0021-stacked-picker", "timestamp": 1790806220.3422344, "bytes": 44645}
+{"op": "send", "label": "stacked-long-selection", "wait": 0.2, "text": "j", "hex": null, "frame": "baseline/0022-stacked-long-selection", "timestamp": 1790806242.0382218, "bytes": 44881}
+{"op": "send", "label": "stacked-projects", "wait": 0.2, "text": "P", "hex": null, "frame": "baseline/0023-stacked-projects", "timestamp": 1790806245.2126777, "bytes": 45223}
+{"op": "send", "label": "close-projects", "wait": 0.2, "text": null, "hex": "1b", "frame": "baseline/0024-close-projects", "timestamp": 1790806298.2344115, "bytes": 45750}
+{"op": "send", "label": "compact-prepare", "wait": 0.2, "text": "q", "hex": null, "frame": "baseline/0025-compact-prepare", "timestamp": 1790806301.864551, "bytes": 45840}
+{"op": "resize", "label": "compact-resize", "wait": 0.2, "cols": 48, "rows": 16, "frame": "baseline/0026-compact-resize", "timestamp": 1790806305.0279849, "bytes": 45840}
+{"op": "send", "label": "compact-picker", "wait": 0.5, "text": "stty cols 48 rows 16; p tui\r", "hex": null, "frame": "baseline/0027-compact-picker", "timestamp": 1790806309.2843542, "bytes": 46759}
+{"op": "send", "label": "compact-long-selection", "wait": 0.2, "text": "j", "hex": null, "frame": "baseline/0028-compact-long-selection", "timestamp": 1790806312.6817293, "bytes": 46890}
+{"op": "send", "label": "compact-exit", "wait": 0.2, "text": "q", "hex": null, "frame": "baseline/0029-compact-exit", "timestamp": 1790806331.529332, "bytes": 46981}
+{"op": "resize", "label": "diagnostic-resize", "wait": 0.2, "cols": 120, "rows": 35, "frame": "baseline/0030-diagnostic-resize", "timestamp": 1790806336.1035004, "bytes": 46981}
+{"op": "send", "label": "native-creation-diagnostic", "wait": 0.6, "text": "stty cols 120 rows 35; p api operation.inspect '{\"v\":1,\"id\":\"b514bb05-da1c-4032-aef4-07664b751036\"}'; p api session.inspect '{\"v\":1,\"uuid\":\"fed98c6a-7290-4b68-bd06-2de8395dcfcc\"}'\r", "hex": null, "frame": "baseline/0031-native-creation-diagnostic", "timestamp": 1790806350.1059117, "bytes": 49913}
+{"op": "send", "label": "pending-builder-observation", "wait": 0.8, "text": "journalctl -u p -n 30 --no-pager; INCUS_SOCKET=/var/lib/incus/unix.socket.user incus --force-local --project user-1000 list --format compact\r", "hex": null, "frame": "baseline/0032-pending-builder-observation", "timestamp": 1790806368.970334, "bytes": 50960}
+{"op": "send", "label": "builder-log-image", "wait": 0.7, "text": "INCUS_SOCKET=/var/lib/incus/unix.socket.user incus --force-local --project user-1000 info p-builder-b514bb05-da1c-4032-aef4-07664b751036 --show-log; p api session.inspect '{\"v\":1,\"uuid\":\"a4e53021-4e32-48be-aa8c-b19c132998c5\"}'\r", "hex": null, "frame": "baseline/0033-builder-log-image", "timestamp": 1790806389.181704, "bytes": 51821}
+{"op": "send", "label": "final-poweroff", "wait": 1.0, "text": "p-demo-poweroff\r", "hex": null, "frame": "baseline/0034-final-poweroff", "timestamp": 1790806430.0881505, "bytes": 55817}
+{"op": "observe", "label": "confirmed-poweroff", "wait": 1.0, "frame": "baseline/0035-confirmed-poweroff", "timestamp": 1790806474.8136623, "bytes": 60445}

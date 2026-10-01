@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// Incus 7.4 uses pkg/sftp's 128-entry READDIR batches. NAME includes each
+// <=255-byte filename twice (filename and ls-style longname), display metadata
+// and attributes, so a normal page can exceed the 16 KiB stat/read budget.
+// This ceiling applies only to READDIR replies; count, total-entry and path
+// validation still apply before any listed name is used.
+const sftpDirectoryPacketMaximum = 128 << 10
+
 // listDirectory asks the confined Incus SFTP endpoint for bounded pages.
 // Incus's HTTP directory GET materializes the entire server-side ReadDir
 // result before our response limit can apply. No directory is opened until
@@ -65,7 +72,7 @@ func readBoundedSFTPDirectory(conn net.Conn, stream io.Reader, dir string, maxim
 		if err := writePacket(conn, sftpDirectoryRequest(12, id, handle)); err != nil { // SSH_FXP_READDIR
 			return nil, err
 		}
-		reply, err := readSFTPPacket(stream)
+		reply, err := readSFTPPacketBounded(stream, sftpDirectoryPacketMaximum)
 		if err != nil {
 			return nil, errors.Join(err, fmt.Errorf("workspace SFTP READDIR id=%d response unavailable", id))
 		}
@@ -127,7 +134,7 @@ func parseSFTPDirectoryNames(reply []byte, id uint32, remaining int) ([]string, 
 	}
 	count := binary.BigEndian.Uint32(reply[5:9])
 	if count == 0 || count > uint32(remaining) || count > 128 {
-		return nil, errors.New("workspace SFTP NAME count exceeds bound")
+		return nil, fmt.Errorf("workspace SFTP NAME count exceeds bound (count=%d remaining=%d page_max=128)", count, remaining)
 	}
 	rest := reply[9:]
 	names := make([]string, 0, count)

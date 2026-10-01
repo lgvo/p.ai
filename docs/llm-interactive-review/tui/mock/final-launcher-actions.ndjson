@@ -1,0 +1,5 @@
+{"op": "start", "label": "start", "wait": 3.0, "cols": 80, "rows": 24, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/final/0001-start", "timestamp": 1790861305.4318645, "bytes": 2002}
+{"op": "send", "label": "stable-entry", "wait": 1.0, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/final/0002-stable-entry", "timestamp": 1790861328.0681837, "bytes": 3477}
+{"op": "send", "label": "stable-detach", "wait": 1.0, "text": null, "hex": "0264", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/final/0003-stable-detach", "timestamp": 1790861349.440164, "bytes": 5718}
+{"op": "send", "label": "stable-quit", "wait": 1.0, "text": "q", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/final/0004-stable-quit", "timestamp": 1790861353.7197127, "bytes": 5753}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/final/0005-close", "timestamp": 1790861358.3565934, "bytes": 5753}

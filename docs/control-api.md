@@ -403,10 +403,16 @@ failed-create cleanup followed by a separate Create.
 | `operation.retry` | Same as inspect | `v`, `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
 | `operation.list` | `{"v":1,"limit":1..20,"after":"optional-operation-UUID"}` | `v`, concise operation summaries (without request/evidence), `next` in bytewise ID order. |
 | `session.inspect` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
-| `session.list` | `{"v":1,"limit":1..8,"after":"optional-session-UUID"}` | `v`, `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. |
+| `session.list` | `{"v":1,"limit":1..8,"after":"optional-session-UUID"}` | `v`, `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
 | `session.start` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. |
 | `session.stop` | Same as Start | `v`, `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments return `busy`. |
 | `session.attach` | Same as Start | `v`, `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
+
+Session listing reads a complete registry page before inspecting its sessions.
+An inspection reporting a missing record is omitted only after confirming that
+the exact session UUID has been removed from the registry. Missing authority
+for a surviving session and other inspection errors remain errors. The cursor
+belongs to the original registry page and remains valid after such omissions.
 
 Rename operation diagnostics retain up to 512 bytes so both validated
 expected/actual branch or upstream names remain visible. Other operation
@@ -664,6 +670,10 @@ frozen; a stopped source stays stopped.
 An unresolved operation holds a durable guard against Start, Stop, and Attach.
 `operation.retry` reinspects the same accepted identities; an uncertain native
 request is not permission to create a second helper or release the guard.
+For `workspace.inspect` and `workspace.loss.inspect`, `failed` with phase
+`cleaned` is finalized: the helper was cleaned up and the source guard was
+released. Exact Retry returns `busy` without enqueueing work or changing that
+operation. Request a fresh inspection with a new key to capture current facts.
 
 The initial scan is limited to 512 entries, 16 MiB total file contents, 2 MiB
 per file, and depth 24. It refuses escapes, nested mounts, unsupported Git
@@ -1037,6 +1047,13 @@ kind/code pairs are `parse_error`/`-32700`, `invalid_request`/`-32600`,
 `method_not_found`/`-32601`, `invalid_params`/`-32602`, `internal`/`-32603`,
 `cancelled`/`-32001`, `unsupported_version`/`-32002`, `busy`/`-32003`, and
 `unavailable`/`-32004`. Invalid request IDs are returned as JSON `null`.
+
+Session-capacity admission refusals retain `busy`/`-32003` and explain the
+reserved loss-inspection slot and Discard/Delete remedy. Stop retains its
+reservation. Other authority conflicts keep their generic conflict message;
+the capacity message is not an instruction to retry until admission succeeds.
+The [runtime contract](runtime-isolation.md)
+owns capacity accounting and the helper reservation.
 
 Without trusted runtime configuration, lifecycle mutations and inspection
 remain unavailable. Other methods under `project.`, `session.`, `origin.`,

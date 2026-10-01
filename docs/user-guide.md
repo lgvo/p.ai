@@ -7,8 +7,8 @@ removing its files, or remove it after reviewing what would be lost.
 This guide follows the implemented CLI and terminal-browser experience. It is a walkthrough,
 not a replacement for the [API reference](control-api.md) or the lifecycle
 contracts. `p tui` connects to the real daemon; the original prototype runs on
-fixtures. The preserved CLI-first automated validation covers all 55 VM steps
-across serial checkpoints. **Authenticated Codex acceptance remains pending
+fixtures. The validation record distinguishes automated integration checks
+from live TUI experience review. **Authenticated Codex acceptance remains pending
 your manual test.** See [current scope](mvp-status.md) and
 [validation evidence](implementation-progress.md).
 
@@ -69,13 +69,26 @@ The layout and navigation follow the
 | `P`, `/` | Select an exact project; fuzzy-search project/branch/status/report context. |
 | Enter | Start if needed and enter the real terminal. |
 | `s`, `c`, `R` | Confirm Stop; create Project → Branch → Policy; rename a session branch. |
-| `A`, `S` | Inspect real unattended agent reports; browse project user services. |
+| `D`, `A`, `S` | Read complete session details; inspect unattended agent reports; browse project user services. |
 | `O`, `p`, `b` | Inspect durable operations, captured policy/environment, or retained branches. |
 | `d`, `X` | Review Discard or session Delete after detaching and stopping. |
 | `?`, `q`/Escape | Show help; close the current interaction, then search, project scope, or browser. |
 
 The browser refreshes real state and retains selected identity while it exists.
 It adapts its list/detail layout to terminal size; 48×16 is the minimum.
+The palette follows the terminal background. Use `p tui --theme light` or
+`p tui --theme dark` to select it explicitly; `--theme auto` is the default
+and uses dark colors until the terminal answers its background query. A
+noninteractive `--snapshot` uses the dark fallback unless a theme is specified.
+Wide browsers show aligned project, branch and runtime columns with selected
+session details beside them. Medium browsers keep a stable list above details;
+compact browsers prioritize the selected stream and its range. The overview
+shows the latest retained report and selected-session project service observations.
+Loading, unavailable, stopped and empty observations are distinct. `D` opens
+scrollable identity, policy/environment, report provenance, service states and
+diagnostics at every supported size; `A`, `S` and `p` opened there return to
+Details with Back. Page movement uses the capacity of the visible layout.
+
 Search stays inside the list. In branch/project name fields, letters including
 `q`, `g` and `G` are text; Escape/Ctrl-C cancels or goes back. Confirmation
 defaults to **No**; Enter declines. Long confirmation and loss fields wrap and
@@ -97,11 +110,17 @@ and `gg/G` scrolling. Long fields wrap so they remain readable in small terminal
 
 ### Project services
 
+For a complete application with a database, HTTP server and background worker,
+use the [notes example](../examples/notes/README.md) in `just lab-notes`.
+Its walkthrough includes installation, edit/test/run, service failure and
+recovery, new branch sessions and private database state.
+
 Services lists `p-project-*.service` units in the session user's systemd manager.
 It excludes system and internal P units. `s` starts/stops the selected unit;
 `r` restarts it; Enter opens its bounded recent journal. Use `/` for text find,
 `n/N` for matches, `h/l` to pan, and `f` to follow the refreshed tail. Back clears
-find first, then returns to Services, then the picker. This is a recent tail,
+find first, then returns to the selected service, then the picker. Help also
+returns to the selected service. This is a recent tail,
 not an unbounded journal archive.
 
 For example, inside a session built from the updated base image:
@@ -115,15 +134,14 @@ Description=Example project service
 WorkingDirectory=/workspace
 ExecStart=/run/current-system/sw/bin/python3 -m http.server 8000 --bind 127.0.0.1
 UNIT
-export XDG_RUNTIME_DIR=/run/user/1000
-export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
 systemctl --user daemon-reload
 ```
 
-Detach and press `S` to select and start it. The base image enables the session
-user manager; older images without it report services unavailable. An installed
-unit that has not been loaded is shown as `unknown (not-loaded)` rather than
-inventing a runtime state. A stopped or unreachable session cannot be controlled
+Detach and press `S` to select and start it. The updated base image supplies
+the session-user manager endpoint in the interactive shell. Older images
+without a usable manager report services unavailable. An installed unit that
+has not been loaded is shown as `installed`; its explanation retains the actual
+API state, `unknown (not-loaded)`, until a loaded observation is available. A stopped or unreachable session cannot be controlled
 through this page. Service ports remain inside the session; starting a unit does
 not add host port publication or network grants.
 

@@ -9,7 +9,7 @@ build:
     nix build .#default
 
 # Run flake evaluation, unit tests, package checks, and the full VM suite.
-test: check unit-tests build vm-tests
+test: check unit-tests tui-tests build vm-tests
 
 # Run Go, Python, and mocked VM runner tests against the working checkout.
 unit-tests:
@@ -31,13 +31,29 @@ check:
 fmt:
     gofmt -w cmd internal pkg plugins runtime
 
-# Open the persistent P lab; accepts --public or --help.
+# Open the persistent P lab; accepts --public, --notes or --help.
 lab *args:
     ./dev/demo-vm "$@"
 
 # Open the persistent lab with public DNS/HTTP(S) enabled.
 lab-public:
     ./dev/demo-vm --public
+
+# Open the separate persistent lab with the three-service notes sample tools.
+lab-notes:
+    ./dev/demo-vm --notes
+
+# Test the notes sample against a temporary real PostgreSQL cluster.
+notes-tests:
+    nix-shell dev/notes-shell.nix --run 'python3 examples/notes/tests.py'
+
+# Explore the production TUI against a disposable fixture socket and local tmux.
+tui-mock *args:
+    ./dev/tui-mock "$@"
+
+# Check all production TUI actions, sockets, and terminal transport without a VM.
+tui-tests:
+    nix-shell dev/tui-test-shell.nix --run 'python3 -B tests/integration/tui-terminal-test.py && python3 -B tests/integration/tui-observe-test.py && python3 -B tests/integration/tui-mock-test.py'
 
 # Run fresh VM integration checks; accepts --step STEP.sh selections.
 vm-tests *args:

@@ -207,7 +207,9 @@ let
   };
   runtimeImage = nixpkgs.lib.nixosSystem {
     inherit system;
-    modules = [ ../runtime/image.nix ];
+    modules = [ ../runtime/image.nix ] ++ nixpkgs.lib.optional
+      (builtins.any (name: builtins.elem name selectedSteps)
+        [ "57-developer-workflow.sh" "58-notes-tui.sh" ]) ./notes-runtime.nix;
   };
   runtimeIdentity = pkgs.runCommand "p-runtime-image-fingerprint" { } ''
     cat ${runtimeImage.config.system.build.metadata}/tarball/*.tar.xz \

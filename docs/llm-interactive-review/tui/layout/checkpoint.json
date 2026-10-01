@@ -1,0 +1,371 @@
+{
+  "base_revision": "0985bc2b26e3ccb2eea84a1420e8fb691ee807cb",
+  "worktree": "existing extensive staged work preserved; scoped layout changes layered; no commit by implementer",
+  "date": "2026-10-01",
+  "scope": "Production browser presentation/navigation, selected session.services read, mock socket and local PTY capture only; no new native Incus/systemd/Git acceptance",
+  "fixture": "fresh owned portfolio (24 projects,120 sessions); deliberate one-shot delayed/error/empty service replies",
+  "prototype": "current selected browser; unchanged code",
+  "theme": "accepted model-owned Theme/Palette unchanged; dark implementer and light fresh reviewer",
+  "experience_review": {
+    "implementer": "PASS; ZERO remaining findings",
+    "fresh_reviewer": "PASS; ZERO remaining findings",
+    "agreement": "Both explicitly agreed after all seven findings were fixed and retested",
+    "dimensions": [
+      [
+        120,
+        35
+      ],
+      [
+        80,
+        24
+      ],
+      [
+        48,
+        16
+      ],
+      [
+        120,
+        16
+      ]
+    ],
+    "tasks": [
+      "paging/ends/selection/range",
+      "latest waiting report and provenance",
+      "stopped and nonreport state",
+      "bounded selected service loading/error/empty observations",
+      "service page summary refresh",
+      "search and exact project scope/Back",
+      "full D disclosure and nested A/S/p Back",
+      "long identity and resizing"
+    ],
+    "findings_resolved": [
+      "semantic colors lost in new details",
+      "terminal-edge frame geometry",
+      "closed empty-fixture schema",
+      "missing CSI Z backward tabs",
+      "default tab stops across terminal expansion with custom/all-clear preservation",
+      "overlapping wide and compact short-terminal plans",
+      "phantom service loading while inventory is stale"
+    ]
+  },
+  "source_sha256": {
+    "internal/tui/attachment_screen_test.go": "3d13d5ed43c09d699b31015f57219665ef6c6f0cf662625e2bf2839e32c028fa",
+    "internal/tui/removal_help_test.go": "60ce4a5e0f21e9c5e6f21d34c317cda581eea4b5b4c439a90d7a604b615800d1",
+    "internal/tui/workflows.go": "702a7271b017ed562bb6f801d330af28d0b66ad56c3ce896bddbe94c8bdb42cb",
+    "internal/tui/selected_services_test.go": "4e3af405296eaa59065e5ad827b06d4958c6ef4da01d72623b06a710cd28f154",
+    "internal/tui/run.go": "310d7fd4f48ead032abbeae0f775ee9150b792bb8ab97331ae67d6a3726e143c",
+    "internal/tui/client.go": "da728e55e3144e26bbfc521925cf672a57d87930d6b79e7c0ea257b40ca8a2c5",
+    "internal/tui/view.go": "57420cf046353fb563b1a97b51b2d60aabfdbb71d1b0222d7c1e09fcb789e8ec",
+    "internal/tui/selected_services.go": "4ad9f7ef1876fa69d0221abf9a2b59e31164c66a0cfb4d61a7ff1e3e860d5071",
+    "internal/tui/layout_test.go": "e2ffefcb304e5a57696cabeb6bf742c3f8ba58364f4a5840e4022a89d260e8fd",
+    "internal/tui/attachment_screen.go": "f4a0d8719380ce43b2e381ce611947c904e2280962f6a44308f533260d816f56",
+    "internal/tui/model_test.go": "e61e241106e08f9a2b671ae1a4a843becab94e68d8cf51d36cebdc1f7d597310",
+    "internal/tui/model.go": "4fc0c8253b2155152dd01211986c9a7d3c5e79f1dcdb0e2aa065da7b6491a9ef",
+    "internal/tui/theme.go": "5664c355be3fc289ce03512dc04afb1b18cbc0d26b431003bfc7d1333c48ffa4",
+    "internal/tui/theme_test.go": "8326d52b462eb2a387aaeabc6d8bb0eeec07db2470d23418f015e3060bc53e14",
+    "internal/tui/navigation_test.go": "4271c7f267e9a6b9e1b2fb6c11aad3d50e362ad7722910c2181157046e552e98",
+    "tests/integration/cmd/tui-mock/main_test.go": "fa1c54652e6d819007e19dc04b618d29299bd2d8a380bd2e850b02cdda510653",
+    "tests/integration/cmd/tui-mock/preview.go": "418d684c53c5319cd0dcd78adf3698eee6e3d913b48b5cd2c277407256dc3c83",
+    "tests/integration/cmd/tui-mock/schema.go": "0102dc0ce0ed6091e2bcf773cbaa9be4930335352b922dbc3680f51fbff145e3",
+    "tests/integration/cmd/tui-mock/main.go": "dda715b0861b7df8c9604e02ba3970fc2fe57326d2c20e251c16ee6f2c3e7bda",
+    "tests/integration/cmd/tui-mock/native.go": "95a1869aca3535c35e0c53c863bbf9a431495135fc5ce454d2852d4e1ecb8c0c",
+    "tests/integration/tui_terminal.py": "5bd577678d3eed00d7314b15c197de3e49a2132480f739d8aa6a6da18ba9cd67",
+    "tests/integration/tui-observe-test.py": "9b495ebf93999eb101f98fb345fa3e2e33663cc941bf413b3636dde01576ac0c",
+    "tests/integration/tui-mock-test.py": "74fd3b8ddf878faecab5b41fe446f3c46874190ca1551b6cd7bf89ca2801103e"
+  },
+  "reviewer_build_manifest": {
+    "finding": "7: cancelled selected-service loading during stale inventory",
+    "result": "PASS; ZERO remaining findings",
+    "experience": "80x24 ownedlightportfolio; actual3units\u2192j delayedloading\u2192r session.listfailure\u2192unavailable \u00b7 stale inventory\u2192freshloading\u21923observed units",
+    "before": "/tmp/p-review-stale/0004-actual-stale-prefix.png",
+    "after": "/tmp/p-review-stale-fixed/0003-stale-inventory-preview-fixed.png",
+    "recovery": "/tmp/p-review-stale-fixed/0006-uninterrupted-fresh-recovery.png",
+    "checks": "go test ./internal/tui; go test -race ./internal/tui; just tui-tests 8+7+12 PASS",
+    "binary_sha256": "785660477b902fd87487668c76847368f60795c1a75171eef1e95c6ce0a60972",
+    "source_files": {
+      "internal/tui/attachment_screen.go": "f4a0d8719380ce43b2e381ce611947c904e2280962f6a44308f533260d816f56",
+      "internal/tui/attachment_screen_test.go": "3d13d5ed43c09d699b31015f57219665ef6c6f0cf662625e2bf2839e32c028fa",
+      "internal/tui/client.go": "da728e55e3144e26bbfc521925cf672a57d87930d6b79e7c0ea257b40ca8a2c5",
+      "internal/tui/layout_test.go": "e2ffefcb304e5a57696cabeb6bf742c3f8ba58364f4a5840e4022a89d260e8fd",
+      "internal/tui/model.go": "4fc0c8253b2155152dd01211986c9a7d3c5e79f1dcdb0e2aa065da7b6491a9ef",
+      "internal/tui/model_test.go": "e61e241106e08f9a2b671ae1a4a843becab94e68d8cf51d36cebdc1f7d597310",
+      "internal/tui/navigation_test.go": "4271c7f267e9a6b9e1b2fb6c11aad3d50e362ad7722910c2181157046e552e98",
+      "internal/tui/removal_help_test.go": "60ce4a5e0f21e9c5e6f21d34c317cda581eea4b5b4c439a90d7a604b615800d1",
+      "internal/tui/run.go": "310d7fd4f48ead032abbeae0f775ee9150b792bb8ab97331ae67d6a3726e143c",
+      "internal/tui/selected_services.go": "4ad9f7ef1876fa69d0221abf9a2b59e31164c66a0cfb4d61a7ff1e3e860d5071",
+      "internal/tui/selected_services_test.go": "4e3af405296eaa59065e5ad827b06d4958c6ef4da01d72623b06a710cd28f154",
+      "internal/tui/theme.go": "5664c355be3fc289ce03512dc04afb1b18cbc0d26b431003bfc7d1333c48ffa4",
+      "internal/tui/theme_test.go": "8326d52b462eb2a387aaeabc6d8bb0eeec07db2470d23418f015e3060bc53e14",
+      "internal/tui/view.go": "57420cf046353fb563b1a97b51b2d60aabfdbb71d1b0222d7c1e09fcb789e8ec",
+      "internal/tui/workflows.go": "702a7271b017ed562bb6f801d330af28d0b66ad56c3ce896bddbe94c8bdb42cb"
+    },
+    "note": "Anotherreviewer accidentally injected2 extra one-shotfaults in recovery interval; explicitownedRPCfaultreset and renewedfreshobservedcapturecompleted. Initialnamedoutage/stalecaptureunaffected."
+  },
+  "checks": {
+    "focused": "go test ./internal/tui PASS; selected-service/layout/semantic regressions; fresh reviewer go test -race ./internal/tui PASS",
+    "tui_gate": {
+      "command": "just tui-tests",
+      "result": "PASS",
+      "counts": {
+        "terminal": 8,
+        "observer": 7,
+        "mock": 12
+      },
+      "log_sha256": "a5478540758e259fb7e7664506aba1344715da4c867f143e99c37624265f6c8e"
+    },
+    "unit": {
+      "command": "just unit-tests",
+      "result": "PASS before final fixture/parser refinements; final package repeated Go/Python checks",
+      "log_sha256": "df2e32b3638c908d324147e6cc7303c331cc19a45a9ceab331fc70020f591c52"
+    },
+    "check": {
+      "command": "just check",
+      "result": "PASS",
+      "log_sha256": "45179d03019cbdcee3688ef733205d4ee1c02434436ba6c2c44a7ec302589ffe"
+    },
+    "package": {
+      "command": "just build",
+      "result": "PASS final accepted source, including all Go/Python checks after stale-inventory feedback fix",
+      "path": "/nix/store/pnlqjma4sa0lfbyijk02v232l0pav8qi-p-0.1.0-dev",
+      "log_sha256": "35166214e47c9a4bbb69107fcf43ecdbe7029bff48f4df636ee11bf550eb7f7c"
+    }
+  },
+  "capture_fidelity": "Current final parser used live for final matched sizes; baseline/prototype and preserved unaffected review states repaired/replayed from retained PTY bytes. CSI Z and tab growth artifacts are not product claims. Full raw/cells are ignored .cache/p-vm/tui-review-evidence/layout. Short-wide production fix leaves medium and compact service/detail evidence unaffected.",
+  "actions_sha256": "a38f5ad921e83cde862dbae517557bc0574e7f8e102bd1face9eabdd5e3610e4",
+  "frames": [
+    {
+      "file": "before-wide.png",
+      "sha256": "3fefda6ff003a65a50ddc9961083e02f4b876be9d97f80e651081f1dae6e5ae1",
+      "dimensions": [
+        120,
+        35
+      ],
+      "role": "production baseline",
+      "capture": "faithful raw PTY replay with final parser",
+      "source_frame": "0002-before-wide",
+      "source_ansi_sha256": "c2c1dc1387841ad236afc9fca62514adf4baae8b5dd694a3805d9264fc56a527"
+    },
+    {
+      "file": "before-medium.png",
+      "sha256": "433ebed0a80c53ea9a53f8c6345611b20558eb46a8843a3bb6f4bf06adc74d79",
+      "dimensions": [
+        80,
+        24
+      ],
+      "role": "production baseline",
+      "capture": "faithful raw PTY replay with final parser",
+      "source_frame": "0003-before-medium",
+      "source_ansi_sha256": "c2c1dc1387841ad236afc9fca62514adf4baae8b5dd694a3805d9264fc56a527"
+    },
+    {
+      "file": "before-compact.png",
+      "sha256": "1891ce073a2d6ff6a74b98336f2a63303977dc17dd3cd2e6c673245ba5760b9f",
+      "dimensions": [
+        48,
+        16
+      ],
+      "role": "production baseline",
+      "capture": "faithful raw PTY replay with final parser",
+      "source_frame": "0004-before-compact",
+      "source_ansi_sha256": "c2c1dc1387841ad236afc9fca62514adf4baae8b5dd694a3805d9264fc56a527"
+    },
+    {
+      "file": "prototype-wide.png",
+      "sha256": "2027bd98bb005ad5738505516d3de7246778f901eba0d44ad24c91806a85f94a",
+      "dimensions": [
+        120,
+        35
+      ],
+      "role": "current prototype",
+      "capture": "faithful raw PTY replay with final parser",
+      "source_frame": "0001-start",
+      "source_ansi_sha256": "ae99e60718b8de94623bc609f1bf540b46cf482d1b49c33fa1367e739bdbab31"
+    },
+    {
+      "file": "prototype-medium.png",
+      "sha256": "90bcb204c8cd2eb16249159d01833641e4a4d82537b1168e401de72de0c246cf",
+      "dimensions": [
+        80,
+        24
+      ],
+      "role": "current prototype",
+      "capture": "faithful raw PTY replay with final parser",
+      "source_frame": "0002-prototype-medium",
+      "source_ansi_sha256": "ae99e60718b8de94623bc609f1bf540b46cf482d1b49c33fa1367e739bdbab31"
+    },
+    {
+      "file": "prototype-compact.png",
+      "sha256": "ffb6feacc86ebf0a13917bdc3d9207f6f231a1002e3b29ec4319a7c5cef52e70",
+      "dimensions": [
+        48,
+        16
+      ],
+      "role": "current prototype",
+      "capture": "faithful raw PTY replay with final parser",
+      "source_frame": "0003-prototype-compact",
+      "source_ansi_sha256": "ae99e60718b8de94623bc609f1bf540b46cf482d1b49c33fa1367e739bdbab31"
+    },
+    {
+      "file": "wide-dark.png",
+      "sha256": "5d5019a45a8e3c3d57160db7d3ce5b40da0126de4ae9fafb036b17050ca5412a",
+      "dimensions": [
+        120,
+        35
+      ],
+      "role": "final production dark",
+      "capture": "live final parser",
+      "source_frame": "0004-wide"
+    },
+    {
+      "file": "compact-dark.png",
+      "sha256": "38377ad446cf95b352baf1979cbb5d6a54978055b6afe36899ee630542cd7f37",
+      "dimensions": [
+        48,
+        16
+      ],
+      "role": "final production dark",
+      "capture": "live final parser",
+      "source_frame": "0002-compact"
+    },
+    {
+      "file": "short-wide.png",
+      "sha256": "3474b017d0455a0110c4db3600f53dbaa85918ace2216832450d64805b73ee62",
+      "dimensions": [
+        120,
+        16
+      ],
+      "role": "final production dark",
+      "capture": "live final parser",
+      "source_frame": "0003-short-wide"
+    },
+    {
+      "file": "medium-light.png",
+      "sha256": "f911dba5db5349a2ff6b32e47651c7158d3dbad1e46d8993519cfc3a1337ac26",
+      "dimensions": [
+        80,
+        24
+      ],
+      "role": "final production reviewer light",
+      "capture": "live final parser",
+      "source_frame": "0004-medium-final"
+    },
+    {
+      "file": "compact-details-report-services.png",
+      "sha256": "423f41d68b63a9546fd719b1260b4f67835b0bf7b32feaeffcd948e59eec760f",
+      "dimensions": [
+        48,
+        16
+      ],
+      "role": "reviewer faithful detail/service transition",
+      "capture": "reviewer faithful parser record",
+      "source_frame": "0005-details-report-services"
+    },
+    {
+      "file": "services-unavailable.png",
+      "sha256": "886ecf8ee3a5e34b68873e3af61f5b50587a03380ebf9d0a81826c98445837b6",
+      "dimensions": [
+        48,
+        16
+      ],
+      "role": "reviewer faithful detail/service transition",
+      "capture": "reviewer faithful parser record",
+      "source_frame": "0009-service-error"
+    },
+    {
+      "file": "services-empty.png",
+      "sha256": "8179eee2a7b0cf05d88e6247f8f30880f30b083df241bcd119312f1614f62546",
+      "dimensions": [
+        48,
+        16
+      ],
+      "role": "reviewer faithful detail/service transition",
+      "capture": "reviewer faithful parser record",
+      "source_frame": "0010-service-empty"
+    },
+    {
+      "file": "services-loading.png",
+      "sha256": "730e19fd42b7008fcc1f3e241abad5fa62e57f31cf08dd687762f56c9d7a33be",
+      "dimensions": [
+        48,
+        16
+      ],
+      "role": "reviewer faithful detail/service transition",
+      "capture": "reviewer faithful parser record",
+      "source_frame": "0011-service-delayed-loading"
+    },
+    {
+      "file": "long-identity-details.png",
+      "sha256": "f2842bea6bc80521ea122d486e27c38dc2d4fe964a9244065bfc1438f1abc624",
+      "dimensions": [
+        80,
+        24
+      ],
+      "role": "reviewer faithful long identity",
+      "capture": "reviewer faithful parser record",
+      "source_frame": "0007-long-details"
+    },
+    {
+      "file": "stale-services-unavailable.png",
+      "sha256": "63e1b3c826a71cb3697159e402034e5802ee3bd1924b9ef7a4cdabb80a1f9661",
+      "dimensions": [
+        80,
+        24
+      ],
+      "role": "final production dark",
+      "capture": "live final parser",
+      "source_frame": "0008-owned-stale-unavailable"
+    },
+    {
+      "file": "services-fresh-recovery.png",
+      "sha256": "46c00d58dfaf3ecab56be6e2f0525507d139f823bd1358e1e6cda94738dda65e",
+      "dimensions": [
+        80,
+        24
+      ],
+      "role": "final production dark",
+      "capture": "live final parser",
+      "source_frame": "0009-owned-fresh-recovery"
+    },
+    {
+      "file": "project-scope.png",
+      "sha256": "910337b0839d30327369dc49ee709f51a9fbe3c6d8d9a44d8a76317c50ff823f",
+      "dimensions": [
+        80,
+        24
+      ],
+      "role": "unchanged medium project scope",
+      "capture": "faithful raw PTY replay with final parser",
+      "source_frame": "0009-project-scope",
+      "source_ansi_sha256": "eaefa2f9403d4e6962211ac4e9400152b53d3ac951346399bacf565ac374685f"
+    }
+  ],
+  "fault_setup": [
+    {
+      "method": "mock.configure",
+      "params": {
+        "method": "session.services",
+        "services_empty": true
+      },
+      "retained_result": "services-empty.png",
+      "scope": "one successful empty observation; underlying fixture units retained"
+    },
+    {
+      "method": "mock.configure",
+      "params": {
+        "method": "session.services",
+        "delay_ms": 5000
+      },
+      "retained_result": "stale-services-unavailable.png",
+      "scope": "explicit owned dark fixture pending selected read"
+    },
+    {
+      "method": "mock.configure",
+      "params": {
+        "method": "session.list",
+        "error": "inventory offline"
+      },
+      "retained_result": "stale-services-unavailable.png",
+      "scope": "same owned fixture inventory failure; r followed by fresh inventory recovers"
+    }
+  ]
+}

@@ -69,6 +69,12 @@ to detach and return to the browser. Stop/Start, services, branch creation,
 rename, and reviewed removal operate on real Incus instances and P state.
 See [Using P](../../docs/user-guide.md) for the complete workflows.
 
+The seeded P repository exceeds the current
+[512-entry workspace-loss inspection limit](../../docs/control-api.md#workspace-loss-inspection).
+Its reviewed Discard/Delete is therefore refused with a bounded diagnostic;
+the source is preserved. Use the small notes project below to exercise complete
+reviewed removal. A clean lab reset uses the disk-reset procedure below.
+
 From the guest shell:
 
 ```sh
@@ -184,6 +190,52 @@ or P lifecycle recovery. Those remain in the
 
 ## Automated P validation
 
+### Three-service development sample
+
+`just lab-notes` (or `./dev/demo-vm --notes`) uses a separate
+`.cache/p-vm/demo-notes/disk.qcow2` and adds PostgreSQL and Python with Psycopg
+to its session runtime. It also supplies `/etc/p-notes-example` inside each
+session. Follow the [notes walkthrough](../../examples/notes/README.md) to copy
+it into a blank project, commit/push, install three user services and develop
+in independent branch sessions. No cluster or application data is seeded.
+The default lab continues to use its ordinary runtime and disk.
+
+The outer notes-lab owner also has a disposable localhost SSH origin fixture:
+`bash /etc/p-notes-origin-fixture.sh setup` seeds the exact sample source and
+prints the import URL/OID. The [sample walkthrough](../../examples/notes/README.md)
+explains its explicit publication and scoped cleanup. It refuses an existing
+owner SSH configuration; it never uses real credentials.
+The notes lab exposes the guest owner's `.ssh` directory read-only to its
+daemon and hides the rest of the home with `ProtectHome=tmpfs`. Fixture keys
+and repositories live in its private `/var/lib/p-demo/notes-origin-review`
+directory. This optional lab configuration preserves the default hardened
+service module.
+
+Shut down with `p-demo-poweroff` to retain the notes lab. To reset it, first
+shut down, then delete only `.cache/p-vm/demo-notes/disk.qcow2`.
+`--public --notes` has its own `demo-notes-public` directory; an explicit
+`P_DEMO_STATE_DIR` overrides these paths.
+
+`just notes-tests` uses a temporary real PostgreSQL cluster in the pinned
+sample shell. `just vm-tests --step 57-developer-workflow.sh` exercises the
+sample through the installed owner API and confined session tools. Live TUI
+experience review and persistent lab relaunch require their separate evidence.
+
+For the automated relaunch check in a dedicated test-owned notes lab, run
+`bash /etc/p-notes-persistence-check.sh prepare` as `pdev`, shut down with
+`p-demo-poweroff`, relaunch the same disk, wait for daemon readiness, then run
+`bash /etc/p-notes-persistence-check.sh check`. It creates and retains its own
+`notes-persistence` project for inspection; use a fresh alternate
+`P_DEMO_STATE_DIR` for repeated independent checks.
+
+### Browser and integration checks
+
+For TUI changes, follow the
+[TUI change and validation workflow](../../docs/development-validations.md#tui-change-and-validation-workflow).
+Review actual navigation and rendered screens against the prototype with an
+LLM before using the driver to validate major integration effects. `just test`
+runs automated checks; it does not perform that experience review.
+
 For the growing CLI product suite, run `just vm-tests` from the repository
 root. It calls `./dev/test-vm`, builds P with the same pinned Nixpkgs, runs all
 Go unit tests, and boots serial fresh VMs containing the packaged CLI and
@@ -208,7 +260,9 @@ single steps keep 1200s; per-test operation deadlines remain unchanged.
 
 `just test` evaluates the root flake, runs `just unit-tests` (Go, Python, and
 mocked VM runner checks), builds the packaged CLI with its checks, and runs
-the full VM suite. The Incus infrastructure checks run as part of that VM suite.
+the full VM suite. It also runs `just tui-tests` for terminal protocol and
+observer transport regressions. The Incus infrastructure checks run as part of
+that VM suite.
 
 `tests/integration/test-vm-selection.sh` checks selection and markers with mock
 commands in an isolated fixture checkout without starting a VM or sharing a

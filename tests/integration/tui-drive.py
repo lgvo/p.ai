@@ -11,7 +11,7 @@ import subprocess
 import sys
 import termios
 import time
-import pyte
+from tui_terminal import TerminalScreen, TerminalStream
 
 mode, socket, uuid_file = sys.argv[1:]
 
@@ -81,65 +81,8 @@ os.close(slave)
 captured = bytearray()
 
 
-class TerminalScreen(pyte.Screen):
-    def scroll_up(self, count=1):
-        previous = self.cursor.y
-        self.cursor.y = self.margins.bottom if self.margins else self.lines - 1
-        for _ in range(min(count or 1, self.lines)):
-            self.index()
-        self.cursor.y = previous
 
-    def scroll_down(self, count=1):
-        previous = self.cursor.y
-        self.cursor.y = self.margins.top if self.margins else 0
-        for _ in range(min(count or 1, self.lines)):
-            self.reverse_index()
-        self.cursor.y = previous
-
-    def write_process_input(self, data):
-        send(data)
-
-    def report_device_status(self, mode, private=False):
-        # tmux also asks for the DEC-private cursor report. pyte 0.8.2's
-        # parser forwards private=True but its base handler lacks that argument.
-        if not private:
-            return super().report_device_status(mode)
-        if mode == 6:
-            self.write_process_input(f"\x1b[?{self.cursor.y + 1};{self.cursor.x + 1}R")
-
-
-class TerminalStream(pyte.ByteStream):
-    # The pinned renderer uses CSI S/T when a frame changes height; pyte's
-    # default map omits them, leaving old rows/notices on its reconstructed screen.
-    csi = {**pyte.ByteStream.csi, "S": "scroll_up", "T": "scroll_down"}
-    events = pyte.ByteStream.events | {"scroll_up", "scroll_down"}
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.query_tail = b""
-
-    def feed(self, data):
-        # pyte drops the '>' modifier and incorrectly answers secondary DA
-        # with another primary DA. tmux consumes the first; the duplicate can
-        # leak into the shell. Recognize secondary DA before pyte parses it,
-        # including queries split across PTY reads, and report xterm identity.
-        data = self.query_tail + data
-        self.query_tail = b""
-        queries = (b"\x1b[>c", b"\x1b[>0c")
-        for length in range(min(len(data), 5), 0, -1):
-            if any(query.startswith(data[-length:]) and len(query) > length for query in queries):
-                self.query_tail = data[-length:]
-                data = data[:-length]
-                break
-        offset = 0
-        for query in re.finditer(rb"\x1b\[>(?:0)?c", data):
-            super().feed(data[offset:query.start()])
-            self.listener.write_process_input("\x1b[>0;370;0c")
-            offset = query.end()
-        super().feed(data[offset:])
-
-
-screen = TerminalScreen(100, 28)
+screen = TerminalScreen(100, 28, lambda data: send(data))
 terminal = TerminalStream(screen)
 
 
@@ -284,7 +227,7 @@ try:
         read(0.2)
         service_ui_ready("active (running)")
         send("s")
-        service_ui_ready(("inactive (dead)", "unknown (not-loaded)"))
+        service_ui_ready(("inactive (dead)", "installed"))
 
         def stopped():
             result = observe_process(["incus", "--force-local", "--project", "user-1000", "exec", "p-" + uuid,
@@ -300,6 +243,9 @@ try:
         await_state(stopped, "native user service inactive/dead with MainPID=0")
         send("q"); expect("All project sessions")
         send("q")
+    elif mode == "notes":
+        from tui_notes_driver import run_notes
+        run_notes(globals())
     elif mode == "remove":
         uuid = open(uuid_file, encoding="ascii").read()
         expect("tui56 / main")

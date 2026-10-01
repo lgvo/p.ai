@@ -270,12 +270,16 @@ func writePacket(w io.Writer, packet []byte) error {
 }
 
 func readSFTPPacket(r io.Reader) ([]byte, error) {
+	return readSFTPPacketBounded(r, 16<<10)
+}
+
+func readSFTPPacketBounded(r io.Reader, maximum uint32) ([]byte, error) {
 	var size [4]byte
 	if _, err := io.ReadFull(r, size[:]); err != nil {
 		return nil, err
 	}
 	n := binary.BigEndian.Uint32(size[:])
-	if n < 5 || n > 16<<10 {
+	if n < 5 || n > maximum {
 		return nil, errors.New("Incus SFTP packet outside bound")
 	}
 	packet := make([]byte, n)

@@ -4,11 +4,99 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+func runDirectoryReplies(t *testing.T, maximum int, replies ...[]byte) ([]string, error) {
+	t.Helper()
+	client, server := net.Pipe()
+	defer client.Close()
+	_ = client.SetDeadline(time.Now().Add(2 * time.Second))
+	_ = server.SetDeadline(time.Now().Add(2 * time.Second))
+	go func() {
+		defer server.Close()
+		if _, err := readSFTPPacket(server); err != nil {
+			return
+		}
+		if err := writePacket(server, mountinfoPacket(102, 1, mountinfoString([]byte("h")))); err != nil {
+			return
+		}
+		for _, reply := range replies {
+			if _, err := readSFTPPacket(server); err != nil {
+				return
+			}
+			if err := writePacket(server, reply); err != nil {
+				return
+			}
+		}
+	}()
+	return readBoundedSFTPDirectory(client, client, "/workspace", maximum)
+}
+
+func TestBoundedSFTPDirectoryAcceptsNativeSizeNamePage(t *testing.T) {
+	// A full server batch with ordinary long names exceeds the stat/read
+	// packet budget without exceeding the existing per-page entry count.
+	names := make([]string, 128)
+	for i := range names {
+		names[i] = fmt.Sprintf("source-%03d-%s", i, strings.Repeat("a", 120))
+	}
+	page := sftpDirectoryName(2, names...)
+	if len(page)-4 <= 16<<10 || len(page)-4 > sftpDirectoryPacketMaximum {
+		t.Fatalf("regression page does not exercise the directory-only budget: %d", len(page)-4)
+	}
+	got, err := runDirectoryReplies(t, len(names), page, mountinfoStatus(3, 1), mountinfoStatus(4, 0))
+	if err != nil || !slices.Equal(got, names) {
+		t.Fatalf("native-sized directory page: %v (%d names)", err, len(got))
+	}
+	if _, err := readSFTPPacket(bytes.NewReader(page)); err == nil {
+		t.Fatal("directory budget widened ordinary stat/read packets")
+	}
+}
+
+func TestBoundedSFTPDirectoryLargePageRemainsFailClosed(t *testing.T) {
+	names := make([]string, 129)
+	for i := range names {
+		names[i] = fmt.Sprintf("source-%03d-%s", i, strings.Repeat("a", 120))
+	}
+	valid := sftpDirectoryName(2, names[:128]...)
+	truncatedFields := append([]byte(nil), valid[:len(valid)-1]...)
+	binary.BigEndian.PutUint32(truncatedFields[:4], uint32(len(truncatedFields)-4))
+	oversized := make([]byte, 4)
+	binary.BigEndian.PutUint32(oversized, sftpDirectoryPacketMaximum+1)
+	malformed := append([]byte(nil), valid...)
+	malformed[4] = 105 // A DATA response cannot become a directory listing.
+	duplicateNames := append([]string(nil), names[:128]...)
+	duplicateNames[127] = duplicateNames[0]
+	for _, scenario := range []struct {
+		name    string
+		maximum int
+		packets [][]byte
+	}{
+		{"oversized header without body", 128, [][]byte{oversized}},
+		{"truncated packet body", 128, [][]byte{valid[:len(valid)-1]}},
+		{"truncated attributes", 128, [][]byte{truncatedFields}},
+		{"malformed response type", 128, [][]byte{malformed}},
+		{"excess page count", 129, [][]byte{sftpDirectoryName(2, names...)}},
+		{"excess remaining count", 127, [][]byte{valid}},
+		{"duplicate within large page", 128, [][]byte{sftpDirectoryName(2, duplicateNames...)}},
+		{"duplicate across pages", 129, [][]byte{valid, sftpDirectoryName(3, names[0])}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if _, err := runDirectoryReplies(t, scenario.maximum, scenario.packets...); err == nil {
+				t.Fatal("invalid large directory reply accepted")
+			}
+		})
+	}
+	// An incomplete frame must retain io.ReadFull's truncation error.
+	if _, err := readSFTPPacketBounded(bytes.NewReader(valid[:len(valid)-1]), sftpDirectoryPacketMaximum); err != io.ErrUnexpectedEOF {
+		t.Fatalf("truncated frame: %v", err)
+	}
+}
 
 func sftpDirectoryName(id uint32, names ...string) []byte {
 	body := make([]byte, 4)

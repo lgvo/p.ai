@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"path"
 	"sort"
 	"strings"
@@ -53,7 +54,7 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 		fileArgs := append([]string(nil), userArgs...)
 		fileArgs = append(fileArgs, "/usr/libexec/p/systemctl", "--user", "list-unit-files", "--type=service", "--no-pager", "--output=json", "p-project-*.service")
 		data, e := b.command(ctx, fileArgs...)
-		if e != nil || len(data) > 32000 || json.Unmarshal(data, &files) != nil || len(files) > 64 {
+		if e != nil && !emptyUnitFileInventory(ctx, data, e) || len(data) > 32000 || json.Unmarshal(data, &files) != nil || len(files) > 64 {
 			return result, errors.New("installed project service inventory unavailable or exceeds bounds")
 		}
 	}
@@ -119,4 +120,17 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 		sort.Slice(result.Services, func(i, j int) bool { return result.Services[i].Unit < result.Services[j].Unit })
 	}
 	return result, nil
+}
+
+// systemctl list-unit-files exits 1 when the glob matches no installed units,
+// even with a successful manager query and valid empty JSON output. Accept
+// only that specific bounded result, preserving other execution failures.
+func emptyUnitFileInventory(ctx context.Context, data []byte, err error) bool {
+	var exited *exec.ExitError
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		len(data) > 32000 || !errors.As(err, &exited) || exited.ExitCode() != 1 {
+		return false
+	}
+	var rows []json.RawMessage
+	return json.Unmarshal(data, &rows) == nil && rows != nil && len(rows) == 0
 }

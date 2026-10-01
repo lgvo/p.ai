@@ -3,10 +3,143 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/lgvo/p.ai/internal/control"
 )
+
+func TestLongSessionRowsKeepRuntimeAndAttentionVisible(t *testing.T) {
+	for _, width := range []int{48, 80, 120} {
+		m := fixture()
+		m.width, m.height = width, 24
+		m.data.sessions[0].Project = strings.Repeat("long-project/", 10)
+		m.data.sessions[0].Branch = strings.Repeat("branch界", 30)
+		m.data.sessions[0].Condition = "ready"
+		m.data.sessions[0].LatestUnattendedCondition = &control.UnattendedCondition{Condition: "attention"}
+		rows := m.sessionRows()
+		for _, r := range rows {
+			if r.id != m.data.sessions[0].UUID {
+				continue
+			}
+			label := m.rowLabel(r, width-6)
+			if !strings.Contains(ansi.Strip(label), "running !waiting") || ansi.StringWidth(label) > width-6 {
+				t.Fatalf("runtime hidden at width %d: %q", width, label)
+			}
+			if !strings.Contains(label, "38;2;86;211;100") || !strings.Contains(label, "38;2;227;179;65") {
+				t.Fatalf("runtime and attention lost distinct colors: %q", label)
+			}
+		}
+	}
+}
+
+func TestProjectCountsAlignAndLongNamesRemainSearchable(t *testing.T) {
+	m := fixture()
+	m.navigate("projects")
+	long := strings.Repeat("long-project/", 8)
+	m.data.projects = []control.ProjectSummary{{Path: "a"}, {Path: long}}
+	m.data.sessions = []control.SessionView{{Project: "a", Condition: "ready"}, {Project: long, Condition: "stopped"}}
+	for _, width := range []int{42, 74, 90} {
+		column := -1
+		for _, r := range m.rows() {
+			label := ansi.Strip(m.rowLabel(r, width))
+			if len(label) == 0 || ansi.StringWidth(label) > width {
+				t.Fatalf("project counts overflow width %d: %q", width, label)
+			}
+			i := ansi.StringWidth(label[:strings.Index(label, "!w")])
+			if column < 0 {
+				column = i
+			} else if i != column {
+				t.Fatalf("project count columns shifted: %q", label)
+			}
+		}
+	}
+	m.choiceQuery = long
+	if rows := m.rows(); len(rows) != 1 || rows[0].id != long {
+		t.Fatal("bounded display changed full-name search")
+	}
+}
+
+func TestCompactBrowserControlsRemainReadableAndStable(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	frame := ansi.Strip(m.View().Content)
+	for _, action := range []string{"/ search", "? help", "O operations", "R rename", "d discard", "X delete", "q/Esc back"} {
+		if !strings.Contains(frame, action) {
+			t.Fatalf("compact frame hid %s:\n%s", action, frame)
+		}
+	}
+	before := strings.Count(frame[:strings.Index(frame, "Enter open")], "\n")
+	m, _ = press(m, "j")
+	m.notice = "The selected session is unavailable."
+	afterFrame := ansi.Strip(m.View().Content)
+	if after := strings.Count(afterFrame[:strings.Index(afterFrame, "Enter open")], "\n"); after != before {
+		t.Fatal("selection/notice moved list controls")
+	}
+}
+
+func TestProgressExplainsPendingSourcePreparation(t *testing.T) {
+	m := fixture()
+	m.navigate("progress")
+	m.operationID = "operation"
+	m.operation = control.Operation{Kind: "session.create", Status: "running", Phase: "branch-assigned"}
+	_, lines, _ := m.inspectionContent()
+	if !strings.Contains(strings.Join(lines, "\n"), "Preparing captured source and environment") {
+		t.Fatal("pending creation does not explain native preparation")
+	}
+	m.operation.Status = "failed"
+	_, lines, _ = m.inspectionContent()
+	if strings.Contains(strings.Join(lines, "\n"), "pending phase") {
+		t.Fatal("failed operation was presented as pending")
+	}
+}
+
+func TestFinalizedInspectionHasFreshRequestGuidanceAndInertRetryKey(t *testing.T) {
+	for _, kind := range []string{"workspace.inspect", "workspace.loss.inspect"} {
+		t.Run(kind, func(t *testing.T) {
+			client := &fakeClient{fn: func(string, params) (any, error) { t.Fatal("finalized Retry dispatched an RPC"); return nil, nil }}
+			m := fixture()
+			m.client = client
+			m.navigate("progress")
+			m.operationID = "finalized"
+			m.operation = control.Operation{ID: "finalized", Kind: kind, Status: "failed", Phase: "cleaned"}
+			_, lines, commands := m.inspectionContent()
+			if !strings.Contains(strings.Join(lines, "\n"), "Return and request a fresh inspection") || strings.Contains(commands, "retry") {
+				t.Fatalf("finalized inspection advertised Retry: %q %q", lines, commands)
+			}
+			var cmd tea.Cmd
+			m, cmd = press(m, "r")
+			if cmd != nil || m.working || len(client.calls) != 0 {
+				t.Fatal("actual r key accepted finalized inspection Retry")
+			}
+			m, cmd = press(m, "q")
+			if m.page != "sessions" || cmd != nil {
+				t.Fatal("Back did not leave finalized inspection")
+			}
+		})
+	}
+	client := &fakeClient{fn: func(method string, p params) (any, error) {
+		if method != "operation.retry" || p["id"] != "blocked" {
+			t.Fatalf("wrong resumable request: %s %+v", method, p)
+		}
+		return map[string]any{"operation": control.Operation{ID: "blocked", Kind: "session.create", Status: "running"}}, nil
+	}}
+	m := fixture()
+	m.client = client
+	m.navigate("progress")
+	m.operationID = "blocked"
+	m.operation = control.Operation{ID: "blocked", Kind: "session.create", Status: "blocked", Phase: "branch-assigned"}
+	m, cmd := press(m, "r")
+	if cmd == nil || !m.working {
+		t.Fatal("generic resumable blocked operation lost Retry")
+	}
+	cmd()
+	if len(client.calls) != 1 || client.calls[0] != "operation.retry" {
+		t.Fatalf("actual Retry key did not reach RPC: %v", client.calls)
+	}
+}
 
 func TestInventoryRefreshClampsOpenLists(t *testing.T) {
 	for _, item := range []struct{ page, query string }{{"projects", ""}, {"projects", "vnsh"}, {"operations", ""}} {
@@ -225,5 +358,110 @@ func TestRepeatedHelpKeepsInterruptedReadContext(t *testing.T) {
 	m, cmd := press(m, "esc")
 	if cmd == nil || m.page != "create" || m.form != "branch" || !m.working {
 		t.Fatal("repeated Help forgot its caller or interrupted read")
+	}
+}
+
+func TestServiceStatesKeepActionsTruthfulInCompactView(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	m.navigate("services")
+	m.servicesFresh = true
+	m.services = []control.ProjectService{{Unit: "p-project-notes-worker.service", ActiveState: "unknown", SubState: "not-loaded"}}
+	frame := ansi.Strip(m.View().Content)
+	if !strings.Contains(frame, "installed") || !strings.Contains(frame, "s start") || strings.Contains(frame, "s start/stop") {
+		t.Fatalf("unloaded installed service is ambiguous: %s", frame)
+	}
+	m.services[0].ActiveState, m.services[0].SubState = "active", "running"
+	if frame = ansi.Strip(m.View().Content); !strings.Contains(frame, "s stop") {
+		t.Fatal("active service does not offer Stop")
+	}
+	m.servicesFresh = false
+	if frame = ansi.Strip(m.View().Content); strings.Contains(frame, "s stop") || !strings.Contains(frame, "Service observation unavailable/loading") {
+		t.Fatal("unavailable inventory offers active controls")
+	}
+}
+
+func TestAttachmentReturnSelectsNewCreatedSession(t *testing.T) {
+	m := fixture()
+	m.page = "progress"
+	m.selected = m.data.sessions[0].UUID
+	m.contextSession = m.data.sessions[len(m.data.sessions)-1]
+	updated, _ := m.Update(attached{})
+	m = updated.(Model)
+	if m.selected != m.contextSession.UUID {
+		t.Fatal("detach returned to a different session")
+	}
+}
+
+func TestConfirmationAndUUIDRemainReadable(t *testing.T) {
+	m := fixture()
+	m.navigate("confirm")
+	m.review = "Proceed?"
+	if frame := m.View().Content; !strings.Contains(frame, "38;2;227;179;65") || !strings.Contains(ansi.Strip(frame), "Confirm [y/N]") {
+		t.Fatal("confirmation lost its caution style")
+	}
+	m.navigate("sessions")
+	m.width, m.height = 120, 35
+	m.data.sessions[0].UUID = "26d77503-7577-44a1-9315-2ce82e54a52b"
+	m.selected = m.data.sessions[0].UUID
+	m.restoreSelection()
+	if frame := ansi.Strip(m.View().Content); !strings.Contains(frame, m.selected) {
+		t.Fatal("wide pane split UUID despite available width")
+	}
+}
+
+func TestJournalBackRetainsReviewedService(t *testing.T) {
+	m := fixture()
+	m.services = []control.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
+	m.servicesFresh = true
+	m.serviceUnit = m.services[1].Unit
+	m.navigate("journal")
+	m, cmd := press(m, "q")
+	if cmd == nil || m.page != "services" || m.cursor != 1 {
+		t.Fatal("journal Back selected a different service")
+	}
+	m, _ = press(m, "s")
+	if m.queuedService == nil || m.queuedService.Unit != m.serviceUnit {
+		t.Fatal("action after journal Back did not capture the reviewed unit")
+	}
+}
+
+func TestServiceHelpBackRetainsUnitAfterInventoryReorder(t *testing.T) {
+	m := fixture()
+	m.services = []control.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
+	m.servicesFresh = true
+	m.navigate("services")
+	m.cursor = 1
+	m, _ = press(m, "?")
+	m.services[0], m.services[1] = m.services[1], m.services[0]
+	m, _ = press(m, "q")
+	if m.page != "services" || m.services[m.cursor].Unit != "p-project-notes-worker.service" {
+		t.Fatal("Help Back selected a different service")
+	}
+}
+
+func TestCapacityFeedbackKeepsRemedyAndConfirmationControls(t *testing.T) {
+	for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}} {
+		m := fixture()
+		m.width, m.height = size[0], size[1]
+		m.navigate("confirm")
+		m.review = strings.Repeat("Captured project, branch, source and policy.\n", 12)
+		m.notice = "busy: session capacity exhausted; P keeps one slot for loss inspection. Discard or Delete a session to free capacity; Stop retains its slot"
+		frame := ansi.Strip(m.View().Content)
+		flat := strings.ReplaceAll(frame, "\n", "")
+		for _, text := range []string{"Discard or Delete", "Stop retains its slot", "Confirm [y/N]", "q/Esc back"} {
+			if !strings.Contains(flat, text) {
+				t.Fatalf("%vx%v feedback or controls clipped: %q missing in %s", size[0], size[1], text, frame)
+			}
+		}
+		lines := strings.Split(frame, "\n")
+		if len(lines) > m.height {
+			t.Fatal("feedback escaped the viewport")
+		}
+		for _, line := range lines {
+			if ansi.StringWidth(line) > m.width {
+				t.Fatal("feedback escaped terminal width")
+			}
+		}
 	}
 }

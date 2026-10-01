@@ -5,13 +5,23 @@ Historical implementation checklist for P's broader design.
 > **Status: tracker, not authority.** Subject documents own behavior. This list
 > points to them and must not introduce a competing contract.
 
-The CLI-first implementation and all 55 automated acceptance gates are validated;
+The CLI-first implementation has automated acceptance evidence;
 authenticated Codex acceptance remains pending the user's manual test. Exact
 scope, evidence, safe refusal boundaries and the acceptance procedure are in
 [implementation progress](implementation-progress.md). The historical checklist
 below includes delivered, partially delivered and deferred design work. Its
 unchecked items are not additional CLI-first delivery gates; subject contracts
 and the confirmed MVP scope govern support claims.
+
+## Current interface and developer workflow work
+
+The [TUI experience and developer workflow plan](tui-developer-workflow-plan.md)
+sequences prototype alignment, a reusable sample, CLI/API journeys and later
+TUI integration coverage with live LLM navigation review for every UI change.
+The initial provisioned-sample plan is complete, including adaptive live review,
+fresh-context review and all 58 serial VM scenarios. The real committed-devShell
+extension retains its separate offline-input-resolution milestone. Results are in
+[implementation progress](implementation-progress.md#tui-and-three-service-developer-workflows--2026-09-30).
 
 ## Design readiness
 

@@ -1,0 +1,16 @@
+{"op": "start", "label": "start", "wait": 3.0, "cols": 120, "rows": 35, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0001-start", "timestamp": 1790862575.3295007, "bytes": 3241}
+{"op": "send", "label": "loss-target", "wait": 0.2, "text": "/atlas feat/ui", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0002-loss-target", "timestamp": 1790862602.0654705, "bytes": 4470}
+{"op": "send", "label": "loss-search-confirm", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0003-loss-search-confirm", "timestamp": 1790862606.0891762, "bytes": 4470}
+{"op": "send", "label": "discard-preview", "wait": 0.2, "text": "d", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0004-discard-preview", "timestamp": 1790862625.6027455, "bytes": 6020}
+{"op": "send", "label": "discard-preview-end", "wait": 0.2, "text": "G", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0005-discard-preview-end", "timestamp": 1790862641.212996, "bytes": 6714}
+{"op": "send", "label": "discard-cancel", "wait": 0.2, "text": "n", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0006-discard-cancel", "timestamp": 1790862667.2176886, "bytes": 8700}
+{"op": "send", "label": "delete-preview", "wait": 0.2, "text": "X", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0007-delete-preview", "timestamp": 1790862671.7835143, "bytes": 9928}
+{"op": "send", "label": "delete-cancel", "wait": 0.2, "text": "n", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0008-delete-cancel", "timestamp": 1790862745.6843581, "bytes": 11911}
+{"op": "send", "label": "clear-search", "wait": 0.2, "text": "q", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0009-clear-search", "timestamp": 1790862749.413408, "bytes": 13577}
+{"op": "send", "label": "selected-for-entry", "wait": 0.2, "text": "gg", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0010-selected-for-entry", "timestamp": 1790862753.439537, "bytes": 14129}
+{"op": "send", "label": "reviewed-entry", "wait": 1.0, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0011-reviewed-entry", "timestamp": 1790862774.682408, "bytes": 15840}
+{"op": "send", "label": "reviewed-command", "wait": 0.2, "text": "printf '%s%s\\n' REVIEW_ OK", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0012-reviewed-command", "timestamp": 1790862793.6534042, "bytes": 15964}
+{"op": "send", "label": "reviewed-command-result", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0013-reviewed-command-result", "timestamp": 1790862797.9921365, "bytes": 15993}
+{"op": "send", "label": "reviewed-detach", "wait": 1.0, "text": null, "hex": "0264", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0014-reviewed-detach", "timestamp": 1790862830.7974606, "bytes": 19287}
+{"op": "send", "label": "reviewed-quit", "wait": 1.0, "text": "q", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0015-reviewed-quit", "timestamp": 1790862836.0528712, "bytes": 19322}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/proof/0016-close", "timestamp": 1790862940.2936869, "bytes": 19322}

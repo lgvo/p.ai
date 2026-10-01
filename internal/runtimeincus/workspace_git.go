@@ -533,6 +533,12 @@ func parseWorkspaceChanges(raw []byte) ([]WorkspaceChange, error) {
 			return nil, errors.New("Git status entry unsupported")
 		}
 		code, name := string(entry[:2]), string(entry[3:])
+		// --ignored=matching collapses an ignored directory to a name ending
+		// in one slash, even with --untracked-files=all. Normalize that Git
+		// marker only; repeated slashes and traversal still fail validation.
+		if code == "!!" {
+			name = strings.TrimSuffix(name, "/")
+		}
 		if !validWorkspaceRelative(name) {
 			return nil, errors.New("Git status path escaped workspace")
 		}

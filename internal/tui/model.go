@@ -45,6 +45,10 @@ type suspendedRemovalRead struct {
 type serviceIntent struct{ UUID, Unit, Action string }
 
 type Model struct {
+	theme                              Theme
+	themeMode                          ThemeMode
+	darkBackground                     bool
+	styles                             styles
 	client                             Client
 	socket                             string
 	data                               inventory
@@ -60,6 +64,7 @@ type Model struct {
 	contextSession                     control.SessionView
 	services                           []control.ProjectService
 	servicesFresh                      bool
+	selectedServices                   selectedServiceObservation
 	serviceUnit                        string
 	pendingMethod                      string
 	queuedService                      *serviceIntent
@@ -87,17 +92,30 @@ type Model struct {
 	sourceReview                       string
 	sourceOriginURL                    string
 	returnPage                         string
+	inspectionReturn                   string
 	helpBranchProject                  string
+	helpServiceUnit                    string
 	helpRemovalRead                    *suspendedRemovalRead
 	lastInteraction                    map[string]time.Time
 	attachmentScreen                   *attachmentScreen
 }
 
 func New(c Client, socket string) Model {
-	return Model{client: c, socket: socket, width: 80, height: 24, page: "sessions", refreshing: true, lastInteraction: map[string]time.Time{}}
+	return NewWithTheme(c, socket, PrototypeTheme(), ThemeAuto)
 }
-func (m Model) Init() tea.Cmd { return tea.Batch(m.refresh(), tickCmd()) }
-func tickCmd() tea.Cmd        { return tea.Tick(3*time.Second, func(time.Time) tea.Msg { return tick{} }) }
+
+// NewWithTheme is the injection seam for a future configured theme.
+func NewWithTheme(c Client, socket string, theme Theme, mode ThemeMode) Model {
+	dark := mode != ThemeLight
+	return Model{client: c, socket: socket, theme: theme, themeMode: mode, darkBackground: dark, styles: theme.styles(dark), width: 80, height: 24, page: "sessions", refreshing: true, lastInteraction: map[string]time.Time{}}
+}
+func (m Model) Init() tea.Cmd {
+	if m.themeMode == ThemeAuto {
+		return tea.Batch(m.refresh(), tickCmd(), tea.RequestBackgroundColor)
+	}
+	return tea.Batch(m.refresh(), tickCmd())
+}
+func tickCmd() tea.Cmd { return tea.Tick(3*time.Second, func(time.Time) tea.Msg { return tick{} }) }
 func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := callContext()
@@ -326,14 +344,14 @@ func (m Model) capacity() int {
 	n := m.height - 10
 	switch m.page {
 	case "sessions":
-		if m.width >= 110 {
-			n--
-		} else if m.width >= 72 && m.height >= 22 {
-			n -= 4
+		width := min(m.width, 148)
+		if width >= 110 {
+			width = min(width*65/100, width-43)
 		}
+		return m.browserLayout().capacity
 	case "create":
 		n -= 2
-	case "agents", "policy", "progress", "help":
+	case "agents", "policy", "progress", "help", "details":
 		n = m.height - 8
 	case "retained":
 		n--
@@ -346,7 +364,27 @@ func (m Model) capacity() int {
 			n--
 		}
 	}
-	return max(1, n)
+	// Existing layouts reserve two feedback rows. Longer diagnostics need
+	// extra space without moving controls for a routine one-line notice.
+	return max(1, n-max(0, m.feedbackHeight()-2))
+}
+
+func (m Model) projectCounts(project string) [4]int {
+	counts := [4]int{}
+	for _, s := range m.data.sessions {
+		if project != "" && s.Project != project {
+			continue
+		}
+		counts[3]++
+		if priority(s) == 0 {
+			counts[0]++
+		} else if s.Condition == "ready" {
+			counts[1]++
+		} else if s.Condition == "stopped" {
+			counts[2]++
+		}
+	}
+	return counts
 }
 func (m *Model) begin(method string, p params) tea.Cmd {
 	m.working = true
@@ -360,11 +398,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Every update can change a list, including background inventory/results.
 	// Keep its selection valid before rendering or handling the next key.
 	next.clamp()
-	return next, cmd
+	serviceCmd := next.syncSelectedServices(msg)
+	return next, tea.Batch(cmd, serviceCmd)
 }
 
 func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	switch v := msg.(type) {
+	case selectedServiceDue:
+		return m, m.readSelectedServices(v)
+	case selectedServiceDone:
+		m.acceptSelectedServices(v)
+	case tea.BackgroundColorMsg:
+		if m.themeMode == ThemeAuto {
+			m.darkBackground = v.IsDark()
+			m.styles = m.theme.styles(m.darkBackground)
+		}
 	case tea.WindowSizeMsg:
 		m.width, m.height = v.Width, v.Height
 		m.clamp()
@@ -413,6 +461,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case attached:
 		m.lastInteraction[m.contextSession.UUID] = time.Now()
+		m.selected = m.contextSession.UUID
 		m.navigate("sessions")
 		m.restoreSelection()
 		if v.err != nil {
@@ -601,6 +650,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if key == "?" && m.page != "help" {
 		m.returnPage = m.page
+		m.helpServiceUnit = ""
+		if m.page == "services" && m.cursor < len(m.services) {
+			m.helpServiceUnit = m.services[m.cursor].Unit
+		}
 		m.helpBranchProject = ""
 		if m.working && m.pendingMethod == "creation.branches" {
 			if m.page == "create" && m.form == "branch" {
@@ -636,6 +689,21 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		r = rows[m.cursor]
 	}
 	switch m.page {
+	case "details":
+		switch key {
+		case "A":
+			m.inspectionReturn = "details"
+			m.navigate("agents")
+		case "p":
+			m.inspectionReturn = "details"
+			m.navigate("policy")
+		case "S":
+			m.inspectionReturn = "details"
+			m.services = nil
+			m.servicesFresh = false
+			m.navigate("services")
+			return m.begin("session.services", params{"v": 1, "uuid": m.contextSession.UUID})
+		}
 	case "sessions":
 		s, ok := m.selectedSession()
 		switch key {
@@ -672,6 +740,11 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.confirmParams = params{"v": 1, "uuid": s.UUID}
 			m.review = "Stop " + s.Project + " / " + s.Branch + "?\nUUID: " + s.UUID + "\nProcesses end; files and identity remain.\nAll attachments must be detached."
 			m.navigate("confirm")
+		case "D":
+			if ok {
+				m.contextSession = s
+				m.navigate("details")
+			}
 		case "A":
 			if ok {
 				m.contextSession = s
@@ -783,7 +856,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return m.begin("operation.inspect", params{"v": 1, "id": r.id})
 		}
 	case "progress":
-		if key == "r" && m.operationID != "" && !m.working {
+		if key == "r" && m.operationID != "" && !m.working && !control.WorkspaceInspectionRequiresFreshRequest(m.operation) {
 			return m.begin("operation.retry", params{"v": 1, "id": m.operationID})
 		}
 	}
@@ -948,11 +1021,18 @@ func (m *Model) back() tea.Cmd {
 			return nil
 		}
 		m.navigate("services")
+		for i, service := range m.services {
+			if service.Unit == m.serviceUnit {
+				m.cursor = i
+				break
+			}
+		}
 		return m.begin("session.services", params{"v": 1, "uuid": m.contextSession.UUID})
 	}
 	if m.page == "help" {
 		page := m.returnPage
 		branchProject := m.helpBranchProject
+		serviceUnit := m.helpServiceUnit
 		suspended := m.helpRemovalRead
 		contextChanged := suspended != nil && !m.matchesRemovalRead(suspended)
 		if contextChanged {
@@ -962,10 +1042,19 @@ func (m *Model) back() tea.Cmd {
 			m.attachOnComplete = false
 		}
 		m.returnPage, m.helpBranchProject = "", ""
+		m.helpServiceUnit = ""
 		if page == "" {
 			page = "sessions"
 		}
 		m.navigate(page)
+		if page == "services" {
+			for i, service := range m.services {
+				if service.Unit == serviceUnit {
+					m.cursor = i
+					break
+				}
+			}
+		}
 		if page == "sessions" {
 			m.restoreSelection()
 		}
@@ -994,6 +1083,11 @@ func (m *Model) back() tea.Cmd {
 			m.choices = nil
 			return m.begin("creation.branches", params{"project": branchProject})
 		}
+		return nil
+	}
+	if m.inspectionReturn == "details" && (m.page == "agents" || m.page == "policy" || m.page == "services") {
+		m.inspectionReturn = ""
+		m.navigate("details")
 		return nil
 	}
 	m.attachOnComplete = false
@@ -1032,7 +1126,11 @@ func newKey() string {
 
 // Snapshot uses the same live transport and renderer without an input terminal.
 func Snapshot(ctx context.Context, c Client, socket, page, id string, width, height int) (string, error) {
-	m := New(c, socket)
+	return snapshotWithTheme(ctx, c, socket, page, id, width, height, PrototypeTheme(), ThemeAuto)
+}
+
+func snapshotWithTheme(ctx context.Context, c Client, socket, page, id string, width, height int, theme Theme, mode ThemeMode) (string, error) {
+	m := NewWithTheme(c, socket, theme, mode)
 	v, err := loadInventory(ctx, c)
 	if err != nil {
 		return "", err
@@ -1052,6 +1150,25 @@ func Snapshot(ctx context.Context, c Client, socket, page, id string, width, hei
 		}
 	}
 	m.restoreSelection()
+	if s, ok := m.selectedSession(); ok {
+		m.selectedServices.uuid = s.UUID
+		m.selectedServices.condition = s.Condition
+		if s.Condition != "ready" {
+			m.selectedServices.state = "not running"
+		} else if !v.capabilities["session.services"] {
+			m.selectedServices.state = "unavailable"
+		} else {
+			readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			r, e := request[control.ServiceResult](readCtx, c, "session.services", params{"v": 1, "uuid": s.UUID})
+			cancel()
+			if e != nil || r.V != 1 || r.UUID != s.UUID {
+				m.selectedServices.state = "unavailable"
+			} else {
+				m.selectedServices.state = "observed"
+				m.selectedServices.units = r.Services
+			}
+		}
+	}
 	if page != "" && page != "sessions" {
 		s, ok := m.selectedSession()
 		if !ok {
@@ -1067,7 +1184,7 @@ func Snapshot(ctx context.Context, c Client, socket, page, id string, width, hei
 			}
 			m.services = r.Services
 			m.servicesFresh = true
-		case "agents", "policy":
+		case "agents", "policy", "details":
 		default:
 			return "", fmt.Errorf("unsupported snapshot page")
 		}

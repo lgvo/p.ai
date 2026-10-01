@@ -27,6 +27,16 @@ type CapacityObservation struct {
 
 type CapacityObserver func(context.Context, []CapacityReservation) (CapacityObservation, error)
 
+// Keep admission refusal distinct from a transient authority conflict while
+// retaining the existing conflict classification for lifecycle callers.
+type sessionCapacityError struct{}
+
+func (*sessionCapacityError) Error() string {
+	return "session capacity exhausted; P keeps one slot for loss inspection. Discard or Delete a session to free capacity; Stop retains its slot"
+}
+
+func (*sessionCapacityError) Unwrap() error { return ErrConflict }
+
 // checkSessionAdmission runs under gitAuthority, shared by project and session
 // creation. The caller's native inventory is fresh at this point; the sole
 // daemon lock and this authority lock serialize P's durable admissions.
@@ -128,7 +138,7 @@ func (s *Store) checkSessionCapacity(ctx context.Context, observe CapacityObserv
 		}
 	}
 	if needed > observation.Limit {
-		return ErrConflict
+		return &sessionCapacityError{}
 	}
 	return nil
 }

@@ -2,22 +2,27 @@
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 public=false
-if (( $# )); then
-  if (( $# == 1 )) && [[ $1 == --help || $1 == -h ]]; then
-    echo "Usage: ./dev/demo-vm [--public]"
+notes=false
+while (( $# )); do
+  case "$1" in
+  --help|-h)
+    echo "Usage: ./dev/demo-vm [--public] [--notes]"
     echo "Builds current P and opens a shell in a persistent, isolated NixOS/Incus VM."
     echo "Seeds a local-only p-ai project from committed HEAD and its Git history."
     echo "--public permits public DNS/HTTP(S) and blocks host/LAN/private destinations."
+    echo "--notes supplies PostgreSQL/Psycopg and the three-service sample in a separate persistent lab."
     echo "P_DEMO_STATE_DIR (or P_VM_STATE_DIR) overrides the persistent disk directory."
     exit 0
-  fi
-  if (( $# == 1 )) && [[ $1 == --public ]]; then
-    public=true
-  else
-    echo "Usage: ./dev/demo-vm [--public]" >&2
+    ;;
+  --public) public=true ;;
+  --notes) notes=true ;;
+  *)
+    echo "Usage: ./dev/demo-vm [--public] [--notes]" >&2
     exit 2
-  fi
-fi
+    ;;
+  esac
+  shift
+done
 if ! [[ -t 0 && -t 1 ]]; then
   echo "Run ./dev/demo-vm in an interactive terminal." >&2
   exit 2
@@ -41,6 +46,10 @@ if [[ $public == true ]]; then
     exit 1
   fi
 fi
+if [[ $notes == true ]]; then
+  default_state="$repo/.cache/p-vm/demo-notes"
+  if [[ $public == true ]]; then default_state="$repo/.cache/p-vm/demo-notes-public"; fi
+fi
 export P_DEMO_STATE_DIR=${P_DEMO_STATE_DIR:-${P_VM_STATE_DIR:-"$default_state"}}
 mkdir -p -- "$repo/.cache/p-vm"
 exec 8>"$repo/.cache/p-vm/integration.lock"
@@ -52,6 +61,7 @@ bundle_dir=$(mktemp -d -t p-lab-bundle.XXXXXXXX)
 trap 'rm -rf -- "$bundle_dir"' EXIT
 git -C "$repo" bundle create --quiet "$bundle_dir/repository.bundle" HEAD
 runner=$(nix-build "$repo/dev/demo.nix" -A runner --arg public "$public" \
+  --arg notes "$notes" \
   --argstr repositoryBundle "$bundle_dir/repository.bundle" \
   --argstr outerHostIPv4Text "$outer_host_ipv4" \
   --argstr outerHostLANIPv4Text "$outer_host_lan_ipv4" --no-out-link)

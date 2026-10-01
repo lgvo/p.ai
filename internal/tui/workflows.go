@@ -381,6 +381,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		}
 		m.services = r.Services
 		m.servicesFresh = true
+		m.observeSelectedServices(r)
 		for i, s := range m.services {
 			if s.Unit == selected {
 				m.cursor = i

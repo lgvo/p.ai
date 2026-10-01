@@ -98,7 +98,14 @@ mapfile -t first_group < "$P_TEST_SELECTION_CAPTURE.1"
 mapfile -t last_group < "$P_TEST_SELECTION_CAPTURE.3"
 [[ ${#first_group[@]} -eq 37 && ${first_group[0]} == 01-* && ${first_group[-1]} == 36-* ]]
 [[ $(cat "$P_TEST_SELECTION_CAPTURE.2") == 37-public-egress.sh ]]
-[[ ${#last_group[@]} -eq 18 && ${last_group[0]} == 38-* && ${last_group[-1]} == 56-* ]]
+expected_last_group=()
+for step in "$repo"/tests/integration/steps/*.sh; do
+  step_name=${step##*/}
+  if [[ "$step_name" > 37-public-egress.sh ]]; then
+    expected_last_group+=("$step_name")
+  fi
+done
+[[ "${last_group[*]}" == "${expected_last_group[*]}" ]]
 [[ ! -s "$P_TEST_HOST_CAPTURE.1" && ! -s "$P_TEST_HOST_CAPTURE.3" ]]
 [[ $(cat "$P_TEST_HOST_CAPTURE.2") == $'127.0.0.1\n198.41.0.7' ]]
 [[ ! -s "$P_TEST_HOST_CAPTURE" && ! -s "$P_TEST_LAN_CAPTURE" ]]

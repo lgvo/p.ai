@@ -172,12 +172,12 @@ func StartHost() error {
 	if err := os.Chdir("/workspace"); err != nil {
 		return err
 	}
-	closed := []string{"HOME=/home/p", "USER=p", "LOGNAME=p", "SHELL=/run/current-system/sw/bin/bash", "PATH=/run/current-system/sw/bin:/usr/bin:/bin", "LANG=C.UTF-8", "NIX_REMOTE=daemon", "GIT_SSH=/usr/libexec/p/git-ssh"}
+	closed := interactiveHostEnvironment()
 	if cfg.Activation == "devshell" {
 		if err := VerifyDevShellMaterial(cfg.MaterialSHA256); err != nil {
 			return err
 		}
-		argv := []string{"bash", "--noprofile", "--norc", "-c", `builtin source /etc/p/devshell/activate.sh || exit $?; builtin exec /usr/libexec/p/tmux -D -S /run/p-interactive/tmux.sock -f /opt/p/tmux.conf`, "p-devshell"}
+		argv := devShellHostArgs()
 		if err := syscall.Exec("/run/current-system/sw/bin/bash", argv, closed); err != nil {
 			return fmt.Errorf("exec devShell host: %w", err)
 		}
@@ -187,6 +187,17 @@ func StartHost() error {
 		return fmt.Errorf("exec base host: %w", err)
 	}
 	return nil
+}
+
+func interactiveHostEnvironment() []string {
+	return []string{"HOME=/home/p", "USER=p", "LOGNAME=p", "SHELL=/run/current-system/sw/bin/bash", "PATH=/run/current-system/sw/bin:/usr/bin:/bin", "LANG=C.UTF-8", "NIX_REMOTE=daemon", "GIT_SSH=/usr/libexec/p/git-ssh", "XDG_RUNTIME_DIR=/run/user/1000", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"}
+}
+
+func devShellHostArgs() []string {
+	// These are fixed runtime-owned session-user endpoints, rather than
+	// captured builder endpoints. Restore them after the unprivileged hook;
+	// all other accepted devShell exports remain inherited by the tmux host.
+	return []string{"bash", "--noprofile", "--norc", "-c", `builtin source "$1" || exit $?; builtin export XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus || exit $?; builtin exec "$2" -D -S "$3" -f "$4"`, "p-devshell", devShellActivation, TmuxPath, SocketPath, "/opt/p/tmux.conf"}
 }
 
 func ValidatePaths() error {

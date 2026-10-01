@@ -180,8 +180,8 @@ or approved plans.
   orchestration, richer event handlers, and optional multi-instance
   coordination may be explored while preserving the confirmed guidance.
 
-The repository contains a CLI-first control plane with passing coverage of all 55
-serial NixOS/Incus VM validation gates within its documented support boundary.
+The repository contains a CLI-first control plane with serial NixOS/Incus VM
+validation within its documented support boundary.
 [Implementation progress](docs/implementation-progress.md) records the evidence
 and pending manual authenticated Codex acceptance.
 [Development validations](docs/development-validations.md) identify

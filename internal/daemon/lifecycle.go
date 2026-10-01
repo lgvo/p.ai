@@ -641,6 +641,9 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	if op.Status == "superseded" {
 		return op, control.ErrConflict
 	}
+	if control.WorkspaceInspectionRequiresFreshRequest(op) {
+		return op, control.ErrConflict
+	}
 	if op.Kind == "session.create.cleanup" && op.Status == "failed" && op.Phase == "stale" {
 		return op, control.ErrConflict
 	}

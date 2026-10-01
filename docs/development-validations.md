@@ -279,6 +279,155 @@ Other MVP work proceeds without that authentication.
 
 ## Live terminal browser
 
+### TUI change and validation workflow
+
+Apply this workflow to changes in TUI layout, navigation, controls, feedback,
+or terminal handoff, and when assessing the implemented experience. An LLM
+must navigate and review the actual rendered product before its experience is
+accepted or its workflow is encoded in the integration driver. Passing driver
+checks alone does not satisfy this review.
+
+1. **Establish the intended experience.** Read the
+   [reviewed prototype decisions](../.prototype/tui-options/DECISIONS.md) and
+   the [implemented keys and limitations](user-guide.md#use-the-terminal-browser).
+   Run the current prototype using its [launch instructions](../.prototype/tui-options/README.md#run-the-current-browser)
+   and inspect the affected interaction. Use its selected browser as the
+   comparison baseline; the older gallery captures are historical evidence.
+   Identify the developer's task, expected sequence and visible outcome.
+   Record prototype features outside implemented scope separately from
+   mismatches in supported behavior; lifecycle and authority contracts still
+   govern production behavior.
+2. **Observe the current product before changing it.** For presentation and
+   navigation, use `just tui-mock` to run the production `p tui` against its
+   [mock socket](#mock-socket-tui-exploration-and-fast-integration). For backend
+   behavior, use a real daemon and Incus sessions in the
+   [P lab](../dev/vm/README.md#explore-p) or an equivalent disposable instance.
+   The LLM chooses actions from the
+   current screen, reads the resulting screen, and continues through the
+   task. Capture the states and transitions that explain any mismatch with
+   the prototype, including errors or unavailable actions. API observations
+   may confirm effects, but navigation must use the visible product controls.
+3. **Implement and review the changed experience.** Run relevant component
+   tests, then have the LLM repeat the task on the changed product, inspecting
+   screens between actions. Compare layout, spacing, hierarchy, selection,
+   command placement, readable feedback and Back/cancel behavior with the
+   prototype. For layout changes, compare at matched dimensions, including
+   120×35 and 80×24; inspect 48×16 when changing compact presentation. Exercise
+   affected loading/error/empty states and resizing. For terminal handoff,
+   inspect entry, command execution, detach and repeated entry, including
+   intermediate frames that could expose the previous console. Fix discovered
+   mismatches and repeat the affected path before accepting the experience.
+4. **Validate integration at the affected boundary.** After the LLM experience
+   review passes, run `just tui-tests` for socket-backed navigation, action
+   wiring, cancellation, and local terminal transport. Add or update its action
+   coverage for the reviewed workflow. If production backend behavior or its
+   boundary changes, also run the smallest relevant serial VM selection and
+   update major workflow coverage where needed. Use actual backend effects
+   to establish completion: creation and branch assignment, native terminal
+   execution, Git updates, attachment teardown, service state/journals, and
+   reviewed cleanup with native absence. Screen recognition may synchronize
+   actions; keep detailed navigation invariants in focused component tests.
+   A changed heading or key sequence in the driver cannot resolve a product
+   experience mismatch. Existing driver checks may help reproduce a failure
+   during investigation; they do not replace the LLM review.
+5. **Record both kinds of evidence.** Record the tested revision/build,
+   instance setup and fresh/persistent state, terminal dimensions, actions,
+   representative before/after screens, findings and their resolution in
+   [implementation progress](implementation-progress.md). Identify the LLM
+   experience-review result separately from component and VM results. Store
+   its screenshots and action records in the
+   [interactive LLM review evidence](llm-interactive-review/tui/README.md)
+   directory, separately from automated integration-test implementations.
+   After any further product change, repeat the affected experience review
+   and relevant integration checks. Preserve unaffected evidence with its scope.
+
+Use terminal screenshots or faithfully rendered terminal frames that retain
+cell positions, styling and cursor/selection state. Read the reconstructed
+screen; raw ANSI output, text matches and post-run transcripts alone cannot
+establish presentation or navigation quality. A PTY or capture helper can
+provide input/output, but a complete scripted run followed by an LLM reading
+its pass marker is not an interactive experience review. Include enough
+transition evidence to assess loading and terminal handoff, beyond final
+screens. Keep credentials out of captures.
+
+The review passes when the affected developer task completes through visible
+controls, its screens and transitions match the reviewed direction within
+documented product scope, and discovered experience defects are resolved.
+Major integration checks must also pass before claiming the implemented
+workflow works end to end. If actual terminal access or an integration run is
+unavailable, record the missing evidence and leave that acceptance pending;
+do not substitute fixture snapshots or a scripted pass marker for the live
+review. Interactive navigation of the production TUI against the mock socket
+can establish presentation and navigation evidence. Record that scope; actual
+Incus, Git, systemd, isolation, and durable-storage acceptance requires native
+integration evidence.
+
+### Mock socket TUI exploration and fast integration
+
+`just tui-mock` builds the current production CLI and
+[fixture server](../tests/integration/cmd/tui-mock/main.go), starts the socket
+server in the background, and runs normal `p tui SOCKET` in the foreground.
+The client, renderer, key decoder, attachment client, and helper use their
+production paths. There is no TUI fixture flag or alternate renderer.
+
+```sh
+just tui-mock                       # portfolio: 24 projects, 120 sessions
+just tui-mock --dataset small        # two projects, four sessions
+just tui-mock --dataset empty        # empty-state and project creation review
+just tui-mock --theme light          # explicit light palette
+just tui-mock --theme dark           # explicit dark palette
+just tui-tests                      # fast CI gate, no VM
+```
+
+The recipes supply pinned Go, tmux, Python, pyte, Pillow, and fonts through
+`dev/tui-test-shell.nix`. Warm-cache builds and tests need no VM image or Incus
+daemon. The launcher owns a private `/tmp/p-tui.*` directory and tmux socket;
+normal quit, Ctrl-C, or termination cleans up its server and files. Every run
+starts fresh. Enter reaches a local tmux shell through the production attachment
+helper and a mock native HTTP/WebSocket endpoint. Ctrl-B then d detaches; tmux
+survives detach, and workspace files survive mock Stop/Start within one run.
+This shell runs as the local user, with a disposable home and workspace; it
+does not provide the VM's isolation. Project services and their journals are
+stateful simulations of three session-user units, not host systemd services.
+
+The [PTY integration suite](../tests/integration/tui-mock-test.py) issues TUI
+actions as keyboard input. Fixture state and request records provide separate
+effect assertions; the tests do not call lifecycle mutations through the API.
+One-shot delay/error injection exercises loading, refusals, and stale replies.
+`mock.inspect` and `mock.configure` exist only on the disposable fixture socket
+and are excluded from production capabilities.
+
+| Production action | Fast integration coverage and oracle |
+|---|---|
+| Movement: j/k, arrows, pages, Ctrl-B/F/U/D, Home/End, gg/G | Production terminal decoder, selection/page changes, first/last retained branches |
+| P project scope; / search | Scope, branch/report matching, empty matches, backspace, cancel and clearing search/scope |
+| A reports; p policy; b branches; ? help; r refresh | Actual production inspection pages, complete paginated branch inventory, help return and socket inventory refresh |
+| Enter session | Start, production attachment claim/confirmation, real tmux command output, resize, detach, re-entry, presence teardown and workspace retention |
+| s Stop | Default No and explicit decline issue no Stop; confirmation changes fixture condition; subsequent Start retains files |
+| c Create | Project creation, new branch from P source, captured external origin, retained-branch resume; assigned identity, source params and automatic attachment |
+| R Rename | Literal q/g/G in forms, editing/cancel, reviewed rename preserving UUID and changing assigned ref |
+| d Discard; X Delete | Stopped-session requirement, fresh loss inspection and bound preview, cancel with no removal; Discard retains ref, Delete removes it |
+| O operations; Enter inspect; r retry | Inspect failed operation, retry request and completed observation |
+| S services; s start/stop; r restart | Exact session/unit/action, updated state, inventory/action refusals, queued action bound to original unit, Back cancels queued work |
+| Enter/J journal; h/l; /; n/N; f; movement | Journal data, horizontal pan, find/matches, follow toggle, scroll, clear find then Back |
+| q/Esc/Ctrl-C; resize | Contextual Back and form cancellation, empty inventory, clean quit, browser at 120×35, 80×24 and 48×16, attached tmux pane size |
+
+The suite checks every RPC method used by the current TUI action path, and flags
+new method literals that have no entry in its coverage set. Focused Go tests
+validate the fixture's closed request fields, bounded pagination, source
+freshness, idempotency, cancellation, and preview/token binding. Existing model
+tests retain finer navigation and asynchronous-state invariants. Failures save
+rendered frames and fixture state under `.cache/tui-mock-failures/`.
+
+This gate checks all current action families and selected failure paths. It
+does not enumerate every failure combination or prove prototype visual parity.
+An LLM must still navigate and inspect affected screens before accepting a UI
+change, following the workflow above. Mock checks establish UI/socket wiring;
+selected VM workflows establish actual backend effects. `just test` includes
+both the fast gate and the full VM suite.
+
+### Automated browser evidence
+
 **Validate:** Model fixtures prove global waiting/running ordering, selection
 identity, project scope and fuzzy search, layered Back, literal text inputs,
 resize-aware frame and paging bounds, inert terminal controls, complete readable
@@ -296,7 +445,44 @@ creation replay. Run actual VM selections serially. Record passing and failed
 evidence in implementation progress; prototype simulations do not satisfy this gate.
 
 **Gate:** implemented browser and bounded user-service integration. Real Codex
-authentication remains the separate manual gate above.
+authentication remains the separate manual gate above. Experience acceptance
+also requires the LLM review in the workflow above; native VM evidence proves
+the integration effects exercised by that selection.
+
+### Three-service developer workflow
+
+Use the [notes application](../examples/notes/README.md) as the shared source
+for the developer walkthrough and native checks. Provision its pinned
+PostgreSQL/Python/Psycopg runtime before acceptance. Verify real SQL, HTTP
+requests and worker results in a confined session, with a private Unix socket
+and no database TCP listener or published application port.
+
+The CLI/API selection `57-developer-workflow.sh` covers blank bootstrap and
+first push, new and retained branches, edit/fail/fix, attachment teardown,
+three discoverable user services and journals, dependency failure/recovery,
+private databases and schema, Stop/Start, daemon restart, rename and reviewed
+cleanup. Independently verify Git tips, native processes, rows/jobs and
+resource absence. Existing origin/publication gates retain their own scope;
+they do not establish a sample-source origin walkthrough.
+
+After those workflows pass, review the sample through adaptive live LLM
+navigation under the procedure above. The major TUI selection
+`58-notes-tui.sh` preserves the reviewed creation, native terminal execution,
+three-service control/journals, SQL/job effects, source and database isolation,
+Stop/Start, rename, retained-branch reassignment and reviewed cleanup effects.
+It cannot replace the experience review. Keep detailed navigation invariants
+in component tests and record its native result separately from the LLM review.
+
+Test a full clean shutdown and relaunch on a dedicated persistent notes lab
+disk separately from daemon restart. The supplied
+[persistence check](../tests/integration/notes-lab-persistence.sh) prepares and
+checks retained identity, pushed/local source, dirty/private files, installed
+units, SQL rows and a pending job. Record the two distinct boot identities and
+successful explicit service recovery. Preserve existing developer disks.
+
+**Gate:** the documented provisioned three-service developer walkthrough.
+A real committed devShell remains a separate environment-building milestone;
+success with provisioned tools does not establish offline input resolution.
 
 ## 10. Event handler
 

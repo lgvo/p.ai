@@ -595,18 +595,20 @@ func (s *Store) ListSessions(ctx context.Context, after string, limit int) ([]Se
 	if limit < 1 || limit > 100 || len(after) > 128 {
 		return nil, "", ErrInvalid
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT uuid FROM sessions WHERE uuid>? ORDER BY uuid COLLATE BINARY LIMIT ?`, after, limit+1)
+	rows, err := s.db.QueryContext(ctx, `SELECT uuid,project_path,branch,registry_state,policy_json,policy_sha256 FROM sessions WHERE uuid>? ORDER BY uuid COLLATE BINARY LIMIT ?`, after, limit+1)
 	if err != nil {
 		return nil, "", err
 	}
 	defer rows.Close()
-	var ids []string
+	sessions := make([]Session, 0, limit)
 	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
+		var session Session
+		var policy string
+		if err = rows.Scan(&session.UUID, &session.Project, &session.Branch, &session.Registry, &policy, &session.PolicySHA256); err != nil {
 			return nil, "", err
 		}
-		ids = append(ids, id)
+		session.Policy = json.RawMessage(policy)
+		sessions = append(sessions, session)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, "", err
@@ -615,17 +617,9 @@ func (s *Store) ListSessions(ctx context.Context, after string, limit int) ([]Se
 		return nil, "", err
 	}
 	next := ""
-	if len(ids) > limit {
-		next = ids[limit-1]
-		ids = ids[:limit]
-	}
-	sessions := make([]Session, 0, len(ids))
-	for _, id := range ids {
-		v, e := s.GetSession(ctx, id)
-		if e != nil {
-			return nil, "", e
-		}
-		sessions = append(sessions, v)
+	if len(sessions) > limit {
+		next = sessions[limit-1].UUID
+		sessions = sessions[:limit]
 	}
 	return sessions, next, nil
 }

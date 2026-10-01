@@ -21,6 +21,11 @@ For committed devShell activation, `p.runtime-session/v2` requires
 `activation: "devshell"` and the accepted `material_sha256`. The kit verifies
 the root-owned activation material before sourcing it once per Start, then
 executes the foreground tmux host with the resulting environment.
+The host's closed environment supplies `XDG_RUNTIME_DIR=/run/user/1000` and
+`DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, so ordinary attached
+shell commands can reach the session user's systemd manager. These fixed
+runtime endpoints are restored after devShell activation and its hook, while
+other accepted devShell exports remain inherited by tmux and its panes.
 
 Sessions with a selected agent asset use `p.runtime-session/v3`, which also
 requires `agent_sha256` and permits either base or devShell activation. Assembly

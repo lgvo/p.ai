@@ -1,4 +1,4 @@
-{ repositoryBundle, public ? false, outerHostIPv4Text ? "", outerHostLANIPv4Text ? "" }:
+{ repositoryBundle, public ? false, notes ? false, outerHostIPv4Text ? "", outerHostLANIPv4Text ? "" }:
 let
   lab = builtins.getFlake "path:${toString ./vm}";
   nixpkgs = lab.inputs.nixpkgs;
@@ -18,13 +18,17 @@ let
         && builtins.match "(0|[1-9][0-9]?)" (builtins.elemAt parts 1) != null
         && lib.toInt (builtins.elemAt parts 1) <= 32);
   pPackage = pkgs.callPackage ./package.nix { };
+  originFixture = pPackage.overrideAttrs {
+    subPackages = [ "tests/integration/cmd/origin-fixture" ];
+    doCheck = false;
+  };
   image = nixpkgs.lib.nixosSystem {
     inherit system;
     modules = [ ./vm/image.nix ];
   };
   runtimeImage = nixpkgs.lib.nixosSystem {
     inherit system;
-    modules = [ ../runtime/image.nix ];
+    modules = [ ../runtime/image.nix ] ++ lib.optional notes ./notes-runtime.nix;
   };
   machine = nixpkgs.lib.nixosSystem {
     inherit system;
@@ -37,6 +41,8 @@ let
       automated = false;
       demo = true;
       demoPublic = public;
+      demoNotes = notes;
+      demoOriginFixture = originFixture;
       productTest = null;
       selectedSteps = [];
       dnsOverHTTPSModule = ../runtime/dns-over-https.nix;
@@ -58,7 +64,7 @@ let
         echo "Run ./dev/demo-vm in an interactive terminal." >&2
         exit 2
       fi
-      state_dir="$(realpath -m "''${P_DEMO_STATE_DIR:-.cache/p-vm/${if public then "demo-public" else "demo"}}")"
+      state_dir="$(realpath -m "''${P_DEMO_STATE_DIR:-.cache/p-vm/${if notes then (if public then "demo-notes-public" else "demo-notes") else if public then "demo-public" else "demo"}}")"
       mkdir -p -- "$state_dir"
       exec 9>"$state_dir/vm.lock"
       if ! flock -n 9; then

@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-01",
+  "head": "0985bc2",
+  "working_tree": true,
+  "scope": "Production TUI against disposable mock socket; local tmux, no Incus/Git/systemd effect claim; no prototype parity claim",
+  "cli_sha256": "5fe8505ad1f20a01dc5d0d57de5f5dc8171a798c052d7682e7745d10b91c9ffb",
+  "files_sha256": {
+    "dev/tui-mock": "9b12b79e70ea8c3b06d5c0797e43907cee9a63824994f1a4f7aabc0c5428f558",
+    "dev/tui-test-shell.nix": "c51028bb02a84fb20da3c3be84d17156f0f85b1e0c1e602c7b20b2e18229b505",
+    "justfile": "6bc1d45550e79a88036a719e4e25080204e40d45106cf5ea301bfcdaceba5f75",
+    "tests/integration/tui-mock-test.py": "945746cdd3b813f9b77dfbd05511f504d597ec9d1588b335ddca0a5ac8ff4c2e",
+    "tests/integration/cmd/tui-mock/main.go": "eea3c2a2a964386ddaacdf686201ff5f3511999f6d850c0c6af853aab9af6293",
+    "tests/integration/cmd/tui-mock/main_test.go": "8c1d3948fa22298de0f3a53c9d991edaa35d16bf110540fc522f063d74212e83",
+    "tests/integration/cmd/tui-mock/native.go": "95a1869aca3535c35e0c53c863bbf9a431495135fc5ce454d2852d4e1ecb8c0c",
+    "tests/integration/cmd/tui-mock/schema.go": "89eef7c0a65c688d31836b2ba64da003f6adbad1ba9d9a52d6b22a6d1095e2e7",
+    "internal/tui/attachment_screen.go": "f4a0d8719380ce43b2e381ce611947c904e2280962f6a44308f533260d816f56",
+    "internal/tui/client.go": "da728e55e3144e26bbfc521925cf672a57d87930d6b79e7c0ea257b40ca8a2c5",
+    "internal/tui/model.go": "66a8052d72e93aea9a711ff85e20d66e768dca5ff957d2486250206f6000fb51",
+    "internal/tui/run.go": "dce8921419043c599773aa5d7d706d9211997590c12680452b9bc47b23f861e6",
+    "internal/tui/view.go": "bec397e36fd02856bb5b889e7207dda39aa23051518fc16c24c6046d54638fab",
+    "internal/tui/workflows.go": "209a7bca48fd8384ed93108b821be61a30fd5075963bd621cda92b4d8e527981",
+    "tests/integration/cmd/tui-mock/preview.go": "418d684c53c5319cd0dcd78adf3698eee6e3d913b48b5cd2c277407256dc3c83"
+  },
+  "frames": [
+    "0001-start",
+    "0002-services",
+    "0003-journal",
+    "0007-command-result",
+    "0008-terminal-80x24",
+    "0009-detach",
+    "0012-persistent-result",
+    "0014-browser-48x16",
+    "0023-create-confirmation",
+    "final/0001-start",
+    "final/0002-stable-entry",
+    "final/0003-stable-detach",
+    "final/0004-stable-quit",
+    "proof/0004-discard-preview",
+    "proof/0005-discard-preview-end",
+    "proof/0007-delete-preview",
+    "proof/0011-reviewed-entry",
+    "proof/0013-reviewed-command-result",
+    "proof/0014-reviewed-detach",
+    "proof/0015-reviewed-quit"
+  ],
+  "fast_gate_log_sha256": "a6ec2596120398e9cfa6d5a8723d7f78ac6e811262eb1d934ba7a2b635902a76",
+  "llm_review": "Adaptive actions chosen after reading rendered frames. Reviewed browser/services/journal, creation source and confirmation, command execution, resize, detach/re-entry, retained file, final launcher entry/detach/clean quit. Earlier launcher quit during an edit returned 2; stable-script repeat and automated launcher cleanup pass with exit 0. Repeated affected preview and terminal paths after review fixes; final Discard/Delete schema and long review controls inspected; final command result REVIEW_OK, detach and clean quit0.",
+  "mock_suite_seconds": 14.75,
+  "suite_counts": {
+    "terminal_parser": 8,
+    "observer_pty": 3,
+    "socket_pty_integration": 10,
+    "fixture_go": 6
+  },
+  "fresh_context_review": {
+    "result": "All findings resolved; no blockers",
+    "independent_mock_suite_seconds": 15.453,
+    "resolved": [
+      "Direct TERM cleanup while attached and resized, including owned descendants",
+      "Production-shaped typed removal previews; branch_loss only Delete",
+      "Exact selection and viewport assertions for all browser movement bindings"
+    ]
+  },
+  "capture_phases": {
+    "portfolio-actions.ndjson": "Initial production-TUI navigation before fixture review fixes; production TUI code unchanged",
+    "final-launcher-actions.ndjson": "Initial stable-script launcher review before TERM hardening",
+    "reviewed-actions.ndjson": "Final fixture: typed Discard/Delete previews, scroll/cancel, owned background TUI entry/command/detach/quit0"
+  },
+  "package": {
+    "path": "/nix/store/yha0bw7qi99115yn1310dxczlwcd12jf-p-0.1.0-dev",
+    "result": "just unit-tests and just build exited 0; package check phase full Go +17 Python tests",
+    "log_sha256": "4a5f1c3e6695b88ca872f987d59788b578d52bdd25d53b09b42b45e7281b851a"
+  }
+}

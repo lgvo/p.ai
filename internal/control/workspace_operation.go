@@ -51,6 +51,13 @@ func (s *Store) BeginWorkspaceInspect(ctx context.Context, req WorkspaceInspectR
 	return s.beginWorkspaceRead(ctx, "workspace.inspect", req, ev)
 }
 
+// WorkspaceInspectionRequiresFreshRequest identifies failures whose helper
+// cleanup finished and whose source guard was released. Resuming their old
+// identity would not restore the accepted inspection's authority boundary.
+func WorkspaceInspectionRequiresFreshRequest(op Operation) bool {
+	return (op.Kind == "workspace.inspect" || op.Kind == "workspace.loss.inspect") && op.Status == "failed" && op.Phase == "cleaned"
+}
+
 func (s *Store) BeginWorkspaceLossInspect(ctx context.Context, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (Operation, error) {
 	return s.beginWorkspaceRead(ctx, "workspace.loss.inspect", req, ev)
 }

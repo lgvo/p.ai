@@ -436,6 +436,11 @@ units installed by the session user in its systemd user manager. The base image
 enables lingering for user `p` (UID/GID 1000); the manager and all project
 processes remain inside the same unprivileged container and captured grants.
 This adds neither system-unit privileges nor host port publication.
+Interactive terminals inherit the same session-user endpoint through
+`XDG_RUNTIME_DIR=/run/user/1000` and
+`DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus`, so ordinary
+`systemctl --user` commands address their own manager. Host startup restores
+these runtime-owned values after devShell activation before starting tmux.
 
 Host-only service RPC binds the exact established session, holds its lifecycle
 lock, excludes workspace-inspection/removal conflicts, and uses the selected
@@ -529,6 +534,13 @@ helper attached only to the stopped/frozen instance storage. It must:
 - disable Git hooks, helpers, monitors, and ambient Git configuration;
 - accept enumerated operations with structured arguments; and
 - return bounded structured results.
+
+Directory enumeration accepts SFTP NAME replies up to 128 KiB with at most
+128 entries per page, accommodating the native server's filename, display
+longname and attribute encoding. Other SFTP packet readers retain their
+16 KiB ceiling. Directory pages still require valid unique path components,
+complete encoding, EOF and successful close; the overall workspace entry,
+depth, byte and ownership limits remain independent.
 
 When inspection requires a helper container, creation admission reserves one
 slot beneath the configured Incus project container limit. Admission covers

@@ -885,6 +885,18 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			for _, s := range sessions {
 				v, e := life.InspectSession(ctx, s.UUID)
 				if e != nil {
+					if errors.Is(e, ErrNotFound) {
+						// A completed removal can disappear between the page's
+						// snapshot and inspection. Missing authority on a surviving
+						// record is still an error, never an empty observation.
+						_, currentErr := store.GetSession(ctx, s.UUID)
+						if errors.Is(currentErr, ErrNotFound) {
+							continue
+						}
+						if currentErr != nil {
+							return nil, lifecycleRPC(currentErr)
+						}
+					}
 					return nil, lifecycleRPC(e)
 				}
 				v, e = store.PopulateSessionStatus(ctx, v)
@@ -981,9 +993,12 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 }
 
 func lifecycleRPC(err error) *RPCError {
+	var capacity *sessionCapacityError
 	switch {
 	case errors.Is(err, ErrInvalid):
 		return errorRPC(-32602, "invalid_params", "invalid lifecycle request")
+	case errors.As(err, &capacity):
+		return errorRPC(-32003, "busy", capacity.Error())
 	case errors.Is(err, ErrConflict):
 		return errorRPC(-32003, "busy", "lifecycle request conflicts with current authority")
 	case errors.Is(err, ErrNotFound):

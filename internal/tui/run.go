@@ -31,6 +31,7 @@ func Run(args []string) error {
 	id := flags.String("uuid", "", "snapshot session UUID")
 	width := flags.Int("width", 120, "snapshot columns")
 	height := flags.Int("height", 35, "snapshot rows")
+	theme := flags.String("theme", "auto", "palette: auto, light, or dark (auto defaults to dark until terminal detection)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -40,11 +41,15 @@ func Run(args []string) error {
 	if *width < 1 || *width > 500 || *height < 1 || *height > 200 {
 		return errors.New("snapshot dimensions out of bounds")
 	}
+	mode := ThemeMode(*theme)
+	if mode != ThemeAuto && mode != ThemeLight && mode != ThemeDark {
+		return errors.New("theme must be auto, light, or dark")
+	}
 	c := SocketClient{socket}
 	if *snapshot {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		frame, err := Snapshot(ctx, c, socket, *page, *id, *width, *height)
+		frame, err := snapshotWithTheme(ctx, c, socket, *page, *id, *width, *height, PrototypeTheme(), mode)
 		if err != nil {
 			return err
 		}
@@ -56,7 +61,7 @@ func Run(args []string) error {
 	if err := screen.start(); err != nil {
 		return err
 	}
-	model := New(c, socket)
+	model := NewWithTheme(c, socket, PrototypeTheme(), mode)
 	model.attachmentScreen = screen
 	_, err = tea.NewProgram(model, tea.WithOutput(attachmentScreenTTY{os.Stdout, screen})).Run()
 	return err

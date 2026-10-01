@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd -- "$(dirname -- "$0")/.."
+p_mock_dataset=portfolio
+p_mock_theme=auto
+while (($#)); do
+    case $1 in
+        --help|-h)
+            printf '%s\n' 'Usage: just tui-mock [--dataset portfolio|small|empty] [--theme auto|light|dark]' 'Starts a disposable fixture socket and the production TUI. Ctrl-B d detaches.'
+            exit 0 ;;
+        --dataset)
+            if (($# < 2)); then printf '%s\n' '--dataset requires a value' >&2; exit 2; fi
+            p_mock_dataset=$2; shift 2 ;;
+        --dataset=*) p_mock_dataset=${1#--dataset=}; shift ;;
+        --theme)
+            if (($# < 2)); then printf '%s\n' '--theme requires a value' >&2; exit 2; fi
+            p_mock_theme=$2; shift 2 ;;
+        --theme=*) p_mock_theme=${1#--theme=}; shift ;;
+        *) printf 'Unknown tui-mock argument: %s\n' "$1" >&2; exit 2 ;;
+    esac
+done
+case $p_mock_dataset in
+    portfolio|small|empty) ;;
+    *) printf 'Unknown tui-mock dataset: %s\n' "$p_mock_dataset" >&2; exit 2 ;;
+esac
+case $p_mock_theme in
+    auto|light|dark) ;;
+    *) printf 'Unknown tui-mock theme: %s\n' "$p_mock_theme" >&2; exit 2 ;;
+esac
+if [[ ${P_TUI_MOCK_SHELL:-} != 1 ]]; then
+    # Quote each argument as shell syntax before passing through nix-shell.
+    printf -v p_mock_command '%q ' ./dev/tui-mock --dataset "$p_mock_dataset" --theme "$p_mock_theme"
+    exec nix-shell dev/tui-test-shell.nix --run "$p_mock_command"
+fi
+p_mock_tmp=$(mktemp -d /tmp/p-tui.XXXXXX)
+p_mock_pid=
+p_mock_tui_pid=
+# Registered with trap below; ShellCheck's exit-path analysis misses this call.
+# shellcheck disable=SC2329
+cleanup() {
+    trap '' INT TERM
+    if [[ -n $p_mock_tui_pid ]]; then
+        # Bubble Tea suspends signal handling while an attachment command is
+        # running. Terminate that owned child too; Go may spawn it from any
+        # thread, so inspect each thread's children rather than only the leader.
+        for p_mock_children_file in /proc/"$p_mock_tui_pid"/task/*/children; do
+            p_mock_children=()
+            read -r -a p_mock_children < "$p_mock_children_file" 2>/dev/null || true
+            for p_mock_child in "${p_mock_children[@]}"; do
+                kill -TERM "$p_mock_child" 2>/dev/null || true
+            done
+        done
+        kill -TERM "$p_mock_tui_pid" 2>/dev/null || true
+    fi
+    if [[ -n $p_mock_pid ]]; then
+        kill -TERM "$p_mock_pid" 2>/dev/null || true
+    fi
+    if [[ -n $p_mock_tui_pid ]]; then
+        for ((p_mock_shutdown=0; p_mock_shutdown<40; p_mock_shutdown++)); do
+            if ! kill -0 "$p_mock_tui_pid" 2>/dev/null; then break; fi
+            kill -TERM "$p_mock_tui_pid" 2>/dev/null || true
+            sleep 0.05
+        done
+        if kill -0 "$p_mock_tui_pid" 2>/dev/null; then
+            kill -KILL "$p_mock_tui_pid" 2>/dev/null || true
+        fi
+        wait "$p_mock_tui_pid" 2>/dev/null || true
+    fi
+    if [[ -n $p_mock_pid ]]; then
+        wait "$p_mock_pid" 2>/dev/null || true
+    fi
+    rm -rf -- "$p_mock_tmp"
+}
+trap 'cleanup' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+go build -o "$p_mock_tmp/p" ./cmd/p
+go build -o "$p_mock_tmp/server" ./tests/integration/cmd/tui-mock
+"$p_mock_tmp/server" --state-dir "$p_mock_tmp" --dataset "$p_mock_dataset" >"$p_mock_tmp/server.log" 2>&1 &
+p_mock_pid=$!
+for ((p_mock_attempt=0; p_mock_attempt<100; p_mock_attempt++)); do
+    if [[ -S $p_mock_tmp/control.sock ]]; then break; fi
+    if ! kill -0 "$p_mock_pid" 2>/dev/null; then cat "$p_mock_tmp/server.log" >&2; exit 1; fi
+    sleep 0.05
+done
+if [[ ! -S $p_mock_tmp/control.sock ]]; then cat "$p_mock_tmp/server.log" >&2; exit 1; fi
+# Bash's wait builtin is interruptible by TERM; waiting for a foreground
+# command defers the trap. Explicit stdin keeps the child on this terminal.
+"$p_mock_tmp/p" tui "$p_mock_tmp/control.sock" --theme "$p_mock_theme" <&0 &
+p_mock_tui_pid=$!
+p_mock_status=0
+wait "$p_mock_tui_pid" || p_mock_status=$?
+p_mock_tui_pid=
+exit "$p_mock_status"

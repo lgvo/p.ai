@@ -19,8 +19,8 @@ Start with the [user guide](docs/user-guide.md) for creating a project, working
 in sessions, resuming work, publishing commits, and reviewing cleanup.
 Machine owners can follow [NixOS installation](#nixos-installation) to set up the CLI.
 The [host API reference](docs/control-api.md) documents creation, inspection,
-attachment and lifecycle commands. All 55 automated VM gates have passing serial
-checkpoint coverage; [manual Codex acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
+attachment and lifecycle commands. [Implementation progress](docs/implementation-progress.md)
+records automated checkpoints and live TUI review; [manual Codex acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
 remains pending. The production TUI below connects to that daemon; the original
 prototype remains a separate fixture-backed design reference.
 
@@ -66,7 +66,7 @@ The shell uses [nix-dev-templates](https://github.com/lgvo/nix-dev-templates)
 to provide Go and Just, alongside P's test tools. `lang.go.enable` selects Go;
 `lang.go.ciLint.enable` is explicitly `false`, leaving golangci-lint optional.
 Use `just test` for complete automated validation: flake evaluation, Go and
-Python unit tests, mocked VM runner checks, package build checks, and the full
+Python unit tests, terminal observer checks, mocked VM runner checks, package build checks, and the full
 VM integration suite.
 For focused runs, use `just unit-tests` for the unit suites, `just vm-tests`
 for the full VM suite, or `just vm-incus-tests` for the Incus backend
@@ -83,6 +83,22 @@ working checkout, including uncommitted files.
 and `just vm-tests --step 56-live-tui.sh` runs a selected disposable VM check.
 These recipes call the existing runners and preserve their locking, logs,
 and disk behavior. `just lab --help` and `just vm-tests --help` show runner options.
+
+`just lab-notes` opens a separate persistent lab with PostgreSQL and Python
+with Psycopg. Follow the [three-service notes walkthrough](examples/notes/README.md)
+to create a project, run the application, manage services and develop in
+separate branches. `just notes-tests` runs its real database tests;
+`just tui-tests` runs fast socket-backed TUI integration and terminal transport
+checks without a VM.
+
+Use `just tui-mock` to explore the **production TUI** against a disposable
+background mock socket. It starts with 24 projects and 120 sessions; use
+`just tui-mock --dataset small` or `just tui-mock --dataset empty` for smaller
+inventories. Enter opens a real local tmux shell; Ctrl-B then lowercase d
+detaches. Every invocation starts fresh and removes its socket, tmux server,
+and temporary workspaces on exit. Services, Git, and lifecycle effects are
+simulated; the shell runs as your local user. See the
+[mock TUI workflow and coverage](docs/development-validations.md#mock-socket-tui-exploration-and-fast-integration).
 
 ## Start from the current prototype
 

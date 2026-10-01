@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-01",
+  "revision": "0985bc2b26e3ccb2eea84a1420e8fb691ee807cb",
+  "working_tree": true,
+  "scope": "Step 1 palette/theme rendering only; mock presentation/socket/PTY evidence, no native backend acceptance",
+  "source_sha256": {
+    "internal/tui/theme.go": "5664c355be3fc289ce03512dc04afb1b18cbc0d26b431003bfc7d1333c48ffa4",
+    "internal/tui/theme_test.go": "8326d52b462eb2a387aaeabc6d8bb0eeec07db2470d23418f015e3060bc53e14",
+    "internal/tui/model.go": "0d7e92847e9feb0f096a04f4e1371c04f3b4a40332a238ed743fcc6eaa8facd7",
+    "internal/tui/view.go": "f75cb10a9c73e2916cd1bcaedad7969dfa8f976658b63f30589d3c1c9559d554",
+    "internal/tui/run.go": "310d7fd4f48ead032abbeae0f775ee9150b792bb8ab97331ae67d6a3726e143c",
+    "internal/tui/navigation_test.go": "068e76305376e051c1bb9ee4bf71e2a5ce7f0d189575c883f8c287d51e079960",
+    "dev/tui-mock": "ee83826cd9b27523c21d1641f8333b6bf9bf8a461c17ae7ec560a2f24c69ccc7",
+    "tests/integration/tui-mock-test.py": "046ab21ec96eee561de7de6835a9c7db3a851ab4e65592753489bcfa5abade67",
+    "tests/integration/tui-observe.py": "139a2458986e09cbcd6a6b8c02cb2e4de9a639787156653e076a709bd62412cf",
+    "tests/integration/tui-observe-test.py": "e0d8110c123aa3f9861f2dc7824993cd36148f6e3ee7d244bc1dc82b8a6ad535",
+    "tests/integration/tui_terminal.py": "8c58f21899f660887e3a7322448ba244946bce0103a717b38aed7ae42f4e69d0",
+    "tests/integration/cmd/tui-mock/main.go": "eea3c2a2a964386ddaacdf686201ff5f3511999f6d850c0c6af853aab9af6293"
+  },
+  "dimensions": [
+    [
+      120,
+      35
+    ],
+    [
+      80,
+      24
+    ],
+    [
+      48,
+      16
+    ]
+  ],
+  "fixtures": "Fresh just tui-mock portfolio; prototype portfolio, light COLORFGBG=0;15",
+  "prototype_sha256": "0aa1f50fb376e923b27ba101b86b83cc194a023397ecf1f0d700e92edaf3edef",
+  "tests": {
+    "go test ./internal/tui": "passed",
+    "just tui-tests commands": {
+      "terminal": 8,
+      "observer": 4,
+      "mock": 11,
+      "result": "passed"
+    }
+  },
+  "implementation_review": "accepted",
+  "fresh_context_review": "accepted, zero findings",
+  "independent_review_manifest": "independent-review.json",
+  "capture_correction": "Numeric RGB 137333 was incorrectly parsed as ANSI index; corrected observer re-rendered retained cells. Earlier apparent white-green defect was a capture artifact. Prototype code unchanged.",
+  "screens": {
+    "before-dark": "theme-before-dark/0001-start",
+    "before-light": "theme-before-light/0001-start",
+    "prototype-light": "theme-proto-light-fixed/0001-start",
+    "prototype-dark": "theme-proto-dark/0001-start",
+    "wide-light": "theme-final-light/0003-faithful-light",
+    "wide-dark": "theme-final-dark/0001-start",
+    "stacked-light": "theme-final-light/0006-stacked-light",
+    "stacked-dark": "theme-final-dark/0004-stacked-dark",
+    "compact-light": "theme-final-light/0007-compact-light",
+    "compact-dark": "theme-final-dark/0005-compact-dark",
+    "projects-light": "theme-final-light/0004-projects-light",
+    "projects-dark": "theme-final-dark/0002-projects-dark"
+  }
+}

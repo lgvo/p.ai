@@ -30,8 +30,27 @@ func TestSessionAdmissionReservesHelperAndCountsRowlessProjectIntent(t *testing.
 			}
 		}
 	}
-	if _, err := s.BeginBlankProjectWithCapacity(ctx, BlankProjectRequest{Key: "capacity-d", Project: "team/capacity-d"}, json.RawMessage(`{"network":"none"}`), strings.Repeat("d", 64), testSelection(), observe); !errors.Is(err, ErrConflict) {
+	_, err := s.BeginBlankProjectWithCapacity(ctx, BlankProjectRequest{Key: "capacity-d", Project: "team/capacity-d"}, json.RawMessage(`{"network":"none"}`), strings.Repeat("d", 64), testSelection(), observe)
+	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("fourth session consumed helper slot: %v", err)
+	}
+	var capacity *sessionCapacityError
+	if !errors.As(err, &capacity) {
+		t.Fatalf("admission refusal lost its capacity classification: %v", err)
+	}
+	rpcErr := lifecycleRPC(err)
+	if rpcErr.Code != -32003 || rpcErr.Kind != "busy" || !strings.Contains(rpcErr.Message, "one slot for loss inspection") || !strings.Contains(rpcErr.Message, "Discard or Delete") || !strings.Contains(rpcErr.Message, "Stop retains") {
+		t.Fatalf("capacity refusal did not explain the remedy: %+v", rpcErr)
+	}
+	var mutations int
+	if err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM operations WHERE idempotency_key='capacity-d') + (SELECT count(*) FROM projects WHERE path='team/capacity-d') + (SELECT count(*) FROM sessions WHERE project_path='team/capacity-d')`).Scan(&mutations); err != nil {
+		t.Fatal(err)
+	}
+	if mutations != 0 {
+		t.Fatal("capacity refusal accepted durable mutation")
+	}
+	if ordinary := lifecycleRPC(ErrConflict); ordinary.Message != "lifecycle request conflicts with current authority" {
+		t.Fatalf("ordinary conflict gained a capacity diagnosis: %+v", ordinary)
 	}
 }
 
