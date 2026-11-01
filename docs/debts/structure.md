@@ -1,0 +1,103 @@
+# Structure
+
+## Lifecycle workers depend on concrete runtime, store and Git types
+
+- Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
+- Problem: Workers call a concrete `*runtimeincus.Backend` (49 methods, about 205 calls),
+  `*control.Store` and `*gitCapability`, so no worker can run against a stand-in.
+- Evidence: daemon statement coverage is 18.7%; every `process*` worker except
+  `processCreateCleanup` and `processRetainedRename` is at 0%.
+- Risk: discard, delete, rename, repair and project delete are checked only by the serial
+  VM suite; a regression in a recovery branch surfaces late or not at all.
+- Fix: give the workers narrow interfaces grouped by native sub-protocol (helper VM,
+  freeze/thaw, builder, discard), then unit-test each worker's recovery branches.
+- Fix when: a worker's recovery logic changes, or before a second runtime backend.
+- Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
+    of scope because the workers' behavior is pinned only by VM scenarios.
+
+## Native sub-protocols are copied across workers
+
+- Where: internal/daemon discard_process.go, workspace_inspect.go, assembled_cleanup.go,
+  rename.go, ref_repair.go, environment.go, repair_prepare.go, repair_image.go, repair.go
+- Problem: The helper-VM sequence (3 copies), freeze/thaw with stale rollback (4 copies),
+  builder-VM sequence (3 copies) and the activation-schema ladder (2 copies, lifecycle.go
+  and repair.go) are written separately in each worker.
+- Evidence: `rollbackStaleDiscard`, `rollbackRenamePrecommit`, `rollbackRefRepair` and
+  `failWorkspaceInspect` each restore a freeze; `buildEnvironment`, `processRepairPrepare`
+  and `repairImageAdvanceToReady` each drive the builder phases.
+- Risk: a safety fix applied to one copy misses the others.
+- Fix: one component per sub-protocol with its durable phases, used by every worker.
+- Fix when: any of these sequences changes, or together with the worker interfaces above.
+- Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" found the copies while mapping.
+
+## Long worker and setup functions
+
+- Where: internal/daemon `processDiscard`, `process`, `processProjectDelete`,
+  `processAssembledCreateCleanup`, `processRepair`, `processWorkspaceInspect`,
+  `processRename`; internal/control `openStore`
+- Problem: Sixteen daemon functions exceed 150 lines (`processDiscard` 422); `openStore` is
+  367 lines of migrations.
+- Evidence: measured on 2026-11-01 while mapping the daemon and control packages.
+- Risk: recovery branches are hard to read and review; reviewers miss interactions.
+- Fix: split each worker by phase once its sub-protocols are shared components.
+- Fix when: together with the sub-protocol components above.
+- Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
+
+## Current schema is known only by replaying 21 migrations
+
+- Where: internal/control store.go `migration1`–`migration21`, `openStore`
+- Problem: Triggers and indexes are redefined across migrations (for example
+  `session_insert_excludes_rename_reservation` in 13, 17 and 18) and SQL invariants read
+  JSON evidence fields by name (`$.creator_operation_id`, `$.runtime_init_state`) that
+  mirror Go struct tags.
+- Evidence: store.go triggers at migrations 8–21; tags in workspace_operation.go,
+  create_cleanup.go, lifecycle_store.go.
+- Risk: renaming an evidence field's tag silently disables an exclusion trigger; reviewers
+  cannot see the effective schema.
+- Fix: a test that compares the migrated schema with a checked-in snapshot, and one that
+  breaks each JSON-keyed trigger when its field is renamed.
+- Fix when: the next migration, or any change to an evidence struct those triggers read.
+- Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" kept migrations unchanged.
+
+## Incus exec and HTTP access is hand-built in many places
+
+- Where: internal/runtimeincus (services.go, builder_nix.go, host_observe.go,
+  workspace_git.go, workspace_helper.go, attach.go, builder_architecture.go, assembly.go,
+  sftp_stat.go) and internal/attachment incus.go
+- Problem: Seven `incus exec` argument lists and six HTTP-over-socket clients are written
+  separately, each with its own environment and limits.
+- Evidence: listed while mapping the adapters on 2026-11-01.
+- Risk: a confinement fix to exec or socket access misses a copy.
+- Fix: one exec builder and one socket client in runtimeincus.
+- Fix when: the next change to how P reaches Incus.
+- Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
+  step 8 consolidates only the instance inventory).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
+
+## Preview confirmation tokens are issued by copied code
+
+- Where: internal/daemon `PreviewRemoval`, `PreviewRecordRepair`, `PreviewPrincipalRepair`,
+  `PreviewRefRepair`, `previewRepair`, `PreviewCreateReplace`, `PreviewRetainedDelete`,
+  `PreviewCreateCleanup`, `PreviewProjectDelete`, `PreviewEnvironmentCollection`
+- Problem: Each preview family issues its token, prunes expired entries, enforces its own
+  capacity (32, 64 or 128) and checks the frame size with its own copy of the code and its own
+  map on `lifecycle`.
+- Evidence: ten preview maps on `lifecycle`; capacity errors differ (`ErrConflict` answers
+  `busy`, a plain error answers `unavailable`).
+- Risk: a fix to token issue or expiry reaches one family and misses the others.
+- Fix: one preview-book type with an instance per family carrying its TTL, capacity and error.
+- Fix when: the previews' facts can be produced in unit tests (with the worker interfaces
+  above), so each family's saturation can be characterized first.
+- Left by: the agent, by rule (a restructuring not pursued; the plan review cut it because its
+  behavior cannot be characterized before the change).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" cut it from step 5 after review.
