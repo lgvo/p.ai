@@ -212,7 +212,7 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE project_path=?`, req.Project); err != nil {
 		return api.Operation{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at) VALUES(?,?, 'project.delete',?,?,?,'running','ensure-absent',1,?,?,?)`, id, req.Key, req.Project, string(raw), digest(raw), string(proof), now, now); err != nil {
+	if err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: KindProjectDelete, Project: req.Project, Request: raw, Phase: "ensure-absent", Committed: true, Evidence: proof, Now: now}); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -251,34 +251,6 @@ func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation,
 		return err
 	}
 	return tx.Commit()
-}
-func (s *Store) UnfinishedProjectDeletes(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='project.delete' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
-		}
-		ids = append(ids, id)
-	}
-	rowErr := rows.Err()
-	rows.Close()
-	if err != nil || rowErr != nil {
-		return nil, errors.Join(err, rowErr)
-	}
-	ops := []api.Operation{}
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		ops = append(ops, op)
-	}
-	return ops, nil
 }
 func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operation, verify func(context.Context) error) error {
 	if verify == nil {

@@ -49,16 +49,10 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	}
 	defer s.gitAuthority.Unlock()
 	raw, _ := json.Marshal(r)
-	var kind, hash string
-	err = s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, r.Key).Scan(&kind, &hash)
-	if err == nil {
-		if kind != "project.retained.delete" || hash != digest(raw) {
-			return api.Operation{}, ErrConflict
-		}
-		return s.GetOperationByKey(ctx, r.Key)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if replay, err := keyRecordsRequest(ctx, s.db, r.Key, KindRetainedDelete, raw); err != nil {
 		return api.Operation{}, err
+	} else if replay {
+		return s.GetOperationByKey(ctx, r.Key)
 	}
 	if !time.Now().Before(expires) {
 		return api.Operation{}, ErrConflict
@@ -95,8 +89,7 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	evRaw, _ := json.Marshal(e)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,'running','guarded',0,?,?,?)`, id, r.Key, "project.retained.delete", r.Project, string(raw), digest(raw), string(evRaw), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: r.Key, Kind: KindRetainedDelete, Project: r.Project, Request: raw, Phase: "guarded", Evidence: evRaw, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -233,35 +226,4 @@ func (s *Store) CompleteRetainedDelete(ctx context.Context, id string, verify fu
 		return err
 	}
 	return tx.Commit()
-}
-
-func (s *Store) UnfinishedRetainedDeletes(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='project.retained.delete' AND status IN ('running','blocked','unknown') ORDER BY rowid`)
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
-		}
-		ids = append(ids, id)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, op)
-	}
-	return out, nil
 }

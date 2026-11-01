@@ -80,16 +80,10 @@ func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req Workspa
 		return api.Operation{}, err
 	}
 	defer tx.Rollback()
-	var oldKind, oldHash string
-	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&oldKind, &oldHash)
-	if err == nil {
-		if oldKind != kind || oldHash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
-		return getOperationTx(ctx, tx, req.Key)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if replay, err := keyRecordsRequest(ctx, tx, req.Key, kind, request); err != nil {
 		return api.Operation{}, err
+	} else if replay {
+		return getOperationTx(ctx, tx, req.Key)
 	}
 	session, err := getSessionTx(ctx, tx, req.SessionUUID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -111,8 +105,7 @@ func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req Workspa
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?, ?,?,'running','helper-intent',?,?,?)`, id, req.Key, kind, project, req.SessionUUID, string(request), digest(request), string(evidence), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: kind, Project: project, Session: req.SessionUUID, Request: request, Phase: "helper-intent", Evidence: evidence, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -138,32 +131,4 @@ func (s *Store) ActiveWorkspaceInspect(ctx context.Context, sessionUUID string) 
 	}
 	op, err := s.GetOperation(ctx, id)
 	return op, err == nil, err
-}
-
-func (s *Store) UnfinishedWorkspaceInspects(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('workspace.inspect','workspace.loss.inspect') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, op)
-	}
-	return out, nil
 }

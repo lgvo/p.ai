@@ -140,7 +140,7 @@ func TestRepairPreparationDurableGuardAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	unfinished, err := s.UnfinishedRepairPreparations(ctx)
+	unfinished, err := unfinishedOf(ctx, s, KindRepairPrepare)
 	if err != nil || len(unfinished) != 1 || unfinished[0].ID != op.ID || unfinished[0].Phase != "builder-init-issued" {
 		t.Fatalf("restart lost exact builder intent: %+v %v", unfinished, err)
 	}

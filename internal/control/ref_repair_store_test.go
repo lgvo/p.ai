@@ -67,7 +67,7 @@ func TestRefRepairDurableGuardMarkerAndSingleUseAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	unfinished, err := s.UnfinishedRefRepairs(ctx)
+	unfinished, err := unfinishedOf(ctx, s, KindRefRepair)
 	if err != nil || len(unfinished) != 1 || unfinished[0].ID != op.ID {
 		t.Fatalf("restart lost ref repair guard: %+v %v", unfinished, err)
 	}

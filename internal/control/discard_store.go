@@ -89,16 +89,10 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 		return api.Operation{}, err
 	}
 	defer tx.Rollback()
-	var kind, oldHash string
-	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &oldHash)
-	if err == nil {
-		if kind != "session."+ev.Action || oldHash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
-		return getOperationTx(ctx, tx, req.Key)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if replay, err := keyRecordsRequest(ctx, tx, req.Key, "session."+ev.Action, request); err != nil {
 		return api.Operation{}, err
+	} else if replay {
+		return getOperationTx(ctx, tx, req.Key)
 	}
 	var project, branch, registry, policy string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, req.UUID).Scan(&project, &branch, &registry, &policy)
@@ -121,8 +115,7 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,'running','guard-pending',0,?,?,?)`, id, req.Key, "session."+ev.Action, ev.Project, req.UUID, string(request), digest(request), string(evidence), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, Session: req.UUID, Request: request, Phase: "guard-pending", Evidence: evidence, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -249,37 +242,6 @@ func (s *Store) failStaleRemoval(ctx context.Context, opID, action, diagnostic s
 		return err
 	}
 	return tx.Commit()
-}
-
-func (s *Store) UnfinishedDiscards(ctx context.Context) ([]api.Operation, error) {
-	return s.UnfinishedRemovals(ctx)
-}
-func (s *Store) UnfinishedRemovals(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('session.discard','session.delete','session.create.cleanup') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, op)
-	}
-	return out, nil
 }
 
 // CompleteDiscard releases the assignment only after the guarded P ref still

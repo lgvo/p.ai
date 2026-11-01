@@ -62,7 +62,7 @@ func TestPrincipalRepairRevokesOldBeforeNewAuthorityAndRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	unfinished, err := s.UnfinishedPrincipalRepairs(ctx)
+	unfinished, err := unfinishedOf(ctx, s, KindPrincipalRepair)
 	if err != nil || len(unfinished) != 1 || unfinished[0].Phase != "authority-rotated" || !unfinished[0].Committed {
 		t.Fatalf("restart lost committed rotation: %+v %v", unfinished, err)
 	}

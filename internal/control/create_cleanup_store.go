@@ -132,7 +132,7 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	if assembled {
 		phase, committed = "helper-intent", false
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'running',?,?, ?,?,?)`, id, req.Key, "session.create.cleanup", old.Project, p.UUID, string(raw), digest(raw), phase, committed, string(evidence), now, now); err != nil {
+	if err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: KindCreateCleanup, Project: old.Project, Session: p.UUID, Request: raw, Phase: phase, Committed: committed, Evidence: evidence, Now: now}); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, old.Project, branch, id); err != nil {

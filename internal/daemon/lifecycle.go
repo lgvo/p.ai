@@ -297,8 +297,12 @@ func (l *lifecycle) currentProjectPolicy(ctx context.Context, project string) er
 }
 
 func (l *lifecycle) Close() { l.endpoints.Close() }
+
+// Recovery and polling read the same unfinished operations with distinct
+// eligibility rules: recovery may reconcile eligible blocked intents once,
+// while periodic polling only dispatches running work.
 func (l *lifecycle) Recover() error {
-	ops, err := l.unfinishedOperations()
+	ops, err := l.store.UnfinishedOperations(l.ctx)
 	if err != nil {
 		return err
 	}
@@ -356,7 +360,7 @@ func (l *lifecycle) schedule() {
 		case <-l.ctx.Done():
 			return
 		case <-ticker.C:
-			ops, err := l.unfinishedOperations()
+			ops, err := l.store.UnfinishedOperations(l.ctx)
 			if err != nil {
 				log.Printf("lifecycle reconciliation: %v", err)
 				continue
@@ -422,35 +426,6 @@ func (l *lifecycle) dispatchLocked() {
 			l.process(id)
 		}()
 	}
-}
-
-// Recovery and polling share the full set of durable workflow kinds. Callers
-// retain their distinct eligibility rules: recovery may reconcile eligible
-// blocked intents once, while periodic polling only dispatches running work.
-func (l *lifecycle) unfinishedOperations() ([]api.Operation, error) {
-	var ops []api.Operation
-	for _, list := range []func(context.Context) ([]api.Operation, error){
-		l.store.UnfinishedCreates,
-		l.store.UnfinishedEnvironmentCollections,
-		l.store.UnfinishedProjectDeletes,
-		l.store.UnfinishedWorkspaceInspects,
-		l.store.UnfinishedRemovals,
-		l.store.UnfinishedRenames,
-		l.store.UnfinishedRetainedRenames,
-		l.store.UnfinishedRetainedDeletes,
-		l.store.UnfinishedRepairs,
-		l.store.UnfinishedRepairPreparations,
-		l.store.UnfinishedRefRepairs,
-		l.store.UnfinishedPrincipalRepairs,
-		l.store.UnfinishedRecordRepairs,
-	} {
-		items, err := list(l.ctx)
-		if err != nil {
-			return nil, err
-		}
-		ops = append(ops, items...)
-	}
-	return ops, nil
 }
 
 func (l *lifecycle) selection() control.CreationSelection {

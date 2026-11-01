@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"time"
 
@@ -194,17 +193,10 @@ func (s *Store) BeginEnvironmentCollection(ctx context.Context, key string, clai
 		return api.Operation{}, err
 	}
 	defer tx.Rollback()
-	var oldKind, oldHash string
-	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, key).Scan(&oldKind, &oldHash)
-	if err == nil {
-		if oldKind != "environment.collect" || oldHash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
-		op, err := getOperationTx(ctx, tx, key)
-		return op, err
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if replay, err := keyRecordsRequest(ctx, tx, key, KindEnvironmentCollect, request); err != nil {
 		return api.Operation{}, err
+	} else if replay {
+		return getOperationTx(ctx, tx, key)
 	}
 	var current EnvironmentImage
 	var props string
@@ -238,8 +230,7 @@ func (s *Store) BeginEnvironmentCollection(ctx context.Context, key string, clai
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,'running','accepted',?,?)`, opID, key, "environment.collect", claim.Image.Project, string(request), digest(request), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: opID, Key: key, Kind: KindEnvironmentCollect, Project: claim.Image.Project, Request: request, Phase: "accepted", Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -280,34 +271,4 @@ func (s *Store) DeleteEnvironmentImageExact(ctx context.Context, want Environmen
 		return err
 	}
 	return tx.Commit()
-}
-
-func (s *Store) UnfinishedEnvironmentCollections(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='environment.collect' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	err = rows.Err()
-	_ = rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	ops := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, err := s.GetOperation(ctx, id)
-		if err != nil {
-			return nil, fmt.Errorf("collection operation %s: %w", id, err)
-		}
-		ops = append(ops, op)
-	}
-	return ops, nil
 }

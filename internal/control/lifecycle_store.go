@@ -146,22 +146,19 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		if !errors.Is(e, sql.ErrNoRows) {
 			return api.Operation{}, Session{}, true, e
 		}
-		var kind, hash string
-		e = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &hash)
-		if errors.Is(e, sql.ErrNoRows) {
-			return api.Operation{}, Session{}, false, nil
-		}
+		recorded, e := keyRecordsRequest(ctx, tx, req.Key, KindSessionCreate, request)
 		if e != nil {
 			return api.Operation{}, Session{}, true, e
 		}
-		if kind != "session.create" || hash != digest(request) {
-			return api.Operation{}, Session{}, true, ErrConflict
+		if !recorded {
+			return api.Operation{}, Session{}, false, nil
 		}
 		op, e := getOperationTx(ctx, tx, req.Key)
 		if e != nil {
 			return op, Session{}, true, e
 		}
-		if digest(op.Request) != hash {
+		// The recorded digest matched request; the stored request must match it.
+		if digest(op.Request) != digest(request) {
 			return api.Operation{}, Session{}, true, ErrConflict
 		}
 		if op.Status == "superseded" {
@@ -244,7 +241,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		return api.Operation{}, Session{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'running','source-ready',0,?,?,?)`, oidID, req.Key, "session.create", req.Project, sid, string(request), digest(request), string(evJSON), now, now); err != nil {
+	if err = insertOperation(ctx, tx, operationRecord{ID: oidID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: sid, Request: request, Phase: "source-ready", Evidence: evJSON, Now: now}); err != nil {
 		return api.Operation{}, Session{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
@@ -333,19 +330,13 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	}
 	defer s.gitAuthority.Unlock()
 	request, _ := json.Marshal(req)
-	var kind, hash string
-	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &hash)
-	if err == nil {
-		if kind != "project.create" || hash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
+	if replay, err := keyRecordsRequest(ctx, s.db, req.Key, KindProjectCreate, request); err != nil {
+		return api.Operation{}, err
+	} else if replay {
 		return s.GetOperationByKey(ctx, req.Key)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, err
-	}
 	var present int
-	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM operations WHERE kind='project.create' AND project_path=? AND status IN ('running','blocked','unknown') LIMIT 1`, req.Project).Scan(&present)
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM operations WHERE kind='project.create' AND project_path=? AND status IN ('running','blocked','unknown') LIMIT 1`, req.Project).Scan(&present)
 	if err == nil {
 		return api.Operation{}, ErrConflict
 	}
@@ -387,19 +378,15 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 		return api.Operation{}, ErrInvalid
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	var operationSession any = sid
+	operationSession := sid
 	if req.URL != "" {
-		operationSession = nil
+		operationSession = ""
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,evidence_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'running','repo-pending',?,?,?)`, opID, req.Key, "project.create", req.Project, operationSession, string(request), digest(request), string(evJSON), now, now)
+	err = insertOperation(ctx, s.db, operationRecord{ID: opID, Key: req.Key, Kind: KindProjectCreate, Project: req.Project, Session: operationSession, Request: request, Phase: "repo-pending", Evidence: evJSON, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
-	opSession := sid
-	if req.URL != "" {
-		opSession = ""
-	}
-	return api.Operation{ID: opID, Key: req.Key, Kind: "project.create", Project: req.Project, SessionUUID: opSession, Request: request, Status: "running", Phase: "repo-pending", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, nil
+	return api.Operation{ID: opID, Key: req.Key, Kind: "project.create", Project: req.Project, SessionUUID: operationSession, Request: request, Status: "running", Phase: "repo-pending", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // CommitBlankProject is the only transition that exposes a new project to Git
@@ -624,37 +611,6 @@ func (s *Store) ListSessions(ctx context.Context, after string, limit int) ([]Se
 	}
 	return sessions, next, nil
 }
-func (s *Store) UnfinishedCreates(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('project.create','session.create') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	if err = rows.Close(); err != nil {
-		return nil, err
-	}
-	ops := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		v, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		ops = append(ops, v)
-	}
-	return ops, nil
-}
-
 func (s *Store) ProjectPolicySHA(ctx context.Context, project string) (string, error) {
 	var sha string
 	err := s.db.QueryRowContext(ctx, `SELECT policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&sha)

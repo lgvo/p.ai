@@ -133,7 +133,7 @@ func TestDiscardCommitAndExactForwardCompletion(t *testing.T) {
 	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "delete-issued", true, op.Evidence, "native outcome unknown"); err != nil {
 		t.Fatal(err)
 	}
-	unresolved, err := s.UnfinishedDiscards(ctx)
+	unresolved, err := unfinishedOf(ctx, s, KindSessionDiscard, KindSessionDelete, KindCreateCleanup)
 	if err != nil || len(unresolved) != 1 || unresolved[0].Phase != "delete-issued" {
 		t.Fatalf("restart tombstone missing: %+v %v", unresolved, err)
 	}
@@ -221,7 +221,7 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "branch-delete-issued", true, op.Evidence, "CAS outcome unknown"); err != nil {
 		t.Fatal(err)
 	}
-	unresolved, err := s.UnfinishedRemovals(ctx)
+	unresolved, err := unfinishedOf(ctx, s, KindSessionDiscard, KindSessionDelete, KindCreateCleanup)
 	if err != nil || len(unresolved) != 1 || unresolved[0].Phase != "branch-delete-issued" {
 		t.Fatalf("delete recovery marker missing: %+v %v", unresolved, err)
 	}

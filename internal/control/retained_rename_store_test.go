@@ -43,7 +43,7 @@ func TestRetainedRenameGuardsBothNamesAndSurvivesRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	unfinished, err := reopened.UnfinishedRetainedRenames(ctx)
+	unfinished, err := unfinishedOf(ctx, reopened, KindRetainedRename)
 	if err != nil || len(unfinished) != 1 || unfinished[0].Phase != "new-ref-create-issued" || !unfinished[0].Committed {
 		t.Fatalf("recovery: %+v %v", unfinished, err)
 	}

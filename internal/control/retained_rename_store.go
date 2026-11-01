@@ -35,18 +35,12 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 	}
 	defer s.gitAuthority.Unlock()
 	raw, _ := json.Marshal(r)
-	var kind, hash string
-	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, r.Key).Scan(&kind, &hash)
-	if err == nil {
-		if kind != "project.retained.rename" || hash != digest(raw) {
-			return api.Operation{}, ErrConflict
-		}
+	if replay, err := keyRecordsRequest(ctx, s.db, r.Key, KindRetainedRename, raw); err != nil {
+		return api.Operation{}, err
+	} else if replay {
 		return s.GetOperationByKey(ctx, r.Key)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, err
-	}
-	if err = observe(ctx); err != nil {
+	if err := observe(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -76,8 +70,7 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,'running','reserved',0,?,?,?)`, id, r.Key, "project.retained.rename", r.Project, string(raw), digest(raw), string(raw), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: r.Key, Kind: KindRetainedRename, Project: r.Project, Request: raw, Phase: "reserved", Evidence: raw, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -198,35 +191,4 @@ func (s *Store) FailRetainedRenamePreEffect(ctx context.Context, id string) erro
 		return err
 	}
 	return tx.Commit()
-}
-
-func (s *Store) UnfinishedRetainedRenames(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='project.retained.rename' AND status IN ('running','blocked','unknown') ORDER BY rowid`)
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
-		}
-		ids = append(ids, id)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, op)
-	}
-	return out, nil
 }

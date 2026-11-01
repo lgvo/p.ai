@@ -130,3 +130,18 @@ decision is applied.
   aside: fixing the driver now.
 - Needs from you: allow the fix (four matcher changes in the driver), or decide otherwise
 - From: the agent, on the rework request, 2026-11-01; find-root-cause trace by a subagent.
+
+### Review disagreement: project-deletion listing error wrapping
+
+- Where: internal/control/operation_journal.go `UnfinishedOperations` (replaces
+  `UnfinishedProjectDeletes`, which returned `errors.Join(err, rowErr)`)
+- What: Step 4 lists every unfinished kind with one function that returns a scan or iteration
+  error directly. The old project-deletion listing wrapped that error with `errors.Join`.
+- Chosen: return it directly for every group (the agent's reading): a join of one non-nil
+  error has the same text and the same `errors.Is`/`errors.As` result, and the only callers
+  (daemon `Recover`, which returns it to startup, and the poll, which logs it) never compare
+  error identity. The reviewer's position (Codex, round 2): keep the joined error for the
+  project-deletion group alone, because error identity is otherwise not preserved.
+- Needs from you: confirm or reverse
+- From: the agent, step 4 review of the rework, 2026-11-01; the user's rule "when a review ends
+  on a disagreement, go with your reading and put both positions on the page".

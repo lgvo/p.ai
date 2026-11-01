@@ -81,21 +81,15 @@ func (s *Store) BeginRepairPreparation(ctx context.Context, key, uuid string, ev
 		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
-	var priorKind, priorHash string
-	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, key).Scan(&priorKind, &priorHash)
-	if err == nil {
-		if priorKind != "session.repair.prepare" || priorHash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
+	if replay, err := keyRecordsRequest(ctx, s.db, key, KindRepairPrepare, request); err != nil {
+		return api.Operation{}, err
+	} else if replay {
 		return s.GetOperationByKey(ctx, key)
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err := observe(ctx); err != nil {
 		return api.Operation{}, err
 	}
-	if err = observe(ctx); err != nil {
-		return api.Operation{}, err
-	}
-	if err = s.checkSessionRepairCapacity(ctx, capacity); err != nil {
+	if err := s.checkSessionRepairCapacity(ctx, capacity); err != nil {
 		return api.Operation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -124,8 +118,7 @@ func (s *Store) BeginRepairPreparation(ctx context.Context, key, uuid string, ev
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,'running','reserved',0,?,?,?)`, id, key, "session.repair.prepare", project, uuid, string(request), digest(request), string(evidence), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: key, Kind: KindRepairPrepare, Project: project, Session: uuid, Request: request, Phase: "reserved", Evidence: evidence, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -259,37 +252,6 @@ func (s *Store) FailRepairPreparationAfterCleanup(ctx context.Context, id string
 		return err
 	}
 	return tx.Commit()
-}
-
-func (s *Store) UnfinishedRepairPreparations(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.repair.prepare' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
-		}
-		ids = append(ids, id)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	result := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		result = append(result, op)
-	}
-	return result, nil
 }
 
 // A completed preparation is evidence only; it never changes the current

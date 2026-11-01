@@ -197,8 +197,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if len(evidence) > 16384 {
 		return api.Operation{}, ErrInvalid
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,'running',?,0,?,?,?)`, newID, intent.New.Key, "session.create", project, newSessionID, string(request), digest(request), phase, string(evidence), now, now); err != nil {
+	if err = insertOperation(ctx, tx, operationRecord{ID: newID, Key: intent.New.Key, Kind: KindSessionCreate, Project: project, Session: newSessionID, Request: request, Phase: phase, Evidence: evidence, Now: now}); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {

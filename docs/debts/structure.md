@@ -126,3 +126,22 @@
 - Added 2026-11-01, 1 case:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
+
+## Operation status updates and kind lists are still written per site
+
+- Where: internal/control (36 `UPDATE operations` statements across the `*_store.go` files;
+  `ActiveWorkspaceInspect` in workspace_operation.go and `SessionRemovalKind` in
+  removal_kind.go list kinds in SQL; migration triggers name kinds and phases)
+- Problem: Inserts, the key rule and the unfinished listing have one owner in
+  operation_journal.go, but status and phase changes are still written by each kind's store
+  methods, and two queries keep their own lists of which kinds guard or remove a session.
+- Evidence: 27 of the 36 updates filter only on `id` (see the state-safety entry on
+  check-then-act); the kind lists repeat the constants in operation_journal.go by hand.
+- Risk: adding a kind or a status rule needs coordinated edits that nothing checks.
+- Fix: one journal transition function that checks the expected status and phase, and kind
+  lists derived from the journal's kind table.
+- Fix when: the next new operation kind, or together with the check-then-act fix.
+- Left by: the agent, by rule (a restructuring not pursued: step 4 of REWORK-PLAN.md was
+  scoped to inserts, the key rule and the unfinished listing).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" scoped step 4.

@@ -63,7 +63,7 @@ func TestRetainedDeleteGuardedEffectAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	unfinished, err := reopened.UnfinishedRetainedDeletes(ctx)
+	unfinished, err := unfinishedOf(ctx, reopened, KindRetainedDelete)
 	if err != nil || len(unfinished) != 1 || unfinished[0].Phase != "ref-delete-issued" || !unfinished[0].Committed {
 		t.Fatalf("restart: %+v %v", unfinished, err)
 	}

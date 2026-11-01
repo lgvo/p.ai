@@ -84,7 +84,7 @@ func TestRepairInitIssuedRecoveryTombstoneAndExactCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	unfinished, err := s.UnfinishedRepairs(ctx)
+	unfinished, err := unfinishedOf(ctx, s, KindSessionRepair)
 	if err != nil || len(unfinished) != 1 || unfinished[0].ID != op.ID || unfinished[0].Phase != "init-issued" {
 		t.Fatalf("restart lost tombstone: %+v %v", unfinished, err)
 	}

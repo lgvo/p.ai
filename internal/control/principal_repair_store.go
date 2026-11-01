@@ -103,16 +103,10 @@ func (s *Store) BeginPrincipalRepair(ctx context.Context, req PrincipalRepairReq
 		return api.Operation{}, err
 	}
 	defer tx.Rollback()
-	var oldKind, oldHash string
-	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&oldKind, &oldHash)
-	if err == nil {
-		if oldKind != "session.principal.repair" || oldHash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
-		return getOperationTx(ctx, tx, req.Key)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if replay, err := keyRecordsRequest(ctx, tx, req.Key, KindPrincipalRepair, request); err != nil {
 		return api.Operation{}, err
+	} else if replay {
+		return getOperationTx(ctx, tx, req.Key)
 	}
 	if !time.Now().Before(expiry) {
 		return api.Operation{}, ErrConflict
@@ -141,8 +135,7 @@ func (s *Store) BeginPrincipalRepair(ctx context.Context, req PrincipalRepairReq
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,'running','guarded',0,?,?,?)`, id, req.Key, "session.principal.repair", project, req.UUID, string(request), digest(request), string(evidence), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: KindPrincipalRepair, Project: project, Session: req.UUID, Request: request, Phase: "guarded", Evidence: evidence, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -251,32 +244,4 @@ func (s *Store) CompletePrincipalRepair(ctx context.Context, id string, verify f
 		return err
 	}
 	return tx.Commit()
-}
-
-func (s *Store) UnfinishedPrincipalRepairs(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.principal.repair' AND status IN ('running','blocked','unknown') ORDER BY rowid`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		out = append(out, op)
-	}
-	return out, nil
 }

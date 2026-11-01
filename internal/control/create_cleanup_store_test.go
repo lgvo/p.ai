@@ -293,7 +293,7 @@ func TestFailedCreateCleanupUnavailableAfterConfirmationPreservesDisabledAuthori
 	if e = s.CheckCreateReplacementTarget(ctx, "app", "work", old.SessionUUID); !errors.Is(e, ErrConflict) {
 		t.Fatal("incomplete cleanup released ref guard")
 	}
-	pending, e := s.UnfinishedRemovals(ctx)
+	pending, e := unfinishedOf(ctx, s, KindSessionDiscard, KindSessionDelete, KindCreateCleanup)
 	if e != nil || len(pending) != 1 || pending[0].ID != op.ID || pending[0].Phase != "local-complete" || pending[0].Status != "blocked" {
 		t.Fatal("restart lost forward cleanup")
 	}

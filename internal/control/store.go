@@ -1109,18 +1109,19 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 	if err != nil {
 		return op, session, err
 	}
-	requestHash := digest(requestJSON)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return op, session, err
 	}
 	defer tx.Rollback()
-	var existingHash, existingKind string
-	err = tx.QueryRowContext(ctx, "SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?", req.Key).Scan(&existingKind, &existingHash)
-	if err == nil {
-		if existingKind != "session.create" || existingHash != requestHash {
-			return op, session, fmt.Errorf("%w: idempotency key has different request", ErrConflict)
-		}
+	replay, err := keyRecordsRequest(ctx, tx, req.Key, KindSessionCreate, requestJSON)
+	if errors.Is(err, ErrConflict) {
+		return op, session, fmt.Errorf("%w: idempotency key has different request", ErrConflict)
+	}
+	if err != nil {
+		return op, session, err
+	}
+	if replay {
 		op, err = getOperationTx(ctx, tx, req.Key)
 		if err != nil {
 			return op, session, err
@@ -1130,9 +1131,6 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 			// The bounded operation result can outlive its removed session.
 			return op, Session{}, nil
 		}
-		return op, session, err
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
 		return op, session, err
 	}
 	var policy string
@@ -1164,8 +1162,7 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at)
- VALUES(?,?,?,?,?,?,?,'running','reserved',?,?)`, op.ID, req.Key, "session.create", req.Project, session.UUID, string(requestJSON), requestHash, now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: op.ID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: session.UUID, Request: requestJSON, Phase: "reserved", Now: now})
 	if err != nil {
 		return op, session, classifyWrite(err)
 	}

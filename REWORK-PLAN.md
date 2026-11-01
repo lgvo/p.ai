@@ -252,12 +252,15 @@ not exactly `{"v":1}`, `unavailable` for known prefixes, `method_not_found`
 otherwise). The daemon asserts at compile time that it implements every
 lifecycle interface the server declares.
 
-**4. Operation journal.** Typed `Kind` and `Status` constants (string-valued,
-so wire and SQL values are unchanged). One unexported journal in control
-inserts operation rows, applies the shared key replay/conflict rule, lists
-unfinished operations for a set of kinds, and performs status/phase updates;
-the per-kind store methods call it. The 14 `Unfinished*` methods become one
-call taking kinds, keeping each kind's order. SQL triggers stay as they are.
+**4. Operation journal.** One file in control (`operation_journal.go`) holds
+the 17 kind constants, the only insert of an operation row
+(`insertOperation`, used by all 17 Begin paths), the shared key rule
+(`keyRecordsRequest`, used by all 14 replay checks), and one
+`UnfinishedOperations` listing in recovery order that replaces the 14
+`Unfinished*` methods, each group keeping its order. The daemon reads that one
+list. Left as they are, and recorded as debt: the 36 status/phase updates, the
+kind lists embedded in SQL (`ActiveWorkspaceInspect`, `SessionRemovalKind`,
+triggers), and status constants (statuses are embedded in SQL text).
 
 **5. Operation-kind registry.** One table in daemon lists each kind's
 worker, Retry eligibility, recovery rule and removal condition; `Retry`,
@@ -304,6 +307,7 @@ drifted operation behaviors, routing native effects through the runtime plugin
 | 0 | done | 7061a8b | Codex, 2 rounds: 5 + 1 findings accepted, 2 cuts; last fix verified by break-and-restore at the round limit | not needed (tests only) |
 | 1 | done | c656c40 | Codex, 1 round: 1 finding accepted (plan wording) | exempt (declarations moved) |
 | 2 | dropped (see step 2) | — | — | — |
-| 3a | done | step 3a commit | Codex, 1 round: no findings, 1 cut applied | 01–36 (no 34) and 38–58 match the baseline |
+| 3a | done | 4526621 | Codex, 1 round: no findings, 1 cut applied | 01–36 (no 34) and 38–58 match the baseline |
 | 3b | deferred (see step 3) | — | — | — |
-| 4–8 | not started | — | — | — |
+| 4 | done | step 4 commit | Codex, 2 rounds: 1 finding accepted, 1 cut; 1 re-raised part rejected (on TO-DECIDE.md) | match the baseline; scenario 53 failed once on a native Incus SFTP refusal while two VMs ran, and passed on rerun |
+| 5–8 | not started | — | — | — |

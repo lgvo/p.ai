@@ -130,7 +130,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 		t.Fatal(e)
 	}
 	defer s.Close()
-	pending, e := s.UnfinishedProjectDeletes(ctx)
+	pending, e := unfinishedOf(ctx, s, KindProjectDelete)
 	if e != nil || len(pending) != 1 || pending[0].ID != op.ID {
 		t.Fatal("restart lost exact intent", e)
 	}

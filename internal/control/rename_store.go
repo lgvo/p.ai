@@ -60,16 +60,10 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	}
 	defer s.gitAuthority.Unlock()
 	request, _ := json.Marshal(r)
-	var kind, oldHash string
-	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, r.Key).Scan(&kind, &oldHash)
-	if err == nil {
-		if kind != "session.rename" || oldHash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
-		return s.GetOperationByKey(ctx, r.Key)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if replay, err := keyRecordsRequest(ctx, s.db, r.Key, KindSessionRename, request); err != nil {
 		return api.Operation{}, err
+	} else if replay {
+		return s.GetOperationByKey(ctx, r.Key)
 	}
 	if err := observe(ctx); err != nil {
 		return api.Operation{}, err
@@ -107,8 +101,7 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,'running','reserved',0,?,?,?)`, id, r.Key, "session.rename", project, r.UUID, string(request), digest(request), string(evidence), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: r.Key, Kind: KindSessionRename, Project: project, Session: r.UUID, Request: request, Phase: "reserved", Evidence: evidence, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -122,34 +115,6 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	}
 	return api.Operation{ID: id, Key: r.Key, Kind: "session.rename", Project: project, SessionUUID: r.UUID,
 		Request: request, Status: "running", Phase: "reserved", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
-}
-
-func (s *Store) UnfinishedRenames(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.rename' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	result := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, err := s.GetOperation(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, op)
-	}
-	return result, nil
 }
 
 // FailRenamePrecommit is only for a positively known pre-commit refusal after

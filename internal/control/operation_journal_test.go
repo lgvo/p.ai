@@ -14,7 +14,7 @@ import (
 )
 
 // These tests state the shared operation-journal rules: which unfinished
-// operations recovery lists for each kind and in which order, and how one
+// operations recovery lists and in which order, and how one
 // idempotency key namespace answers a request of another kind or another
 // request of the same kind.
 
@@ -58,7 +58,7 @@ func dropOperationInsertTriggers(t *testing.T, s *Store) {
 	}
 }
 
-func TestUnfinishedListsSelectKindsStatusesAndOrder(t *testing.T) {
+func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 	s, _ := openTestStore(t)
 	ctx := context.Background()
 	if err := s.CreateProject(ctx, "team/app", []byte(`{}`)); err != nil {
@@ -85,38 +85,56 @@ func TestUnfinishedListsSelectKindsStatusesAndOrder(t *testing.T) {
 		return ids
 	}
 	byRowid := func(kind string) []string { return []string{kind + ":A", kind + ":B", kind + ":C"} }
-	for _, test := range []struct {
-		name string
-		list func(context.Context) ([]api.Operation, error)
-		want []string
-	}{
-		{"creates", s.UnfinishedCreates, byCreated("project.create", "session.create")},
-		{"environment collections", s.UnfinishedEnvironmentCollections, byCreated("environment.collect")},
-		{"project deletes", s.UnfinishedProjectDeletes, byCreated("project.delete")},
-		{"workspace inspections", s.UnfinishedWorkspaceInspects, byCreated("workspace.inspect", "workspace.loss.inspect")},
-		{"removals", s.UnfinishedRemovals, byCreated("session.discard", "session.delete", "session.create.cleanup")},
-		{"discards", s.UnfinishedDiscards, byCreated("session.discard", "session.delete", "session.create.cleanup")},
-		{"renames", s.UnfinishedRenames, byCreated("session.rename")},
-		{"retained renames", s.UnfinishedRetainedRenames, byRowid("project.retained.rename")},
-		{"retained deletes", s.UnfinishedRetainedDeletes, byRowid("project.retained.delete")},
-		{"repairs", s.UnfinishedRepairs, byCreated("session.repair")},
-		{"repair preparations", s.UnfinishedRepairPreparations, byCreated("session.repair.prepare")},
-		{"ref repairs", s.UnfinishedRefRepairs, byRowid("session.ref.repair")},
-		{"principal repairs", s.UnfinishedPrincipalRepairs, byRowid("session.principal.repair")},
-		{"record repairs", s.UnfinishedRecordRepairs, byRowid("session.record.repair")},
+	// Recovery order: creations, collections, project deletions, workspace
+	// inspections, removals, renames, retained renames and deletes, repairs,
+	// repair preparations, then ref, principal and record repairs. Each group
+	// keeps its own order.
+	var want []string
+	for _, group := range [][]string{
+		byCreated("project.create", "session.create"),
+		byCreated("environment.collect"),
+		byCreated("project.delete"),
+		byCreated("workspace.inspect", "workspace.loss.inspect"),
+		byCreated("session.discard", "session.delete", "session.create.cleanup"),
+		byCreated("session.rename"),
+		byRowid("project.retained.rename"),
+		byRowid("project.retained.delete"),
+		byCreated("session.repair"),
+		byCreated("session.repair.prepare"),
+		byRowid("session.ref.repair"),
+		byRowid("session.principal.repair"),
+		byRowid("session.record.repair"),
 	} {
-		ops, err := test.list(ctx)
-		if err != nil {
-			t.Fatalf("%s: %v", test.name, err)
-		}
-		var got []string
-		for _, op := range ops {
-			got = append(got, op.ID)
-		}
-		if !reflect.DeepEqual(got, test.want) {
-			t.Errorf("%s:\n got %q\nwant %q", test.name, got, test.want)
+		want = append(want, group...)
+	}
+	ops, err := s.UnfinishedOperations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, op := range ops {
+		got = append(got, op.ID)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("unfinished operations:\n got %q\nwant %q", got, want)
+	}
+}
+
+// unfinishedOf lists the unfinished operations of kinds, in recovery order.
+func unfinishedOf(ctx context.Context, s *Store, kinds ...string) ([]api.Operation, error) {
+	ops, err := s.UnfinishedOperations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var selected []api.Operation
+	for _, op := range ops {
+		for _, kind := range kinds {
+			if op.Kind == kind {
+				selected = append(selected, op)
+			}
 		}
 	}
+	return selected, nil
 }
 
 // forgeKeyHolder records a finished operation holding key, as an earlier

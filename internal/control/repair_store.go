@@ -140,16 +140,10 @@ func (s *Store) BeginRepair(ctx context.Context, req RepairRequest, ev RepairEvi
 		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
-	var kind, oldHash string
-	err = s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &oldHash)
-	if err == nil {
-		if kind != "session.repair" || oldHash != digest(request) {
-			return api.Operation{}, ErrConflict
-		}
-		return s.GetOperationByKey(ctx, req.Key)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if replay, err := keyRecordsRequest(ctx, s.db, req.Key, KindSessionRepair, request); err != nil {
 		return api.Operation{}, err
+	} else if replay {
+		return s.GetOperationByKey(ctx, req.Key)
 	}
 	if err := observe(ctx); err != nil {
 		return api.Operation{}, err
@@ -207,8 +201,7 @@ func (s *Store) BeginRepair(ctx context.Context, req RepairRequest, ev RepairEvi
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,'running','reserved',0,?,?,?)`, id, req.Key, "session.repair", project, req.UUID, string(request), digest(request), string(evidence), now, now)
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: KindSessionRepair, Project: project, Session: req.UUID, Request: request, Phase: "reserved", Evidence: evidence, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -307,34 +300,6 @@ func (s *Store) CompleteRepair(ctx context.Context, id string, verify func(conte
 		return err
 	}
 	return tx.Commit()
-}
-
-func (s *Store) UnfinishedRepairs(ctx context.Context) ([]api.Operation, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.repair' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	result := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, e
-		}
-		result = append(result, op)
-	}
-	return result, nil
 }
 
 // AcceptedRepairImage is the last completed same-UUID repair's immutable

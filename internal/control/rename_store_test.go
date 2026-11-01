@@ -106,7 +106,7 @@ func TestRenamePostCommitForwardSurvivesSQLiteRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	unfinished, err := reopened.UnfinishedRenames(ctx)
+	unfinished, err := unfinishedOf(ctx, reopened, KindSessionRename)
 	if err != nil || len(unfinished) != 1 || unfinished[0].ID != op.ID || !unfinished[0].Committed {
 		t.Fatalf("committed rename lost at restart: %+v %v", unfinished, err)
 	}

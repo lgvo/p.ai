@@ -75,7 +75,7 @@ func TestRecordRepairBothAbsentGuardRevocationAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	unfinished, err := s.UnfinishedRecordRepairs(ctx)
+	unfinished, err := unfinishedOf(ctx, s, KindRecordRepair)
 	if err != nil || len(unfinished) != 1 || unfinished[0].Phase != "authority-disabled" || !unfinished[0].Committed {
 		t.Fatalf("restart lost committed guard: %+v %v", unfinished, err)
 	}
