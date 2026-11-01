@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func validAssembledCleanupReview(ev CreateCleanupEvidence) bool {
@@ -16,7 +18,7 @@ func validAssembledCleanupReview(ev CreateCleanupEvidence) bool {
 		len(p.LossWarnings) == 3 && p.Provisional.Cleanup != nil && !ev.RuntimeAbsent && !ev.LocalComplete
 }
 
-func validateAssembledCleanupLossTx(ctx context.Context, tx *sql.Tx, creator Operation, ev CreateCleanupEvidence) error {
+func validateAssembledCleanupLossTx(ctx context.Context, tx *sql.Tx, creator api.Operation, ev CreateCleanupEvidence) error {
 	r := ev.Review.Runtime
 	loss, err := operationByIDTx(ctx, tx, r.LossOperationID)
 	var proof WorkspaceInspectEvidence
@@ -42,7 +44,7 @@ func validateAssembledCleanupLossTx(ctx context.Context, tx *sql.Tx, creator Ope
 
 // ValidateAssembledCleanupAuthority keeps creator/request/policy and the exact
 // session/ref guard bound through restart, before or after atomic retirement.
-func (s *Store) ValidateAssembledCleanupAuthority(ctx context.Context, observed Operation) error {
+func (s *Store) ValidateAssembledCleanupAuthority(ctx context.Context, observed api.Operation) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -55,7 +57,7 @@ func (s *Store) ValidateAssembledCleanupAuthority(ctx context.Context, observed 
 	return validateAssembledCleanupAuthorityTx(ctx, tx, current)
 }
 
-func validateAssembledCleanupAuthorityTx(ctx context.Context, tx *sql.Tx, op Operation) error {
+func validateAssembledCleanupAuthorityTx(ctx context.Context, tx *sql.Tx, op api.Operation) error {
 	var ev CreateCleanupEvidence
 	if json.Unmarshal(op.Evidence, &ev) != nil || ev.Review.Runtime == nil || ev.Review.Provisional.Cleanup == nil || !ev.Review.Provisional.Cleanup.Valid() {
 		return ErrInvalid
@@ -96,7 +98,7 @@ func validateAssembledCleanupAuthorityTx(ctx context.Context, tx *sql.Tx, op Ope
 
 // CommitAssembledCleanupDelete retires the original creator/session authority
 // and records the one DELETE dispatch boundary in the same SQLite transaction.
-func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed Operation, verify func(context.Context) error) error {
+func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed api.Operation, verify func(context.Context) error) error {
 	if verify == nil {
 		return ErrInvalid
 	}
@@ -139,7 +141,7 @@ func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed Opera
 
 // FailStaleAssembledCleanup releases only this precommit intent. The caller
 // must positively settle helper absence; the original creator stays blocked.
-func (s *Store) FailStaleAssembledCleanup(ctx context.Context, observed Operation, diagnostic string) error {
+func (s *Store) FailStaleAssembledCleanup(ctx context.Context, observed api.Operation, diagnostic string) error {
 	if err := s.lockGitAuthority(ctx); err != nil {
 		return err
 	}

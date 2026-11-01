@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 const publicNICName = "p-public"
@@ -242,7 +243,7 @@ func (b *Backend) checkPublicBridge(ctx context.Context) error {
 	if err != nil || len(raw) == 0 || len(raw) > 64<<10 {
 		return errors.New("public egress live network and ACL proof unavailable")
 	}
-	if err := control.RejectDuplicateKeys(raw); err != nil {
+	if err := strictjson.RejectDuplicateKeys(raw); err != nil {
 		return errors.New("public egress network and ACL proof has ambiguous JSON")
 	}
 	var proof egressPublicProofJSON

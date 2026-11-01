@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/term"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,13 +21,13 @@ import (
 // socket, and carries terminal bytes. It has no native Incus authority.
 func Client(ctx context.Context, socket, id string) error {
 	params, _ := json.Marshal(map[string]any{"v": 1, "uuid": id})
-	response, err := control.Call(ctx, socket, "session.attach", params)
+	response, err := api.Call(ctx, socket, "session.attach", params)
 	if err != nil {
 		return err
 	}
 	var reply struct {
-		Result control.PendingAttachment `json:"result"`
-		Error  *control.RPCError         `json:"error"`
+		Result api.PendingAttachment `json:"result"`
+		Error  *api.RPCError         `json:"error"`
 	}
 	if json.Unmarshal(response, &reply) != nil {
 		return errors.New("invalid attach response")

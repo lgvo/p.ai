@@ -7,12 +7,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
-func failedNixCleanupFixture(t *testing.T) (*Store, string, Operation, CreateCleanupEvidence) {
+func failedNixCleanupFixture(t *testing.T) (*Store, string, api.Operation, CreateCleanupEvidence) {
 	return failedNixCleanupFixtureAt(t, true)
 }
-func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, Operation, CreateCleanupEvidence) {
+func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.Operation, CreateCleanupEvidence) {
 	t.Helper()
 	s, dir := openTestStore(t)
 	ctx := context.Background()

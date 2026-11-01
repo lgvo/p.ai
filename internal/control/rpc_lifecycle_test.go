@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type workspaceRPCProbe struct {
@@ -37,10 +39,10 @@ func (p *retainedDeleteRPCProbe) PreviewRetainedDelete(_ context.Context, projec
 	p.project, p.branch = project, branch
 	return RetainedDeletePreview{Project: project, Branch: branch, ConfirmationToken: strings.Repeat("a", 32)}, nil
 }
-func (p *retainedDeleteRPCProbe) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (Operation, error) {
+func (p *retainedDeleteRPCProbe) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (api.Operation, error) {
 	p.confirms++
 	p.key, p.project, p.branch, p.token = key, project, branch, token
-	return Operation{Kind: "project.retained.delete", Project: project}, nil
+	return api.Operation{Kind: "project.retained.delete", Project: project}, nil
 }
 func TestRetainedDeleteRPCClosedRequests(t *testing.T) {
 	p := &retainedDeleteRPCProbe{}
@@ -64,15 +66,15 @@ func TestRetainedDeleteRPCClosedRequests(t *testing.T) {
 		t.Fatalf("preview: %+v %+v", preview, e)
 	}
 	confirmed, e := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(`{"v":1,"key":"delete","project":"app","branch":"saved","confirmation_token":"`+token+`"}`))
-	if e != nil || confirmed.(map[string]any)["operation"].(Operation).Kind != "project.retained.delete" || p.confirms != 1 || p.token != token {
+	if e != nil || confirmed.(map[string]any)["operation"].(api.Operation).Kind != "project.retained.delete" || p.confirms != 1 || p.token != token {
 		t.Fatalf("confirm: %+v %+v", confirmed, e)
 	}
 }
 
-func (p *retainedRenameRPCProbe) RenameRetainedBranch(_ context.Context, req RetainedRenameRequest) (Operation, error) {
+func (p *retainedRenameRPCProbe) RenameRetainedBranch(_ context.Context, req RetainedRenameRequest) (api.Operation, error) {
 	p.called++
 	p.request = req
-	return Operation{Kind: "project.retained.rename", Project: req.Project, Phase: "reserved"}, nil
+	return api.Operation{Kind: "project.retained.rename", Project: req.Project, Phase: "reserved"}, nil
 }
 
 func TestRetainedRenameRPCClosedRequest(t *testing.T) {
@@ -93,7 +95,7 @@ func TestRetainedRenameRPCClosedRequest(t *testing.T) {
 		t.Fatal("invalid request reached authority")
 	}
 	result, e := h(context.Background(), "project.retained.rename", json.RawMessage(`{"v":1,"key":"move","project":"app","old_branch":"saved","new_branch":"archive","expected_old_tip":"`+oid+`"}`))
-	if e != nil || p.called != 1 || p.request.Project != "app" || p.request.ExpectedOldTip != oid || result.(map[string]any)["operation"].(Operation).Kind != "project.retained.rename" {
+	if e != nil || p.called != 1 || p.request.Project != "app" || p.request.ExpectedOldTip != oid || result.(map[string]any)["operation"].(api.Operation).Kind != "project.retained.rename" {
 		t.Fatalf("route: %+v %+v", result, e)
 	}
 }
@@ -125,10 +127,10 @@ func (p *recordRepairRPCProbe) PreviewRecordRepair(_ context.Context, uuid strin
 	p.uuid = uuid
 	return RecordRepairPreview{Kind: "unrecoverable_session_record", SessionUUID: uuid}, nil
 }
-func (p *recordRepairRPCProbe) ConfirmRecordRepair(_ context.Context, key, uuid, token string) (Operation, error) {
+func (p *recordRepairRPCProbe) ConfirmRecordRepair(_ context.Context, key, uuid, token string) (api.Operation, error) {
 	p.confirms++
 	p.key, p.uuid, p.token = key, uuid, token
-	return Operation{Kind: "session.record.repair", SessionUUID: uuid}, nil
+	return api.Operation{Kind: "session.record.repair", SessionUUID: uuid}, nil
 }
 
 func TestRecordRepairRPCUsesClosedVersionedRequests(t *testing.T) {
@@ -160,7 +162,7 @@ func TestRecordRepairRPCUsesClosedVersionedRequests(t *testing.T) {
 	if result, e := h(context.Background(), "session.record.repair.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`"}`)); e != nil || p.previews != 1 || result.(map[string]any)["preview"].(RecordRepairPreview).SessionUUID != uuid {
 		t.Fatalf("preview route: %+v %+v", result, e)
 	}
-	if result, e := h(context.Background(), "session.record.repair.confirm", json.RawMessage(`{"v":1,"key":"remove","uuid":"`+uuid+`","confirmation_token":"`+token+`"}`)); e != nil || p.confirms != 1 || p.key != "remove" || p.uuid != uuid || p.token != token || result.(map[string]any)["operation"].(Operation).Kind != "session.record.repair" {
+	if result, e := h(context.Background(), "session.record.repair.confirm", json.RawMessage(`{"v":1,"key":"remove","uuid":"`+uuid+`","confirmation_token":"`+token+`"}`)); e != nil || p.confirms != 1 || p.key != "remove" || p.uuid != uuid || p.token != token || result.(map[string]any)["operation"].(api.Operation).Kind != "session.record.repair" {
 		t.Fatalf("confirm route: %+v %+v", result, e)
 	}
 }
@@ -170,10 +172,10 @@ func (p *principalRepairRPCProbe) PreviewPrincipalRepair(_ context.Context, uuid
 	p.uuid = uuid
 	return PrincipalRepairPreview{Kind: "session_git_principal", SessionUUID: uuid}, nil
 }
-func (p *principalRepairRPCProbe) ConfirmPrincipalRepair(_ context.Context, key, uuid, token string) (Operation, error) {
+func (p *principalRepairRPCProbe) ConfirmPrincipalRepair(_ context.Context, key, uuid, token string) (api.Operation, error) {
 	p.confirms++
 	p.key, p.uuid, p.token = key, uuid, token
-	return Operation{Kind: "session.principal.repair", SessionUUID: uuid}, nil
+	return api.Operation{Kind: "session.principal.repair", SessionUUID: uuid}, nil
 }
 
 func TestPrincipalRepairRPCUsesClosedVersionedRequests(t *testing.T) {
@@ -205,7 +207,7 @@ func TestPrincipalRepairRPCUsesClosedVersionedRequests(t *testing.T) {
 	if result, e := h(context.Background(), "session.principal.repair.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`"}`)); e != nil || p.previews != 1 || result.(map[string]any)["preview"].(PrincipalRepairPreview).SessionUUID != uuid {
 		t.Fatalf("preview route: %+v %+v", result, e)
 	}
-	if result, e := h(context.Background(), "session.principal.repair.confirm", json.RawMessage(`{"v":1,"key":"rotate","uuid":"`+uuid+`","confirmation_token":"`+token+`"}`)); e != nil || p.confirms != 1 || p.key != "rotate" || p.uuid != uuid || p.token != token || result.(map[string]any)["operation"].(Operation).Kind != "session.principal.repair" {
+	if result, e := h(context.Background(), "session.principal.repair.confirm", json.RawMessage(`{"v":1,"key":"rotate","uuid":"`+uuid+`","confirmation_token":"`+token+`"}`)); e != nil || p.confirms != 1 || p.key != "rotate" || p.uuid != uuid || p.token != token || result.(map[string]any)["operation"].(api.Operation).Kind != "session.principal.repair" {
 		t.Fatalf("confirm route: %+v %+v", result, e)
 	}
 }
@@ -214,19 +216,19 @@ func (p *repairRPCProbe) PreviewRepair(_ context.Context, uuid string) (RepairPr
 	p.previewCalls++
 	return RepairPreview{Kind: "missing_runtime", SessionUUID: uuid, Eligible: true, ConfirmationToken: strings.Repeat("a", 32)}, nil
 }
-func (p *repairRPCProbe) ConfirmRepair(_ context.Context, req RepairConfirmRequest) (Operation, error) {
+func (p *repairRPCProbe) ConfirmRepair(_ context.Context, req RepairConfirmRequest) (api.Operation, error) {
 	p.confirmCalls++
 	p.request = req
-	return Operation{Kind: "session.repair", SessionUUID: req.UUID, Status: "running"}, nil
+	return api.Operation{Kind: "session.repair", SessionUUID: req.UUID, Status: "running"}, nil
 }
 func (p *repairRPCProbe) PreviewPreparedRepair(_ context.Context, uuid, preparationID string) (RepairPreview, error) {
 	p.preparedPreviewCalls++
 	p.preparationID = preparationID
 	return RepairPreview{Kind: "missing_runtime", SessionUUID: uuid, PreparationOperationID: preparationID, Eligible: true}, nil
 }
-func (p *repairRPCProbe) PrepareRepair(_ context.Context, key, uuid string) (Operation, error) {
+func (p *repairRPCProbe) PrepareRepair(_ context.Context, key, uuid string) (api.Operation, error) {
 	p.prepareCalls++
-	return Operation{Kind: "session.repair.prepare", Key: key, SessionUUID: uuid, Status: "running"}, nil
+	return api.Operation{Kind: "session.repair.prepare", Key: key, SessionUUID: uuid, Status: "running"}, nil
 }
 
 func TestRepairRPCClosedHostRequest(t *testing.T) {
@@ -247,7 +249,7 @@ func TestRepairRPCClosedHostRequest(t *testing.T) {
 	}
 	preparationID := "11111111-1111-4111-8111-111111111111"
 	result, e = h(context.Background(), "session.repair.prepare", json.RawMessage(`{"v":1,"key":"resolve-once","uuid":"`+uuid+`"}`))
-	if e != nil || p.prepareCalls != 1 || result.(map[string]any)["operation"].(Operation).Kind != "session.repair.prepare" {
+	if e != nil || p.prepareCalls != 1 || result.(map[string]any)["operation"].(api.Operation).Kind != "session.repair.prepare" {
 		t.Fatalf("prepare route: %+v %+v", result, e)
 	}
 	result, e = h(context.Background(), "session.repair.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","preparation_operation_id":"`+preparationID+`"}`))
@@ -265,15 +267,15 @@ func TestRepairRPCClosedHostRequest(t *testing.T) {
 		}
 	}
 	result, e = h(context.Background(), "session.repair.confirm", json.RawMessage(`{"v":1,"key":"repair","uuid":"`+uuid+`","confirmation_token":"`+strings.Repeat("a", 32)+`"}`))
-	if e != nil || p.confirmCalls != 1 || p.request.Key != "repair" || result.(map[string]any)["operation"].(Operation).Kind != "session.repair" {
+	if e != nil || p.confirmCalls != 1 || p.request.Key != "repair" || result.(map[string]any)["operation"].(api.Operation).Kind != "session.repair" {
 		t.Fatalf("confirm route: %+v %+v", result, e)
 	}
 }
 
-func (p *renameRPCProbe) RenameSession(_ context.Context, req RenameRequest) (Operation, error) {
+func (p *renameRPCProbe) RenameSession(_ context.Context, req RenameRequest) (api.Operation, error) {
 	p.called++
 	p.request = req
-	return Operation{Kind: "session.rename", Status: "running", SessionUUID: req.UUID}, nil
+	return api.Operation{Kind: "session.rename", Status: "running", SessionUUID: req.UUID}, nil
 }
 
 func TestRenameRPCUsesClosedVersionedRequest(t *testing.T) {
@@ -297,7 +299,7 @@ func TestRenameRPCUsesClosedVersionedRequest(t *testing.T) {
 	}
 	result, rpcErr := handler(context.Background(), "session.rename", json.RawMessage(`{"v":1,"key":"rename","uuid":"`+uuid+`","new_branch":"next","expected_old_tip":"`+tip+`"}`))
 	if rpcErr != nil || p.called != 1 || p.request.NewBranch != "next" || p.request.ExpectedOldTip != tip ||
-		result.(map[string]any)["operation"].(Operation).Kind != "session.rename" {
+		result.(map[string]any)["operation"].(api.Operation).Kind != "session.rename" {
 		t.Fatalf("rename route: %+v %+v", result, rpcErr)
 	}
 }
@@ -344,16 +346,16 @@ func TestRemovalPreviewRPCUsesClosedVersionedRequest(t *testing.T) {
 	}
 }
 
-func (p *workspaceRPCProbe) InspectWorkspace(_ context.Context, req WorkspaceInspectRequest) (Operation, error) {
+func (p *workspaceRPCProbe) InspectWorkspace(_ context.Context, req WorkspaceInspectRequest) (api.Operation, error) {
 	p.called++
 	p.request = req
-	return Operation{Kind: "workspace.inspect", Status: "running", SessionUUID: req.SessionUUID}, nil
+	return api.Operation{Kind: "workspace.inspect", Status: "running", SessionUUID: req.SessionUUID}, nil
 }
 
-func (p *workspaceRPCProbe) InspectWorkspaceLoss(_ context.Context, req WorkspaceInspectRequest) (Operation, error) {
+func (p *workspaceRPCProbe) InspectWorkspaceLoss(_ context.Context, req WorkspaceInspectRequest) (api.Operation, error) {
 	p.called++
 	p.request = req
-	return Operation{Kind: "workspace.loss.inspect", Status: "running", SessionUUID: req.SessionUUID}, nil
+	return api.Operation{Kind: "workspace.loss.inspect", Status: "running", SessionUUID: req.SessionUUID}, nil
 }
 
 func TestWorkspaceRPCUsesClosedVersionedRequest(t *testing.T) {
@@ -397,47 +399,47 @@ func TestWorkspaceLossRPCUsesClosedVersionedRequest(t *testing.T) {
 		t.Fatal("invalid loss request reached authority")
 	}
 	result, rpcErr := handler(context.Background(), "workspace.loss.inspect", json.RawMessage(`{"v":1,"key":"loss-1","uuid":"`+uuid+`"}`))
-	if rpcErr != nil || p.called != 1 || p.request.Key != "loss-1" || p.request.SessionUUID != uuid || result.(map[string]any)["operation"].(Operation).Kind != "workspace.loss.inspect" {
+	if rpcErr != nil || p.called != 1 || p.request.Key != "loss-1" || p.request.SessionUUID != uuid || result.(map[string]any)["operation"].(api.Operation).Kind != "workspace.loss.inspect" {
 		t.Fatalf("closed loss request not routed: %+v %+v", result, rpcErr)
 	}
 }
 
 func TestLifecyclePagesFitClientFrame(t *testing.T) {
-	ops := make([]OperationSummary, 20)
+	ops := make([]api.OperationSummary, 20)
 	for i := range ops {
-		ops[i] = SummarizeOperation(Operation{ID: fmt.Sprintf("%036d", i), Key: strings.Repeat("\x00", 128), Kind: "session.create", Project: strings.Repeat("p", 255), SessionUUID: strings.Repeat("b", 36), Status: "blocked", Phase: "source-ready", Diagnostic: strings.Repeat("\x00", 1024)})
+		ops[i] = SummarizeOperation(api.Operation{ID: fmt.Sprintf("%036d", i), Key: strings.Repeat("\x00", 128), Kind: "session.create", Project: strings.Repeat("p", 255), SessionUUID: strings.Repeat("b", 36), Status: "blocked", Phase: "source-ready", Diagnostic: strings.Repeat("\x00", 1024)})
 	}
 	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"v": 1, "operations": ops, "next": strings.Repeat("a", 36)}})
-	if err != nil || len(raw)+1 > MaxFrameBytes {
+	if err != nil || len(raw)+1 > api.MaxFrameBytes {
 		t.Fatalf("operation page exceeds frame: %d %v", len(raw), err)
 	}
-	sessions := make([]SessionView, 8)
+	sessions := make([]api.SessionView, 8)
 	for i := range sessions {
-		sessions[i] = SessionView{UUID: strings.Repeat("a", 35) + string(rune('a'+i)), Project: strings.Repeat("p", 255), Branch: strings.Repeat("b", 200), Registry: "established", PolicySHA256: strings.Repeat("f", 64), Condition: "stopped", PolicyCondition: "outdated", Diagnostic: strings.Repeat("\x00", 1024), LatestUnattendedCondition: &UnattendedCondition{Condition: "attention", Source: strings.Repeat("s", 128), Reason: strings.Repeat("<", 256), Adapter: strings.Repeat("a", 128), AdapterVersion: strings.Repeat("v", 64), ReceivedAt: "2026-09-23T00:00:00.123456789Z", ReceiveSequence: 9223372036854775807}}
+		sessions[i] = api.SessionView{UUID: strings.Repeat("a", 35) + string(rune('a'+i)), Project: strings.Repeat("p", 255), Branch: strings.Repeat("b", 200), Registry: "established", PolicySHA256: strings.Repeat("f", 64), Condition: "stopped", PolicyCondition: "outdated", Diagnostic: strings.Repeat("\x00", 1024), LatestUnattendedCondition: &api.UnattendedCondition{Condition: "attention", Source: strings.Repeat("s", 128), Reason: strings.Repeat("<", 256), Adapter: strings.Repeat("a", 128), AdapterVersion: strings.Repeat("v", 64), ReceivedAt: "2026-09-23T00:00:00.123456789Z", ReceiveSequence: 9223372036854775807}}
 	}
-	page, rpcErr := boundedLifecyclePage("sessions", sessions, "", func(v SessionView) string { return v.UUID })
+	page, rpcErr := boundedLifecyclePage("sessions", sessions, "", func(v api.SessionView) string { return v.UUID })
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	returned := page["sessions"].([]SessionView)
+	returned := page["sessions"].([]api.SessionView)
 	if len(returned) == 0 || len(returned) >= len(sessions) || page["next"] != returned[len(returned)-1].UUID || page["next"].(string) >= sessions[len(returned)].UUID {
 		t.Fatalf("session page did not trim with a continuation: %d %+v", len(returned), page["next"])
 	}
 	maxID := json.RawMessage(`"` + strings.Repeat(`\u0000`, 128) + `"`)
 	raw, err = json.Marshal(rpcResponse{JSONRPC: "2.0", ID: maxID, Result: page})
-	if err != nil || len(raw)+1 > MaxFrameBytes {
+	if err != nil || len(raw)+1 > api.MaxFrameBytes {
 		t.Fatalf("session page exceeds frame: %d %v", len(raw), err)
 	}
-	opPage, rpcErr := boundedLifecyclePage("operations", ops, "", func(v OperationSummary) string { return v.ID })
+	opPage, rpcErr := boundedLifecyclePage("operations", ops, "", func(v api.OperationSummary) string { return v.ID })
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	returnedOps := opPage["operations"].([]OperationSummary)
+	returnedOps := opPage["operations"].([]api.OperationSummary)
 	if len(returnedOps) != len(ops) || opPage["next"] != "" {
 		t.Fatalf("legal operation summaries unexpectedly trimmed: %d", len(returnedOps))
 	}
 	raw, err = json.Marshal(rpcResponse{JSONRPC: "2.0", ID: maxID, Result: opPage})
-	if err != nil || len(raw)+1 > MaxFrameBytes {
+	if err != nil || len(raw)+1 > api.MaxFrameBytes {
 		t.Fatalf("operation page exceeds frame: %d %v", len(raw), err)
 	}
 }
@@ -446,24 +448,24 @@ func TestRenameMismatchDiagnosticAndPagesRetainFullNamesWithinFrame(t *testing.T
 	expected := "origin:refs/heads/" + strings.Repeat("a", 100)
 	actual := strings.Repeat("b", 100) + ":refs/heads/" + strings.Repeat("c", 100)
 	diagnostic := fmt.Sprintf("workspace upstream mismatch: expected %q, actual %q; correct Git manually and retry", expected, actual)
-	summary := SummarizeOperation(Operation{Kind: "session.rename", Diagnostic: diagnostic})
+	summary := SummarizeOperation(api.Operation{Kind: "session.rename", Diagnostic: diagnostic})
 	if summary.Diagnostic != diagnostic || !strings.Contains(summary.Diagnostic, actual) {
 		t.Fatalf("public mismatch lost reviewed names: %q", summary.Diagnostic)
 	}
-	ops := make([]OperationSummary, 20)
+	ops := make([]api.OperationSummary, 20)
 	for i := range ops {
-		ops[i] = SummarizeOperation(Operation{ID: fmt.Sprintf("%036d", i), Key: strings.Repeat("\x00", 128), Kind: "session.rename", Project: strings.Repeat("p", 255), SessionUUID: strings.Repeat("b", 36), Status: "failed", Phase: "stale", Diagnostic: strings.Repeat("\x00", 1024)})
+		ops[i] = SummarizeOperation(api.Operation{ID: fmt.Sprintf("%036d", i), Key: strings.Repeat("\x00", 128), Kind: "session.rename", Project: strings.Repeat("p", 255), SessionUUID: strings.Repeat("b", 36), Status: "failed", Phase: "stale", Diagnostic: strings.Repeat("\x00", 1024)})
 	}
-	page, rpcErr := boundedLifecyclePage("operations", ops, "", func(v OperationSummary) string { return v.ID })
+	page, rpcErr := boundedLifecyclePage("operations", ops, "", func(v api.OperationSummary) string { return v.ID })
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	returned := page["operations"].([]OperationSummary)
+	returned := page["operations"].([]api.OperationSummary)
 	if len(returned) == 0 || len(returned) >= len(ops) || page["next"] != returned[len(returned)-1].ID {
 		t.Fatalf("rename page did not preserve bounded continuation: %d %+v", len(returned), page["next"])
 	}
 	raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": page})
-	if err != nil || len(raw)+1 > MaxFrameBytes {
+	if err != nil || len(raw)+1 > api.MaxFrameBytes {
 		t.Fatalf("rename page exceeds frame: %d %v", len(raw), err)
 	}
 }
@@ -482,7 +484,7 @@ func TestEnvironmentProjectionKeepsPinnedBaseAndSelectedImageDistinct(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := CreationEnvironmentView(Operation{Kind: "session.create", Evidence: raw})
+	got := CreationEnvironmentView(api.Operation{Kind: "session.create", Evidence: raw})
 	if got == nil || got.BaseImageFingerprint != base || got.ImageFingerprint != selected || got.Cache != "hit" || got.Key != ev.EnvironmentState.Key {
 		t.Fatalf("lost bounded environment provenance: %+v", got)
 	}

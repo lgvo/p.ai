@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestBackgroundDetectionAndExplicitThemeModes(t *testing.T) {
@@ -42,7 +42,7 @@ func TestThemeRenderingRolesAndGeometry(t *testing.T) {
 		m.themeMode, m.darkBackground = mode, mode == ThemeDark
 		m.styles = m.theme.styles(m.darkBackground)
 		m.width, m.height = 120, 35
-		m.data.sessions = append(m.data.sessions, control.SessionView{UUID: "failed", Project: "a", Branch: "failure", Condition: "unreachable"})
+		m.data.sessions = append(m.data.sessions, api.SessionView{UUID: "failed", Project: "a", Branch: "failure", Condition: "unreachable"})
 		m.clamp()
 		frame := m.View().Content
 		if mode == ThemeLight {

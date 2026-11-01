@@ -1,8 +1,12 @@
 package control
 
+import
+
 // CreateReplacePreview names the old immutable request and the only new
 // request this short-lived confirmation may admit. Ineligible previews carry
 // reasons but no token.
+"github.com/lgvo/p.ai/internal/api"
+
 type CreateReplacePreview struct {
 	OldUUID             string                 `json:"old_uuid"`
 	OldOperationID      string                 `json:"old_operation_id"`
@@ -100,7 +104,7 @@ func (c CreateReplacementCleanup) Valid() bool {
 
 // ReplaceableCreationPhase names the bounded local checkpoints, with a durable
 // committed marker appropriate to each. Principals require base-image evidence.
-func ReplaceableCreationPhase(op Operation, ev CreationEvidence) bool {
+func ReplaceableCreationPhase(op api.Operation, ev CreationEvidence) bool {
 	switch op.Phase {
 	case "source-ready":
 		return !op.Committed

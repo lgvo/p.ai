@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // AssembledCreationForLoss admits only the ordinary local base-image creator
 // whose stopped assembly completed before startup failed. Native ownership,
 // stopped state and workspace layout still require fresh Incus observations.
-func AssembledCreationForLoss(session Session, op Operation, base string) error {
+func AssembledCreationForLoss(session Session, op api.Operation, base string) error {
 	ev, err := Evidence(op)
 	var req ReserveSessionRequest
 	if err != nil || json.Unmarshal(op.Request, &req) != nil || !ValidSessionCreateRequest(req) ||
@@ -35,7 +37,7 @@ func AssembledCreationForLoss(session Session, op Operation, base string) error 
 
 // BindWorkspaceCreator names the exact durable creator snapshot. The store
 // repeats this proof in the transaction which installs the inspection guard.
-func BindWorkspaceCreator(ev *WorkspaceInspectEvidence, creator Operation) {
+func BindWorkspaceCreator(ev *WorkspaceInspectEvidence, creator api.Operation) {
 	ev.CreatorOperationID = creator.ID
 	ev.CreatorRequestSHA256 = digest(creator.Request)
 	ev.CreatorEvidenceSHA256 = digest(creator.Evidence)

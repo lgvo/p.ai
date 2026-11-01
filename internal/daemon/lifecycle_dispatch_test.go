@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -37,7 +38,7 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var ops []control.Operation
+			var ops []api.Operation
 			for i := 0; i < 21; i++ {
 				old := fmt.Sprintf("old-%d", i)
 				dispatchGit(t, repo, "update-ref", "refs/heads/"+old, tip)
@@ -194,10 +195,10 @@ func dispatchGit(t *testing.T, repo string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func dispatchBlockers(t *testing.T, ctx context.Context, store *control.Store) []control.Operation {
+func dispatchBlockers(t *testing.T, ctx context.Context, store *control.Store) []api.Operation {
 	t.Helper()
 	selection := control.CreationSelection{RuntimeID: "fixture", RuntimeSHA256: strings.Repeat("a", 64), HostID: "fixture", HostSHA256: strings.Repeat("b", 64), SourceID: "fixture", SourceSHA256: strings.Repeat("c", 64)}
-	var ops []control.Operation
+	var ops []api.Operation
 	for i := 0; i < 8; i++ {
 		op, _, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: fmt.Sprintf("blocker-%d", i), Project: "app", Branch: fmt.Sprintf("blocker-%d", i), Choice: "existing"}, strings.Repeat("d", 64), selection, func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil
@@ -209,7 +210,7 @@ func dispatchBlockers(t *testing.T, ctx context.Context, store *control.Store) [
 	}
 	return ops
 }
-func dispatchHold(t *testing.T, l *lifecycle, ops []control.Operation) []func() {
+func dispatchHold(t *testing.T, l *lifecycle, ops []api.Operation) []func() {
 	t.Helper()
 	var releases []func()
 	for _, op := range ops {
@@ -252,7 +253,7 @@ func TestLifecyclePollsDurableRetainedRename(t *testing.T) {
 	if err = store.CreateProject(ctx, "app", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	var ops []control.Operation
+	var ops []api.Operation
 	for _, name := range []string{"running", "blocked"} {
 		op, err := store.BeginRetainedRename(ctx, control.RetainedRenameRequest{Key: name, Project: "app", OldBranch: name, NewBranch: name + "-next", ExpectedOldTip: strings.Repeat("a", 40)}, func(context.Context) error { return nil })
 		if err != nil {

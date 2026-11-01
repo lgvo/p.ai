@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // RenameRequest is immutable across idempotent retries. The expected tip is a
@@ -49,12 +51,12 @@ func validRenameEvidence(e RenameEvidence) bool {
 // BeginRename serializes ref observation, session reservation and both guards
 // with receive-pack. observe must inspect the exact old tip and new absence;
 // it must not call back into Store while this lock is held.
-func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEvidence, observe func(context.Context) error) (Operation, error) {
+func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEvidence, observe func(context.Context) error) (api.Operation, error) {
 	if !ValidRenameRequest(r) || !validRenameEvidence(e) || e.NewBranch != r.NewBranch || e.OldTip != r.ExpectedOldTip || observe == nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	request, _ := json.Marshal(r)
@@ -62,67 +64,67 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, r.Key).Scan(&kind, &oldHash)
 	if err == nil {
 		if kind != "session.rename" || oldHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return s.GetOperationByKey(ctx, r.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := observe(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	evidence, _ := json.Marshal(e)
 	if len(evidence) > 2048 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var project, branch, registry, policy string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, r.UUID).Scan(&project, &branch, &registry, &policy)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrNotFound
+		return api.Operation{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if project != e.Project || branch != e.OldBranch || registry != "established" || policy != e.PolicySHA256 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var occupied int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=?`, project, e.NewBranch).Scan(&occupied)
 	if err == nil {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,'running','reserved',0,?,?,?)`, id, r.Key, "session.rename", project, r.UUID, string(request), digest(request), string(evidence), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	for _, name := range []string{e.OldBranch, e.NewBranch} {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, project, name, id); err != nil {
-			return Operation{}, classifyWrite(err)
+			return api.Operation{}, classifyWrite(err)
 		}
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: r.Key, Kind: "session.rename", Project: project, SessionUUID: r.UUID,
+	return api.Operation{ID: id, Key: r.Key, Kind: "session.rename", Project: project, SessionUUID: r.UUID,
 		Request: request, Status: "running", Phase: "reserved", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
-func (s *Store) UnfinishedRenames(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedRenames(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.rename' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -139,7 +141,7 @@ func (s *Store) UnfinishedRenames(ctx context.Context) ([]Operation, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	result := make([]Operation, 0, len(ids))
+	result := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, err := s.GetOperation(ctx, id)
 		if err != nil {

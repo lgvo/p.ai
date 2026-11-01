@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -60,7 +61,7 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 }
 
 // createReplaceEffects reviews only local resources, with full native absence.
-func (l *lifecycle) createReplaceEffects(ctx context.Context, op control.Operation, s control.Session) (*control.CreateReplacementCleanup, error) {
+func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, s control.Session) (*control.CreateReplacementCleanup, error) {
 	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" {
 		return nil, control.ErrConflict
 	}
@@ -220,7 +221,7 @@ func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, re
 	p.ConfirmationToken = hex.EncodeToString(token[:])
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
 	encoded, err := json.Marshal(map[string]any{"v": 1, "preview": p})
-	if err != nil || len(encoded) > control.MaxFrameBytes-1024 {
+	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
 		return control.CreateReplacePreview{}, control.ErrConflict
 	}
 	l.mu.Lock()
@@ -241,9 +242,9 @@ func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, re
 	return p, nil
 }
 
-func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, token string) (control.Operation, error) {
+func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, token string) (api.Operation, error) {
 	if len(oldUUID) != 36 || key == "" || len(key) > 128 || len(token) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	hash := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(hash[:])
@@ -254,7 +255,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	}
 	release, err := l.lockSession(ctx, oldUUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	// Another confirmation may have completed between the read and admission.
@@ -265,7 +266,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	state, ok := l.createReplacePreviews[token]
 	l.mu.Unlock()
 	if !ok || state.Preview.OldUUID != oldUUID || state.Preview.NewRequest.Key != key {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	intent := control.CreateReplaceIntent{OldOperationID: state.Preview.OldOperationID, OldUUID: oldUUID,
 		OldEvidenceSHA256: state.Preview.OldEvidenceSHA256, OldPolicySHA256: state.Preview.OldPolicySHA256,
@@ -273,23 +274,23 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 		Cleanup:         state.Preview.Provisional.Cleanup,
 		TokenSHA256:     tokenHash, ExpiresAt: state.Preview.ExpiresAt, New: state.Preview.NewRequest}
 	if !time.Now().Before(state.Expiry) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	p, e := l.createReplaceFacts(ctx, oldUUID, state.Preview.NewRequest)
 	if e != nil || !p.Eligible {
-		return control.Operation{}, errors.Join(e, control.ErrConflict)
+		return api.Operation{}, errors.Join(e, control.ErrConflict)
 	}
 	p.ConfirmationToken, p.ExpiresAt = token, state.Preview.ExpiresAt
 	if !reflect.DeepEqual(p, state.Preview) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	oldOp, e := l.store.GetOperation(ctx, p.OldOperationID)
 	if e != nil {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	s, e := l.store.GetSession(ctx, oldUUID)
 	if e != nil {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	op, e := l.store.ReplaceBlockedCreate(ctx, intent, l.cfg.BaseImageFingerprint, l.selection(), l.environmentIntent(), l.observeSessionCapacity,
 		func(call context.Context) (string, error) {
@@ -303,7 +304,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 			return tip, nil
 		})
 	if e != nil {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	l.mu.Lock()
 	delete(l.createReplacePreviews, token)

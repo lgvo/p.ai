@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -24,8 +25,8 @@ func TestRecoverBlockedSourceReadyDoesNotManufactureEndpoint(t *testing.T) {
 	}
 	defer manager.Close()
 	session := control.Session{UUID: "550e8400-e29b-41d4-a716-446655440000", Project: "app", Registry: "creating"}
-	op := control.Operation{Kind: "session.create", SessionUUID: session.UUID, Project: session.Project, Status: "blocked", Phase: "source-ready"}
-	if e = recoverSessionEndpoint(context.Background(), session, func(context.Context, string) (control.Operation, error) { return op, nil }, manager.Ensure); e != nil {
+	op := api.Operation{Kind: "session.create", SessionUUID: session.UUID, Project: session.Project, Status: "blocked", Phase: "source-ready"}
+	if e = recoverSessionEndpoint(context.Background(), session, func(context.Context, string) (api.Operation, error) { return op, nil }, manager.Ensure); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = os.Lstat(filepath.Join(prefix, session.UUID)); !os.IsNotExist(e) {
@@ -43,10 +44,10 @@ func TestEndpointRecoveryRequiresRecognizedDurableCreationProgress(t *testing.T)
 	session := control.Session{UUID: "550e8400-e29b-41d4-a716-446655440000", Project: "app", Registry: "creating", PolicySHA256: strings.Repeat("d", 64)}
 	selection := control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("a", 64), HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
 	evidence, _ := json.Marshal(control.CreationEvidence{ImageFingerprint: strings.Repeat("e", 64), PolicySHA256: session.PolicySHA256, Selection: selection})
-	base := control.Operation{Kind: "session.create", Project: session.Project, SessionUUID: session.UUID, Status: "blocked", Phase: "principals-ready", Committed: true, Evidence: evidence}
+	base := api.Operation{Kind: "session.create", Project: session.Project, SessionUUID: session.UUID, Status: "blocked", Phase: "principals-ready", Committed: true, Evidence: evidence}
 	for _, tc := range []struct {
 		name, registry, phase string
-		mutate                func(*control.Operation)
+		mutate                func(*api.Operation)
 		loadErr               error
 		want                  bool
 	}{
@@ -63,17 +64,17 @@ func TestEndpointRecoveryRequiresRecognizedDurableCreationProgress(t *testing.T)
 		{name: "established-session", registry: "established", loadErr: errors.New("must not load"), want: true},
 		{name: "removing", registry: "removing", loadErr: errors.New("must not load")},
 		{name: "missing-creation", phase: "principals-ready", loadErr: control.ErrNotFound},
-		{name: "wrong-kind", phase: "principals-ready", mutate: func(op *control.Operation) { op.Kind = "session.repair" }},
-		{name: "wrong-session", phase: "principals-ready", mutate: func(op *control.Operation) { op.SessionUUID = "foreign" }},
-		{name: "wrong-project", phase: "principals-ready", mutate: func(op *control.Operation) { op.Project = "foreign" }},
-		{name: "uncommitted", phase: "principals-ready", mutate: func(op *control.Operation) { op.Committed = false }},
-		{name: "terminal", phase: "principals-ready", mutate: func(op *control.Operation) { op.Status = "superseded" }},
-		{name: "missing-evidence", phase: "principals-ready", mutate: func(op *control.Operation) { op.Evidence = nil }},
-		{name: "foreign-policy", phase: "principals-ready", mutate: func(op *control.Operation) {
+		{name: "wrong-kind", phase: "principals-ready", mutate: func(op *api.Operation) { op.Kind = "session.repair" }},
+		{name: "wrong-session", phase: "principals-ready", mutate: func(op *api.Operation) { op.SessionUUID = "foreign" }},
+		{name: "wrong-project", phase: "principals-ready", mutate: func(op *api.Operation) { op.Project = "foreign" }},
+		{name: "uncommitted", phase: "principals-ready", mutate: func(op *api.Operation) { op.Committed = false }},
+		{name: "terminal", phase: "principals-ready", mutate: func(op *api.Operation) { op.Status = "superseded" }},
+		{name: "missing-evidence", phase: "principals-ready", mutate: func(op *api.Operation) { op.Evidence = nil }},
+		{name: "foreign-policy", phase: "principals-ready", mutate: func(op *api.Operation) {
 			ev := control.CreationEvidence{ImageFingerprint: strings.Repeat("e", 64), PolicySHA256: strings.Repeat("f", 64), Selection: selection}
 			op.Evidence, _ = json.Marshal(ev)
 		}},
-		{name: "blank-bootstrap", phase: "principals-ready", mutate: func(op *control.Operation) { op.Kind = "project.create" }, want: true},
+		{name: "blank-bootstrap", phase: "principals-ready", mutate: func(op *api.Operation) { op.Kind = "project.create" }, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			op := base
@@ -86,7 +87,7 @@ func TestEndpointRecoveryRequiresRecognizedDurableCreationProgress(t *testing.T)
 				s.Registry = tc.registry
 			}
 			calls := 0
-			e := recoverSessionEndpoint(ctx, s, func(context.Context, string) (control.Operation, error) { return op, tc.loadErr }, func(context.Context, string) (string, error) { calls++; return "", nil })
+			e := recoverSessionEndpoint(ctx, s, func(context.Context, string) (api.Operation, error) { return op, tc.loadErr }, func(context.Context, string) (string, error) { calls++; return "", nil })
 			if e != nil || (calls == 1) != tc.want {
 				t.Fatalf("ensure calls=%d want=%v error=%v", calls, tc.want, e)
 			}
@@ -129,8 +130,8 @@ func TestEndpointRecoveryPreservesEarlyArtifactsAndReopensLateSockets(t *testing
 		t.Fatal(e)
 	}
 	defer restarted.Close()
-	if e = recoverSessionEndpoint(ctx, early, func(context.Context, string) (control.Operation, error) {
-		return control.Operation{Kind: "session.create", Project: early.Project, SessionUUID: early.UUID, Status: "blocked", Phase: "branch-assigned", Committed: true}, nil
+	if e = recoverSessionEndpoint(ctx, early, func(context.Context, string) (api.Operation, error) {
+		return api.Operation{Kind: "session.create", Project: early.Project, SessionUUID: early.UUID, Status: "blocked", Phase: "branch-assigned", Committed: true}, nil
 	}, restarted.Ensure); e != nil {
 		t.Fatal(e)
 	}
@@ -140,9 +141,9 @@ func TestEndpointRecoveryPreservesEarlyArtifactsAndReopensLateSockets(t *testing
 	if restarted.opened[early.UUID] != nil {
 		t.Fatal("unexpected early endpoint adopted")
 	}
-	if e = recoverSessionEndpoint(ctx, established, func(context.Context, string) (control.Operation, error) {
+	if e = recoverSessionEndpoint(ctx, established, func(context.Context, string) (api.Operation, error) {
 		t.Fatal("established registry requires no creation lookup")
-		return control.Operation{}, nil
+		return api.Operation{}, nil
 	}, restarted.Ensure); e != nil {
 		t.Fatal(e)
 	}
@@ -152,8 +153,8 @@ func TestEndpointRecoveryPreservesEarlyArtifactsAndReopensLateSockets(t *testing
 
 	selection := control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("a", 64), HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
 	evidence, _ := json.Marshal(control.CreationEvidence{ImageFingerprint: strings.Repeat("e", 64), PolicySHA256: late.PolicySHA256, Selection: selection})
-	if e = recoverSessionEndpoint(ctx, late, func(context.Context, string) (control.Operation, error) {
-		return control.Operation{Kind: "session.create", Project: late.Project, SessionUUID: late.UUID, Status: "blocked", Phase: "runtime-created", Committed: true, Evidence: evidence}, nil
+	if e = recoverSessionEndpoint(ctx, late, func(context.Context, string) (api.Operation, error) {
+		return api.Operation{Kind: "session.create", Project: late.Project, SessionUUID: late.UUID, Status: "blocked", Phase: "runtime-created", Committed: true, Evidence: evidence}, nil
 	}, restarted.Ensure); e != nil {
 		t.Fatal(e)
 	}

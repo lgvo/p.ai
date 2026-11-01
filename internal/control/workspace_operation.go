@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // WorkspaceInspectEvidence is the accepted native identity and quiescence
@@ -47,105 +49,98 @@ func validUUID(value string) bool {
 	return true
 }
 
-func (s *Store) BeginWorkspaceInspect(ctx context.Context, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (Operation, error) {
+func (s *Store) BeginWorkspaceInspect(ctx context.Context, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (api.Operation, error) {
 	return s.beginWorkspaceRead(ctx, "workspace.inspect", req, ev)
 }
 
-// WorkspaceInspectionRequiresFreshRequest identifies failures whose helper
-// cleanup finished and whose source guard was released. Resuming their old
-// identity would not restore the accepted inspection's authority boundary.
-func WorkspaceInspectionRequiresFreshRequest(op Operation) bool {
-	return (op.Kind == "workspace.inspect" || op.Kind == "workspace.loss.inspect") && op.Status == "failed" && op.Phase == "cleaned"
-}
-
-func (s *Store) BeginWorkspaceLossInspect(ctx context.Context, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (Operation, error) {
+func (s *Store) BeginWorkspaceLossInspect(ctx context.Context, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (api.Operation, error) {
 	return s.beginWorkspaceRead(ctx, "workspace.loss.inspect", req, ev)
 }
 
-func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (Operation, error) {
+func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (api.Operation, error) {
 	if kind != "workspace.inspect" && kind != "workspace.loss.inspect" {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if len(req.Key) == 0 || len(req.Key) > 128 || !validUUID(req.SessionUUID) || !validUUID(ev.InstanceUUID) ||
 		!validFingerprint(ev.ImageFingerprint) || !validFingerprint(ev.BaseFingerprint) || ev.OriginalStatus != "Running" && ev.OriginalStatus != "Stopped" || len(ev.Result) != 0 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if kind == "workspace.loss.inspect" && (!validUUID(ev.SourceIncusUUID) || !validUUID(ev.SourceGeneration)) {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if ev.CreatorOperationID != "" && (kind != "workspace.loss.inspect" || !validUUID(ev.CreatorOperationID) ||
 		!validFingerprint(ev.CreatorRequestSHA256) || !validFingerprint(ev.CreatorEvidenceSHA256) || ev.OriginalStatus != "Stopped") ||
 		ev.CreatorOperationID == "" && (ev.CreatorRequestSHA256 != "" || ev.CreatorEvidenceSHA256 != "") {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(req)
 	evidence, _ := json.Marshal(ev)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var oldKind, oldHash string
 	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&oldKind, &oldHash)
 	if err == nil {
 		if oldKind != kind || oldHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return getOperationTx(ctx, tx, req.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	session, err := getSessionTx(ctx, tx, req.SessionUUID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrNotFound
+		return api.Operation{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if ev.CreatorOperationID != "" {
 		if err = validateWorkspaceCreatorTx(ctx, tx, session, ev); err != nil {
-			return Operation{}, err
+			return api.Operation{}, err
 		}
 	} else if session.Registry != "established" {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	project := session.Project
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?, ?,?,'running','helper-intent',?,?,?)`, id, req.Key, kind, project, req.SessionUUID, string(request), digest(request), string(evidence), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: req.Key, Kind: kind, Project: project, SessionUUID: req.SessionUUID,
+	return api.Operation{ID: id, Key: req.Key, Kind: kind, Project: project, SessionUUID: req.SessionUUID,
 		Request: request, Status: "running", Phase: "helper-intent", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
-func (s *Store) ActiveWorkspaceInspect(ctx context.Context, sessionUUID string) (Operation, bool, error) {
+func (s *Store) ActiveWorkspaceInspect(ctx context.Context, sessionUUID string) (api.Operation, bool, error) {
 	if !validUUID(sessionUUID) {
-		return Operation{}, false, ErrInvalid
+		return api.Operation{}, false, ErrInvalid
 	}
 	var id string
 	err := s.db.QueryRowContext(ctx, `SELECT id FROM operations WHERE session_uuid=? AND kind IN ('workspace.inspect','workspace.loss.inspect','session.create.cleanup','session.discard','session.delete','session.rename','session.repair','session.repair.prepare','session.ref.repair','session.principal.repair','session.record.repair')
 	 AND status IN ('running','blocked','unknown')`, sessionUUID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, false, nil
+		return api.Operation{}, false, nil
 	}
 	if err != nil {
-		return Operation{}, false, err
+		return api.Operation{}, false, err
 	}
 	op, err := s.GetOperation(ctx, id)
 	return op, err == nil, err
 }
 
-func (s *Store) UnfinishedWorkspaceInspects(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedWorkspaceInspects(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('workspace.inspect','workspace.loss.inspect') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -162,7 +157,7 @@ func (s *Store) UnfinishedWorkspaceInspects(ctx context.Context) ([]Operation, e
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]Operation, 0, len(ids))
+	out := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {

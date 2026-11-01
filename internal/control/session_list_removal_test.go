@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type removingSessionListLife struct {
@@ -15,24 +17,24 @@ type removingSessionListLife struct {
 	requireCreation bool
 }
 
-func (l removingSessionListLife) InspectSession(ctx context.Context, id string) (SessionView, error) {
+func (l removingSessionListLife) InspectSession(ctx context.Context, id string) (api.SessionView, error) {
 	if l.before != nil {
 		if err := l.before(ctx, id); err != nil {
-			return SessionView{}, err
+			return api.SessionView{}, err
 		}
 	}
 	if l.inspectErr != nil {
-		return SessionView{}, l.inspectErr
+		return api.SessionView{}, l.inspectErr
 	}
 	if l.requireCreation {
 		if _, err := l.store.CreationForSession(ctx, id); err != nil {
-			return SessionView{}, err
+			return api.SessionView{}, err
 		}
 	}
 	return l.statusLife.InspectSession(ctx, id)
 }
 
-func committedListRemoval(t *testing.T) (*Store, Operation, []string) {
+func committedListRemoval(t *testing.T) (*Store, api.Operation, []string) {
 	t.Helper()
 	s, ev, op := setupDiscardStore(t)
 	ctx := context.Background()
@@ -58,7 +60,7 @@ func committedListRemoval(t *testing.T) (*Store, Operation, []string) {
 	return s, op, ids
 }
 
-func completeListRemoval(ctx context.Context, s *Store, op Operation) error {
+func completeListRemoval(ctx context.Context, s *Store, op api.Operation) error {
 	return s.CompleteDiscard(ctx, op.ID, func(context.Context, string, string, string) error { return nil })
 }
 
@@ -104,7 +106,7 @@ func TestSessionListConcurrentCompletionSkipsOnlyAbsentRecord(t *testing.T) {
 				t.Fatalf("concurrent completion failed list: %+v %v", result, rpcErr)
 			}
 			page := result.(map[string]any)
-			views := page["sessions"].([]SessionView)
+			views := page["sessions"].([]api.SessionView)
 			if len(views) != limit-1 || page["next"] != ids[limit-1] {
 				t.Fatalf("filtered page lost raw cursor: %+v", page)
 			}
@@ -115,7 +117,7 @@ func TestSessionListConcurrentCompletionSkipsOnlyAbsentRecord(t *testing.T) {
 			if rpcErr != nil {
 				t.Fatal(rpcErr)
 			}
-			following := result.(map[string]any)["sessions"].([]SessionView)
+			following := result.(map[string]any)["sessions"].([]api.SessionView)
 			if len(following) != 3-limit || following[len(following)-1].UUID != ids[2] {
 				t.Fatalf("following page lost surviving record: %+v", following)
 			}

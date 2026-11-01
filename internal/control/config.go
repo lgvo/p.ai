@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 const HostSchema = "p.host/v1"
@@ -154,7 +156,7 @@ func ParseStoredProjectPolicy(raw json.RawMessage) (ProjectPolicy, error) {
 	if len(raw) == 0 || len(raw) > 8192 {
 		return policy, errors.New("stored project policy unavailable")
 	}
-	if err := rejectDuplicateKeys(raw); err != nil {
+	if err := strictjson.RejectDuplicateKeys(raw); err != nil {
 		return policy, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -258,7 +260,7 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 	if err != nil {
 		return cfg, err
 	}
-	if err := rejectDuplicateKeys(data); err != nil {
+	if err := strictjson.RejectDuplicateKeys(data); err != nil {
 		return cfg, err
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))

@@ -8,7 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // Never let service logs, descriptions, or daemon errors issue terminal controls.
@@ -74,7 +74,7 @@ func (m Model) feedbackHeight() int {
 	return n
 }
 
-func (m Model) styledRuntime(s control.SessionView) string {
+func (m Model) styledRuntime(s api.SessionView) string {
 	state, style := s.Condition, m.styles.muted
 	if state == "ready" {
 		state, style = "running", m.styles.running
@@ -356,7 +356,7 @@ func (m Model) inspectionContent() (string, []string, string) {
 		if m.operationID != "" {
 			op := m.operation
 			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID, "", op.Diagnostic, "", "Leaving this screen does not cancel an accepted operation.")
-			if control.WorkspaceInspectionRequiresFreshRequest(op) {
+			if api.WorkspaceInspectionRequiresFreshRequest(op) {
 				lines = append(lines, "Inspection finished with an error. Return and request a fresh inspection.")
 				commands = "q/Esc back"
 			} else {
@@ -499,7 +499,7 @@ func (m Model) browser(width int) string {
 	}
 	return list + "\n" + m.detailPanel("Session details", details, width, l.detailsHeight)
 }
-func runtimeLabel(s control.SessionView) string {
+func runtimeLabel(s api.SessionView) string {
 	if s.Condition == "ready" {
 		return "running"
 	}
@@ -518,19 +518,19 @@ func (m Model) detailPanel(title string, lines []string, width, height int) stri
 	}
 	return m.panel(strings.Join(body, "\n"), width)
 }
-func compactPresence(s control.SessionView) string {
+func compactPresence(s api.SessionView) string {
 	if s.AttachedCount == 0 {
 		return "unattended"
 	}
 	return fmt.Sprintf("%d attached", s.AttachedCount)
 }
-func terminalPresence(s control.SessionView) string {
+func terminalPresence(s api.SessionView) string {
 	if s.AttachedCount == 0 {
 		return "Terminals: unattended (0 attached)"
 	}
 	return fmt.Sprintf("Terminals: %d attached", s.AttachedCount)
 }
-func reportSummary(s control.SessionView) string {
+func reportSummary(s api.SessionView) string {
 	r := s.LatestUnattendedCondition
 	if r == nil {
 		return "unknown · no retained report"
@@ -563,7 +563,7 @@ func (m Model) serviceSummary() string {
 		return "loading…"
 	}
 }
-func (m Model) browserDetails(s control.SessionView, wide bool) []string {
+func (m Model) browserDetails(s api.SessionView, wide bool) []string {
 	if !wide {
 		lines := []string{s.Project + " / " + s.Branch, "UUID: " + s.UUID, "Runtime: " + runtimeLabel(s) + " · Policy: " + s.PolicyCondition + " · Terminals: " + compactPresence(s), "├─ Agents [A] · latest: " + reportSummary(s), "└─ Project services [S]: " + m.serviceSummary()}
 		if len(m.selectedServices.units) > 0 {
@@ -594,7 +594,7 @@ func (m Model) browserDetails(s control.SessionView, wide bool) []string {
 	}
 	return out
 }
-func sessionDetails(s control.SessionView) []string {
+func sessionDetails(s api.SessionView) []string {
 	lines := []string{"Project: " + s.Project, "Branch: " + s.Branch, "UUID: " + s.UUID, "Runtime: " + runtimeLabel(s), "Policy: " + s.PolicyCondition, terminalPresence(s), "", "Agents [A] · latest unattended report"}
 	if r := s.LatestUnattendedCondition; r != nil {
 		lines = append(lines, reportSummary(s), "Adapter: "+r.Adapter+" / "+r.AdapterVersion, fmt.Sprintf("Receive sequence: %d", r.ReceiveSequence), "Source: "+r.Source, "Reported condition: "+r.Condition, "Received: "+r.ReceivedAt)
@@ -603,7 +603,7 @@ func sessionDetails(s control.SessionView) []string {
 	}
 	return lines
 }
-func (m Model) fullSessionDetails(s control.SessionView) []string {
+func (m Model) fullSessionDetails(s api.SessionView) []string {
 	lines := sessionDetails(s)
 	lines = append(lines, "", "Project services [S]: "+m.serviceSummary())
 	if m.selectedServices.diagnostic != "" {

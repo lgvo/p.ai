@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -140,8 +140,8 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 	})
 	return f
 }
-func (f *nativeFixture) launch() control.AttachmentLaunch {
-	return control.AttachmentLaunch{V: 1, Socket: f.socket, Spec: plugin.AttachSpec{Project: "p-test", Instance: testInstance, Argv: []string{"/usr/libexec/p/attach"}}}
+func (f *nativeFixture) launch() api.AttachmentLaunch {
+	return api.AttachmentLaunch{V: 1, Socket: f.socket, Spec: plugin.AttachSpec{Project: "p-test", Instance: testInstance, Argv: []string{"/usr/libexec/p/attach"}}}
 }
 func await(t *testing.T, ch <-chan struct{}, name string) {
 	t.Helper()
@@ -196,7 +196,7 @@ type leaseFixture struct {
 	confirms   atomic.Int32
 }
 
-func newLeaseFixture(t *testing.T, launch control.AttachmentLaunch, gates ...<-chan struct{}) *leaseFixture {
+func newLeaseFixture(t *testing.T, launch api.AttachmentLaunch, gates ...<-chan struct{}) *leaseFixture {
 	t.Helper()
 	f := &leaseFixture{socket: filepath.Join(t.TempDir(), "rpc.sock"), confirmed: make(chan struct{}), closed: make(chan struct{}), connection: make(chan net.Conn, 1)}
 	listener, err := net.Listen("unix", f.socket)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
@@ -118,8 +119,8 @@ func TestEventReductionAndInvalidValues(t *testing.T) {
 	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
 	defer d.Close()
 	l := &lifecycle{events: d}
-	l.observeView(control.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "ready", PolicyCondition: "current", Diagnostic: "secret diagnostic"})
-	l.observeView(control.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "stopped", PolicyCondition: "outdated", Diagnostic: "secret diagnostic"})
+	l.observeView(api.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "ready", PolicyCondition: "current", Diagnostic: "secret diagnostic"})
+	l.observeView(api.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "stopped", PolicyCondition: "outdated", Diagnostic: "secret diagnostic"})
 	for _, kind := range []string{"session.attachment_changed", "session.unattended_changed", "operation.progress"} {
 		field, value := "count", "1"
 		switch kind {
@@ -149,7 +150,7 @@ func TestProjectCreationEventWaitsForSessionCommit(t *testing.T) {
 	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
 	defer d.Close()
 	l := &lifecycle{events: d}
-	op := control.Operation{ID: "op", Kind: "project.create", Project: "app", SessionUUID: "session"}
+	op := api.Operation{ID: "op", Kind: "project.create", Project: "app", SessionUUID: "session"}
 	l.recordCreation(op, "")
 	if e := nextEvent(t, got); e.Kind != "operation.progress" || e.Branch != "" {
 		t.Fatalf("premature session event: %+v", e)

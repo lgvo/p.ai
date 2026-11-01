@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -185,20 +186,20 @@ type captureOriginLifecycle struct {
 	session ReserveSessionRequest
 }
 
-func (l *captureOriginLifecycle) CreateProject(_ context.Context, req BlankProjectRequest) (Operation, error) {
+func (l *captureOriginLifecycle) CreateProject(_ context.Context, req BlankProjectRequest) (api.Operation, error) {
 	l.project = req
-	return Operation{Kind: "project.create"}, nil
+	return api.Operation{Kind: "project.create"}, nil
 }
-func (l *captureOriginLifecycle) CreateSession(_ context.Context, req ReserveSessionRequest) (Operation, error) {
+func (l *captureOriginLifecycle) CreateSession(_ context.Context, req ReserveSessionRequest) (api.Operation, error) {
 	l.session = req
-	return Operation{Kind: "session.create"}, nil
+	return api.Operation{Kind: "session.create"}, nil
 }
 
 func TestOriginCreationRPCStrictInputs(t *testing.T) {
 	s, _ := openTestStore(t)
 	life := &captureOriginLifecycle{statusLife: statusLife{store: s}}
 	h := StateHandlerWithLifecycle(s, nil, nil, life)
-	call := func(method, params string) *RPCError {
+	call := func(method, params string) *api.RPCError {
 		_, e := h(context.Background(), method, json.RawMessage(params))
 		return e
 	}

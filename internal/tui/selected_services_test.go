@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type observedServicesClient struct {
 	calls    int
 	contexts []context.Context
-	result   control.ServiceResult
+	result   api.ServiceResult
 	err      error
 }
 
@@ -120,14 +120,14 @@ func TestServicePageObservationUpdatesBrowserAndMalformedReplyIsRejected(t *test
 	m := serviceModel()
 	m.contextSession, _ = m.selectedSession()
 	m.navigate("services")
-	m.observeSelectedServices(control.ServiceResult{V: 1, UUID: m.contextSession.UUID, Services: []control.ProjectService{{Unit: "p-project-api.service", ActiveState: "inactive", SubState: "dead"}}})
+	m.observeSelectedServices(api.ServiceResult{V: 1, UUID: m.contextSession.UUID, Services: []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "inactive", SubState: "dead"}}})
 	m.back()
 	m.syncSelectedServices(nil)
 	if m.selectedServices.state != "observed" || m.selectedServices.units[0].ActiveState != "inactive" {
 		t.Fatal("Back discarded successful page observation")
 	}
 	// Reject a transport returning another session's body.
-	bad := &fakeClient{fn: func(string, params) (any, error) { return control.ServiceResult{V: 1, UUID: "wrong"}, nil }}
+	bad := &fakeClient{fn: func(string, params) (any, error) { return api.ServiceResult{V: 1, UUID: "wrong"}, nil }}
 	m.client = bad
 	m.selectedServices.state = "loading"
 	cmd := m.readSelectedServices(selectedServiceDue{m.selectedServices.generation})

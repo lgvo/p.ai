@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -41,8 +42,8 @@ func (l *lifecycle) hasAttachmentLocked(id string) bool {
 	}
 	return false
 }
-func (l *lifecycle) AttachSession(ctx context.Context, id string) (control.PendingAttachment, error) {
-	var zero control.PendingAttachment
+func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAttachment, error) {
+	var zero api.PendingAttachment
 	// Start owns the session lock while its asynchronous readiness check runs.
 	// Retry only that in-progress start; conflicting lifecycle operations fail.
 	view, err := l.StartSession(ctx, id)
@@ -98,8 +99,8 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (control.Pendi
 	}
 	return l.reserveAttachment(id, spec)
 }
-func (l *lifecycle) reserveAttachment(id string, spec plugin.AttachSpec) (control.PendingAttachment, error) {
-	var zero control.PendingAttachment
+func (l *lifecycle) reserveAttachment(id string, spec plugin.AttachSpec) (api.PendingAttachment, error) {
+	var zero api.PendingAttachment
 	var entropy [32]byte
 	if _, err := rand.Read(entropy[:]); err != nil {
 		return zero, err
@@ -122,7 +123,7 @@ func (l *lifecycle) reserveAttachment(id string, spec plugin.AttachSpec) (contro
 		l.attachments = map[string]*attachment{}
 	}
 	l.attachments[token] = &attachment{session: id, expires: expires, spec: spec}
-	return control.PendingAttachment{V: 1, Token: token, ExpiresAt: expires, Spec: spec}, nil
+	return api.PendingAttachment{V: 1, Token: token, ExpiresAt: expires, Spec: spec}, nil
 }
 func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.AttachSpec, error) {
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
@@ -148,7 +149,7 @@ func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.Atta
 	}
 	return *state.AttachSpec, nil
 }
-func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *control.Connection) (control.AttachmentLaunch, error) {
+func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *control.Connection) (api.AttachmentLaunch, error) {
 	l.mu.Lock()
 	candidate := l.attachments[token]
 	session := ""
@@ -157,30 +158,30 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *con
 	}
 	l.mu.Unlock()
 	if session == "" {
-		return control.AttachmentLaunch{}, control.ErrConflict
+		return api.AttachmentLaunch{}, control.ErrConflict
 	}
 	release, err := l.lockSession(ctx, session)
 	if err != nil {
-		return control.AttachmentLaunch{}, err
+		return api.AttachmentLaunch{}, err
 	}
 	defer release()
 	if err := l.checkNoWorkspaceInspect(ctx, session); err != nil {
-		return control.AttachmentLaunch{}, err
+		return api.AttachmentLaunch{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.expireAttachmentsLocked()
 	a := l.attachments[token]
 	if a == nil || a != candidate || a.connection != nil || !time.Now().Before(a.expires) {
-		return control.AttachmentLaunch{}, control.ErrConflict
+		return api.AttachmentLaunch{}, control.ErrConflict
 	}
 	// Own installs cleanup atomically against connection closure. The callback
 	// runs after Connection releases its own lock, avoiding lock inversion.
 	if err := conn.Own(func() { l.releaseAttachment(token) }); err != nil {
-		return control.AttachmentLaunch{}, err
+		return api.AttachmentLaunch{}, err
 	}
 	a.connection = conn
-	return control.AttachmentLaunch{V: 1, Socket: l.cfg.IncusUserSocket, Spec: a.spec}, nil
+	return api.AttachmentLaunch{V: 1, Socket: l.cfg.IncusUserSocket, Spec: a.spec}, nil
 }
 func (l *lifecycle) releaseAttachment(token string) {
 	l.mu.Lock()

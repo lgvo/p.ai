@@ -101,3 +101,23 @@
   behavior cannot be characterized before the change).
 - Added 2026-11-01, 1 case:
   - 2026-11-01: "complete rework of P's implementation" cut it from step 5 after review.
+
+## Trusted configuration lives in the store package
+
+- Where: internal/control config.go, grants.go, public_egress.go
+- Problem: Host configuration loading, project policy, filesystem grants and public-egress
+  configuration share control with the SQLite store and its sentinel errors, so adapters such
+  as runtimeincus import control to read public-egress configuration.
+- Evidence: config.go calls the store's `validProject`, `validFingerprint`, `digest` and
+  `normalizedObject`; `ProjectPolicySnapshot` errors wrap `control.ErrInvalid`, which the
+  daemon's lifecycle errors map to `invalid_params`.
+- Risk: configuration and persistence change together; an adapter that needs one trusted
+  setting depends on the whole store package.
+- Fix: give P's identifier formats, digest and sentinel errors a package below control, then
+  move configuration to its own package on top of it.
+- Fix when: identifier validation is consolidated (the same formats are also copied in
+  gitservice, plugin and runtimeincus), or the next change to host configuration.
+- Left by: the agent, by rule (a restructuring not pursued: step 2 of REWORK-PLAN.md was
+  dropped after measuring its cost).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" dropped step 2 after measurement.

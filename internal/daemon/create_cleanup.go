@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -21,7 +22,7 @@ type createCleanupPreviewState struct {
 	Expiry  time.Time
 }
 
-func (l *lifecycle) reviewCreateCleanupLocal(ctx context.Context, op control.Operation, s control.Session) (*control.CreateReplacementCleanup, error) {
+func (l *lifecycle) reviewCreateCleanupLocal(ctx context.Context, op api.Operation, s control.Session) (*control.CreateReplacementCleanup, error) {
 	fp, found, err := l.store.SessionGitPrincipal(ctx, s.UUID)
 	if err != nil {
 		return nil, err
@@ -182,7 +183,7 @@ func (l *lifecycle) previewCreateCleanup(ctx context.Context, uuid, lossID strin
 	p.ConfirmationToken = hex.EncodeToString(bytes[:])
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
 	encoded, e := json.Marshal(p)
-	if e != nil || len(encoded) > control.MaxFrameBytes-1024 {
+	if e != nil || len(encoded) > api.MaxFrameBytes-1024 {
 		return control.CreateCleanupPreview{}, errors.New("cleanup preview exceeded bound")
 	}
 	l.mu.Lock()
@@ -201,12 +202,12 @@ func (l *lifecycle) previewCreateCleanup(ctx context.Context, uuid, lossID strin
 	l.createCleanupPreviews[p.ConfirmationToken] = createCleanupPreviewState{p, expiry}
 	return p, nil
 }
-func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token string) (control.Operation, error) {
+func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token string) (api.Operation, error) {
 	if len(uuid) != 36 || key == "" || len(key) > 128 || len(token) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	req := control.DiscardRequest{UUID: uuid, Key: key, TokenSHA256: hexDigest([]byte(token))}
-	replay := func() (control.Operation, bool, error) {
+	replay := func() (api.Operation, bool, error) {
 		op, e := l.store.GetOperationByKey(ctx, key)
 		if errors.Is(e, control.ErrNotFound) {
 			return op, false, nil
@@ -216,7 +217,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 			return op, true, e
 		}
 		if op.Kind != "session.create.cleanup" || json.Unmarshal(op.Request, &saved) != nil || saved != req {
-			return control.Operation{}, true, control.ErrConflict
+			return api.Operation{}, true, control.ErrConflict
 		}
 		return op, true, nil
 	}
@@ -225,7 +226,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	}
 	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	if op, found, e := replay(); found || e != nil {
@@ -235,7 +236,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	state, found := l.createCleanupPreviews[token]
 	l.mu.Unlock()
 	if !found || state.Preview.UUID != uuid || !time.Now().Before(state.Expiry) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	lossID := ""
 	if state.Preview.Runtime != nil {
@@ -243,11 +244,11 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	}
 	fresh, err := l.createCleanupFacts(ctx, uuid, lossID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	fresh.ConfirmationToken, fresh.ExpiresAt = token, state.Preview.ExpiresAt
 	if !fresh.Eligible || !reflect.DeepEqual(fresh, state.Preview) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	ev := control.CreateCleanupEvidence{Review: fresh, InstanceUUID: l.instanceID}
 	ev.Review.ConfirmationToken = ""
@@ -272,7 +273,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	l.recordProgress(op, "running")
 	return op, l.enqueue(op.ID)
 }
-func (l *lifecycle) processCreateCleanup(observed control.Operation) {
+func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 	ctx := l.ctx
 	slot := l.sessionLockSlot(observed.SessionUUID)
 	select {

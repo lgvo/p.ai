@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // These tests state what the control-API handler answers, built the way the
@@ -38,36 +40,36 @@ func (c *surfaceCalls) record(format string, args ...any) error {
 // coreLife implements only the required lifecycle methods.
 type coreLife struct{ *surfaceCalls }
 
-func (l coreLife) CreateProject(_ context.Context, r BlankProjectRequest) (Operation, error) {
-	return Operation{ID: "created-project"}, l.record("CreateProject %+v", r)
+func (l coreLife) CreateProject(_ context.Context, r BlankProjectRequest) (api.Operation, error) {
+	return api.Operation{ID: "created-project"}, l.record("CreateProject %+v", r)
 }
-func (l coreLife) CreateSession(_ context.Context, r ReserveSessionRequest) (Operation, error) {
-	return Operation{ID: "created-session"}, l.record("CreateSession %+v", r)
+func (l coreLife) CreateSession(_ context.Context, r ReserveSessionRequest) (api.Operation, error) {
+	return api.Operation{ID: "created-session"}, l.record("CreateSession %+v", r)
 }
-func (l coreLife) Retry(_ context.Context, id string) (Operation, error) {
-	return Operation{ID: id}, l.record("Retry %s", id)
+func (l coreLife) Retry(_ context.Context, id string) (api.Operation, error) {
+	return api.Operation{ID: id}, l.record("Retry %s", id)
 }
-func (l coreLife) InspectSession(_ context.Context, id string) (SessionView, error) {
-	return SessionView{UUID: id, Condition: "ready"}, l.record("InspectSession %s", id)
+func (l coreLife) InspectSession(_ context.Context, id string) (api.SessionView, error) {
+	return api.SessionView{UUID: id, Condition: "ready"}, l.record("InspectSession %s", id)
 }
-func (l coreLife) StartSession(_ context.Context, id string) (SessionView, error) {
-	return SessionView{UUID: id, Condition: "starting"}, l.record("StartSession %s", id)
+func (l coreLife) StartSession(_ context.Context, id string) (api.SessionView, error) {
+	return api.SessionView{UUID: id, Condition: "starting"}, l.record("StartSession %s", id)
 }
-func (l coreLife) StopSession(_ context.Context, id string) (SessionView, error) {
-	return SessionView{UUID: id, Condition: "stopped"}, l.record("StopSession %s", id)
+func (l coreLife) StopSession(_ context.Context, id string) (api.SessionView, error) {
+	return api.SessionView{UUID: id, Condition: "stopped"}, l.record("StopSession %s", id)
 }
 
 // fullLife implements every optional lifecycle API as well.
 type fullLife struct{ coreLife }
 
-func (l fullLife) SessionServices(_ context.Context, id, unit, action string) (ServiceResult, error) {
-	return ServiceResult{V: 1, UUID: id, Unit: unit, ObservedAt: "now"}, l.record("SessionServices %s %s %s", id, unit, action)
+func (l fullLife) SessionServices(_ context.Context, id, unit, action string) (api.ServiceResult, error) {
+	return api.ServiceResult{V: 1, UUID: id, Unit: unit, ObservedAt: "now"}, l.record("SessionServices %s %s %s", id, unit, action)
 }
-func (l fullLife) AttachSession(_ context.Context, id string) (PendingAttachment, error) {
-	return PendingAttachment{V: 1, Token: "pending"}, l.record("AttachSession %s", id)
+func (l fullLife) AttachSession(_ context.Context, id string) (api.PendingAttachment, error) {
+	return api.PendingAttachment{V: 1, Token: "pending"}, l.record("AttachSession %s", id)
 }
-func (l fullLife) ClaimAttachment(_ context.Context, token string, _ *Connection) (AttachmentLaunch, error) {
-	return AttachmentLaunch{}, l.record("ClaimAttachment %s", token)
+func (l fullLife) ClaimAttachment(_ context.Context, token string, _ *Connection) (api.AttachmentLaunch, error) {
+	return api.AttachmentLaunch{}, l.record("ClaimAttachment %s", token)
 }
 func (l fullLife) ConfirmAttachment(_ context.Context, _ *Connection, operation string) error {
 	return l.record("ConfirmAttachment %s", operation)
@@ -78,50 +80,50 @@ func (l fullLife) ListEnvironmentCache(_ context.Context, project, after string,
 func (l fullLife) PreviewEnvironmentCollection(_ context.Context, project, key, token, after string, limit int) (EnvironmentCollectionPreview, error) {
 	return EnvironmentCollectionPreview{}, l.record("PreviewEnvironmentCollection %s %s %q %q %d", project, key, token, after, limit)
 }
-func (l fullLife) CollectEnvironmentCache(_ context.Context, key, token string) (Operation, error) {
-	return Operation{ID: "collect"}, l.record("CollectEnvironmentCache %s %s", key, token)
+func (l fullLife) CollectEnvironmentCache(_ context.Context, key, token string) (api.Operation, error) {
+	return api.Operation{ID: "collect"}, l.record("CollectEnvironmentCache %s %s", key, token)
 }
-func (l fullLife) InspectWorkspace(_ context.Context, r WorkspaceInspectRequest) (Operation, error) {
-	return Operation{ID: "inspect"}, l.record("InspectWorkspace %+v", r)
+func (l fullLife) InspectWorkspace(_ context.Context, r WorkspaceInspectRequest) (api.Operation, error) {
+	return api.Operation{ID: "inspect"}, l.record("InspectWorkspace %+v", r)
 }
-func (l fullLife) InspectWorkspaceLoss(_ context.Context, r WorkspaceInspectRequest) (Operation, error) {
-	return Operation{ID: "loss"}, l.record("InspectWorkspaceLoss %+v", r)
+func (l fullLife) InspectWorkspaceLoss(_ context.Context, r WorkspaceInspectRequest) (api.Operation, error) {
+	return api.Operation{ID: "loss"}, l.record("InspectWorkspaceLoss %+v", r)
 }
 func (l fullLife) PreviewRemoval(_ context.Context, r RemovalPreviewRequest) (RemovalPreview, error) {
 	return RemovalPreview{}, l.record("PreviewRemoval %+v", r)
 }
-func (l fullLife) DiscardSession(_ context.Context, r DiscardConfirmRequest) (Operation, error) {
-	return Operation{ID: "discard"}, l.record("DiscardSession %+v", r)
+func (l fullLife) DiscardSession(_ context.Context, r DiscardConfirmRequest) (api.Operation, error) {
+	return api.Operation{ID: "discard"}, l.record("DiscardSession %+v", r)
 }
-func (l fullLife) DeleteSession(_ context.Context, r DiscardConfirmRequest) (Operation, error) {
-	return Operation{ID: "delete"}, l.record("DeleteSession %+v", r)
+func (l fullLife) DeleteSession(_ context.Context, r DiscardConfirmRequest) (api.Operation, error) {
+	return api.Operation{ID: "delete"}, l.record("DeleteSession %+v", r)
 }
-func (l fullLife) RenameSession(_ context.Context, r RenameRequest) (Operation, error) {
-	return Operation{ID: "rename"}, l.record("RenameSession %+v", r)
+func (l fullLife) RenameSession(_ context.Context, r RenameRequest) (api.Operation, error) {
+	return api.Operation{ID: "rename"}, l.record("RenameSession %+v", r)
 }
-func (l fullLife) RenameRetainedBranch(_ context.Context, r RetainedRenameRequest) (Operation, error) {
-	return Operation{ID: "retained-rename"}, l.record("RenameRetainedBranch %+v", r)
+func (l fullLife) RenameRetainedBranch(_ context.Context, r RetainedRenameRequest) (api.Operation, error) {
+	return api.Operation{ID: "retained-rename"}, l.record("RenameRetainedBranch %+v", r)
 }
 func (l fullLife) PreviewProjectDelete(_ context.Context, r ProjectDeletePreviewRequest) (ProjectDeletePreview, error) {
 	return ProjectDeletePreview{}, l.record("PreviewProjectDelete %+v", r)
 }
-func (l fullLife) ConfirmProjectDelete(_ context.Context, r ProjectDeleteConfirmRequest) (Operation, error) {
-	return Operation{ID: "project-delete"}, l.record("ConfirmProjectDelete %+v", r)
+func (l fullLife) ConfirmProjectDelete(_ context.Context, r ProjectDeleteConfirmRequest) (api.Operation, error) {
+	return api.Operation{ID: "project-delete"}, l.record("ConfirmProjectDelete %+v", r)
 }
 func (l fullLife) PreviewRetainedDelete(_ context.Context, project, branch string) (RetainedDeletePreview, error) {
 	return RetainedDeletePreview{}, l.record("PreviewRetainedDelete %s %s", project, branch)
 }
-func (l fullLife) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (Operation, error) {
-	return Operation{ID: "retained-delete"}, l.record("ConfirmRetainedDelete %s %s %s %s", key, project, branch, token)
+func (l fullLife) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (api.Operation, error) {
+	return api.Operation{ID: "retained-delete"}, l.record("ConfirmRetainedDelete %s %s %s %s", key, project, branch, token)
 }
 func (l fullLife) PreviewRepair(_ context.Context, id string) (RepairPreview, error) {
 	return RepairPreview{}, l.record("PreviewRepair %s", id)
 }
-func (l fullLife) ConfirmRepair(_ context.Context, r RepairConfirmRequest) (Operation, error) {
-	return Operation{ID: "repair"}, l.record("ConfirmRepair %+v", r)
+func (l fullLife) ConfirmRepair(_ context.Context, r RepairConfirmRequest) (api.Operation, error) {
+	return api.Operation{ID: "repair"}, l.record("ConfirmRepair %+v", r)
 }
-func (l fullLife) PrepareRepair(_ context.Context, key, id string) (Operation, error) {
-	return Operation{ID: "prepare"}, l.record("PrepareRepair %s %s", key, id)
+func (l fullLife) PrepareRepair(_ context.Context, key, id string) (api.Operation, error) {
+	return api.Operation{ID: "prepare"}, l.record("PrepareRepair %s %s", key, id)
 }
 func (l fullLife) PreviewPreparedRepair(_ context.Context, id, prepared string) (RepairPreview, error) {
 	return RepairPreview{}, l.record("PreviewPreparedRepair %s %s", id, prepared)
@@ -129,32 +131,32 @@ func (l fullLife) PreviewPreparedRepair(_ context.Context, id, prepared string) 
 func (l fullLife) PreviewRefRepair(_ context.Context, id, loss string) (RefRepairPreview, error) {
 	return RefRepairPreview{}, l.record("PreviewRefRepair %s %s", id, loss)
 }
-func (l fullLife) ConfirmRefRepair(_ context.Context, key, id, token string) (Operation, error) {
-	return Operation{ID: "ref-repair"}, l.record("ConfirmRefRepair %s %s %s", key, id, token)
+func (l fullLife) ConfirmRefRepair(_ context.Context, key, id, token string) (api.Operation, error) {
+	return api.Operation{ID: "ref-repair"}, l.record("ConfirmRefRepair %s %s %s", key, id, token)
 }
 func (l fullLife) PreviewPrincipalRepair(_ context.Context, id string) (PrincipalRepairPreview, error) {
 	return PrincipalRepairPreview{}, l.record("PreviewPrincipalRepair %s", id)
 }
-func (l fullLife) ConfirmPrincipalRepair(_ context.Context, key, id, token string) (Operation, error) {
-	return Operation{ID: "principal-repair"}, l.record("ConfirmPrincipalRepair %s %s %s", key, id, token)
+func (l fullLife) ConfirmPrincipalRepair(_ context.Context, key, id, token string) (api.Operation, error) {
+	return api.Operation{ID: "principal-repair"}, l.record("ConfirmPrincipalRepair %s %s %s", key, id, token)
 }
 func (l fullLife) PreviewRecordRepair(_ context.Context, id string) (RecordRepairPreview, error) {
 	return RecordRepairPreview{}, l.record("PreviewRecordRepair %s", id)
 }
-func (l fullLife) ConfirmRecordRepair(_ context.Context, key, id, token string) (Operation, error) {
-	return Operation{ID: "record-repair"}, l.record("ConfirmRecordRepair %s %s %s", key, id, token)
+func (l fullLife) ConfirmRecordRepair(_ context.Context, key, id, token string) (api.Operation, error) {
+	return api.Operation{ID: "record-repair"}, l.record("ConfirmRecordRepair %s %s %s", key, id, token)
 }
 func (l fullLife) PreviewCreateReplace(_ context.Context, old string, r ReserveSessionRequest) (CreateReplacePreview, error) {
 	return CreateReplacePreview{}, l.record("PreviewCreateReplace %s %+v", old, r)
 }
-func (l fullLife) ConfirmCreateReplace(_ context.Context, old, key, token string) (Operation, error) {
-	return Operation{ID: "replace"}, l.record("ConfirmCreateReplace %s %s %s", old, key, token)
+func (l fullLife) ConfirmCreateReplace(_ context.Context, old, key, token string) (api.Operation, error) {
+	return api.Operation{ID: "replace"}, l.record("ConfirmCreateReplace %s %s %s", old, key, token)
 }
 func (l fullLife) PreviewCreateCleanup(_ context.Context, id string) (CreateCleanupPreview, error) {
 	return CreateCleanupPreview{}, l.record("PreviewCreateCleanup %s", id)
 }
-func (l fullLife) ConfirmCreateCleanup(_ context.Context, id, key, token string) (Operation, error) {
-	return Operation{ID: "cleanup"}, l.record("ConfirmCreateCleanup %s %s %s", id, key, token)
+func (l fullLife) ConfirmCreateCleanup(_ context.Context, id, key, token string) (api.Operation, error) {
+	return api.Operation{ID: "cleanup"}, l.record("ConfirmCreateCleanup %s %s %s", id, key, token)
 }
 func (l fullLife) PreviewAssembledCreateCleanup(_ context.Context, id, loss string) (CreateCleanupPreview, error) {
 	return CreateCleanupPreview{}, l.record("PreviewAssembledCreateCleanup %s %s", id, loss)
@@ -210,8 +212,8 @@ type cleanupLife struct{ coreLife }
 func (l cleanupLife) PreviewCreateCleanup(_ context.Context, id string) (CreateCleanupPreview, error) {
 	return CreateCleanupPreview{}, l.record("PreviewCreateCleanup %s", id)
 }
-func (l cleanupLife) ConfirmCreateCleanup(_ context.Context, id, key, token string) (Operation, error) {
-	return Operation{}, l.record("ConfirmCreateCleanup %s %s %s", id, key, token)
+func (l cleanupLife) ConfirmCreateCleanup(_ context.Context, id, key, token string) (api.Operation, error) {
+	return api.Operation{}, l.record("ConfirmCreateCleanup %s %s %s", id, key, token)
 }
 
 // repairLife offers repair but not previews of a prepared repair.
@@ -220,11 +222,11 @@ type repairLife struct{ coreLife }
 func (l repairLife) PreviewRepair(_ context.Context, id string) (RepairPreview, error) {
 	return RepairPreview{}, l.record("PreviewRepair %s", id)
 }
-func (l repairLife) ConfirmRepair(_ context.Context, r RepairConfirmRequest) (Operation, error) {
-	return Operation{}, l.record("ConfirmRepair %+v", r)
+func (l repairLife) ConfirmRepair(_ context.Context, r RepairConfirmRequest) (api.Operation, error) {
+	return api.Operation{}, l.record("ConfirmRepair %+v", r)
 }
 
-func surfaceCall(t *testing.T, h Handler, ctx context.Context, method, params string) (map[string]any, *RPCError) {
+func surfaceCall(t *testing.T, h Handler, ctx context.Context, method, params string) (map[string]any, *api.RPCError) {
 	t.Helper()
 	result, rpcErr := h(ctx, method, json.RawMessage(params))
 	if rpcErr != nil {
@@ -490,7 +492,7 @@ func TestStoreBackedLifecycleReads(t *testing.T) {
 		}
 	}
 	_, rpcErr := h(context.Background(), "operation.inspect", json.RawMessage(`{"v":1,"id":"missing"}`))
-	if rpcErr == nil || *rpcErr != (RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}) {
+	if rpcErr == nil || *rpcErr != (api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}) {
 		t.Errorf("missing operation: %+v", rpcErr)
 	}
 	if len(calls.calls) != 0 {
@@ -554,24 +556,24 @@ func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
 	for _, test := range []struct {
 		name, method, params string
 		err                  error
-		want                 RPCError
+		want                 api.RPCError
 	}{
-		{"invalid", "session.discard", discard, ErrInvalid, RPCError{-32602, "invalid_params", "invalid lifecycle request"}},
-		{"capacity", "session.discard", discard, &sessionCapacityError{}, RPCError{-32003, "busy", (&sessionCapacityError{}).Error()}},
-		{"conflict", "session.discard", discard, ErrConflict, RPCError{-32003, "busy", "lifecycle request conflicts with current authority"}},
-		{"not found", "session.discard", discard, ErrNotFound, RPCError{-32004, "unavailable", "record was not found"}},
-		{"cancelled", "session.discard", discard, context.Canceled, RPCError{-32001, "cancelled", "request cancelled or timed out"}},
-		{"deadline", "session.discard", discard, context.DeadlineExceeded, RPCError{-32001, "cancelled", "request cancelled or timed out"}},
-		{"other", "session.discard", discard, errors.New("boom"), RPCError{-32004, "unavailable", "lifecycle authority is unavailable"}},
-		{"project conflict keeps message", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New("session still attached")), RPCError{-32003, "busy", "conflict\nsession still attached"}},
-		{"project conflict message is bounded", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New(long)), RPCError{-32003, "busy", ("conflict\n" + long)[:900]}},
-		{"project invalid", "project.delete.preview", projectPreview, ErrInvalid, RPCError{-32602, "invalid_params", "invalid lifecycle request"}},
-		{"project not found", "project.delete.preview", projectPreview, ErrNotFound, RPCError{-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review"}},
-		{"project confirm conflict keeps message", "project.delete.confirm", projectConfirm, errors.Join(ErrConflict, errors.New("review changed")), RPCError{-32003, "busy", "conflict\nreview changed"}},
-		{"project confirm cancelled", "project.delete.confirm", projectConfirm, context.Canceled, RPCError{-32001, "cancelled", "request cancelled or timed out"}},
-		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), RPCError{-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review"}},
-		{"services conflict", "session.services", services, ErrConflict, RPCError{-32003, "busy", "lifecycle request conflicts with current authority"}},
-		{"services other", "session.services", services, errors.New("boom"), RPCError{-32004, "unavailable", "project services unavailable; require a ready owned runtime, session user manager, and compatible selected runtime package"}},
+		{"invalid", "session.discard", discard, ErrInvalid, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid lifecycle request"}},
+		{"capacity", "session.discard", discard, &sessionCapacityError{}, api.RPCError{Code: -32003, Kind: "busy", Message: (&sessionCapacityError{}).Error()}},
+		{"conflict", "session.discard", discard, ErrConflict, api.RPCError{Code: -32003, Kind: "busy", Message: "lifecycle request conflicts with current authority"}},
+		{"not found", "session.discard", discard, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}},
+		{"cancelled", "session.discard", discard, context.Canceled, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
+		{"deadline", "session.discard", discard, context.DeadlineExceeded, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
+		{"other", "session.discard", discard, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "lifecycle authority is unavailable"}},
+		{"project conflict keeps message", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New("session still attached")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nsession still attached"}},
+		{"project conflict message is bounded", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New(long)), api.RPCError{Code: -32003, Kind: "busy", Message: ("conflict\n" + long)[:900]}},
+		{"project invalid", "project.delete.preview", projectPreview, ErrInvalid, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid lifecycle request"}},
+		{"project not found", "project.delete.preview", projectPreview, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review"}},
+		{"project confirm conflict keeps message", "project.delete.confirm", projectConfirm, errors.Join(ErrConflict, errors.New("review changed")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nreview changed"}},
+		{"project confirm cancelled", "project.delete.confirm", projectConfirm, context.Canceled, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
+		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review"}},
+		{"services conflict", "session.services", services, ErrConflict, api.RPCError{Code: -32003, Kind: "busy", Message: "lifecycle request conflicts with current authority"}},
+		{"services other", "session.services", services, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project services unavailable; require a ready owned runtime, session user manager, and compatible selected runtime package"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
@@ -585,16 +587,16 @@ func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
 }
 
 func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
-	notImplemented := RPCError{-32004, "unavailable", "capability is not implemented"}
-	notFound := RPCError{-32004, "unavailable", "record was not found"}
-	badParams := RPCError{-32602, "invalid_params", `params must be {"v":1}`}
-	unknown := RPCError{-32601, "method_not_found", "method is unknown"}
+	notImplemented := api.RPCError{Code: -32004, Kind: "unavailable", Message: "capability is not implemented"}
+	notFound := api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}
+	badParams := api.RPCError{Code: -32602, Kind: "invalid_params", Message: `params must be {"v":1}`}
+	unknown := api.RPCError{Code: -32601, Kind: "method_not_found", Message: "method is unknown"}
 	discard := `{"v":1,"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
 	for _, test := range []struct {
 		name           string
 		config         surfaceConfig
 		method, params string
-		want           RPCError
+		want           api.RPCError
 	}{
 		{"unknown method", surfaceStateOnly, "nope", `{"v":1}`, unknown},
 		{"unknown method with other params", surfaceStateOnly, "nope", `{"v":1,"x":1}`, badParams},
@@ -603,7 +605,7 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		{"runtime prefix", surfaceStateOnly, "runtime.inspect", `{"v":1}`, notImplemented},
 		{"status prefix", surfaceStateOnly, "status.report", `{"v":1}`, notImplemented},
 		{"lifecycle params without capability", surfaceStateOnly, "session.discard", discard, badParams},
-		{"project list without Git", surfaceStateOnly, "project.list", `{"v":1,"limit":1}`, RPCError{-32004, "unavailable", "Git capability is not configured"}},
+		{"project list without Git", surfaceStateOnly, "project.list", `{"v":1,"limit":1}`, api.RPCError{Code: -32004, Kind: "unavailable", Message: "Git capability is not configured"}},
 		{"lifecycle without runtime", surfaceGit, "session.create", `{"v":1}`, notImplemented},
 		{"attachment without runtime", surfaceGit, "attachment.ping", `{"v":1}`, unknown},
 		{"system method rejects params", surfaceGit, "system.hello", `{"v":1,"x":1}`, badParams},
@@ -628,7 +630,7 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 }
 
 func TestSpecializedPreviewsNeedTheirOwnAPI(t *testing.T) {
-	notFound := RPCError{-32004, "unavailable", "record was not found"}
+	notFound := api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}
 	for _, test := range []struct {
 		name           string
 		life           func(*surfaceCalls) LifecycleAPI

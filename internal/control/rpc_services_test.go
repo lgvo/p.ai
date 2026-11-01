@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type serviceProbe struct {
@@ -12,9 +14,9 @@ type serviceProbe struct {
 	calls int
 }
 
-func (p *serviceProbe) SessionServices(_ context.Context, id, unit, action string) (ServiceResult, error) {
+func (p *serviceProbe) SessionServices(_ context.Context, id, unit, action string) (api.ServiceResult, error) {
 	p.calls++
-	return ServiceResult{V: 1, UUID: id, Unit: unit}, nil
+	return api.ServiceResult{V: 1, UUID: id, Unit: unit}, nil
 }
 func TestServicesRPCClosedAuthority(t *testing.T) {
 	p := &serviceProbe{}

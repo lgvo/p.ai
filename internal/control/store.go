@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/strictjson"
 	_ "modernc.org/sqlite"
 )
 
@@ -44,22 +46,6 @@ type Session struct {
 	Registry     string          `json:"registry_state"`
 	Policy       json.RawMessage `json:"policy"`
 	PolicySHA256 string          `json:"policy_sha256"`
-}
-
-type Operation struct {
-	ID          string          `json:"id"`
-	Key         string          `json:"idempotency_key"`
-	Kind        string          `json:"kind"`
-	Project     string          `json:"project"`
-	SessionUUID string          `json:"session_uuid,omitempty"`
-	Request     json.RawMessage `json:"request"`
-	Status      string          `json:"status"`
-	Phase       string          `json:"phase"`
-	Committed   bool            `json:"committed"`
-	Evidence    json.RawMessage `json:"evidence,omitempty"`
-	Diagnostic  string          `json:"diagnostic,omitempty"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
 }
 
 type ReserveSessionRequest struct {
@@ -965,13 +951,8 @@ func (s *Store) InstanceID(ctx context.Context) (string, error) {
 
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
-type ProjectSummary struct {
-	Path     string `json:"path"`
-	Registry string `json:"registry_state"`
-}
-
 // ListProjects reads registered projects in stable bytewise path order.
-func (s *Store) ListProjects(ctx context.Context, after string, limit int) ([]ProjectSummary, string, error) {
+func (s *Store) ListProjects(ctx context.Context, after string, limit int) ([]api.ProjectSummary, string, error) {
 	if limit < 1 || limit > 100 || after != "" && !validProject(after) {
 		return nil, "", ErrInvalid
 	}
@@ -980,9 +961,9 @@ func (s *Store) ListProjects(ctx context.Context, after string, limit int) ([]Pr
 		return nil, "", err
 	}
 	defer rows.Close()
-	var items []ProjectSummary
+	var items []api.ProjectSummary
 	for rows.Next() {
-		var item ProjectSummary
+		var item api.ProjectSummary
 		if err := rows.Scan(&item.Path, &item.Registry); err != nil {
 			return nil, "", err
 		}
@@ -1028,7 +1009,7 @@ func normalizedObject(data json.RawMessage) (json.RawMessage, error) {
 	if len(data) == 0 || len(data) > 16384 {
 		return nil, fmt.Errorf("%w: policy must be a bounded JSON object", ErrInvalid)
 	}
-	if err := rejectDuplicateKeys(data); err != nil {
+	if err := strictjson.RejectDuplicateKeys(data); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	var value map[string]any
@@ -1113,12 +1094,12 @@ func (s *Store) SetProjectPolicy(ctx context.Context, path string, policy json.R
 
 // ReserveSession atomically binds one immutable request to a UUID, branch and
 // policy snapshot. It performs no Git or runtime mutation.
-func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (Operation, Session, error) {
+func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (api.Operation, Session, error) {
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	defer s.gitAuthority.Unlock()
-	var op Operation
+	var op api.Operation
 	var session Session
 	if len(req.Key) < 1 || len(req.Key) > 128 || !validProject(req.Project) || !validBranch(req.Branch) || len(req.Source) > 255 ||
 		!((req.Choice == "existing" && req.Source == "") || (req.Choice == "new" && req.Source != "") || (req.Choice == "blank" && req.Branch == "main" && req.Source == "")) {
@@ -1191,7 +1172,7 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 	if err := tx.Commit(); err != nil {
 		return op, session, err
 	}
-	op = Operation{ID: op.ID, Key: req.Key, Kind: "session.create", Project: req.Project, SessionUUID: session.UUID, Request: requestJSON, Status: "running", Phase: "reserved", CreatedAt: now, UpdatedAt: now}
+	op = api.Operation{ID: op.ID, Key: req.Key, Kind: "session.create", Project: req.Project, SessionUUID: session.UUID, Request: requestJSON, Status: "running", Phase: "reserved", CreatedAt: now, UpdatedAt: now}
 	return op, session, nil
 }
 
@@ -1205,8 +1186,8 @@ func classifyWrite(err error) error {
 	return err
 }
 
-func getOperationTx(ctx context.Context, tx *sql.Tx, key string) (Operation, error) {
-	var o Operation
+func getOperationTx(ctx context.Context, tx *sql.Tx, key string) (api.Operation, error) {
+	var o api.Operation
 	var request, evidence string
 	var committed int
 	err := tx.QueryRowContext(ctx, `SELECT id,idempotency_key,kind,project_path,COALESCE(session_uuid,''),request_json,status,phase,committed,COALESCE(evidence_json,''),diagnostic,created_at,updated_at

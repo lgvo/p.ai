@@ -18,8 +18,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 type object = map[string]any
@@ -44,12 +46,12 @@ type attachmentLease struct {
 type fixture struct {
 	mu       sync.Mutex
 	dir      string
-	projects map[string]control.ProjectSummary
-	sessions map[string]control.SessionView
-	ops      map[string]control.Operation
+	projects map[string]api.ProjectSummary
+	sessions map[string]api.SessionView
+	ops      map[string]api.Operation
 	refs     map[string]map[string]string
 	origins  map[string]string
-	services map[string][]control.ProjectService
+	services map[string][]api.ProjectService
 	previews map[string]preview
 	tokens   map[string]pending
 	keys     map[string]string
@@ -63,7 +65,7 @@ var methods = []string{"system.capabilities", "system.health", "project.list", "
 const tip = "0123456789abcdef0123456789abcdef01234567"
 
 func newFixture(dir, dataset string) *fixture {
-	f := &fixture{dir: dir, projects: map[string]control.ProjectSummary{}, sessions: map[string]control.SessionView{}, ops: map[string]control.Operation{}, refs: map[string]map[string]string{}, origins: map[string]string{}, services: map[string][]control.ProjectService{}, previews: map[string]preview{}, tokens: map[string]pending{}, keys: map[string]string{}, faults: map[string]fault{}}
+	f := &fixture{dir: dir, projects: map[string]api.ProjectSummary{}, sessions: map[string]api.SessionView{}, ops: map[string]api.Operation{}, refs: map[string]map[string]string{}, origins: map[string]string{}, services: map[string][]api.ProjectService{}, previews: map[string]preview{}, tokens: map[string]pending{}, keys: map[string]string{}, faults: map[string]fault{}}
 	if dataset == "empty" {
 		return f
 	}
@@ -93,7 +95,7 @@ func newFixture(dir, dataset string) *fixture {
 				s.Condition = "ready"
 			}
 			if (name == "forge" || name == "orbit") && i == 0 {
-				s.LatestUnattendedCondition = &control.UnattendedCondition{Condition: "attention", Source: "Codex", Reason: "Waiting for review", ReceivedAt: "2026-10-01T12:00:00Z", Adapter: "fixture", AdapterVersion: "1", ReceiveSequence: 1}
+				s.LatestUnattendedCondition = &api.UnattendedCondition{Condition: "attention", Source: "Codex", Reason: "Waiting for review", ReceivedAt: "2026-10-01T12:00:00Z", Adapter: "fixture", AdapterVersion: "1", ReceiveSequence: 1}
 			}
 			f.sessions[id] = s
 		}
@@ -106,22 +108,22 @@ func newFixture(dir, dataset string) *fixture {
 		}
 	}
 	id := uuid.NewSHA1(uuid.NameSpaceURL, []byte("failed-operation")).String()
-	f.ops[id] = control.Operation{ID: id, Key: "fixture-failed", Kind: "session.rename", Project: "forge", Status: "failed", Phase: "rename", Diagnostic: "Fixture failure: branch conflict. Press r to retry.", Request: json.RawMessage(`{"v":1}`)}
+	f.ops[id] = api.Operation{ID: id, Key: "fixture-failed", Kind: "session.rename", Project: "forge", Status: "failed", Phase: "rename", Diagnostic: "Fixture failure: branch conflict. Press r to retry.", Request: json.RawMessage(`{"v":1}`)}
 	return f
 }
 func (f *fixture) addProject(name, origin string) {
-	f.projects[name] = control.ProjectSummary{Path: name, Registry: "active"}
+	f.projects[name] = api.ProjectSummary{Path: name, Registry: "active"}
 	f.refs[name] = map[string]string{"main": tip}
 	f.origins[name] = origin
 }
-func (f *fixture) addSession(id, project, branch string) control.SessionView {
-	s := control.SessionView{UUID: id, Project: project, Branch: branch, Registry: "established", Condition: "stopped", PolicyCondition: "current", PolicySHA256: strings.Repeat("a", 64)}
+func (f *fixture) addSession(id, project, branch string) api.SessionView {
+	s := api.SessionView{UUID: id, Project: project, Branch: branch, Registry: "established", Condition: "stopped", PolicyCondition: "current", PolicySHA256: strings.Repeat("a", 64)}
 	f.sessions[id] = s
 	f.refs[project][branch] = tip
-	f.services[id] = []control.ProjectService{{Unit: "p-project-api.service", Description: "Mock notes API", ActiveState: "active", SubState: "running"}, {Unit: "p-project-database.service", Description: "Mock database", ActiveState: "active", SubState: "running"}, {Unit: "p-project-worker.service", Description: "Mock worker", ActiveState: "inactive", SubState: "dead"}}
+	f.services[id] = []api.ProjectService{{Unit: "p-project-api.service", Description: "Mock notes API", ActiveState: "active", SubState: "running"}, {Unit: "p-project-database.service", Description: "Mock database", ActiveState: "active", SubState: "running"}, {Unit: "p-project-worker.service", Description: "Mock worker", ActiveState: "inactive", SubState: "dead"}}
 	return s
 }
-func rpcError(kind, message string) (any, *control.RPCError) {
+func rpcError(kind, message string) (any, *api.RPCError) {
 	code := -32003
 	if kind == "invalid_params" {
 		code = -32602
@@ -132,7 +134,7 @@ func rpcError(kind, message string) (any, *control.RPCError) {
 	if kind == "cancelled" {
 		code = -32001
 	}
-	return nil, &control.RPCError{Code: code, Kind: kind, Message: message}
+	return nil, &api.RPCError{Code: code, Kind: kind, Message: message}
 }
 func page[T any](values []T, after string, limit int, id func(T) string) ([]T, string) {
 	out := []T{}
@@ -149,13 +151,13 @@ func page[T any](values []T, after string, limit int, id func(T) string) ([]T, s
 	}
 	return out, next
 }
-func (f *fixture) operation(method string, p object, s control.SessionView) object {
+func (f *fixture) operation(method string, p object, s api.SessionView) object {
 	key, _ := p["key"].(string)
 	if id := f.keys[key]; key != "" && id != "" {
 		return object{"v": 1, "operation": f.ops[id]}
 	}
 	request, _ := json.Marshal(p)
-	op := control.Operation{ID: uuid.NewString(), Key: key, Kind: method, Project: s.Project, SessionUUID: s.UUID, Status: "completed", Phase: "complete", Committed: method != "workspace.loss.inspect", Request: request, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	op := api.Operation{ID: uuid.NewString(), Key: key, Kind: method, Project: s.Project, SessionUUID: s.UUID, Status: "completed", Phase: "complete", Committed: method != "workspace.loss.inspect", Request: request, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	f.ops[op.ID] = op
 	if key != "" {
 		f.keys[key] = op.ID
@@ -174,13 +176,13 @@ func (f *fixture) serve(ctx context.Context, conn net.Conn) {
 			f.sessions[lease.UUID] = s
 		}
 	}()
-	control.ServeConn(ctx, conn, func(ctx context.Context, method string, raw json.RawMessage) (any, *control.RPCError) {
+	control.ServeConn(ctx, conn, func(ctx context.Context, method string, raw json.RawMessage) (any, *api.RPCError) {
 		return f.handle(ctx, method, raw, &lease)
 	})
 }
-func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage, lease *attachmentLease) (result any, problem *control.RPCError) {
+func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage, lease *attachmentLease) (result any, problem *api.RPCError) {
 	var p object
-	if control.RejectDuplicateKeys(raw) != nil || json.Unmarshal(raw, &p) != nil || p["v"] != float64(1) {
+	if strictjson.RejectDuplicateKeys(raw) != nil || json.Unmarshal(raw, &p) != nil || p["v"] != float64(1) {
 		return rpcError("invalid_params", "Fixture requires params with v=1")
 	}
 	if err := validateParams(method, p); err != nil {
@@ -253,30 +255,30 @@ func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage
 	case "system.capabilities":
 		return object{"v": 1, "available": methods, "lifecycle": "fixture"}, nil
 	case "project.list":
-		all := []control.ProjectSummary{}
+		all := []api.ProjectSummary{}
 		for _, v := range f.projects {
 			all = append(all, v)
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].Path < all[j].Path })
-		out, next := page(all, after, limit, func(v control.ProjectSummary) string { return v.Path })
+		out, next := page(all, after, limit, func(v api.ProjectSummary) string { return v.Path })
 		return object{"v": 1, "projects": out, "next": next}, nil
 	case "session.list":
-		all := []control.SessionView{}
+		all := []api.SessionView{}
 		for _, v := range f.sessions {
 			if project == "" || project == v.Project {
 				all = append(all, v)
 			}
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].UUID < all[j].UUID })
-		out, next := page(all, after, limit, func(v control.SessionView) string { return v.UUID })
+		out, next := page(all, after, limit, func(v api.SessionView) string { return v.UUID })
 		return object{"v": 1, "sessions": out, "next": next}, nil
 	case "operation.list":
-		all := []control.OperationSummary{}
+		all := []api.OperationSummary{}
 		for _, v := range f.ops {
 			all = append(all, control.SummarizeOperation(v))
 		}
 		sort.Slice(all, func(i, j int) bool { return all[i].ID < all[j].ID })
-		out, next := page(all, after, limit, func(v control.OperationSummary) string { return v.ID })
+		out, next := page(all, after, limit, func(v api.OperationSummary) string { return v.ID })
 		return object{"v": 1, "operations": out, "next": next}, nil
 	case "operation.inspect", "operation.retry":
 		op, ok := f.ops[str("id")]
@@ -446,11 +448,11 @@ func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage
 		if method != "session.services" && index < 0 {
 			return rpcError("unavailable", "Project unit absent")
 		}
-		r := control.ServiceResult{V: 1, UUID: id, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+		r := api.ServiceResult{V: 1, UUID: id, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 		if method == "session.services" {
 			r.Services = services
 			if injected.ServicesEmpty {
-				r.Services = []control.ProjectService{}
+				r.Services = []api.ProjectService{}
 			}
 		} else if method == "session.service.action" {
 			switch str("action") {
@@ -479,7 +481,7 @@ func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage
 		}
 		token := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
 		f.tokens[token] = pending{UUID: id, Expires: time.Now().Add(time.Minute)}
-		return control.PendingAttachment{V: 1, Token: token, ExpiresAt: time.Now().Add(time.Minute), Spec: plugin.AttachSpec{Project: "p-mock", Instance: "p-" + id, Argv: []string{"/usr/libexec/p/attach"}}}, nil
+		return api.PendingAttachment{V: 1, Token: token, ExpiresAt: time.Now().Add(time.Minute), Spec: plugin.AttachSpec{Project: "p-mock", Instance: "p-" + id, Argv: []string{"/usr/libexec/p/attach"}}}, nil
 	case "attachment.claim":
 		pending := f.tokens[str("token")]
 		id = pending.UUID
@@ -488,7 +490,7 @@ func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage
 		}
 		delete(f.tokens, str("token"))
 		lease.UUID = id
-		return control.AttachmentLaunch{V: 1, Socket: filepath.Join(f.dir, "native.sock"), Spec: plugin.AttachSpec{Project: "p-mock", Instance: "p-" + id, Argv: []string{"/usr/libexec/p/attach"}}}, nil
+		return api.AttachmentLaunch{V: 1, Socket: filepath.Join(f.dir, "native.sock"), Spec: plugin.AttachSpec{Project: "p-mock", Instance: "p-" + id, Argv: []string{"/usr/libexec/p/attach"}}}, nil
 	case "attachment.confirm":
 		s, ok := f.sessions[lease.UUID]
 		if !ok || lease.Confirmed || !f.native.running(str("operation"), lease.UUID) {
@@ -505,7 +507,7 @@ func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage
 		}
 		return object{"v": 1}, nil
 	default:
-		return nil, &control.RPCError{Code: -32601, Kind: "method_not_found", Message: "Method is not supported by this fixture"}
+		return nil, &api.RPCError{Code: -32601, Kind: "method_not_found", Message: "Method is not supported by this fixture"}
 	}
 }
 

@@ -7,9 +7,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
-func assembledLossFixture(t *testing.T) (*Store, string, Operation, WorkspaceInspectEvidence) {
+func assembledLossFixture(t *testing.T) (*Store, string, api.Operation, WorkspaceInspectEvidence) {
 	t.Helper()
 	s, dir := openTestStore(t)
 	ctx := context.Background()
@@ -196,7 +198,7 @@ func TestAssembledWorkspaceLossRacesCreatorRetryTransaction(t *testing.T) {
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(2)
-	var inspected Operation
+	var inspected api.Operation
 	var inspectErr, retryErr error
 	go func() {
 		defer wg.Done()

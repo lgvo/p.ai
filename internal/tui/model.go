@@ -14,7 +14,7 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type row struct{ id, label, detail string }
@@ -61,8 +61,8 @@ type Model struct {
 	epoch                              int
 	notice                             string
 	stale                              bool
-	contextSession                     control.SessionView
-	services                           []control.ProjectService
+	contextSession                     api.SessionView
+	services                           []api.ProjectService
 	servicesFresh                      bool
 	selectedServices                   selectedServiceObservation
 	serviceUnit                        string
@@ -76,7 +76,7 @@ type Model struct {
 	confirmParams                      params
 	review                             string
 	reviewOffset                       int
-	operation                          control.Operation
+	operation                          api.Operation
 	operationID                        string
 	attachOnComplete                   bool
 	form                               string
@@ -157,15 +157,15 @@ func (m *Model) navigate(page string) {
 	}
 }
 
-func (m Model) selectedSession() (control.SessionView, bool) {
+func (m Model) selectedSession() (api.SessionView, bool) {
 	for _, s := range m.data.sessions {
 		if s.UUID == m.selected {
 			return s, true
 		}
 	}
-	return control.SessionView{}, false
+	return api.SessionView{}, false
 }
-func priority(s control.SessionView) int {
+func priority(s api.SessionView) int {
 	if s.Condition == "ready" && s.LatestUnattendedCondition != nil && s.LatestUnattendedCondition.Condition == "attention" {
 		return 0
 	}
@@ -174,7 +174,7 @@ func priority(s control.SessionView) int {
 	}
 	return 2
 }
-func activity(s control.SessionView) string {
+func activity(s api.SessionView) string {
 	if s.LatestUnattendedCondition == nil {
 		return ""
 	}
@@ -206,7 +206,7 @@ func fuzzy(query, text string) bool {
 	return false
 }
 func (m Model) sessionRows() []row {
-	sessions := append([]control.SessionView(nil), m.data.sessions...)
+	sessions := append([]api.SessionView(nil), m.data.sessions...)
 	sort.SliceStable(sessions, func(i, j int) bool {
 		a, b := sessions[i], sessions[j]
 		if priority(a) != priority(b) {
@@ -866,7 +866,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return m.begin("operation.inspect", params{"v": 1, "id": r.id})
 		}
 	case "progress":
-		if key == "r" && m.operationID != "" && !m.working && !control.WorkspaceInspectionRequiresFreshRequest(m.operation) {
+		if key == "r" && m.operationID != "" && !m.working && !api.WorkspaceInspectionRequiresFreshRequest(m.operation) {
 			return m.begin("operation.retry", params{"v": 1, "id": m.operationID})
 		}
 	}
@@ -1169,7 +1169,7 @@ func snapshotWithTheme(ctx context.Context, c Client, socket, page, id string, w
 			m.selectedServices.state = "unavailable"
 		} else {
 			readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			r, e := request[control.ServiceResult](readCtx, c, "session.services", params{"v": 1, "uuid": s.UUID})
+			r, e := request[api.ServiceResult](readCtx, c, "session.services", params{"v": 1, "uuid": s.UUID})
 			cancel()
 			if e != nil || r.V != 1 || r.UUID != s.UUID {
 				m.selectedServices.state = "unavailable"
@@ -1188,7 +1188,7 @@ func snapshotWithTheme(ctx context.Context, c Client, socket, page, id string, w
 		m.page = page
 		switch page {
 		case "services":
-			r, e := request[control.ServiceResult](ctx, c, "session.services", params{"v": 1, "uuid": id})
+			r, e := request[api.ServiceResult](ctx, c, "session.services", params{"v": 1, "uuid": id})
 			if e != nil {
 				return "", e
 			}

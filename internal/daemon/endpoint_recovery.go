@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -13,7 +14,7 @@ import (
 // Their worker ensures endpoints when it actually reaches that stage. Existing
 // unexpected early paths are preserved for inspection, never reopened here.
 func recoverSessionEndpoint(ctx context.Context, session control.Session,
-	creation func(context.Context, string) (control.Operation, error),
+	creation func(context.Context, string) (api.Operation, error),
 	ensure func(context.Context, string) (string, error)) error {
 	if session.Registry == "established" {
 		_, err := ensure(ctx, session.UUID)

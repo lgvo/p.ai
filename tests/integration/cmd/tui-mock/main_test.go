@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -110,7 +111,7 @@ func TestFixtureRemovalPreviewMatchesPublicShapeAndSeparatesBranchLoss(t *testin
 	}
 	raw, _ := callFixture(t, f, "workspace.loss.inspect", object{"key": "inspect", "uuid": id})
 	var accepted struct {
-		Operation control.Operation `json:"operation"`
+		Operation api.Operation `json:"operation"`
 	}
 	_ = json.Unmarshal(raw, &accepted)
 	for _, kind := range []string{"discard", "delete"} {
@@ -193,7 +194,7 @@ func TestServiceEmptyFaultHasClosedRPCSchemaAndIsOneObservation(t *testing.T) {
 	}
 	callFixture(t, f, "mock.configure", object{"method": "session.services", "services_empty": true})
 	raw, _ := callFixture(t, f, "session.services", object{"uuid": id})
-	var result control.ServiceResult
+	var result api.ServiceResult
 	if err := json.Unmarshal(raw, &result); err != nil || result.UUID != id || len(result.Services) != 0 {
 		t.Fatalf("empty observation: %s %v", raw, err)
 	}

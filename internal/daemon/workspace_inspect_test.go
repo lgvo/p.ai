@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -36,7 +37,7 @@ func TestRetryRefusesFinalizedWorkspaceInspectionWithoutEnqueueOrMutation(t *tes
 			}
 			evidence := control.WorkspaceInspectEvidence{InstanceUUID: "11111111-1111-1111-1111-111111111111", ImageFingerprint: strings.Repeat("a", 64), BaseFingerprint: strings.Repeat("b", 64), SourceIncusUUID: "22222222-2222-2222-2222-222222222222", SourceGeneration: "33333333-3333-3333-3333-333333333333", OriginalStatus: "Stopped"}
 			req := control.WorkspaceInspectRequest{Key: "inspection", SessionUUID: source.UUID}
-			var op control.Operation
+			var op api.Operation
 			if kind == "workspace.inspect" {
 				op, err = store.BeginWorkspaceInspect(ctx, req, evidence)
 			} else {

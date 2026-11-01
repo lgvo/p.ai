@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -39,17 +40,17 @@ func TestRefRepairQuiescedReplayRejectsSameNamedReplacement(t *testing.T) {
 
 func TestRefRepairRequiresCompletedInspectedLossSnapshot(t *testing.T) {
 	const uuid = "550e8400-e29b-41d4-a716-446655440000"
-	op := control.Operation{Kind: "workspace.loss.inspect", Status: "completed",
+	op := api.Operation{Kind: "workspace.loss.inspect", Status: "completed",
 		Phase: "inspected", SessionUUID: uuid, Project: "repair-project"}
 	if !completedRefRepairLoss(op, uuid, "repair-project") {
 		t.Fatal("actual terminal workspace loss operation refused")
 	}
-	for _, changed := range []control.Operation{
-		func() control.Operation { v := op; v.Phase = "completed"; return v }(),
-		func() control.Operation { v := op; v.Status = "running"; return v }(),
-		func() control.Operation { v := op; v.Kind = "workspace.inspect"; return v }(),
-		func() control.Operation { v := op; v.SessionUUID = "11111111-1111-4111-8111-111111111111"; return v }(),
-		func() control.Operation { v := op; v.Project = "other-project"; return v }(),
+	for _, changed := range []api.Operation{
+		func() api.Operation { v := op; v.Phase = "completed"; return v }(),
+		func() api.Operation { v := op; v.Status = "running"; return v }(),
+		func() api.Operation { v := op; v.Kind = "workspace.inspect"; return v }(),
+		func() api.Operation { v := op; v.SessionUUID = "11111111-1111-4111-8111-111111111111"; return v }(),
+		func() api.Operation { v := op; v.Project = "other-project"; return v }(),
 	} {
 		if completedRefRepairLoss(changed, uuid, "repair-project") {
 			t.Fatalf("nonmatching loss operation accepted: %+v", changed)

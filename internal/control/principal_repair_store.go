@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type PrincipalRepairPreview struct {
@@ -73,57 +75,57 @@ func validPrincipalRepairEvidence(ev PrincipalRepairEvidence) bool {
 // BeginPrincipalRepair binds the exact stopped runtime and current assignment
 // before reserving its ref. The private-key observation is made by the caller;
 // no key is created by admission or preview.
-func (s *Store) BeginPrincipalRepair(ctx context.Context, req PrincipalRepairRequest, ev PrincipalRepairEvidence, observe func(context.Context) error) (Operation, error) {
+func (s *Store) BeginPrincipalRepair(ctx context.Context, req PrincipalRepairRequest, ev PrincipalRepairEvidence, observe func(context.Context) error) (api.Operation, error) {
 	if req.Key == "" || len(req.Key) > 128 || !validUUID(req.UUID) || !validFingerprint(req.TokenSHA256) || !validPrincipalRepairEvidence(ev) {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if observe == nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	expiry, err := time.Parse(time.RFC3339Nano, ev.ExpiresAt)
 	if err != nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(req)
 	evidence, _ := json.Marshal(ev)
 	if len(evidence) > 2048 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	if err := observe(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var oldKind, oldHash string
 	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&oldKind, &oldHash)
 	if err == nil {
 		if oldKind != "session.principal.repair" || oldHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return getOperationTx(ctx, tx, req.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if !time.Now().Before(expiry) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var project, branch, policy, registry string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,policy_sha256,registry_state FROM sessions WHERE uuid=?`, req.UUID).Scan(&project, &branch, &policy, &registry)
 	if err != nil || project != ev.Project || branch != ev.Branch || policy != ev.PolicySHA256 || registry != "established" {
-		return Operation{}, errors.Join(err, ErrConflict)
+		return api.Operation{}, errors.Join(err, ErrConflict)
 	}
 	var currentPolicy string
 	err = tx.QueryRowContext(ctx, `SELECT policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&currentPolicy)
 	if err != nil || currentPolicy != policy {
-		return Operation{}, errors.Join(err, ErrConflict)
+		return api.Operation{}, errors.Join(err, ErrConflict)
 	}
 	var old string
 	var active int
@@ -132,25 +134,25 @@ func (s *Store) BeginPrincipalRepair(ctx context.Context, req PrincipalRepairReq
 		old, active, err = "", 0, nil
 	}
 	if err != nil || old != ev.OldFingerprint || (active == 1) != ev.OldActive {
-		return Operation{}, errors.Join(err, ErrConflict)
+		return api.Operation{}, errors.Join(err, ErrConflict)
 	}
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,'running','guarded',0,?,?,?)`, id, req.Key, "session.principal.repair", project, req.UUID, string(request), digest(request), string(evidence), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, project, branch, id); err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: req.Key, Kind: "session.principal.repair", Project: project, SessionUUID: req.UUID,
+	return api.Operation{ID: id, Key: req.Key, Kind: "session.principal.repair", Project: project, SessionUUID: req.UUID,
 		Request: request, Status: "running", Phase: "guarded", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
@@ -251,7 +253,7 @@ func (s *Store) CompletePrincipalRepair(ctx context.Context, id string, verify f
 	return tx.Commit()
 }
 
-func (s *Store) UnfinishedPrincipalRepairs(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedPrincipalRepairs(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.principal.repair' AND status IN ('running','blocked','unknown') ORDER BY rowid`)
 	if err != nil {
 		return nil, err
@@ -268,7 +270,7 @@ func (s *Store) UnfinishedPrincipalRepairs(ctx context.Context) ([]Operation, er
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]Operation, 0, len(ids))
+	out := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {

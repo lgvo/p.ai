@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -113,8 +114,8 @@ func TestOriginSourcePagesAndStrictRPC(t *testing.T) {
 		refs[i] = plugin.GitOriginRef{Ref: fmt.Sprintf("refs/heads/%04d-%s", i, strings.Repeat("x", 450)), OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
 	}
 	f := &fakeOriginRunner{refs: refs}
-	api := OriginAPI{Store: s, Runner: f}
-	handler := OriginHandler(StateHandler(s), api)
+	origins := OriginAPI{Store: s, Runner: f}
+	handler := OriginHandler(StateHandler(s), origins)
 	_, e := handler(ctx, "origin.change", json.RawMessage(`{"v":1,"key":"a","project":"app","kind":"set","url":"ssh://host/a","extra":1}`))
 	if e == nil || e.Kind != "invalid_params" {
 		t.Fatalf("unknown field: %+v", e)
@@ -146,7 +147,7 @@ func TestOriginSourcePagesAndStrictRPC(t *testing.T) {
 		}
 		page := out.(map[string]any)
 		encoded, _ := json.Marshal(rpcResponse{JSONRPC: "2.0", ID: json.RawMessage(`"` + strings.Repeat(`\u0000`, 128) + `"`), Result: page})
-		if len(encoded)+1 > MaxFrameBytes {
+		if len(encoded)+1 > api.MaxFrameBytes {
 			t.Fatalf("page exceeds frame: %d", len(encoded))
 		}
 		seen += len(page["refs"].([]plugin.GitOriginRef))

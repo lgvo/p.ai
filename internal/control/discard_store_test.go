@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func testDiscardEvidence() DiscardEvidence {
@@ -40,7 +42,7 @@ func TestDiscardExpiredAtTransactionalAdmissionLeavesNoGuard(t *testing.T) {
 	}
 }
 
-func setupDiscardStore(t *testing.T) (*Store, DiscardEvidence, Operation) {
+func setupDiscardStore(t *testing.T) (*Store, DiscardEvidence, api.Operation) {
 	t.Helper()
 	s, _ := openTestStore(t)
 	ctx := context.Background()

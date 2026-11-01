@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 type RetainedBranch struct {
@@ -36,8 +39,8 @@ func (s *Store) IsRetainedBranch(ctx context.Context, project, branch string) (b
 	return false, err
 }
 
-func retainedBranchesHandler(ctx context.Context, params json.RawMessage, api OriginAPI) (any, *RPCError) {
-	if api.Git == nil {
+func retainedBranchesHandler(ctx context.Context, params json.RawMessage, origins OriginAPI) (any, *api.RPCError) {
+	if origins.Git == nil {
 		return nil, lifecycleRPC(ErrNotFound)
 	}
 	var p struct {
@@ -46,24 +49,24 @@ func retainedBranchesHandler(ctx context.Context, params json.RawMessage, api Or
 		After   string `json:"after"`
 		Limit   int    `json:"limit"`
 	}
-	if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 || p.After != "" && (!strings.HasPrefix(p.After, "refs/heads/") || !validBranch(strings.TrimPrefix(p.After, "refs/heads/"))) {
+	if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 || p.After != "" && (!strings.HasPrefix(p.After, "refs/heads/") || !validBranch(strings.TrimPrefix(p.After, "refs/heads/"))) {
 		return nil, errorRPC(-32602, "invalid_params", "invalid retained branch page")
 	}
-	active, err := api.Store.HasActiveProject(ctx, p.Project)
+	active, err := origins.Store.HasActiveProject(ctx, p.Project)
 	if err != nil {
 		return nil, lifecycleRPC(err)
 	}
 	if !active {
 		return nil, lifecycleRPC(ErrNotFound)
 	}
-	refs, next, err := api.Git.ListRefsPage(ctx, p.Project, p.After, p.Limit)
+	refs, next, err := origins.Git.ListRefsPage(ctx, p.Project, p.After, p.Limit)
 	if err != nil {
 		return nil, lifecycleRPC(err)
 	}
 	branches := make([]RetainedBranch, 0, len(refs))
 	for _, ref := range refs {
 		name := strings.TrimPrefix(ref.Ref, "refs/heads/")
-		retained, e := api.Store.IsRetainedBranch(ctx, p.Project, name)
+		retained, e := origins.Store.IsRetainedBranch(ctx, p.Project, name)
 		if e != nil {
 			return nil, lifecycleRPC(e)
 		}

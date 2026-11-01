@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type createReplaceRPCProbe struct {
@@ -19,10 +21,10 @@ func (p *createReplaceRPCProbe) PreviewCreateReplace(_ context.Context, uuid str
 	p.uuid, p.request = uuid, req
 	return CreateReplacePreview{OldUUID: uuid, NewRequest: req, Eligible: true, ConfirmationToken: strings.Repeat("a", 32)}, nil
 }
-func (p *createReplaceRPCProbe) ConfirmCreateReplace(_ context.Context, uuid, key, token string) (Operation, error) {
+func (p *createReplaceRPCProbe) ConfirmCreateReplace(_ context.Context, uuid, key, token string) (api.Operation, error) {
 	p.confirms++
 	p.uuid, p.key, p.token = uuid, key, token
-	return Operation{Kind: "session.create", SessionUUID: uuid}, nil
+	return api.Operation{Kind: "session.create", SessionUUID: uuid}, nil
 }
 func TestCreateReplaceRPCClosedRequests(t *testing.T) {
 	p := &createReplaceRPCProbe{}
@@ -62,7 +64,7 @@ func TestCreateReplaceRPCClosedRequests(t *testing.T) {
 		t.Fatalf("local new choice routing: %+v %+v", newPreview, e)
 	}
 	result, e = h(context.Background(), "session.create.replace.confirm", json.RawMessage(`{"v":1,"old_uuid":"`+uuid+`","key":"new","confirmation_token":"`+token+`"}`))
-	if e != nil || p.confirms != 1 || p.key != "new" || p.token != token || result.(map[string]any)["operation"].(Operation).Kind != "session.create" {
+	if e != nil || p.confirms != 1 || p.key != "new" || p.token != token || result.(map[string]any)["operation"].(api.Operation).Kind != "session.create" {
 		t.Fatalf("confirm routing: %+v %+v", result, e)
 	}
 }

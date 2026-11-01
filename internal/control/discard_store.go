@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type DiscardRequest struct {
@@ -55,79 +57,79 @@ func validDiscardEvidence(ev DiscardEvidence) bool {
 		(ev.OriginalStatus == "Running" || ev.OriginalStatus == "Stopped") && validUUID(ev.LossOperationID) && validFingerprint(ev.LossFingerprint)
 }
 
-func (s *Store) BeginDiscard(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (Operation, error) {
+func (s *Store) BeginDiscard(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (api.Operation, error) {
 	if ev.Action != "discard" {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	return s.beginRemoval(ctx, req, ev)
 }
 
-func (s *Store) BeginDelete(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (Operation, error) {
+func (s *Store) BeginDelete(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (api.Operation, error) {
 	if ev.Action != "delete" {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	return s.beginRemoval(ctx, req, ev)
 }
 
-func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (Operation, error) {
+func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (api.Operation, error) {
 	if len(req.Key) < 1 || len(req.Key) > 128 || !validUUID(req.UUID) || !validFingerprint(req.TokenSHA256) || !validDiscardEvidence(ev) {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	expires, err := time.Parse(time.RFC3339Nano, ev.PreviewExpiresAt)
 	if err != nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(req)
 	evidence, _ := json.Marshal(ev)
 	if len(evidence) > 4096 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var kind, oldHash string
 	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &oldHash)
 	if err == nil {
 		if kind != "session."+ev.Action || oldHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return getOperationTx(ctx, tx, req.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	var project, branch, registry, policy string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, req.UUID).Scan(&project, &branch, &registry, &policy)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrNotFound
+		return api.Operation{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if project != ev.Project || branch != ev.Branch || policy != ev.PolicySHA256 || registry != "established" {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	// Check inside the admission transaction after any SQLite connection wait.
 	// A confirmed intent cannot be accepted after its review token expired.
 	if !time.Now().Before(expires) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,'running','guard-pending',0,?,?,?)`, id, req.Key, "session."+ev.Action, ev.Project, req.UUID, string(request), digest(request), string(evidence), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, SessionUUID: req.UUID, Request: request, Status: "running", Phase: "guard-pending", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
+	return api.Operation{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, SessionUUID: req.UUID, Request: request, Status: "running", Phase: "guard-pending", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // CommitDiscard is the irreversible local authority boundary. The guarded
@@ -249,10 +251,10 @@ func (s *Store) failStaleRemoval(ctx context.Context, opID, action, diagnostic s
 	return tx.Commit()
 }
 
-func (s *Store) UnfinishedDiscards(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedDiscards(ctx context.Context) ([]api.Operation, error) {
 	return s.UnfinishedRemovals(ctx)
 }
-func (s *Store) UnfinishedRemovals(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedRemovals(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('session.discard','session.delete','session.create.cleanup') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -269,7 +271,7 @@ func (s *Store) UnfinishedRemovals(ctx context.Context) ([]Operation, error) {
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]Operation, 0, len(ids))
+	out := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {

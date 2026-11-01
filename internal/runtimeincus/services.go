@@ -11,15 +11,15 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
-func ValidProjectService(unit string) bool { return control.ValidProjectServiceUnit(unit) }
+func ValidProjectService(unit string) bool { return api.ValidProjectServiceUnit(unit) }
 
 // Services executes only fixed user-manager commands, under the workspace UID.
 // A repository-controlled unit has no more authority than ordinary session work.
-func (b *Backend) Services(ctx context.Context, s Session, unit, action string) (control.ServiceResult, error) {
-	var result control.ServiceResult
+func (b *Backend) Services(ctx context.Context, s Session, unit, action string) (api.ServiceResult, error) {
+	var result api.ServiceResult
 	if action != "list" && action != "journal" && action != "start" && action != "stop" && action != "restart" {
 		return result, errors.New("unsupported service action")
 	}
@@ -62,7 +62,7 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 	if err != nil || !after.Exists || after.IncusUUID != before.IncusUUID || after.Generation != before.Generation || after.Status != "Running" {
 		return result, errors.New("runtime identity changed during service observation/action")
 	}
-	result = control.ServiceResult{V: 1, UUID: s.SessionUUID, Unit: unit, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	result = api.ServiceResult{V: 1, UUID: s.SessionUUID, Unit: unit, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if action == "journal" {
 		// Keep the RPC bounded even for long journal messages. This is a tail.
 		if len(raw) > 16000 {
@@ -73,7 +73,7 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 		for {
 			encoded, e := json.Marshal(result)
 			if e != nil {
-				return control.ServiceResult{}, e
+				return api.ServiceResult{}, e
 			}
 			if len(encoded) <= 48000 {
 				break
@@ -89,19 +89,19 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 			Sub         string `json:"sub"`
 		}
 		if len(raw) > 32000 || json.Unmarshal(raw, &rows) != nil || len(rows) > 64 {
-			return control.ServiceResult{}, errors.New("service inventory exceeds bounds or is invalid")
+			return api.ServiceResult{}, errors.New("service inventory exceeds bounds or is invalid")
 		}
-		result.Services = make([]control.ProjectService, 0, len(rows))
+		result.Services = make([]api.ProjectService, 0, len(rows))
 		for _, r := range rows {
 			if !ValidProjectService(r.Unit) || len(r.Description) > 256 || len(r.Active) > 32 || len(r.Sub) > 32 || strings.IndexFunc(r.Description+r.Active+r.Sub, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
-				return control.ServiceResult{}, errors.New("invalid project service inventory")
+				return api.ServiceResult{}, errors.New("invalid project service inventory")
 			}
-			result.Services = append(result.Services, control.ProjectService{Unit: r.Unit, Description: r.Description, ActiveState: r.Active, SubState: r.Sub})
+			result.Services = append(result.Services, api.ProjectService{Unit: r.Unit, Description: r.Description, ActiveState: r.Active, SubState: r.Sub})
 		}
 		for _, f := range files {
 			unit := path.Base(f.UnitFile)
 			if !ValidProjectService(unit) {
-				return control.ServiceResult{}, errors.New("invalid installed project service")
+				return api.ServiceResult{}, errors.New("invalid installed project service")
 			}
 			found := false
 			for _, s := range result.Services {
@@ -111,11 +111,11 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 				}
 			}
 			if !found {
-				result.Services = append(result.Services, control.ProjectService{Unit: unit, Description: "Installed user unit; not loaded", ActiveState: "unknown", SubState: "not-loaded"})
+				result.Services = append(result.Services, api.ProjectService{Unit: unit, Description: "Installed user unit; not loaded", ActiveState: "unknown", SubState: "not-loaded"})
 			}
 		}
 		if len(result.Services) > 64 {
-			return control.ServiceResult{}, errors.New("combined service inventory exceeds bounds")
+			return api.ServiceResult{}, errors.New("combined service inventory exceeds bounds")
 		}
 		sort.Slice(result.Services, func(i, j int) bool { return result.Services[i].Unit < result.Services[j].Unit })
 	}

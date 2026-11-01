@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestLongSessionRowsKeepRuntimeAndAttentionVisible(t *testing.T) {
@@ -18,7 +18,7 @@ func TestLongSessionRowsKeepRuntimeAndAttentionVisible(t *testing.T) {
 		m.data.sessions[0].Project = strings.Repeat("long-project/", 10)
 		m.data.sessions[0].Branch = strings.Repeat("branch界", 30)
 		m.data.sessions[0].Condition = "ready"
-		m.data.sessions[0].LatestUnattendedCondition = &control.UnattendedCondition{Condition: "attention"}
+		m.data.sessions[0].LatestUnattendedCondition = &api.UnattendedCondition{Condition: "attention"}
 		rows := m.sessionRows()
 		for _, r := range rows {
 			if r.id != m.data.sessions[0].UUID {
@@ -39,8 +39,8 @@ func TestProjectCountsAlignAndLongNamesRemainSearchable(t *testing.T) {
 	m := fixture()
 	m.navigate("projects")
 	long := strings.Repeat("long-project/", 8)
-	m.data.projects = []control.ProjectSummary{{Path: "a"}, {Path: long}}
-	m.data.sessions = []control.SessionView{{Project: "a", Condition: "ready"}, {Project: long, Condition: "stopped"}}
+	m.data.projects = []api.ProjectSummary{{Path: "a"}, {Path: long}}
+	m.data.sessions = []api.SessionView{{Project: "a", Condition: "ready"}, {Project: long, Condition: "stopped"}}
 	for _, width := range []int{42, 74, 90} {
 		column := -1
 		for _, r := range m.rows() {
@@ -84,7 +84,7 @@ func TestProgressExplainsPendingSourcePreparation(t *testing.T) {
 	m := fixture()
 	m.navigate("progress")
 	m.operationID = "operation"
-	m.operation = control.Operation{Kind: "session.create", Status: "running", Phase: "branch-assigned"}
+	m.operation = api.Operation{Kind: "session.create", Status: "running", Phase: "branch-assigned"}
 	_, lines, _ := m.inspectionContent()
 	if !strings.Contains(strings.Join(lines, "\n"), "Preparing captured source and environment") {
 		t.Fatal("pending creation does not explain native preparation")
@@ -104,7 +104,7 @@ func TestFinalizedInspectionHasFreshRequestGuidanceAndInertRetryKey(t *testing.T
 			m.client = client
 			m.navigate("progress")
 			m.operationID = "finalized"
-			m.operation = control.Operation{ID: "finalized", Kind: kind, Status: "failed", Phase: "cleaned"}
+			m.operation = api.Operation{ID: "finalized", Kind: kind, Status: "failed", Phase: "cleaned"}
 			_, lines, commands := m.inspectionContent()
 			if !strings.Contains(strings.Join(lines, "\n"), "Return and request a fresh inspection") || strings.Contains(commands, "retry") {
 				t.Fatalf("finalized inspection advertised Retry: %q %q", lines, commands)
@@ -124,13 +124,13 @@ func TestFinalizedInspectionHasFreshRequestGuidanceAndInertRetryKey(t *testing.T
 		if method != "operation.retry" || p["id"] != "blocked" {
 			t.Fatalf("wrong resumable request: %s %+v", method, p)
 		}
-		return map[string]any{"operation": control.Operation{ID: "blocked", Kind: "session.create", Status: "running"}}, nil
+		return map[string]any{"operation": api.Operation{ID: "blocked", Kind: "session.create", Status: "running"}}, nil
 	}}
 	m := fixture()
 	m.client = client
 	m.navigate("progress")
 	m.operationID = "blocked"
-	m.operation = control.Operation{ID: "blocked", Kind: "session.create", Status: "blocked", Phase: "branch-assigned"}
+	m.operation = api.Operation{ID: "blocked", Kind: "session.create", Status: "blocked", Phase: "branch-assigned"}
 	m, cmd := press(m, "r")
 	if cmd == nil || !m.working {
 		t.Fatal("generic resumable blocked operation lost Retry")
@@ -145,12 +145,12 @@ func TestInventoryRefreshClampsOpenLists(t *testing.T) {
 	for _, item := range []struct{ page, query string }{{"projects", ""}, {"projects", "vnsh"}, {"operations", ""}} {
 		t.Run(item.page+"/"+item.query, func(t *testing.T) {
 			m := fixture()
-			m.data.projects = []control.ProjectSummary{{Path: "a"}, {Path: "b"}, {Path: "vanished"}}
-			m.data.operations = []control.OperationSummary{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+			m.data.projects = []api.ProjectSummary{{Path: "a"}, {Path: "b"}, {Path: "vanished"}}
+			m.data.operations = []api.OperationSummary{{ID: "a"}, {ID: "b"}, {ID: "c"}}
 			m.navigate(item.page)
 			m.choiceQuery = item.query
 			m.cursor = len(m.rows()) - 1
-			updated, _ := m.Update(loaded{data: inventory{projects: []control.ProjectSummary{{Path: "a"}}}})
+			updated, _ := m.Update(loaded{data: inventory{projects: []api.ProjectSummary{{Path: "a"}}}})
 			m = updated.(Model)
 			if m.cursor != max(0, len(m.rows())-1) {
 				t.Fatalf("refresh left cursor %d outside %d rows", m.cursor, len(m.rows()))
@@ -204,7 +204,7 @@ func TestCreationBackRejectsDelayedBranchResults(t *testing.T) {
 			}}
 			m := fixture()
 			m.client = f
-			m.data.projects = []control.ProjectSummary{{Path: "a", Registry: "active"}, {Path: "b", Registry: "active"}}
+			m.data.projects = []api.ProjectSummary{{Path: "a", Registry: "active"}, {Path: "b", Registry: "active"}}
 			m, _ = press(m, "c")
 			m, _ = press(m, "j")
 			m, first := press(m, "enter")
@@ -270,7 +270,7 @@ func TestHelpRestartsInterruptedBranchRead(t *testing.T) {
 				}}
 				m := fixture()
 				m.client = f
-				m.data.projects = []control.ProjectSummary{{Path: "app", Registry: "active"}}
+				m.data.projects = []api.ProjectSummary{{Path: "app", Registry: "active"}}
 				m.data.sessions[2].Project = "app"
 				// Open through actual keys with a response still outstanding.
 				if page == "create" {
@@ -366,7 +366,7 @@ func TestServiceStatesKeepActionsTruthfulInCompactView(t *testing.T) {
 	m.width, m.height = 48, 16
 	m.navigate("services")
 	m.servicesFresh = true
-	m.services = []control.ProjectService{{Unit: "p-project-notes-worker.service", ActiveState: "unknown", SubState: "not-loaded"}}
+	m.services = []api.ProjectService{{Unit: "p-project-notes-worker.service", ActiveState: "unknown", SubState: "not-loaded"}}
 	frame := ansi.Strip(m.View().Content)
 	if !strings.Contains(frame, "installed") || !strings.Contains(frame, "s start") || strings.Contains(frame, "s start/stop") {
 		t.Fatalf("unloaded installed service is ambiguous: %s", frame)
@@ -412,7 +412,7 @@ func TestConfirmationAndUUIDRemainReadable(t *testing.T) {
 
 func TestJournalBackRetainsReviewedService(t *testing.T) {
 	m := fixture()
-	m.services = []control.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
+	m.services = []api.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
 	m.servicesFresh = true
 	m.serviceUnit = m.services[1].Unit
 	m.navigate("journal")
@@ -428,7 +428,7 @@ func TestJournalBackRetainsReviewedService(t *testing.T) {
 
 func TestServiceHelpBackRetainsUnitAfterInventoryReorder(t *testing.T) {
 	m := fixture()
-	m.services = []control.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
+	m.services = []api.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
 	m.servicesFresh = true
 	m.navigate("services")
 	m.cursor = 1

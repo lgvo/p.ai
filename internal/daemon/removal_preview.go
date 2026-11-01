@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -160,7 +161,7 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 
 func checkRemovalPreviewFrame(preview control.RemovalPreview) error {
 	encoded, err := json.Marshal(map[string]any{"v": 1, "preview": preview})
-	if err != nil || len(encoded) > control.MaxFrameBytes-1024 {
+	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
 		return errors.New("removal preview exceeds bounded control response")
 	}
 	return nil

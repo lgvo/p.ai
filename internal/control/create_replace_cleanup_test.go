@@ -12,10 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"golang.org/x/crypto/ssh"
 )
 
-func replacementCleanupIntent(t *testing.T, old Operation, image string) *CreateReplacementCleanup {
+func replacementCleanupIntent(t *testing.T, old api.Operation, image string) *CreateReplacementCleanup {
 	t.Helper()
 	public, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

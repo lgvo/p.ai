@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func removalHelpFixture(t *testing.T, key string) (Model, *fakeClient, tea.Cmd) {
@@ -22,12 +22,12 @@ func removalHelpFixture(t *testing.T, key string) (Model, *fakeClient, tea.Cmd) 
 			if p["uuid"] != "stopped" {
 				t.Fatalf("inspection retargeted: %+v", p)
 			}
-			return map[string]any{"operation": control.Operation{ID: "loss", Kind: method, SessionUUID: "stopped", Status: "running"}}, nil
+			return map[string]any{"operation": api.Operation{ID: "loss", Kind: method, SessionUUID: "stopped", Status: "running"}}, nil
 		case "operation.inspect":
 			if p["id"] != "loss" {
 				t.Fatalf("polled foreign operation: %+v", p)
 			}
-			return map[string]any{"operation": control.Operation{ID: "loss", Kind: "workspace.loss.inspect", SessionUUID: "stopped", Status: "completed"}}, nil
+			return map[string]any{"operation": api.Operation{ID: "loss", Kind: "workspace.loss.inspect", SessionUUID: "stopped", Status: "completed"}}, nil
 		case "session.removal.preview":
 			if p["uuid"] != "stopped" || p["kind"] != kind || p["loss_operation_id"] != "loss" {
 				t.Fatalf("preview changed captured removal: %+v", p)
@@ -37,7 +37,7 @@ func removalHelpFixture(t *testing.T, key string) (Model, *fakeClient, tea.Cmd) 
 			if p["uuid"] != "stopped" || p["confirmation_token"] != "captured-token" {
 				t.Fatalf("mutation lost captured review: %+v", p)
 			}
-			return map[string]any{"operation": control.Operation{ID: "removal", Kind: method, SessionUUID: "stopped", Status: "running"}}, nil
+			return map[string]any{"operation": api.Operation{ID: "removal", Kind: method, SessionUUID: "stopped", Status: "running"}}, nil
 		default:
 			t.Fatalf("unexpected call %s", method)
 			return nil, nil

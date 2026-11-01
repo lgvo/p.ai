@@ -10,28 +10,14 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-	"time"
 
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
-type PendingAttachment struct {
-	V         int               `json:"v"`
-	Token     string            `json:"token"`
-	ExpiresAt time.Time         `json:"expires_at"`
-	Spec      plugin.AttachSpec `json:"spec"`
-}
-
-// AttachmentLaunch is sent only to the trusted host helper on its dedicated
-// connection. It cannot be selected or amended by the ordinary client.
-type AttachmentLaunch struct {
-	V      int               `json:"v"`
-	Socket string            `json:"socket"`
-	Spec   plugin.AttachSpec `json:"spec"`
-}
 type AttachmentAPI interface {
-	AttachSession(context.Context, string) (PendingAttachment, error)
-	ClaimAttachment(context.Context, string, *Connection) (AttachmentLaunch, error)
+	AttachSession(context.Context, string) (api.PendingAttachment, error)
+	ClaimAttachment(context.Context, string, *Connection) (api.AttachmentLaunch, error)
 	ConfirmAttachment(context.Context, *Connection, string) error
 }
 
@@ -68,7 +54,7 @@ func (c *Connection) close() {
 		release()
 	}
 }
-func attachmentHandler(ctx context.Context, method string, params json.RawMessage, life AttachmentAPI) (any, *RPCError) {
+func attachmentHandler(ctx context.Context, method string, params json.RawMessage, life AttachmentAPI) (any, *api.RPCError) {
 	conn, _ := ctx.Value(connectionKey{}).(*Connection)
 	if conn == nil {
 		return nil, lifecycleRPC(ErrInvalid)
@@ -79,7 +65,7 @@ func attachmentHandler(ctx context.Context, method string, params json.RawMessag
 			V    int    `json:"v"`
 			UUID string `json:"uuid"`
 		}
-		if strictDecode(params, &p) != nil || p.V != 1 || len(p.UUID) != 36 {
+		if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.UUID) != 36 {
 			return nil, lifecycleRPC(ErrInvalid)
 		}
 		result, err := life.AttachSession(ctx, p.UUID)
@@ -95,7 +81,7 @@ func attachmentHandler(ctx context.Context, method string, params json.RawMessag
 			V     int    `json:"v"`
 			Token string `json:"token"`
 		}
-		if strictDecode(params, &p) != nil || p.V != 1 || len(p.Token) != 64 {
+		if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Token) != 64 {
 			return nil, lifecycleRPC(ErrInvalid)
 		}
 		result, err := life.ClaimAttachment(ctx, p.Token, conn)
@@ -108,7 +94,7 @@ func attachmentHandler(ctx context.Context, method string, params json.RawMessag
 			V         int    `json:"v"`
 			Operation string `json:"operation,omitempty"`
 		}
-		if strictDecode(params, &p) != nil || p.V != 1 || !conn.dedicatedAttachment() {
+		if strictjson.Decode(params, &p) != nil || p.V != 1 || !conn.dedicatedAttachment() {
 			return nil, lifecycleRPC(ErrInvalid)
 		}
 		if method == "attachment.confirm" {

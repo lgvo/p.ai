@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type cacheLife struct {
@@ -26,12 +28,12 @@ func (l *cacheLife) PreviewEnvironmentCollection(_ context.Context, project, key
 	}
 	return EnvironmentCollectionPreview{Token: strings.Repeat("e", 32), Item: EnvironmentCacheItem{Project: project, Key: key, ImageStatus: "present"}, Warning: "reviewed warning"}, nil
 }
-func (l *cacheLife) CollectEnvironmentCache(_ context.Context, key, token string) (Operation, error) {
+func (l *cacheLife) CollectEnvironmentCache(_ context.Context, key, token string) (api.Operation, error) {
 	l.collectCalls++
 	if key != "collect-one" || token != strings.Repeat("e", 32) {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
-	return Operation{ID: "collection-op", Kind: "environment.collect", Status: "running", Phase: "accepted"}, nil
+	return api.Operation{ID: "collection-op", Kind: "environment.collect", Status: "running", Phase: "accepted"}, nil
 }
 
 func TestEnvironmentCacheRPCSurfaceIsClosedAndBounded(t *testing.T) {

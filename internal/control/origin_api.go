@@ -6,7 +6,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 type OriginObserver interface {
@@ -97,8 +99,8 @@ func (a OriginAPI) Refresh(ctx context.Context, project string) (OriginState, er
 	return state, err
 }
 
-func OriginHandler(base Handler, api OriginAPI) Handler {
-	return func(ctx context.Context, method string, params json.RawMessage) (any, *RPCError) {
+func OriginHandler(base Handler, origins OriginAPI) Handler {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
 		if method == "system.capabilities" {
 			result, e := base(ctx, method, params)
 			if e != nil {
@@ -106,22 +108,22 @@ func OriginHandler(base Handler, api OriginAPI) Handler {
 			}
 			object := result.(map[string]any)
 			object["available"] = append(object["available"].([]string), "origin.change", "origin.refresh", "origin.inspect", "origin.sources")
-			if _, ok := api.Runner.(PublicationRunner); ok {
+			if _, ok := origins.Runner.(PublicationRunner); ok {
 				object["available"] = append(object["available"].([]string), "origin.publication.preview", "origin.publish")
 			}
-			if api.Git != nil {
+			if origins.Git != nil {
 				object["available"] = append(object["available"].([]string), "project.retained_branches")
 			}
 			return object, nil
 		}
 		switch method {
 		case "project.retained_branches":
-			return retainedBranchesHandler(ctx, params, api)
+			return retainedBranchesHandler(ctx, params, origins)
 		case "origin.publication.preview", "origin.publish":
-			if _, ok := api.Runner.(PublicationRunner); !ok {
+			if _, ok := origins.Runner.(PublicationRunner); !ok {
 				return nil, lifecycleRPC(ErrNotFound)
 			}
-			return publicationHandler(ctx, method, params, api)
+			return publicationHandler(ctx, method, params, origins)
 		case "origin.change":
 			var p struct {
 				V           int    `json:"v"`
@@ -131,14 +133,14 @@ func OriginHandler(base Handler, api OriginAPI) Handler {
 				ExpectedURL string `json:"expected_url"`
 				URL         string `json:"url"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid origin.change request")
 			}
 			c := OriginChange{Key: p.Key, Project: p.Project, Kind: p.Kind, ExpectedURL: p.ExpectedURL, ProposedURL: p.URL}
 			if !validOriginChange(c) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid origin.change request")
 			}
-			state, e := api.Change(ctx, c)
+			state, e := origins.Change(ctx, c)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}
@@ -148,15 +150,15 @@ func OriginHandler(base Handler, api OriginAPI) Handler {
 				V       int    `json:"v"`
 				Project string `json:"project"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid origin project")
 			}
 			var state OriginState
 			var e error
 			if method == "origin.refresh" {
-				state, e = api.Refresh(ctx, p.Project)
+				state, e = origins.Refresh(ctx, p.Project)
 			} else {
-				state, _, e = api.Store.Origin(ctx, p.Project)
+				state, _, e = origins.Store.Origin(ctx, p.Project)
 			}
 			if e != nil {
 				return nil, lifecycleRPC(e)
@@ -169,10 +171,10 @@ func OriginHandler(base Handler, api OriginAPI) Handler {
 				After   string `json:"after"`
 				Limit   int    `json:"limit"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 16 || p.After != "" && !plugin.ValidGitOriginRef(p.After) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 16 || p.After != "" && !plugin.ValidGitOriginRef(p.After) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid origin source page")
 			}
-			state, refs, e := api.Store.Origin(ctx, p.Project)
+			state, refs, e := origins.Store.Origin(ctx, p.Project)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}

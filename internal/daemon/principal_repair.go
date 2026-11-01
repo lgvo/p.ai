@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 )
@@ -181,7 +182,7 @@ func (l *lifecycle) PreviewPrincipalRepair(ctx context.Context, uuid string) (co
 	expiry := time.Now().Add(repairPreviewTTL)
 	p.ConfirmationToken, p.ExpiresAt = hex.EncodeToString(token[:]), expiry.UTC().Format(time.RFC3339Nano)
 	encoded, err := json.Marshal(map[string]any{"v": 1, "preview": p})
-	if err != nil || len(encoded) > control.MaxFrameBytes-1024 {
+	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
 		return control.PrincipalRepairPreview{}, errors.New("principal repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
@@ -202,13 +203,13 @@ func (l *lifecycle) PreviewPrincipalRepair(ctx context.Context, uuid string) (co
 	return p, nil
 }
 
-func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token string) (control.Operation, error) {
+func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token string) (api.Operation, error) {
 	if key == "" || len(key) > 128 || len(uuid) != 36 || len(token) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	hash := sha256.Sum256([]byte(token))
@@ -216,28 +217,28 @@ func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token
 	if prior, e := l.store.GetOperationByKey(ctx, key); e == nil {
 		var saved control.PrincipalRepairRequest
 		if prior.Kind != "session.principal.repair" || json.Unmarshal(prior.Request, &saved) != nil || saved != request {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(e, control.ErrNotFound) {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	l.mu.Lock()
 	state, found := l.principalRepairPreviews[token]
 	l.mu.Unlock()
 	if !found || !time.Now().Before(state.Expiry) || !state.Preview.Eligible || state.Preview.SessionUUID != uuid {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	p, oldActive, err := l.principalRepairFacts(ctx, uuid)
 	if err != nil || !p.Eligible {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	p.ConfirmationToken, p.ExpiresAt = state.Preview.ConfirmationToken, state.Preview.ExpiresAt
 	if !reflect.DeepEqual(p, state.Preview) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	ev := control.PrincipalRepairEvidence{Project: p.Project, Branch: p.Branch, AssignedTip: p.AssignedTip,
 		RefPresent: p.AssignedRefStatus == "present", PolicySHA256: p.PolicySHA256,
@@ -249,7 +250,7 @@ func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token
 		return l.principalRepairRef(call, ev)
 	})
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	delete(l.principalRepairPreviews, token)
@@ -260,7 +261,7 @@ func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token
 	return op, nil
 }
 
-func (l *lifecycle) advancePrincipalRepair(op *control.Operation, ev control.PrincipalRepairEvidence, phase string, committed bool) error {
+func (l *lifecycle) advancePrincipalRepair(op *api.Operation, ev control.PrincipalRepairEvidence, phase string, committed bool) error {
 	raw, err := json.Marshal(ev)
 	if err != nil || len(raw) > 2048 {
 		return control.ErrInvalid
@@ -283,7 +284,7 @@ func (l *lifecycle) principalRepairRef(ctx context.Context, ev control.Principal
 	return nil
 }
 
-func (l *lifecycle) blockPrincipalRepair(op control.Operation, cause error) {
+func (l *lifecycle) blockPrincipalRepair(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -360,7 +361,7 @@ func placePrincipalRepairKey(stateDir, uuid, opID, fingerprint string) error {
 	return nil
 }
 
-func (l *lifecycle) processPrincipalRepair(op control.Operation) {
+func (l *lifecycle) processPrincipalRepair(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

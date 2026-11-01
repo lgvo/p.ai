@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -232,7 +233,7 @@ func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.Projec
 	p.ConfirmationToken = token
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
 	raw, err := json.Marshal(p)
-	if err != nil || len(raw) > control.MaxFrameBytes-1024 {
+	if err != nil || len(raw) > api.MaxFrameBytes-1024 {
 		return control.ProjectDeletePreview{}, errors.New("aggregate project deletion preview exceeds bound; manually review/clean resources before retry")
 	}
 	l.mu.Lock()
@@ -251,19 +252,19 @@ func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.Projec
 	l.projectDeletePreviews[token] = projectDeletePreviewState{p, req, expiry}
 	return p, nil
 }
-func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.ProjectDeleteConfirmRequest) (control.Operation, error) {
+func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.ProjectDeleteConfirmRequest) (api.Operation, error) {
 	if req.Key == "" || len(req.Key) > 128 || !validRetainedDeleteToken(req.ConfirmationToken) {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	saved := control.ProjectDeleteRequest{Key: req.Key, Project: req.Project, TokenSHA256: hexDigest([]byte(req.ConfirmationToken))}
-	replay := func() (control.Operation, bool, error) {
+	replay := func() (api.Operation, bool, error) {
 		op, e := l.store.GetOperationByKey(ctx, req.Key)
 		if errors.Is(e, control.ErrNotFound) {
 			return op, false, nil
 		}
 		var old control.ProjectDeleteRequest
 		if e != nil || op.Kind != "project.delete" || json.Unmarshal(op.Request, &old) != nil || old != saved {
-			return control.Operation{}, true, errors.Join(e, control.ErrConflict)
+			return api.Operation{}, true, errors.Join(e, control.ErrConflict)
 		}
 		return op, true, nil
 	}
@@ -272,7 +273,7 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 	}
 	projectRelease, err := l.lockProjectDelete(ctx, req.Project)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer projectRelease()
 	if op, found, e := replay(); found || e != nil {
@@ -282,15 +283,15 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 	state, found := l.projectDeletePreviews[req.ConfirmationToken]
 	l.mu.Unlock()
 	if !found || state.Request.Project != req.Project || !time.Now().Before(state.Expiry) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	sessions, sha, err := l.store.ProjectDeleteSnapshot(ctx, req.Project)
 	if err != nil || sha != state.Preview.StateSHA256 {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	release, err := l.lockProjectDeleteSessions(ctx, sessions)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	// Durable read helpers own their existing inspection guards. Cancellation or
@@ -301,40 +302,40 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 		}
 		token, e := collectionToken()
 		if e != nil {
-			return control.Operation{}, e
+			return api.Operation{}, e
 		}
 		proof := control.WorkspaceInspectEvidence{InstanceUUID: l.instanceID, ImageFingerprint: ps.Runtime.ImageFingerprint, BaseFingerprint: l.cfg.BaseImageFingerprint, SourceIncusUUID: ps.Runtime.IncusUUID, SourceGeneration: ps.Runtime.Generation, OriginalStatus: "Stopped"}
 		op, e := l.store.BeginWorkspaceLossInspect(ctx, control.WorkspaceInspectRequest{Key: "project-delete-review:" + token, SessionUUID: ps.Session.UUID}, proof)
 		if e != nil {
-			return control.Operation{}, e
+			return api.Operation{}, e
 		}
 		if e = l.enqueue(op.ID); e != nil {
-			return control.Operation{}, e
+			return api.Operation{}, e
 		}
 		for {
 			current, e := l.store.GetOperation(ctx, op.ID)
 			if e != nil {
-				return control.Operation{}, e
+				return api.Operation{}, e
 			}
 			if current.Status == "completed" {
 				var inspected control.WorkspaceInspectEvidence
 				var loss workspaceLossResult
 				if json.Unmarshal(current.Evidence, &inspected) != nil || json.Unmarshal(inspected.Result, &loss) != nil || loss.Fingerprint != ps.Runtime.Fingerprint {
-					return control.Operation{}, fmt.Errorf("%w: workspace changed; obtain a new aggregate loss preview", control.ErrConflict)
+					return api.Operation{}, fmt.Errorf("%w: workspace changed; obtain a new aggregate loss preview", control.ErrConflict)
 				}
 				break
 			}
 			if current.Status != "running" {
-				return control.Operation{}, fmt.Errorf("%w: fresh inspection %s incomplete; Retry/investigate that read before a new project review", control.ErrConflict, current.ID)
+				return api.Operation{}, fmt.Errorf("%w: fresh inspection %s incomplete; Retry/investigate that read before a new project review", control.ErrConflict, current.ID)
 			}
 			select {
 			case <-ctx.Done():
-				return control.Operation{}, ctx.Err()
+				return api.Operation{}, ctx.Err()
 			case <-time.After(100 * time.Millisecond):
 			}
 		}
 	}
-	var accepted control.Operation
+	var accepted api.Operation
 	err = l.git.backend.WithOrigin(ctx, req.Project, func(scope *gitservice.OriginScope) error {
 		return func() error {
 			verify := func(call context.Context) error {
@@ -363,7 +364,7 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 		}()
 	})
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	delete(l.projectDeletePreviews, req.ConfirmationToken)

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -58,7 +59,7 @@ func TestEnvironmentRecoveryRetainsCapturedRuntimeDevices(t *testing.T) {
 			}
 			l.cfg.ProjectPolicies = map[string]control.ProjectPolicy{op.Project: changed}
 			retained := &retainedEnvironmentRuntime{native: native, exists: true}
-			got, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, retained, func(context.Context, *control.Operation, *control.CreationEvidence) (string, error) {
+			got, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, retained, func(context.Context, *api.Operation, *control.CreationEvidence) (string, error) {
 				t.Fatal("retained instance rebuilt")
 				return "", nil
 			})
@@ -75,7 +76,7 @@ func TestEnvironmentRecoveryMissingRuntimeRebuildsExactSource(t *testing.T) {
 	l, op, ev, native, cache := environmentRecoveryFixture(t, true)
 	absent := &retainedEnvironmentRuntime{native: native}
 	calls := 0
-	got, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, absent, func(ctx context.Context, saved *control.Operation, input *control.CreationEvidence) (string, error) {
+	got, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, absent, func(ctx context.Context, saved *api.Operation, input *control.CreationEvidence) (string, error) {
 		calls++
 		if input.CapturedOID != native.InitialOID || input.ImageFingerprint != native.ImageFingerprint || saved.ID != op.ID {
 			t.Fatal("rebuild changed exact creation input")
@@ -111,7 +112,7 @@ func TestEnvironmentRecoveryRefusesChangedIdentity(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			_, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, retained, func(context.Context, *control.Operation, *control.CreationEvidence) (string, error) {
+			_, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, retained, func(context.Context, *api.Operation, *control.CreationEvidence) (string, error) {
 				t.Fatal("conflicting identity rebuilt")
 				return "", nil
 			})
@@ -124,7 +125,7 @@ func TestEnvironmentRecoveryRefusesChangedIdentity(t *testing.T) {
 		})
 	}
 }
-func environmentRecoveryFixture(t *testing.T, public bool) (*lifecycle, control.Operation, control.CreationEvidence, runtimeincus.Session, control.EnvironmentImage) {
+func environmentRecoveryFixture(t *testing.T, public bool) (*lifecycle, api.Operation, control.CreationEvidence, runtimeincus.Session, control.EnvironmentImage) {
 	t.Helper()
 	ctx := context.Background()
 	store, err := control.OpenStore(filepath.Join(t.TempDir(), "state"))

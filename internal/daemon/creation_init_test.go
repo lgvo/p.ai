@@ -7,12 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
 func TestCreationInitGateDurableBeforeDispatchAndNoBlindRetry(t *testing.T) {
 	raw, _ := json.Marshal(control.CreationEvidence{ImageFingerprint: strings.Repeat("a", 64), RuntimeInitState: "not-attempted"})
-	op := control.Operation{Kind: "session.create", Phase: "principals-ready", Committed: true, Evidence: raw}
+	op := api.Operation{Kind: "session.create", Phase: "principals-ready", Committed: true, Evidence: raw}
 	refused := errors.New("fixture SQLite persistence failed")
 	if err := recordCreationInitAttempt(context.Background(), &op, func(context.Context, json.RawMessage) error { return refused }); !errors.Is(err, refused) {
 		t.Fatal(err)
@@ -48,7 +49,7 @@ func TestCreationInitGateDurableBeforeDispatchAndNoBlindRetry(t *testing.T) {
 func TestCreationInitLegacyOnlyEarlyCheckpointCanProveNoAttempt(t *testing.T) {
 	for _, phase := range []string{"source-ready", "branch-assigned", "environment-ready", "principals-ready", "runtime-created", "future-phase"} {
 		raw, _ := json.Marshal(control.CreationEvidence{ImageFingerprint: strings.Repeat("a", 64)})
-		op := control.Operation{Kind: "session.create", Phase: phase, Evidence: raw, Committed: phase != "source-ready"}
+		op := api.Operation{Kind: "session.create", Phase: phase, Evidence: raw, Committed: phase != "source-ready"}
 		if err := prepareCreationInitState(&op); err != nil {
 			t.Fatal(err)
 		}

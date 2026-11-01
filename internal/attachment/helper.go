@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // Helper serves only its inherited private socket. It is a separate temporary
@@ -72,7 +72,7 @@ func runHelper(c *carrier) (resultErr error) {
 		return err
 	}
 	defer rpc.fail()
-	var launch control.AttachmentLaunch
+	var launch api.AttachmentLaunch
 	if err = rpc.call(scope, "attachment.claim", map[string]any{"v": 1, "token": init.Token}, &launch); err != nil {
 		return err
 	}

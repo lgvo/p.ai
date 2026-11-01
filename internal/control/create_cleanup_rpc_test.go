@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type createCleanupRPCProbe struct {
@@ -23,9 +25,9 @@ func (p *createCleanupRPCProbe) PreviewCreateCleanup(_ context.Context, uuid str
 	p.calls++
 	return CreateCleanupPreview{UUID: uuid, Eligible: true}, nil
 }
-func (p *createCleanupRPCProbe) ConfirmCreateCleanup(_ context.Context, uuid, key, token string) (Operation, error) {
+func (p *createCleanupRPCProbe) ConfirmCreateCleanup(_ context.Context, uuid, key, token string) (api.Operation, error) {
 	p.calls++
-	return Operation{Kind: "session.create.cleanup", SessionUUID: uuid, Key: key}, nil
+	return api.Operation{Kind: "session.create.cleanup", SessionUUID: uuid, Key: key}, nil
 }
 func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	p := &createCleanupRPCProbe{}
@@ -49,7 +51,7 @@ func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	if result, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`"}`)); e != nil || !result.(map[string]any)["preview"].(CreateCleanupPreview).Eligible {
 		t.Fatal("preview route")
 	}
-	if result, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","key":"cleanup","confirmation_token":"`+token+`"}`)); e != nil || result.(map[string]any)["operation"].(Operation).Kind != "session.create.cleanup" {
+	if result, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","key":"cleanup","confirmation_token":"`+token+`"}`)); e != nil || result.(map[string]any)["operation"].(api.Operation).Kind != "session.create.cleanup" {
 		t.Fatal("confirmation route")
 	}
 	if result, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","loss_operation_id":"`+uuid+`"}`)); e != nil || p.lossID != uuid || result.(map[string]any)["preview"].(CreateCleanupPreview).Runtime.LossOperationID != uuid {

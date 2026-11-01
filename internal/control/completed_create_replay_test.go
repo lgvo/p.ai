@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestCompletedCreationReplayAfterSessionRemoval(t *testing.T) {
@@ -25,7 +27,7 @@ func TestCompletedCreationReplayAfterSessionRemoval(t *testing.T) {
 			if err = s.CompleteCreation(ctx, create.ID); err != nil {
 				t.Fatal(err)
 			}
-			replay := func(request ReserveSessionRequest) (Operation, Session, error) {
+			replay := func(request ReserveSessionRequest) (api.Operation, Session, error) {
 				return s.BeginSessionCreateCapturedWithCapacity(ctx, request, "", CreationSelection{}, func(context.Context, ReserveSessionRequest) (CapturedSource, error) {
 					t.Fatal("replay recaptured source")
 					return CapturedSource{}, nil
@@ -45,7 +47,7 @@ func TestCompletedCreationReplayAfterSessionRemoval(t *testing.T) {
 			ev.InstanceName = "p-" + session.UUID
 			ev.ImageFingerprint = strings.Repeat("d", 64)
 			removeReq := DiscardRequest{Key: "remove", UUID: session.UUID, TokenSHA256: strings.Repeat("5", 64)}
-			var remove Operation
+			var remove api.Operation
 			if action == "delete" {
 				ev.DeleteReviewSHA256 = strings.Repeat("6", 64)
 				remove, err = s.BeginDelete(ctx, removeReq, ev)

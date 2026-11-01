@@ -8,9 +8,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
-func assembledCleanupFixture(t *testing.T) (*Store, string, Operation, CreateCleanupEvidence) {
+func assembledCleanupFixture(t *testing.T) (*Store, string, api.Operation, CreateCleanupEvidence) {
 	t.Helper()
 	s, dir, creator, inspectEv := assembledLossFixture(t)
 	ctx := context.Background()
@@ -46,7 +48,7 @@ func assembledCleanupFixture(t *testing.T) (*Store, string, Operation, CreateCle
 	return s, dir, creator, ev
 }
 
-func beginAssembledCleanup(t *testing.T, s *Store, ev CreateCleanupEvidence) Operation {
+func beginAssembledCleanup(t *testing.T, s *Store, ev CreateCleanupEvidence) api.Operation {
 	t.Helper()
 	op, err := s.BeginAssembledCreateCleanup(context.Background(), DiscardRequest{Key: "cleanup", UUID: ev.Review.UUID, TokenSHA256: strings.Repeat("d", 64)}, ev, func(context.Context) error { return nil })
 	if err != nil {
@@ -55,7 +57,7 @@ func beginAssembledCleanup(t *testing.T, s *Store, ev CreateCleanupEvidence) Ope
 	return op
 }
 
-func advanceAssembledToValidated(t *testing.T, s *Store, op Operation) Operation {
+func advanceAssembledToValidated(t *testing.T, s *Store, op api.Operation) api.Operation {
 	t.Helper()
 	for _, phase := range []string{"init-issued", "helper-ready", "quiescent", "analyzed", "validated"} {
 		if err := s.AdvanceOperation(context.Background(), op.ID, "running", phase, false, op.Evidence, ""); err != nil {

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
@@ -53,7 +54,7 @@ func (l *lifecycle) seedRecoveredSession(s control.Session, policy string) {
 	l.eventContexts[s.UUID] = eventContext{s.Project, s.Branch}
 }
 
-func (l *lifecycle) observeView(v control.SessionView) {
+func (l *lifecycle) observeView(v api.SessionView) {
 	if l.events == nil {
 		return
 	}
@@ -79,7 +80,7 @@ func (l *lifecycle) observeView(v control.SessionView) {
 	}
 }
 
-func (l *lifecycle) recordCreation(op control.Operation, branch string) {
+func (l *lifecycle) recordCreation(op api.Operation, branch string) {
 	if l.events == nil {
 		return
 	}
@@ -127,7 +128,7 @@ func (l *lifecycle) recordCreatingSession(s control.Session) {
 	l.events.emit("session.condition_changed", s.Project, s.UUID, s.Branch, "condition", "creating")
 }
 
-func (l *lifecycle) recordProgress(op control.Operation, phase string) {
+func (l *lifecycle) recordProgress(op api.Operation, phase string) {
 	if l.events == nil {
 		return
 	}

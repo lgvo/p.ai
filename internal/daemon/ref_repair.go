@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -23,7 +24,7 @@ type refRepairPreviewState struct {
 
 // Workspace loss inspection completes in the inspected phase. Ref repair
 // accepts only that terminal result, including after a daemon restart.
-func completedRefRepairLoss(op control.Operation, uuid, project string) bool {
+func completedRefRepairLoss(op api.Operation, uuid, project string) bool {
 	return op.Kind == "workspace.loss.inspect" && op.Status == "completed" &&
 		op.Phase == "inspected" && op.SessionUUID == uuid && op.Project == project
 }
@@ -186,7 +187,7 @@ func (l *lifecycle) PreviewRefRepair(ctx context.Context, uuid, lossID string) (
 	}
 	preview.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
 	encoded, err := json.Marshal(map[string]any{"v": 1, "preview": preview})
-	if err != nil || len(encoded) > control.MaxFrameBytes-1024 {
+	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
 		return control.RefRepairPreview{}, errors.New("ref repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
@@ -220,7 +221,7 @@ func refRepairDigest(raw []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (l *lifecycle) blockRefRepair(op control.Operation, cause error) {
+func (l *lifecycle) blockRefRepair(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -231,7 +232,7 @@ func (l *lifecycle) blockRefRepair(op control.Operation, cause error) {
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
 }
 
-func (l *lifecycle) advanceRefRepair(op *control.Operation, ev control.RefRepairEvidence, phase string, committed bool) error {
+func (l *lifecycle) advanceRefRepair(op *api.Operation, ev control.RefRepairEvidence, phase string, committed bool) error {
 	raw, err := json.Marshal(ev)
 	if err != nil || len(raw) > 2048 {
 		return control.ErrInvalid
@@ -243,13 +244,13 @@ func (l *lifecycle) advanceRefRepair(op *control.Operation, ev control.RefRepair
 	return nil
 }
 
-func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token string) (control.Operation, error) {
+func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token string) (api.Operation, error) {
 	if len(key) == 0 || len(key) > 128 || len(uuid) != 36 || len(token) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	if prior, e := l.store.GetOperationByKey(ctx, key); e == nil {
@@ -257,65 +258,65 @@ func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token strin
 		hash := sha256.Sum256([]byte(token))
 		if prior.Kind != "session.ref.repair" || json.Unmarshal(prior.Request, &saved) != nil ||
 			saved.Key != key || saved.UUID != uuid || saved.TokenSHA256 != hex.EncodeToString(hash[:]) {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(e, control.ErrNotFound) {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	l.mu.Lock()
 	state, found := l.refRepairPreviews[token]
 	l.mu.Unlock()
 	if !found || !time.Now().Before(state.Expiry) || !state.Preview.Eligible || state.Preview.SessionUUID != uuid {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	p := state.Preview
 	s, err := l.store.GetSession(ctx, uuid)
 	if err != nil || s.Registry != "established" || s.Project != p.Project || s.Branch != p.Branch || s.PolicySHA256 != p.PolicySHA256 ||
 		l.policyCondition(ctx, s) != "current" {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil || native.ImageFingerprint != p.ImageFingerprint {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	observed, err := l.runtime.Inspect(ctx, native)
 	if err != nil || !observed.Exists || observed.Status != p.RuntimeStatus || observed.IncusUUID != p.IncusUUID ||
 		observed.Generation != p.Generation || observed.Fingerprint != p.ImageFingerprint {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	principal, registered, err := l.store.SessionGitPrincipal(ctx, uuid)
 	if err != nil || !registered || principal != p.CredentialFingerprint {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	active, err := l.store.IsSessionGitPrincipalActive(ctx, uuid)
 	if err != nil || !active {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	if keyFP, e := inspectRegisteredSessionKey(l.store.StateDir(), uuid); e != nil || keyFP != principal {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	if err := l.checkNoWorkspaceInspect(ctx, uuid); err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	attached := l.hasAttachmentLocked(uuid)
 	l.mu.Unlock()
 	if attached {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	lossOp, err := l.store.GetOperation(ctx, p.LossOperationID)
 	if err != nil || !completedRefRepairLoss(lossOp, uuid, p.Project) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	var lossEv control.WorkspaceInspectEvidence
 	var loss workspaceLossResult
 	if json.Unmarshal(lossOp.Evidence, &lossEv) != nil || json.Unmarshal(lossEv.Result, &loss) != nil ||
 		loss.Fingerprint != p.LossFingerprint || lossEv.SourceIncusUUID != p.IncusUUID || lossEv.SourceGeneration != p.Generation {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	hash := sha256.Sum256([]byte(token))
 	req := control.RefRepairRequest{Key: key, UUID: uuid, TokenSHA256: hex.EncodeToString(hash[:])}
@@ -342,7 +343,7 @@ func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token strin
 	}
 	op, err := l.store.BeginRefRepair(ctx, req, ev, verify)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	delete(l.refRepairPreviews, token)
@@ -380,7 +381,7 @@ func refRepairSourceMatches(observed runtimeincus.Observation, ev control.RefRep
 	return nil
 }
 
-func (l *lifecycle) rollbackRefRepair(op control.Operation, ev control.RefRepairEvidence, source runtimeincus.Session, cause error) {
+func (l *lifecycle) rollbackRefRepair(op api.Operation, ev control.RefRepairEvidence, source runtimeincus.Session, cause error) {
 	if op.Phase != "guarded" && op.Phase != "quiesced" {
 		l.blockRefRepair(op, cause)
 		return
@@ -401,7 +402,7 @@ func (l *lifecycle) rollbackRefRepair(op control.Operation, ev control.RefRepair
 	}
 }
 
-func (l *lifecycle) processRefRepair(op control.Operation) {
+func (l *lifecycle) processRefRepair(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

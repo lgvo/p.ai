@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type RefRepairChange struct {
@@ -89,83 +91,83 @@ func validRefRepairEvidence(e RefRepairEvidence) bool {
 // BeginRefRepair binds the completed source observation and absent-ref proof
 // under the same authority lock used by receive-pack. The callback must not
 // re-enter Store.
-func (s *Store) BeginRefRepair(ctx context.Context, req RefRepairRequest, ev RefRepairEvidence, observe func(context.Context) error) (Operation, error) {
+func (s *Store) BeginRefRepair(ctx context.Context, req RefRepairRequest, ev RefRepairEvidence, observe func(context.Context) error) (api.Operation, error) {
 	if len(req.Key) == 0 || len(req.Key) > 128 || !validUUID(req.UUID) || !validFingerprint(req.TokenSHA256) ||
 		!validRefRepairEvidence(ev) || observe == nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	expires, err := time.Parse(time.RFC3339Nano, ev.PreviewExpiresAt)
 	if err != nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(req)
 	evidence, _ := json.Marshal(ev)
 	if len(evidence) > 2048 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	var kind, oldHash string
 	err = s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &oldHash)
 	if err == nil {
 		if kind != "session.ref.repair" || oldHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return s.GetOperationByKey(ctx, req.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := observe(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	if !time.Now().Before(expires) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var project, branch, registry, policy string
 	if err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, req.UUID).Scan(&project, &branch, &registry, &policy); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if project != ev.Project || branch != ev.Branch || registry != "established" || policy != ev.PolicySHA256 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var currentPolicy string
 	if err = tx.QueryRowContext(ctx, `SELECT policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&currentPolicy); err != nil || currentPolicy != policy {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var principal string
 	var active int
 	if err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, req.UUID).Scan(&principal, &active); err != nil || principal != ev.CredentialFingerprint || active != 1 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var lossRaw []byte
 	if err = tx.QueryRowContext(ctx, `SELECT evidence_json FROM operations WHERE id=? AND session_uuid=? AND kind='workspace.loss.inspect' AND status='completed' AND phase='inspected'`, ev.LossOperationID, req.UUID).Scan(&lossRaw); err != nil || digest(lossRaw) != ev.LossResultSHA256 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,'running','guarded',0,?,?,?)`, id, req.Key, "session.ref.repair", project, req.UUID, string(request), digest(request), string(evidence), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, project, branch, id); err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: req.Key, Kind: "session.ref.repair", Project: project, SessionUUID: req.UUID,
+	return api.Operation{ID: id, Key: req.Key, Kind: "session.ref.repair", Project: project, SessionUUID: req.UUID,
 		Request: request, Status: "running", Phase: "guarded", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
@@ -254,7 +256,7 @@ func (s *Store) EndRefRepair(ctx context.Context, id string, completed bool, ver
 	return tx.Commit()
 }
 
-func (s *Store) UnfinishedRefRepairs(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedRefRepairs(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.ref.repair' AND status IN ('running','blocked','unknown') ORDER BY rowid`)
 	if err != nil {
 		return nil, err
@@ -271,7 +273,7 @@ func (s *Store) UnfinishedRefRepairs(ctx context.Context) ([]Operation, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]Operation, 0, len(ids))
+	out := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {

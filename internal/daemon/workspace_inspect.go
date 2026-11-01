@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -14,95 +15,95 @@ import (
 // InspectWorkspace accepts only one closed read-only operation. The operation
 // and helper name are durable before Incus init; it never runs Git in the
 // daemon or activates the target session.
-func (l *lifecycle) InspectWorkspace(ctx context.Context, req control.WorkspaceInspectRequest) (control.Operation, error) {
+func (l *lifecycle) InspectWorkspace(ctx context.Context, req control.WorkspaceInspectRequest) (api.Operation, error) {
 	return l.inspectWorkspaceRead(ctx, req, "workspace.inspect")
 }
 
-func (l *lifecycle) InspectWorkspaceLoss(ctx context.Context, req control.WorkspaceInspectRequest) (control.Operation, error) {
+func (l *lifecycle) InspectWorkspaceLoss(ctx context.Context, req control.WorkspaceInspectRequest) (api.Operation, error) {
 	return l.inspectWorkspaceRead(ctx, req, "workspace.loss.inspect")
 }
 
-func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.WorkspaceInspectRequest, kind string) (control.Operation, error) {
+func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.WorkspaceInspectRequest, kind string) (api.Operation, error) {
 	if req.Key == "" || len(req.Key) > 128 || len(req.SessionUUID) != 36 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, req.SessionUUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	l.mu.Lock()
 	attached := l.hasAttachmentLocked(req.SessionUUID)
 	l.mu.Unlock()
 	if attached {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	if prior, err := l.store.GetOperationByKey(ctx, req.Key); err == nil {
 		var old control.WorkspaceInspectRequest
 		if prior.Kind != kind || json.Unmarshal(prior.Request, &old) != nil || old != req {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(err, control.ErrNotFound) {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	s, err := l.store.GetSession(ctx, req.SessionUUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
-	var creator control.Operation
+	var creator api.Operation
 	if s.Registry == "creating" && kind == "workspace.loss.inspect" {
 		creator, err = l.store.CreationForSession(ctx, s.UUID)
 		if err != nil {
-			return control.Operation{}, err
+			return api.Operation{}, err
 		}
 		if err = control.AssembledCreationForLoss(s, creator, l.cfg.BaseImageFingerprint); err != nil {
-			return control.Operation{}, err
+			return api.Operation{}, err
 		}
 		created, _ := control.Evidence(creator)
 		if created.Selection != l.selection() {
-			return control.Operation{}, errors.New("failed creation plugin selection unavailable")
+			return api.Operation{}, errors.New("failed creation plugin selection unavailable")
 		}
 	} else if s.Registry != "established" {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := l.runtime.CheckWorkspaceHelperCapacity(ctx); err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	observed, err := l.runtime.Inspect(ctx, native)
 	if err != nil || !observed.Exists || observed.Status != "Running" && observed.Status != "Stopped" {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	if kind == "workspace.loss.inspect" && (observed.IncusUUID == "" || observed.Generation == "") {
-		return control.Operation{}, errors.New("workspace instance generation unavailable")
+		return api.Operation{}, errors.New("workspace instance generation unavailable")
 	}
 	ev := control.WorkspaceInspectEvidence{InstanceUUID: l.instanceID, ImageFingerprint: native.ImageFingerprint,
 		BaseFingerprint: l.cfg.BaseImageFingerprint, SourceIncusUUID: observed.IncusUUID,
 		SourceGeneration: observed.Generation, OriginalStatus: observed.Status}
 	if creator.ID != "" {
 		if observed.Status != "Stopped" {
-			return control.Operation{}, errors.New("failed creation workspace source must already be stopped")
+			return api.Operation{}, errors.New("failed creation workspace source must already be stopped")
 		}
 		if err = l.runtime.CheckAssembledCreationSource(ctx, native, creator.ID, observed.IncusUUID, observed.Generation); err != nil {
-			return control.Operation{}, err
+			return api.Operation{}, err
 		}
 		control.BindWorkspaceCreator(&ev, creator)
 	}
-	var op control.Operation
+	var op api.Operation
 	if kind == "workspace.loss.inspect" {
 		op, err = l.store.BeginWorkspaceLossInspect(ctx, req, ev)
 	} else {
 		op, err = l.store.BeginWorkspaceInspect(ctx, req, ev)
 	}
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := l.enqueue(op.ID); err != nil {
 		return op, err
@@ -124,7 +125,7 @@ func (l *lifecycle) checkNoWorkspaceInspect(ctx context.Context, sessionUUID str
 	return nil
 }
 
-func (l *lifecycle) processWorkspaceInspect(op control.Operation) {
+func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}
@@ -379,7 +380,7 @@ func (l *lifecycle) processWorkspaceInspect(op control.Operation) {
 	}
 }
 
-func (l *lifecycle) failWorkspaceInspect(op control.Operation, ev control.WorkspaceInspectEvidence, source, helper runtimeincus.Session, cause error) {
+func (l *lifecycle) failWorkspaceInspect(op api.Operation, ev control.WorkspaceInspectEvidence, source, helper runtimeincus.Session, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -444,7 +445,7 @@ func (l *lifecycle) failWorkspaceInspect(op control.Operation, ev control.Worksp
 	_ = l.store.AdvanceOperation(cleanupCtx, op.ID, "failed", "cleaned", true, op.Evidence, message)
 }
 
-func (l *lifecycle) blockWorkspaceInspect(op control.Operation, cause error) {
+func (l *lifecycle) blockWorkspaceInspect(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}

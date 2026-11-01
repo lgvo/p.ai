@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/attachment"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/daemon"
@@ -80,7 +81,7 @@ func run(args []string) error {
 				return errors.New("control socket must be an absolute path")
 			}
 		}
-		socket, err := control.ClientSocket(explicit)
+		socket, err := api.ClientSocket(explicit)
 		if err != nil {
 			return err
 		}
@@ -121,7 +122,7 @@ func run(args []string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), deadline)
 		defer cancel()
-		response, err := control.Call(ctx, socket, method, params)
+		response, err := api.Call(ctx, socket, method, params)
 		if err != nil {
 			_ = printJSON(map[string]any{"error": map[string]any{"kind": "transport", "message": err.Error()}})
 			return errAPIExit
@@ -130,7 +131,7 @@ func run(args []string) error {
 			return err
 		}
 		var envelope struct {
-			Error *control.RPCError `json:"error"`
+			Error *api.RPCError `json:"error"`
 		}
 		if err := json.Unmarshal(response, &envelope); err != nil {
 			return err

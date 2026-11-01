@@ -9,7 +9,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type ref struct {
@@ -265,7 +265,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.notice = b.OriginDiagnostic
 	case "project.create", "session.create", "session.rename", "session.discard", "session.delete", "operation.retry":
 		var r struct {
-			Operation control.Operation `json:"operation"`
+			Operation api.Operation `json:"operation"`
 		}
 		if e := json.Unmarshal(v.raw, &r); e != nil {
 			m.notice = e.Error()
@@ -278,7 +278,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		return m.begin("operation.inspect", params{"v": 1, "id": m.operationID})
 	case "workspace.loss.inspect":
 		var r struct {
-			Operation control.Operation `json:"operation"`
+			Operation api.Operation `json:"operation"`
 		}
 		if e := json.Unmarshal(v.raw, &r); e != nil {
 			m.notice = e.Error()
@@ -294,7 +294,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		return m.begin("operation.inspect", params{"v": 1, "id": m.operationID})
 	case "operation.inspect":
 		var r struct {
-			Operation control.Operation `json:"operation"`
+			Operation api.Operation `json:"operation"`
 		}
 		if e := json.Unmarshal(v.raw, &r); e != nil {
 			m.notice = e.Error()
@@ -347,7 +347,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.navigate("review")
 	case "session.start", "session.inspect", "session.stop":
 		var r struct {
-			Session control.SessionView `json:"session"`
+			Session api.SessionView `json:"session"`
 		}
 		if e := json.Unmarshal(v.raw, &r); e != nil {
 			m.notice = e.Error()
@@ -371,7 +371,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.notice = "Session is " + r.Session.Condition + ": " + r.Session.Diagnostic
 		}
 	case "session.services":
-		var r control.ServiceResult
+		var r api.ServiceResult
 		if e := json.Unmarshal(v.raw, &r); e != nil || r.V != 1 || r.UUID != m.contextSession.UUID {
 			m.notice = "Invalid service observation; queued request was not issued."
 			m.servicesFresh = false
@@ -406,7 +406,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 	case "session.service.action":
 		return m.begin("session.services", params{"v": 1, "uuid": m.contextSession.UUID})
 	case "session.service.journal":
-		var r control.ServiceResult
+		var r api.ServiceResult
 		if e := json.Unmarshal(v.raw, &r); e != nil {
 			m.notice = e.Error()
 			return nil

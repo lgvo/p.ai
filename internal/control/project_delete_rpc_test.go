@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type projectDeleteRPCProbe struct {
@@ -16,9 +18,9 @@ func (p *projectDeleteRPCProbe) PreviewProjectDelete(_ context.Context, req Proj
 	p.calls++
 	return ProjectDeletePreview{Project: req.Project, Outcome: "delete_project_and_all_p_data"}, nil
 }
-func (p *projectDeleteRPCProbe) ConfirmProjectDelete(_ context.Context, req ProjectDeleteConfirmRequest) (Operation, error) {
+func (p *projectDeleteRPCProbe) ConfirmProjectDelete(_ context.Context, req ProjectDeleteConfirmRequest) (api.Operation, error) {
 	p.calls++
-	return Operation{Kind: "project.delete", Project: req.Project, Key: req.Key}, nil
+	return api.Operation{Kind: "project.delete", Project: req.Project, Key: req.Key}, nil
 }
 func TestProjectDeleteRPCClosedSchema(t *testing.T) {
 	p := &projectDeleteRPCProbe{}
@@ -40,7 +42,7 @@ func TestProjectDeleteRPCClosedSchema(t *testing.T) {
 	if _, e := h(ctx, "project.delete.preview", json.RawMessage(`{"v":1,"project":"bulk","loss_operations":{}}`)); e != nil {
 		t.Fatal(e)
 	}
-	if result, e := h(ctx, "project.delete.confirm", json.RawMessage(`{"v":1,"project":"bulk","key":"delete","confirmation_token":"`+strings.Repeat("a", 32)+`"}`)); e != nil || result.(map[string]any)["operation"].(Operation).Kind != "project.delete" {
+	if result, e := h(ctx, "project.delete.confirm", json.RawMessage(`{"v":1,"project":"bulk","key":"delete","confirmation_token":"`+strings.Repeat("a", 32)+`"}`)); e != nil || result.(map[string]any)["operation"].(api.Operation).Kind != "project.delete" {
 		t.Fatal("confirmation route", e)
 	}
 }

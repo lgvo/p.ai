@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestCreationInitAttemptCannotBeErasedByStaleRetryAcrossRestart(t *testing.T) {
@@ -62,7 +64,7 @@ func TestCreationInitAttemptCannotBeErasedByStaleRetryAcrossRestart(t *testing.T
 }
 
 func TestCreationCleanupCompletionAndIdentityCannotBeRewound(t *testing.T) {
-	old := Operation{ID: "11111111-1111-4111-8111-111111111111", SessionUUID: "550e8400-e29b-41d4-a716-446655440000"}
+	old := api.Operation{ID: "11111111-1111-4111-8111-111111111111", SessionUUID: "550e8400-e29b-41d4-a716-446655440000"}
 	c := replacementCleanupIntent(t, old, strings.Repeat("a", 64))
 	ev := CreationEvidence{RuntimeInitState: "not-attempted", ReplacementCleanup: c}
 	pending, _ := json.Marshal(ev)

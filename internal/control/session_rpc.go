@@ -9,6 +9,9 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 var statusEventDiagnostic struct {
@@ -27,13 +30,13 @@ func logStatusEventFailure() {
 
 // ServeSessionConn processes the private socket stream under one bound UUID.
 // Delivery errors are diagnostic; the callback runs only after SQLite commits.
-func ServeSessionConn(ctx context.Context, conn net.Conn, store *Store, uuid string, onCommitted func(context.Context, UnattendedCondition) error) {
+func ServeSessionConn(ctx context.Context, conn net.Conn, store *Store, uuid string, onCommitted func(context.Context, api.UnattendedCondition) error) {
 	defer conn.Close()
-	reader := bufio.NewReaderSize(conn, MaxFrameBytes+1)
+	reader := bufio.NewReaderSize(conn, api.MaxFrameBytes+1)
 	for {
 		conn.SetDeadline(time.Now().Add(2 * time.Minute))
 		line, err := reader.ReadSlice('\n')
-		if err != nil || len(line) > MaxFrameBytes {
+		if err != nil || len(line) > api.MaxFrameBytes {
 			if len(line) != 0 {
 				_, _ = conn.Write([]byte("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"kind\":\"parse_error\",\"message\":\"invalid session frame\"}}\n"))
 			}
@@ -47,7 +50,7 @@ func ServeSessionConn(ctx context.Context, conn net.Conn, store *Store, uuid str
 				return
 			}
 			eventFailed := false
-			reply, _ = SessionReplyWithCommit(ctx, store, uuid, line, func(changed UnattendedCondition) {
+			reply, _ = SessionReplyWithCommit(ctx, store, uuid, line, func(changed api.UnattendedCondition) {
 				if onCommitted != nil && onCommitted(ctx, changed) != nil {
 					eventFailed = true
 				}
@@ -67,14 +70,14 @@ func ServeSessionConn(ctx context.Context, conn net.Conn, store *Store, uuid str
 // SessionReply handles one message for the UUID bound to the accepted socket.
 // It never accepts a caller-supplied target UUID. A committed status value is
 // returned separately for post-commit event delivery by the daemon.
-func SessionReply(ctx context.Context, store *Store, uuid string, line []byte) ([]byte, *UnattendedCondition) {
+func SessionReply(ctx context.Context, store *Store, uuid string, line []byte) ([]byte, *api.UnattendedCondition) {
 	return SessionReplyWithCommit(ctx, store, uuid, line, nil)
 }
 
 // SessionReplyWithCommit accepts a callback that only enqueues a reduced event.
 // It runs under the status reducer lock and must not inspect SQLite or invoke a
 // handler, so concurrent reports and attachment clears retain commit order.
-func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line []byte, onCommitted func(UnattendedCondition)) ([]byte, *UnattendedCondition) {
+func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line []byte, onCommitted func(api.UnattendedCondition)) ([]byte, *api.UnattendedCondition) {
 	if !utf8.Valid(line) {
 		return []byte("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"kind\":\"parse_error\",\"message\":\"invalid UTF-8\"}}\n"), nil
 	}
@@ -97,7 +100,7 @@ func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line
 				var p struct {
 					V int `json:"v"`
 				}
-				if strictDecode(req.Params, &p) != nil || p.V != 1 {
+				if strictjson.Decode(req.Params, &p) != nil || p.V != 1 {
 					reply.Error = errorRPC(-32602, "invalid_params", "params must be {\"v\":1}")
 				} else if req.Method == "session.identity" {
 					reply.Result = map[string]any{"v": 1, "uuid": session.UUID, "branch": session.Branch}
@@ -119,7 +122,7 @@ func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line
 					break
 				}
 				var report StatusReport
-				if strictDecode(req.Params, &report) != nil || !report.Valid() {
+				if strictjson.Decode(req.Params, &report) != nil || !report.Valid() {
 					return nil, nil
 				}
 				value, changed, e := store.RecordStatusWithCommit(ctx, uuid, report, onCommitted)

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -399,7 +400,7 @@ func (m *endpointManager) serveSession(ctx context.Context, l net.Listener, uuid
 				instance, ie = m.store.InstanceID(ctx)
 				contextReady = se == nil && ie == nil
 			}
-			control.ServeSessionConn(ctx, conn, m.store, uuid, func(ctx context.Context, changed control.UnattendedCondition) error {
+			control.ServeSessionConn(ctx, conn, m.store, uuid, func(ctx context.Context, changed api.UnattendedCondition) error {
 				if m.onUnattended == nil {
 					return nil
 				}

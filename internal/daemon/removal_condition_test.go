@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
@@ -27,7 +28,7 @@ func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
 				policy := control.ProjectPolicy{Network: "none", FilesystemMounts: []control.FilesystemGrant{}, Command: []string{"/bin/sh"}}
 				l := &lifecycle{ctx: f.ctx, store: f.m.store, events: d, cfg: control.RuntimeConfig{ProjectPolicies: map[string]control.ProjectPolicy{s.Project: policy}}}
 				l.seedRecoveredSession(s, "current")
-				l.observeView(control.SessionView{UUID: s.UUID, Project: s.Project, Branch: s.Branch, Condition: "stopped", PolicyCondition: "current"})
+				l.observeView(api.SessionView{UUID: s.UUID, Project: s.Project, Branch: s.Branch, Condition: "stopped", PolicyCondition: "current"})
 				instance, err := f.m.store.InstanceID(f.ctx)
 				if err != nil {
 					t.Fatal(err)
@@ -37,7 +38,7 @@ func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
 					ev.DeleteReviewSHA256 = strings.Repeat("b", 64)
 				}
 				req := control.DiscardRequest{Key: "condition-" + action, UUID: s.UUID, TokenSHA256: strings.Repeat("a", 64)}
-				var op control.Operation
+				var op api.Operation
 				if action == "delete" {
 					op, err = f.m.store.BeginDelete(f.ctx, req, ev)
 				} else {

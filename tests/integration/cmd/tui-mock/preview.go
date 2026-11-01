@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -13,7 +14,7 @@ import (
 // Removal is rendered as raw JSON by the TUI, so its fixture must preserve
 // the public preview and p.workspace-loss/v1 shapes, including which losses
 // apply to Discard versus Delete. These are synthetic observations only.
-func (f *fixture) removalReview(s control.SessionView, kind string, loss control.Operation, token string, expires time.Time) control.RemovalPreview {
+func (f *fixture) removalReview(s api.SessionView, kind string, loss api.Operation, token string, expires time.Time) control.RemovalPreview {
 	assigned := "refs/heads/" + s.Branch
 	assignedTip := f.refs[s.Project][s.Branch]
 	pRefs := []runtimeincus.WorkspaceRef{}

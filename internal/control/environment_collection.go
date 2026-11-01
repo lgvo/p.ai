@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"maps"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // EnvironmentCollectionClaim is the complete reviewed generation. It is
@@ -179,30 +181,30 @@ type EnvironmentCollectionPreview struct {
 	Warning         string                      `json:"warning"`
 }
 
-func (s *Store) BeginEnvironmentCollection(ctx context.Context, key string, claim EnvironmentCollectionClaim) (Operation, error) {
+func (s *Store) BeginEnvironmentCollection(ctx context.Context, key string, claim EnvironmentCollectionClaim) (api.Operation, error) {
 	if key == "" || len(key) > 128 || !claim.Valid() {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(claim)
 	if len(request) > 16384 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var oldKind, oldHash string
 	err = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, key).Scan(&oldKind, &oldHash)
 	if err == nil {
 		if oldKind != "environment.collect" || oldHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		op, err := getOperationTx(ctx, tx, key)
 		return op, err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	var current EnvironmentImage
 	var props string
@@ -211,40 +213,40 @@ func (s *Store) BeginEnvironmentCollection(ctx context.Context, key string, clai
 		Scan(&current.Fingerprint, &current.BaseFingerprint, &current.System, &current.MaterialDigest, &current.CaptureStorePath,
 			&current.BuilderRequest, &props, &current.CreatedAt, &current.LastUsedAt, &current.LogicalSize)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	current.Project, current.Key = claim.Image.Project, claim.Image.Key
 	if json.Unmarshal([]byte(props), &current.Properties) != nil || !sameEnvironmentImage(current, claim.Image) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	related, _, err := relatedEnvironmentDigest(ctx, tx, claim.Image.Project, claim.Image.Key, claim.Image.Fingerprint)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if related != claim.RelatedDigest {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	expiresAt, _ := time.Parse(time.RFC3339Nano, claim.ConfirmationExpiresAt)
 	if !time.Now().Before(expiresAt) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	opID, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,'running','accepted',?,?)`, opID, key, "environment.collect", claim.Image.Project, string(request), digest(request), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err := tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: opID, Key: key, Kind: "environment.collect", Project: claim.Image.Project, Request: request,
+	return api.Operation{ID: opID, Key: key, Kind: "environment.collect", Project: claim.Image.Project, Request: request,
 		Status: "running", Phase: "accepted", CreatedAt: now, UpdatedAt: now}, nil
 }
 
@@ -280,7 +282,7 @@ func (s *Store) DeleteEnvironmentImageExact(ctx context.Context, want Environmen
 	return tx.Commit()
 }
 
-func (s *Store) UnfinishedEnvironmentCollections(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedEnvironmentCollections(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='environment.collect' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -299,7 +301,7 @@ func (s *Store) UnfinishedEnvironmentCollections(ctx context.Context) ([]Operati
 	if err != nil {
 		return nil, err
 	}
-	ops := make([]Operation, 0, len(ids))
+	ops := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, err := s.GetOperation(ctx, id)
 		if err != nil {

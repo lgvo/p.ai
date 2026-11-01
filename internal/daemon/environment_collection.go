@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -145,32 +146,32 @@ func (l *lifecycle) PreviewEnvironmentCollection(ctx context.Context, project, k
 	}, nil
 }
 
-func (l *lifecycle) CollectEnvironmentCache(ctx context.Context, key, token string) (control.Operation, error) {
+func (l *lifecycle) CollectEnvironmentCache(ctx context.Context, key, token string) (api.Operation, error) {
 	if key == "" || len(key) > 128 || len(token) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	prior, err := l.store.GetOperationByKey(ctx, key)
 	if err == nil {
 		var accepted control.EnvironmentCollectionClaim
 		if prior.Kind != "environment.collect" || json.Unmarshal(prior.Request, &accepted) != nil ||
 			accepted.ConfirmationDigest != collectionTokenDigest(token) {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		return prior, nil
 	}
 	if !errors.Is(err, control.ErrNotFound) {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	state := l.collectionPreviews[token]
 	l.mu.Unlock()
 	if state.ExpiresAt.IsZero() || time.Now().After(state.ExpiresAt) || state.Claim.ConfirmationDigest != collectionTokenDigest(token) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	op, err := confirmCollectionPreflight(ctx, key, state,
 		l.store.GetEnvironmentImage, l.observeCollection, l.store.BeginEnvironmentCollection)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := l.enqueue(op.ID); err != nil {
 		return op, err
@@ -181,19 +182,19 @@ func (l *lifecycle) CollectEnvironmentCache(ctx context.Context, key, token stri
 func confirmCollectionPreflight(ctx context.Context, key string, state collectionPreviewState,
 	load func(context.Context, string, string) (control.EnvironmentImage, bool, error),
 	observe func(context.Context, control.EnvironmentImage) (control.EnvironmentCollectionClaim, int, error),
-	begin func(context.Context, string, control.EnvironmentCollectionClaim) (control.Operation, error)) (control.Operation, error) {
+	begin func(context.Context, string, control.EnvironmentCollectionClaim) (api.Operation, error)) (api.Operation, error) {
 	current, found, err := load(ctx, state.Claim.Image.Project, state.Claim.Image.Key)
 	if err != nil || !found || !control.SameEnvironmentImage(current, state.Claim.Image) {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	observed, _, err := observe(ctx, current)
 	if err != nil || observed.ImagePresent != state.Claim.ImagePresent || observed.ObservedSize != state.Claim.ObservedSize || observed.RelatedDigest != state.Claim.RelatedDigest {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	return begin(ctx, key, state.Claim)
 }
 
-func (l *lifecycle) processEnvironmentCollection(op control.Operation) {
+func (l *lifecycle) processEnvironmentCollection(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}
@@ -240,7 +241,7 @@ func (l *lifecycle) processEnvironmentCollection(op control.Operation) {
 	}
 }
 
-func (l *lifecycle) blockEnvironmentCollection(op control.Operation, cause error) {
+func (l *lifecycle) blockEnvironmentCollection(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}

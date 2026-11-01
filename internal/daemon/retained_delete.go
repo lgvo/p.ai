@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 )
@@ -56,7 +57,7 @@ func (l *lifecycle) PreviewRetainedDelete(ctx context.Context, project, branch s
 	preview := control.RetainedDeletePreview{Project: project, Branch: branch, Ref: review.AssignedRef, Tip: review.AssignedTip, BranchLoss: review,
 		ConfirmationToken: hex.EncodeToString(token[:]), ExpiresAt: expiry.Format(time.RFC3339Nano)}
 	raw, err := json.Marshal(map[string]any{"v": 1, "preview": preview})
-	if err != nil || len(raw) > control.MaxFrameBytes-1024 {
+	if err != nil || len(raw) > api.MaxFrameBytes-1024 {
 		return control.RetainedDeletePreview{}, errors.New("retained delete preview exceeds bounded control response")
 	}
 	l.mu.Lock()
@@ -76,38 +77,38 @@ func (l *lifecycle) PreviewRetainedDelete(ctx context.Context, project, branch s
 	return preview, nil
 }
 
-func (l *lifecycle) ConfirmRetainedDelete(ctx context.Context, key, project, branch, token string) (control.Operation, error) {
+func (l *lifecycle) ConfirmRetainedDelete(ctx context.Context, key, project, branch, token string) (api.Operation, error) {
 	if len(key) == 0 || len(key) > 128 || project == "" || branch == "" || !validRetainedDeleteToken(token) {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	sum := sha256.Sum256([]byte(token))
 	req := control.RetainedDeleteRequest{Key: key, Project: project, Branch: branch, TokenSHA256: hex.EncodeToString(sum[:])}
 	if prior, err := l.store.GetOperationByKey(ctx, key); err == nil {
 		var saved control.RetainedDeleteRequest
 		if prior.Kind != "project.retained.delete" || json.Unmarshal(prior.Request, &saved) != nil || saved != req {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(err, control.ErrNotFound) {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	state, found := l.retainedDeletePreviews[token]
 	l.mu.Unlock()
 	if !found || state.Preview.Project != project || state.Preview.Branch != branch || !time.Now().Before(state.Expiry) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	preview := state.Preview
 	digest, err := deleteReviewDigest(preview.BranchLoss)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	ev := control.RetainedDeleteEvidence{Project: project, Branch: branch, Tip: preview.Tip, ReviewSHA256: digest,
 		InstanceUUID: l.instanceID, PreviewExpiresAt: preview.ExpiresAt}
-	var op control.Operation
+	var op api.Operation
 	err = l.git.backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
 		var e error
 		op, e = l.store.BeginRetainedDelete(ctx, req, ev, func(ctx context.Context, evidence control.RetainedDeleteEvidence) error {
@@ -116,7 +117,7 @@ func (l *lifecycle) ConfirmRetainedDelete(ctx context.Context, key, project, bra
 		return e
 	})
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	delete(l.retainedDeletePreviews, token)
@@ -183,7 +184,7 @@ func (l *lifecycle) blockRetainedDelete(id string, cause error) {
 	_ = l.store.AdvanceOperation(l.ctx, id, "blocked", op.Phase, op.Committed, op.Evidence, message)
 }
 
-func (l *lifecycle) processRetainedDelete(op control.Operation) {
+func (l *lifecycle) processRetainedDelete(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

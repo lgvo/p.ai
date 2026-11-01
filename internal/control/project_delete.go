@@ -3,6 +3,8 @@ package control
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // ProjectDeletePreview is one bounded whole-project loss review. Sessions must
@@ -68,7 +70,7 @@ type ProjectDeleteEvidence struct {
 }
 type ProjectDeleteAPI interface {
 	PreviewProjectDelete(context.Context, ProjectDeletePreviewRequest) (ProjectDeletePreview, error)
-	ConfirmProjectDelete(context.Context, ProjectDeleteConfirmRequest) (Operation, error)
+	ConfirmProjectDelete(context.Context, ProjectDeleteConfirmRequest) (api.Operation, error)
 }
 
 func projectDeleteResourceAbsent(r ProjectDeleteResource) bool {

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -288,7 +289,7 @@ func (l *lifecycle) previewRepair(ctx context.Context, id, preparationID string)
 	expiry := time.Now().UTC().Add(repairPreviewTTL)
 	preview.ExpiresAt = expiry.Format(time.RFC3339Nano)
 	encoded, err := json.Marshal(map[string]any{"v": 1, "preview": preview})
-	if err != nil || len(encoded) > control.MaxFrameBytes-1024 {
+	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
 		return control.RepairPreview{}, errors.New("repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
@@ -309,13 +310,13 @@ func (l *lifecycle) previewRepair(ctx context.Context, id, preparationID string)
 	return preview, nil
 }
 
-func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirmRequest) (control.Operation, error) {
+func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirmRequest) (api.Operation, error) {
 	if len(req.Key) < 1 || len(req.Key) > 128 || len(req.UUID) != 36 || len(req.ConfirmationToken) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, req.UUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	sum := sha256.Sum256([]byte(req.ConfirmationToken))
@@ -323,49 +324,49 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 	if prior, e := l.store.GetOperationByKey(ctx, req.Key); e == nil {
 		var old control.RepairRequest
 		if prior.Kind != "session.repair" || json.Unmarshal(prior.Request, &old) != nil || old != pinned {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(e, control.ErrNotFound) {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	l.mu.Lock()
 	state, found := l.repairPreviews[req.ConfirmationToken]
 	attached := l.hasAttachmentLocked(req.UUID)
 	l.mu.Unlock()
 	if !found || attached || !state.Preview.Eligible || state.Preview.SessionUUID != req.UUID || !time.Now().Before(state.Expiry) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	if err = l.checkNoWorkspaceInspect(ctx, req.UUID); err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	s, err := l.store.GetSession(ctx, req.UUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if s.Registry != "established" || s.Project != state.Preview.Project || s.Branch != state.Preview.Branch || s.PolicySHA256 != state.Preview.PolicySHA256 {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	if l.policyCondition(ctx, s) == "invalid" {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	currentPolicy, err := l.store.ProjectPolicySHA(ctx, s.Project)
 	if err != nil || currentPolicy != s.PolicySHA256 {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	selection, creation, err := l.repairSelection(ctx, s)
 	if err != nil || selection != l.selection() {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	imageSource := ""
 	if creation != nil {
 		imageSource = creation.CapturedOID
 	}
 	if accepted, ok, e := l.store.AcceptedRepairImage(ctx, req.UUID); e != nil {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	} else if ok {
 		if accepted.EnvironmentSourceCommit != "" {
 			imageSource = accepted.EnvironmentSourceCommit
@@ -374,22 +375,22 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 		}
 	}
 	if imageSource != state.Preview.ImageSourceCommit {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	keyFingerprint, keyErr := inspectRegisteredSessionKey(l.store.StateDir(), req.UUID)
 	if keyErr != nil || keyFingerprint != state.Preview.CredentialFingerprint {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil || native.ImageFingerprint != state.Preview.ImageFingerprint {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	ev := control.RepairEvidence{Project: s.Project, Branch: s.Branch, AssignedTip: state.Preview.AssignedTip,
 		PolicySHA256: s.PolicySHA256, CredentialFingerprint: state.Preview.CredentialFingerprint,
 		IncusProject: l.cfg.IncusProject, InstanceName: "p-" + s.UUID, InstanceUUID: l.instanceID,
 		ImageFingerprint: native.ImageFingerprint, ImageSourceCommit: imageSource, BaseFingerprint: l.cfg.BaseImageFingerprint, PreviewExpiresAt: state.Preview.ExpiresAt}
 	if accepted, ok, e := l.store.AcceptedRepairImage(ctx, req.UUID); e != nil {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	} else if ok {
 		ev.EnvironmentSourceCommit, ev.EnvironmentSelection, ev.EnvironmentKey = accepted.EnvironmentSourceCommit, accepted.EnvironmentSelection, accepted.EnvironmentKey
 		ev.EnvironmentState = accepted.EnvironmentState
@@ -404,11 +405,11 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 			l.environmentIntent() == nil || prepared.Environment != *l.environmentIntent() ||
 			prepared.EnvironmentKey != state.Preview.Environment.EnvironmentKey ||
 			prepared.EnvironmentSelection != state.Preview.Environment.Selection {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		prepOp, prepErr := l.store.GetOperation(ctx, state.Preview.PreparationOperationID)
 		if prepErr != nil || prepOp.Status != "completed" || prepOp.Kind != "session.repair.prepare" {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		sum := sha256.Sum256(prepOp.Evidence)
 		ev.PreparationOperationID, ev.PreparationSHA256 = prepOp.ID, hex.EncodeToString(sum[:])
@@ -423,7 +424,7 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 		} else if ev.ImageFingerprint != "" {
 			entry, found, cacheErr := l.store.GetEnvironmentImage(ctx, ev.Project, ev.EnvironmentKey)
 			if cacheErr != nil || !found || entry.Fingerprint != ev.ImageFingerprint {
-				return control.Operation{}, control.ErrConflict
+				return api.Operation{}, control.ErrConflict
 			}
 			ev.EnvironmentState = environmentStateFromCache(entry, true)
 		}
@@ -476,7 +477,7 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 	}
 	op, err := l.store.BeginRepair(ctx, pinned, ev, verify, l.observeSessionCapacity)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	delete(l.repairPreviews, req.ConfirmationToken)
@@ -512,7 +513,7 @@ func (l *lifecycle) repairCommittedTip(ctx context.Context, ev control.RepairEvi
 	return nil
 }
 
-func (l *lifecycle) repairAdvance(op *control.Operation, ev control.RepairEvidence, phase string) error {
+func (l *lifecycle) repairAdvance(op *api.Operation, ev control.RepairEvidence, phase string) error {
 	raw, err := json.Marshal(ev)
 	if err != nil || len(raw) > 16384 {
 		return control.ErrInvalid
@@ -526,7 +527,7 @@ func (l *lifecycle) repairAdvance(op *control.Operation, ev control.RepairEviden
 	return nil
 }
 
-func (l *lifecycle) repairBlock(op control.Operation, err error) {
+func (l *lifecycle) repairBlock(op api.Operation, err error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -602,7 +603,7 @@ func (l *lifecycle) repairAssembly(ctx context.Context, s control.Session, ev co
 		SessionConfig: activation, Workspace: workspace, Identity: key, ServerPublicKey: l.git.info.HostPublicKey}, nil
 }
 
-func (l *lifecycle) processRepair(op control.Operation) {
+func (l *lifecycle) processRepair(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}
@@ -902,7 +903,7 @@ func repairExact(o runtimeincus.Observation, ev control.RepairEvidence, status s
 	return o.Exists && o.Name == ev.InstanceName && o.Status == status && o.IncusUUID == ev.IncusUUID && o.Generation == ev.Generation && o.Fingerprint == ev.ImageFingerprint && o.EndpointMounted
 }
 
-func (l *lifecycle) repairIssueRuntimeCreate(ctx context.Context, s control.Session, native runtimeincus.Session, op *control.Operation, ev control.RepairEvidence) error {
+func (l *lifecycle) repairIssueRuntimeCreate(ctx context.Context, s control.Session, native runtimeincus.Session, op *api.Operation, ev control.RepairEvidence) error {
 	_, pub, err := l.sessionKey(ctx, s.UUID)
 	if err != nil || pub == nil || gitservice.Fingerprint(pub) != ev.CredentialFingerprint {
 		return errors.Join(err, errors.New("repair credential changed"))

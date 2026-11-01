@@ -8,6 +8,7 @@ import (
 	"maps"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/environmentnix"
 	"github.com/lgvo/p.ai/internal/nixenv"
@@ -22,12 +23,12 @@ type environmentRecoveryRuntime interface {
 
 // ensureEnvironment consumes only the committed OID in durable creation
 // evidence. It never observes the current branch or origin during exact retry.
-func (l *lifecycle) ensureEnvironment(ctx context.Context, op *control.Operation, ev control.CreationEvidence) (string, error) {
+func (l *lifecycle) ensureEnvironment(ctx context.Context, op *api.Operation, ev control.CreationEvidence) (string, error) {
 	return l.ensureEnvironmentWithRuntime(ctx, op, ev, l.runtime, l.buildEnvironment)
 }
 
-func (l *lifecycle) ensureEnvironmentWithRuntime(ctx context.Context, op *control.Operation, ev control.CreationEvidence,
-	runtime environmentRecoveryRuntime, rebuild func(context.Context, *control.Operation, *control.CreationEvidence) (string, error)) (string, error) {
+func (l *lifecycle) ensureEnvironmentWithRuntime(ctx context.Context, op *api.Operation, ev control.CreationEvidence,
+	runtime environmentRecoveryRuntime, rebuild func(context.Context, *api.Operation, *control.CreationEvidence) (string, error)) (string, error) {
 	current := l.environmentIntent()
 	if current == nil || ev.Environment == nil || *current != *ev.Environment || ev.CapturedOID == "" {
 		return "", errors.New("pinned environment selection unavailable; repair required")
@@ -121,7 +122,7 @@ func environmentClaimForProject(ev control.CreationEvidence, project string) run
 	}
 }
 
-func (l *lifecycle) buildEnvironment(ctx context.Context, op *control.Operation, ev *control.CreationEvidence) (image string, resultErr error) {
+func (l *lifecycle) buildEnvironment(ctx context.Context, op *api.Operation, ev *control.CreationEvidence) (image string, resultErr error) {
 	snapshot, err := l.git.backend.CapturePinnedCommit(ctx, op.Project, ev.CapturedOID)
 	if err != nil {
 		return "", err
@@ -322,7 +323,7 @@ type gatedPublisher interface {
 	PublishPrivateImageWithGate(context.Context, func(runtimeincus.BuilderImageClaim) error) (nixenv.Handle, runtimeincus.BuilderImageInfo, error)
 }
 
-func (l *lifecycle) publishAcceptedEnvironment(ctx context.Context, op *control.Operation, ev *control.CreationEvidence, r runtimeincus.Builder, result runtimeincus.BuilderNixResult, pipeline gatedPublisher, onAttempt func()) (string, error) {
+func (l *lifecycle) publishAcceptedEnvironment(ctx context.Context, op *api.Operation, ev *control.CreationEvidence, r runtimeincus.Builder, result runtimeincus.BuilderNixResult, pipeline gatedPublisher, onAttempt func()) (string, error) {
 	if pipeline == nil || onAttempt == nil {
 		return "", errors.New("durable environment publisher unavailable")
 	}
@@ -383,7 +384,7 @@ func runDurableImagePublish(ctx context.Context, pipeline gatedPublisher, valida
 	return claim, info, nil
 }
 
-func (l *lifecycle) cleanupEnvironmentBuilder(ctx context.Context, op *control.Operation, ev control.CreationEvidence) error {
+func (l *lifecycle) cleanupEnvironmentBuilder(ctx context.Context, op *api.Operation, ev control.CreationEvidence) error {
 	if ev.Environment == nil || ev.EnvironmentState == nil || ev.EnvironmentState.BuilderRequest != op.ID {
 		return errors.New("exact builder cleanup identity unavailable")
 	}
@@ -421,7 +422,7 @@ func environmentStateFromCache(e control.EnvironmentImage, hit bool) *control.En
 	}
 }
 
-func (l *lifecycle) acceptEnvironmentImage(ctx context.Context, op *control.Operation, ev *control.CreationEvidence, info runtimeincus.BuilderImageInfo, hit bool) (string, error) {
+func (l *lifecycle) acceptEnvironmentImage(ctx context.Context, op *api.Operation, ev *control.CreationEvidence, info runtimeincus.BuilderImageInfo, hit bool) (string, error) {
 	s := ev.EnvironmentState
 	if s == nil || info.Fingerprint == "" || !maps.Equal(info.Properties, s.Properties) {
 		return "", errors.New("environment image acceptance changed")
@@ -443,7 +444,7 @@ func (l *lifecycle) acceptEnvironmentImage(ctx context.Context, op *control.Oper
 	return info.Fingerprint, nil
 }
 
-func (l *lifecycle) persistEnvironment(op *control.Operation, ev control.CreationEvidence, phase string) error {
+func (l *lifecycle) persistEnvironment(op *api.Operation, ev control.CreationEvidence, phase string) error {
 	data, err := json.Marshal(ev)
 	if err != nil || len(data) > 16384 {
 		return errors.New("environment creation evidence exceeds durable bound")

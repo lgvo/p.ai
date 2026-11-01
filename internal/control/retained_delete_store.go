@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type RetainedDeleteRequest struct {
@@ -34,16 +36,16 @@ func validRetainedDeleteEvidence(e RetainedDeleteEvidence) bool {
 
 // BeginRetainedDelete reserves the one unassigned ref only after a fresh full
 // loss review under gitAuthority. The callback must not re-enter Store locks.
-func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest, e RetainedDeleteEvidence, verify func(context.Context, RetainedDeleteEvidence) error) (Operation, error) {
+func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest, e RetainedDeleteEvidence, verify func(context.Context, RetainedDeleteEvidence) error) (api.Operation, error) {
 	if !validRetainedDeleteRequest(r) || !validRetainedDeleteEvidence(e) || r.Project != e.Project || r.Branch != e.Branch || verify == nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	expires, err := time.Parse(time.RFC3339Nano, e.PreviewExpiresAt)
 	if err != nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if err = s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	raw, _ := json.Marshal(r)
@@ -51,60 +53,60 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	err = s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, r.Key).Scan(&kind, &hash)
 	if err == nil {
 		if kind != "project.retained.delete" || hash != digest(raw) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return s.GetOperationByKey(ctx, r.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if !time.Now().Before(expires) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	if err = verify(ctx, e); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var row int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=? AND registry_state='active'`, r.Project).Scan(&row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrNotFound
+		return api.Operation{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=?`, r.Project, r.Branch).Scan(&row)
 	if err == nil {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if !time.Now().Before(expires) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	evRaw, _ := json.Marshal(e)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,'running','guarded',0,?,?,?)`, id, r.Key, "project.retained.delete", r.Project, string(raw), digest(raw), string(evRaw), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, r.Project, r.Branch, id); err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: r.Key, Kind: "project.retained.delete", Project: r.Project, Request: raw, Status: "running", Phase: "guarded", Evidence: evRaw, CreatedAt: now, UpdatedAt: now}, nil
+	return api.Operation{ID: id, Key: r.Key, Kind: "project.retained.delete", Project: r.Project, Request: raw, Status: "running", Phase: "guarded", Evidence: evRaw, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // IssueRetainedDelete holds the ref authority lock through final review, the
@@ -233,7 +235,7 @@ func (s *Store) CompleteRetainedDelete(ctx context.Context, id string, verify fu
 	return tx.Commit()
 }
 
-func (s *Store) UnfinishedRetainedDeletes(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedRetainedDeletes(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='project.retained.delete' AND status IN ('running','blocked','unknown') ORDER BY rowid`)
 	if err != nil {
 		return nil, err
@@ -253,7 +255,7 @@ func (s *Store) UnfinishedRetainedDeletes(ctx context.Context) ([]Operation, err
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Operation, 0, len(ids))
+	out := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {

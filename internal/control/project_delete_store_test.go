@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, ProjectDeleteEvidence) {
@@ -78,7 +80,7 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 	req := ProjectDeleteRequest{Key: "delete-bulk", Project: "bulk", TokenSHA256: strings.Repeat("a", 64)}
 	return s, dir, req, ev
 }
-func acceptProjectDelete(t *testing.T, s *Store, req ProjectDeleteRequest, ev ProjectDeleteEvidence) Operation {
+func acceptProjectDelete(t *testing.T, s *Store, req ProjectDeleteRequest, ev ProjectDeleteEvidence) api.Operation {
 	t.Helper()
 	op, e := s.BeginProjectDelete(context.Background(), req, ev, time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), func(context.Context) error { return nil })
 	if e != nil {

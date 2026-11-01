@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 const renameTestUUID = "550e8400-e29b-41d4-a716-446655440000"
@@ -36,7 +38,7 @@ func renameStoreFixture(t *testing.T) (*Store, string, RenameRequest, RenameEvid
 	return s, dir, r, e
 }
 
-func renameAdvance(t *testing.T, s *Store, op Operation, ev RenameEvidence, phase string, committed bool) Operation {
+func renameAdvance(t *testing.T, s *Store, op api.Operation, ev RenameEvidence, phase string, committed bool) api.Operation {
 	t.Helper()
 	raw, err := json.Marshal(ev)
 	if err != nil {

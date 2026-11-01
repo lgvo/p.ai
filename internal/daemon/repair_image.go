@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/environmentnix"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-func repairImageBuilder(op control.Operation, ev control.RepairEvidence) runtimeincus.Builder {
+func repairImageBuilder(op api.Operation, ev control.RepairEvidence) runtimeincus.Builder {
 	return runtimeincus.Builder{RequestUUID: op.ID, ProjectPath: ev.Project, CommitOID: ev.EnvironmentSourceCommit,
 		TreeOID: ev.BuilderTreeOID, BaseImageFingerprint: ev.Environment.BaseFingerprint, ContractVersion: "1"}
 }
@@ -24,7 +25,7 @@ func repairImageClaim(ev control.RepairEvidence) runtimeincus.BuilderImageClaim 
 		BuilderRequest: s.BuilderRequest, Properties: maps.Clone(s.Properties)}
 }
 
-func (l *lifecycle) repairImageAdvanceToReady(ctx context.Context, op *control.Operation, ev *control.RepairEvidence) error {
+func (l *lifecycle) repairImageAdvanceToReady(ctx context.Context, op *api.Operation, ev *control.RepairEvidence) error {
 	if ev.PreparationOperationID == "" || ev.Environment == nil || ev.EnvironmentSourceCommit != ev.AssignedTip ||
 		l.environmentIntent() == nil || *ev.Environment != *l.environmentIntent() {
 		return control.ErrConflict

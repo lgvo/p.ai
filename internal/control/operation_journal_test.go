@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // These tests state the shared operation-journal rules: which unfinished
@@ -85,7 +87,7 @@ func TestUnfinishedListsSelectKindsStatusesAndOrder(t *testing.T) {
 	byRowid := func(kind string) []string { return []string{kind + ":A", kind + ":B", kind + ":C"} }
 	for _, test := range []struct {
 		name string
-		list func(context.Context) ([]Operation, error)
+		list func(context.Context) ([]api.Operation, error)
 		want []string
 	}{
 		{"creates", s.UnfinishedCreates, byCreated("project.create", "session.create")},

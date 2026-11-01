@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -103,9 +104,9 @@ func ValidSessionCreateRequest(req ReserveSessionRequest) bool {
 // BeginSessionCreate compares the original request before calling capture. The
 // callback runs while receive-pack leases are excluded, so its observation and
 // the durable reservation agree on the ref boundary.
-func (s *Store) BeginSessionCreate(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture SourceCapture, environment ...*EnvironmentIntent) (Operation, Session, error) {
+func (s *Store) BeginSessionCreate(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture SourceCapture, environment ...*EnvironmentIntent) (api.Operation, Session, error) {
 	if capture == nil {
-		return Operation{}, Session{}, ErrInvalid
+		return api.Operation{}, Session{}, ErrInvalid
 	}
 	return s.BeginSessionCreateCaptured(ctx, req, image, selection, func(ctx context.Context, req ReserveSessionRequest) (CapturedSource, error) {
 		oid, existed, err := capture(ctx, req)
@@ -113,55 +114,55 @@ func (s *Store) BeginSessionCreate(ctx context.Context, req ReserveSessionReques
 	}, environment...)
 }
 
-func (s *Store) BeginSessionCreateCaptured(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture func(context.Context, ReserveSessionRequest) (CapturedSource, error), environment ...*EnvironmentIntent) (Operation, Session, error) {
+func (s *Store) BeginSessionCreateCaptured(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture func(context.Context, ReserveSessionRequest) (CapturedSource, error), environment ...*EnvironmentIntent) (api.Operation, Session, error) {
 	return s.beginSessionCreateCaptured(ctx, req, image, selection, capture, nil, environment...)
 }
 
-func (s *Store) BeginSessionCreateCapturedWithCapacity(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture func(context.Context, ReserveSessionRequest) (CapturedSource, error), observe CapacityObserver, environment ...*EnvironmentIntent) (Operation, Session, error) {
+func (s *Store) BeginSessionCreateCapturedWithCapacity(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture func(context.Context, ReserveSessionRequest) (CapturedSource, error), observe CapacityObserver, environment ...*EnvironmentIntent) (api.Operation, Session, error) {
 	return s.beginSessionCreateCaptured(ctx, req, image, selection, capture, observe, environment...)
 }
 
-func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture func(context.Context, ReserveSessionRequest) (CapturedSource, error), observe CapacityObserver, environment ...*EnvironmentIntent) (Operation, Session, error) {
+func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessionRequest, image string, selection CreationSelection, capture func(context.Context, ReserveSessionRequest) (CapturedSource, error), observe CapacityObserver, environment ...*EnvironmentIntent) (api.Operation, Session, error) {
 	if !ValidSessionCreateRequest(req) || capture == nil {
-		return Operation{}, Session{}, ErrInvalid
+		return api.Operation{}, Session{}, ErrInvalid
 	}
 	if len(environment) > 1 || len(environment) == 1 && environment[0] != nil && (!environment[0].Valid() || environment[0].BaseFingerprint != image) {
-		return Operation{}, Session{}, ErrInvalid
+		return api.Operation{}, Session{}, ErrInvalid
 	}
 	request, _ := json.Marshal(req)
 	// Exact durable replay does not inspect refs or require Git authority. A read
 	// transaction keeps the operation/session pair coherent across supersession.
-	replay := func() (Operation, Session, bool, error) {
+	replay := func() (api.Operation, Session, bool, error) {
 		tx, e := s.db.BeginTx(ctx, nil)
 		if e != nil {
-			return Operation{}, Session{}, true, e
+			return api.Operation{}, Session{}, true, e
 		}
 		defer tx.Rollback()
 		var journal int
 		e = tx.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM origin_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=? LIMIT 1`, req.Key, req.Key, req.Key).Scan(&journal)
 		if e == nil {
-			return Operation{}, Session{}, true, ErrConflict
+			return api.Operation{}, Session{}, true, ErrConflict
 		}
 		if !errors.Is(e, sql.ErrNoRows) {
-			return Operation{}, Session{}, true, e
+			return api.Operation{}, Session{}, true, e
 		}
 		var kind, hash string
 		e = tx.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &hash)
 		if errors.Is(e, sql.ErrNoRows) {
-			return Operation{}, Session{}, false, nil
+			return api.Operation{}, Session{}, false, nil
 		}
 		if e != nil {
-			return Operation{}, Session{}, true, e
+			return api.Operation{}, Session{}, true, e
 		}
 		if kind != "session.create" || hash != digest(request) {
-			return Operation{}, Session{}, true, ErrConflict
+			return api.Operation{}, Session{}, true, ErrConflict
 		}
 		op, e := getOperationTx(ctx, tx, req.Key)
 		if e != nil {
 			return op, Session{}, true, e
 		}
 		if digest(op.Request) != hash {
-			return Operation{}, Session{}, true, ErrConflict
+			return api.Operation{}, Session{}, true, ErrConflict
 		}
 		if op.Status == "superseded" {
 			return op, Session{}, true, nil
@@ -182,7 +183,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		return op, session, e
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	// Another admission may have completed while authority was contested.
@@ -190,41 +191,41 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		return op, session, e
 	}
 	if !validFingerprint(image) || !selection.Valid() {
-		return Operation{}, Session{}, ErrInvalid
+		return api.Operation{}, Session{}, ErrInvalid
 	}
 	if observe != nil {
 		if err := s.checkSessionAdmission(ctx, observe); err != nil {
-			return Operation{}, Session{}, err
+			return api.Operation{}, Session{}, err
 		}
 	}
 	selectionResult, err := capture(ctx, req)
 	if err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	oid, existed := selectionResult.OID, selectionResult.Existed
 	if !validOID(oid) || (req.Choice == "existing") != existed || (req.ExpectedOriginURL != "" && selectionResult.OriginURL != req.ExpectedOriginURL) || (req.OriginRef != "" && (selectionResult.OriginURL == "" || selectionResult.OriginRef != req.OriginRef || oid != req.ExpectedCommitOID)) || (req.OriginRef == "" && (selectionResult.OriginURL != "" || selectionResult.OriginRef != "")) {
-		return Operation{}, Session{}, ErrInvalid
+		return api.Operation{}, Session{}, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	defer tx.Rollback()
 	var policy, policyHash string
 	err = tx.QueryRowContext(ctx, `SELECT policy_json,policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, req.Project).Scan(&policy, &policyHash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, Session{}, ErrNotFound
+		return api.Operation{}, Session{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	sid, err := newUUID()
 	if err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	oidID, err := newUUID()
 	if err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	ev := CreationEvidence{RuntimeInitState: "not-attempted", CapturedOID: oid, BranchExisted: existed, ImageFingerprint: image, PolicySHA256: policyHash, RefCASIntent: req.Choice == "new", Selection: selection, OriginURL: selectionResult.OriginURL, OriginRef: selectionResult.OriginRef}
 	if len(environment) == 1 && environment[0] != nil {
@@ -234,22 +235,22 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 	}
 	evJSON, _ := json.Marshal(ev)
 	if len(evJSON) > 16384 {
-		return Operation{}, Session{}, ErrInvalid
+		return api.Operation{}, Session{}, ErrInvalid
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES(?,?,?,'creating',?,?)`, sid, req.Project, req.Branch, policy, policyHash); err != nil {
-		return Operation{}, Session{}, classifyWrite(err)
+		return api.Operation{}, Session{}, classifyWrite(err)
 	}
 	if err = reservePublicAddressTx(ctx, tx, sid, json.RawMessage(policy)); err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'running','source-ready',0,?,?,?)`, oidID, req.Key, "session.create", req.Project, sid, string(request), digest(request), string(evJSON), now, now); err != nil {
-		return Operation{}, Session{}, classifyWrite(err)
+		return api.Operation{}, Session{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, Session{}, err
+		return api.Operation{}, Session{}, err
 	}
-	return Operation{ID: oidID, Key: req.Key, Kind: "session.create", Project: req.Project, SessionUUID: sid, Request: request, Status: "running", Phase: "source-ready", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, Session{UUID: sid, Project: req.Project, Branch: req.Branch, Registry: "creating", Policy: json.RawMessage(policy), PolicySHA256: policyHash}, nil
+	return api.Operation{ID: oidID, Key: req.Key, Kind: "session.create", Project: req.Project, SessionUUID: sid, Request: request, Status: "running", Phase: "source-ready", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, Session{UUID: sid, Project: req.Project, Branch: req.Branch, Registry: "creating", Policy: json.RawMessage(policy), PolicySHA256: policyHash}, nil
 }
 
 func (s *Store) CheckOriginKeyConflict(ctx context.Context, key string) error {
@@ -312,23 +313,23 @@ type BlankProjectEvidence struct {
 
 // BeginBlankProject persists the UUID and immutable trusted selection before
 // Git initialization. A completed duplicate returns without reading new policy.
-func (s *Store) BeginBlankProject(ctx context.Context, req BlankProjectRequest, policy json.RawMessage, image string, selection CreationSelection) (Operation, error) {
+func (s *Store) BeginBlankProject(ctx context.Context, req BlankProjectRequest, policy json.RawMessage, image string, selection CreationSelection) (api.Operation, error) {
 	return s.beginBlankProject(ctx, req, policy, image, selection, nil)
 }
 
-func (s *Store) BeginBlankProjectWithCapacity(ctx context.Context, req BlankProjectRequest, policy json.RawMessage, image string, selection CreationSelection, observe CapacityObserver) (Operation, error) {
+func (s *Store) BeginBlankProjectWithCapacity(ctx context.Context, req BlankProjectRequest, policy json.RawMessage, image string, selection CreationSelection, observe CapacityObserver) (api.Operation, error) {
 	return s.beginBlankProject(ctx, req, policy, image, selection, observe)
 }
 
-func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, policy json.RawMessage, image string, selection CreationSelection, observe CapacityObserver) (Operation, error) {
+func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, policy json.RawMessage, image string, selection CreationSelection, observe CapacityObserver) (api.Operation, error) {
 	if e := s.checkRetiredKey(ctx, req.Key); e != nil {
-		return Operation{}, e
+		return api.Operation{}, e
 	}
 	if len(req.Key) < 1 || len(req.Key) > 128 || !validProject(req.Project) || len(req.URL) > 2048 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	request, _ := json.Marshal(req)
@@ -336,54 +337,54 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &hash)
 	if err == nil {
 		if kind != "project.create" || hash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return s.GetOperationByKey(ctx, req.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	var present int
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM operations WHERE kind='project.create' AND project_path=? AND status IN ('running','blocked','unknown') LIMIT 1`, req.Project).Scan(&present)
 	if err == nil {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if !validFingerprint(image) || !selection.Valid() {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if observe != nil {
 		if err := s.checkSessionAdmission(ctx, observe); err != nil {
-			return Operation{}, err
+			return api.Operation{}, err
 		}
 	}
 	normalized, err := normalizedObject(policy)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if len(normalized) > 8192 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=?`, req.Project).Scan(&present)
 	if err == nil {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	sid, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	opID, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	evJSON, _ := json.Marshal(BlankProjectEvidence{Policy: normalized, PolicySHA256: digest(normalized), ImageFingerprint: image, Selection: selection, BootstrapUUID: sid})
 	if len(evJSON) > 16384 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	var operationSession any = sid
@@ -392,13 +393,13 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,evidence_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'running','repo-pending',?,?,?)`, opID, req.Key, "project.create", req.Project, operationSession, string(request), digest(request), string(evJSON), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	opSession := sid
 	if req.URL != "" {
 		opSession = ""
 	}
-	return Operation{ID: opID, Key: req.Key, Kind: "project.create", Project: req.Project, SessionUUID: opSession, Request: request, Status: "running", Phase: "repo-pending", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, nil
+	return api.Operation{ID: opID, Key: req.Key, Kind: "project.create", Project: req.Project, SessionUUID: opSession, Request: request, Status: "running", Phase: "repo-pending", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // CommitBlankProject is the only transition that exposes a new project to Git
@@ -413,7 +414,7 @@ func (s *Store) CommitBlankProject(ctx context.Context, opID string) (Session, e
 		return Session{}, err
 	}
 	defer tx.Rollback()
-	var op Operation
+	var op api.Operation
 	var evRaw string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,session_uuid,phase,evidence_json FROM operations WHERE id=? AND kind='project.create'`, opID).Scan(&op.Project, &op.SessionUUID, &op.Phase, &evRaw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -515,13 +516,13 @@ func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []plu
 	return Session{UUID: ev.BootstrapUUID, Project: project, Branch: "main", Registry: "creating", Policy: ev.Policy, PolicySHA256: ev.PolicySHA256}, true, nil
 }
 
-func (s *Store) GetOperationByKey(ctx context.Context, key string) (Operation, error) {
+func (s *Store) GetOperationByKey(ctx context.Context, key string) (api.Operation, error) {
 	if e := s.checkRetiredKey(ctx, key); e != nil {
-		return Operation{}, e
+		return api.Operation{}, e
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	op, err := getOperationTx(ctx, tx, key)
@@ -530,30 +531,30 @@ func (s *Store) GetOperationByKey(ctx context.Context, key string) (Operation, e
 	}
 	return op, err
 }
-func (s *Store) GetOperation(ctx context.Context, id string) (Operation, error) {
+func (s *Store) GetOperation(ctx context.Context, id string) (api.Operation, error) {
 	var key string
 	err := s.db.QueryRowContext(ctx, `SELECT idempotency_key FROM operations WHERE id=?`, id).Scan(&key)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrNotFound
+		return api.Operation{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	return s.GetOperationByKey(ctx, key)
 }
 
-func (s *Store) CreationForSession(ctx context.Context, id string) (Operation, error) {
+func (s *Store) CreationForSession(ctx context.Context, id string) (api.Operation, error) {
 	var opID string
 	err := s.db.QueryRowContext(ctx, `SELECT id FROM operations WHERE session_uuid=? AND kind IN ('project.create','session.create') ORDER BY created_at LIMIT 1`, id).Scan(&opID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrNotFound
+		return api.Operation{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	return s.GetOperation(ctx, opID)
 }
-func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]Operation, string, error) {
+func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]api.Operation, string, error) {
 	if limit < 1 || limit > 100 || len(after) > 128 {
 		return nil, "", ErrInvalid
 	}
@@ -581,7 +582,7 @@ func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]
 		next = ids[limit-1]
 		ids = ids[:limit]
 	}
-	ops := make([]Operation, 0, len(ids))
+	ops := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {
@@ -623,7 +624,7 @@ func (s *Store) ListSessions(ctx context.Context, after string, limit int) ([]Se
 	}
 	return sessions, next, nil
 }
-func (s *Store) UnfinishedCreates(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedCreates(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN ('project.create','session.create') AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -643,7 +644,7 @@ func (s *Store) UnfinishedCreates(ctx context.Context) ([]Operation, error) {
 	if err = rows.Close(); err != nil {
 		return nil, err
 	}
-	ops := make([]Operation, 0, len(ids))
+	ops := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		v, e := s.GetOperation(ctx, id)
 		if e != nil {
@@ -763,7 +764,7 @@ func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
 	return tx.Commit()
 }
 
-func Evidence(op Operation) (CreationEvidence, error) {
+func Evidence(op api.Operation) (CreationEvidence, error) {
 	var ev CreationEvidence
 	if err := json.Unmarshal(op.Evidence, &ev); err != nil {
 		return ev, fmt.Errorf("creation evidence: %w", err)

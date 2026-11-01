@@ -8,19 +8,9 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
-)
 
-// UnattendedCondition is the last valid report received with no confirmed
-// attachment. It is an observation, not an assertion of current agent state.
-type UnattendedCondition struct {
-	Condition       string `json:"condition"`
-	Source          string `json:"source,omitempty"`
-	Reason          string `json:"reason,omitempty"`
-	Adapter         string `json:"adapter,omitempty"`
-	AdapterVersion  string `json:"adapter_version,omitempty"`
-	ReceivedAt      string `json:"received_at"`
-	ReceiveSequence int64  `json:"receive_sequence"`
-}
+	"github.com/lgvo/p.ai/internal/api"
+)
 
 type StatusReport struct {
 	V              int    `json:"v"`
@@ -80,27 +70,27 @@ func (s *Store) AllowSessionAttempt(id string) bool {
 
 // RecordStatus serializes receiving, rate control, and attachment transitions.
 // Its boolean indicates a committed unattended change eligible for event delivery.
-func (s *Store) RecordStatus(ctx context.Context, id string, report StatusReport) (UnattendedCondition, bool, error) {
+func (s *Store) RecordStatus(ctx context.Context, id string, report StatusReport) (api.UnattendedCondition, bool, error) {
 	return s.RecordStatusWithCommit(ctx, id, report, nil)
 }
 
 // RecordStatusWithCommit invokes a nonblocking callback while statusMu still
 // orders this committed report against attachment transitions and other reports.
-func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report StatusReport, onCommitted func(UnattendedCondition)) (UnattendedCondition, bool, error) {
+func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report StatusReport, onCommitted func(api.UnattendedCondition)) (api.UnattendedCondition, bool, error) {
 	if len(id) != 36 || !report.Valid() {
-		return UnattendedCondition{}, false, ErrInvalid
+		return api.UnattendedCondition{}, false, ErrInvalid
 	}
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
 	var registry string
 	if err := s.db.QueryRowContext(ctx, `SELECT registry_state FROM sessions WHERE uuid=?`, id).Scan(&registry); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return UnattendedCondition{}, false, ErrNotFound
+			return api.UnattendedCondition{}, false, ErrNotFound
 		}
-		return UnattendedCondition{}, false, err
+		return api.UnattendedCondition{}, false, err
 	}
 	if registry != "established" {
-		return UnattendedCondition{}, false, ErrConflict
+		return api.UnattendedCondition{}, false, ErrConflict
 	}
 	now := time.Now().UTC()
 	rate := s.statusRates[id]
@@ -111,33 +101,33 @@ func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report St
 		rate.minuteStart, rate.minuteCount = now, 0
 	}
 	if rate.secondCount >= 20 || rate.minuteCount >= 240 {
-		return UnattendedCondition{}, false, ErrRateLimited
+		return api.UnattendedCondition{}, false, ErrRateLimited
 	}
 	rate.secondCount++
 	rate.minuteCount++
 	s.statusRates[id] = rate
 	if s.attachments[id] != 0 {
-		return UnattendedCondition{}, false, nil
+		return api.UnattendedCondition{}, false, nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return UnattendedCondition{}, false, err
+		return api.UnattendedCondition{}, false, err
 	}
 	defer tx.Rollback()
 	var seq int64
 	if err = tx.QueryRowContext(ctx, `SELECT next_value FROM status_sequence WHERE id=1`).Scan(&seq); err != nil {
-		return UnattendedCondition{}, false, err
+		return api.UnattendedCondition{}, false, err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE status_sequence SET next_value=? WHERE id=1`, seq+1); err != nil {
-		return UnattendedCondition{}, false, err
+		return api.UnattendedCondition{}, false, err
 	}
-	value := UnattendedCondition{Condition: report.Condition, Source: report.Source, Reason: report.Reason, Adapter: report.Adapter, AdapterVersion: report.AdapterVersion, ReceivedAt: now.Format(time.RFC3339Nano), ReceiveSequence: seq}
+	value := api.UnattendedCondition{Condition: report.Condition, Source: report.Source, Reason: report.Reason, Adapter: report.Adapter, AdapterVersion: report.AdapterVersion, ReceivedAt: now.Format(time.RFC3339Nano), ReceiveSequence: seq}
 	_, err = tx.ExecContext(ctx, `INSERT INTO session_unattended(session_uuid,condition,source,reason,adapter,adapter_version,received_at,receive_sequence) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(session_uuid) DO UPDATE SET condition=excluded.condition,source=excluded.source,reason=excluded.reason,adapter=excluded.adapter,adapter_version=excluded.adapter_version,received_at=excluded.received_at,receive_sequence=excluded.receive_sequence`, id, value.Condition, value.Source, value.Reason, value.Adapter, value.AdapterVersion, value.ReceivedAt, value.ReceiveSequence)
 	if err != nil {
-		return UnattendedCondition{}, false, err
+		return api.UnattendedCondition{}, false, err
 	}
 	if err = tx.Commit(); err != nil {
-		return UnattendedCondition{}, false, err
+		return api.UnattendedCondition{}, false, err
 	}
 	if onCommitted != nil {
 		onCommitted(value)
@@ -147,10 +137,10 @@ func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report St
 
 var ErrRateLimited = errors.New("session status rate limited")
 
-func (s *Store) SessionStatus(ctx context.Context, id string) (int, *UnattendedCondition, error) {
+func (s *Store) SessionStatus(ctx context.Context, id string) (int, *api.UnattendedCondition, error) {
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()
-	var v UnattendedCondition
+	var v api.UnattendedCondition
 	err := s.db.QueryRowContext(ctx, `SELECT condition,source,reason,adapter,adapter_version,received_at,receive_sequence FROM session_unattended WHERE session_uuid=?`, id).Scan(&v.Condition, &v.Source, &v.Reason, &v.Adapter, &v.AdapterVersion, &v.ReceivedAt, &v.ReceiveSequence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return s.attachments[id], nil, nil

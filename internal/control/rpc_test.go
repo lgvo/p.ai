@@ -8,41 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
-
-type strictDecodeCustom struct{ Seen bool }
-
-func (c *strictDecodeCustom) UnmarshalJSON(data []byte) error { c.Seen = len(data) > 0; return nil }
-
-func TestStrictDecodeExactTagsRecursively(t *testing.T) {
-	type nested struct {
-		Name string `json:"name"`
-	}
-	type payload struct {
-		V      int                `json:"v"`
-		Nested nested             `json:"nested"`
-		List   []nested           `json:"list"`
-		Values map[string]nested  `json:"values"`
-		Raw    json.RawMessage    `json:"raw"`
-		Custom strictDecodeCustom `json:"custom"`
-	}
-	for _, raw := range []string{
-		`{"V":2,"v":1}`,
-		`{"v":1,"Nested":{"name":"x"}}`,
-		`{"v":1,"nested":{"Name":"x"}}`,
-		`{"v":1,"list":[{"Name":"x"}]}`,
-		`{"v":1,"values":{"Arbitrary":{"Name":"x"}}}`,
-	} {
-		var p payload
-		if err := strictDecode([]byte(raw), &p); err == nil {
-			t.Fatalf("accepted inexact struct field: %s", raw)
-		}
-	}
-	var p payload
-	if err := strictDecode([]byte(`{"v":1,"nested":{"name":"ok"},"list":[{"name":"ok"}],"values":{"MixedCase":{"name":"ok"}},"raw":{"Arbitrary":"ok"},"custom":{"Arbitrary":"ok"}}`), &p); err != nil || !p.Custom.Seen || p.Values["MixedCase"].Name != "ok" {
-		t.Fatalf("rejected intentional key space: %+v %v", p, err)
-	}
-}
 
 func TestRPCFramingVersionAndUnavailableMethods(t *testing.T) {
 	store, _ := openTestStore(t)
@@ -74,7 +42,7 @@ func TestRPCFramingVersionAndUnavailableMethods(t *testing.T) {
 			t.Fatal(err)
 		}
 		var response struct {
-			Error  *RPCError       `json:"error"`
+			Error  *api.RPCError   `json:"error"`
 			Result json.RawMessage `json:"result"`
 		}
 		if err := json.Unmarshal(line, &response); err != nil {
@@ -96,7 +64,7 @@ func TestRPCDaemonShutdownClosesExistingConnection(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		ServeConn(ctx, server, func(context.Context, string, json.RawMessage) (any, *RPCError) { return nil, nil })
+		ServeConn(ctx, server, func(context.Context, string, json.RawMessage) (any, *api.RPCError) { return nil, nil })
 		close(done)
 	}()
 	cancel()
@@ -111,7 +79,7 @@ func TestRPCCancellationAndBoundedFrame(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()
 	started := make(chan struct{})
-	handler := func(ctx context.Context, method string, _ json.RawMessage) (any, *RPCError) {
+	handler := func(ctx context.Context, method string, _ json.RawMessage) (any, *api.RPCError) {
 		close(started)
 		<-ctx.Done()
 		return nil, internalRPC(ctx.Err())
@@ -139,7 +107,7 @@ func TestRPCCancellationAndBoundedFrame(t *testing.T) {
 	oversizeClient, oversizeServer := net.Pipe()
 	defer oversizeClient.Close()
 	go ServeConn(context.Background(), oversizeServer, handler)
-	go oversizeClient.Write([]byte(strings.Repeat("x", MaxFrameBytes+2) + "\n"))
+	go oversizeClient.Write([]byte(strings.Repeat("x", api.MaxFrameBytes+2) + "\n"))
 	oversizeClient.SetReadDeadline(time.Now().Add(2 * time.Second))
 	line, err = bufio.NewReader(oversizeClient).ReadBytes('\n')
 	if err != nil || !strings.Contains(string(line), `"parse_error"`) {
@@ -152,8 +120,8 @@ func TestRPCRejectsInvalidHandlerEnvelopes(t *testing.T) {
 		name    string
 		handler Handler
 	}{
-		{"neither", func(context.Context, string, json.RawMessage) (any, *RPCError) { return nil, nil }},
-		{"both", func(context.Context, string, json.RawMessage) (any, *RPCError) {
+		{"neither", func(context.Context, string, json.RawMessage) (any, *api.RPCError) { return nil, nil }},
+		{"both", func(context.Context, string, json.RawMessage) (any, *api.RPCError) {
 			return map[string]any{"v": 1}, errorRPC(-32602, "invalid_params", "bad")
 		}},
 	} {
@@ -194,7 +162,7 @@ func TestClientCallsPrivateSocket(t *testing.T) {
 	}
 	callCtx, callCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer callCancel()
-	response, err := Call(callCtx, socket, "system.health", json.RawMessage(`{"v":1}`))
+	response, err := api.Call(callCtx, socket, "system.health", json.RawMessage(`{"v":1}`))
 	if err != nil || !strings.Contains(string(response), `"control_state":"ready"`) {
 		t.Fatalf("client health: %s %v", response, err)
 	}

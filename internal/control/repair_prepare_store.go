@@ -7,6 +7,8 @@ import (
 	"errors"
 	"regexp"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 var repairDerivationPath = regexp.MustCompile(`^/nix/store/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+\.drv$`)
@@ -63,9 +65,9 @@ func validRepairPreparation(e RepairPreparation) bool {
 	}
 }
 
-func (s *Store) BeginRepairPreparation(ctx context.Context, key, uuid string, ev RepairPreparation, observe func(context.Context) error, capacity CapacityObserver) (Operation, error) {
+func (s *Store) BeginRepairPreparation(ctx context.Context, key, uuid string, ev RepairPreparation, observe func(context.Context) error, capacity CapacityObserver) (api.Operation, error) {
 	if len(key) == 0 || len(key) > 128 || !validUUID(uuid) || !validRepairPreparation(ev) || ev.EnvironmentSelection != "" || observe == nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(struct {
 		Key  string `json:"key"`
@@ -73,67 +75,67 @@ func (s *Store) BeginRepairPreparation(ctx context.Context, key, uuid string, ev
 	}{key, uuid})
 	evidence, _ := json.Marshal(ev)
 	if len(evidence) > 4096 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	var priorKind, priorHash string
 	err := s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, key).Scan(&priorKind, &priorHash)
 	if err == nil {
 		if priorKind != "session.repair.prepare" || priorHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return s.GetOperationByKey(ctx, key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if err = observe(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if err = s.checkSessionRepairCapacity(ctx, capacity); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var project, branch, policy, registry string
 	if err = tx.QueryRowContext(ctx, `SELECT project_path,branch,policy_sha256,registry_state FROM sessions WHERE uuid=?`, uuid).Scan(&project, &branch, &policy, &registry); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if project != ev.Project || branch != ev.Branch || policy != ev.PolicySHA256 || registry != "established" {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var currentPolicy string
 	if err = tx.QueryRowContext(ctx, `SELECT policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&currentPolicy); err != nil || currentPolicy != ev.PolicySHA256 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var credential string
 	var active int
 	if err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, uuid).Scan(&credential, &active); err != nil || credential != ev.CredentialFingerprint || active != 1 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,'running','reserved',0,?,?,?)`, id, key, "session.repair.prepare", project, uuid, string(request), digest(request), string(evidence), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, project, branch, id); err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: key, Kind: "session.repair.prepare", Project: project, SessionUUID: uuid, Request: request, Status: "running", Phase: "reserved", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
+	return api.Operation{ID: id, Key: key, Kind: "session.repair.prepare", Project: project, SessionUUID: uuid, Request: request, Status: "running", Phase: "reserved", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (s *Store) CompleteRepairPreparation(ctx context.Context, id string, verify func(context.Context, RepairPreparation) error) error {
@@ -259,7 +261,7 @@ func (s *Store) FailRepairPreparationAfterCleanup(ctx context.Context, id string
 	return tx.Commit()
 }
 
-func (s *Store) UnfinishedRepairPreparations(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedRepairPreparations(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.repair.prepare' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -279,7 +281,7 @@ func (s *Store) UnfinishedRepairPreparations(ctx context.Context) ([]Operation, 
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Operation, 0, len(ids))
+	result := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {

@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -106,7 +107,7 @@ func (l *lifecycle) PreviewRecordRepair(ctx context.Context, uuid string) (contr
 	expiry := time.Now().Add(repairPreviewTTL)
 	p.ConfirmationToken, p.ExpiresAt = hex.EncodeToString(token[:]), expiry.UTC().Format(time.RFC3339Nano)
 	encoded, err := json.Marshal(map[string]any{"v": 1, "preview": p})
-	if err != nil || len(encoded) > control.MaxFrameBytes-1024 {
+	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
 		return control.RecordRepairPreview{}, errors.New("record repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
@@ -127,13 +128,13 @@ func (l *lifecycle) PreviewRecordRepair(ctx context.Context, uuid string) (contr
 	return p, nil
 }
 
-func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token string) (control.Operation, error) {
+func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token string) (api.Operation, error) {
 	if key == "" || len(key) > 128 || len(uuid) != 36 || len(token) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	hash := sha256.Sum256([]byte(token))
@@ -141,28 +142,28 @@ func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token st
 	if prior, e := l.store.GetOperationByKey(ctx, key); e == nil {
 		var saved control.RecordRepairRequest
 		if prior.Kind != "session.record.repair" || json.Unmarshal(prior.Request, &saved) != nil || saved != req {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(e, control.ErrNotFound) {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	l.mu.Lock()
 	state, found := l.recordRepairPreviews[token]
 	l.mu.Unlock()
 	if !found || !time.Now().Before(state.Expiry) || !state.Preview.Eligible || state.Preview.SessionUUID != uuid {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	p, err := l.recordRepairFacts(ctx, uuid)
 	if err != nil || !p.Eligible {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	p.ConfirmationToken, p.ExpiresAt = state.Preview.ConfirmationToken, state.Preview.ExpiresAt
 	if !reflect.DeepEqual(p, state.Preview) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	ev := control.RecordRepairEvidence{Project: p.Project, Branch: p.Branch, Principal: p.Principal,
 		PrincipalActive: p.PrincipalActive, ExternalAuthority: p.ExternalAuthority,
@@ -171,11 +172,11 @@ func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token st
 		ExpiresAt: state.Expiry.UTC().Format(time.RFC3339Nano)}
 	s, err := l.store.GetSession(ctx, uuid)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	op, err := l.store.BeginRecordRepair(ctx, req, ev, func(call context.Context) error { return l.recordRepairAbsence(call, s) })
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	delete(l.recordRepairPreviews, token)
@@ -186,7 +187,7 @@ func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token st
 	return op, nil
 }
 
-func (l *lifecycle) blockRecordRepair(op control.Operation, cause error) {
+func (l *lifecycle) blockRecordRepair(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -197,7 +198,7 @@ func (l *lifecycle) blockRecordRepair(op control.Operation, cause error) {
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
 }
 
-func (l *lifecycle) processRecordRepair(op control.Operation) {
+func (l *lifecycle) processRecordRepair(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

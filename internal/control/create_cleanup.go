@@ -1,6 +1,10 @@
 package control
 
-import "context"
+import (
+	"context"
+
+	"github.com/lgvo/p.ai/internal/api"
+)
 
 // CreationBuilderState tracks a settled owned builder across immutable retries.
 // An attempted-but-absent builder can still represent delayed native admission.
@@ -53,7 +57,7 @@ func SafeCreateCleanupEvidence(req ReserveSessionRequest, ev CreationEvidence) b
 	}
 	return validOID(ev.BuilderTreeOID) && ev.Environment != nil && ev.EnvironmentBuilder != nil && ev.EnvironmentBuilder.Valid() && (ev.EnvironmentBuilder.State == "not-attempted" || ev.EnvironmentBuilder.State == "absent")
 }
-func SafeCreateCleanupPhase(op Operation) bool {
+func SafeCreateCleanupPhase(op api.Operation) bool {
 	return op.Phase == "source-ready" && !op.Committed || (op.Phase == "branch-assigned" || op.Phase == "principals-ready") && op.Committed
 }
 
@@ -86,7 +90,7 @@ type CreateCleanupEvidence struct {
 }
 type CreateCleanupAPI interface {
 	PreviewCreateCleanup(context.Context, string) (CreateCleanupPreview, error)
-	ConfirmCreateCleanup(context.Context, string, string, string) (Operation, error)
+	ConfirmCreateCleanup(context.Context, string, string, string) (api.Operation, error)
 }
 
 type AssembledCreateCleanupAPI interface {

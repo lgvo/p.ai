@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/environmentnix"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -18,54 +19,54 @@ type repairPrepareRequest struct {
 
 // PrepareRepair resolves an exact committed P tip in a disposable restricted
 // builder. It never creates the session runtime or grants repair authority.
-func (l *lifecycle) PrepareRepair(ctx context.Context, key, uuid string) (control.Operation, error) {
+func (l *lifecycle) PrepareRepair(ctx context.Context, key, uuid string) (api.Operation, error) {
 	if len(key) == 0 || len(key) > 128 || len(uuid) != 36 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	if prior, err := l.store.GetOperationByKey(ctx, key); err == nil {
 		var req repairPrepareRequest
 		if prior.Kind != "session.repair.prepare" || json.Unmarshal(prior.Request, &req) != nil || req.Key != key || req.UUID != uuid {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(err, control.ErrNotFound) {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	preview, err := l.PreviewRepair(ctx, uuid)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if preview.BlockedReason != "recorded_image_missing" || preview.ImageStatus != "missing" || preview.AssignedTip == "" {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	s, err := l.store.GetSession(ctx, uuid)
 	if err != nil || s.Registry != "established" || s.Project != preview.Project || s.Branch != preview.Branch || s.PolicySHA256 != preview.PolicySHA256 {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	selection, creation, err := l.repairSelection(ctx, s)
 	if err != nil || selection != l.selection() || creation == nil || creation.Environment == nil || creation.EnvironmentState == nil || l.environmentIntent() == nil || *creation.Environment != *l.environmentIntent() {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	// The pinned base image is the builder's own root. Its absence is a
 	// separate prerequisite failure, never a reason to substitute a host image.
 	basePresent, err := l.runtime.ImagePresent(ctx, creation.Environment.BaseFingerprint)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if !basePresent || creation.Environment.BaseFingerprint != l.cfg.BaseImageFingerprint {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil || native.ImageFingerprint != preview.ImageFingerprint {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	ev := control.RepairPreparation{Project: s.Project, Branch: s.Branch, AssignedTip: preview.AssignedTip,
 		PolicySHA256: s.PolicySHA256, CredentialFingerprint: preview.CredentialFingerprint,
@@ -76,10 +77,10 @@ func (l *lifecycle) PrepareRepair(ctx context.Context, key, uuid string) (contro
 		ev.RecordedEnvironmentKey = creation.EnvironmentState.Key
 	}
 	if accepted, ok, e := l.store.AcceptedRepairImage(ctx, uuid); e != nil {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	} else if ok {
 		if accepted.ImageFingerprint != native.ImageFingerprint {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if accepted.EnvironmentState != nil {
 			ev.RecordedEnvironmentKey = accepted.EnvironmentState.Key
@@ -114,7 +115,7 @@ func (l *lifecycle) PrepareRepair(ctx context.Context, key, uuid string) (contro
 	}
 	op, err := l.store.BeginRepairPreparation(ctx, key, uuid, ev, verify, l.observeSessionCapacity)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err = l.enqueue(op.ID); err != nil {
 		return op, err
@@ -122,7 +123,7 @@ func (l *lifecycle) PrepareRepair(ctx context.Context, key, uuid string) (contro
 	return op, nil
 }
 
-func (l *lifecycle) repairPrepareAdvance(op *control.Operation, ev control.RepairPreparation, phase string) error {
+func (l *lifecycle) repairPrepareAdvance(op *api.Operation, ev control.RepairPreparation, phase string) error {
 	raw, err := json.Marshal(ev)
 	if err != nil || len(raw) > 4096 {
 		return control.ErrInvalid
@@ -135,7 +136,7 @@ func (l *lifecycle) repairPrepareAdvance(op *control.Operation, ev control.Repai
 	return nil
 }
 
-func (l *lifecycle) repairPrepareBlock(op control.Operation, err error) {
+func (l *lifecycle) repairPrepareBlock(op api.Operation, err error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -146,13 +147,13 @@ func (l *lifecycle) repairPrepareBlock(op control.Operation, err error) {
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
 }
 
-func repairBuilder(op control.Operation, ev control.RepairPreparation) runtimeincus.Builder {
+func repairBuilder(op api.Operation, ev control.RepairPreparation) runtimeincus.Builder {
 	return runtimeincus.Builder{RequestUUID: op.ID, ProjectPath: ev.Project,
 		CommitOID: ev.AssignedTip, TreeOID: ev.BuilderTreeOID,
 		BaseImageFingerprint: ev.Environment.BaseFingerprint, ContractVersion: "1"}
 }
 
-func (l *lifecycle) processRepairPrepare(op control.Operation) {
+func (l *lifecycle) processRepairPrepare(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

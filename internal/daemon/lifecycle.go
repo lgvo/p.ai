@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -398,9 +399,9 @@ func (l *lifecycle) dispatchLocked() {
 // Recovery and polling share the full set of durable workflow kinds. Callers
 // retain their distinct eligibility rules: recovery may reconcile eligible
 // blocked intents once, while periodic polling only dispatches running work.
-func (l *lifecycle) unfinishedOperations() ([]control.Operation, error) {
-	var ops []control.Operation
-	for _, list := range []func(context.Context) ([]control.Operation, error){
+func (l *lifecycle) unfinishedOperations() ([]api.Operation, error) {
+	var ops []api.Operation
+	for _, list := range []func(context.Context) ([]api.Operation, error){
 		l.store.UnfinishedCreates,
 		l.store.UnfinishedEnvironmentCollections,
 		l.store.UnfinishedProjectDeletes,
@@ -475,14 +476,14 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 	}
 }
 
-func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectRequest) (control.Operation, error) {
+func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectRequest) (api.Operation, error) {
 	_, priorErr := l.store.GetOperationByKey(ctx, req.Key)
 	if errors.Is(priorErr, control.ErrConflict) {
-		return control.Operation{}, priorErr
+		return api.Operation{}, priorErr
 	}
 	if req.URL != "" {
 		if err := gitservice.ValidateOriginURL(req.URL); err != nil {
-			return control.Operation{}, control.ErrInvalid
+			return api.Operation{}, control.ErrInvalid
 		}
 	}
 	var policy []byte
@@ -496,10 +497,10 @@ func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectR
 			policy, _, snapshotErr = control.ProjectPolicySnapshot(captured)
 		}
 		if snapshotErr != nil {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 	} else if errors.Is(priorErr, control.ErrNotFound) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	op, err := l.store.BeginBlankProjectWithCapacity(ctx, req, policy, l.cfg.BaseImageFingerprint, l.selection(), l.observeSessionCapacity)
 	if err != nil {
@@ -515,25 +516,25 @@ func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectR
 	}
 	return op, nil
 }
-func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessionRequest) (control.Operation, error) {
+func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessionRequest) (api.Operation, error) {
 	if !control.ValidSessionCreateRequest(req) {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	_, priorErr := l.store.GetOperationByKey(ctx, req.Key)
 	if errors.Is(priorErr, control.ErrConflict) {
-		return control.Operation{}, priorErr
+		return api.Operation{}, priorErr
 	}
 	if _, configured := l.cfg.PolicyForProject(req.Project); !configured && errors.Is(priorErr, control.ErrNotFound) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	if errors.Is(priorErr, control.ErrNotFound) {
 		if err := l.currentProjectPolicy(ctx, req.Project); err != nil {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 	}
 	if req.OriginRef != "" {
 		if err := l.store.CheckOriginKeyConflict(ctx, req.Key); err != nil {
-			return control.Operation{}, err
+			return api.Operation{}, err
 		}
 		if priorErr == nil {
 			op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error) {
@@ -549,7 +550,7 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 			}
 			return op, nil
 		}
-		var op control.Operation
+		var op api.Operation
 		var err error
 		err = l.git.backend.WithOrigin(ctx, req.Project, func(scope *gitservice.OriginScope) error {
 			state, _, e := l.store.Origin(ctx, req.Project)
@@ -630,7 +631,7 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 	}
 	return op, nil
 }
-func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, error) {
+func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error) {
 	op, err := l.store.GetOperation(ctx, id)
 	if err != nil {
 		return op, err
@@ -641,7 +642,7 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (control.Operation, er
 	if op.Status == "superseded" {
 		return op, control.ErrConflict
 	}
-	if control.WorkspaceInspectionRequiresFreshRequest(op) {
+	if api.WorkspaceInspectionRequiresFreshRequest(op) {
 		return op, control.ErrConflict
 	}
 	if op.Kind == "session.create.cleanup" && op.Status == "failed" && op.Phase == "stale" {
@@ -1075,7 +1076,7 @@ func (l *lifecycle) startOwned(ctx context.Context, scoped runtimeincus.Scoped) 
 	return err
 }
 
-func (l *lifecycle) advance(op *control.Operation, phase string, committed bool) error {
+func (l *lifecycle) advance(op *api.Operation, phase string, committed bool) error {
 	if phaseRank(op.Phase) > phaseRank(phase) {
 		return nil
 	}
@@ -1324,7 +1325,7 @@ func (l *lifecycle) registryCondition(ctx context.Context, s control.Session) (s
 	}
 }
 
-func (l *lifecycle) InspectSession(ctx context.Context, id string) (result control.SessionView, resultErr error) {
+func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.SessionView, resultErr error) {
 	defer func() {
 		if resultErr != nil {
 			return
@@ -1340,16 +1341,16 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result contr
 	}()
 	s, err := l.store.GetSession(ctx, id)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	v := control.NewSessionView(s)
 	created, err := l.store.CreationForSession(ctx, s.UUID)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	v.Environment = control.CreationEnvironmentView(created)
 	if accepted, ok, e := l.store.AcceptedRepairImage(ctx, s.UUID); e != nil {
-		return control.SessionView{}, e
+		return api.SessionView{}, e
 	} else if ok {
 		if repaired := control.AcceptedRepairEnvironmentView(accepted); repaired != nil {
 			v.Environment = repaired
@@ -1409,10 +1410,10 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result contr
 	return v, nil
 }
 
-func (l *lifecycle) StartSession(ctx context.Context, id string) (control.SessionView, error) {
+func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionView, error) {
 	release, err := l.lockSession(ctx, id)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	keepLock := false
 	defer func() {
@@ -1421,42 +1422,42 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (control.Sessio
 		}
 	}()
 	if err := l.checkNoWorkspaceInspect(ctx, id); err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	if _, registered, e := l.store.SessionGitPrincipal(ctx, id); e != nil {
-		return control.SessionView{}, e
+		return api.SessionView{}, e
 	} else if !registered {
-		return control.SessionView{}, errors.New("session Git principal missing; repair required")
+		return api.SessionView{}, errors.New("session Git principal missing; repair required")
 	}
 	if active, e := l.store.IsSessionGitPrincipalActive(ctx, id); e != nil {
-		return control.SessionView{}, e
+		return api.SessionView{}, e
 	} else if !active {
-		return control.SessionView{}, errors.New("session Git principal revoked; repair required")
+		return api.SessionView{}, errors.New("session Git principal revoked; repair required")
 	}
 	if _, _, err = l.sessionKey(ctx, id); err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	if _, err = l.endpoints.Ensure(ctx, id); err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
 	observed, err := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	if !observed.Exists {
-		return control.SessionView{}, control.ErrNotFound
+		return api.SessionView{}, control.ErrNotFound
 	}
 	if observed.Status != "Stopped" && observed.Status != "Running" {
-		return control.SessionView{}, control.ErrConflict
+		return api.SessionView{}, control.ErrConflict
 	}
 	if observed.Status == "Running" {
 		view, e := l.InspectSession(ctx, id)
@@ -1468,7 +1469,7 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (control.Sessio
 		}
 	}
 	if err = l.store.SetSessionStartDiagnostic(ctx, id, ""); err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	l.mu.Lock()
 	if l.startActive == nil {
@@ -1513,35 +1514,35 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (control.Sessio
 	return v, nil
 }
 
-func (l *lifecycle) StopSession(ctx context.Context, id string) (control.SessionView, error) {
+func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView, error) {
 	release, err := l.lockSession(ctx, id)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	defer release()
 	l.mu.Lock()
 	blocked := l.hasAttachmentLocked(id)
 	l.mu.Unlock()
 	if blocked {
-		return control.SessionView{}, control.ErrConflict
+		return api.SessionView{}, control.ErrConflict
 	}
 	if err := l.checkNoWorkspaceInspect(ctx, id); err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	s, err := l.store.GetSession(ctx, id)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	if s.Registry != "established" {
-		return control.SessionView{}, control.ErrConflict
+		return api.SessionView{}, control.ErrConflict
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
 	if _, err = plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped); err != nil {
-		return control.SessionView{}, err
+		return api.SessionView{}, err
 	}
 	return l.InspectSession(ctx, id)
 }

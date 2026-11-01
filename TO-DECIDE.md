@@ -88,3 +88,15 @@ decision is applied.
   documents. Set aside: listing them in docs/missing-pieces.md or in REWORK-PLAN.md.
 - Needs from you: confirm or reverse
 - From: the agent, on the rework request, 2026-11-01; coding-practice technical-debt record.
+
+### Configuration stays in the store package
+
+- Where: REWORK-PLAN.md, step 2; internal/control config.go, grants.go, public_egress.go
+- What: The reviewed plan moved trusted configuration out of `internal/control`. Measured at
+  the start of the step, that move first needs a new home for identifier validators and
+  sentinel errors shared with the store (about 300 call sites), so it was dropped and recorded
+  as debt (docs/debts/structure.md, "Trusted configuration lives in the store package").
+- Chosen: drop step 2 from this rework. Set aside: moving configuration with duplicated
+  validators (two copies of one rule), or adding the identifier package within this rework.
+- Needs from you: confirm or reverse
+- From: the agent, on the rework request, 2026-11-01; coding-practice "keep it small".

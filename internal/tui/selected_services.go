@@ -6,14 +6,14 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // One selected-session read at a time. Selection churn cancels and coalesces
 // requests; generation and UUID fencing also covers transports replying late.
 type selectedServiceObservation struct {
 	uuid, condition, state, diagnostic string
-	units                              []control.ProjectService
+	units                              []api.ProjectService
 	generation, requestGeneration      int
 	inFlight                           bool
 	cancel                             context.CancelFunc
@@ -23,7 +23,7 @@ type selectedServiceDue struct{ generation int }
 type selectedServiceDone struct {
 	generation int
 	uuid       string
-	result     control.ServiceResult
+	result     api.ServiceResult
 	err        error
 }
 
@@ -93,7 +93,7 @@ func (m *Model) readSelectedServices(v selectedServiceDue) tea.Cmd {
 	id, generation, client := o.uuid, o.generation, m.client
 	return func() tea.Msg {
 		defer cancel()
-		r, err := request[control.ServiceResult](ctx, client, "session.services", params{"v": 1, "uuid": id})
+		r, err := request[api.ServiceResult](ctx, client, "session.services", params{"v": 1, "uuid": id})
 		if err == nil && (r.V != 1 || r.UUID != id) {
 			err = fmt.Errorf("invalid service observation")
 		}
@@ -118,7 +118,7 @@ func (m *Model) acceptSelectedServices(v selectedServiceDone) {
 	o.state, o.units = "observed", v.result.Services
 }
 
-func (m *Model) observeSelectedServices(r control.ServiceResult) {
+func (m *Model) observeSelectedServices(r api.ServiceResult) {
 	o := &m.selectedServices
 	if o.cancel != nil {
 		o.cancel()

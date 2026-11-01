@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestFailedCreateCleanupAbsentLocalResourcesRefusesUnexpectedIdentity(t *testing.T) {
@@ -56,7 +56,7 @@ func TestFailedCreateCleanupCancelledWhileCreationOwnsUUIDDoesNotAct(t *testing.
 	// session gate. Its queued cleanup must not steal the old worker's lock.
 	cancel()
 	done := make(chan struct{})
-	go func() { l.processCreateCleanup(control.Operation{SessionUUID: replacementOldUUID}); close(done) }()
+	go func() { l.processCreateCleanup(api.Operation{SessionUUID: replacementOldUUID}); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(time.Second):

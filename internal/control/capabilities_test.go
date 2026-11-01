@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -41,7 +42,7 @@ func TestConfiguredReadOnlyProjectMethods(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	projects := projectsResult.(map[string]any)["projects"].([]ProjectSummary)
+	projects := projectsResult.(map[string]any)["projects"].([]api.ProjectSummary)
 	if len(projects) != 1 || projects[0].Path != "team/app" {
 		t.Fatalf("unexpected projects: %#v", projects)
 	}

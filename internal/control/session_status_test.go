@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func statusFixture(t *testing.T) (*Store, string) {
@@ -165,7 +167,7 @@ func TestSessionRPCBoundIdentityAndStrictReports(t *testing.T) {
 func TestStatusReducerAttachmentAndReceiveOrder(t *testing.T) {
 	s, id := statusFixture(t)
 	ctx := context.Background()
-	report := func(condition string) (UnattendedCondition, bool, error) {
+	report := func(condition string) (api.UnattendedCondition, bool, error) {
 		return s.RecordStatus(ctx, id, StatusReport{V: 1, Source: "codex/main", Condition: condition, Adapter: "codex", AdapterVersion: "1"})
 	}
 	first, changed, err := report("attention")
@@ -214,7 +216,7 @@ func TestCommittedStatusAndAttachmentCallbacksKeepReducerOrder(t *testing.T) {
 	workers.Add(1)
 	go func() {
 		defer workers.Done()
-		_, changed, err := s.RecordStatusWithCommit(ctx, id, report, func(UnattendedCondition) {
+		_, changed, err := s.RecordStatusWithCommit(ctx, id, report, func(api.UnattendedCondition) {
 			ordered <- "report"
 			close(entered)
 			<-release
@@ -272,7 +274,7 @@ func TestCommittedStatusAndAttachmentCallbacksKeepReducerOrder(t *testing.T) {
 	workers.Add(1)
 	go func() {
 		defer workers.Done()
-		_, changed, err := s.RecordStatusWithCommit(ctx, id, report, func(UnattendedCondition) { ordered <- "post-release-report" })
+		_, changed, err := s.RecordStatusWithCommit(ctx, id, report, func(api.UnattendedCondition) { ordered <- "post-release-report" })
 		if err != nil || !changed {
 			t.Errorf("post-release report: changed=%t err=%v", changed, err)
 		}
@@ -377,23 +379,25 @@ func TestStatusReportRacingFirstAttachmentCannotLeaveStaleValue(t *testing.T) {
 
 type statusLife struct{ store *Store }
 
-func (l statusLife) CreateProject(context.Context, BlankProjectRequest) (Operation, error) {
-	return Operation{}, ErrInvalid
+func (l statusLife) CreateProject(context.Context, BlankProjectRequest) (api.Operation, error) {
+	return api.Operation{}, ErrInvalid
 }
-func (l statusLife) CreateSession(context.Context, ReserveSessionRequest) (Operation, error) {
-	return Operation{}, ErrInvalid
+func (l statusLife) CreateSession(context.Context, ReserveSessionRequest) (api.Operation, error) {
+	return api.Operation{}, ErrInvalid
 }
-func (l statusLife) Retry(context.Context, string) (Operation, error) { return Operation{}, ErrInvalid }
-func (l statusLife) StartSession(ctx context.Context, id string) (SessionView, error) {
+func (l statusLife) Retry(context.Context, string) (api.Operation, error) {
+	return api.Operation{}, ErrInvalid
+}
+func (l statusLife) StartSession(ctx context.Context, id string) (api.SessionView, error) {
 	return l.InspectSession(ctx, id)
 }
-func (l statusLife) StopSession(ctx context.Context, id string) (SessionView, error) {
+func (l statusLife) StopSession(ctx context.Context, id string) (api.SessionView, error) {
 	return l.InspectSession(ctx, id)
 }
-func (l statusLife) InspectSession(ctx context.Context, id string) (SessionView, error) {
+func (l statusLife) InspectSession(ctx context.Context, id string) (api.SessionView, error) {
 	s, err := l.store.GetSession(ctx, id)
 	if err != nil {
-		return SessionView{}, err
+		return api.SessionView{}, err
 	}
 	v := NewSessionView(s)
 	v.Condition = "stopped"
@@ -422,8 +426,8 @@ func TestHostInspectAndListProjectFourFacts(t *testing.T) {
 			t.Fatal(err)
 		}
 		var projection struct {
-			Session  SessionView   `json:"session"`
-			Sessions []SessionView `json:"sessions"`
+			Session  api.SessionView   `json:"session"`
+			Sessions []api.SessionView `json:"sessions"`
 		}
 		if err := json.Unmarshal(encoded, &projection); err != nil {
 			t.Fatal(err)
@@ -447,7 +451,7 @@ func TestSessionStreamPostCommitFailureAndFraming(t *testing.T) {
 	defer client.Close()
 	client.SetDeadline(time.Now().Add(3 * time.Second))
 	called := make(chan struct{}, 1)
-	go ServeSessionConn(context.Background(), server, s, id, func(context.Context, UnattendedCondition) error {
+	go ServeSessionConn(context.Background(), server, s, id, func(context.Context, api.UnattendedCondition) error {
 		called <- struct{}{}
 		return errors.New("injected handler failure")
 	})
@@ -509,7 +513,7 @@ func TestSessionStreamAttemptBudgetAndOversizeFrame(t *testing.T) {
 	defer client.Close()
 	client.SetDeadline(time.Now().Add(5 * time.Second))
 	go ServeSessionConn(context.Background(), server, s, id, nil)
-	go func() { _, _ = client.Write([]byte(strings.Repeat("x", MaxFrameBytes+1) + "\n")) }()
+	go func() { _, _ = client.Write([]byte(strings.Repeat("x", api.MaxFrameBytes+1) + "\n")) }()
 	line, err := bufio.NewReader(client).ReadBytes('\n')
 	if err != nil || !strings.Contains(string(line), "parse_error") {
 		t.Fatalf("oversize frame: %s %v", line, err)

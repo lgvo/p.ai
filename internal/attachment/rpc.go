@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type leaseRPC struct {
@@ -27,11 +27,11 @@ func dialLease(ctx context.Context, socket string) (*leaseRPC, error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &leaseRPC{conn: c, reader: bufio.NewReaderSize(c, control.MaxFrameBytes+1), lost: make(chan struct{}), responses: make(chan []byte, 1)}
+	r := &leaseRPC{conn: c, reader: bufio.NewReaderSize(c, api.MaxFrameBytes+1), lost: make(chan struct{}), responses: make(chan []byte, 1)}
 	go func() {
 		for {
 			raw, e := r.reader.ReadSlice('\n')
-			if e != nil || len(raw) > control.MaxFrameBytes {
+			if e != nil || len(raw) > api.MaxFrameBytes {
 				r.fail()
 				return
 			}
@@ -78,10 +78,10 @@ func (r *leaseRPC) call(ctx context.Context, method string, params, dest any) er
 		return errors.New("attachment RPC connection lost")
 	}
 	var reply struct {
-		JSONRPC string            `json:"jsonrpc"`
-		ID      int               `json:"id"`
-		Result  json.RawMessage   `json:"result"`
-		Error   *control.RPCError `json:"error"`
+		JSONRPC string          `json:"jsonrpc"`
+		ID      int             `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   *api.RPCError   `json:"error"`
 	}
 	if json.Unmarshal(raw, &reply) != nil || reply.JSONRPC != "2.0" || reply.ID != r.sequence {
 		r.fail()

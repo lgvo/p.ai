@@ -115,17 +115,18 @@ module at a time so each step builds and passes:
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `internal/api` | Control-API contract for clients: wire types, `RPCError`, framing limits, `Call`, socket selection | plugin (the attach spec, a plugin-contract type) |
-| `internal/config` | Trusted host configuration, project policy, grants, public-egress config | — |
-| `internal/server` | Control-API server: framing, one method table that drives dispatch and `system.capabilities`, handlers, session socket protocol | api, control, plugin (Git ref types); declares the lifecycle interfaces it needs |
-| `internal/control` | Durable control state; an operation journal is the only writer of `operations` rows, with typed kinds and statuses | api, config, plugin |
+| `internal/api` | Control-API contract for clients: wire types, `RPCError`, framing limits, `Call`, socket selection | plugin (the attach spec, a plugin-contract type), strictjson |
+| `internal/strictjson` | Closed-schema JSON decoding used at every authority boundary (RPC params, trusted config, native proofs) | — |
+| `internal/server` | Control-API server: framing, one method table that drives dispatch and `system.capabilities`, handlers, session socket protocol | api, control, plugin (Git ref types), strictjson; declares the lifecycle interfaces it needs |
+| `internal/control` | Durable control state and trusted configuration; an operation journal is the only writer of `operations` rows, with typed kinds and statuses | api, strictjson, plugin |
 | `internal/daemon` | Lifecycle: one operation-kind registry (worker, Retry and recovery rules, removal condition), one session-key store; composition in `Serve` | everything below it |
 | `internal/plugin` | Unchanged contract; one WASI invocation core under the four runners | — |
-| adapters | runtimeincus without control imports, one Incus inventory helper; gitservice behind a narrow store interface, without daemon phase knowledge | runtimeincus: api, config, gitservice (source snapshot), plugin, nixenv, runtimekit; gitservice: control (store types and errors), plugin |
+| adapters | runtimeincus with one Incus inventory helper; gitservice behind a narrow store interface, without daemon phase knowledge | runtimeincus: api, control (public-egress configuration), gitservice (source snapshot), plugin, nixenv, runtimekit, strictjson; gitservice: control (store types and errors), plugin |
 
 Each module gets one responsibility and each piece of state one owner; the
 capability list comes from the dispatch table; clients stop depending on the
-store. Cost: import churn in every package and larger reviews. Warning signs
+store. Trusted configuration stays in control (step 2 was dropped).
+Cost: import churn in every package and larger reviews. Warning signs
 left: the daemon still calls the concrete runtime backend (finding 2), and
 native sub-protocols stay copied (finding 6); both are recorded as debt.
 
@@ -135,10 +136,10 @@ It fixes findings 1, 2 and 6 at once, but the workers' recovery rules are
 pinned only by VM scenarios; rewriting them together cannot leave each step
 green and reviewable and risks the destructive paths.
 
-**Chosen: B**, because it removes the causes behind findings 1, 3, 4 and 5,
-and part of 7 (runtimeincus stops importing control; gitservice stops reading
-daemon phases but keeps control's types, and runtimeincus keeps gitservice's
-snapshot type), instead of trimming their copies, and its steps are mechanical moves or
+**Chosen: B**, because it removes the causes behind findings 1, 4 and 5, most
+of 3, and part of 7 (gitservice stops reading daemon phases but keeps control's
+types; runtimeincus keeps control's public-egress configuration and
+gitservice's snapshot type), instead of trimming their copies, and its steps are mechanical moves or
 behavior-preserving consolidations that the compiler, the unit suites and the
 VM suite can check one at a time.
 
@@ -171,7 +172,7 @@ VM suite can check one at a time.
 |---|---|---|---|
 | 0 | Characterization tests | — | no |
 | 1 | `internal/api` | 3 | no |
-| 2 | `internal/config` | 3, 7 | yes |
+| 2 | dropped: `internal/config` (see below) | 3, 7 | — |
 | 3 | `internal/server` with one method table | 3, 4 | yes |
 | 4 | Operation journal in control | 1 | yes |
 | 5 | Operation-kind registry in daemon | 1 | yes |
@@ -202,8 +203,11 @@ own characterization tests first, in its own commit, where coverage is thin.
 `ValidProjectServiceUnit`, `PendingAttachment`, `AttachmentLaunch`,
 `WorkspaceInspectionRequiresFreshRequest`, `RPCError`, `ProtocolVersion`,
 `MaxFrameBytes`, `Call`, `ClientSocket`, `DefaultControlSocket`, and the
-framing and strict JSON decoding that `Call` shares with the server
-(`readFrame`, `strictDecode` and `RejectDuplicateKeys`, exported from api).
+framing that `Call` shares with the server (`ReadFrame`). The strict JSON
+decoding that `Call`, the server, configuration and the store share
+(`strictDecode`, `RejectDuplicateKeys`) moves to `internal/strictjson`, since
+it is not part of the client contract. Its copies in plugin, nixenv,
+runtimekit and runtimeincus stay as they are.
 control, daemon and adapters use them from api. tui and attachment import api
 and no longer import control; runtimeincus no longer needs control for service
 results. cmd/p keeps control only where it starts the daemon and manages
@@ -215,11 +219,14 @@ sites, for no client), the removal-preview types, `SummarizeOperation` and
 `CreationEnvironmentView` (they decode creation evidence). The tui-mock
 fixture is a server double and keeps importing control for these.
 
-**2. `internal/config`.** Move `HostConfig` and its parts, loading,
-trusted-ancestor checks, `EnsureStateDir`, project policy snapshot/parse,
-filesystem grants, and `PublicEgressConfig`. runtimeincus uses
-`config.PublicEgressConfig` directly instead of its own copy converted back and
-forth. Update the targeted test in `dev/package.nix`.
+**2. `internal/config` — dropped after measurement.** The configuration code
+calls the store's identifier validators (`validProject`, `validFingerprint`),
+its digest and policy normalization, and returns errors wrapping
+`control.ErrInvalid` that the daemon maps to `invalid_params`. Moving it out
+cleanly first needs a home below both packages for P's identifier formats and
+sentinel errors, which touches about 300 call sites in control alone. That
+cost is out of proportion to what it removes (one runtimeincus import and one
+role of control), so configuration stays in control; recorded as debt.
 
 **3. `internal/server`.** Move the RPC server, handlers and session socket
 protocol out of control; the tui-mock fixture moves to `server.ServeConn`.
@@ -264,7 +271,8 @@ defined once. The ABI and every bound stay as documented.
 
 **8. Adapter boundaries.** runtimeincus: one instance-inventory helper for the
 seven `incus list` scans, each caller keeping its bound and checks; metadata
-keys as constants; no control import. gitservice: depends on a narrow store
+keys as constants. Its control import stays for public-egress configuration
+(step 2 was dropped). gitservice: depends on a narrow store
 interface instead of `*control.Store`; the daemon passes the creation and
 ref-repair checks that today read daemon phases inside gitservice.
 
@@ -282,5 +290,7 @@ drifted operation behaviors, routing native effects through the runtime plugin
 | Step | State | Commit | Review | VM suite |
 |---|---|---|---|---|
 | Plan | reviewed: settled | — | Codex, 3 rounds: challenge 3 findings accepted, 2 cuts; normal 1: 4 accepted, re-raised part settled by cutting the preview book; normal 2: 1 accepted | baseline running |
-| 0 | done | step 0 commit | Codex, 2 rounds: 5 + 1 findings accepted, 2 cuts; last fix verified by break-and-restore at the round limit | not needed (tests only) |
-| 1–8 | not started | — | — | — |
+| 0 | done | 7061a8b | Codex, 2 rounds: 5 + 1 findings accepted, 2 cuts; last fix verified by break-and-restore at the round limit | not needed (tests only) |
+| 1 | done | step 1 commit | Codex, 1 round: 1 finding accepted (plan wording) | exempt (declarations moved) |
+| 2 | dropped (see step 2) | — | — | — |
+| 3–8 | not started | — | — | — |

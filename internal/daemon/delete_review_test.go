@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -55,8 +56,8 @@ type staleRetainedDeleteRPC struct {
 func (p staleRetainedDeleteRPC) PreviewRetainedDelete(context.Context, string, string) (control.RetainedDeletePreview, error) {
 	return control.RetainedDeletePreview{}, nil
 }
-func (p staleRetainedDeleteRPC) ConfirmRetainedDelete(context.Context, string, string, string, string) (control.Operation, error) {
-	return control.Operation{}, p.stale
+func (p staleRetainedDeleteRPC) ConfirmRetainedDelete(context.Context, string, string, string, string) (api.Operation, error) {
+	return api.Operation{}, p.stale
 }
 
 func TestRetainedDeleteChangedOriginReviewIsPublicBusy(t *testing.T) {

@@ -9,12 +9,13 @@ import (
 	"slices"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-func (l *lifecycle) reviewAssembledCleanupLoss(ctx context.Context, session control.Session, creator control.Operation, lossID string) (*control.RemovalRuntimePreview, error) {
+func (l *lifecycle) reviewAssembledCleanupLoss(ctx context.Context, session control.Session, creator api.Operation, lossID string) (*control.RemovalRuntimePreview, error) {
 	lossOp, err := l.store.GetOperation(ctx, lossID)
 	var proof control.WorkspaceInspectEvidence
 	var loss workspaceLossResult
@@ -52,7 +53,7 @@ func assembledCleanupWorkspaceEvidence(ev control.CreateCleanupEvidence) control
 
 // The caller owns the session lock and reloads the durable operation before
 // entering. It never starts the source and uses only the existing loss helper.
-func (l *lifecycle) processAssembledCreateCleanup(op control.Operation, ev control.CreateCleanupEvidence) {
+func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.CreateCleanupEvidence) {
 	ctx := l.ctx
 	r := ev.Review.Runtime
 	block := func(cause error) {

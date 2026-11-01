@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // RepairPreview is a read-only, expiring description of one missing runtime.
@@ -120,71 +122,71 @@ func validRepairEvidence(e RepairEvidence) bool {
 // BeginRepair serializes a fresh exact observation with receive-pack and
 // persists the single-session reservation before any native create effect.
 // The callback must not re-enter Store while gitAuthority is held.
-func (s *Store) BeginRepair(ctx context.Context, req RepairRequest, ev RepairEvidence, observe func(context.Context) error, capacity CapacityObserver) (Operation, error) {
+func (s *Store) BeginRepair(ctx context.Context, req RepairRequest, ev RepairEvidence, observe func(context.Context) error, capacity CapacityObserver) (api.Operation, error) {
 	if len(req.Key) < 1 || len(req.Key) > 128 || !validUUID(req.UUID) || !validFingerprint(req.TokenSHA256) ||
 		!validRepairEvidence(ev) || ev.IncusUUID != "" || observe == nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	expires, err := time.Parse(time.RFC3339Nano, ev.PreviewExpiresAt)
 	if err != nil {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(req)
 	evidence, _ := json.Marshal(ev)
 	if len(evidence) > 16384 {
-		return Operation{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
 	var kind, oldHash string
 	err = s.db.QueryRowContext(ctx, `SELECT kind,request_sha256 FROM operations WHERE idempotency_key=?`, req.Key).Scan(&kind, &oldHash)
 	if err == nil {
 		if kind != "session.repair" || oldHash != digest(request) {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		return s.GetOperationByKey(ctx, req.Key)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := observe(ctx); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := s.checkSessionRepairCapacity(ctx, capacity); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	defer tx.Rollback()
 	var project, branch, registry, policy string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, req.UUID).Scan(&project, &branch, &registry, &policy)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Operation{}, ErrNotFound
+		return api.Operation{}, ErrNotFound
 	}
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	if project != ev.Project || branch != ev.Branch || policy != ev.PolicySHA256 || registry != "established" {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var currentPolicy string
 	if err = tx.QueryRowContext(ctx, `SELECT policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&currentPolicy); err != nil || currentPolicy != ev.PolicySHA256 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	var credential string
 	var active int
 	err = tx.QueryRowContext(ctx, `SELECT fingerprint,active FROM git_principals WHERE session_uuid=? AND role='session' ORDER BY active DESC,rowid DESC LIMIT 1`, req.UUID).Scan(&credential, &active)
 	if err != nil || credential != ev.CredentialFingerprint || active != 1 {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	if ev.PreparationOperationID != "" {
 		var prepared []byte
 		if err = tx.QueryRowContext(ctx, `SELECT evidence_json FROM operations WHERE id=? AND session_uuid=? AND kind='session.repair.prepare' AND status='completed' AND phase='completed'`, ev.PreparationOperationID, req.UUID).Scan(&prepared); err != nil || digest(prepared) != ev.PreparationSHA256 {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 		var pinned RepairPreparation
 		if json.Unmarshal(prepared, &pinned) != nil || !validRepairPreparation(pinned) ||
@@ -194,29 +196,29 @@ func (s *Store) BeginRepair(ctx context.Context, req RepairRequest, ev RepairEvi
 			pinned.EnvironmentKey != ev.EnvironmentKey || pinned.EnvironmentSelection != ev.EnvironmentSelection ||
 			pinned.Environment != *ev.Environment || pinned.BuilderTreeOID != ev.BuilderTreeOID ||
 			ev.EnvironmentSourceCommit != ev.AssignedTip {
-			return Operation{}, ErrConflict
+			return api.Operation{}, ErrConflict
 		}
 	}
 	if !time.Now().Before(expires) {
-		return Operation{}, ErrConflict
+		return api.Operation{}, ErrConflict
 	}
 	id, err := newUUID()
 	if err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err = tx.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,'running','reserved',0,?,?,?)`, id, req.Key, "session.repair", project, req.UUID, string(request), digest(request), string(evidence), now, now)
 	if err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, project, branch, id); err != nil {
-		return Operation{}, classifyWrite(err)
+		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return Operation{}, err
+		return api.Operation{}, err
 	}
-	return Operation{ID: id, Key: req.Key, Kind: "session.repair", Project: project, SessionUUID: req.UUID, Request: request, Status: "running", Phase: "reserved", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
+	return api.Operation{ID: id, Key: req.Key, Kind: "session.repair", Project: project, SessionUUID: req.UUID, Request: request, Status: "running", Phase: "reserved", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 // FailRepairPreInit releases only a positively no-effect stale reservation.
@@ -307,7 +309,7 @@ func (s *Store) CompleteRepair(ctx context.Context, id string, verify func(conte
 	return tx.Commit()
 }
 
-func (s *Store) UnfinishedRepairs(ctx context.Context) ([]Operation, error) {
+func (s *Store) UnfinishedRepairs(ctx context.Context) ([]api.Operation, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind='session.repair' AND status IN ('running','blocked','unknown') ORDER BY created_at`)
 	if err != nil {
 		return nil, err
@@ -324,7 +326,7 @@ func (s *Store) UnfinishedRepairs(ctx context.Context) ([]Operation, error) {
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	result := make([]Operation, 0, len(ids))
+	result := make([]api.Operation, 0, len(ids))
 	for _, id := range ids {
 		op, e := s.GetOperation(ctx, id)
 		if e != nil {

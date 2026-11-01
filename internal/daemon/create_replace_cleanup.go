@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -223,7 +224,7 @@ func cleanupReplacementLocal(ctx context.Context, stateDir string, m *endpointMa
 	return prove(ctx)
 }
 
-func (l *lifecycle) completeReplacementCleanup(ctx context.Context, op *control.Operation) error {
+func (l *lifecycle) completeReplacementCleanup(ctx context.Context, op *api.Operation) error {
 	ev, err := control.Evidence(*op)
 	if err != nil {
 		return err

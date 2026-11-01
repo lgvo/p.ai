@@ -11,14 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
-func (l *lifecycle) DiscardSession(ctx context.Context, req control.DiscardConfirmRequest) (control.Operation, error) {
+func (l *lifecycle) DiscardSession(ctx context.Context, req control.DiscardConfirmRequest) (api.Operation, error) {
 	return l.confirmRemoval(ctx, req, "discard")
 }
 
-func (l *lifecycle) DeleteSession(ctx context.Context, req control.DiscardConfirmRequest) (control.Operation, error) {
+func (l *lifecycle) DeleteSession(ctx context.Context, req control.DiscardConfirmRequest) (api.Operation, error) {
 	return l.confirmRemoval(ctx, req, "delete")
 }
 
@@ -34,16 +35,16 @@ func deleteReviewDigest(review *control.RemovalBranchLoss) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfirmRequest, action string) (control.Operation, error) {
+func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfirmRequest, action string) (api.Operation, error) {
 	if action != "discard" && action != "delete" {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	if len(req.Key) < 1 || len(req.Key) > 128 || len(req.UUID) != 36 || len(req.ConfirmationToken) != 32 {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, req.UUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	sum := sha256.Sum256([]byte(req.ConfirmationToken))
@@ -51,26 +52,26 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 	if prior, e := l.store.GetOperationByKey(ctx, req.Key); e == nil {
 		var old control.DiscardRequest
 		if prior.Kind != "session."+action || json.Unmarshal(prior.Request, &old) != nil || old != pinned {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(e, control.ErrNotFound) {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	l.mu.Lock()
 	attached := l.hasAttachmentLocked(req.UUID)
 	state, found := l.removalPreviews[req.ConfirmationToken]
 	l.mu.Unlock()
 	if attached || !found || state.Preview.Kind != action || state.Preview.SessionUUID != req.UUID || !time.Now().Before(state.Expiry) {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	preview := state.Preview
 	created, err := l.store.CreationForSession(ctx, req.UUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	ev := control.DiscardEvidence{Action: action, Project: preview.Project, Branch: preview.Branch, AssignedTip: preview.AssignedTip,
 		PolicySHA256: preview.PolicySHA256, IncusProject: preview.Runtime.IncusProject, InstanceName: preview.Runtime.InstanceName,
@@ -82,30 +83,30 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 	if action == "delete" {
 		ev.DeleteReviewSHA256, err = deleteReviewDigest(preview.BranchLoss)
 		if err != nil {
-			return control.Operation{}, err
+			return api.Operation{}, err
 		}
 	}
 	if ev.MissingRuntime {
 		session, err := l.store.GetSession(ctx, req.UUID)
 		if err != nil {
-			return control.Operation{}, err
+			return api.Operation{}, err
 		}
 		native, err := l.runtimeSession(ctx, session)
 		if err != nil {
-			return control.Operation{}, err
+			return api.Operation{}, err
 		}
 		if err := l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
-			return control.Operation{}, errors.Join(err, control.ErrConflict)
+			return api.Operation{}, errors.Join(err, control.ErrConflict)
 		}
 	}
-	var op control.Operation
+	var op api.Operation
 	if action == "delete" {
 		op, err = l.store.BeginDelete(ctx, pinned, ev)
 	} else {
 		op, err = l.store.BeginDiscard(ctx, pinned, ev)
 	}
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	l.mu.Lock()
 	delete(l.removalPreviews, req.ConfirmationToken)

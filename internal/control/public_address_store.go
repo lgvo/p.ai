@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 func reservePublicAddressTx(ctx context.Context, tx *sql.Tx, sessionID string, policyJSON json.RawMessage) error {
-	if err := rejectDuplicateKeys(policyJSON); err != nil {
+	if err := strictjson.RejectDuplicateKeys(policyJSON); err != nil {
 		return err
 	}
 	var policy ProjectPolicy

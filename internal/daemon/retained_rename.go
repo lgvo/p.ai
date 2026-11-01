@@ -6,34 +6,35 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
-func (l *lifecycle) RenameRetainedBranch(ctx context.Context, r control.RetainedRenameRequest) (control.Operation, error) {
+func (l *lifecycle) RenameRetainedBranch(ctx context.Context, r control.RetainedRenameRequest) (api.Operation, error) {
 	if !control.ValidRetainedRenameRequest(r) {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	if prior, err := l.store.GetOperationByKey(ctx, r.Key); err == nil {
 		var saved control.RetainedRenameRequest
 		if prior.Kind != "project.retained.rename" || json.Unmarshal(prior.Request, &saved) != nil || saved != r {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(err, control.ErrNotFound) {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := l.git.backend.ValidateRenameBranch(ctx, r.OldBranch); err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := l.git.backend.ValidateRenameBranch(ctx, r.NewBranch); err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	op, err := l.store.BeginRetainedRename(ctx, r, func(ctx context.Context) error { return l.verifyRetainedRenameRefs(ctx, r, "before") })
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err = l.enqueue(op.ID); err != nil {
 		return op, err
@@ -76,7 +77,7 @@ func (l *lifecycle) verifyRetainedRenameRefs(ctx context.Context, r control.Reta
 	return nil
 }
 
-func (l *lifecycle) blockRetainedRename(op control.Operation, cause error) {
+func (l *lifecycle) blockRetainedRename(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -87,7 +88,7 @@ func (l *lifecycle) blockRetainedRename(op control.Operation, cause error) {
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
 }
 
-func (l *lifecycle) processRetainedRename(op control.Operation) {
+func (l *lifecycle) processRetainedRename(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

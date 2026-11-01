@@ -10,7 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func Run(args []string) error {
@@ -21,7 +21,7 @@ func Run(args []string) error {
 			return errors.New("control socket must be an absolute path")
 		}
 	}
-	socket, err := control.ClientSocket(explicit)
+	socket, err := api.ClientSocket(explicit)
 	if err != nil {
 		return err
 	}

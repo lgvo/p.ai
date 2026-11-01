@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type Client interface {
@@ -21,13 +21,13 @@ func (c SocketClient) Call(ctx context.Context, method string, params any) (json
 	if err != nil {
 		return nil, err
 	}
-	reply, err := control.Call(ctx, c.Socket, method, raw)
+	reply, err := api.Call(ctx, c.Socket, method, raw)
 	if err != nil {
 		return nil, fmt.Errorf("connection unavailable: %w (an accepted operation may still continue)", err)
 	}
 	var envelope struct {
-		Result json.RawMessage   `json:"result"`
-		Error  *control.RPCError `json:"error"`
+		Result json.RawMessage `json:"result"`
+		Error  *api.RPCError   `json:"error"`
 	}
 	if err = json.Unmarshal(reply, &envelope); err != nil {
 		return nil, err
@@ -52,9 +52,9 @@ func request[T any](ctx context.Context, c Client, method string, params any) (T
 
 type params = map[string]any
 type inventory struct {
-	projects     []control.ProjectSummary
-	sessions     []control.SessionView
-	operations   []control.OperationSummary
+	projects     []api.ProjectSummary
+	sessions     []api.SessionView
+	operations   []api.OperationSummary
 	capabilities map[string]bool
 }
 
@@ -85,10 +85,10 @@ func loadInventory(ctx context.Context, c Client) (inventory, error) {
 				return result, e
 			}
 			var body struct {
-				Projects   []control.ProjectSummary   `json:"projects"`
-				Sessions   []control.SessionView      `json:"sessions"`
-				Operations []control.OperationSummary `json:"operations"`
-				Next       string                     `json:"next"`
+				Projects   []api.ProjectSummary   `json:"projects"`
+				Sessions   []api.SessionView      `json:"sessions"`
+				Operations []api.OperationSummary `json:"operations"`
+				Next       string                 `json:"next"`
 			}
 			if e = json.Unmarshal(raw, &body); e != nil {
 				return result, e

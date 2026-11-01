@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type nativeOperation struct {
@@ -51,7 +51,7 @@ type nativeChannel struct {
 
 var operationPath = regexp.MustCompile(`^/1\.0/operations/[0-9a-f-]{36}$`)
 
-func newNative(launch control.AttachmentLaunch) (*nativeChannel, error) {
+func newNative(launch api.AttachmentLaunch) (*nativeChannel, error) {
 	if launch.V != 1 || launch.Socket == "" || launch.Spec.Project == "" || !regexp.MustCompile(`^p-[0-9a-f-]{36}$`).MatchString(launch.Spec.Instance) || len(launch.Spec.Argv) != 1 || launch.Spec.Argv[0] != "/usr/libexec/p/attach" {
 		return nil, errors.New("invalid fixed attachment launch")
 	}
@@ -116,7 +116,7 @@ func (n *nativeChannel) websocket(ctx context.Context, secret string) (*websocke
 	}
 	return c, err
 }
-func (n *nativeChannel) establish(ctx context.Context, launch control.AttachmentLaunch, width, height int) error {
+func (n *nativeChannel) establish(ctx context.Context, launch api.AttachmentLaunch, width, height int) error {
 	request := struct {
 		Command     []string          `json:"command"`
 		Wait        bool              `json:"wait-for-websocket"`

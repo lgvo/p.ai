@@ -6,52 +6,53 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest) (control.Operation, error) {
+func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest) (api.Operation, error) {
 	if !control.ValidRenameRequest(req) {
-		return control.Operation{}, control.ErrInvalid
+		return api.Operation{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, req.UUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	defer release()
 	if prior, e := l.store.GetOperationByKey(ctx, req.Key); e == nil {
 		var saved control.RenameRequest
 		if prior.Kind != "session.rename" || json.Unmarshal(prior.Request, &saved) != nil || saved != req {
-			return control.Operation{}, control.ErrConflict
+			return api.Operation{}, control.ErrConflict
 		}
 		if prior.Status == "running" {
 			_ = l.enqueue(prior.ID)
 		}
 		return prior, nil
 	} else if !errors.Is(e, control.ErrNotFound) {
-		return control.Operation{}, e
+		return api.Operation{}, e
 	}
 	if err := l.checkNoWorkspaceInspect(ctx, req.UUID); err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	s, err := l.store.GetSession(ctx, req.UUID)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if s.Registry != "established" || s.Branch == req.NewBranch {
-		return control.Operation{}, control.ErrConflict
+		return api.Operation{}, control.ErrConflict
 	}
 	if err := l.git.backend.ValidateRenameBranch(ctx, req.NewBranch); err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	observed, err := l.runtime.Inspect(ctx, native)
 	if err != nil || !observed.Exists || observed.Status != "Running" && observed.Status != "Stopped" ||
 		observed.IncusUUID == "" || observed.Generation == "" {
-		return control.Operation{}, errors.Join(err, control.ErrConflict)
+		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	ev := control.RenameEvidence{Project: s.Project, OldBranch: s.Branch, NewBranch: req.NewBranch,
 		OldTip: req.ExpectedOldTip, PolicySHA256: s.PolicySHA256, InstanceUUID: l.instanceID,
@@ -65,7 +66,7 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	}
 	op, err := l.store.BeginRename(ctx, req, ev, verify)
 	if err != nil {
-		return control.Operation{}, err
+		return api.Operation{}, err
 	}
 	if err := l.enqueue(op.ID); err != nil {
 		return op, err
@@ -113,7 +114,7 @@ func (l *lifecycle) renameNewRefExact(ctx context.Context, ev control.RenameEvid
 	return nil
 }
 
-func (l *lifecycle) blockRename(op control.Operation, cause error) {
+func (l *lifecycle) blockRename(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -124,7 +125,7 @@ func (l *lifecycle) blockRename(op control.Operation, cause error) {
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
 }
 
-func (l *lifecycle) advanceRename(op *control.Operation, ev control.RenameEvidence, phase string, committed bool) error {
+func (l *lifecycle) advanceRename(op *api.Operation, ev control.RenameEvidence, phase string, committed bool) error {
 	raw, err := json.Marshal(ev)
 	if err != nil || len(raw) > 2048 {
 		return control.ErrInvalid
@@ -136,7 +137,7 @@ func (l *lifecycle) advanceRename(op *control.Operation, ev control.RenameEviden
 	return nil
 }
 
-func (l *lifecycle) rollbackRenamePrecommit(op control.Operation, ev control.RenameEvidence, source runtimeincus.Session, cause error) {
+func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameEvidence, source runtimeincus.Session, cause error) {
 	ctx := l.ctx
 	if op.Phase == "freeze-intent" || op.Phase == "prepare-issued" || op.Phase == "new-ref-create-issued" || op.Committed {
 		l.blockRename(op, cause)
@@ -167,7 +168,7 @@ func (l *lifecycle) rollbackRenamePrecommit(op control.Operation, ev control.Ren
 	}
 }
 
-func (l *lifecycle) processRename(op control.Operation) {
+func (l *lifecycle) processRename(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

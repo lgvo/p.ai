@@ -10,7 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type fakeClient struct {
@@ -45,7 +45,7 @@ func press(m Model, key string) (Model, tea.Cmd) {
 }
 func fixture() Model {
 	m := New(nil, "/tmp/control.sock")
-	m.data.sessions = []control.SessionView{{UUID: "stopped", Project: "a", Branch: "main", Condition: "stopped"}, {UUID: "running", Project: "a", Branch: "feature", Condition: "ready"}, {UUID: "waiting", Project: "z", Branch: "urgent", Condition: "ready", LatestUnattendedCondition: &control.UnattendedCondition{Condition: "attention", Reason: "approval required"}}}
+	m.data.sessions = []api.SessionView{{UUID: "stopped", Project: "a", Branch: "main", Condition: "stopped"}, {UUID: "running", Project: "a", Branch: "feature", Condition: "ready"}, {UUID: "waiting", Project: "z", Branch: "urgent", Condition: "ready", LatestUnattendedCondition: &api.UnattendedCondition{Condition: "attention", Reason: "approval required"}}}
 	m.clamp()
 	return m
 }
@@ -147,7 +147,7 @@ func TestResponsiveFramesAndVisiblePageMovement(t *testing.T) {
 		m := fixture()
 		m.width, m.height = size[0], size[1]
 		for i := 0; i < 100; i++ {
-			m.data.sessions = append(m.data.sessions, control.SessionView{UUID: fmt.Sprint(i), Project: "long-project", Branch: strings.Repeat("branch", 30), Condition: "stopped"})
+			m.data.sessions = append(m.data.sessions, api.SessionView{UUID: fmt.Sprint(i), Project: "long-project", Branch: strings.Repeat("branch", 30), Condition: "stopped"})
 		}
 		m.cursor = 80
 		m.clamp()
@@ -185,7 +185,7 @@ func TestUntrustedTerminalTextIsInert(t *testing.T) {
 func TestStaleServiceObservationDisablesActions(t *testing.T) {
 	m := fixture()
 	m.page = "services"
-	m.services = []control.ProjectService{{Unit: "p-project-api.service", ActiveState: "active"}}
+	m.services = []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "active"}}
 	m.servicesFresh = true
 	updated, _ := m.Update(actionDone{epoch: m.epoch, method: "session.services", err: errors.New("unavailable")})
 	m = updated.(Model)
@@ -206,9 +206,9 @@ func TestInventoryPaginationAndRPCError(t *testing.T) {
 				t.Fatal("wrong session page limit")
 			}
 			if p["after"] == "" {
-				return map[string]any{"sessions": []control.SessionView{{UUID: "a"}}, "next": "a"}, nil
+				return map[string]any{"sessions": []api.SessionView{{UUID: "a"}}, "next": "a"}, nil
 			}
-			return map[string]any{"sessions": []control.SessionView{{UUID: "b"}}, "next": ""}, nil
+			return map[string]any{"sessions": []api.SessionView{{UUID: "b"}}, "next": ""}, nil
 		}
 		return nil, fmt.Errorf("unexpected %s", method)
 	}
@@ -232,7 +232,7 @@ func TestSnapshotUUIDDoesNotSilentlySelectAnother(t *testing.T) {
 		if method == "system.capabilities" {
 			return map[string]any{"available": []string{"session.list"}}, nil
 		}
-		return map[string]any{"sessions": []control.SessionView{{UUID: "other"}}, "next": ""}, nil
+		return map[string]any{"sessions": []api.SessionView{{UUID: "other"}}, "next": ""}, nil
 	}}
 	if _, err := Snapshot(context.Background(), f, "/tmp/sock", "services", "missing", 80, 24); err == nil {
 		t.Fatal("snapshot silently selected another session")
@@ -324,7 +324,7 @@ func TestWrappedReviewsExposeCompleteLongFields(t *testing.T) {
 func TestSmallInspectionPagesExposeLongFieldsAndHelp(t *testing.T) {
 	m := fixture()
 	m.width, m.height = 48, 16
-	m.contextSession = control.SessionView{UUID: "running", Project: "app", Branch: "main", Diagnostic: strings.Repeat("detail/", 100) + "DIAGNOSTIC_END", LatestUnattendedCondition: &control.UnattendedCondition{Reason: strings.Repeat("reason/", 100) + "REPORT_END"}, Environment: &control.EnvironmentView{ImageFingerprint: strings.Repeat("image/", 100) + "IMAGE_END"}}
+	m.contextSession = api.SessionView{UUID: "running", Project: "app", Branch: "main", Diagnostic: strings.Repeat("detail/", 100) + "DIAGNOSTIC_END", LatestUnattendedCondition: &api.UnattendedCondition{Reason: strings.Repeat("reason/", 100) + "REPORT_END"}, Environment: &api.EnvironmentView{ImageFingerprint: strings.Repeat("image/", 100) + "IMAGE_END"}}
 	for _, item := range []struct{ page, suffix string }{{"agents", "REPORT_END"}, {"policy", "IMAGE_END"}, {"progress", "DIAGNOSTIC_END"}, {"help", "manual test."}} {
 		m.navigate(item.page)
 		m, _ = press(m, "G")
@@ -369,7 +369,7 @@ func TestServiceKeyDuringRefreshCapturesExactlyOneIntent(t *testing.T) {
 	m := fixture()
 	m.page = "services"
 	m.contextSession.UUID = "running"
-	m.services = []control.ProjectService{{Unit: "p-project-a.service", ActiveState: "active"}, {Unit: "p-project-b.service", ActiveState: "active"}}
+	m.services = []api.ProjectService{{Unit: "p-project-a.service", ActiveState: "active"}, {Unit: "p-project-b.service", ActiveState: "active"}}
 	m.servicesFresh, m.working = true, true
 	m.pendingMethod = "session.services"
 	m, cmd := press(m, "s")

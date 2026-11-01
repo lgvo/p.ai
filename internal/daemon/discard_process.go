@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -53,7 +54,7 @@ func (l *lifecycle) verifyDiscardRefs(ctx context.Context, ev control.DiscardEvi
 	return nil
 }
 
-func (l *lifecycle) advanceDiscard(op *control.Operation, ev control.DiscardEvidence, phase string) error {
+func (l *lifecycle) advanceDiscard(op *api.Operation, ev control.DiscardEvidence, phase string) error {
 	raw, err := json.Marshal(ev)
 	if err != nil || len(raw) > 4096 {
 		return errors.New("discard evidence exceeds bound")
@@ -65,7 +66,7 @@ func (l *lifecycle) advanceDiscard(op *control.Operation, ev control.DiscardEvid
 	return nil
 }
 
-func (l *lifecycle) blockDiscard(op control.Operation, cause error) {
+func (l *lifecycle) blockDiscard(op api.Operation, cause error) {
 	if l.ctx.Err() != nil {
 		return
 	}
@@ -80,7 +81,7 @@ func (l *lifecycle) blockDiscard(op control.Operation, cause error) {
 	logDiscardProgress(l, op, "blocked")
 }
 
-func logDiscardProgress(l *lifecycle, op control.Operation, status string) {
+func logDiscardProgress(l *lifecycle, op api.Operation, status string) {
 	l.recordProgress(op, status)
 }
 
@@ -117,7 +118,7 @@ func (l *lifecycle) deleteAssignedAbsent(ctx context.Context, ev control.Discard
 	return nil
 }
 
-func (l *lifecycle) rollbackStaleDiscard(op *control.Operation, ev control.DiscardEvidence, source, helper runtimeincus.Session, reason error) {
+func (l *lifecycle) rollbackStaleDiscard(op *api.Operation, ev control.DiscardEvidence, source, helper runtimeincus.Session, reason error) {
 	ctx := l.ctx
 	if op.Phase != "stale-cleanup" {
 		// Only this operation's persisted freeze intent can require source
@@ -181,7 +182,7 @@ func discardStaleNeedsThaw(ev control.DiscardEvidence, phase string) bool {
 	}
 }
 
-func (l *lifecycle) processDiscard(op control.Operation) {
+func (l *lifecycle) processDiscard(op api.Operation) {
 	if op.Status != "running" {
 		return
 	}

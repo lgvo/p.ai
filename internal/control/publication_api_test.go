@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -187,7 +188,7 @@ func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 	ctx := context.Background()
 	a.Git = fixtureGitReader{}
 	handler := OriginHandler(StateHandlerWithGit(s, a.Git, &GitInfo{}), a)
-	request := func(method, body string) (map[string]any, *RPCError) {
+	request := func(method, body string) (map[string]any, *api.RPCError) {
 		t.Helper()
 		result, e := handler(ctx, method, json.RawMessage(body))
 		if e != nil {

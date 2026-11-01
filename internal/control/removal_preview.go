@@ -3,6 +3,8 @@ package control
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 type RemovalPreviewRequest struct {
@@ -70,10 +72,10 @@ type DiscardConfirmRequest struct {
 }
 
 type DiscardAPI interface {
-	DiscardSession(context.Context, DiscardConfirmRequest) (Operation, error)
+	DiscardSession(context.Context, DiscardConfirmRequest) (api.Operation, error)
 }
 type DeleteAPI interface {
-	DeleteSession(context.Context, DiscardConfirmRequest) (Operation, error)
+	DeleteSession(context.Context, DiscardConfirmRequest) (api.Operation, error)
 }
 
 func validHexToken(value string) bool {

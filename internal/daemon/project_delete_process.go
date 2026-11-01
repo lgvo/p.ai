@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -33,7 +34,7 @@ func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, review
 
 // Every pass attempts independent exact ensure-absent targets. A native issued
 // but unresolved DELETE stays recorded; it cannot be replayed against a name.
-func (l *lifecycle) processProjectDelete(observed control.Operation) {
+func (l *lifecycle) processProjectDelete(observed api.Operation) {
 	if observed.Status != "running" && observed.Status != "blocked" {
 		return
 	}

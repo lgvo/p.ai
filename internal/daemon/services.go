@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -11,7 +12,7 @@ import (
 type serviceBroker struct {
 	runtimeincus.Scoped
 	unit, action string
-	result       control.ServiceResult
+	result       api.ServiceResult
 }
 
 func (b *serviceBroker) Services(ctx context.Context) (plugin.RuntimeState, error) {
@@ -23,8 +24,8 @@ func (b *serviceBroker) Services(ctx context.Context) (plugin.RuntimeState, erro
 	return plugin.RuntimeState{Exists: true, Status: "Running"}, nil
 }
 
-func (l *lifecycle) SessionServices(ctx context.Context, id, unit, action string) (control.ServiceResult, error) {
-	var zero control.ServiceResult
+func (l *lifecycle) SessionServices(ctx context.Context, id, unit, action string) (api.ServiceResult, error) {
+	var zero api.ServiceResult
 	if action != "list" && !runtimeincus.ValidProjectService(unit) {
 		return zero, control.ErrInvalid
 	}

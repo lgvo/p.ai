@@ -5,7 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func apiArguments(args []string) (string, string, json.RawMessage, error) {
@@ -23,7 +23,7 @@ func apiArguments(args []string) (string, string, json.RawMessage, error) {
 	if len(args) < 1 || len(args) > 2 || args[0] == "" {
 		return "", "", nil, errors.New("usage: p api [CONTROL_SOCKET] METHOD [JSON_PARAMS]")
 	}
-	socket, err := control.ClientSocket(explicit)
+	socket, err := api.ClientSocket(explicit)
 	if err != nil {
 		return "", "", nil, err
 	}

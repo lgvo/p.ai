@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -32,7 +33,7 @@ func TestCreateReplayQueuedAfterReplacementProofCannotProduceOldEffects(t *testi
 	// This is the dangerous request: assignment succeeded, the branch still has
 	// its captured tip, and only policy changes. An unguarded old worker would
 	// pass its branch check and create endpoint/key resources for the old UUID.
-	old := control.Operation{ID: "old-operation", Kind: "session.create", SessionUUID: "old-session", Status: "blocked", Phase: "branch-assigned", Committed: true}
+	old := api.Operation{ID: "old-operation", Kind: "session.create", SessionUUID: "old-session", Status: "blocked", Phase: "branch-assigned", Committed: true}
 	replacing, err := l.lockSession(ctx, old.SessionUUID)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +44,7 @@ func TestCreateReplayQueuedAfterReplacementProofCannotProduceOldEffects(t *testi
 	loaded, done := make(chan struct{}), make(chan error, 1)
 	fresh := old
 	go func() {
-		_, release, e := l.lockCreationOperation(waiting, old, func(context.Context, string) (control.Operation, error) {
+		_, release, e := l.lockCreationOperation(waiting, old, func(context.Context, string) (api.Operation, error) {
 			close(loaded)
 			return fresh, nil
 		})
@@ -85,12 +86,12 @@ func TestCreateReplayQueuedAfterReplacementProofCannotProduceOldEffects(t *testi
 func TestCreationWorkerFirstExcludesReplacementAndReloadsBeforeEffects(t *testing.T) {
 	l := &lifecycle{}
 	ctx := context.Background()
-	old := control.Operation{ID: "old-operation", Kind: "session.create", SessionUUID: "old-session", Status: "blocked", Phase: "source-ready"}
+	old := api.Operation{ID: "old-operation", Kind: "session.create", SessionUUID: "old-session", Status: "blocked", Phase: "source-ready"}
 	fresh := old
 	fresh.Status = "running"
 	fresh.Phase = "branch-assigned"
 	fresh.Committed = true
-	got, release, e := l.lockCreationOperation(ctx, old, func(context.Context, string) (control.Operation, error) { return fresh, nil })
+	got, release, e := l.lockCreationOperation(ctx, old, func(context.Context, string) (api.Operation, error) { return fresh, nil })
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -117,14 +118,14 @@ func TestCreationWorkerWaitDuringPreviewRetainsWorkAndHonorsCancellation(t *test
 	l := &lifecycle{}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	old := control.Operation{ID: "old-operation", Kind: "session.create", SessionUUID: "old-session", Status: "blocked", Phase: "branch-assigned", Committed: true}
+	old := api.Operation{ID: "old-operation", Kind: "session.create", SessionUUID: "old-session", Status: "blocked", Phase: "branch-assigned", Committed: true}
 	preview, e := l.lockSession(ctx, old.SessionUUID)
 	if e != nil {
 		t.Fatal(e)
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, release, e := l.lockCreationOperation(ctx, old, func(context.Context, string) (control.Operation, error) { return old, nil })
+		_, release, e := l.lockCreationOperation(ctx, old, func(context.Context, string) (api.Operation, error) { return old, nil })
 		if release != nil {
 			release()
 		}
@@ -145,7 +146,7 @@ func TestCreationWorkerWaitDuringPreviewRetainsWorkAndHonorsCancellation(t *test
 	}
 	cancelled, stop := context.WithCancel(ctx)
 	stop()
-	if _, release, e := l.lockCreationOperation(cancelled, old, func(context.Context, string) (control.Operation, error) {
+	if _, release, e := l.lockCreationOperation(cancelled, old, func(context.Context, string) (api.Operation, error) {
 		t.Fatal("cancelled worker loaded state")
 		return old, nil
 	}); !errors.Is(e, context.Canceled) || release != nil {
@@ -191,7 +192,7 @@ func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *tes
 				tc.mutate(&evidence)
 			}
 			raw, _ := json.Marshal(evidence)
-			op := control.Operation{Kind: "session.create", Status: tc.status, Phase: tc.phase, Committed: tc.phase != "source-ready", Request: request, Evidence: raw}
+			op := api.Operation{Kind: "session.create", Status: tc.status, Phase: tc.phase, Committed: tc.phase != "source-ready", Request: request, Evidence: raw}
 			if got := deferBlockedCreationUntilRetry(op); got != tc.want {
 				t.Fatalf("defer=%v want=%v", got, tc.want)
 			}

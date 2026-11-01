@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -17,9 +18,9 @@ func TestCollectionPreflightRejectsChangedFactsBeforeDurableIntent(t *testing.T)
 	claim := control.EnvironmentCollectionClaim{Image: entry, ImagePresent: true, ObservedSize: 1024, RelatedDigest: strings.Repeat("c", 64)}
 	state := collectionPreviewState{Claim: claim, ExpiresAt: time.Now().Add(time.Minute)}
 	beginCalls := 0
-	begin := func(context.Context, string, control.EnvironmentCollectionClaim) (control.Operation, error) {
+	begin := func(context.Context, string, control.EnvironmentCollectionClaim) (api.Operation, error) {
 		beginCalls++
-		return control.Operation{ID: "accepted"}, nil
+		return api.Operation{ID: "accepted"}, nil
 	}
 	for _, tc := range []struct {
 		name     string

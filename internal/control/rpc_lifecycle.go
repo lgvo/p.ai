@@ -4,35 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
-type SessionView struct {
-	UUID                      string               `json:"uuid"`
-	Project                   string               `json:"project"`
-	Branch                    string               `json:"branch"`
-	Registry                  string               `json:"registry_state"`
-	PolicySHA256              string               `json:"policy_sha256"`
-	Condition                 string               `json:"session_condition"`
-	PolicyCondition           string               `json:"policy_condition"`
-	AttachedCount             int                  `json:"attached_count"`
-	LatestUnattendedCondition *UnattendedCondition `json:"latest_unattended_condition"`
-	Diagnostic                string               `json:"diagnostic,omitempty"`
-	Environment               *EnvironmentView     `json:"environment,omitempty"`
-}
-
-// EnvironmentView exposes bounded selection and cache state without store
-// paths, activation bytes, or builder credentials.
-type EnvironmentView struct {
-	CommitOID            string `json:"commit_oid,omitempty"`
-	System               string `json:"system"`
-	Selection            string `json:"selection"`
-	Cache                string `json:"cache"`
-	Key                  string `json:"environment_key,omitempty"`
-	BaseImageFingerprint string `json:"base_image_fingerprint"`
-	ImageFingerprint     string `json:"image_fingerprint"`
-}
-
-func CreationEnvironmentView(op Operation) *EnvironmentView {
+func CreationEnvironmentView(op api.Operation) *api.EnvironmentView {
 	if op.Kind != "session.create" {
 		return nil
 	}
@@ -40,7 +17,7 @@ func CreationEnvironmentView(op Operation) *EnvironmentView {
 	if err != nil || ev.Environment == nil {
 		return nil
 	}
-	v := &EnvironmentView{CommitOID: ev.CapturedOID, System: ev.Environment.System, BaseImageFingerprint: ev.Environment.BaseFingerprint,
+	v := &api.EnvironmentView{CommitOID: ev.CapturedOID, System: ev.Environment.System, BaseImageFingerprint: ev.Environment.BaseFingerprint,
 		Selection: "pending", Cache: "pending", ImageFingerprint: ev.ImageFingerprint}
 	if s := ev.EnvironmentState; s != nil {
 		if s.Key == "" {
@@ -59,11 +36,11 @@ func CreationEnvironmentView(op Operation) *EnvironmentView {
 	return v
 }
 
-func AcceptedRepairEnvironmentView(ev RepairEvidence) *EnvironmentView {
+func AcceptedRepairEnvironmentView(ev RepairEvidence) *api.EnvironmentView {
 	if ev.Environment == nil || ev.EnvironmentSourceCommit == "" || ev.EnvironmentState == nil || ev.ImageFingerprint == "" {
 		return nil
 	}
-	v := &EnvironmentView{CommitOID: ev.EnvironmentSourceCommit, System: ev.Environment.System,
+	v := &api.EnvironmentView{CommitOID: ev.EnvironmentSourceCommit, System: ev.Environment.System,
 		BaseImageFingerprint: ev.Environment.BaseFingerprint, ImageFingerprint: ev.ImageFingerprint,
 		Selection: ev.EnvironmentSelection, Cache: "none"}
 	if ev.EnvironmentKey != "" {
@@ -77,38 +54,25 @@ func AcceptedRepairEnvironmentView(ev RepairEvidence) *EnvironmentView {
 	return v
 }
 
-func NewSessionView(s Session) SessionView {
-	return SessionView{UUID: s.UUID, Project: s.Project, Branch: s.Branch, Registry: s.Registry, PolicySHA256: s.PolicySHA256}
+func NewSessionView(s Session) api.SessionView {
+	return api.SessionView{UUID: s.UUID, Project: s.Project, Branch: s.Branch, Registry: s.Registry, PolicySHA256: s.PolicySHA256}
 }
 
-func (s *Store) PopulateSessionStatus(ctx context.Context, view SessionView) (SessionView, error) {
+func (s *Store) PopulateSessionStatus(ctx context.Context, view api.SessionView) (api.SessionView, error) {
 	count, latest, err := s.SessionStatus(ctx, view.UUID)
 	if err != nil {
-		return SessionView{}, err
+		return api.SessionView{}, err
 	}
 	view.AttachedCount = count
 	view.LatestUnattendedCondition = latest
 	return view, nil
 }
 
-type OperationSummary struct {
-	ID          string           `json:"id"`
-	Key         string           `json:"idempotency_key"`
-	Kind        string           `json:"kind"`
-	Project     string           `json:"project"`
-	SessionUUID string           `json:"session_uuid,omitempty"`
-	Status      string           `json:"status"`
-	Phase       string           `json:"phase"`
-	Committed   bool             `json:"committed"`
-	Diagnostic  string           `json:"diagnostic,omitempty"`
-	Environment *EnvironmentView `json:"environment,omitempty"`
-}
-
 // The request ID can consume up to 768 encoded bytes (128 escaped bytes).
 // Leave room for that ID and the JSON-RPC envelope around every list result.
-const lifecyclePageResultCeiling = MaxFrameBytes - 1024
+const lifecyclePageResultCeiling = api.MaxFrameBytes - 1024
 
-func boundedLifecyclePage[T any](field string, values []T, next string, cursor func(T) string) (map[string]any, *RPCError) {
+func boundedLifecyclePage[T any](field string, values []T, next string, cursor func(T) string) (map[string]any, *api.RPCError) {
 	for count := len(values); count >= 0; count-- {
 		if count == 0 && len(values) != 0 {
 			break
@@ -129,7 +93,7 @@ func boundedLifecyclePage[T any](field string, values []T, next string, cursor f
 	return nil, errorRPC(-32603, "internal", "single lifecycle record exceeds frame limit")
 }
 
-func SummarizeOperation(o Operation) OperationSummary {
+func SummarizeOperation(o api.Operation) api.OperationSummary {
 	d := o.Diagnostic
 	limit := 256
 	if o.Kind == "session.rename" {
@@ -140,52 +104,52 @@ func SummarizeOperation(o Operation) OperationSummary {
 	if len(d) > limit {
 		d = d[:limit]
 	}
-	return OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Diagnostic: d, Environment: CreationEnvironmentView(o)}
+	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Diagnostic: d, Environment: CreationEnvironmentView(o)}
 }
 
 type LifecycleAPI interface {
-	CreateProject(context.Context, BlankProjectRequest) (Operation, error)
-	CreateSession(context.Context, ReserveSessionRequest) (Operation, error)
-	Retry(context.Context, string) (Operation, error)
-	InspectSession(context.Context, string) (SessionView, error)
-	StartSession(context.Context, string) (SessionView, error)
-	StopSession(context.Context, string) (SessionView, error)
+	CreateProject(context.Context, BlankProjectRequest) (api.Operation, error)
+	CreateSession(context.Context, ReserveSessionRequest) (api.Operation, error)
+	Retry(context.Context, string) (api.Operation, error)
+	InspectSession(context.Context, string) (api.SessionView, error)
+	StartSession(context.Context, string) (api.SessionView, error)
+	StopSession(context.Context, string) (api.SessionView, error)
 }
 
 type EnvironmentCacheAPI interface {
 	ListEnvironmentCache(context.Context, string, string, int) ([]EnvironmentCacheItem, string, error)
 	PreviewEnvironmentCollection(context.Context, string, string, string, string, int) (EnvironmentCollectionPreview, error)
-	CollectEnvironmentCache(context.Context, string, string) (Operation, error)
+	CollectEnvironmentCache(context.Context, string, string) (api.Operation, error)
 }
 
 type WorkspaceReadAPI interface {
-	InspectWorkspace(context.Context, WorkspaceInspectRequest) (Operation, error)
+	InspectWorkspace(context.Context, WorkspaceInspectRequest) (api.Operation, error)
 }
 
 type WorkspaceLossReadAPI interface {
-	InspectWorkspaceLoss(context.Context, WorkspaceInspectRequest) (Operation, error)
+	InspectWorkspaceLoss(context.Context, WorkspaceInspectRequest) (api.Operation, error)
 }
 
 type RenameAPI interface {
-	RenameSession(context.Context, RenameRequest) (Operation, error)
+	RenameSession(context.Context, RenameRequest) (api.Operation, error)
 }
 
 type RetainedRenameAPI interface {
-	RenameRetainedBranch(context.Context, RetainedRenameRequest) (Operation, error)
+	RenameRetainedBranch(context.Context, RetainedRenameRequest) (api.Operation, error)
 }
 
 type RetainedDeleteAPI interface {
 	PreviewRetainedDelete(context.Context, string, string) (RetainedDeletePreview, error)
-	ConfirmRetainedDelete(context.Context, string, string, string, string) (Operation, error)
+	ConfirmRetainedDelete(context.Context, string, string, string, string) (api.Operation, error)
 }
 
 type RepairAPI interface {
 	PreviewRepair(context.Context, string) (RepairPreview, error)
-	ConfirmRepair(context.Context, RepairConfirmRequest) (Operation, error)
+	ConfirmRepair(context.Context, RepairConfirmRequest) (api.Operation, error)
 }
 
 type RepairPreparationAPI interface {
-	PrepareRepair(context.Context, string, string) (Operation, error)
+	PrepareRepair(context.Context, string, string) (api.Operation, error)
 }
 
 type PreparedRepairPreviewAPI interface {
@@ -194,27 +158,27 @@ type PreparedRepairPreviewAPI interface {
 
 type RefRepairAPI interface {
 	PreviewRefRepair(context.Context, string, string) (RefRepairPreview, error)
-	ConfirmRefRepair(context.Context, string, string, string) (Operation, error)
+	ConfirmRefRepair(context.Context, string, string, string) (api.Operation, error)
 }
 
 type PrincipalRepairAPI interface {
 	PreviewPrincipalRepair(context.Context, string) (PrincipalRepairPreview, error)
-	ConfirmPrincipalRepair(context.Context, string, string, string) (Operation, error)
+	ConfirmPrincipalRepair(context.Context, string, string, string) (api.Operation, error)
 }
 
 type RecordRepairAPI interface {
 	PreviewRecordRepair(context.Context, string) (RecordRepairPreview, error)
-	ConfirmRecordRepair(context.Context, string, string, string) (Operation, error)
+	ConfirmRecordRepair(context.Context, string, string, string) (api.Operation, error)
 }
 
 type CreateReplaceAPI interface {
 	PreviewCreateReplace(context.Context, string, ReserveSessionRequest) (CreateReplacePreview, error)
-	ConfirmCreateReplace(context.Context, string, string, string) (Operation, error)
+	ConfirmCreateReplace(context.Context, string, string, string) (api.Operation, error)
 }
 
 func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life LifecycleAPI) Handler {
 	base := StateHandlerWithGit(store, git, info)
-	return func(ctx context.Context, method string, params json.RawMessage) (any, *RPCError) {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
 		if method == "session.services" || method == "session.service.journal" || method == "session.service.action" {
 			if service, ok := life.(ServiceAPI); ok {
 				return serviceHandler(ctx, method, params, service)
@@ -302,7 +266,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Project string `json:"project"`
 				URL     string `json:"url"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || p.Key == "" || !validProject(p.Project) || len(p.URL) > 2048 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Key == "" || !validProject(p.Project) || len(p.URL) > 2048 {
 				return nil, errorRPC(-32602, "invalid_params", "project.create requires v=1, key and project")
 			}
 			op, e := life.CreateProject(ctx, BlankProjectRequest{Key: p.Key, Project: p.Project, URL: p.URL})
@@ -322,7 +286,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				ExpectedCommitOID string `json:"expected_commit_oid"`
 				ExpectedOriginURL string `json:"expected_origin_url"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.create request")
 			}
 			req := ReserveSessionRequest{Key: p.Key, Project: p.Project, Branch: p.Branch, Choice: p.Choice, Source: p.Source, OriginRef: p.OriginRef, ExpectedCommitOID: p.ExpectedCommitOID, ExpectedOriginURL: p.ExpectedOriginURL}
@@ -344,7 +308,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID            string `json:"uuid"`
 				LossOperationID string `json:"loss_operation_id,omitempty"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.LossOperationID != "" && !validUUID(p.LossOperationID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.LossOperationID != "" && !validUUID(p.LossOperationID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid failed creation cleanup preview")
 			}
 			var review CreateCleanupPreview
@@ -373,7 +337,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Key   string `json:"key"`
 				Token string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) || len(p.Token) != 32 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) || len(p.Token) != 32 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid failed creation cleanup confirmation")
 			}
 			op, e := cleanup.ConfirmCreateCleanup(ctx, p.UUID, p.Key, p.Token)
@@ -397,7 +361,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				OriginRef         string `json:"origin_ref"`
 				ExpectedCommitOID string `json:"expected_commit_oid"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.OldUUID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.OldUUID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid create replacement preview")
 			}
 			req := ReserveSessionRequest{Key: p.Key, Project: p.Project, Branch: p.Branch, Choice: p.Choice, Source: p.Source, OriginRef: p.OriginRef, ExpectedCommitOID: p.ExpectedCommitOID}
@@ -420,7 +384,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Key     string `json:"key"`
 				Token   string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.OldUUID) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) || len(p.Token) != 32 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.OldUUID) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) || len(p.Token) != 32 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid create replacement confirmation")
 			}
 			op, e := replace.ConfirmCreateReplace(ctx, p.OldUUID, p.Key, p.Token)
@@ -438,7 +402,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Key  string `json:"key"`
 				UUID string `json:"uuid"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) {
 				return nil, errorRPC(-32602, "invalid_params", "workspace.inspect requires v=1, key and session UUID")
 			}
 			op, e := workspace.InspectWorkspace(ctx, WorkspaceInspectRequest{Key: p.Key, SessionUUID: p.UUID})
@@ -456,7 +420,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Key  string `json:"key"`
 				UUID string `json:"uuid"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) {
 				return nil, errorRPC(-32602, "invalid_params", "workspace.loss.inspect requires v=1, key and session UUID")
 			}
 			op, e := workspace.InspectWorkspaceLoss(ctx, WorkspaceInspectRequest{Key: p.Key, SessionUUID: p.UUID})
@@ -476,7 +440,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				LossOperationID           string `json:"loss_operation_id"`
 				AcknowledgeMissingRuntime bool   `json:"acknowledge_missing_runtime"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.Kind != "discard" && p.Kind != "delete" ||
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.Kind != "discard" && p.Kind != "delete" ||
 				len(p.LossOperationID) > 128 || (p.LossOperationID == "") == !p.AcknowledgeMissingRuntime {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.removal.preview request")
 			}
@@ -497,7 +461,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID  string `json:"uuid"`
 				Token string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.discard request")
 			}
 			op, e := discard.DiscardSession(ctx, DiscardConfirmRequest{Key: p.Key, UUID: p.UUID, ConfirmationToken: p.Token})
@@ -516,7 +480,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID  string `json:"uuid"`
 				Token string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) || !validHexToken(p.Token) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) || !validHexToken(p.Token) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.delete request")
 			}
 			op, e := deletion.DeleteSession(ctx, DiscardConfirmRequest{Key: p.Key, UUID: p.UUID, ConfirmationToken: p.Token})
@@ -536,7 +500,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				NewBranch      string `json:"new_branch"`
 				ExpectedOldTip string `json:"expected_old_tip"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.rename request")
 			}
 			req := RenameRequest{Key: p.Key, UUID: p.UUID, NewBranch: p.NewBranch, ExpectedOldTip: p.ExpectedOldTip}
@@ -561,7 +525,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				NewBranch      string `json:"new_branch"`
 				ExpectedOldTip string `json:"expected_old_tip"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid project.retained.rename request")
 			}
 			req := RetainedRenameRequest{Key: p.Key, Project: p.Project, OldBranch: p.OldBranch, NewBranch: p.NewBranch, ExpectedOldTip: p.ExpectedOldTip}
@@ -584,7 +548,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				LossOperations     map[string]string `json:"loss_operations"`
 				AcknowledgeMissing []string          `json:"acknowledge_missing,omitempty"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || len(p.LossOperations) > 4 || len(p.AcknowledgeMissing) > 4 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || len(p.LossOperations) > 4 || len(p.AcknowledgeMissing) > 4 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid project deletion preview")
 			}
 			for uuid, id := range p.LossOperations {
@@ -613,7 +577,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Project string `json:"project"`
 				Token   string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Key == "" || len(p.Key) > 128 || !validHexToken(p.Token) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid project deletion confirmation")
 			}
 			op, e := deletion.ConfirmProjectDelete(ctx, ProjectDeleteConfirmRequest{Key: p.Key, Project: p.Project, ConfirmationToken: p.Token})
@@ -631,7 +595,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Project string `json:"project"`
 				Branch  string `json:"branch"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || !validBranch(p.Branch) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || !validBranch(p.Branch) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid retained delete preview request")
 			}
 			preview, e := deletion.PreviewRetainedDelete(ctx, p.Project, p.Branch)
@@ -651,7 +615,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Branch  string `json:"branch"`
 				Token   string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validProject(p.Project) || !validBranch(p.Branch) || !validHexToken(p.Token) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validProject(p.Project) || !validBranch(p.Branch) || !validHexToken(p.Token) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid retained delete confirmation request")
 			}
 			op, e := deletion.ConfirmRetainedDelete(ctx, p.Key, p.Project, p.Branch, p.Token)
@@ -668,7 +632,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				V    int    `json:"v"`
 				UUID string `json:"uuid"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid principal repair preview")
 			}
 			preview, e := repair.PreviewPrincipalRepair(ctx, p.UUID)
@@ -687,7 +651,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID  string `json:"uuid"`
 				Token string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 ||
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 ||
 				!validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid principal repair confirmation")
 			}
@@ -705,7 +669,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				V    int    `json:"v"`
 				UUID string `json:"uuid"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid record repair preview")
 			}
 			preview, e := repair.PreviewRecordRepair(ctx, p.UUID)
@@ -724,7 +688,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID  string `json:"uuid"`
 				Token string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 ||
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 ||
 				!validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid record repair confirmation")
 			}
@@ -743,7 +707,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID            string `json:"uuid"`
 				LossOperationID string `json:"loss_operation_id"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || !validUUID(p.LossOperationID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || !validUUID(p.LossOperationID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid assigned-ref repair preview")
 			}
 			preview, e := repair.PreviewRefRepair(ctx, p.UUID, p.LossOperationID)
@@ -762,7 +726,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID  string `json:"uuid"`
 				Token string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) == 0 || len(p.Key) > 128 ||
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) == 0 || len(p.Key) > 128 ||
 				!validUUID(p.UUID) || !validHexToken(p.Token) || len(p.Token) != 32 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid assigned-ref repair confirmation")
 			}
@@ -781,7 +745,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID                   string `json:"uuid"`
 				PreparationOperationID string `json:"preparation_operation_id,omitempty"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.PreparationOperationID != "" && !validUUID(p.PreparationOperationID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.PreparationOperationID != "" && !validUUID(p.PreparationOperationID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid repair preview request")
 			}
 			var preview RepairPreview
@@ -807,7 +771,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				Key  string `json:"key"`
 				UUID string `json:"uuid"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) == 0 || len(p.Key) > 128 || !validUUID(p.UUID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) == 0 || len(p.Key) > 128 || !validUUID(p.UUID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid repair preparation")
 			}
 			op, e := prepare.PrepareRepair(ctx, p.Key, p.UUID)
@@ -826,7 +790,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				UUID  string `json:"uuid"`
 				Token string `json:"confirmation_token"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid repair confirmation")
 			}
 			op, e := repair.ConfirmRepair(ctx, RepairConfirmRequest{Key: p.Key, UUID: p.UUID, ConfirmationToken: p.Token})
@@ -839,10 +803,10 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				V  int    `json:"v"`
 				ID string `json:"id"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || p.ID == "" || len(p.ID) > 128 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || p.ID == "" || len(p.ID) > 128 {
 				return nil, errorRPC(-32602, "invalid_params", "operation ID required")
 			}
-			var op Operation
+			var op api.Operation
 			var e error
 			if method == "operation.retry" {
 				op, e = life.Retry(ctx, p.ID)
@@ -863,7 +827,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 			if method == "session.list" {
 				maximum = 8
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || p.Limit < 1 || p.Limit > maximum || len(p.After) > 128 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Limit < 1 || p.Limit > maximum || len(p.After) > 128 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid lifecycle page limit")
 			}
 			if method == "operation.list" {
@@ -871,17 +835,17 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				if e != nil {
 					return nil, lifecycleRPC(e)
 				}
-				summaries := make([]OperationSummary, 0, len(ops))
+				summaries := make([]api.OperationSummary, 0, len(ops))
 				for _, op := range ops {
 					summaries = append(summaries, SummarizeOperation(op))
 				}
-				return boundedLifecyclePage("operations", summaries, next, func(v OperationSummary) string { return v.ID })
+				return boundedLifecyclePage("operations", summaries, next, func(v api.OperationSummary) string { return v.ID })
 			}
 			sessions, next, e := store.ListSessions(ctx, p.After, p.Limit)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}
-			views := make([]SessionView, 0, len(sessions))
+			views := make([]api.SessionView, 0, len(sessions))
 			for _, s := range sessions {
 				v, e := life.InspectSession(ctx, s.UUID)
 				if e != nil {
@@ -905,16 +869,16 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 				}
 				views = append(views, v)
 			}
-			return boundedLifecyclePage("sessions", views, next, func(v SessionView) string { return v.UUID })
+			return boundedLifecyclePage("sessions", views, next, func(v api.SessionView) string { return v.UUID })
 		case "session.inspect", "session.start", "session.stop":
 			var p struct {
 				V    int    `json:"v"`
 				UUID string `json:"uuid"`
 			}
-			if strictDecode(params, &p) != nil || p.V != 1 || len(p.UUID) != 36 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.UUID) != 36 {
 				return nil, errorRPC(-32602, "invalid_params", "session UUID required")
 			}
-			var view SessionView
+			var view api.SessionView
 			var e error
 			switch method {
 			case "session.inspect":
@@ -945,7 +909,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 					After   string `json:"after"`
 					Limit   int    `json:"limit"`
 				}
-				if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 {
+				if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 {
 					return nil, errorRPC(-32602, "invalid_params", "invalid environment cache page")
 				}
 				items, next, err := cache.ListEnvironmentCache(ctx, p.Project, p.After, p.Limit)
@@ -962,7 +926,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 					After   string `json:"after"`
 					Limit   int    `json:"limit"`
 				}
-				if strictDecode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || !validFingerprint(p.Key) ||
+				if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || !validFingerprint(p.Key) ||
 					len(p.Token) > 64 || len(p.After) > 64 || p.Limit < 1 || p.Limit > 20 {
 					return nil, errorRPC(-32602, "invalid_params", "invalid environment collection preview")
 				}
@@ -977,7 +941,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 					Key   string `json:"key"`
 					Token string `json:"confirmation_token"`
 				}
-				if strictDecode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 || len(p.Token) != 32 {
+				if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 || len(p.Token) != 32 {
 					return nil, errorRPC(-32602, "invalid_params", "invalid environment collection confirmation")
 				}
 				op, err := cache.CollectEnvironmentCache(ctx, p.Key, p.Token)
@@ -992,7 +956,7 @@ func StateHandlerWithLifecycle(store *Store, git GitReader, info *GitInfo, life 
 	}
 }
 
-func lifecycleRPC(err error) *RPCError {
+func lifecycleRPC(err error) *api.RPCError {
 	var capacity *sessionCapacityError
 	switch {
 	case errors.Is(err, ErrInvalid):
@@ -1010,7 +974,7 @@ func lifecycleRPC(err error) *RPCError {
 	}
 }
 
-func projectDeleteRPC(err error) *RPCError {
+func projectDeleteRPC(err error) *api.RPCError {
 	if errors.Is(err, ErrConflict) {
 		message := err.Error()
 		if len(message) > 900 {
