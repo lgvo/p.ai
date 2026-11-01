@@ -171,7 +171,7 @@ const (
 	surfaceFullLifecycle
 )
 
-// surfaceHandler composes the handler as daemon.Serve does for each host
+// surfaceHandler builds the handler as daemon.Serve does for each host
 // configuration: no Git, Git without runtime, and Git with runtime.
 func surfaceHandler(t *testing.T, config surfaceConfig) (Handler, *surfaceCalls) {
 	t.Helper()
@@ -187,8 +187,8 @@ func surfaceHandler(t *testing.T, config surfaceConfig) (Handler, *surfaceCalls)
 	return h, calls
 }
 
-// surfaceHandlerFor composes the handler around life, or without runtime
-// when life is nil, and returns its store.
+// surfaceHandlerFor builds the handler around life, or without runtime when
+// life is nil, and returns its store.
 func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI) (Handler, *Store) {
 	t.Helper()
 	store, _ := openTestStore(t)
@@ -196,14 +196,10 @@ func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI) (Handler, *Sto
 		t.Fatal(err)
 	}
 	if !git {
-		return StateHandler(store), store
+		return NewHandler(HandlerConfig{Store: store}), store
 	}
-	info := &GitInfo{Endpoint: "127.0.0.1:2222"}
-	handler := StateHandlerWithGit(store, fixtureGitReader{}, info)
-	if life != nil {
-		handler = StateHandlerWithLifecycle(store, fixtureGitReader{}, info, life)
-	}
-	return OriginHandler(handler, OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}), store
+	return NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &GitInfo{Endpoint: "127.0.0.1:2222"}, Lifecycle: life,
+		Origins: &OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}}), store
 }
 
 // cleanupLife offers failed-create cleanup but not its assembled variant.

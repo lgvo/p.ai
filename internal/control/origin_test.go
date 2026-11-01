@@ -115,7 +115,7 @@ func TestOriginSourcePagesAndStrictRPC(t *testing.T) {
 	}
 	f := &fakeOriginRunner{refs: refs}
 	origins := OriginAPI{Store: s, Runner: f}
-	handler := OriginHandler(StateHandler(s), origins)
+	handler := NewHandler(HandlerConfig{Store: s, Origins: &origins})
 	_, e := handler(ctx, "origin.change", json.RawMessage(`{"v":1,"key":"a","project":"app","kind":"set","url":"ssh://host/a","extra":1}`))
 	if e == nil || e.Kind != "invalid_params" {
 		t.Fatalf("unknown field: %+v", e)

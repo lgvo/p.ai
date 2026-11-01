@@ -125,7 +125,8 @@ module at a time so each step builds and passes:
 
 Each module gets one responsibility and each piece of state one owner; the
 capability list comes from the dispatch table; clients stop depending on the
-store. Trusted configuration stays in control (step 2 was dropped).
+store. Trusted configuration and the RPC server stay in control for now
+(steps 2 and 3b wait on a home for identifier formats and sentinel errors).
 Cost: import churn in every package and larger reviews. Warning signs
 left: the daemon still calls the concrete runtime backend (finding 2), and
 native sub-protocols stay copied (finding 6); both are recorded as debt.
@@ -159,10 +160,13 @@ VM suite can check one at a time.
   committed. Step 1 is exempt: it moves declarations between packages without
   changing any statement, which the compiler and unit suites check. Run checks
   with `LD_LIBRARY_PATH` unset.
-- VM baseline (2026-11-01, unchanged code at a9fce20): scenario
-  `34-missing-runtime-repair.sh` fails every time, so a full run stops there.
-  Steps are compared against a baseline run of the other 57 scenarios; the
-  scenario 34 failure is investigated separately and reported, not fixed here.
+- VM baseline (2026-11-01, unchanged code at a9fce20): scenarios 01–33, 35,
+  36 and 38–57 pass. Scenario 34 fails on most runs from a pre-existing Start
+  readiness race, and scenario 37 fails because an external redirect service
+  now refuses its probe, and scenario 58's TUI driver still expects the session
+  row format from before 0dfc4ad; all three are in DEBT.md. A step's VM gate runs 01–36
+  without 34 in one VM and 38–58 in another and compares them with the
+  baseline.
 - Each step is reviewed in rounds before its commit.
 - Moved tests state the same behavior at the new interface.
 
@@ -173,7 +177,8 @@ VM suite can check one at a time.
 | 0 | Characterization tests | — | no |
 | 1 | `internal/api` | 3 | no |
 | 2 | dropped: `internal/config` (see below) | 3, 7 | — |
-| 3 | `internal/server` with one method table | 3, 4 | yes |
+| 3a | One method table for the control-API surface | 4 | yes |
+| 3b | deferred: `internal/server` (see step 3) | 3 | — |
 | 4 | Operation journal in control | 1 | yes |
 | 5 | Operation-kind registry in daemon | 1 | yes |
 | 6 | One session-key store in daemon | 6 | yes |
@@ -228,9 +233,15 @@ sentinel errors, which touches about 300 call sites in control alone. That
 cost is out of proportion to what it removes (one runtimeincus import and one
 role of control), so configuration stays in control; recorded as debt.
 
-**3. `internal/server`.** Move the RPC server, handlers and session socket
-protocol out of control; the tui-mock fixture moves to `server.ServeConn`.
-Replace the closure chain with one table of methods. Each entry has its
+**3. `internal/server` with one method table**, in two commits. 3a replaces
+the closure chain inside control with one table of methods. 3b, moving the
+RPC server, handlers and session socket protocol out of control, is deferred:
+measured at the start of the step, the handlers call control's unexported
+identifier validators (`validUUID`, `validProject`, `validHexToken` and
+others) and its capacity error type, so the move needs the same home for
+identifier formats and sentinel errors that step 2 needs, plus moving about
+3,300 lines of tests that reach store internals. Both wait on that
+prerequisite; recorded as debt. Each entry has its
 dispatch availability, whether `system.capabilities` advertises it, parameter
 decoding and call. Advertisement is separate from dispatch because they differ
 today: `attachment.claim`, `attachment.confirm` and `attachment.ping` are
@@ -291,6 +302,8 @@ drifted operation behaviors, routing native effects through the runtime plugin
 |---|---|---|---|---|
 | Plan | reviewed: settled | — | Codex, 3 rounds: challenge 3 findings accepted, 2 cuts; normal 1: 4 accepted, re-raised part settled by cutting the preview book; normal 2: 1 accepted | baseline running |
 | 0 | done | 7061a8b | Codex, 2 rounds: 5 + 1 findings accepted, 2 cuts; last fix verified by break-and-restore at the round limit | not needed (tests only) |
-| 1 | done | step 1 commit | Codex, 1 round: 1 finding accepted (plan wording) | exempt (declarations moved) |
+| 1 | done | c656c40 | Codex, 1 round: 1 finding accepted (plan wording) | exempt (declarations moved) |
 | 2 | dropped (see step 2) | — | — | — |
-| 3–8 | not started | — | — | — |
+| 3a | done | step 3a commit | Codex, 1 round: no findings, 1 cut applied | 01–36 (no 34) and 38–58 match the baseline |
+| 3b | deferred (see step 3) | — | — | — |
+| 4–8 | not started | — | — | — |

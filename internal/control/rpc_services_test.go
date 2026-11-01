@@ -20,7 +20,7 @@ func (p *serviceProbe) SessionServices(_ context.Context, id, unit, action strin
 }
 func TestServicesRPCClosedAuthority(t *testing.T) {
 	p := &serviceProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	id := "550e8400-e29b-41d4-a716-446655440000"
 	for _, test := range []struct{ method, raw string }{
 		{"session.services", fmt.Sprintf(`{"v":1,"uuid":%q,"action":"stop"}`, id)},

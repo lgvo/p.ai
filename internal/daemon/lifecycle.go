@@ -65,6 +65,34 @@ type lifecycle struct {
 	projectDeletePreviews   map[string]projectDeletePreviewState
 }
 
+// The control-API surface dispatches each lifecycle method only to an
+// implementation of its interface; a missing method would silently answer
+// "unavailable" instead of failing the build.
+var (
+	_ control.LifecycleAPI              = (*lifecycle)(nil)
+	_ control.ServiceAPI                = (*lifecycle)(nil)
+	_ control.AttachmentAPI             = (*lifecycle)(nil)
+	_ control.EnvironmentCacheAPI       = (*lifecycle)(nil)
+	_ control.WorkspaceReadAPI          = (*lifecycle)(nil)
+	_ control.WorkspaceLossReadAPI      = (*lifecycle)(nil)
+	_ control.RemovalPreviewAPI         = (*lifecycle)(nil)
+	_ control.DiscardAPI                = (*lifecycle)(nil)
+	_ control.DeleteAPI                 = (*lifecycle)(nil)
+	_ control.RenameAPI                 = (*lifecycle)(nil)
+	_ control.RetainedRenameAPI         = (*lifecycle)(nil)
+	_ control.ProjectDeleteAPI          = (*lifecycle)(nil)
+	_ control.RetainedDeleteAPI         = (*lifecycle)(nil)
+	_ control.RepairAPI                 = (*lifecycle)(nil)
+	_ control.RepairPreparationAPI      = (*lifecycle)(nil)
+	_ control.PreparedRepairPreviewAPI  = (*lifecycle)(nil)
+	_ control.RefRepairAPI              = (*lifecycle)(nil)
+	_ control.PrincipalRepairAPI        = (*lifecycle)(nil)
+	_ control.RecordRepairAPI           = (*lifecycle)(nil)
+	_ control.CreateReplaceAPI          = (*lifecycle)(nil)
+	_ control.CreateCleanupAPI          = (*lifecycle)(nil)
+	_ control.AssembledCreateCleanupAPI = (*lifecycle)(nil)
+)
+
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
 	if err := privateTrustedFile(cfg.ActivationPath); err != nil {
 		return nil, fmt.Errorf("runtime activation: %w", err)

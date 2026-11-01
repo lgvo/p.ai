@@ -16,7 +16,7 @@ func TestRPCFramingVersionAndUnavailableMethods(t *testing.T) {
 	store, _ := openTestStore(t)
 	client, server := net.Pipe()
 	defer client.Close()
-	go ServeConn(context.Background(), server, StateHandler(store))
+	go ServeConn(context.Background(), server, NewHandler(HandlerConfig{Store: store}))
 	reader := bufio.NewReader(client)
 	requests := []struct {
 		line string

@@ -412,7 +412,7 @@ func TestHostInspectAndListProjectFourFacts(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatal(err)
 	}
-	h := StateHandlerWithLifecycle(s, nil, nil, statusLife{s})
+	h := NewHandler(HandlerConfig{Store: s, Lifecycle: statusLife{s}})
 	for _, call := range []struct{ method, params string }{
 		{"session.inspect", fmt.Sprintf(`{"v":1,"uuid":%q}`, id)},
 		{"session.list", `{"v":1,"limit":8}`},

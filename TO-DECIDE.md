@@ -89,14 +89,44 @@ decision is applied.
 - Needs from you: confirm or reverse
 - From: the agent, on the rework request, 2026-11-01; coding-practice technical-debt record.
 
-### Configuration stays in the store package
+### Configuration and the RPC server stay in the store package
 
-- Where: REWORK-PLAN.md, step 2; internal/control config.go, grants.go, public_egress.go
-- What: The reviewed plan moved trusted configuration out of `internal/control`. Measured at
-  the start of the step, that move first needs a new home for identifier validators and
-  sentinel errors shared with the store (about 300 call sites), so it was dropped and recorded
-  as debt (docs/debts/structure.md, "Trusted configuration lives in the store package").
-- Chosen: drop step 2 from this rework. Set aside: moving configuration with duplicated
-  validators (two copies of one rule), or adding the identifier package within this rework.
+- Where: REWORK-PLAN.md, steps 2 and 3b; internal/control config.go, rpc*.go, attachment.go,
+  session_rpc.go
+- What: The reviewed plan moved trusted configuration (step 2) and the RPC server (step 3b)
+  out of `internal/control`. Measured at the start of each step, both first need a new home
+  for identifier validators and sentinel errors shared with the store (about 300 call sites in
+  control, more in the daemon), so both were deferred and recorded as debt
+  (docs/debts/structure.md, "Trusted configuration and the RPC server live in the store
+  package"). The method table (step 3a) was done inside control.
+- Chosen: defer steps 2 and 3b and do the higher-value steps 4–8 first. Set aside: moving
+  them with duplicated validators (two copies of one rule), or adding the identifier package
+  within this rework.
 - Needs from you: confirm or reverse
 - From: the agent, on the rework request, 2026-11-01; coding-practice "keep it small".
+
+### Fix the Start readiness race that fails VM scenario 34
+
+- Where: docs/debts/state-safety.md, "Start reports ready while its watcher still holds the
+  session lock"; internal/daemon lifecycle.go `StartSession`, `InspectSession`
+- What: A pre-existing product race makes `34-missing-runtime-repair.sh` fail on most runs, so
+  a full VM pass stops there. The fix changes when clients see `ready` (they see `starting`
+  slightly longer), which the rework deliberately does not do.
+- Chosen: not fixed in the rework; each VM gate runs the other 57 scenarios and compares them
+  with a baseline. Set aside: fixing it now (a behavior change), or changing only the test to
+  retry after `ready` (leaves the product race).
+- Needs from you: allow the fix (it is ready to make as a separate change), or decide otherwise
+- From: the agent, on the rework request, 2026-11-01; find-root-cause trace by a subagent,
+  reviewed by Codex (settled).
+
+### Fix the notes TUI driver for tree-style session rows
+
+- Where: docs/debts/checks.md, "Notes TUI scenario expects the old session-row format";
+  tests/integration/tui_notes_driver.py
+- What: VM scenario 58 fails on every run because its driver still expects the session-row
+  text from before 0dfc4ad's browser layout. The product's layout is the reviewed one; only
+  the driver is stale. The fix touches test code outside the rework.
+- Chosen: not fixed in the rework; VM gates compare scenario 58 with its failing baseline. Set
+  aside: fixing the driver now.
+- Needs from you: allow the fix (four matcher changes in the driver), or decide otherwise
+- From: the agent, on the rework request, 2026-11-01; find-root-cause trace by a subagent.

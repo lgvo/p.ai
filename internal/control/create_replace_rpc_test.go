@@ -28,7 +28,7 @@ func (p *createReplaceRPCProbe) ConfirmCreateReplace(_ context.Context, uuid, ke
 }
 func TestCreateReplaceRPCClosedRequests(t *testing.T) {
 	p := &createReplaceRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	token := strings.Repeat("a", 32)
 	for _, raw := range []string{

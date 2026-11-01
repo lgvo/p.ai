@@ -198,7 +198,7 @@ func (l *captureOriginLifecycle) CreateSession(_ context.Context, req ReserveSes
 func TestOriginCreationRPCStrictInputs(t *testing.T) {
 	s, _ := openTestStore(t)
 	life := &captureOriginLifecycle{statusLife: statusLife{store: s}}
-	h := StateHandlerWithLifecycle(s, nil, nil, life)
+	h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
 	call := func(method, params string) *api.RPCError {
 		_, e := h(context.Background(), method, json.RawMessage(params))
 		return e

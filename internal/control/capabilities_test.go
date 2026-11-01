@@ -21,7 +21,7 @@ func TestConfiguredReadOnlyProjectMethods(t *testing.T) {
 	if err := store.CreateProject(ctx, "team/app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	handler := StateHandlerWithGit(store, fixtureGitReader{}, &GitInfo{Endpoint: "127.0.0.1:2222"})
+	handler := NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &GitInfo{Endpoint: "127.0.0.1:2222"}})
 	for _, test := range []struct {
 		method, params string
 		wantError      bool

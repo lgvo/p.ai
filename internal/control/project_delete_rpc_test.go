@@ -24,7 +24,7 @@ func (p *projectDeleteRPCProbe) ConfirmProjectDelete(_ context.Context, req Proj
 }
 func TestProjectDeleteRPCClosedSchema(t *testing.T) {
 	p := &projectDeleteRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	ctx := context.Background()
 	for _, raw := range []string{`{"v":2,"project":"bulk"}`, `{"v":1,"project":"../bulk"}`, `{"v":1,"project":"bulk","force":true}`, `{"v":1,"project":"bulk","project":"bulk"}`, `{"v":1,"project":"bulk","loss_operations":{"bad":"bad"}}`, `{"v":1,"project":"bulk","acknowledge_missing":["bad"]}`} {
 		if _, e := h(ctx, "project.delete.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {

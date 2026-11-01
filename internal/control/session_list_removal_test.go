@@ -100,7 +100,7 @@ func TestSessionListConcurrentCompletionSkipsOnlyAbsentRecord(t *testing.T) {
 				}
 				return nil
 			}}
-			h := StateHandlerWithLifecycle(s, nil, nil, life)
+			h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
 			result, rpcErr := h(context.Background(), "session.list", json.RawMessage(fmt.Sprintf(`{"v":1,"limit":%d}`, limit)))
 			if rpcErr != nil || !removed {
 				t.Fatalf("concurrent completion failed list: %+v %v", result, rpcErr)
@@ -133,7 +133,7 @@ func TestSessionListPreservesSurvivingMissingAuthorityAndOtherErrors(t *testing.
 			if !missingAuthority {
 				life.inspectErr = ErrConflict
 			}
-			h := StateHandlerWithLifecycle(s, nil, nil, life)
+			h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
 			result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"v":1,"limit":1}`))
 			if rpcErr == nil || result != nil {
 				t.Fatalf("surviving record error hidden: %+v %+v", result, rpcErr)
@@ -152,7 +152,7 @@ func TestSessionListDoesNotHideNonNotFoundErrorAfterRemoval(t *testing.T) {
 	s, op, ids := committedListRemoval(t)
 	life := removingSessionListLife{statusLife: statusLife{s}, inspectErr: ErrConflict,
 		before: func(ctx context.Context, id string) error { return completeListRemoval(ctx, s, op) }}
-	h := StateHandlerWithLifecycle(s, nil, nil, life)
+	h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
 	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"v":1,"limit":1}`))
 	if result != nil || rpcErr == nil || rpcErr.Kind != "busy" {
 		t.Fatalf("non-not-found error hidden by absent record: %+v %+v", result, rpcErr)
@@ -167,7 +167,7 @@ func TestSessionListPreservesStatusStorageError(t *testing.T) {
 	if _, err := s.db.Exec(`DROP TABLE session_unattended`); err != nil {
 		t.Fatal(err)
 	}
-	h := StateHandlerWithLifecycle(s, nil, nil, statusLife{s})
+	h := NewHandler(HandlerConfig{Store: s, Lifecycle: statusLife{s}})
 	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"v":1,"limit":1}`))
 	if result != nil || rpcErr == nil || rpcErr.Kind != "unavailable" {
 		t.Fatalf("status storage failure hidden: %+v %+v", result, rpcErr)

@@ -78,7 +78,7 @@ func TestRetainedDeleteChangedOriginReviewIsPublicBusy(t *testing.T) {
 	if !errors.Is(stale, errDeleteReviewChanged) || !errors.Is(stale, control.ErrConflict) {
 		t.Fatalf("changed origin did not produce public conflict: %v", stale)
 	}
-	h := control.StateHandlerWithLifecycle(nil, nil, nil, staleRetainedDeleteRPC{stale: stale})
+	h := control.NewHandler(control.HandlerConfig{Lifecycle: staleRetainedDeleteRPC{stale: stale}})
 	token := strings.Repeat("d", 32)
 	_, rpcErr := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(`{"v":1,"key":"delete","project":"app","branch":"saved","confirmation_token":"`+token+`"}`))
 	if rpcErr == nil || rpcErr.Kind != "busy" || rpcErr.Code != -32003 {

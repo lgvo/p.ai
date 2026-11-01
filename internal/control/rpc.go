@@ -40,8 +40,6 @@ type rpcResponse struct {
 	Error   *api.RPCError   `json:"error,omitempty"`
 }
 
-type Handler func(context.Context, string, json.RawMessage) (any, *api.RPCError)
-
 type GitReader interface {
 	ListRefsPage(context.Context, string, string, int) ([]plugin.GitRef, string, error)
 }
@@ -61,106 +59,190 @@ func errorRPC(code int, kind, message string) *api.RPCError {
 	return &api.RPCError{Code: code, Kind: kind, Message: message}
 }
 
-// StateHandler exposes only facts the current binary can establish. Lifecycle
-// method names are deliberately unavailable until their authority is wired.
-func StateHandler(store *Store) Handler {
-	return StateHandlerWithGit(store, nil, nil)
+// Handler answers one control-API request; method tells table entries that
+// share a handler apart.
+type Handler func(context.Context, string, json.RawMessage) (any, *api.RPCError)
+
+// HandlerConfig names what trusted configuration enabled. Git, the lifecycle
+// and origins stay nil until configured; each adds its methods to the surface.
+type HandlerConfig struct {
+	Store     *Store
+	Git       GitReader
+	GitInfo   *GitInfo
+	Lifecycle LifecycleAPI
+	Origins   *OriginAPI
 }
 
-func StateHandlerWithGit(store *Store, git GitReader, info *GitInfo) Handler {
-	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-		if method == "project.list" || method == "project.branches" {
-			if git == nil || info == nil {
-				return nil, errorRPC(-32004, "unavailable", "Git capability is not configured")
-			}
-			if method == "project.list" {
-				var p struct {
-					V     int    `json:"v"`
-					After string `json:"after"`
-					Limit int    `json:"limit"`
-				}
-				if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Limit < 1 || p.Limit > 100 || p.After != "" && !validProject(p.After) {
-					return nil, errorRPC(-32602, "invalid_params", "project.list requires v=1 and limit 1..100")
-				}
-				projects, next, err := store.ListProjects(ctx, p.After, p.Limit)
-				if err != nil {
-					return nil, internalRPC(err)
-				}
-				if projects == nil {
-					projects = []api.ProjectSummary{}
-				}
-				return map[string]any{"v": 1, "projects": projects, "next": next}, nil
-			}
-			var p struct {
-				V       int    `json:"v"`
-				Project string `json:"project"`
-				After   string `json:"after"`
-				Limit   int    `json:"limit"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 || p.After != "" && (!strings.HasPrefix(p.After, "refs/heads/") || !validBranch(strings.TrimPrefix(p.After, "refs/heads/"))) {
-				return nil, errorRPC(-32602, "invalid_params", "project.branches requires v=1, project, and limit 1..8")
-			}
-			active, err := store.HasActiveProject(ctx, p.Project)
-			if err != nil {
-				return nil, internalRPC(err)
-			}
-			if !active {
-				return nil, errorRPC(-32004, "unavailable", "project is unavailable")
-			}
-			refs, next, err := git.ListRefsPage(ctx, p.Project, p.After, p.Limit)
-			if err != nil {
-				return nil, errorRPC(-32004, "unavailable", "Git refs are unavailable")
-			}
-			if refs == nil {
-				refs = []plugin.GitRef{}
-			}
-			return map[string]any{"v": 1, "project": p.Project, "refs": refs, "next": next}, nil
-		}
-		var p struct {
-			V int `json:"v"`
-		}
-		if err := strictjson.Decode(params, &p); err != nil || p.V != 1 {
-			return nil, errorRPC(-32602, "invalid_params", "params must be {\"v\":1}")
-		}
-		switch method {
-		case "system.hello":
-			id, err := store.InstanceID(ctx)
-			if err != nil {
-				return nil, internalRPC(err)
-			}
-			return map[string]any{"v": 1, "protocol": api.ProtocolVersion, "build_version": BuildVersion, "instance_id": id}, nil
-		case "system.health":
-			if err := store.Ping(ctx); err != nil {
-				return nil, internalRPC(err)
-			}
-			return map[string]any{"v": 1, "control_state": "ready"}, nil
-		case "system.capabilities":
-			available := []string{"system.hello", "system.health", "system.capabilities", "system.inspect"}
-			result := map[string]any{"v": 1, "available": available, "lifecycle": "unavailable"}
-			if git != nil && info != nil {
-				result["available"] = append(available, "project.list", "project.branches")
-				result["git"] = info
-			}
-			return result, nil
-		case "system.inspect":
-			projects, sessions, operations, err := store.Count(ctx)
-			if err != nil {
-				return nil, internalRPC(err)
-			}
-			result := map[string]any{"v": 1, "projects": projects, "sessions": sessions, "operations": operations}
-			if git != nil && info != nil {
-				result["git"] = info
-			}
-			return result, nil
-		default:
-			for _, prefix := range []string{"project.", "session.", "origin.", "runtime.", "status."} {
-				if strings.HasPrefix(method, prefix) {
-					return nil, errorRPC(-32004, "unavailable", "capability is not implemented")
-				}
-			}
-			return nil, errorRPC(-32601, "method_not_found", "method is unknown")
+// methodTable is the control-API surface of one configured daemon. Dispatch and
+// system.capabilities both read it, in the order methods were added.
+type methodTable struct {
+	handlers   map[string]Handler
+	advertised []string
+}
+
+// add dispatches name to h and advertises it.
+func (t *methodTable) add(name string, h Handler) {
+	t.handlers[name] = h
+	t.advertised = append(t.advertised, name)
+}
+
+// addHidden dispatches name to h without advertising it.
+func (t *methodTable) addHidden(name string, h Handler) { t.handlers[name] = h }
+
+// unavailable dispatches names whose capability is configured but whose
+// implementation is absent; they answer that the record is unavailable.
+func (t *methodTable) unavailable(names ...string) {
+	for _, name := range names {
+		t.handlers[name] = func(context.Context, string, json.RawMessage) (any, *api.RPCError) {
+			return nil, lifecycleRPC(ErrNotFound)
 		}
 	}
+}
+
+// NewHandler builds the control-API surface for one configuration. It exposes
+// only facts the current binary can establish: a method is dispatched only
+// when the capability that owns it is configured.
+func NewHandler(c HandlerConfig) Handler {
+	t := &methodTable{handlers: map[string]Handler{}}
+	git := c.Git != nil && c.GitInfo != nil
+	addSystemMethods(t, c, git)
+	if git {
+		addProjectReads(t, c.Store, c.Git)
+	}
+	if c.Lifecycle != nil {
+		addLifecycleMethods(t, c.Store, c.Lifecycle)
+	}
+	if c.Origins != nil {
+		addOriginMethods(t, *c.Origins)
+	}
+	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
+		if h, ok := t.handlers[method]; ok {
+			return h(ctx, method, params)
+		}
+		return unconfiguredMethod(method, params)
+	}
+}
+
+// exactVersionParams accepts only {"v":1}.
+func exactVersionParams(params json.RawMessage) *api.RPCError {
+	var p struct {
+		V int `json:"v"`
+	}
+	if err := strictjson.Decode(params, &p); err != nil || p.V != 1 {
+		return errorRPC(-32602, "invalid_params", "params must be {\"v\":1}")
+	}
+	return nil
+}
+
+// systemMethod answers after checking that params are exactly {"v":1}.
+func systemMethod(answer func(context.Context) (any, *api.RPCError)) Handler {
+	return func(ctx context.Context, _ string, params json.RawMessage) (any, *api.RPCError) {
+		if rpcErr := exactVersionParams(params); rpcErr != nil {
+			return nil, rpcErr
+		}
+		return answer(ctx)
+	}
+}
+
+func addSystemMethods(t *methodTable, c HandlerConfig, git bool) {
+	store := c.Store
+	t.add("system.hello", systemMethod(func(ctx context.Context) (any, *api.RPCError) {
+		id, err := store.InstanceID(ctx)
+		if err != nil {
+			return nil, internalRPC(err)
+		}
+		return map[string]any{"v": 1, "protocol": api.ProtocolVersion, "build_version": BuildVersion, "instance_id": id}, nil
+	}))
+	t.add("system.health", systemMethod(func(ctx context.Context) (any, *api.RPCError) {
+		if err := store.Ping(ctx); err != nil {
+			return nil, internalRPC(err)
+		}
+		return map[string]any{"v": 1, "control_state": "ready"}, nil
+	}))
+	t.add("system.capabilities", systemMethod(func(context.Context) (any, *api.RPCError) {
+		result := map[string]any{"v": 1, "available": append([]string(nil), t.advertised...), "lifecycle": "unavailable"}
+		if c.Lifecycle != nil {
+			result["lifecycle"] = "partial"
+		}
+		if git {
+			result["git"] = c.GitInfo
+		}
+		return result, nil
+	}))
+	t.add("system.inspect", systemMethod(func(ctx context.Context) (any, *api.RPCError) {
+		projects, sessions, operations, err := store.Count(ctx)
+		if err != nil {
+			return nil, internalRPC(err)
+		}
+		result := map[string]any{"v": 1, "projects": projects, "sessions": sessions, "operations": operations}
+		if git {
+			result["git"] = c.GitInfo
+		}
+		return result, nil
+	}))
+}
+
+func addProjectReads(t *methodTable, store *Store, git GitReader) {
+	t.add("project.list", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
+		var p struct {
+			V     int    `json:"v"`
+			After string `json:"after"`
+			Limit int    `json:"limit"`
+		}
+		if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Limit < 1 || p.Limit > 100 || p.After != "" && !validProject(p.After) {
+			return nil, errorRPC(-32602, "invalid_params", "project.list requires v=1 and limit 1..100")
+		}
+		projects, next, err := store.ListProjects(ctx, p.After, p.Limit)
+		if err != nil {
+			return nil, internalRPC(err)
+		}
+		if projects == nil {
+			projects = []api.ProjectSummary{}
+		}
+		return map[string]any{"v": 1, "projects": projects, "next": next}, nil
+	})
+	t.add("project.branches", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
+		var p struct {
+			V       int    `json:"v"`
+			Project string `json:"project"`
+			After   string `json:"after"`
+			Limit   int    `json:"limit"`
+		}
+		if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 || p.After != "" && (!strings.HasPrefix(p.After, "refs/heads/") || !validBranch(strings.TrimPrefix(p.After, "refs/heads/"))) {
+			return nil, errorRPC(-32602, "invalid_params", "project.branches requires v=1, project, and limit 1..8")
+		}
+		active, err := store.HasActiveProject(ctx, p.Project)
+		if err != nil {
+			return nil, internalRPC(err)
+		}
+		if !active {
+			return nil, errorRPC(-32004, "unavailable", "project is unavailable")
+		}
+		refs, next, err := git.ListRefsPage(ctx, p.Project, p.After, p.Limit)
+		if err != nil {
+			return nil, errorRPC(-32004, "unavailable", "Git refs are unavailable")
+		}
+		if refs == nil {
+			refs = []plugin.GitRef{}
+		}
+		return map[string]any{"v": 1, "project": p.Project, "refs": refs, "next": next}, nil
+	})
+}
+
+// unconfiguredMethod answers a method that no configured capability provides.
+func unconfiguredMethod(method string, params json.RawMessage) (any, *api.RPCError) {
+	if method == "project.list" || method == "project.branches" {
+		return nil, errorRPC(-32004, "unavailable", "Git capability is not configured")
+	}
+	if rpcErr := exactVersionParams(params); rpcErr != nil {
+		return nil, rpcErr
+	}
+	for _, prefix := range []string{"project.", "session.", "origin.", "runtime.", "status."} {
+		if strings.HasPrefix(method, prefix) {
+			return nil, errorRPC(-32004, "unavailable", "capability is not implemented")
+		}
+	}
+	return nil, errorRPC(-32601, "method_not_found", "method is unknown")
 }
 
 func internalRPC(err error) *api.RPCError {
@@ -260,7 +342,7 @@ func parseRequest(line []byte) (rpcRequest, *api.RPCError) {
 }
 
 func Serve(ctx context.Context, store *Store, stateDir string) error {
-	return ServeWithHandler(ctx, stateDir, StateHandler(store))
+	return ServeWithHandler(ctx, stateDir, NewHandler(HandlerConfig{Store: store}))
 }
 
 func ServeWithHandler(ctx context.Context, stateDir string, handler Handler) error {

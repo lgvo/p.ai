@@ -187,7 +187,7 @@ func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
 	ctx := context.Background()
 	a.Git = fixtureGitReader{}
-	handler := OriginHandler(StateHandlerWithGit(s, a.Git, &GitInfo{}), a)
+	handler := NewHandler(HandlerConfig{Store: s, Git: a.Git, GitInfo: &GitInfo{}, Origins: &a})
 	request := func(method, body string) (map[string]any, *api.RPCError) {
 		t.Helper()
 		result, e := handler(ctx, method, json.RawMessage(body))

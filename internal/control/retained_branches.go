@@ -39,10 +39,8 @@ func (s *Store) IsRetainedBranch(ctx context.Context, project, branch string) (b
 	return false, err
 }
 
+// retainedBranchesHandler answers project.retained_branches; origins.Git is configured.
 func retainedBranchesHandler(ctx context.Context, params json.RawMessage, origins OriginAPI) (any, *api.RPCError) {
-	if origins.Git == nil {
-		return nil, lifecycleRPC(ErrNotFound)
-	}
 	var p struct {
 		V       int    `json:"v"`
 		Project string `json:"project"`

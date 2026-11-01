@@ -45,7 +45,8 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 	if !sameLeasedSelection(leasedPackages, git.source) {
 		return errors.New("source selection changed while acquiring package leases")
 	}
-	var handler control.Handler = control.StateHandlerWithGit(store, git.backend, git.info)
+	surface := control.HandlerConfig{Store: store, Git: git.backend, GitInfo: git.info,
+		Origins: &control.OriginAPI{Store: store, Runner: originRunner{backend: git.backend}, Git: git.backend}}
 	if cfg.Runtime != nil {
 		life, e := newLifecycle(scope, *cfg.Runtime, store, git)
 		if e != nil {
@@ -61,12 +62,12 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 			events.enqueue(event)
 			return nil
 		}
-		handler = control.StateHandlerWithLifecycle(store, git.backend, git.info, life)
+		surface.Lifecycle = life
 		if e = life.Recover(); e != nil {
 			return e
 		}
 	}
-	handler = control.OriginHandler(handler, control.OriginAPI{Store: store, Runner: originRunner{backend: git.backend}, Git: git.backend})
+	handler := control.NewHandler(surface)
 	return runPair(scope,
 		func(ctx context.Context) error { return git.prepared.Serve(ctx) },
 		func(ctx context.Context) error {

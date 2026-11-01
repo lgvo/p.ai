@@ -46,7 +46,7 @@ func (p *retainedDeleteRPCProbe) ConfirmRetainedDelete(_ context.Context, key, p
 }
 func TestRetainedDeleteRPCClosedRequests(t *testing.T) {
 	p := &retainedDeleteRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	for _, raw := range []string{`{"v":2,"project":"app","branch":"saved"}`, `{"v":1,"project":"app","branch":"saved","workspace":"/tmp"}`, `{"v":1,"project":"app","branch":"saved","branch":"saved"}`} {
 		if _, e := h(context.Background(), "project.retained.delete.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
 			t.Fatalf("preview accepted %s: %+v", raw, e)
@@ -79,7 +79,7 @@ func (p *retainedRenameRPCProbe) RenameRetainedBranch(_ context.Context, req Ret
 
 func TestRetainedRenameRPCClosedRequest(t *testing.T) {
 	p := &retainedRenameRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	oid := strings.Repeat("a", 40)
 	for _, raw := range []string{
 		`{"v":2,"key":"move","project":"app","old_branch":"saved","new_branch":"archive","expected_old_tip":"` + oid + `"}`,
@@ -135,7 +135,7 @@ func (p *recordRepairRPCProbe) ConfirmRecordRepair(_ context.Context, key, uuid,
 
 func TestRecordRepairRPCUsesClosedVersionedRequests(t *testing.T) {
 	p := &recordRepairRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	token := strings.Repeat("a", 32)
 	for _, raw := range []string{
@@ -180,7 +180,7 @@ func (p *principalRepairRPCProbe) ConfirmPrincipalRepair(_ context.Context, key,
 
 func TestPrincipalRepairRPCUsesClosedVersionedRequests(t *testing.T) {
 	p := &principalRepairRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	token := strings.Repeat("a", 32)
 	for _, raw := range []string{
@@ -233,7 +233,7 @@ func (p *repairRPCProbe) PrepareRepair(_ context.Context, key, uuid string) (api
 
 func TestRepairRPCClosedHostRequest(t *testing.T) {
 	p := &repairRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	for _, raw := range []string{`{"v":2,"uuid":"` + uuid + `"}`, `{"v":1,"uuid":"` + uuid + `","path":"/workspace"}`, `{"v":1,"uuid":"` + uuid + `","uuid":"` + uuid + `"}`} {
 		if _, e := h(context.Background(), "session.repair.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
@@ -280,7 +280,7 @@ func (p *renameRPCProbe) RenameSession(_ context.Context, req RenameRequest) (ap
 
 func TestRenameRPCUsesClosedVersionedRequest(t *testing.T) {
 	p := &renameRPCProbe{}
-	handler := StateHandlerWithLifecycle(nil, nil, nil, p)
+	handler := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	tip := strings.Repeat("a", 40)
 	for _, raw := range []string{
@@ -318,7 +318,7 @@ func (p *removalRPCProbe) PreviewRemoval(_ context.Context, req RemovalPreviewRe
 
 func TestRemovalPreviewRPCUsesClosedVersionedRequest(t *testing.T) {
 	p := &removalRPCProbe{}
-	handler := StateHandlerWithLifecycle(nil, nil, nil, p)
+	handler := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	loss := "11111111-1111-1111-1111-111111111111"
 	for _, raw := range []string{
@@ -360,7 +360,7 @@ func (p *workspaceRPCProbe) InspectWorkspaceLoss(_ context.Context, req Workspac
 
 func TestWorkspaceRPCUsesClosedVersionedRequest(t *testing.T) {
 	p := &workspaceRPCProbe{}
-	handler := StateHandlerWithLifecycle(nil, nil, nil, p)
+	handler := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	for _, raw := range []string{
 		`{"v":2,"key":"inspect-1","uuid":"` + uuid + `"}`,
@@ -383,7 +383,7 @@ func TestWorkspaceRPCUsesClosedVersionedRequest(t *testing.T) {
 
 func TestWorkspaceLossRPCUsesClosedVersionedRequest(t *testing.T) {
 	p := &workspaceRPCProbe{}
-	handler := StateHandlerWithLifecycle(nil, nil, nil, p)
+	handler := NewHandler(HandlerConfig{Lifecycle: p})
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	for _, raw := range []string{
 		`{"v":2,"key":"loss-1","uuid":"` + uuid + `"}`,

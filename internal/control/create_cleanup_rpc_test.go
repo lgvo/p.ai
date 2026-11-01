@@ -31,7 +31,7 @@ func (p *createCleanupRPCProbe) ConfirmCreateCleanup(_ context.Context, uuid, ke
 }
 func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	p := &createCleanupRPCProbe{}
-	h := StateHandlerWithLifecycle(nil, nil, nil, p)
+	h := NewHandler(HandlerConfig{Lifecycle: p})
 	ctx := context.Background()
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	token := strings.Repeat("a", 32)

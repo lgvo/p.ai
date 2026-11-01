@@ -39,7 +39,7 @@ func (l *cacheLife) CollectEnvironmentCache(_ context.Context, key, token string
 func TestEnvironmentCacheRPCSurfaceIsClosedAndBounded(t *testing.T) {
 	s, _ := openTestStore(t)
 	l := &cacheLife{statusLife: statusLife{store: s}}
-	h := StateHandlerWithLifecycle(s, nil, nil, l)
+	h := NewHandler(HandlerConfig{Store: s, Lifecycle: l})
 	ctx := context.Background()
 	capabilities, rpcErr := h(ctx, "system.capabilities", json.RawMessage(`{"v":1}`))
 	if rpcErr != nil {
