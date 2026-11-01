@@ -115,7 +115,7 @@ module at a time so each step builds and passes:
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `internal/api` | Control-API contract for clients: wire types, `RPCError`, framing limits, `Call`, socket selection | plugin (attach spec and origin-ref validation, which are plugin-contract types) |
+| `internal/api` | Control-API contract for clients: wire types, `RPCError`, framing limits, `Call`, socket selection | plugin (the attach spec, a plugin-contract type) |
 | `internal/config` | Trusted host configuration, project policy, grants, public-egress config | — |
 | `internal/server` | Control-API server: framing, one method table that drives dispatch and `system.capabilities`, handlers, session socket protocol | api, control, plugin (Git ref types); declares the lifecycle interfaces it needs |
 | `internal/control` | Durable control state; an operation journal is the only writer of `operations` rows, with typed kinds and statuses | api, config, plugin |
@@ -158,6 +158,10 @@ VM suite can check one at a time.
   committed. Step 1 is exempt: it moves declarations between packages without
   changing any statement, which the compiler and unit suites check. Run checks
   with `LD_LIBRARY_PATH` unset.
+- VM baseline (2026-11-01, unchanged code at a9fce20): scenario
+  `34-missing-runtime-repair.sh` fails every time, so a full run stops there.
+  Steps are compared against a baseline run of the other 57 scenarios; the
+  scenario 34 failure is investigated separately and reported, not fixed here.
 - Each step is reviewed in rounds before its commit.
 - Moved tests state the same behavior at the new interface.
 
@@ -189,20 +193,27 @@ coverage, checked by break and restore against today's code:
 - the unfinished-operation set for each kind and status, and the shared key
   namespace's replay/conflict rule across kinds.
 
-**1. `internal/api`.** Move the client-facing contract out of control:
-`Operation`, `Session`, `SessionView`, `EnvironmentView`, `OperationSummary`,
-`ProjectSummary`, `ServiceResult`, `ProjectService`,
-`UnattendedCondition`, `PendingAttachment`, `AttachmentLaunch`,
-`RemovalPreview` with its `RemovalRuntimePreview` and `RemovalBranchLoss`,
-`ReserveSessionRequest` with `ValidSessionCreateRequest`, `RPCError`,
-`ProtocolVersion`, `MaxFrameBytes`, `Call`, `ClientSocket`,
-`DefaultControlSocket`, `WorkspaceInspectionRequiresFreshRequest`. control,
-daemon and adapters use them from api. tui and attachment import api and no
-longer import control. cmd/p keeps control only where it starts the daemon and
-manages packages offline (it opens the store); its client commands use api.
-The tui-mock fixture keeps `control.ServeConn` and `RejectDuplicateKeys` until
-step 3 moves the server; `SummarizeOperation` and `CreationEnvironmentView`
-decode creation evidence, so they stay server-side and move in step 3.
+Steps 6–8 touch code whose coverage is measured when they start; each adds its
+own characterization tests first, in its own commit, where coverage is thin.
+
+**1. `internal/api`.** Move the contract that clients use out of control:
+`Operation`, `SessionView`, `EnvironmentView`, `OperationSummary`,
+`ProjectSummary`, `UnattendedCondition`, `ServiceResult`, `ProjectService`,
+`ValidProjectServiceUnit`, `PendingAttachment`, `AttachmentLaunch`,
+`WorkspaceInspectionRequiresFreshRequest`, `RPCError`, `ProtocolVersion`,
+`MaxFrameBytes`, `Call`, `ClientSocket`, `DefaultControlSocket`, and the
+framing and strict JSON decoding that `Call` shares with the server
+(`readFrame`, `strictDecode` and `RejectDuplicateKeys`, exported from api).
+control, daemon and adapters use them from api. tui and attachment import api
+and no longer import control; runtimeincus no longer needs control for service
+results. cmd/p keeps control only where it starts the daemon and manages
+packages offline (it opens the store); its client commands use api.
+Server-side types stay in control and move with the server in step 3:
+`Session`, `ReserveSessionRequest` with `ValidSessionCreateRequest` (moving it
+would also move the identifier validators used at about a hundred control call
+sites, for no client), the removal-preview types, `SummarizeOperation` and
+`CreationEnvironmentView` (they decode creation evidence). The tui-mock
+fixture is a server double and keeps importing control for these.
 
 **2. `internal/config`.** Move `HostConfig` and its parts, loading,
 trusted-ancestor checks, `EnsureStateDir`, project policy snapshot/parse,
@@ -271,4 +282,5 @@ drifted operation behaviors, routing native effects through the runtime plugin
 | Step | State | Commit | Review | VM suite |
 |---|---|---|---|---|
 | Plan | reviewed: settled | — | Codex, 3 rounds: challenge 3 findings accepted, 2 cuts; normal 1: 4 accepted, re-raised part settled by cutting the preview book; normal 2: 1 accepted | baseline running |
-| 0–8 | not started | — | — | — |
+| 0 | done | step 0 commit | Codex, 2 rounds: 5 + 1 findings accepted, 2 cuts; last fix verified by break-and-restore at the round limit | not needed (tests only) |
+| 1–8 | not started | — | — | — |
