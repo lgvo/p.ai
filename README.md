@@ -453,9 +453,10 @@ confirmation while invoking typed plugin contracts for the selected
 implementations.
 
 MVP must prove that model through secure first-party defaults, including Incus
-runtime support, a tmux persistent host, Git source and session access, Nix
-environment preparation, the structured file-log handler, and the Codex
-adapter. Ordinary setup selects and connects those defaults automatically.
+runtime support, a tmux persistent host, Git source and session access, the
+structured file-log handler, and the Codex adapter. Nix environment preparation
+is part of the native Incus image build. Ordinary setup selects and connects
+those defaults automatically.
 Developers and agents can author and test alternatives, but registration does
 not activate a plugin or grant it authority; trusted developer configuration
 controls both. The usable public interfaces and their basic first-party

@@ -86,14 +86,6 @@ let
     GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -o "$out/runtime.wasm" ./plugins/bundled/runtime-incus
     cp plugins/bundled/runtime-incus/plugin.json "$out/"
   '';
-  wasiEnvironment = pkgs.runCommand "p-wasi-environment-nix" { nativeBuildInputs = [ pkgs.go ]; } ''
-    export GOCACHE="$TMPDIR/go-cache" GOMODCACHE="$TMPDIR/go-modules"
-    export GOPROXY=off GOTOOLCHAIN=local
-    mkdir -p "$out"
-    cd ${pPackage.src}
-    GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -o "$out/environment.wasm" ./plugins/bundled/environment-nix
-    cp plugins/bundled/environment-nix/plugin.json "$out/"
-  '';
   # Test-only immutable client shim: hold an image publication until two named
   # same-key builders exist, so their builds provably overlap.
   publishBarrierIncusWrapper = pkgs.writeShellScriptBin "p-incus-publish-barrier-wrapper" ''
@@ -239,7 +231,6 @@ let
       export P_TEST_GIT_ALTERNATE=${wasiGitAlternate}
       export P_TEST_RUNTIME_IMAGE_FILE=${runtimeIdentity}
       export P_TEST_RUNTIME_PLUGIN=${wasiRuntime}
-      export P_TEST_ENV_PLUGIN=${wasiEnvironment}
       export P_TEST_INCUS_WRAPPER=${publishBarrierIncusWrapper}/bin/p-incus-publish-barrier-wrapper
       export P_TEST_RUNTIME_HOSTILE=${wasiRuntimeHostile}
       export P_TEST_NIX_FIXTURE=${nixActivationFixture}
@@ -313,7 +304,6 @@ in
     runtimeFixture
     builderFixture
     wasiRuntime
-    wasiEnvironment
     wasiRuntimeHostile
     wasiFilter
     wasiHostile

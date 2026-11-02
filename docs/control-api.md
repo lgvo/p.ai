@@ -146,31 +146,31 @@ entry or losing the trusted confinement authority makes the condition
 `invalid` and blocks Start; restoring the entry re-enables comparison. A new
 session captures the newly configured policy.
 
-An optional `runtime.environment` object selects the environment plugin and
-restricted builder pool. Offline public session composition passed its pinned
-VM gate; see [implementation progress](implementation-progress.md).
+An optional `runtime.environment` object turns on environment building and
+selects its system and restricted builder pool. The Incus adapter builds the
+environment natively ([environment building](environment-building.md)). Offline
+public session composition passed its pinned VM gate; see
+[implementation progress](implementation-progress.md).
 
 ```json
-{"activation_path":"/absolute/private/environment-activation.json","plugin_id":"org.p.environment.nix","system":"x86_64-linux","builder_storage_pool":"p-builders"}
+{"system":"x86_64-linux","builder_storage_pool":"p-builders"}
 ```
 
-The selected module must be an activated `environment` WASI package with exactly
-the `environment.nix` grant and empty configuration. The activation file uses
-the same trusted host-file checks as other selections. The system is explicitly
-`x86_64-linux` or `aarch64-linux` and must match the observed Incus host and
-pinned base architecture before selection. Current VM evidence covers x86_64;
-aarch64 support still requires its corresponding validation. The builder pool
-must satisfy the native adapter's btrfs quota checks.
+The system is explicitly `x86_64-linux` or `aarch64-linux` and must match the
+observed Incus host and pinned base architecture before selection. Current VM
+evidence covers x86_64; aarch64 support still requires its corresponding
+validation. The builder pool must satisfy the native adapter's btrfs quota
+checks.
 With `public_egress` configured, the builder gets the public-egress network
 and the public binary cache, using its session's address slot while it builds
 ([environment building](environment-building.md#security-boundary));
 without it, the builder gets no NIC or substituters. It never gets a host
 store, filesystem grants, or credentials.
 
-Creation records the module and configuration digests, system, base image,
-builder policy, and captured commit before effects. Retry requires the same
-selection and never recaptures a moving branch or origin. An interrupted image
-publication is reconciled against its durable attempt before proceeding.
+Creation records the system, base image, builder pool and policy, and captured
+commit before effects. Retry requires the same selection and never recaptures
+a moving branch or origin. An interrupted image publication is reconciled
+against its durable attempt before proceeding.
 Concurrent requests for the same project/environment key share the resulting
 verified image. An unresolved prior publication blocks another publication for
 that key until its original operation is reconciled; it cannot silently replace
@@ -526,6 +526,7 @@ operations record:
 | `internal` | The operation's work failed in a way P did not classify, or panicked; the diagnostic holds the detail, and the daemon logs a panic's stack. A panicked operation is recorded `blocked`, keeps its guards and waits for `operation.retry`. |
 | `outcome_unknown` | The operation issued an effect, such as an Incus delete or a Git ref change, and cannot tell whether it happened. P does not issue it again; the diagnostic names the resource to check before Retry. |
 | `workspace_mismatch` | A Rename refused before any change: the workspace is not on its assigned branch, or its branch tracks another upstream. The diagnostic names the expected and actual values. |
+| `image_builder_changed` | A creation's image work found the host's image builder configuration (system, base image, builder pool or builder policy) different from the one the creation recorded. Retry runs only once the configuration is restored. |
 
 The diagnostic holds detail only, never advice: clients say what to do from the
 reason. Every diagnostic P records, an operation's, a session's start

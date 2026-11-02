@@ -45,7 +45,6 @@ func (s *Store) CheckPluginRemovalDependencies(ctx context.Context, digest strin
 	queries := []string{
 		`SELECT request_json,COALESCE(evidence_json,'') FROM operations WHERE status NOT IN ('completed','superseded') OR session_uuid IN (SELECT uuid FROM sessions)`,
 		`SELECT policy_json,'' FROM sessions`,
-		`SELECT properties_json,'' FROM environment_images`,
 	}
 	count, total := 0, 0
 	for _, q := range queries {
@@ -88,15 +87,6 @@ func (s *Store) CheckPluginRemovalDependencies(ctx context.Context, digest strin
 			return errors.Join(e, rowErr)
 		}
 	}
-	// Indexed cache material does not independently encode the module digest.
-	// Preserve all cache entries rather than guess whether the package is needed.
-	var caches int
-	if e := s.db.QueryRowContext(ctx, `SELECT count(*) FROM environment_images`).Scan(&caches); e != nil {
-		return e
-	}
-	if caches != 0 {
-		return fmt.Errorf("%w: delete the projects with indexed environment images before offline package removal; cache module provenance is not independently indexed", ErrConflict)
-	}
 	// Origin/publication rows do not pin a source module independently. Pending
 	// requests require the current selected capability for exact recovery.
 	var pending int
@@ -129,7 +119,7 @@ func containsPluginDigest(v any, digest string) bool {
 }
 
 // PluginActivationPaths is the closed set of activation authorities supplied by
-// this host configuration, including optional environment/adapter roles.
+// this host configuration, including the optional adapter role.
 func (c HostConfig) PluginActivationPaths() []string {
 	paths := []string{}
 	if c.Git != nil {
@@ -140,9 +130,6 @@ func (c HostConfig) PluginActivationPaths() []string {
 	}
 	if c.Runtime != nil {
 		paths = append(paths, c.Runtime.ActivationPath)
-		if c.Runtime.Environment != nil {
-			paths = append(paths, c.Runtime.Environment.ActivationPath)
-		}
 		if c.Runtime.AgentAdapter != nil {
 			paths = append(paths, c.Runtime.AgentAdapter.ActivationPath)
 		}

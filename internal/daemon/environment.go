@@ -10,7 +10,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/environmentnix"
 	"github.com/lgvo/p.ai/internal/nixenv"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -42,7 +41,7 @@ func (l *lifecycle) readyEnvironment(ctx context.Context, op *api.Operation, ev 
 	runtime environmentRecoveryRuntime, rebuild func(context.Context, *api.Operation, *control.CreationEvidence) (string, error)) (string, error) {
 	current := l.environmentIntent()
 	if current == nil || ev.Environment == nil || *current != *ev.Environment || ev.CapturedOID == "" {
-		return "", control.Failed(api.ReasonPlugin, errors.New("pinned environment selection unavailable"))
+		return "", refusalBecause(api.KindConflict, api.ReasonImageBuilderChanged, api.TargetSession(op.SessionUUID), control.ErrConflict, errors.New("pinned environment selection unavailable"))
 	}
 	if op.Phase == "environment-publishing" {
 		if ev.EnvironmentState == nil || ev.EnvironmentState.Key == "" || ev.EnvironmentState.Fingerprint != "" || len(ev.EnvironmentState.Properties) == 0 {
@@ -241,11 +240,9 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *api.Operation, ev 
 	if _, err := l.runtime.StartBuilder(ctx, r); err != nil {
 		return "", err
 	}
-	pipeline, err := environmentnix.New(*l.environmentPlugin, l.runtime, r, ev.Environment.System)
-	if err != nil {
-		return "", err
-	}
-	selection, err := pipeline.Resolve(ctx)
+	selection, err := runNixStage(ctx, func(stage context.Context) (runtimeincus.BuilderNixSelection, error) {
+		return l.runtime.ResolveBuilderNix(stage, r, ev.Environment.System)
+	})
 	if err != nil {
 		return "", err
 	}
@@ -295,11 +292,37 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *api.Operation, ev 
 			return "", err
 		}
 	}
-	result, err := pipeline.Realize(ctx)
+	// Realize exactly the accepted selection, and accept only material for it.
+	result, err := runNixStage(ctx, func(stage context.Context) (runtimeincus.BuilderNixResult, error) {
+		return l.runtime.RealizeBuilderNix(stage, r, selection)
+	})
 	if err != nil {
 		return "", err
 	}
-	return l.publishAcceptedEnvironment(ctx, op, ev, r, result, pipeline, func() { cleanup = false })
+	if result.MaterialDigest == "" || result.Selection.KeyDigest != selection.KeyDigest {
+		return "", errors.New("environment realization postcondition failed")
+	}
+	return l.publishAcceptedEnvironment(ctx, op, ev, r, result, func() { cleanup = false })
+}
+
+// The builder's two Nix stages, resolve and realize, run at most two at a time
+// across the daemon, and each ends after seven minutes, its wait for a slot
+// included.
+var nixStageSlots = make(chan struct{}, 2)
+
+const nixStageDeadline = 7 * time.Minute
+
+func runNixStage[T any](parent context.Context, stage func(context.Context) (T, error)) (T, error) {
+	var zero T
+	ctx, cancel := context.WithTimeout(parent, nixStageDeadline)
+	defer cancel()
+	select {
+	case nixStageSlots <- struct{}{}:
+		defer func() { <-nixStageSlots }()
+	case <-ctx.Done():
+		return zero, errors.New("environment Nix stage timed out waiting for a slot")
+	}
+	return stage(ctx)
 }
 
 func (l *lifecycle) lockEnvironmentKey(ctx context.Context, project, key string) (func(), error) {
@@ -336,14 +359,11 @@ func (l *lifecycle) rejectOtherEnvironmentPublication(ctx context.Context, proje
 }
 
 type gatedPublisher interface {
-	PublishPrivateImageWithGate(context.Context, func(runtimeincus.BuilderImageClaim) error) (nixenv.Handle, runtimeincus.BuilderImageInfo, error)
+	PublishBuilderImageWithGate(context.Context, runtimeincus.Builder, runtimeincus.BuilderNixResult, func(runtimeincus.BuilderImageClaim) error) (nixenv.Handle, runtimeincus.BuilderImageInfo, error)
 }
 
-func (l *lifecycle) publishAcceptedEnvironment(ctx context.Context, op *api.Operation, ev *control.CreationEvidence, r runtimeincus.Builder, result runtimeincus.BuilderNixResult, pipeline gatedPublisher, onAttempt func()) (string, error) {
-	if pipeline == nil || onAttempt == nil {
-		return "", errors.New("durable environment publisher unavailable")
-	}
-	_, info, err := runDurableImagePublish(ctx, pipeline, func(actual runtimeincus.BuilderImageClaim) error {
+func (l *lifecycle) publishAcceptedEnvironment(ctx context.Context, op *api.Operation, ev *control.CreationEvidence, r runtimeincus.Builder, result runtimeincus.BuilderNixResult, onAttempt func()) (string, error) {
+	_, info, err := runDurableImagePublish(ctx, l.runtime, r, result, func(actual runtimeincus.BuilderImageClaim) error {
 		if actual.ProjectPath != op.Project || actual.Key != result.Selection.KeyDigest ||
 			actual.BuilderRequest != r.RequestUUID || actual.BaseFingerprint != ev.Environment.BaseFingerprint ||
 			actual.System != ev.Environment.System || actual.MaterialDigest != result.MaterialDigest ||
@@ -372,14 +392,15 @@ func (l *lifecycle) publishAcceptedEnvironment(ctx context.Context, op *api.Oper
 	return l.acceptEnvironmentImage(ctx, op, ev, info, false)
 }
 
-// runDurableImagePublish separates deterministic image preparation failures
-// from an Incus publish attempt. Only the gate records the claim; a failure
-// after it fires is never safe to republish without reconciliation.
-func runDurableImagePublish(ctx context.Context, pipeline gatedPublisher, validate, record func(runtimeincus.BuilderImageClaim) error, onAttempt func()) (runtimeincus.BuilderImageClaim, runtimeincus.BuilderImageInfo, error) {
+// runDurableImagePublish publishes exactly the realized result. It separates
+// deterministic image preparation failures from an Incus publish attempt. Only
+// the gate records the claim; a failure after it fires is never safe to
+// republish without reconciliation.
+func runDurableImagePublish(ctx context.Context, publisher gatedPublisher, r runtimeincus.Builder, result runtimeincus.BuilderNixResult, validate, record func(runtimeincus.BuilderImageClaim) error, onAttempt func()) (runtimeincus.BuilderImageClaim, runtimeincus.BuilderImageInfo, error) {
 	var claim runtimeincus.BuilderImageClaim
 	var zero runtimeincus.BuilderImageInfo
 	marked := false
-	_, info, err := pipeline.PublishPrivateImageWithGate(ctx, func(actual runtimeincus.BuilderImageClaim) error {
+	handle, info, err := publisher.PublishBuilderImageWithGate(ctx, r, result, func(actual runtimeincus.BuilderImageClaim) error {
 		if err := validate(actual); err != nil {
 			return err
 		}
@@ -394,7 +415,7 @@ func runDurableImagePublish(ctx context.Context, pipeline gatedPublisher, valida
 	if err != nil {
 		return claim, zero, err
 	}
-	if !marked || !maps.Equal(info.Properties, claim.Properties) || info.Fingerprint == "" {
+	if !marked || !maps.Equal(info.Properties, claim.Properties) || info.Fingerprint == "" || handle.Locator != info.Fingerprint {
 		return claim, zero, errors.New("published image differs from durable claim")
 	}
 	return claim, info, nil

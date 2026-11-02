@@ -172,12 +172,12 @@ func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *tes
 		{name: "later-runtime", status: "blocked", phase: "runtime-created"},
 		{name: "settled-invalid-nix", status: "blocked", phase: "branch-assigned", want: true, mutate: func(e *control.CreationEvidence) {
 			e.BuilderTreeOID = strings.Repeat("b", 40)
-			e.Environment = &control.EnvironmentIntent{ModuleID: "nix", ModuleSHA256: strings.Repeat("d", 64), ConfigSHA256: strings.Repeat("d", 64), System: "x86_64-linux", BaseFingerprint: strings.Repeat("d", 64), BuilderStoragePool: "default", BuilderPolicySHA256: strings.Repeat("d", 64)}
+			e.Environment = &control.EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: strings.Repeat("d", 64), BuilderStoragePool: "default", BuilderPolicySHA256: strings.Repeat("d", 64)}
 			e.EnvironmentBuilder = &control.CreationBuilderState{Cycle: 1, State: "absent"}
 		}},
 		{name: "uncertain-builder-attempt", status: "blocked", phase: "branch-assigned", mutate: func(e *control.CreationEvidence) {
 			e.BuilderTreeOID = strings.Repeat("b", 40)
-			e.Environment = &control.EnvironmentIntent{ModuleID: "nix", ModuleSHA256: strings.Repeat("d", 64), ConfigSHA256: strings.Repeat("d", 64), System: "x86_64-linux", BaseFingerprint: strings.Repeat("d", 64), BuilderStoragePool: "default", BuilderPolicySHA256: strings.Repeat("d", 64)}
+			e.Environment = &control.EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: strings.Repeat("d", 64), BuilderStoragePool: "default", BuilderPolicySHA256: strings.Repeat("d", 64)}
 			e.EnvironmentBuilder = &control.CreationBuilderState{Cycle: 1, State: "attempted"}
 		}},
 		{name: "builder-intent", status: "blocked", phase: "branch-assigned", mutate: func(e *control.CreationEvidence) { e.BuilderTreeOID = strings.Repeat("b", 40) }},

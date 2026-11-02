@@ -8,19 +8,17 @@ runCommand "p-bundled-plugins-0.1.0" { nativeBuildInputs = [ go go-licenses ]; }
   cd ${src}
   catalog="$out/plugins"
   notices="$out/licenses"
-  mkdir -p "$catalog"/{source-git,runtime-incus,environment-nix,tmux-host,file-log,codex-adapter}
+  mkdir -p "$catalog"/{source-git,runtime-incus,tmux-host,file-log,codex-adapter}
   GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -trimpath \
     -o "$catalog/source-git/git.wasm" ./plugins/bundled/source-git
   GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -trimpath \
     -o "$catalog/runtime-incus/runtime.wasm" ./plugins/bundled/runtime-incus
-  GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -trimpath \
-    -o "$catalog/environment-nix/environment.wasm" ./plugins/bundled/environment-nix
-  for name in source-git runtime-incus environment-nix tmux-host file-log codex-adapter; do
+  for name in source-git runtime-incus tmux-host file-log codex-adapter; do
     cp "plugins/bundled/$name/plugin.json" "$catalog/$name/"
     mkdir -p "$notices/$name"
     cp LICENSE "$notices/$name/"
   done
-  for name in source-git runtime-incus environment-nix; do
+  for name in source-git runtime-incus; do
     GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go-licenses check \
       --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC "./plugins/bundled/$name"
     GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go-licenses save \

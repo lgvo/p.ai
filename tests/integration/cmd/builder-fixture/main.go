@@ -1,6 +1,6 @@
 // builder-fixture exercises the native builder substrate and, in explicit nix
-// and nix-wasi modes, closed offline resolution, realization, and activation
-// capture. Explicit nix-image mode also publishes a private image.
+// mode, closed offline resolution, realization, and activation capture.
+// Explicit nix-image mode also publishes a private image.
 package main
 
 import (
@@ -33,21 +33,10 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 3 && args[2] == "nix" {
-		return runNixFixture(args[:2], nil, false)
+		return runNixFixture(args[:2], false)
 	}
-	if len(args) == 4 && args[3] == "nix-wasi" {
-		selected, err := plugin.LoadActivation(args[2])
-		if err != nil || len(selected) != 1 || selected[0].Package.Manifest.Capability != "environment" {
-			return errors.New("trusted environment activation required")
-		}
-		return runNixFixture(args[:2], &selected[0], false)
-	}
-	if len(args) == 4 && args[3] == "nix-image" {
-		selected, err := plugin.LoadActivation(args[2])
-		if err != nil || len(selected) != 1 || selected[0].Package.Manifest.Capability != "environment" {
-			return errors.New("trusted environment activation required")
-		}
-		return runNixFixture(args[:2], &selected[0], true)
+	if len(args) == 3 && args[2] == "nix-image" {
+		return runNixFixture(args[:2], true)
 	}
 	if len(args) != 2 {
 		return errors.New("usage: builder-fixture ACTIVATION BASE-FINGERPRINT")

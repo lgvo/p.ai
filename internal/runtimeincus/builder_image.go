@@ -66,27 +66,18 @@ func validateBuilderImageResult(r Builder, result BuilderNixResult) error {
 	return nil
 }
 
-// PublishBuilderImage consumes only a previously accepted native result from
-// the WASI pipeline. It never evaluates project code on the host or accepts a
-// plugin path, Incus name, label, or command. Failure does not return a handle.
-func (b *Backend) PublishBuilderImage(ctx context.Context, r Builder, result BuilderNixResult) (nixenv.Handle, BuilderImageInfo, error) {
-	return b.publishBuilderImage(ctx, r, result, nil)
-}
-
-// PublishBuilderImageWithGate invokes gate after all reversible assembly,
-// smoke, scrub and pre-publish checks, immediately before the Incus publish
-// command. Callers durably record the exact claim there. A failed gate issues
-// no publish command.
+// PublishBuilderImageWithGate consumes only a realized native result. It never
+// evaluates project code on the host or accepts an Incus name, label, or
+// command, and a failure returns no handle. It invokes gate after all
+// reversible assembly, smoke, scrub and pre-publish checks, immediately before
+// the Incus publish command. Callers durably record the exact claim there. A
+// failed gate issues no publish command.
 func (b *Backend) PublishBuilderImageWithGate(ctx context.Context, r Builder, result BuilderNixResult, gate func(BuilderImageClaim) error) (nixenv.Handle, BuilderImageInfo, error) {
-	if gate == nil {
-		return nixenv.Handle{}, BuilderImageInfo{}, errors.New("durable publication gate required")
-	}
-	return b.publishBuilderImage(ctx, r, result, gate)
-}
-
-func (b *Backend) publishBuilderImage(ctx context.Context, r Builder, result BuilderNixResult, gate func(BuilderImageClaim) error) (nixenv.Handle, BuilderImageInfo, error) {
 	var empty nixenv.Handle
 	var noImage BuilderImageInfo
+	if gate == nil {
+		return empty, noImage, errors.New("durable publication gate required")
+	}
 	if err := validateBuilderImageResult(r, result); err != nil {
 		return empty, noImage, err
 	}
@@ -476,16 +467,14 @@ func (b *Backend) publishStoppedBuilderImage(ctx context.Context, r Builder, res
 	if err != nil {
 		return zero, info, err
 	}
-	if gate != nil {
-		claim := BuilderImageClaim{
-			ProjectPath: r.ProjectPath, Key: result.Selection.KeyDigest, BaseFingerprint: r.BaseImageFingerprint,
-			System: result.Selection.System, MaterialDigest: result.MaterialDigest,
-			CaptureStorePath: result.CaptureStorePath, BuilderRequest: r.RequestUUID,
-			Properties: maps.Clone(properties),
-		}
-		if err := gate(claim); err != nil {
-			return zero, info, err
-		}
+	claim := BuilderImageClaim{
+		ProjectPath: r.ProjectPath, Key: result.Selection.KeyDigest, BaseFingerprint: r.BaseImageFingerprint,
+		System: result.Selection.System, MaterialDigest: result.MaterialDigest,
+		CaptureStorePath: result.CaptureStorePath, BuilderRequest: r.RequestUUID,
+		Properties: maps.Clone(properties),
+	}
+	if err := gate(claim); err != nil {
+		return zero, info, err
 	}
 	args := builderImagePublishArgs(r, labels)
 	raw, err := b.builderCommand(ctx, args...)

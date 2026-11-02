@@ -131,10 +131,7 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
- activate "$P_TEST_ENV_PLUGIN" "$step_dir/environment.json" environment.nix
- jq --arg path "$step_dir/environment.json" \
-  --arg id "$(jq -er '.plugins[0].id' "$step_dir/environment.json")" \
-  '.runtime.environment={activation_path:$path,plugin_id:$id,system:"x86_64-linux",builder_storage_pool:"builders"}' \
+ jq '.runtime.environment={system:"x86_64-linux",builder_storage_pool:"builders"}' \
   "$step_dir/host.json" > "$step_dir/host.next.json"
  mv "$step_dir/host.next.json" "$step_dir/host.json"
 fi

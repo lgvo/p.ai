@@ -3,7 +3,7 @@
 ## Lifecycle workers depend on concrete runtime, store and Git types
 
 - Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
-- Problem: Workers call a concrete `*runtimeincus.Backend` (35 methods, about 123 calls),
+- Problem: Workers call a concrete `*runtimeincus.Backend` (25 methods, about 63 calls),
   `*control.Store` and `*gitCapability`, so no worker can run against a stand-in.
 - Evidence: daemon statement coverage is 18.7%; every `process*` worker except
   `processCreateCleanup` and `processRetainedRename` is at 0%.
@@ -13,7 +13,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-02, 6 cases:
+- Added 2026-11-01, updated 2026-11-02, 7 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -37,6 +37,10 @@
     a running session, stopped-only rename and removal with a missing branch ref are
     unit-tested only through `discardSourceMatches`, `renameSourceStopped` and the store
     and Git layers; VM scenarios cover the workers.
+  - 2026-11-02: "fold the environment plugin into the image build" made `buildEnvironment`
+    call `ResolveBuilderNix` and `RealizeBuilderNix` on the concrete runtime itself, two
+    more methods and calls than through environmentnix; only the publish goes through the
+    narrow `gatedPublisher` interface, so the build path is still checked only in VM.
 
 ## Long worker functions
 
@@ -159,7 +163,7 @@
   gitservice, plugin and runtimeincus), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-02, 3 cases:
+- Added 2026-11-01, updated 2026-11-03, 5 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -168,6 +172,9 @@
   - 2026-11-02: "wire types" moved the identifier formats into `internal/api`, where each
     request type's `Validate` checks them; the server stays in control and registers its
     handlers there.
+  - 2026-11-02: "fold the environment plugin into the image build" removed
+    `activation_path` and `plugin_id` from `runtime.environment`, a change to host
+    configuration that meets "Fix when"; the move was outside that removal.
   - 2026-11-03: "errors that name the next step" added control's `Refusal` and error
     mapping; runtimeincus and gitservice return refusals from control too.
 

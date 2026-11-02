@@ -50,7 +50,7 @@ in {
     };
     bundledActivation = lib.mkOption {
       type = lib.types.bool; default = false;
-      description = "Approve generating the bundled six-role selection once at STATE/activation.json; existing selections are preserved.";
+      description = "Approve generating the bundled five-role selection once at STATE/activation.json; existing selections are preserved.";
     };
   };
   config = lib.mkIf cfg.enable {

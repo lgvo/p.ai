@@ -68,10 +68,6 @@ func TestRunnersRefuseMisbehavingModules(t *testing.T) {
 			_, err := RunRuntime(ctx, active, "runtime.inspect", &runtimeFixture{})
 			return err
 		}, map[string]string{"loop": "runtime plugin timed out; native state must be re-inspected", "flood": "runtime plugin output exceeded limit", "exit": "runtime plugin execution failed"}},
-		{"environment", func(ctx context.Context, mode string) error {
-			active := selected(t, "../../plugins/bundled/environment-nix/plugin.json", "environment.wasm", mode, []string{"environment.nix"}, map[string]any{})
-			return RunEnvironment(ctx, active, "environment.resolve", &environmentFixture{})
-		}, map[string]string{"loop": "environment WASI timed out; native state requires inspection", "flood": "environment WASI output exceeded limit", "exit": "environment WASI execution failed"}},
 		{"source Git", func(ctx context.Context, mode string) error {
 			active := selected(t, "testdata/git-alternate/plugin.json", "git.wasm", mode, []string{"git.project"}, nil)
 			_, err := RunSourceGit(ctx, active, GitCommand{Kind: "git.origin.observe", Project: "team/app"}, &originFixture{sourceFixture: &sourceFixture{}})

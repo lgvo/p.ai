@@ -407,3 +407,29 @@ func TestBuilderImageScrubRestoresImageResolverLink(t *testing.T) {
 		}
 	}
 }
+
+func TestBuilderImagePublishGateRefusalIssuesNoPublish(t *testing.T) {
+	r, result := imageResultFixture(t)
+	f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true}
+	b := builderBackend(f)
+	b.config.PInstanceID = testUUID
+	published := false
+	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if len(argv) > 3 && argv[3] == "publish" {
+			published = true
+		}
+		return f.run(ctx, binary, argv, env)
+	}
+	refused := errors.New("durable claim not recorded")
+	var claims []BuilderImageClaim
+	_, _, err := b.publishStoppedBuilderImage(context.Background(), r, result, func(claim BuilderImageClaim) error {
+		claims = append(claims, claim)
+		return refused
+	})
+	if !errors.Is(err, refused) || len(claims) != 1 || published {
+		t.Fatalf("gate refusal: claims=%d published=%v err=%v", len(claims), published, err)
+	}
+	if c := claims[0]; c.Key != result.Selection.KeyDigest || c.MaterialDigest != result.MaterialDigest || c.BuilderRequest != r.RequestUUID || len(c.Properties) == 0 {
+		t.Fatalf("gate saw a claim other than the realized result: %+v", c)
+	}
+}

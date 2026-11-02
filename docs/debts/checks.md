@@ -19,8 +19,8 @@
 
 ## No committed VM check builds through a public-egress builder
 
-- Where: tests/integration/steps (the builder scenarios 21–26 and 53 build offline; scenario
-  37, the only VM with the public bridge, creates no builder); internal/runtimeincus
+- Where: tests/integration/steps (the builder scenarios 21, 22, 24–26 and 53 build offline;
+  scenario 37, the only VM with the public bridge, creates no builder); internal/runtimeincus
   builder.go `prepareBuilderNetwork`, builder_image.go `scrubBuilderResolver`;
   runtime/image.nix `trusted-substituters`
 - Problem: A public builder's NIC, guest network, online Nix with the public cache and the
@@ -41,9 +41,11 @@
   into the runtime driver.
 - Left by: the agent, by rule (behavior left untested: the step's brief forbids new checks
   that depend on external services).
-- Added 2026-11-02, 1 case:
+- Added 2026-11-02, updated 2026-11-02, 2 cases:
   - 2026-11-02: "give builders public internet access only" gave builders public egress
     with unit tests only.
+  - 2026-11-02: "fold the environment plugin into the image build" deleted scenario 23 and
+    moved scenarios 24 and 25 to the native build; they still build offline.
 
 ## The pending manual Codex acceptance still inspects workspace loss
 

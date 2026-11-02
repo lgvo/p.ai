@@ -22,7 +22,7 @@ func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.
 		t.Fatal(e)
 	}
 	image := strings.Repeat("a", 64)
-	env := &EnvironmentIntent{ModuleID: "nix", ModuleSHA256: image, ConfigSHA256: image, System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image}
+	env := &EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image}
 	req := ReserveSessionRequest{Key: "failed-create", Project: "app", Branch: "work", Choice: "existing"}
 	old, session, e := s.BeginSessionCreate(ctx, req, image, testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
 		return strings.Repeat("b", 40), true, nil

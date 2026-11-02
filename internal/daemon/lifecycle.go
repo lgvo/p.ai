@@ -28,7 +28,6 @@ type lifecycle struct {
 	git                    *gitCapability
 	runtime                *runtimeincus.Backend
 	runtimePlugin          plugin.Active
-	environmentPlugin      *plugin.Active
 	hostPlan               plugin.AssetPlan
 	sourcePlan             plugin.AssetPlan
 	agentPlan              *plugin.AssetPlan
@@ -141,28 +140,8 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	var environmentSelection *plugin.Active
 	pool := ""
 	if cfg.Environment != nil {
-		if err := privateTrustedFile(cfg.Environment.ActivationPath); err != nil {
-			return nil, fmt.Errorf("environment activation: %w", err)
-		}
-		selections, err := plugin.LoadActivation(cfg.Environment.ActivationPath)
-		if err != nil {
-			return nil, err
-		}
-		for i := range selections {
-			v := &selections[i]
-			if v.Package.Manifest.ID == cfg.Environment.PluginID {
-				if v.Package.Manifest.Capability != "environment" || v.Package.Manifest.Runtime.Kind != "wasi-command" || len(v.Grants) != 1 || v.Grants[0] != "environment.nix" {
-					return nil, errors.New("selected environment plugin has an unsafe grant or config")
-				}
-				environmentSelection = v
-			}
-		}
-		if environmentSelection == nil {
-			return nil, errors.New("selected environment plugin unavailable")
-		}
 		pool = cfg.Environment.BuilderStoragePool
 	}
 	var egress *runtimeincus.PublicEgressConfig
@@ -180,7 +159,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, runtime: runtime, runtimePlugin: *runtimeSelection, environmentPlugin: environmentSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, startActive: map[string]bool{}, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, runtime: runtime, runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, startActive: map[string]bool{}, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -438,18 +417,14 @@ func (l *lifecycle) selection() control.CreationSelection {
 }
 
 func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
-	if l.environmentPlugin == nil || l.cfg.Environment == nil {
+	if l.cfg.Environment == nil {
 		return nil
 	}
-	config := sha256.Sum256(l.environmentPlugin.Config)
 	publicEgress := ""
 	if l.cfg.PublicEgress != nil {
 		publicEgress = l.cfg.PublicEgress.SHA256()
 	}
 	return &control.EnvironmentIntent{
-		ModuleID:            l.environmentPlugin.Package.Manifest.ID,
-		ModuleSHA256:        l.environmentPlugin.Package.SHA256,
-		ConfigSHA256:        hex.EncodeToString(config[:]),
 		System:              l.cfg.Environment.System,
 		BaseFingerprint:     l.cfg.BaseImageFingerprint,
 		BuilderStoragePool:  l.cfg.Environment.BuilderStoragePool,

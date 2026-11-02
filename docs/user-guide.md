@@ -589,8 +589,8 @@ recovery procedure.
 
 ## What to expect from the development environment
 
-The base environment supplies the common session tools. With the environment
-capability configured, a committed default devShell can select a prepared Nix
+The base environment supplies the common session tools. With environment
+building configured, a committed default devShell can select a prepared Nix
 environment. Without a committed default devShell, creation uses the base image;
 an invalid declared default fails instead of silently falling back.
 

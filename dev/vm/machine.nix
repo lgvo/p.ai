@@ -232,8 +232,6 @@ in
             network = "none"; filesystem_mounts = []; command = [ "/run/current-system/sw/bin/bash" ];
           };
           environment = {
-            activation_path = "${pState}/activation.json";
-            plugin_id = "org.p.environment.nix";
             system = "x86_64-linux";
             builder_storage_pool = "builders";
           };

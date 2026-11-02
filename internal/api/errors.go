@@ -77,9 +77,10 @@ const (
 	ReasonEncoding   = "encoding"   // the result could not be encoded
 	ReasonUnexpected = "unexpected" // a failure the daemon did not classify
 	// operations
-	ReasonOutcomeUnknown    = "outcome_unknown"    // an effect the operation issued may or may not have happened; P does not issue it again
-	ReasonWorkspaceMismatch = "workspace_mismatch" // the session's workspace is not on its assigned branch or tracks another upstream
-	ReasonInternal          = "internal"           // the operation's work failed in a way P did not classify, or panicked; the diagnostic holds the detail
+	ReasonOutcomeUnknown      = "outcome_unknown"       // an effect the operation issued may or may not have happened; P does not issue it again
+	ReasonWorkspaceMismatch   = "workspace_mismatch"    // the session's workspace is not on its assigned branch or tracks another upstream
+	ReasonInternal            = "internal"              // the operation's work failed in a way P did not classify, or panicked; the diagnostic holds the detail
+	ReasonImageBuilderChanged = "image_builder_changed" // the host's image builder configuration differs from the one the creation recorded
 	// retry
 	ReasonSessionHeld     = "session_held"      // another request or a running operation holds the session
 	ReasonTooManyRequests = "too_many_requests" // the connection has 16 requests in flight

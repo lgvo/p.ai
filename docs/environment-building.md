@@ -156,17 +156,16 @@ absent and invalid defaults, pure evaluation with a hashed source reference,
 committed-lock enforcement, and builder identity refusal, using offline
 fixtures. The builder reaches the public internet only where the host
 configures public egress ([security boundary](#security-boundary)); otherwise
-it has no network device or substituters. The content-pinned executable
-environment plugin also passes its VM gate through this adapter, using the
-[closed environment ABI](plugin-contract.md#wasi-environment-abi). Native private
-image publication also passes its VM gate, including stopped-builder scrub,
-closure retention, activation in two private roots, and independent Nix state
-across Stop/Start. The separate public CLI/daemon gate now covers offline
-devShell creation, project-scoped cache reuse and loss/rebuild, exact retry,
-and ordinary session activation. Two overlapping same-key builds also pass
-their public VM gate. These gates build offline fixtures. No committed check
-builds through a public builder; one exploratory VM run did, from a locked
-remote nixpkgs input ([checks debt](debts/checks.md)).
+it has no network device or substituters. Environment building is native to
+this adapter; no plugin takes part in resolving, realizing or publishing.
+Native private image publication also passes its VM gate, including
+stopped-builder scrub, closure retention, activation in two private roots, and
+independent Nix state across Stop/Start. The separate public CLI/daemon gate
+now covers offline devShell creation, project-scoped cache reuse and
+loss/rebuild, exact retry, and ordinary session activation. Two overlapping
+same-key builds also pass their public VM gate. These gates build offline
+fixtures. No committed check builds through a public builder; one exploratory
+VM run did, from a locked remote nixpkgs input ([checks debt](debts/checks.md)).
 
 For flakes, P:
 
@@ -241,7 +240,10 @@ HTTPS and substitutes from the public binary cache `https://cache.nixos.org`,
 the one substituter the base image trusts; the host, LAN and private ranges
 stay unreachable ([security boundary](#security-boundary)). Without public
 egress, Nix runs offline with no substituters, so only an environment that
-needs nothing from the network builds. It follows the
+needs nothing from the network builds. Each Nix command in the builder has a
+five-minute ceiling. Resolution and realization each end after seven minutes,
+their wait included: at most two of them run at once across the daemon. The
+builder follows the
 [container Nix isolation policy](runtime-isolation.md#runtime-process-model):
 Incus provides the required isolation, and Nix build sandboxing is disabled
 inside the builder. Pure evaluation and the committed-source/lock rules remain

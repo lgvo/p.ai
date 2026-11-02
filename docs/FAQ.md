@@ -14,7 +14,8 @@ terminal UI, reports the latest agent condition received while the user is
 away, and controls how committed work leaves the local instance.
 
 It is primarily a bookkeeping and policy layer. Incus, tmux, Codex, Git, and
-Nix keep doing their own jobs through capability-specific plugin contracts.
+Nix keep doing their own jobs. P reaches them through capability-specific
+plugin contracts, except Nix, which its Incus adapter runs directly.
 
 ### Who is P for?
 

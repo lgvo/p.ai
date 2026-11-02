@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Public daemon composition: captured Git source, selected WASI Nix policy,
+# Public daemon composition: captured Git source, native Nix environment build,
 # private image cache, and pre-host activation in persistent session roots.
 set -E
 umask 077
@@ -71,7 +71,6 @@ activate() {
 activate "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
 activate "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime-one.json" runtime.incus
 activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host-one.json" session.asset.install
-activate "$P_TEST_ENV_PLUGIN" "$step_dir/environment.json" environment.nix
 jq -s '{schema:"p.activation/v1",plugins:([.[0].plugins[0],.[1].plugins[0]])}' \
   "$step_dir/runtime-one.json" "$step_dir/host-one.json" > "$step_dir/runtime.json"
 
@@ -90,8 +89,6 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
   --arg runtime_activation "$step_dir/runtime.json" \
   --arg runtime_id "$(jq -er '.plugins[0].id' "$step_dir/runtime.json")" \
   --arg host_id "$(jq -er '.plugins[1].id' "$step_dir/runtime.json")" \
-  --arg environment_activation "$step_dir/environment.json" \
-  --arg environment_id "$(jq -er '.plugins[0].id' "$step_dir/environment.json")" \
   --arg incus_binary "$incus_binary" --arg prefix "$endpoint_prefix" \
   --arg image "$base" --arg pane_command "$pane_command" \
   '{schema:"p.host/v1",state_dir:$state,
@@ -103,8 +100,7 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
       base_image_fingerprint:$image,
       project_policy:{network:"none",filesystem_mounts:[],
         command:["/run/current-system/sw/bin/bash","-c",$pane_command]},
-      environment:{activation_path:$environment_activation,plugin_id:$environment_id,
-        system:"x86_64-linux",builder_storage_pool:"builders"}}}' > "$step_dir/host.json"
+      environment:{system:"x86_64-linux",builder_storage_pool:"builders"}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 
 p daemon "$step_dir/host.json" > "$step_dir/daemon.out" 2> "$step_dir/daemon.err" &

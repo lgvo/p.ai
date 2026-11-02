@@ -11,7 +11,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
@@ -137,8 +136,7 @@ func environmentRecoveryFixture(t *testing.T, public bool) (*lifecycle, api.Oper
 	if err != nil {
 		t.Fatal(err)
 	}
-	module := &plugin.Active{Config: json.RawMessage(`{}`), Package: plugin.Package{SHA256: strings.Repeat("e", 64), Manifest: plugin.Manifest{ID: "environment"}}}
-	l := &lifecycle{ctx: ctx, store: store, instanceID: instance, environmentPlugin: module, cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64), EndpointPrefix: "/var/lib/p-endpoints", Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"}}}
+	l := &lifecycle{ctx: ctx, store: store, instanceID: instance, cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64), EndpointPrefix: "/var/lib/p-endpoints", Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"}}}
 	grant := control.FilesystemGrant{Name: "notice", Source: "/var/lib/p-grants/notice", Type: "file", Access: "read-only", SourceIdentity: &control.SourceIdentity{Device: 1, Inode: 2, OwnerUID: 1000, OwnerGID: 1000}}
 	policy := control.ProjectPolicy{Network: "none", FilesystemMounts: []control.FilesystemGrant{grant}, Command: []string{"/bin/sh"}}
 	if public {

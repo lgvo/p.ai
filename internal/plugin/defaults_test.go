@@ -55,7 +55,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selection.Plugins) != 6 || selection.Schema != ActivationSchema {
+	if len(selection.Plugins) != 5 || selection.Schema != ActivationSchema {
 		t.Fatalf("incomplete composition: %+v", selection)
 	}
 	if _, err := os.Stat(log); !os.IsNotExist(err) {
@@ -70,7 +70,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	active, err := LoadActivation(activation)
-	if err != nil || len(active) != 6 {
+	if err != nil || len(active) != 5 {
 		t.Fatalf("defaults cannot activate: %v, %+v", err, active)
 	}
 	for _, selected := range active {

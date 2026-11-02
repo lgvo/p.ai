@@ -59,19 +59,11 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e != nil {
 		t.Fatal("unrelated package blocked", e)
 	}
-	image := testEnvironmentImage("app")
-	if e = s.PutEnvironmentImage(ctx, image); e != nil {
+	if e = s.PutEnvironmentImage(ctx, testEnvironmentImage("app")); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e == nil {
-		t.Fatal("cache unknown module provenance guessed safe")
-	}
-	image, _, e = s.GetEnvironmentImage(ctx, image.Project, image.Key)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if e = s.DeleteEnvironmentImageExact(ctx, image); e != nil {
-		t.Fatal(e)
+	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e != nil {
+		t.Fatal("an indexed environment image blocked package removal", e)
 	}
 	for _, q := range []string{`INSERT INTO origin_requests(idempotency_key,project_path,kind,expected_url,proposed_url,status,created_at) VALUES('origin','app','set','','ssh://example/repo','prepared','now')`, `INSERT INTO publication_requests(idempotency_key,project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,created_at) VALUES('publication','app','ssh://example/repo','retained','refs/heads/main','oid','refs/heads/main','attempted','now')`} {
 		if _, e = s.db.Exec(q); e != nil {

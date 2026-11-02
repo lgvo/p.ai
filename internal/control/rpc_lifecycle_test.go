@@ -256,7 +256,6 @@ func TestEnvironmentProjectionKeepsPinnedBaseAndSelectedImageDistinct(t *testing
 	ev := CreationEvidence{
 		CapturedOID: strings.Repeat("c", 40), ImageFingerprint: selected,
 		Environment: &EnvironmentIntent{
-			ModuleID: "environment-nix", ModuleSHA256: strings.Repeat("d", 64), ConfigSHA256: strings.Repeat("e", 64),
 			System: "x86_64-linux", BaseFingerprint: base, BuilderStoragePool: "builders", BuilderPolicySHA256: strings.Repeat("f", 64),
 		},
 		EnvironmentState: &EnvironmentState{Key: strings.Repeat("1", 64), Fingerprint: selected, CacheHit: true},

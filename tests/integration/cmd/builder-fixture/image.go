@@ -8,11 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/environmentnix"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-func runPublishedImageCase(ctx context.Context, binary, state string, b *runtimeincus.Backend, r runtimeincus.Builder, pipeline *environmentnix.Pipeline, result runtimeincus.BuilderNixResult) error {
+func runPublishedImageCase(ctx context.Context, binary, state string, b *runtimeincus.Backend, r runtimeincus.Builder, result runtimeincus.BuilderNixResult) error {
 	builder := "p-builder-" + r.RequestUUID
 	// This unrooted temporary store object must disappear under the native
 	// image GC. It is unrelated to the selected devShell.
@@ -26,7 +25,8 @@ func runPublishedImageCase(ctx context.Context, binary, state string, b *runtime
 	if !strings.HasPrefix(unrooted, "/nix/store/") || strings.ContainsAny(unrooted, "\r\n") {
 		return fmt.Errorf("invalid temporary store path %q", unrooted)
 	}
-	handle, image, err := pipeline.PublishPrivateImage(ctx)
+	// The fixture keeps no durable state, so its gate records nothing.
+	handle, image, err := b.PublishBuilderImageWithGate(ctx, r, result, func(runtimeincus.BuilderImageClaim) error { return nil })
 	if err != nil {
 		return fmt.Errorf("private image publication: %w", err)
 	}
@@ -158,9 +158,6 @@ func runPublishedImageCase(ctx context.Context, binary, state string, b *runtime
 		"test -e "+privatePath+" && /run/current-system/sw/bin/nix path-info "+privatePath+" >/dev/null")
 	if err != nil {
 		return fmt.Errorf("first private Nix store lost across restart: %w: %s", err, out)
-	}
-	if _, _, ok := pipeline.Image(); !ok {
-		return errors.New("accepted pipeline lost verified image")
 	}
 	return nil
 }

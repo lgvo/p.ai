@@ -35,12 +35,9 @@ type CreationEvidence struct {
 }
 
 // EnvironmentIntent is selected by the trusted host before reservation and
-// persisted with the captured commit. Exact retry compares it with the active
-// module and builder policy; project source cannot change these values.
+// persisted with the captured commit. Exact retry compares it with the current
+// host selection and builder policy; project source cannot change these values.
 type EnvironmentIntent struct {
-	ModuleID            string `json:"module_id"`
-	ModuleSHA256        string `json:"module_sha256"`
-	ConfigSHA256        string `json:"config_sha256"`
 	System              string `json:"system"`
 	BaseFingerprint     string `json:"base_fingerprint"`
 	BuilderStoragePool  string `json:"builder_storage_pool"`
@@ -48,13 +45,12 @@ type EnvironmentIntent struct {
 }
 
 func (e EnvironmentIntent) Valid() bool {
-	return e.ModuleID != "" && len(e.ModuleID) <= 128 && validFingerprint(e.ModuleSHA256) &&
-		validFingerprint(e.ConfigSHA256) && (e.System == "x86_64-linux" || e.System == "aarch64-linux") &&
+	return (e.System == "x86_64-linux" || e.System == "aarch64-linux") &&
 		validFingerprint(e.BaseFingerprint) && e.BuilderStoragePool != "" && len(e.BuilderStoragePool) <= 63 &&
 		validFingerprint(e.BuilderPolicySHA256)
 }
 
-// EnvironmentState is written only after a WASI-accepted native stage. An
+// EnvironmentState is written only after an accepted native stage. An
 // empty fingerprint with full properties is a durable publish-attempt marker,
 // not permission to publish again after an uncertain outcome.
 type EnvironmentState struct {

@@ -160,7 +160,6 @@ activate() {
 }
 activate "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
 activate "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime-one.json" runtime.incus
-activate "$P_TEST_ENV_PLUGIN" "$step_dir/environment.json" environment.nix
 mkdir -m 0700 "$step_dir/host-package"
 cp "$P_TEST_SOURCE/plugins/bundled/tmux-host/"* "$step_dir/host-package/"
 sed '/^\[Install\]$/i ExecStartPost=/run/current-system/sw/bin/timeout 20 /run/current-system/sw/bin/bash -c "until test -e /etc/p/test-release; do sleep 0.1; done"' \
@@ -209,8 +208,7 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" --arg git_i
     base_image_fingerprint:$image,
     project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' \
   > "$step_dir/host.json"
-env_id=$(jq -er '.plugins[0].id' "$step_dir/environment.json")
-jq --arg activation "$step_dir/environment.json" --arg id "$env_id"  '.runtime.environment={activation_path:$activation,plugin_id:$id,system:"x86_64-linux",builder_storage_pool:"builders"}'  "$step_dir/host.json" > "$step_dir/host-env.json"
+jq '.runtime.environment={system:"x86_64-linux",builder_storage_pool:"builders"}' "$step_dir/host.json" > "$step_dir/host-env.json"
 mv "$step_dir/host-env.json" "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 
@@ -277,7 +275,7 @@ assert_old_effects_absent() {
 }
 
 # The invalid devShell is a real local committed flake evaluated by the
-# selected WASI environment package in its real confined Incus builder.
+# native environment build in its real confined Incus builder.
 printf '{ outputs = _: { devShells.x86_64-linux.default = 42; }; }\n' > "$step_dir/flake.nix"
 blob=$("$host_git" -C "$repo" hash-object -w "$step_dir/flake.nix")
 tree=$(printf '100644 blob %s\tflake.nix\n' "$blob" | "$host_git" -C "$repo" mktree)

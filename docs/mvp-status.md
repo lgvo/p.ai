@@ -20,8 +20,8 @@ suite. Public CLI/RPC creation, captured-source sessions, exact retry, daemon
 restart, and retained Stop/Start now pass against real base-image containers.
 Private status RPC, durable unattended projections, attachment leases, daemon
 events, origin-backed creation, and explicit publication also pass in the VM.
-Restricted offline devShell realization, the selected environment WASI plugin,
-and native private-image publication pass their gates. Offline public devShell
+Restricted offline devShell realization and native private-image publication
+pass their gates. Offline public devShell
 creation, project cache reuse/rebuild, activation, and private-state persistence
 also pass. Concurrent cache reuse passes its selected VM gate; explicit cache
 collection and the read-only `workspace.inspect` method have since been
@@ -72,14 +72,15 @@ Authenticated Codex acceptance remains the user-run delivery gate.
 
 [Product direction](PRODUCT.md) requires MVP to prove P's composable plugin
 model through secure first-party defaults for Incus runtime support, the tmux
-persistent host, Git source and session access, Nix environment preparation,
-the structured file-log handler, and the Codex adapter. The usable public
+persistent host, Git source and session access, the structured file-log
+handler, and the Codex adapter. Nix environment preparation is part of the
+native Incus image build. The usable public
 interfaces and this basic composition are sufficient for MVP; a separate
 agent-authored plugin is not a release gate. The [plugin contract](plugin-contract.md)
 now owns packaging, activation, compatibility, and the selected executable
-boundary. Event-handler, source-Git, runtime and environment executable methods
-and host/agent assets are validated. Selected VM48 exercised the production
-package's exact six-plugin catalog and CLI default activation through real
+boundary. Event-handler, source-Git and runtime executable methods and
+host/agent assets are validated. Selected VM48 exercised the production
+package's exact bundled plugin catalog and CLI default activation through real
 session creation, fixture status reporting and Stop/Start with daemon restart.
 Stopped local base-image failed creations now have reviewed confirmed cleanup,
 validated separately in selected VM51; the loss inspection that preceded it,

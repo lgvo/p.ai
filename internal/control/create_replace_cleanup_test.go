@@ -63,7 +63,7 @@ func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
 				ev.BuilderTreeOID = strings.Repeat("c", 40)
 			}
 			if negative == "environment" {
-				ev.Environment = &EnvironmentIntent{ModuleID: "env", ModuleSHA256: image, ConfigSHA256: image, System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image}
+				ev.Environment = &EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image}
 			}
 			raw, _ := json.Marshal(ev)
 			if err = s.AdvanceOperation(ctx, old.ID, "blocked", "principals-ready", true, raw, "internal", "native init refused before effect"); err != nil {

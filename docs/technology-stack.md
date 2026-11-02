@@ -136,10 +136,9 @@ verified private Incus system image. The image contains a coherent initial Nix
 store/database and activation material. Each session receives a private
 writable Incus root derived from it.
 
-Product direction requires this Nix implementation to be the bundled MVP
-environment plugin. `EnvironmentBuilder` is a design input; the package and
-activation surface is defined by [plugin contract](plugin-contract.md), while
-the public Nix method schema still needs to be fixed before linkage.
+The Incus adapter runs these Nix steps natively as part of the image build;
+no plugin takes part. `EnvironmentBuilder` is a design input, not a public
+plugin contract.
 
 The interface remains reusable, but MVP does not specify Dockerfile, OCI, or a
 format-negotiation framework. A future provider must produce an image form

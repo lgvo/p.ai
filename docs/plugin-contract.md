@@ -5,7 +5,7 @@ containment, trusted activation, grants, and the minimum conformance workflow.
 [Technology stack](technology-stack.md) owns implementation dependencies and
 capability behavior. [Product direction](PRODUCT.md) owns the reason for the
 extension model. This contract is **v1 foundation**: package/activation schemas,
-the file-log operation, bounded WASI event, source-Git, runtime, and closed environment commands,
+the file-log operation, bounded WASI event, source-Git, and runtime commands,
 and trusted stopped-session asset assembly are implemented. Capability-specific
 support claims remain subject to their recorded validation gates. P rejects an unimplemented method rather
 than executing it with ambient authority.
@@ -57,13 +57,12 @@ The v1 capability and placement pairs are:
 | `runtime` | `host` | `runtime.incus` |
 | `interactive-host` | `internal-session` | `session.asset.install` |
 | `source-git` | `hybrid` | `git.project` |
-| `environment` | `host` | `environment.nix` |
 | `event-handler` | `host` | `event.file.append` |
 | `agent-adapter` | `internal-session` | `agent.status.report` |
 
 Each capability is selected at most once per instance for MVP. The grant
 names are typed broker verbs, not operating-system privileges or permission to
-run arbitrary host commands. Runtime, Git, and Nix broker implementations must
+run arbitrary host commands. Runtime and Git broker implementations must
 also enforce operation-specific scope and the [runtime grant ceiling](runtime-isolation.md)
 before their public methods become active. A package can request only grants
 assigned to its capability. Trusted activation grants must match the package's
@@ -413,57 +412,6 @@ Build the bundled module with `GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build
 `plugin.json` and `runtime.wasm` in its flat package directory. Source files
 are authoring material, not package files.
 
-### WASI environment ABI
-
-The executable `environment` capability uses `host` placement, the exact
-`environment.nix` grant, and a `wasi-command` entry. Trusted config is absent
-or `{}`. Core binds the module to one verified restricted builder, one system,
-and its sealed committed source. The module receives no source or host path,
-URL, builder identity, derivation, Nix argv, Nix configuration, or activation
-material. [Environment building](environment-building.md) owns the Nix
-selection and isolation policy.
-
-Core invokes two separate WASI Preview 1 `_start` commands. Each receives one
-newline-terminated JSON object with exactly `schema: "p.command/v1"`, an opaque
-32-character `scope`, and `kind` equal to `environment.resolve` or
-`environment.realize`. Each command may call `p_broker_v1.call` exactly once
-with the same `scope`, `schema: "p.broker/v1"`, and `method` exactly equal to
-the command kind; no further request fields are permitted. A successful
-broker reply is exactly `{"schema":"p.broker/v1","status":"ok"}`. The
-module returns one `p.command-result/v1` object whose only fields are
-`schema` and `status`, with status `ready` or `refused`. `ready` requires one
-successful matching broker call. Unknown fields, wrong scope or kind,
-repeated effects, malformed output, or a nonzero exit fail the stage without
-native fallback.
-
-The resolve broker invokes the native sealed-source Nix resolver and retains
-its selection only after a valid `ready` result. Core can inspect that native
-selection and its environment key before deciding whether to invoke realize;
-a base-only selection never realizes. The realize broker uses exactly that
-accepted selection, repeats native identity and derivation checks, and keeps
-the captured activation material outside WASI. A refusal or malformed result
-after a native effect discards the pending selection or material; a new
-pipeline is required for retry. Module output never supplies a selection,
-key, derivation, or material.
-
-Each stage has a seven-minute deadline including queueing, package digest
-verification, and its native broker call, with two concurrent slots. The
-runner limits linear memory to 16 MiB, module entry to 8 MiB, each command,
-result, diagnostic, and broker request/reply to 4 KiB, and broker calls to
-one. No directories, inherited environment, network sockets, credentials, or
-host command imports are passed to WASI. The native Nix commands run offline,
-or, with the host's public egress, fetch the committed inputs and substitute
-from the public binary cache
-([environment building](environment-building.md#2-realize)); each has a
-five-minute ceiling. After an accepted realization,
-core verifies activation, prepares and publishes the private Incus image, and
-records the project-scoped cache identity. Publication has a separate durable
-attempt and recovery boundary; WASI cannot choose an image or publish target.
-
-Build the bundled module with `GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build
--o environment.wasm ./plugins/bundled/environment-nix` and stage only
-`plugin.json` and `environment.wasm` in its flat package directory.
-
 ### Session asset plans
 
 An `interactive-host` asset package must contain exactly `p-session.target`,
@@ -491,9 +439,9 @@ safety.
 
 `p plugins list /absolute/catalog/path` scans immediate package directories
 and reports valid packages and rejections. It does not activate anything.
-The NixOS distribution ships all six first-party packages under
+The NixOS distribution ships all five first-party packages under
 `share/p/plugins` beside its `bin/p`: Incus runtime, tmux host, Git source,
-Nix environment, file-log handler and Codex adapter. Executable packages
+file-log handler and Codex adapter. Executable packages
 include their compiled WASI modules and only declared package files.
 `p version` reports the P and Go versions, the control protocol
 (`control_protocol`, such as `p.control/v2`), the plugin API version and the
@@ -584,11 +532,11 @@ package leases throughout its lifetime, including cached asset plans, and
 invocation snapshots also acquire leases and honor disable markers.
 
 Removal requires trusted deselection and no durable dependency. Existing
-session/operation evidence, unresolved provenance, indexed environment images,
-pending origin/publication recovery or a live package lease refuse removal.
-Finish supported lifecycle cleanup or recovery first, and delete the projects
-that hold indexed environment images; unknown holders require investigation
-and preserve the package. The manager rechecks
+session/operation evidence, unresolved provenance, pending
+origin/publication recovery or a live package lease refuse removal. Indexed
+environment images do not refuse removal: no package builds them. Finish
+supported lifecycle cleanup or recovery first; unknown holders require
+investigation and preserve the package. The manager rechecks
 trusted selection and dependencies under the exclusive package lease, syncs a
 disable marker and exact cleanup receipt before deleting bytes. Interrupted
 removal permits Retry for missing approved files and unchanged owned survivors;

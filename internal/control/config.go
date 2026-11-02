@@ -62,10 +62,8 @@ type AgentAdapterConfig struct {
 }
 
 // EnvironmentConfig is a closed trusted host selection. Project source and
-// session requests cannot select a module, system, Incus pool, or Nix policy.
+// session requests cannot select a system, Incus pool, or Nix policy.
 type EnvironmentConfig struct {
-	ActivationPath     string `json:"activation_path"`
-	PluginID           string `json:"plugin_id"`
 	System             string `json:"system"`
 	BuilderStoragePool string `json:"builder_storage_pool"`
 }
@@ -385,13 +383,9 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 			}
 		}
 		if e := r.Environment; e != nil {
-			if e.PluginID == "" || strings.TrimSpace(e.PluginID) != e.PluginID || len(e.PluginID) > 128 ||
-				(e.System != "x86_64-linux" && e.System != "aarch64-linux") ||
+			if (e.System != "x86_64-linux" && e.System != "aarch64-linux") ||
 				!validTrustedPool(e.BuilderStoragePool) {
 				return cfg, errors.New("invalid trusted environment selection")
-			}
-			if err := checkPath(e.ActivationPath); err != nil {
-				return cfg, fmt.Errorf("environment.activation_path: %w", err)
 			}
 		}
 		if a := r.AgentAdapter; a != nil {

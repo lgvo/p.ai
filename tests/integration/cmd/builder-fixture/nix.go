@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/environmentnix"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -65,7 +64,7 @@ const nativeInvalidFlake = `{ outputs = _: { devShells.x86_64-linux.default = 42
 const nativeUnlockedFlake = `{ inputs.dep.url = "path:/opt/p/build/source/dep"; outputs = { self, dep }: { packages = dep.packages or {}; }; }
 `
 
-func runNixFixture(args []string, environment *plugin.Active, image bool) error {
+func runNixFixture(args []string, image bool) error {
 	if len(args) != 2 {
 		return errors.New("usage: builder-fixture ACTIVATION BASE-FINGERPRINT nix")
 	}
@@ -114,9 +113,6 @@ func runNixFixture(args []string, environment *plugin.Active, image bool) error 
 		{"missing-lock-input", nativeUnlockedFlake, "lock-error"},
 		{"valid-offline", nativeValidFlake, "shell"},
 	}
-	if environment != nil {
-		cases = []struct{ name, flake, want string }{{"no-flake", "", "base"}, {"valid-offline", nativeValidFlake, "shell"}}
-	}
 	if image {
 		cases = []struct{ name, flake, want string }{{"valid-offline", nativeImageFlake, "shell"}}
 	}
@@ -124,16 +120,14 @@ func runNixFixture(args []string, environment *plugin.Active, image bool) error 
 		if err := seedNativeCommit(ctx, repo, tc.flake, tc.name); err != nil {
 			return fmt.Errorf("%s seed: %w", tc.name, err)
 		}
-		if err := runNixCase(ctx, git, binary, state, b, base, tc.want, environment, image); err != nil {
+		if err := runNixCase(ctx, git, binary, state, b, base, tc.want, image); err != nil {
 			return fmt.Errorf("%s: %w", tc.name, err)
 		}
 	}
 	if image {
 		fmt.Println("P_BUILDER_PRIVATE_IMAGE_PASS")
-	} else if environment == nil {
-		fmt.Println("P_BUILDER_NATIVE_NIX_PASS")
 	} else {
-		fmt.Println("P_BUILDER_ENV_WASI_PASS")
+		fmt.Println("P_BUILDER_NATIVE_NIX_PASS")
 	}
 	return nil
 }
@@ -185,7 +179,7 @@ func seedNativeCommit(ctx context.Context, repo, flake, name string) error {
 	return err
 }
 
-func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state string, b *runtimeincus.Backend, base, want string, environment *plugin.Active, image bool) error {
+func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state string, b *runtimeincus.Backend, base, want string, image bool) error {
 	snapshot, err := git.CaptureCommittedSource(ctx, project, plugin.GitSourceSelector{Kind: "branch", Value: "refs/heads/main"})
 	if err != nil {
 		return err
@@ -215,16 +209,7 @@ func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state stri
 	if _, err := b.StartBuilder(ctx, r); err != nil {
 		return err
 	}
-	var selected runtimeincus.BuilderNixSelection
-	var pipeline *environmentnix.Pipeline
-	if environment == nil {
-		selected, err = b.ResolveBuilderNix(ctx, r, "x86_64-linux")
-	} else {
-		pipeline, err = environmentnix.New(*environment, b, r, "x86_64-linux")
-		if err == nil {
-			selected, err = pipeline.Resolve(ctx)
-		}
-	}
+	selected, err := b.ResolveBuilderNix(ctx, r, "x86_64-linux")
 	if want == "error" || want == "lock-error" {
 		if err == nil {
 			return fmt.Errorf("invalid present/default input selected %+v", selected)
@@ -245,35 +230,18 @@ func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state stri
 		if selected.BaseOnly || selected.DerivationPath == "" || selected.KeyDigest == "" || selected.Builder.CommitOID != snapshot.CommitOID() || selected.Builder.TreeOID != snapshot.TreeOID() {
 			return fmt.Errorf("invalid shell selection %+v", selected)
 		}
-		var other runtimeincus.BuilderNixSelection
-		if environment == nil {
-			other, err = b.ResolveBuilderNix(ctx, r, "aarch64-linux")
-		} else {
-			otherPipeline, createErr := environmentnix.New(*environment, b, r, "aarch64-linux")
-			if createErr != nil {
-				return createErr
-			}
-			other, err = otherPipeline.Resolve(ctx)
-		}
+		other, err := b.ResolveBuilderNix(ctx, r, "aarch64-linux")
 		// A missing default may fall back only for this host's actual system.
 		// A foreign system must be rejected before evaluating that fallback.
 		if err == nil || !strings.Contains(err.Error(), "requested builder system differs from Incus host architecture") {
 			return fmt.Errorf("foreign system did not receive the architecture refusal: %+v %v", other, err)
 		}
-		var result runtimeincus.BuilderNixResult
-		if environment == nil {
-			result, err = b.RealizeBuilderNix(ctx, r, selected)
-		} else {
-			result, err = pipeline.Realize(ctx)
-		}
+		result, err := b.RealizeBuilderNix(ctx, r, selected)
 		if err != nil || result.MaterialDigest == "" || !strings.Contains(result.Material.Script, "NATIVE_VALUE='ok'") || !strings.Contains(result.Material.Script, "NATIVE_REV='"+snapshot.CommitOID()+"'") {
 			return fmt.Errorf("offline build/capture: %+v %w", result, err)
 		}
 		if image {
-			if pipeline == nil {
-				return errors.New("image path requires accepted WASI pipeline")
-			}
-			if err := runPublishedImageCase(ctx, binary, state, b, r, pipeline, result); err != nil {
+			if err := runPublishedImageCase(ctx, binary, state, b, r, result); err != nil {
 				return err
 			}
 			created = false
@@ -291,17 +259,7 @@ func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state stri
 				_, _ = incus(restore, binary, state, "config", "set", name, "user.p.builder_request_uuid="+r.RequestUUID)
 			}
 		}()
-		var foreignErr error
-		if environment == nil {
-			_, foreignErr = b.ResolveBuilderNix(ctx, r, "x86_64-linux")
-		} else {
-			foreignPipeline, createErr := environmentnix.New(*environment, b, r, "x86_64-linux")
-			if createErr != nil {
-				return createErr
-			}
-			_, foreignErr = foreignPipeline.Resolve(ctx)
-		}
-		if foreignErr == nil {
+		if _, err := b.ResolveBuilderNix(ctx, r, "x86_64-linux"); err == nil {
 			return errors.New("foreign builder identity reached native Nix")
 		}
 		if _, err := incus(ctx, binary, state, "config", "set", name, "user.p.builder_request_uuid="+r.RequestUUID); err != nil {

@@ -1,7 +1,6 @@
 package plugin
 
 import (
-	"bytes"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
@@ -113,16 +112,6 @@ func validateConfig(m Manifest, data []byte) error {
 		var config struct{}
 		if len(data) == 0 {
 			return nil
-		}
-		return strictJSON(data, &config)
-	}
-	if m.Capability == "environment" && m.Runtime.Kind == "wasi-command" {
-		var config struct{}
-		if len(data) == 0 {
-			return nil
-		}
-		if trimmed := bytes.TrimSpace(data); len(trimmed) == 0 || trimmed[0] != '{' {
-			return errors.New("environment config must be an empty object")
 		}
 		return strictJSON(data, &config)
 	}

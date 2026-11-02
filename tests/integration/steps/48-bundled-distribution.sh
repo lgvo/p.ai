@@ -70,18 +70,18 @@ readelf -l "$package_root/bin/p" > "$step_dir/p-program-headers"
 readelf -d "$package_root/bin/p" > "$step_dir/p-dynamic-section"
 ! grep -q INTERP "$step_dir/p-program-headers"
 ! grep -q NEEDED "$step_dir/p-dynamic-section"
-for module in source-git runtime-incus environment-nix; do
+for module in source-git runtime-incus; do
   test -s "$package_root/share/p/licenses/plugins/$module/LICENSE"
   test -s "$package_root/share/p/licenses/plugins/$module/go/LICENSE"
   test -s "$package_root/share/p/licenses/plugins/$module/modules/github.com/lgvo/p.ai/plugins/bundled/$module/LICENSE"
 done
 p plugins defaults "$log_file" > "$step_dir/activation.json"
 jq -e --arg catalog "$catalog" --arg log "$log_file" '
-  .schema=="p.activation/v1" and (.plugins|length)==6 and
+  .schema=="p.activation/v1" and (.plugins|length)==5 and
   all(.plugins[]; (.path|startswith($catalog+"/")) and (.sha256|length)==64 and (.grants|length)==1) and
   any(.plugins[]; .id=="org.p.filelog" and .config.path==$log)' "$step_dir/activation.json" >/dev/null
-p plugins list "$catalog" | jq -e '(.packages|length)==6 and (.rejected|length)==0' >/dev/null
-p plugins activate "$step_dir/activation.json" | jq -e 'length==6' >/dev/null
+p plugins list "$catalog" | jq -e '(.packages|length)==5 and (.rejected|length)==0' >/dev/null
+p plugins activate "$step_dir/activation.json" | jq -e 'length==5' >/dev/null
 p plugins plan-assets "$step_dir/activation.json" org.p.tmux-host > "$step_dir/host-plan.json"
 p plugins plan-assets "$step_dir/activation.json" org.p.codex-adapter > "$step_dir/agent-plan.json"
 test ! -e "$log_file"
@@ -95,8 +95,7 @@ jq -n --arg state "$state" --arg activation "$step_dir/activation.json" \
       incus_binary:$incus_binary,incus_user_socket:"/var/lib/incus/unix.socket.user",
       incus_project:"user-1000",endpoint_prefix:$prefix,
       disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,
-      environment:{activation_path:$activation,plugin_id:"org.p.environment.nix",
-        system:"x86_64-linux",builder_storage_pool:"builders"},
+      environment:{system:"x86_64-linux",builder_storage_pool:"builders"},
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}},
     events:{activation_path:$activation,plugin_id:"org.p.filelog"}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
@@ -161,9 +160,7 @@ created=$(rpc session.create '{"key":"distribution-committed","project":"bundled
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 sessions+=("$uuid")
 result=$(wait_operation "$(jq -er '.result.operation.id' <<< "$created")")
-environment_digest=$(jq -er '.plugins[] | select(.id=="org.p.environment.nix") | .sha256' "$step_dir/activation.json")
-jq -e --arg digest "$environment_digest" --arg oid "$oid" '.result.operation.evidence |
-  .environment.module_id=="org.p.environment.nix" and .environment.module_sha256==$digest and
+jq -e --arg oid "$oid" '.result.operation.evidence |
   .captured_oid==$oid and .environment_state!=null and (.environment_state.flake_present // false)==false and
   (.environment_state.key // "")==""' <<< "$result" >/dev/null
 wait_ready "$uuid"
