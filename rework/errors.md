@@ -163,14 +163,14 @@ by three rules, applied in this order:
 
    | Today | After |
    |---|---|
-   | `ErrInvalid`, and the handlers' decode checks | `invalid`, reason `param` with `field`, from the request type's `Validate` |
+   | `ErrInvalid`, and the handlers' decode checks | `invalid`, reason `param` with `field`, from the request type's `Validate`, or for Git's syntax (branch and ref names, origin URLs, commit IDs) from the source driver's `CheckNames` ([source-driver.md](source-driver.md#names-urls-and-commit-ids)) |
    | `ErrConflict`: a lock or a running operation holds the target | `retry`, naming the operation when there is one |
    | `ErrConflict`: a blocked operation, or a state that forbids the request | `conflict`, with the state as reason |
    | `ErrConflict`: a key recorded for another request | `invalid`, reason `key_reused` |
    | `ErrConflict`: a token, change tag or expected value (`expected_old_tip`, `expected_url`, `expected_commit_oid`, `source_oid`) that no longer holds | `precondition_failed`, reason `expired` or `changed` |
    | `*sessionCapacityError`, and other full tables (attachments, public egress addresses) | `capacity`, with the table as reason |
    | `ErrNotFound` | `not_found` with the target; `not_configured` where it stands for a missing capability |
-   | A failure from an adapter of an outside authority: the runtime plugin and `runtimeincus`, the [source driver](source-driver.md) (`gitservice` and the source-Git plugin until step 9) | `failed`, with the authority as reason |
+   | A failure from an adapter of an outside authority: the runtime plugin and `runtimeincus`, the [source driver](source-driver.md) (`gitservice` and the source-Git plugin until step 9), except a `CheckNames` refusal | `failed`, with the authority as reason |
 
 3. **Anything untyped answers `internal`** and is logged with its cause:
    SQLite, file and encoding errors. A condition that nobody typed then shows

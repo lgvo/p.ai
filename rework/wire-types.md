@@ -23,7 +23,10 @@ time, often first in a VM scenario.
   the attachment client, the TUI test daemon and the tests call through it. A
   changed shape then fails to compile at every caller.
 - Each request type validates its own bounds (`Validate`). The daemon runs it
-  on every request; clients run it before sending.
+  on every request; clients run it before sending. From step 9 Git's syntax is
+  not among them: each handler has the source driver check a request's branch
+  names, refs, origin URLs and commit IDs after its replay lookup
+  ([source-driver.md](source-driver.md#names-urls-and-commit-ids)).
 - No request or result carries `v`. Each connection starts with
   `system.hello`, which agrees the protocol, `p.control/v2`.
 - `system.capabilities` goes. `system.hello` reports which capabilities the
@@ -338,7 +341,8 @@ and their outcome checks stay.
   answered; `capabilities` matches each configuration (none, Git, Git and
   runtime).
 - Unit tests for each request type's `Validate`, carrying over today's bounds
-  from the handlers.
+  from the handlers; step 9 moves Git's syntax among them to the source
+  driver's conformance suite.
 - The TUI tests and the TUI driver tests run against the typed tui-mock.
 - The VM scenarios pass with `"v":1` removed and `system.capabilities`
   replaced, keeping their outcome checks.

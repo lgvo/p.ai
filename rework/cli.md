@@ -60,6 +60,9 @@ is today's: `--socket`, then a nonempty `P_SOCKET`, then
 `system.hello`, and calls through the typed `api.Do`
 ([wire-types.md](wire-types.md#the-version-agreed-at-systemhello)), so the
 request types' `Validate` catches bad arguments before anything is sent.
+From step 9 only the daemon knows Git's syntax: it answers `invalid` for a bad
+branch name, URL or commit ID
+([source-driver.md](source-driver.md#names-urls-and-commit-ids)).
 
 ### Command set
 
