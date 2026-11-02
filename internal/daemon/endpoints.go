@@ -44,8 +44,7 @@ func newEndpointManager(prefix, gitAddress string, store *control.Store) (*endpo
 	if err != nil {
 		return nil, err
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.IsDir() || info.Mode().Perm() != 0700 || st.Uid != uint32(os.Geteuid()) {
+	if !ownedPrivateDirectory(info) {
 		return nil, errors.New("endpoint prefix must be private and daemon-owned")
 	}
 	m := &endpointManager{prefix: prefix, gitAddress: gitAddress, store: store, opened: map[string]*endpointPair{}, conns: map[net.Conn]struct{}{}, gitSlots: make(chan struct{}, 64), gitBySession: map[string]int{}, sessionSlots: make(chan struct{}, 16), sessionByUUID: map[string]int{}}

@@ -75,11 +75,11 @@ func readReplacementKey(path string, identity control.ReplacementLocalIdentity) 
 func reviewReplacementLocal(stateDir string, m *endpointManager, uuid, op, image, principal string) (*control.CreateReplacementCleanup, error) {
 	c := &control.CreateReplacementCleanup{OldUUID: uuid, OldOperationID: op, OldImageFingerprint: image, KeyFingerprint: principal}
 	var err error
-	c.KeyDirectory, err = replacementLocalIdentity(filepath.Join(stateDir, "session_keys"))
+	c.KeyDirectory, err = replacementLocalIdentity(sessionKeysDir(stateDir))
 	if err != nil {
 		return nil, err
 	}
-	c.Key, err = replacementLocalIdentity(filepath.Join(stateDir, "session_keys", uuid))
+	c.Key, err = replacementLocalIdentity(sessionKeyPath(stateDir, uuid))
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func reviewReplacementLocal(stateDir string, m *endpointManager, uuid, op, image
 	if err = checkReplacementEndpointsLocked(m, c, false); err != nil {
 		return nil, err
 	}
-	fp, err := readReplacementKey(filepath.Join(stateDir, "session_keys", uuid), c.Key)
+	fp, err := readReplacementKey(sessionKeyPath(stateDir, uuid), c.Key)
 	if err != nil || fp != principal {
 		return nil, control.ErrConflict
 	}
@@ -144,7 +144,7 @@ func checkReplacementEndpointsLocked(m *endpointManager, c *control.CreateReplac
 }
 
 func checkReplacementKey(stateDir string, c *control.CreateReplacementCleanup, allowAbsent bool) error {
-	dir := filepath.Join(stateDir, "session_keys")
+	dir := sessionKeysDir(stateDir)
 	if err := matchReplacementLocal(dir, c.KeyDirectory, false); err != nil {
 		return err
 	}

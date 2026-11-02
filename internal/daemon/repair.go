@@ -8,10 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -20,7 +16,6 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 	"github.com/lgvo/p.ai/internal/runtimekit"
-	"golang.org/x/crypto/ssh"
 )
 
 const repairPreviewTTL = 2 * time.Minute
@@ -28,46 +23,6 @@ const repairPreviewTTL = 2 * time.Minute
 type repairPreviewState struct {
 	Preview control.RepairPreview
 	Expiry  time.Time
-}
-
-// A preview must never create or rotate the P-owned session credential.
-func inspectRegisteredSessionKey(stateDir, uuid string) (string, error) {
-	if len(uuid) != 36 {
-		return "", control.ErrInvalid
-	}
-	dir := filepath.Join(stateDir, "session_keys")
-	parent, err := os.Lstat(dir)
-	if err != nil {
-		return "", err
-	}
-	owner, ok := parent.Sys().(*syscall.Stat_t)
-	if !ok || !parent.IsDir() || parent.Mode().Perm() != 0700 || owner.Uid != uint32(os.Geteuid()) {
-		return "", errors.New("session key directory unavailable")
-	}
-	name := filepath.Join(dir, uuid)
-	fd, err := syscall.Open(name, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return "", err
-	}
-	f := os.NewFile(uintptr(fd), name)
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return "", err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() < 1 || info.Size() > 4096 || stat.Nlink != 1 || stat.Uid != uint32(os.Geteuid()) {
-		return "", errors.New("session key file unavailable")
-	}
-	data := make([]byte, info.Size())
-	if _, err = io.ReadFull(f, data); err != nil {
-		return "", err
-	}
-	signer, err := ssh.ParsePrivateKey(data)
-	if err != nil || signer.PublicKey().Type() != ssh.KeyAlgoED25519 {
-		return "", errors.New("session key identity unavailable")
-	}
-	return gitservice.Fingerprint(signer.PublicKey()), nil
 }
 
 func (l *lifecycle) repairSelection(ctx context.Context, s control.Session) (control.CreationSelection, *control.CreationEvidence, error) {

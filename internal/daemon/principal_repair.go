@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"syscall"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -22,36 +21,6 @@ import (
 type principalRepairPreviewState struct {
 	Preview control.PrincipalRepairPreview
 	Expiry  time.Time
-}
-
-func principalKeyDir(stateDir string) (string, error) {
-	dir := filepath.Join(stateDir, "session_keys")
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return "", err
-	}
-	owner, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.IsDir() || info.Mode().Perm() != 0700 || owner.Uid != uint32(os.Geteuid()) {
-		return "", errors.New("session key directory is unsafe")
-	}
-	return dir, nil
-}
-
-func principalKeyStatus(stateDir, uuid, old string) (string, error) {
-	if _, err := principalKeyDir(stateDir); err != nil {
-		return "unsafe", err
-	}
-	fingerprint, err := inspectRegisteredSessionKey(stateDir, uuid)
-	if errors.Is(err, os.ErrNotExist) {
-		return "missing", nil
-	}
-	if err != nil {
-		return "unsafe", err
-	}
-	if old == "" || fingerprint != old {
-		return "mismatch", nil
-	}
-	return "matching", nil
 }
 
 func principalRepairRefFacts(tip string, exists bool) (status, assignedTip, unsafeReason string) {
@@ -286,23 +255,6 @@ func (l *lifecycle) blockPrincipalRepair(op api.Operation, cause error) {
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
 }
 
-func principalRepairStage(stateDir, opID string) string {
-	return filepath.Join(stateDir, "session_keys", ".repair-"+opID)
-}
-
-func principalRepairKey(path, expected string, create bool) ([]byte, error) {
-	if !create {
-		if _, err := os.Lstat(path); err != nil {
-			return nil, err
-		}
-	}
-	key, pub, err := loadOrCreateKey(path)
-	if err != nil || expected != "" && gitservice.Fingerprint(pub) != expected {
-		return nil, errors.Join(err, errors.New("principal repair staged key identity changed"))
-	}
-	return key, nil
-}
-
 func placePrincipalRepairKey(stateDir, uuid, opID, fingerprint string) error {
 	dir, err := principalKeyDir(stateDir)
 	if err != nil {
@@ -460,7 +412,7 @@ func (l *lifecycle) processPrincipalRepair(op api.Operation) {
 				l.blockPrincipalRepair(op, err)
 				return
 			}
-			key, err := principalRepairKey(filepath.Join(l.store.StateDir(), "session_keys", op.SessionUUID), ev.NewFingerprint, false)
+			key, err := principalRepairKey(sessionKeyPath(l.store.StateDir(), op.SessionUUID), ev.NewFingerprint, false)
 			if err != nil {
 				l.blockPrincipalRepair(op, errors.Join(err, control.ErrConflict))
 				return
@@ -477,7 +429,7 @@ func (l *lifecycle) processPrincipalRepair(op api.Operation) {
 				return
 			}
 		case "guest-write-issued":
-			key, err := principalRepairKey(filepath.Join(l.store.StateDir(), "session_keys", op.SessionUUID), ev.NewFingerprint, false)
+			key, err := principalRepairKey(sessionKeyPath(l.store.StateDir(), op.SessionUUID), ev.NewFingerprint, false)
 			if err != nil || l.runtime.VerifyStoppedSessionIdentity(ctx, native, ev.IncusUUID, ev.Generation, key) != nil {
 				l.blockPrincipalRepair(op, errors.Join(err, errors.New("issued guest key write has no exact positive result")))
 				return
@@ -491,7 +443,7 @@ func (l *lifecycle) processPrincipalRepair(op api.Operation) {
 				if err := l.principalRepairRef(call, got); err != nil {
 					return err
 				}
-				key, e := principalRepairKey(filepath.Join(l.store.StateDir(), "session_keys", op.SessionUUID), got.NewFingerprint, false)
+				key, e := principalRepairKey(sessionKeyPath(l.store.StateDir(), op.SessionUUID), got.NewFingerprint, false)
 				if e != nil {
 					return e
 				}

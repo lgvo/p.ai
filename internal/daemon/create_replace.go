@@ -94,7 +94,7 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 		if found {
 			return nil, control.ErrConflict
 		}
-		if _, err = os.Lstat(filepath.Join(l.store.StateDir(), "session_keys", s.UUID)); !errors.Is(err, os.ErrNotExist) {
+		if _, err = os.Lstat(sessionKeyPath(l.store.StateDir(), s.UUID)); !errors.Is(err, os.ErrNotExist) {
 			return nil, control.ErrConflict
 		}
 		l.endpoints.mu.Lock()

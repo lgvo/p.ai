@@ -277,9 +277,13 @@ error, and reaching a family's cap needs eligible previews whose facts come
 from native Incus and Git state, so their behavior cannot be characterized
 first; the copies are recorded as debt.
 
-**6. Session-key store.** One component owns `session_keys/`: create, check
-mode and owner, read, stage and rotate, and exact removal without following
-links. The seven call sites use it.
+**6. Session-key store.** `internal/daemon/session_keys.go` owns
+`session_keys/`: its paths, loading or creating a key, inspecting a registered
+key without creating one, staging and rotating a repair key, and exact
+removal without following links. One `ownedPrivateDirectory` check replaces
+five copies (the endpoint prefix uses the same rule). Each operation keeps its
+own diagnostic, since those texts reach operation diagnostics; a
+characterization test pins them first.
 
 **7. WASI invocation core.** One function in plugin performs lease, slot,
 deadline, package re-snapshot and digest check, wazero instantiation with the
@@ -316,5 +320,6 @@ drifted operation behaviors, routing native effects through the runtime plugin
 | 3a | done | 4526621 | Codex, 1 round: no findings, 1 cut applied | 01–36 (no 34) and 38–58 match the baseline |
 | 3b | deferred (see step 3) | — | — | — |
 | 4 | done | bfbd3eb | Codex, 2 rounds: 1 finding accepted, 1 cut; 1 re-raised part rejected (on TO-DECIDE.md) | match the baseline; scenario 53 failed once on a native Incus SFTP refusal while two VMs ran, and passed on rerun |
-| 5 | done | step 5 commit | Codex, 2 rounds: 1 finding accepted (admission test added), 2 cuts; settled | match the baseline |
-| 6–8 | not started | — | — | — |
+| 5 | done | 702fde6 | Codex, 2 rounds: 1 finding accepted (admission test added), 2 cuts; settled | match the baseline |
+| 6 | done | step 6 commit | Codex, 1 round: no findings, 3 comment cuts; settled | match the baseline |
+| 7–8 | not started | — | — | — |

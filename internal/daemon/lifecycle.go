@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -21,7 +19,6 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 	"github.com/lgvo/p.ai/internal/runtimekit"
-	"golang.org/x/crypto/ssh"
 )
 
 type lifecycle struct {
@@ -1064,46 +1061,6 @@ func phaseRank(phase string) int {
 	default:
 		return -1
 	}
-}
-
-func (l *lifecycle) sessionKey(ctx context.Context, id string) ([]byte, ssh.PublicKey, error) {
-	return sessionKeyAt(ctx, id, l.store.StateDir(), l.store.SessionGitPrincipal)
-}
-
-func sessionKeyAt(ctx context.Context, id, stateDir string, principal func(context.Context, string) (string, bool, error)) ([]byte, ssh.PublicKey, error) {
-	path := filepath.Join(stateDir, "session_keys")
-	if err := os.Mkdir(path, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-		return nil, nil, err
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	owner, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.IsDir() || info.Mode().Perm() != 0700 || owner.Uid != uint32(os.Geteuid()) {
-		return nil, nil, errors.New("session key directory is unsafe")
-	}
-	file := filepath.Join(path, id)
-	registered, exists, err := principal(ctx, id)
-	if err != nil {
-		return nil, nil, err
-	}
-	if exists {
-		if _, err = os.Lstat(file); errors.Is(err, os.ErrNotExist) {
-			return nil, nil, errors.New("registered session key missing; repair required")
-		}
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	key, pub, err := loadOrCreateKey(file)
-	if err != nil {
-		return nil, nil, err
-	}
-	if exists && registered != gitservice.Fingerprint(pub) {
-		return nil, nil, errors.New("registered session key changed; repair required")
-	}
-	return key, pub, nil
 }
 
 func (l *lifecycle) runtimeSession(ctx context.Context, s control.Session) (runtimeincus.Session, error) {

@@ -46,7 +46,7 @@ func (l *lifecycle) createCleanupLocalAbsent(uuid string) error {
 	return checkCreateCleanupLocalAbsent(l.store.StateDir(), l.endpoints, uuid)
 }
 func checkCreateCleanupLocalAbsent(state string, endpoints *endpointManager, uuid string) error {
-	parent, e := replacementLocalIdentity(filepath.Join(state, "session_keys"))
+	parent, e := replacementLocalIdentity(sessionKeysDir(state))
 	if e != nil && !errors.Is(e, os.ErrNotExist) || e == nil && parent.Mode != 040700 {
 		return control.ErrConflict
 	}
@@ -55,7 +55,7 @@ func checkCreateCleanupLocalAbsent(state string, endpoints *endpointManager, uui
 		return control.ErrConflict
 	}
 
-	if _, err := os.Lstat(filepath.Join(state, "session_keys", uuid)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(sessionKeyPath(state, uuid)); !errors.Is(err, os.ErrNotExist) {
 		return control.ErrConflict
 	}
 	endpoints.mu.Lock()

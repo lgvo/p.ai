@@ -6,9 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -106,44 +103,4 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 		return op, err
 	}
 	return op, nil
-}
-
-func removeSessionKeyAt(stateDir, uuid string) error {
-	if len(uuid) != 36 {
-		return errors.New("invalid session key identity")
-	}
-	dir := filepath.Join(stateDir, "session_keys")
-	parent, err := os.Lstat(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	owner, ok := parent.Sys().(*syscall.Stat_t)
-	if !ok || !parent.IsDir() || parent.Mode().Perm() != 0700 || owner.Uid != uint32(os.Geteuid()) {
-		return errors.New("session key directory identity changed")
-	}
-	file := filepath.Join(dir, uuid)
-	info, err := os.Lstat(file)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || st.Uid != uint32(os.Geteuid()) || st.Nlink != 1 {
-		return errors.New("session key file identity changed")
-	}
-	if err = os.Remove(file); err != nil {
-		return err
-	}
-	opened, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	syncErr := opened.Sync()
-	closeErr := opened.Close()
-	return errors.Join(syncErr, closeErr)
 }
