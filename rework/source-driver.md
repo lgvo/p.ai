@@ -51,22 +51,6 @@ instead of the source plugin, and `p plugins defaults` no longer lists
 source-git. Origin access still uses the daemon account's SSH agent and
 configuration.
 
-```text
-Before (after steps 0d and 0e)
-internal/daemon ─┬─ gitservice ─┬─ plugin.RunSourceGit ─► git.wasm ─► broker ─► git   9 command kinds
-                 │              ├─ git directly                                        reads, loss, snapshots
-                 │              └─ Wish SSH ─► upload-pack, receive-pack ─► p git-hook
-                 ├─ os.RemoveAll(repository)                                           project deletion
-                 └─ control.Store: principals, leases, guards, unborn grants           gitservice reads it too
-session ─► git.sock ─► daemon proxy ─► Wish SSH
-
-After
-internal/daemon ─┬─ sourcedriver.Driver ─► p-source-git ─► git, ssh
-                 ├─ SSH server: keys, principal, lease ─► Driver.ServeGit
-                 └─ control.Store: principals, leases, guards, unborn grants
-session ─► git.sock ─► daemon proxy ─► SSH server
-```
-
 ## What changes owner
 
 Only effects whose owner or guarantee changes; the rest stays where
@@ -257,7 +241,7 @@ The errors are `ErrUnknownOutcome` (the effect may have happened; settle it),
 | `Export` | Write one commit's content into the given directory and nothing outside it. In today's tree form ([open question 3](#open-questions)): stay within today's bounds (20,000 entries, 256 MiB, 4 KiB paths and link targets); apply no filters or export rules; refuse submodules, unsafe names and links that leave the tree. |
 | `ServeGit` | Upload: advertise only heads and send only objects they reach. Receive: accept exactly one update, of `refs/heads/<Branch>`, to a commit, a fast-forward or, from an empty old value, a creation; refuse deletions; keep pushed objects apart until checked; call `approve` once, after the checks and before the update; move the head by compare-and-swap from the old value. Bound input and time by the ceilings. Return only when nothing the service started can still change a head. |
 | `ObserveOrigin` | Contact the origin afresh; return at most 1024 heads and tags with their advertised IDs and peeled targets, unverified: it fetches nothing and checks no object type. An empty list is a successful answer. |
-| `FetchOrigin` | Bring in the observed ref's objects, creating no head; `ErrConflict` if the ref moved since the observation. Refuse unless `Target` is a commit and, for a tag, `OID` is an annotated tag that peels to it. Safe to repeat. |
+| `FetchOrigin` | Bring in the observed ref's objects, creating no head; `ErrConflict` if the ref moved since the observation. When `OID` equals `Target`, as for a branch or a lightweight tag, refuse unless that object is a commit; when they differ, refuse unless `OID` is an annotated tag that peels to `Target` and `Target` is a commit. Safe to repeat. |
 | `ComparePublication` | Fetch only the destination's objects, create no ref, and report the relation from Git ancestry: absent, equal, destination-contains, fast-forward or divergent. |
 | `Publish` | Push only for an absent or fast-forward relation, the exact commit to one head, with no force and no tags, and only while the publication's source branch still names it. Call the gate before the push. Return `created`, `advanced` or `satisfied` from the origin's answer, `refused` only on its definite rejection, and `ErrUnknownOutcome` when the answer is lost after the push started. |
 | `Settle` | For a head effect: `Applied` only when the intended state holds exactly and nothing the driver admitted can still change it; `NotApplied` only when the prior state holds and nothing can still change it; otherwise `Unknown`. For a service: `Applied` once nothing it started can still change a head, `Unknown` until then, never `NotApplied`. Answers hold after a restart. |
@@ -363,40 +347,23 @@ Unresolved blockers:
 
 ## Trust and launch
 
-The mechanism is the runtime driver's
-([runtime-driver.md](runtime-driver.md#how-a-driver-is-replaced)), reused:
+Selection, launch checks, protocol, supervision and crash handling are the
+runtime driver's ([runtime-driver.md](runtime-driver.md#how-a-driver-is-replaced),
+[plugins.md](plugins.md#trust)), with host configuration
+`git: {listen, driver: {path, sha256, config}}` and each `ServeGit` stream on
+its own connection, as each terminal is. What is specific to the source
+driver:
 
-- host configuration `git: {listen, driver: {path, sha256, config}}`; only
-  trusted host configuration selects it;
-- before every start, the launch checks of [plugins.md](plugins.md#trust),
-  then the digest; the daemon starts the file it checked;
-- one long-lived process, JSON-RPC 2.0 over a Unix socket pair in both
-  directions, since gates and `Approve` are calls from the driver; a hello that
-  agrees on the version and returns `Describe`'s answer; each `ServeGit`
-  stream on its own connection, as each terminal is;
-- a crash turns calls in flight into unknown outcomes; the daemon kills the
-  driver's process group, starts it again after fresh checks, and settles;
-- a failed first start refuses daemon startup, as an invalid Git selection
-  does today.
-
-**What the driver holds.** Read and write access to every project's
-repository, which is all the source P keeps; and the daemon account's origin
-credentials: the SSH agent, `~/.ssh` configuration and known hosts, with
-network access to origins. That is not new authority: gitservice holds it
-inside the daemon today, and a WASI module never did. To reach origins the
-driver needs `HOME` and `SSH_AUTH_SOCK`, which today's runner passes through
-(`originEnv` in origin.go), so the daemon passes exactly those two variables;
-plugins.md starts executables with no inherited environment. With no `PATH`,
-the bundled driver's package pins `git` and `ssh`.
-
-P never hands the driver its SQLite database, session keys, the SSH server's
-host key or the Incus socket. Running as P's account with no sandbox, it could
-open them ([plugins.md](plugins.md#trust)); core trusts its answers about P's
-repositories, which is what a driver is for.
-
-**The hook.** The pre-receive script in the driver's storage executes the
-driver, not `p git-hook`, and talks to the driver over a per-push socket, as
-it talks to the daemon today.
+- **Credentials.** It holds read and write access to every repository and the
+  daemon account's origin access: SSH agent, `~/.ssh` configuration, known
+  hosts and network. gitservice holds the same inside the daemon today. The
+  daemon passes it exactly `HOME` and `SSH_AUTH_SOCK`, as `originEnv` does
+  today; its package pins `git` and `ssh`, since it inherits no `PATH`. P
+  never hands it SQLite, session keys, the SSH host key or the Incus socket,
+  though as P's account with no sandbox it could open them.
+- **The hook.** The pre-receive script in the driver's storage executes the
+  driver instead of `p git-hook`, and talks to it over a per-push socket, as
+  it talks to the daemon today.
 
 ## Migration
 
@@ -537,10 +504,10 @@ rest.
     before the update, and a refusal leaves the head; a first push to an empty
     repository needs approval; input and time ceilings hold;
   - origin, from origin_test.go and origin_publication_test.go: advertisement
-    parsing and bounds; a tag whose peeled target is not a commit is observed
-    as advertised, and `FetchOrigin` refuses it; a fetch creates no head and
-    refuses a moved ref; the
-    five relations; `created`, `advanced`, `satisfied`, `refused`, and
+    parsing and bounds; a lightweight tag on a commit and an annotated tag
+    peeling to a commit both fetch; a tag whose target is not a commit is
+    observed as advertised, and `FetchOrigin` refuses it; a fetch creates no
+    head and refuses a moved ref; the five relations; `created`, `advanced`, `satisfied`, `refused`, and
     `ErrUnknownOutcome` for a lost answer;
   - settling: a driver killed after the gate of a head creation or deletion
     answers `Applied` or `NotApplied` after restart, never by sending the
