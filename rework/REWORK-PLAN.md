@@ -38,7 +38,8 @@ means the document does not exist yet.
 | CLI | Deletion and recovery only through `p api` with hand-written JSON, idempotency keys and copied tokens. | Task commands such as `p session delete` and `p session repair` that preview, show and confirm, with `--force`. | `--force` in [state-hash-confirmation.md](state-hash-confirmation.md); the rest to write |
 | Runtime | The WASI runtime plugin decides nothing, about 200 Incus calls bypass it, and core never calls `runtime.delete`. | One owner for runtime effects, decided by the maintainer on 2026-11-02: a native Go runtime driver that every runtime effect goes through, replaceable like a plugin (for example a Kubernetes driver instead of Incus). Images, the session host and project services are the driver's internals; the contract exposes only operations. The WASI runtime plugin goes. | [runtime-driver.md](runtime-driver.md), services in [services-plugin.md](services-plugin.md) |
 | Services | Project services are systemd user units; core runs `systemctl` through the WASI runtime plugin's `runtime.services` broker, and the API carries systemd's state names. | Three runtime-driver operations (list, action, logs) with P's own states and a display-only detail; each driver implements services internally. On Incus nothing changes for users or agents. API renames (`unit` → `name`, `session.service.journal` → `session.service.logs`) land in step 2; the move lands in step 8. | [services-plugin.md](services-plugin.md) |
-| Plugins | The remaining executable plugins are WASI modules driven through brokers (source-git, Nix environment). | Native executables speaking JSON-RPC, like the runtime driver, where that makes sense; the Nix environment folds into the runtime driver's image build. Decided by the maintainer on 2026-11-02. | to write |
+| Plugins | The remaining executable plugins are WASI modules driven through brokers (source-git, Nix environment). | Native executables speaking JSON-RPC, like the runtime driver, where that makes sense; the Nix environment folds into the runtime driver's image build. Decided by the maintainer on 2026-11-02. Executable plugins are trusted code, contained by trusted selection, digest pinning and launch checks, with no sandbox; OS confinement is a later improvement (maintainer, 2026-11-02). | [plugins.md](plugins.md) |
+| Source | Git work is split between Go code in `internal/gitservice` and a WASI source-git plugin that decides almost nothing. | One source driver for all source and Git work, replaceable like the runtime driver (a native executable, pinned and launch-checked). Decided by the maintainer on 2026-11-02. | being drafted: source-driver.md |
 | Schema | P's SQLite state is built by replaying 21 migrations; the current schema exists only as their sum. | One schema file for fresh installs, edited directly by later steps; no migrations. Follows from fresh installs only, confirmed by the maintainer on 2026-11-02. | this plan |
 
 ## Steps
@@ -92,4 +93,21 @@ and 3b of the earlier rework) stays recorded as debt in
 
 ## Waits on you
 
-Nothing right now.
+Each has a recommendation in its document; "take the recommendations" settles
+them.
+
+- plugins.md: does the bundled file-log stay an executable plugin? (yes)
+- repairs.md: a running session with nothing found on the host answers
+  `session_running`, not `nothing_to_repair`? (yes)
+- cli.md: may a script run a reviewed plan with `--if-match` without the
+  prompt and countdown? (yes); does `p session repair` run
+  `session.repair.prepare` itself when only the image is missing? (yes)
+- TUI: a Repair action in step 7, alongside `p session repair`? (yes)
+- wire-types.md: does the in-session socket also start with a hello? (not now;
+  decide in step 9)
+- errors.md: do blocked and failed operations get a `reason` code beside their
+  diagnostic? (yes); are panics in operation workers recovered, marking the
+  operation blocked? (yes)
+- waiting.md: keep only the newest finished start or stop per session? (yes);
+  do origin change and publish become operations? (yes); does the session
+  condition gain `stopping`? (yes)

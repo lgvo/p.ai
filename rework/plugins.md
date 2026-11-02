@@ -22,12 +22,12 @@ almost nothing.
   simply invalid.
 - No package cache for now; one may come later, as a plugin or something
   similar.
+- source-git becomes a source driver: one interface for all source and Git
+  work, replaceable like the runtime driver, designed in
+  [source-driver.md](source-driver.md). No WASI source module remains.
 
 **Proposed:**
 
-- **source-git folds into core.** It decides nothing, and as a native process
-  it would hold write access to every repository. Its `p-git-ssh` file moves
-  to the Incus driver.
 - **tmux-host's files move to the Incus driver.** Session hosts are no longer
   selected separately.
 - **The event handler becomes the one executable plugin capability:** a
@@ -36,11 +36,12 @@ almost nothing.
 - **The Codex adapter stays a package of files**, handed to the driver in
   `Session.Assets`.
 - Host configuration selects a plugin by path and SHA-256, as it selects the
-  driver. Every start checks the package's owner, modes and links before its
+  drivers. Every start checks the package's owner, modes and links before its
   digest. The activation file, grant lists, WASI, the brokers and wazero go.
 
-An executable plugin gains the authority of P's account. That departs from
-PROJECT.md and waits on the maintainer ([Trust](#trust), open question 2).
+An executable plugin gains the authority of P's account. The maintainer
+accepted this on 2026-11-02 and keeps OS confinement as a later improvement
+([Trust](#trust)).
 
 ## Before and after
 
@@ -55,9 +56,9 @@ internal/daemon
 
 After
 internal/daemon
-├─ gitservice ─► git                                    all Git work
+├─ source driver (source-driver.md)                     all source and Git work
 ├─ events ─► p-event-file, or the selected handler      one process, JSON-RPC over a socket pair
-└─ runtimedriver.Driver ─► p-runtime-incus              also holds the tmux host files and git-ssh
+└─ runtimedriver.Driver ─► p-runtime-incus              also holds the tmux host files
      └─ Session.Assets: the codex-adapter package
 ```
 
@@ -75,24 +76,16 @@ internal/daemon
 runtime-incus and environment-nix are gone by steps 8 and 1. The other four
 follow.
 
-### source-git folds into core
+### source-git becomes the source driver
 
-The module (plugins/bundled/source-git/main.go) sequences nine command kinds.
-Each broker call runs Git with arguments core chose, and core checks every
-postcondition; the module only picks the ref page size (1 to 8), tightens
-transport limits or refuses. Most Git work already skips it: reads
-(`InspectBranchRef`, 26 daemon call sites) and snapshots run Git directly,
-and project deletion removes the repository itself. As a native process it
-would decide the same nothing, with write access to every repository.
-
-The nine operations become ordinary `gitservice` code built from today's
-broker bodies. The deadlines and limits on native Git and SSH stay; the limits
-on the module (memory, message sizes, call counts, the package recheck) go.
-The `git` block of host configuration keeps only `listen`.
-
-`p-git-ssh` runs `ssh -F /etc/p/git/ssh_config`, and runtime-kit points
-`GIT_SSH` at it. It is how the guest reaches P's Git endpoint, which the
-driver's `Session` already carries, so it becomes a file of the Incus driver.
+By the maintainer's decision of 2026-11-02, P gets a source driver: one
+interface for all source and Git work, replaceable like the runtime driver,
+designed in [source-driver.md](source-driver.md). For this document that
+means three things. No WASI source-git module, broker or package remains, and
+`plugin.RunSourceGit` goes. The source driver is a native executable,
+selected, pinned and launch-checked like the runtime driver and executable
+plugins ([Trust](#trust)). And `p-git-ssh` stops being a plugin file;
+source-driver.md places it.
 
 ### tmux-host's files move to the Incus driver
 
@@ -122,7 +115,7 @@ cannot be written in it.
 Here a native executable makes sense: P starts it, sends it reduced events
 and never waits on it for a decision. The bundled file-log becomes
 `p-event-file`, built from today's append code, with the same checks, file and
-rotation (open question 3 weighs keeping it in core). The example becomes a
+rotation (open question 1 weighs keeping it in core). The example becomes a
 native filter. Core keeps event reduction and validation, the 64-event queue,
 the 2-second deadline and the dropped-events diagnostic; a handler failure
 stays diagnostic and never rolls back state.
@@ -152,8 +145,10 @@ the connection; P starts nothing that talks to the session socket.
 | Executable | `event-handler` | The daemon, as one long-lived process |
 | Files | `agent-adapter` | The session, after the driver installs the files |
 
-The runtime driver uses the same mechanism but keeps its own `driver` block,
-in the form [runtime-driver.md](runtime-driver.md) settles.
+The runtime driver and the source driver use the same mechanism but keep
+their own configuration blocks, in the forms
+[runtime-driver.md](runtime-driver.md) and [source-driver.md](source-driver.md)
+settle.
 
 ### Protocol
 
@@ -264,8 +259,8 @@ It then hashes the package and starts the entry it checked. Between check and
 start only root or P's account can change the bytes, and both already hold
 more than a plugin gains. A managed install meets these rules by construction;
 the bundled catalog in the Nix store meets them as root-owned, read-only
-files. The driver applies the same launch checks to its executable
-([runtime-driver.md](runtime-driver.md)).
+files. The runtime driver and the source driver apply the same launch checks
+to their executables.
 
 **What a plugin gains.** An executable plugin runs as P's account inside the
 daemon's service sandbox. On the NixOS service (nix/module.nix) that means no
@@ -279,23 +274,66 @@ daemon gives it the owner's account.
 | The Codex adapter | The session it runs in | — |
 | Executable plugins | Trusted selection, the launch checks and the digest; P sends only reduced, redacted events and the plugin's config; no reply changes P's state | The process can read and write P's state (SQLite, Git repositories, the Git server and client keys, other plugins' managed files), open the Incus user socket and use the network. WASI prevented all of it |
 
-**The decision required.** PROJECT.md's "Bound delegated authority" signal,
+**What changes in PROJECT.md.** Its "Bound delegated authority" signal,
 "Agents and plugins cannot exceed their declared grants", then holds for
 agents and the Codex adapter but not for executable plugins: no grant is
 narrower than P's account. The same reaches the extension goal's "operate
 autonomously within those grants", the project model's "an activated plugin
-may operate autonomously only within them", and PRODUCT.md's "agent-authored
-plugins remain within user-approved capabilities": for an executable plugin,
-the owner's approval is all or nothing. The runtime driver already makes this
-trade for one component ("The driver is trusted code"). Open question 2 asks
-the maintainer to confirm it.
+may operate autonomously only within them", PRODUCT.md's "agent-authored
+plugins remain within user-approved capabilities" and the glossary. The
+runtime driver already makes this trade for one component ("The driver is
+trusted code").
+
+**Decided by the maintainer on 2026-11-02:** executable plugins are trusted
+code. Selection by trusted host configuration, digest pinning and the launch
+checks contain them; there is no sandbox. Confining them at the OS level stays
+an open improvement for later, kept visible
+([below](#later-improvement-confining-executable-plugins)).
+
+### Proposed wording
+
+These replacements say what P enforces. PROJECT.md, PRODUCT.md and the
+glossary change in step 9's commit, together with the code, not before.
+
+| Where | Today | Proposed |
+|---|---|---|
+| PROJECT.md, "Bound delegated authority" | Developers can let agents and plugins work independently while their capabilities, publication authority, and potential destructive effects remain explicit and contained. | Developers can let agents and plugins work independently while their capabilities, publication authority, and potential destructive effects remain explicit; agents and the plugins that run inside sessions also remain contained. |
+| Its success signal | Agents and plugins cannot exceed their declared grants, failures do not silently widen authority, and destructive actions explain what will be lost before proceeding. | Agents, and plugins that run inside sessions, cannot exceed the session's grants. A plugin runs on the host only when trusted host configuration selects its exact, protected package; it is trusted code with P's authority, and P sends it only what its capability defines. Failures do not silently widen authority, and destructive actions explain what will be lost before proceeding. |
+| "Make extension a product capability", success signal | … Trusted developer configuration controls its activation and capabilities, after which it can operate autonomously within those grants. | … Trusted developer configuration controls which exact package is activated for which capability, after which it can operate autonomously: inside a session within the session's grants, or on the host as trusted code. |
+| Project model | Trusted developer configuration controls plugin activation and grants; an activated plugin may operate autonomously only within them. | Trusted developer configuration controls plugin activation by exact package; an activated plugin may operate autonomously, inside a session within its grants or on the host as trusted code with P's authority. |
+| PRODUCT.md, success signals | agent-authored plugins remain within user-approved capabilities and can be disabled or replaced without compromising P's authoritative state; | agent-authored plugins run only when the user selects their exact package, stay within the session's capabilities when they run inside a session, and can be disabled or replaced without compromising P's authoritative state; |
+| Glossary, "Plugin", boundaries | A plugin may provide a first- or third-party runtime, internal or external session service, host-side capability, integration, or workflow. It is not P core. | A plugin may provide a host-side capability, an internal or external session service, an integration, or a workflow. It is not P core or a driver. |
+| Glossary, "Plugin", rules | … Registration does not activate a plugin or grant authority. Trusted developer configuration controls activation, implementation selection, and grants; an activated plugin may operate autonomously only within them. | … Registration does not activate a plugin. Trusted developer configuration activates an exact package for one capability. A plugin that runs inside a session has the session's grants and no more; an executable plugin runs on the host as trusted code with P's authority. |
+| Glossary, "Grant", rules | A session or plugin cannot grant itself authority. Each grant has explicit scope and is enforced by the authority that owns the capability. | The same, followed by: Executable plugins hold no grants; trusted configuration selects them, and they run with P's authority. |
+| Glossary, "Host-side capability" | Examples: A runtime provider or event handler. Rules: It receives only the authority granted for its declared role and does not become a session service merely because its result affects one. | Examples: An event handler. Rules: An executable plugin that provides it runs as trusted code with P's authority, and P sends it only what its capability defines. It does not become a session service merely because its result affects one. |
+
+## Later improvement: confining executable plugins
+
+Not designed, and not part of step 9. When native plugins land, step 9's
+commit records the gap as a debt entry in [docs/debts](../docs/debts/), listed
+in [DEBT.md](../DEBT.md); the gap exists only from then on.
+
+**What it would protect.** P's state (SQLite, the Git repositories, the Git
+server and client keys, staged packages), the Incus user socket, and the
+network. A confined event handler would reach only its own configured files
+and the destinations its job needs. Confinement would bring grants back in a
+new form: a plugin's config would have to name what the confinement allows.
+
+| Mechanism | NixOS service | Owner-run daemon | Unknown |
+|---|---|---|---|
+| A separate account, without P's state or the `incus` group | The daemon cannot switch accounts under `NoNewPrivileges` and no capabilities. It fits only if the NixOS module runs each plugin as a service of its own account and the daemon connects to it rather than starting it. | A fixed sudo rule, as the egress proofs already use. | How the digest and launch checks reach a process the daemon does not start. |
+| Landlock rules applied before the plugin starts | Fits: unprivileged, and the service already sets `NoNewPrivileges`, which Landlock requires. | Fits, with no-new-privileges set for the child. | Whether Landlock on P's kernels can deny connecting to a pathname Unix socket such as Incus's; its TCP rules restrict ports, not addresses. A process can only restrict itself, so it probably needs a small launcher. |
+| systemd sandboxing of the plugin process: a transient unit with `ProtectSystem`, `InaccessiblePaths`, `IPAddressDeny` and the like | Only if P's system account may start units, which it cannot without a polkit rule. | `systemd-run --user`, if the owner has a user manager. | Which protections a user manager can apply, and whether a unit per plugin fits the daemon's supervision. |
+
+None of this was tried. The Incus user socket is the hardest part, because
+P's account reaches it through group membership.
 
 ## What users notice
 
-- A default installation writes the same events file, installs the Codex
-  adapter at the same path, and runs Git with the same behavior and limits.
-- Host configuration: `git` keeps only `listen`; `runtime.host_plugin_id`
-  goes; `events` and `runtime.agent_adapter` take a path, a digest and config
+- A default installation writes the same events file and installs the Codex
+  adapter at the same path.
+- Host configuration: `git.activation_path`, `git.source_plugin_id` and
+  `runtime.host_plugin_id` go; `events` and `runtime.agent_adapter` take a path, a digest and config
   instead of an activation file and a plugin ID.
 - `p plugins defaults` covers two packages; `activate`, `plan-assets` and
   `emit` go; `run-event` reads its selection from host configuration.
@@ -312,7 +350,7 @@ the maintainer to confirm it.
   `p.activation/v1`, the `p_broker_v1.call` import, and grants.
 - The source-git and tmux-host packages, the WASI example and fixtures, and
   the `wasip1` builds.
-- The source and host fields of `CreationSelection`.
+- The host fields of `CreationSelection`.
 
 ## Departures from agreements
 
@@ -325,71 +363,52 @@ the maintainer to confirm it.
   kinds, their ABI sections and trusted activation go; asset destinations
   become the driver's.
 - [PROJECT.md](../PROJECT.md) and [product direction](../docs/PRODUCT.md): the
-  lines quoted under [Trust](#trust); the first-party composition becomes the
-  Incus driver, file-log and the Codex adapter; "first-party implementations
-  can be replaced" no longer covers Git source.
+  lines replaced in [Proposed wording](#proposed-wording); the first-party
+  composition becomes the Incus driver, the source driver, file-log and the
+  Codex adapter.
 - [MVP status](../docs/mvp-status.md) and
   [technology stack](../docs/technology-stack.md): the tmux host and Git
-  source as plugins ("Product direction requires tmux support to be a bundled
+  source as WASI or asset plugins ("Product direction requires tmux support to be a bundled
   internal-session-service plugin"), the event-handler seam, and wazero.
 - [Control API](../docs/control-api.md) and [glossary](../GLOSSARY.md): the
   plugin selections in host configuration; "Plugin", "Grant" and "Host-side
-  capability".
+  capability", as in [Proposed wording](#proposed-wording).
 
 ## Effects on other rework documents
 
 - [runtime-driver.md](runtime-driver.md): "`p plugins defaults` lists four
   packages instead of six" becomes two; "tmux from the interactive-host
-  package" becomes the driver's own files, and `p-git-ssh` joins them;
-  `Session.Assets` carries only the agent adapter. "Repositories, requests and plugins never reach it"
-  holds for the driver's socket pair, but an executable plugin running as P's
+  package" becomes the driver's own files;
+  `Session.Assets` carries only the agent adapter. "Repositories, requests
+  and plugins never reach it" holds for the driver's socket pair, but an executable plugin running as P's
   account can open the Incus user socket. Whether a session's creation pins
   the driver's digest is not yet said there.
 - [wire-types.md](wire-types.md): its open question 1 is answered; the session
   RPC keeps `v`.
 - [REWORK-PLAN.md](REWORK-PLAN.md): the Plugins row and step 9 expect the
-  WASI plugins to become JSON-RPC executables. Here source-git folds into core
-  instead, and the one executable plugin is the event handler, which was
-  declarative rather than WASI.
+  WASI plugins to become JSON-RPC executables. Here source-git becomes the
+  source driver instead, and the one executable plugin is the event handler,
+  which was declarative rather than WASI.
+- [source-driver.md](source-driver.md): its driver follows the selection,
+  pinning and launch checks of [Trust](#trust).
 
 ## Options set aside
 
 | Option | Why not |
 |---|---|
 | Keep WASI for event handlers | A WASI handler can only append or skip; with no sockets it cannot notify anything. |
-| source-git as a native executable, or a source driver for all Git work | Open question 1. |
 | Session hosts as a package the Incus driver loads | The session host is the runtime's own business by the maintainer's decision, and a host package contract shared by drivers would tie them all to systemd units. |
 | Keep `p.activation/v1` as a separate file | Without grants it repeats host configuration. |
 | One process per event, as with WASI | A start per event, and no connection a handler can keep, for example to a webhook. |
 | Execute verified bytes from memory (`memfd_create` and `fexecve`) | The launch checks already leave only root and P's account able to change the file. |
 | Package the runtime driver like a plugin | Step 9 does not need it: the driver's settled `{path, sha256}` form works with the same launch checks. It can come later. |
 | A package cache | Deferred by the maintainer; it may come later as a plugin. |
+| OS confinement of executable plugins now | Decided by the maintainer: a later improvement ([above](#later-improvement-confining-executable-plugins)). |
 | hashicorp/go-plugin | Set aside for the driver: MPL-2.0 and gRPC. |
 
 ## Open questions
 
-1. **Does source-git fold into core?**
-   - (a) Fold it into `gitservice`. *Recommended:* the module decides nothing
-     core does not check again, most Git work already skips it, and nothing
-     else would gain write access to P's repositories.
-   - (b) A native executable with today's nine methods: replaceable without
-     rebuilding P, but a replacement can change only page sizes and limits.
-   - (c) A source driver for all Git work: worth it only for a second source
-     system, which P's model does not plan.
-2. **Are executable plugins trusted code?**
-   - (a) Yes. PROJECT.md, PRODUCT.md and the glossary then say what P
-     enforces: agents and the Codex adapter cannot exceed their grants; an
-     executable plugin runs only when trusted configuration selects its exact,
-     protected digest, and P gives it only what its capability defines.
-     *Recommended* for step 9: the only executable plugin left is an event
-     handler, and a sandbox can later wrap the process start without changing
-     the protocol. Revisit when an executable plugin from outside P is wanted.
-   - (b) Contain executable plugins at the OS level before step 9 lands, and
-     keep the signal. Nothing is designed: under `NoNewPrivileges` the daemon
-     cannot switch accounts itself, and whether Landlock on P's kernels can
-     deny connecting to a pathname Unix socket such as Incus's was not
-     verified.
-3. **Does the bundled file-log stay a plugin?**
+1. **Does the bundled file-log stay a plugin?**
    - (a) A small executable, `p-event-file`. *Recommended:* a default
      installation then runs the protocol other handlers use, which is how
      PRODUCT.md asks first-party functionality to prove its contracts. The
@@ -399,24 +418,24 @@ the maintainer to confirm it.
 
 ## How it will be checked
 
-- **Unit tests:** gitservice's nine operations without a plugin, with the same
-  refusals and limits; the `event-handler` conformance suite; the launch
+- **Unit tests:** the `event-handler` conformance suite; the launch
   checks refuse a group- or world-writable package directory or file, a
   foreign-owned one, a second link to a file P's account owns, and an entry
   without its execute bit, and accept root-owned read-only files with several
-  links; the same checks on the driver's executable; staging writes the entry
+  links; the same checks on both drivers' executables; staging writes the entry
   0500, other files 0400 and the directory 0500; conformance refuses an
   executable capability without `entry`; host configuration rejects the old
   activation fields; removal is refused while a package is selected or
   pinned.
 - **VM scenarios:** 01 and 13 (file-log through the CLI and the daemon) with
-  the executable; 03 with the native example; 04, 07, 08, 14 and 16 to 20 (Git
-  and origin) with unchanged outcomes and no source package; 27 (Codex
+  the executable; 03 with the native example; 27 (Codex
   adapter) unchanged; 48 (bundled distribution) with two packages; 55 (NixOS
   service) with the selections in host configuration. 54 (plugin management)
   installs the file-log package with `p plugins install`, then handles an
   event through `p plugins run-event` and through the daemon, both with a
-  host configuration that selects the staged package. New: kill the handler while the daemon runs and
-  see later events delivered after the restart with the drop logged; a
-  changed digest or a loosened mode refuses start.
+  host configuration that selects the staged package. New: kill the handler
+  while the daemon runs and see later events delivered after the restart with
+  the drop logged; a changed digest or a loosened mode refuses start.
 - **Boundaries:** go.mod has no wazero, and no `wasip1` build remains.
+- **Documents:** step 9's commit applies the proposed wording and adds the
+  confinement debt entry.
