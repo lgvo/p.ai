@@ -49,7 +49,7 @@ neither is `operation.retry`.
 
 ## What is removed
 
-Groundwork step 0h removes, with no design needed:
+Groundwork step 0h removed, in 02612f6:
 
 - the four repair kinds: missing runtime, missing assigned ref, Git
   principal and unrecoverable record;
@@ -67,13 +67,15 @@ Groundwork step 0h removes, with no design needed:
   principal_repair.go and record_repair.go in internal/daemon; the matching
   `*_store.go` files in internal/control; runtimeincus/principal_repair.go;
   `CreateRestoredAssignedRefExact` in internal/gitservice;
-- VM scenarios 34, 38, 39, 40 and 42, which test the repairs.
+- VM scenarios 38, 39, 40 and 42, which tested only the repairs. Scenario 34
+  keeps its missing-runtime discard and delete checks, as
+  `34-missing-runtime-removal.sh`.
 
-These change with it: the "Repair" section of
-[session lifecycle](../docs/session-lifecycle.md#repair), the repair
-sections of the [control API](../docs/control-api.md), the troubleshooting
-rows of the [user guide](../docs/user-guide.md), and the record-removal
-sentence in [session observability](../docs/session-observability.md).
+These changed with it: [session lifecycle](../docs/session-lifecycle.md#inconsistent-sessions),
+whose "Repair" section became "Inconsistent sessions", the repair sections of
+the [control API](../docs/control-api.md), the troubleshooting rows of the
+[user guide](../docs/user-guide.md), and the record-removal sentence in
+[session observability](../docs/session-observability.md).
 
 ## How it will be checked
 
@@ -81,6 +83,8 @@ sentence in [session observability](../docs/session-observability.md).
   is missing, list its container as `runtime_data` loss and no `p_commits`,
   and leave no ref behind; discard and delete are allowed for a session
   whose registration is revoked or whose host key is missing.
-- A VM scenario removes a session whose branch ref was deleted outside P,
-  then creates a new session on a branch.
+- A VM scenario of step 0e removes a session whose branch ref was deleted
+  outside P, then creates a new session on a branch. Its fault setup comes
+  from the removed scenario 39, which deleted the assigned ref with
+  `git update-ref -d` in P's repository.
 - No method, operation kind or code path named above remains.

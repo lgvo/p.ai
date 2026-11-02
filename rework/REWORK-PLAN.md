@@ -53,7 +53,8 @@ Each step lands as one commit, after its decision document is settled. The 0 ste
 | 0c | Recover from a panic in a request handler: answer `internal`, log, keep serving. | Decided; uses today's error kinds. |
 | 0d | Remove the `workspace.inspect` method and the code only it uses, and `environment.cache.*`. | Decided; nothing but VM scenarios calls them. Images pile up until step 1, which does not matter on a fresh install. |
 | 0h | Remove session repair: its code, its nine methods and its operation kinds ([repairs.md](repairs.md)). | Decided; needs no design. Before 0e, which would otherwise convert ref repair from freezing to stopped-only and adapt its VM scenario only for 0h to delete it. The cost is a few commits in which a session with a missing branch ref cannot be removed, acceptable with fresh installs only and no users. |
-| 0e | Deletions without inspection: no loss inspection or origin check before discard, delete or project deletion; P stops running sessions itself; no freezing, so rename requires a stopped session. With the loss inspection, the workspace helpers lose their last consumers, so they go too, with their Git analysis and their capacity reservation. Removal accepts a missing branch ref: delete then has nothing in P's repository to remove, and discard acts as a delete ([repairs.md](repairs.md)). | Decided; removes the loss-inspection path and about 45 Incus calls, so step 5 has less to convert. |
+| 0i | Stop is not refused while a read of the session holds its lock (scenario 58's flake). | A bug fix found by step 0h's VM gate; makes later gates reliable. |
+| 0e | Deletions without inspection: no loss inspection or origin check before discard, delete or project deletion; P stops running sessions itself; no freezing, so rename requires a stopped session. With the loss inspection, the workspace helpers lose their last consumers, so they go too, with their Git analysis and their capacity reservation. Removal accepts a missing branch ref: delete then has nothing in P's repository to remove, and discard acts as a delete ([repairs.md](repairs.md)). | Decided; removes the loss-inspection path and its Incus calls, so step 5 has less to convert. |
 | 0f | Collapse the 21 migrations into one schema file. | Follows from fresh installs only; later steps edit the schema directly. |
 | 0g | Give builders public internet access only, as designed in docs/environment-building.md. | Decided; makes real devShells buildable; the code moves into the driver later mostly unchanged. |
 | 1 | Images | Introduces the runtime driver's image operations (`BuildImage`, `Settle` for publishing), writes commit images against them, folds the Nix environment plugin into the image build, gives the builder a Git bundle of the commit to clone instead of a tree checked on the host (gitservice writes it until the source driver's `Export`, S4), and moves builder public access (from 0g) into it. Needs [runtime-driver.md](runtime-driver.md) settled first. |
@@ -82,9 +83,10 @@ Every step:
 
 | Scenario | Cause | Resolved by |
 |---|---|---|
-| 34, missing-runtime repair | Start reported `ready` while its watcher still held the session lock. | Fixed in step 0b (804680e) |
+| 34, `34-missing-runtime-removal` | Start reported `ready` while its watcher still held the session lock. | Fixed in step 0b (804680e); renamed from the missing-runtime repair scenario in 0h |
 | 37, public egress | Depends on an external redirect service that now refuses the probe. | Stays a known failure |
 | 58, notes TUI | The driver expected the session-row format from before 0dfc4ad. | Fixed in step 0a (51d7ac3) |
+| 58, notes TUI, flaky | Stop is refused while the TUI's services poll holds the session lock. | Step 0i |
 
 ## Not in this plan
 
