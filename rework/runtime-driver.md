@@ -8,8 +8,8 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 (`plugins/bundled/runtime-incus/main.go`) receives one of nine command kinds
 and asks a native broker for the matching effect; core re-reads Incus
 afterwards, so the module decides nothing. Core uses it from 16 places and
-never for `runtime.delete`. Everything else, deletion included, is 204 direct
-daemon calls to 49 methods of `*runtimeincus.Backend`. The attachment helper
+never for `runtime.delete`. Everything else, deletion included, is 195 direct
+daemon calls to 43 methods of `*runtimeincus.Backend`. The attachment helper
 opens its own Incus exec channel. All three speak Incus, and P logic that has
 nothing to do with Incus lives in the Incus adapter too.
 
@@ -51,7 +51,7 @@ under the Incus project's container limit.
 ```text
 Before
 internal/daemon ─┬─ plugin.RunRuntime ─► runtime.wasm ─► broker ─┐
-                 ├─ 204 direct calls ─────────────────────────────┼─► runtimeincus.Backend ─► Incus
+                 ├─ 195 direct calls ─────────────────────────────┼─► runtimeincus.Backend ─► Incus
                  └─ environmentnix ─► environment.wasm ─► broker ─┘
 internal/attachment (helper) ─► Incus exec websocket
 
