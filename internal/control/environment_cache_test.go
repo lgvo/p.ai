@@ -2,10 +2,7 @@ package control
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -26,100 +23,6 @@ func testEnvironmentImage(project string) EnvironmentImage {
 		"p.builder_request": e.BuilderRequest, "p.system": e.System,
 	}
 	return e
-}
-
-func TestEnvironmentCacheMigratesVersionSixOnReopen(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "state")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "control.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, migration := range []string{migration1, migration2, migration3, migration4, migration5, migration6} {
-		if _, err := db.Exec(migration); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec(`INSERT INTO metadata(key,value) VALUES('instance_id','schema-six-fixture')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0600); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 2; i++ {
-		s, err := testScopedOpenStore(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var version int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
-			t.Fatalf("migration version %d: %v", version, err)
-		}
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM environment_images`).Scan(&version); err != nil || version != 0 {
-			t.Fatalf("environment table unavailable: %v", err)
-		}
-		if err := s.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-func TestEnvironmentCacheMigratesVersionSevenRowsOnReopen(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "state")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "control.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, migration := range []string{migration1, migration2, migration3, migration4, migration5, migration6, migration7} {
-		if _, err := db.Exec(migration); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := db.Exec(`INSERT INTO metadata(key,value) VALUES('instance_id','schema-seven-fixture')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO projects(path,policy_json,policy_sha256) VALUES('team/a','{}','fixture')`); err != nil {
-		t.Fatal(err)
-	}
-	e := testEnvironmentImage("team/a")
-	props, _ := json.Marshal(e.Properties)
-	if _, err := db.Exec(`INSERT INTO environment_images(project_path,environment_key,fingerprint,base_fingerprint,system,material_digest,capture_store_path,builder_request_uuid,properties_json,created_at)
-	 VALUES(?,?,?,?,?,?,?,?,?,?)`, e.Project, e.Key, e.Fingerprint, e.BaseFingerprint, e.System, e.MaterialDigest, e.CaptureStorePath, e.BuilderRequest, string(props), "2026-09-24T00:00:00Z"); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0600); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 2; i++ {
-		s, err := testScopedOpenStore(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, found, err := s.GetEnvironmentImage(context.Background(), e.Project, e.Key)
-		if err != nil || !found || got.Fingerprint != e.Fingerprint || got.CreatedAt != "2026-09-24T00:00:00Z" || got.LogicalSize != 0 || got.LastUsedAt != "" {
-			t.Fatalf("schema-seven cache row changed: %+v found=%v err=%v", got, found, err)
-		}
-		var version int
-		if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
-			t.Fatalf("version %d: %v", version, err)
-		}
-		if err := s.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
 
 func TestEnvironmentCacheProjectScopeAndExactMissForget(t *testing.T) {
@@ -155,12 +58,8 @@ func TestEnvironmentCacheProjectScopeAndExactMissForget(t *testing.T) {
 	}
 }
 
-func TestEnvironmentCacheRejectsForgedLabelsAndSchemaMigration(t *testing.T) {
+func TestEnvironmentCacheRejectsForgedLabels(t *testing.T) {
 	s, _ := openTestStore(t)
-	var version int
-	if err := s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
-		t.Fatalf("schema version %d: %v", version, err)
-	}
 	e := testEnvironmentImage("team/a")
 	e.Properties["p.project_path"] = "team/b"
 	if err := s.PutEnvironmentImage(context.Background(), e); err == nil {

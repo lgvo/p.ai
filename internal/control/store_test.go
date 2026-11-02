@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,7 @@ func testScopedOpenStore(dir string) (*Store, error) {
 	return openStore(dir, privateFixtureChecker(filepath.Dir(dir)))
 }
 
-func TestStoreRestartMigrationAndWriterLock(t *testing.T) {
+func TestStoreRestartAndWriterLock(t *testing.T) {
 	store, dir := openTestStore(t)
 	ctx := context.Background()
 	id, err := store.InstanceID(ctx)
@@ -100,22 +101,48 @@ func TestStoreRestartMigrationAndWriterLock(t *testing.T) {
 	if err != nil || replayedOperation.ID != firstOperation.ID || replayedOperation.Status != "blocked" || replayedOperation.Phase != "source-ready" || replayedSession.UUID != firstSession.UUID || replayedSession.PolicySHA256 != firstSession.PolicySHA256 {
 		t.Fatalf("operation/reservation changed across restart: %+v %+v %v", replayedOperation, replayedSession, err)
 	}
-	// A future schema must be refused without attempting a downgrade.
-	reopened.Close()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "control.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("PRAGMA user_version = 22"); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	if _, err := testScopedOpenStore(dir); err == nil {
-		t.Fatal("future schema accepted")
+}
+
+func TestStoreRefusesStateOfAnotherSchemaVersion(t *testing.T) {
+	for _, version := range []int{schemaVersion - 1, schemaVersion + 1} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "state")
+			store, err := testScopedOpenStore(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+			dbPath := filepath.Join(dir, "control.sqlite")
+			db, err := sql.Open("sqlite", dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", version)); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if reopened, err := testScopedOpenStore(dir); err == nil {
+				reopened.Close()
+				t.Fatalf("state schema %d accepted", version)
+			}
+			db, err = sql.Open("sqlite", dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			var got int
+			if err := db.QueryRow("PRAGMA user_version").Scan(&got); err != nil || got != version {
+				t.Fatalf("refused state was changed to schema %d: %v", got, err)
+			}
+		})
 	}
 }
 
-func TestVersionOneGitMigrationIsAtomicAndRestartable(t *testing.T) {
+func TestStoreRefusesUnversionedDatabaseThatIsNotEmpty(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -125,39 +152,20 @@ func TestVersionOneGitMigrationIsAtomicAndRestartable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(migration1); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO metadata(key,value) VALUES('instance_id','v1-fixture')"); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
+	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE notes (body TEXT)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(dbPath, 0600); err != nil {
 		t.Fatal(err)
 	}
-	store, err := testScopedOpenStore(dir)
-	if err != nil {
-		t.Fatal(err)
+	if store, err := testScopedOpenStore(dir); err == nil {
+		store.Close()
+		t.Fatal("unversioned database with tables accepted")
 	}
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := testScopedOpenStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	var version int
-	if err := reopened.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 21 {
-		t.Fatalf("version after restart: %d %v", version, err)
-	}
-	for _, table := range []string{"git_principals", "git_ref_guards", "git_unborn_grants"} {
-		var name string
-		if err := reopened.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name); err != nil || name != table {
-			t.Fatalf("Git table %q after restart: %q %v", table, name, err)
-		}
+	var objects int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master").Scan(&objects); err != nil || objects != 1 {
+		t.Fatalf("refused database was changed to %d objects: %v", objects, err)
 	}
 }
 

@@ -533,8 +533,9 @@ route is mounted into a session.
 
 RPC and status payloads carry explicit version fields. Git protocol behavior is
 Git's; P versions its ref-policy implementation and stored operation schema.
-Migrations are forward-only and startup fails clearly when state is newer than
-the binary.
+P supports fresh installs only: it creates its state schema in a new state
+directory, never migrates it, and startup fails clearly when the stored schema
+version is not the binary's.
 
 ## MVP boundary
 

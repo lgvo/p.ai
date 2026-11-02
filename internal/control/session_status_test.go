@@ -3,12 +3,10 @@ package control
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -38,53 +36,6 @@ func statusFixture(t *testing.T) (*Store, string) {
 		t.Fatal(err)
 	}
 	return s, session.UUID
-}
-
-func TestVersionTwoStatusMigrationIsRestartable(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "state")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "control.sqlite")
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec(migration1); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec(migration2); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec(`INSERT INTO metadata(key,value) VALUES('instance_id','v2-fixture')`); err != nil {
-		t.Fatal(err)
-	}
-	if err = db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.Chmod(path, 0600); err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < 2; i++ {
-		s, err := testScopedOpenStore(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var version int
-		if err = s.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
-			t.Fatalf("migration version=%d: %v", version, err)
-		}
-		var sequence int
-		if err = s.db.QueryRow(`SELECT next_value FROM status_sequence WHERE id=1`).Scan(&sequence); err != nil || sequence != 1 {
-			t.Fatalf("status sequence=%d: %v", sequence, err)
-		}
-		if _, err = s.db.Exec(`SELECT * FROM session_unattended LIMIT 1`); err != nil {
-			t.Fatal(err)
-		}
-		if err = s.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
 
 func reportLine(condition string) []byte {

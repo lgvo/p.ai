@@ -37,38 +37,40 @@
 - Added 2026-11-01, 1 case:
   - 2026-11-01: "complete rework of P's implementation" found the copies while mapping.
 
-## Long worker and setup functions
+## Long worker functions
 
 - Where: internal/daemon `processDiscard`, `process`, `processProjectDelete`,
   `processAssembledCreateCleanup`, `processRepair`, `processWorkspaceInspect`,
-  `processRename`; internal/control `openStore`
-- Problem: Sixteen daemon functions exceed 150 lines (`processDiscard` 422); `openStore` is
-  367 lines of migrations.
+  `processRename`
+- Problem: Sixteen daemon functions exceed 150 lines (`processDiscard` 422).
 - Evidence: measured on 2026-11-01 while mapping the daemon and control packages.
 - Risk: recovery branches are hard to read and review; reviewers miss interactions.
 - Fix: split each worker by phase once its sub-protocols are shared components.
 - Fix when: together with the sub-protocol components above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, 1 case:
+- Added 2026-11-01, updated 2026-11-02, 2 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
+  - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
+    `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
 
-## Current schema is known only by replaying 21 migrations
+## Exclusion triggers read evidence JSON fields by their Go tag names
 
-- Where: internal/control store.go `migration1`–`migration21`, `openStore`
-- Problem: Triggers and indexes are redefined across migrations (for example
-  `session_insert_excludes_rename_reservation` in 13, 17 and 18) and SQL invariants read
-  JSON evidence fields by name (`$.creator_operation_id`, `$.runtime_init_state`) that
-  mirror Go struct tags.
-- Evidence: store.go triggers at migrations 8–21; tags in workspace_operation.go,
-  create_cleanup.go, lifecycle_store.go.
-- Risk: renaming an evidence field's tag silently disables an exclusion trigger; reviewers
-  cannot see the effective schema.
-- Fix: a test that compares the migrated schema with a checked-in snapshot, and one that
-  breaks each JSON-keyed trigger when its field is renamed.
-- Fix when: the next migration, or any change to an evidence struct those triggers read.
+- Where: internal/control schema.sql (`active_session_operation`,
+  `active_creator_loss_inspection`, `creation_read_guards`,
+  `workspace_loss_read_requires_established`, the `creator_loss_*` triggers,
+  `assembled_cleanup_requires_creator`)
+- Problem: SQL invariants read JSON evidence fields by name (`$.creator_operation_id`,
+  `$.runtime_init_state`, `$.review.old_operation_id`) that mirror Go struct tags.
+- Evidence: tags in workspace_operation.go, create_cleanup.go, lifecycle_store.go.
+- Risk: renaming an evidence field's tag silently disables an exclusion trigger.
+- Fix: a test that breaks each JSON-keyed trigger when its field is renamed.
+- Fix when: any change to an evidence struct those triggers read.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, 1 case:
+- Added 2026-11-01, updated 2026-11-02, 2 cases:
   - 2026-11-01: "complete rework of P's implementation" kept migrations unchanged.
+  - 2026-11-02: "collapse the 21 migrations into one schema file" replaced the migrations
+    with schema.sql, which ends the half of this entry about seeing the effective schema;
+    the JSON-keyed triggers are unchanged.
 
 ## Incus exec and HTTP access is hand-built in many places
 
@@ -136,7 +138,7 @@
 
 - Where: internal/control (36 `UPDATE operations` statements across the `*_store.go` files;
   `ActiveWorkspaceInspect` in workspace_operation.go and `SessionRemovalKind` in
-  removal_kind.go list kinds in SQL; migration triggers name kinds and phases)
+  removal_kind.go list kinds in SQL; schema.sql triggers name kinds and phases)
 - Problem: Inserts, the key rule and the unfinished listing have one owner in
   operation_journal.go, but status and phase changes are still written by each kind's store
   methods, and two queries keep their own lists of which kinds guard or remove a session.
@@ -148,8 +150,10 @@
 - Fix when: the next new operation kind, or together with the check-then-act fix.
 - Left by: the agent, by rule (a restructuring not pursued: step 4 of REWORK-PLAN.md was
   scoped to inserts, the key rule and the unfinished listing).
-- Added 2026-11-01, 1 case:
+- Added 2026-11-01, updated 2026-11-02, 2 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 4.
+  - 2026-11-02: "collapse the 21 migrations into one schema file" moved the triggers that
+    name kinds and phases from the migrations into schema.sql, unchanged.
 
 ## Incus instance inventory and metadata keys are written per caller
 
@@ -170,3 +174,21 @@
   dropped after measurement).
 - Added 2026-11-01, 1 case:
   - 2026-11-01: "complete rework of P's implementation" dropped step 8.
+
+## Discard recovery still accepts evidence written before schema 12
+
+- Where: internal/control discard_store.go `commitRemoval`, `failStaleRemoval`,
+  `completeRemoval`; internal/daemon discard_process.go `processDiscard`
+- Problem: Recovery reads discard evidence without an `action` field as a discard, a reading
+  kept for databases created before schema 12. P supports fresh installs only and refuses
+  state of another schema version, so no such evidence can exist.
+- Evidence: the `ev.Action == ""` checks in those functions; the test
+  `TestSchemaElevenDiscardEvidenceRecoversValidatedAndSecretsAbsent` exercises them.
+- Risk: a compatibility path that cannot be reached still widens what recovery accepts and
+  must be kept in step with every change to discard evidence.
+- Fix: require `action` in discard evidence and remove the checks and their test.
+- Fix when: the next change to discard evidence or recovery (step 0e of the interface rework).
+- Left by: the agent, by rule (a problem outside the change).
+- Added 2026-11-02, 1 case:
+  - 2026-11-02: "collapse the 21 migrations into one schema file" found it while removing
+    the migration tests.

@@ -75,40 +75,18 @@ func TestWorkspaceInspectRejectsInvalidEvidenceBeforeIntent(t *testing.T) {
 	}
 }
 
-func TestWorkspaceInspectSchemaEightReopenInstallsEstablishedGuard(t *testing.T) {
-	s, dir := openTestStore(t)
-	ctx := context.Background()
-	if _, err := s.db.ExecContext(ctx, `DROP TRIGGER workspace_read_requires_established`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx, `PRAGMA user_version = 8`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DROP TABLE session_public_addresses`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := testScopedOpenStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	var version int
-	if err := reopened.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
-		t.Fatalf("schema eight did not migrate to nine: %d %v", version, err)
-	}
-	_, err = reopened.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at)
+func TestWorkspaceInspectAdmissionRequiresEstablishedSession(t *testing.T) {
+	s, _ := openTestStore(t)
+	_, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at)
 	 VALUES(?,?,?,?,?,'{}',?,'running','helper-intent','now','now')`,
 		"11111111-1111-1111-1111-111111111111", "orphan-workspace", "workspace.inspect", "missing/project",
 		"22222222-2222-2222-2222-222222222222", strings.Repeat("a", 64))
 	if err == nil {
-		t.Fatal("schema migration admitted workspace intent without established source")
+		t.Fatal("admitted workspace intent without established source")
 	}
 }
 
-func TestWorkspaceLossInspectDurableGuardAndSchemaNineMigration(t *testing.T) {
+func TestWorkspaceLossInspectDurableGuard(t *testing.T) {
 	s, dir := openTestStore(t)
 	ctx := context.Background()
 	if err := s.CreateProject(ctx, "team/app", json.RawMessage(`{"network":"none"}`)); err != nil {
@@ -138,6 +116,7 @@ func TestWorkspaceLossInspectDurableGuardAndSchemaNineMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer reopened.Close()
 	active, yes, err := reopened.ActiveWorkspaceInspect(ctx, sessionID)
 	if err != nil || !yes || active.Kind != "workspace.loss.inspect" || active.ID != op.ID {
 		t.Fatalf("loss guard lost on restart: %+v %v %v", active, yes, err)
@@ -145,41 +124,11 @@ func TestWorkspaceLossInspectDurableGuardAndSchemaNineMigration(t *testing.T) {
 	if err := reopened.AdvanceOperation(ctx, op.ID, "completed", "inspected", true, op.Evidence, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := reopened.Close(); err != nil {
-		t.Fatal(err)
-	}
-	// Reopen a schema-nine database and prove the new kind's established
-	// source trigger is installed, without modifying an existing operation.
-	db, err := testScopedOpenStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.db.ExecContext(ctx, `DROP TRIGGER workspace_loss_read_requires_established`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.db.ExecContext(ctx, `PRAGMA user_version = 9`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.db.ExecContext(ctx, `DROP TABLE session_public_addresses`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	db, err = testScopedOpenStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var version int
-	if err := db.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
-		t.Fatalf("schema-nine migration unavailable: %d %v", version, err)
-	}
-	_, err = db.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at)
+	_, err = reopened.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at)
 	 VALUES(?,?,?,?,?,'{}',?,'running','helper-intent','now','now')`,
 		"66666666-6666-6666-6666-666666666666", "orphan-loss", "workspace.loss.inspect", "missing/project",
 		"77777777-7777-7777-7777-777777777777", strings.Repeat("a", 64))
 	if err == nil {
-		t.Fatal("schema-nine upgrade admitted loss intent without established source")
+		t.Fatal("admitted loss intent without established source")
 	}
 }

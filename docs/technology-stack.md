@@ -287,8 +287,10 @@ for later.
 
 ## SQLite boundary
 
-SQLite runs in WAL mode with embedded migrations and the daemon as its only
-writer. It stores only facts P owns or needs to index, including:
+SQLite runs in WAL mode with the daemon as its only writer. One embedded
+schema creates the state in a new state directory; P does not migrate state
+and refuses a database of another schema version. It stores only facts P owns
+or needs to index, including:
 
 - project paths, immutable session UUIDs, and UUID-to-branch assignments;
 - normalized project-policy snapshots;

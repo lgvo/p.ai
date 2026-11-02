@@ -252,34 +252,12 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 	}
 }
 
-func TestDeleteSchemaElevenReopenInstallsAdmissionGuard(t *testing.T) {
-	s, dir := openTestStore(t)
-	ctx := context.Background()
-	if _, err := s.db.ExecContext(ctx, `DROP TRIGGER delete_requires_established`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx, `PRAGMA user_version = 11`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx, `DROP TABLE session_public_addresses`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := testScopedOpenStore(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	var version int
-	if err := reopened.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
-		t.Fatalf("delete migration unavailable: %d %v", version, err)
-	}
-	_, err = reopened.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,created_at,updated_at)
+func TestDeleteAdmissionRequiresEstablishedSession(t *testing.T) {
+	s, _ := openTestStore(t)
+	_, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,created_at,updated_at)
 	 VALUES('x','x','session.delete','app','550e8400-e29b-41d4-a716-446655440000','{}','x','running','guard-pending',0,'2026','2026')`)
 	if err == nil {
-		t.Fatal("delete operation without established session bypassed migrated guard")
+		t.Fatal("delete operation without established session bypassed admission guard")
 	}
 }
 
