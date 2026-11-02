@@ -578,11 +578,14 @@ capability configured, a committed default devShell can select a prepared Nix
 environment. Without a committed default devShell, creation uses the base image;
 an invalid declared default fails instead of silently falling back.
 
-The currently validated environment builder is **offline**. It has no public
-fetching, host Nix store, or host credentials. Do not assume an arbitrary flake
-with remote inputs will build merely because it has a lock file. The selected
-source must be supported by that builder. Session public-network Nix-fetch
-evidence is separate from environment-builder support.
+The environment builder reaches the **public internet only**, and only when
+the host configures public egress: it fetches the committed flake inputs and
+substitutes from the public Nix binary cache (`cache.nixos.org`), with no route
+to the host or your LAN, no host Nix store, and no host credentials. Without
+public egress, as under the hardened NixOS service, the builder is offline and
+only a devShell that needs nothing from the network builds. Private inputs and
+authenticated caches are not supported. P's committed VM checks build offline
+fixtures only; building from remote inputs has been checked by hand once.
 
 Editing a flake in a running workspace does not automatically rebuild that
 session. Creation captures committed source; other sessions' dirty workspaces

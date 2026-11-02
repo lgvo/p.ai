@@ -19,13 +19,14 @@ func (l *lifecycle) observeSessionCapacity(ctx context.Context, reservations []c
 		return control.CapacityObservation{}, err
 	}
 	return associateSessionCapacity(ctx, reservations, physical, l.instanceID, l.cfg.EndpointPrefix,
-		l.runtime.InspectCreated, l.runtime.InspectBuilder, l.publicSessionIPv4)
+		l.runtime.InspectCreated, l.runtime.InspectBuilder, l.builderPublicIPv4, l.publicSessionIPv4)
 }
 
 func associateSessionCapacity(ctx context.Context, reservations []control.CapacityReservation, physical runtimeincus.SessionCapacity,
 	instanceID, endpointPrefix string,
 	inspectSession func(context.Context, runtimeincus.Session) (runtimeincus.Observation, error),
 	inspectBuilder func(context.Context, runtimeincus.Builder) (runtimeincus.BuilderObservation, error),
+	builderAddress func(context.Context, string) (string, error),
 	publicAddress ...func(context.Context, string, control.ProjectPolicy) (string, error)) (control.CapacityObservation, error) {
 	names := make(map[string]bool, len(physical.Instances))
 	for _, instance := range physical.Instances {
@@ -83,9 +84,13 @@ func associateSessionCapacity(ctx context.Context, reservations []control.Capaci
 		if ev.BuilderTreeOID == "" {
 			continue // older unresolved builder: physical plus reservation, conservatively
 		}
+		address, err := builderAddress(ctx, reservation.SessionUUID)
+		if err != nil {
+			continue // physical slot remains counted
+		}
 		builder := runtimeincus.Builder{RequestUUID: reservation.OperationID, ProjectPath: reservation.Project,
 			CommitOID: ev.CapturedOID, TreeOID: ev.BuilderTreeOID, BaseImageFingerprint: ev.Environment.BaseFingerprint,
-			ContractVersion: "1"}
+			ContractVersion: "1", PublicIPv4: address}
 		if native, err := inspectBuilder(ctx, builder); err == nil && native.Exists {
 			observed.Occupied[reservation.SessionUUID] = true
 		}

@@ -169,8 +169,10 @@ source and provisioned tools, then initializes its own empty database; Git
 branch creation does not copy another session's database or worker state.
 
 Treat committed default-devShell selection as a separate extension. The
-current [environment builder is offline](user-guide.md#what-to-expect-from-the-development-environment).
-A conventional locked nixpkgs input alone does not make dependencies available.
+[environment builder](user-guide.md#what-to-expect-from-the-development-environment)
+is offline unless the host configures public egress.
+A conventional locked nixpkgs input alone does not make dependencies available
+to an offline builder.
 Prove the real sample flake selecting Python/Psycopg and PostgreSQL through the
 production adapter in a fresh confined builder, using explicitly provisioned
 input sources and closures, without network or lock mutation. Listing store
@@ -182,7 +184,9 @@ release the bootstrap runtime when necessary for builder admission.
 Synthetic devShell fixtures cannot satisfy that real application environment
 milestone. If input resolution remains unsupported, record this extension as
 pending; the provisioned three-service sample can still be accepted separately.
-Public fetching for builders requires separately scoped design and validation.
+Public fetching for builders is designed in
+[environment building](environment-building.md#security-boundary) and still
+needs this validation.
 An invalid declared default must fail visibly rather than silently use the base.
 
 **Exit:** real database-backed requests and worker effects pass in a confined

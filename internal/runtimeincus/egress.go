@@ -120,7 +120,13 @@ func validatePublicSession(c *PublicEgressConfig, s Session) error {
 	if c == nil {
 		return errors.New("public NIC requires a selected ordinary session substrate")
 	}
-	guest, err := netip.ParsePrefix(s.PublicIPv4)
+	return validatePublicAddress(c, s.PublicIPv4)
+}
+
+// validatePublicAddress accepts only one of the four static slots that SQLite
+// reserves within the trusted bridge /24.
+func validatePublicAddress(c *PublicEgressConfig, address string) error {
+	guest, err := netip.ParsePrefix(address)
 	bridge, bridgeErr := netip.ParsePrefix(c.BridgeIPv4)
 	if err != nil || bridgeErr != nil || !guest.Addr().Is4() || guest.Bits() != 24 || guest.Addr().As4()[3] < 10 || guest.Addr().As4()[3] > 13 || !bridge.Contains(guest.Addr()) {
 		return errors.New("public NIC address is outside reserved static slots")
@@ -128,13 +134,23 @@ func validatePublicSession(c *PublicEgressConfig, s Session) error {
 	return nil
 }
 
-func publicNICDevice(c *PublicEgressConfig, s Session) map[string]string {
+// publicNICDevice is the one NIC a public-egress session or builder gets: on
+// the trusted bridge, behind its ACL, with filtering pinned to its address.
+func publicNICDevice(c *PublicEgressConfig, address string) map[string]string {
 	return map[string]string{
 		"type": "nic", "name": "eth0", "network": c.Network,
-		"ipv4.address": strings.TrimSuffix(s.PublicIPv4, "/24"), "ipv6.address": "none",
+		"ipv4.address": strings.TrimSuffix(address, "/24"), "ipv6.address": "none",
 		"security.acls": c.ACL, "security.acls.default.ingress.action": "reject", "security.acls.default.egress.action": "reject",
 		"security.mac_filtering": "true", "security.ipv4_filtering": "true", "security.ipv6_filtering": "true",
 	}
+}
+
+func publicNICAddArgs(instance string, device map[string]string) []string {
+	argv := []string{"config", "device", "add", instance, publicNICName, "nic"}
+	for _, key := range []string{"name", "network", "ipv4.address", "ipv6.address", "security.acls", "security.acls.default.ingress.action", "security.acls.default.egress.action", "security.mac_filtering", "security.ipv4_filtering", "security.ipv6_filtering"} {
+		argv = append(argv, key+"="+device[key])
+	}
+	return argv
 }
 
 func exactPublicNIC(observed map[string]string, expected map[string]string) bool {
@@ -279,12 +295,13 @@ func (b *Backend) checkPublicBridge(ctx context.Context) error {
 	return nil
 }
 
-// SQLite reserves distinct P-session addresses. This native observation also
-// refuses a conflicting or opaque managed NIC already present in the confined
-// project. A trusted host owner can still change the bridge after this read;
-// that actor owns the network substrate and is outside the guest threat model.
-func (b *Backend) checkPublicAddressCollision(ctx context.Context, s Session) error {
-	if s.PublicIPv4 == "" {
+// SQLite reserves distinct addresses for P's sessions and builders. This
+// native observation also refuses a conflicting or opaque managed NIC already
+// present in the confined project on any instance but self. A trusted host
+// owner can still change the bridge after this read; that actor owns the
+// network substrate and is outside the guest threat model.
+func (b *Backend) checkPublicAddressCollision(ctx context.Context, self, address string) error {
+	if address == "" {
 		return nil
 	}
 	raw, err := b.command(ctx, "list", "--format", "json")
@@ -295,15 +312,15 @@ func (b *Backend) checkPublicAddressCollision(ctx context.Context, s Session) er
 	if err := decode(raw, &instances); err != nil || len(instances) > 4 {
 		return errors.New("public egress address inventory unavailable")
 	}
-	want := strings.TrimSuffix(s.PublicIPv4, "/24")
+	want := strings.TrimSuffix(address, "/24")
 	seen := map[string]bool{}
 	for _, in := range instances {
 		if in.Name == "" || seen[in.Name] || in.Type != "container" {
 			return errors.New("public egress address inventory ambiguous")
 		}
 		seen[in.Name] = true
-		if in.Name == b.name(s) {
-			continue // exact identity is separately checked by inspect()
+		if in.Name == self {
+			continue // exact identity is separately checked by inspection
 		}
 		if len(in.ExpandedDevices) == 0 {
 			return errors.New("public egress peer device inventory unavailable")

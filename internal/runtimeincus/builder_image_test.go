@@ -84,7 +84,7 @@ func (m *memoryImageFiles) deleteTree(_ context.Context, path string) error {
 func imageResultFixture(t *testing.T) (Builder, BuilderNixResult) {
 	t.Helper()
 	r := testBuilder()
-	h := sha256.Sum256([]byte(builderNixPolicy))
+	h := sha256.Sum256([]byte(offlineBuilderNix.policy))
 	key := nixenv.KeyInputs{
 		AdapterVersion: nixenv.AdapterVersion, NixVersion: nixenv.NixVersion,
 		System: "x86_64-linux", ProjectPath: r.ProjectPath,
@@ -374,5 +374,36 @@ func TestBuilderImageStickySetstatAndLstatUseConfinedSFTP(t *testing.T) {
 	got, err := api.fullDirectoryMode(context.Background(), "/tmp")
 	if err != nil || got.mode != 01777 || got.uid != 0 || got.gid != 0 {
 		t.Fatalf("full sticky mode lost: %+v %v", got, err)
+	}
+}
+
+func TestBuilderImageScrubRestoresImageResolverLink(t *testing.T) {
+	ctx := context.Background()
+	dir := guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}
+	link := guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte("/etc/static/resolv.conf")}
+	withResolver := func(resolver guestFile) *memoryImageFiles {
+		return &memoryImageFiles{files: map[string]guestFile{"/": dir, "/etc": dir, "/etc/resolv.conf": resolver}}
+	}
+	public := withResolver(guestFile{typ: "file", uid: 0, gid: 0, mode: 0644, data: []byte("nameserver 127.0.0.1\n")})
+	if err := scrubBuilderResolver(ctx, public); err != nil {
+		t.Fatal(err)
+	}
+	if got := public.files["/etc/resolv.conf"]; got.typ != "symlink" || got.uid != 0 || string(got.data) != "/etc/static/resolv.conf" {
+		t.Fatalf("public builder's loopback resolver kept in the image: %+v", got)
+	}
+	offline := withResolver(link)
+	if err := scrubBuilderResolver(ctx, offline); err != nil || len(offline.deletes) != 0 {
+		t.Fatalf("image resolver link changed: %v %q", err, offline.deletes)
+	}
+	for name, changed := range map[string]guestFile{
+		"other resolver": {typ: "file", uid: 0, gid: 0, mode: 0644, data: []byte("nameserver 10.0.0.1\n")},
+		"user-owned":     {typ: "file", uid: 1000, gid: 1000, mode: 0644, data: []byte("nameserver 127.0.0.1\n")},
+		"other link":     {typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte("/tmp/resolv.conf")},
+		"directory":      dir,
+	} {
+		m := withResolver(changed)
+		if err := scrubBuilderResolver(ctx, m); err == nil || len(m.deletes) != 0 {
+			t.Fatalf("%s resolver accepted or deleted: %v %q", name, err, m.deletes)
+		}
 	}
 }

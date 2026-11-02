@@ -42,13 +42,23 @@ func TestCapacityAssociationExactSessionAndPendingBuilders(t *testing.T) {
 		}
 		return runtimeincus.Observation{Exists: true}, nil
 	}
+	// The first builder's session holds a public address slot; the second's none.
+	builderAddress := func(_ context.Context, session string) (string, error) {
+		if session == ids[1] {
+			return "10.233.0.11/24", nil
+		}
+		return "", nil
+	}
 	inspectBuilder := func(_ context.Context, builder runtimeincus.Builder) (runtimeincus.BuilderObservation, error) {
 		if builder.TreeOID != strings.Repeat("c", 40) || builder.BaseImageFingerprint != base || builder.ProjectPath != project {
 			t.Fatalf("builder inspection lacks durable identity: %+v", builder)
 		}
+		if (builder.RequestUUID == ops[0]) != (builder.PublicIPv4 == "10.233.0.11/24") {
+			t.Fatalf("builder inspected without its session's address: %+v", builder)
+		}
 		return runtimeincus.BuilderObservation{Exists: true}, nil
 	}
-	got, err := associateSessionCapacity(context.Background(), reservations, physical, ids[0], "/run/p-endpoints", inspectSession, inspectBuilder)
+	got, err := associateSessionCapacity(context.Background(), reservations, physical, ids[0], "/run/p-endpoints", inspectSession, inspectBuilder, builderAddress)
 	if err != nil || got.PhysicalCount != 3 || len(got.Occupied) != 3 {
 		t.Fatalf("actual bootstrap and two builders did not cover three reservations: %+v %v", got, err)
 	}
@@ -60,7 +70,7 @@ func TestCapacityAssociationExactSessionAndPendingBuilders(t *testing.T) {
 		}
 		return runtimeincus.BuilderObservation{Exists: true}, nil
 	}
-	got, err = associateSessionCapacity(context.Background(), reservations, physical, ids[0], "/run/p-endpoints", inspectSession, badBuilder)
+	got, err = associateSessionCapacity(context.Background(), reservations, physical, ids[0], "/run/p-endpoints", inspectSession, badBuilder, builderAddress)
 	if err != nil || got.PhysicalCount != 3 || got.Occupied[ids[2]] || len(got.Occupied) != 2 {
 		t.Fatalf("unverified builder incorrectly covered reservation: %+v %v", got, err)
 	}
@@ -91,6 +101,9 @@ func TestCapturedGrantProjectionAndCapacityIdentity(t *testing.T) {
 		}, func(context.Context, runtimeincus.Builder) (runtimeincus.BuilderObservation, error) {
 			t.Fatal("unexpected builder")
 			return runtimeincus.BuilderObservation{}, nil
+		}, func(context.Context, string) (string, error) {
+			t.Fatal("unexpected builder address")
+			return "", nil
 		})
 	if err != nil || !got.Occupied[sid] {
 		t.Fatalf("grant session double counted: %+v %v", got, err)

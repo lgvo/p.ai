@@ -420,6 +420,10 @@ func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
 		return nil
 	}
 	config := sha256.Sum256(l.environmentPlugin.Config)
+	publicEgress := ""
+	if l.cfg.PublicEgress != nil {
+		publicEgress = l.cfg.PublicEgress.SHA256()
+	}
 	return &control.EnvironmentIntent{
 		ModuleID:            l.environmentPlugin.Package.Manifest.ID,
 		ModuleSHA256:        l.environmentPlugin.Package.SHA256,
@@ -427,7 +431,7 @@ func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
 		System:              l.cfg.Environment.System,
 		BaseFingerprint:     l.cfg.BaseImageFingerprint,
 		BuilderStoragePool:  l.cfg.Environment.BuilderStoragePool,
-		BuilderPolicySHA256: runtimeincus.BuilderPolicyDigest(),
+		BuilderPolicySHA256: runtimeincus.BuilderPolicyDigest(publicEgress),
 	}
 }
 

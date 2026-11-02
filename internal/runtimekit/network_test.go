@@ -302,3 +302,32 @@ func TestDoHReadinessUsesOnlyLoopbackAndBoundedFixedQuery(t *testing.T) {
 		t.Fatal("unexpected query family accepted")
 	}
 }
+
+func TestBuilderNetworkTakesSessionStepsWithPinnedResolvers(t *testing.T) {
+	var events []string
+	setup := guestNetworkPreparation{
+		none:     func() error { events = append(events, "none"); return nil },
+		ipv6:     func() error { events = append(events, "ipv6"); return nil },
+		resolver: func(dns []string) error { events = append(events, "resolver "+strings.Join(dns, ",")); return nil },
+		ip: func(args ...string) ([]byte, error) {
+			events = append(events, "ip "+strings.Join(args, " "))
+			return nil, nil
+		},
+		startResolver: func() error { events = append(events, "start"); return nil },
+		verify:        func(*PublicNetwork) error { events = append(events, "verify"); return nil },
+	}
+	if err := prepareBuilderNetwork("10.233.0.12/24", "10.233.0.1", setup); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"ipv6", "resolver 1.1.1.1,9.9.9.9", "ip link set dev eth0 up",
+		"ip -4 address replace 10.233.0.12/24 dev eth0", "ip -4 route replace default via 10.233.0.1 dev eth0", "start", "verify"}
+	if !reflect.DeepEqual(events, want) {
+		t.Fatalf("builder network steps differ from a public session's: %q", events)
+	}
+	for _, input := range [][2]string{{"10.233.0.14/24", "10.233.0.1"}, {"10.233.0.12/24", "10.233.1.1"}, {"", ""}} {
+		events = nil
+		if err := prepareBuilderNetwork(input[0], input[1], setup); err == nil || len(events) != 0 {
+			t.Fatalf("builder address %q via %q outside the reserved slots was configured: %v %q", input[0], input[1], err, events)
+		}
+	}
+}

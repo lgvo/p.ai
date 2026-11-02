@@ -189,3 +189,39 @@ func environmentRecoveryFixture(t *testing.T, public bool) (*lifecycle, api.Oper
 	}
 	return l, op, ev, native, cache
 }
+
+// With host public egress, a builder of a session without a public address
+// holds a slot of its own until the session's environment is ready.
+func TestBuilderAddressSlotIsHeldOnlyUntilEnvironmentReady(t *testing.T) {
+	l, op, ev, native, _ := environmentRecoveryFixture(t, false)
+	if address, err := l.reserveBuilderPublicIPv4(l.ctx, op.SessionUUID); err != nil || address != "" {
+		t.Fatalf("builder got a NIC without host public egress: %q %v", address, err)
+	}
+	l.cfg.PublicEgress = &control.PublicEgressConfig{Network: "p-public-v1", ACL: "p-public-v1-acl", BridgeIPv4: "10.233.0.1/24", DNS: []string{"1.1.1.1", "9.9.9.9"}, SudoBinary: "/run/wrappers/bin/sudo", NftBinary: "/nix/store/example/bin/nft", BridgeProofBinary: "/nix/store/example/bin/p-public-network-proof"}
+	never := func(context.Context, *api.Operation, *control.CreationEvidence) (string, error) {
+		t.Fatal("retained instance rebuilt")
+		return "", nil
+	}
+	if _, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, &retainedEnvironmentRuntime{native: native, exists: true}, never); err == nil {
+		t.Fatal("creation recorded without public egress resumed with public builders")
+	}
+	ev.Environment = l.environmentIntent()
+	for range 2 {
+		if address, err := l.reserveBuilderPublicIPv4(l.ctx, op.SessionUUID); err != nil || address != "10.233.0.10/24" {
+			t.Fatalf("builder address: %q %v", address, err)
+		}
+	}
+	failing := &retainedEnvironmentRuntime{native: native, exists: true, inspectError: errors.New("Incus instance identity mismatch")}
+	if _, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, failing, never); err == nil {
+		t.Fatal("changed identity accepted")
+	}
+	if address, err := l.builderPublicIPv4(l.ctx, op.SessionUUID); err != nil || address != "10.233.0.10/24" {
+		t.Fatalf("builder address released before the environment was ready: %q %v", address, err)
+	}
+	if _, err := l.ensureEnvironmentWithRuntime(l.ctx, &op, ev, &retainedEnvironmentRuntime{native: native, exists: true}, never); err != nil {
+		t.Fatal(err)
+	}
+	if address, err := l.builderPublicIPv4(l.ctx, op.SessionUUID); err != nil || address != "" {
+		t.Fatalf("builder address kept after the environment was ready: %q %v", address, err)
+	}
+}

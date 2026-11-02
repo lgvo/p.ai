@@ -62,7 +62,27 @@ func PreparePublicNetwork() error {
 	if err != nil {
 		return err
 	}
-	return prepareGuestPublicNetwork(cfg.PublicNetwork, guestNetworkPreparation{
+	return prepareGuestPublicNetwork(cfg.PublicNetwork, guestNetworkSetup())
+}
+
+// PrepareBuilderNetwork gives an environment builder the network of a
+// public-egress session. A builder has no session config: P runs this fixed
+// operation as root, before the build, with the address it reserved and the
+// bridge gateway.
+func PrepareBuilderNetwork(address, gateway string) error {
+	if os.Geteuid() != 0 {
+		return errors.New("builder network preparation requires root")
+	}
+	return prepareBuilderNetwork(address, gateway, guestNetworkSetup())
+}
+
+// The resolver pair is the one the image pins; validation refuses any other.
+func prepareBuilderNetwork(address, gateway string, setup guestNetworkPreparation) error {
+	return prepareGuestPublicNetwork(&PublicNetwork{Address: address, Gateway: gateway, DNS: []string{"1.1.1.1", "9.9.9.9"}}, setup)
+}
+
+func guestNetworkSetup() guestNetworkPreparation {
+	return guestNetworkPreparation{
 		none: validateNonePublicNetwork,
 		ipv6: disablePublicIPv6,
 		resolver: func(dns []string) error {
@@ -71,7 +91,7 @@ func PreparePublicNetwork() error {
 		ip:            guestIP,
 		startResolver: startPublicResolver,
 		verify:        ValidatePublicNetwork,
-	})
+	}
 }
 
 type guestNetworkPreparation struct {

@@ -88,8 +88,9 @@
 
 ## Incus exec and HTTP access is hand-built in many places
 
-- Where: internal/runtimeincus (services.go, builder_nix.go, host_observe.go, attach.go,
-  builder_architecture.go, assembly.go, sftp_stat.go) and internal/attachment incus.go
+- Where: internal/runtimeincus (services.go, builder.go, builder_nix.go, host_observe.go,
+  attach.go, builder_architecture.go, assembly.go, sftp_stat.go) and internal/attachment
+  incus.go
 - Problem: The `incus exec` argument lists and the HTTP-over-socket clients are written
   separately, each with its own environment and limits.
 - Evidence: listed while mapping the adapters on 2026-11-01.
@@ -98,10 +99,13 @@
 - Fix when: the next change to how P reaches Incus.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
   step 8 consolidates only the instance inventory).
-- Added 2026-11-01, updated 2026-11-02, 2 cases:
+- Added 2026-11-01, updated 2026-11-02, 3 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
   - 2026-11-02: "deletions without inspection" deleted workspace_git.go and
     workspace_helper.go with the workspace helpers, and their exec and file-API clients.
+  - 2026-11-02: "give builders public internet access only" added an argument list,
+    the root runtime-kit exec in builder.go `prepareBuilderNetwork`, and changed the Nix
+    argv in builder_nix.go; the runtime driver's image build (step 1) takes both.
 
 ## Preview confirmation tokens are issued by copied code
 
@@ -205,9 +209,13 @@
 - Fix when: the next change to an inventory check or to P's Incus metadata.
 - Left by: the agent, by rule (a restructuring not pursued: step 8 of REWORK-PLAN.md was
   dropped after measurement).
-- Added 2026-11-01, updated 2026-11-02, 3 cases:
+- Added 2026-11-01, updated 2026-11-02, 4 cases:
   - 2026-11-01: "complete rework of P's implementation" dropped step 8.
   - 2026-11-02: "remove session repair" moved `ConfirmSessionRuntimeAbsent`, which removal
     keeps using, from record_repair.go to runtime_absence.go unchanged.
   - 2026-11-02: "deletions without inspection" deleted workspace_helper.go and its
     `CheckWorkspaceHelperCapacity` inventory read; six callers remain.
+  - 2026-11-02: "give builders public internet access only" made
+    `checkPublicAddressCollision` serve builders too (it now takes the instance to skip and
+    the address); its inventory reading and bound are unchanged.
+

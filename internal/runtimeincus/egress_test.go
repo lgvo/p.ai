@@ -303,7 +303,7 @@ func TestPublicNICIsExactAndNoneHasNoNIC(t *testing.T) {
 	if err := validatePublicSession(c, s); err != nil {
 		t.Fatal(err)
 	}
-	want := publicNICDevice(c, s)
+	want := publicNICDevice(c, s.PublicIPv4)
 	if !exactPublicNIC(want, want) {
 		t.Fatal("fixed public NIC refused")
 	}
@@ -338,31 +338,31 @@ func TestPublicAddressPreflightRejectsForeignAndOpaqueNIC(t *testing.T) {
 		}
 		return json.Marshal([]instanceJSON{peer})
 	}
-	if err := b.checkPublicAddressCollision(context.Background(), s); err != nil {
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err != nil {
 		t.Fatalf("distinct exact address refused: %v", err)
 	}
 	peer.ExpandedDevices["network"]["ipv4.address"] = "10.233.0.10"
-	if err := b.checkPublicAddressCollision(context.Background(), s); err == nil {
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err == nil {
 		t.Fatal("foreign peer with selected address accepted")
 	}
 	peer.ExpandedDevices["network"]["ipv4.address"] = "2001:db8::1"
-	if err := b.checkPublicAddressCollision(context.Background(), s); err == nil {
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err == nil {
 		t.Fatal("IPv6 literal in peer IPv4 assignment accepted")
 	}
 	delete(peer.ExpandedDevices["network"], "ipv4.address")
-	if err := b.checkPublicAddressCollision(context.Background(), s); err == nil {
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err == nil {
 		t.Fatal("opaque peer NIC accepted as collision-free")
 	}
 	peer.ExpandedDevices = nil
-	if err := b.checkPublicAddressCollision(context.Background(), s); err == nil {
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err == nil {
 		t.Fatal("missing peer device inventory accepted")
 	}
 	peer.ExpandedDevices = map[string]map[string]string{"root": {"path": "/"}}
-	if err := b.checkPublicAddressCollision(context.Background(), s); err == nil {
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err == nil {
 		t.Fatal("peer device without type accepted")
 	}
 	peer.Name = "p-" + s.SessionUUID
-	if err := b.checkPublicAddressCollision(context.Background(), s); err != nil {
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err != nil {
 		t.Fatalf("own NIC is separately inspected: %v", err)
 	}
 }

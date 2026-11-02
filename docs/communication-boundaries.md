@@ -408,8 +408,8 @@ Project-controlled evaluation and builds run through the isolation boundary in
   to a disposable builder in the confined Incus project.
 - The builder receives a private root and bounded scratch space; it receives no
   session identity, filesystem grant, or Incus socket.
-- Public substituter/fetch egress may be allowed; host/LAN/private access and
-  ambient credentials are denied.
+- With the host's public egress, the builder reaches public substituters and
+  fetches; host/LAN/private access and ambient credentials are denied.
 - After verification and scrubbing, P asks Incus to publish the builder as a
   private image. Incus returns the fingerprint and owns the bytes; RPC carries
   only progress, bounded diagnostics, cache metadata, and the fingerprint.

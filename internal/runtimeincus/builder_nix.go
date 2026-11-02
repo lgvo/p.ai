@@ -21,8 +21,31 @@ const (
 	builderNixSocket      = "/nix/var/nix/daemon-socket/socket"
 	builderNixFlake       = "path:" + builderSource
 	builderCaptureProfile = "/home/p/.p-devshell-capture"
-	builderNixPolicy      = "nix-2.34.8;offline;pure-eval;accept-flake-config=false;flake-registry=empty;substituters=empty;no-lock-update;no-lock-write;sandbox=false"
+	// The base image lists this cache as its one trusted substituter.
+	builderPublicCache = "https://cache.nixos.org"
 )
+
+// builderNix is how a builder runs Nix. Its policy is keyed into the
+// environment. A builder without a NIC stays offline with no substituters; one
+// with public egress fetches flake inputs and substitutes from the public
+// cache.
+type builderNix struct {
+	policy       string
+	substituters string
+	offline      bool
+}
+
+var (
+	offlineBuilderNix = builderNix{policy: "nix-2.34.8;offline;pure-eval;accept-flake-config=false;flake-registry=empty;substituters=empty;no-lock-update;no-lock-write;sandbox=false", offline: true}
+	publicBuilderNix  = builderNix{policy: "nix-2.34.8;public-egress;pure-eval;accept-flake-config=false;flake-registry=empty;substituters=" + builderPublicCache + ";no-lock-update;no-lock-write;sandbox=false", substituters: builderPublicCache}
+)
+
+func builderNixFor(r Builder) builderNix {
+	if r.PublicIPv4 != "" {
+		return publicBuilderNix
+	}
+	return offlineBuilderNix
+}
 
 var builderDrvPattern = regexp.MustCompile(`^/nix/store/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+\.drv$`)
 var builderNarHashPattern = regexp.MustCompile(`^sha256-[A-Za-z0-9+/]{43}=$`)
@@ -174,7 +197,7 @@ func resolveBuilderNixInputs(r Builder, system string, flake, lock guestFile, lo
 		return BuilderNixSelection{}, err
 	}
 	out.DevShellAttr, out.DerivationPath = attr, drv
-	policy := sha256.Sum256([]byte(builderNixPolicy))
+	policy := sha256.Sum256([]byte(builderNixFor(r).policy))
 	out.KeyInputs = nixenv.KeyInputs{
 		AdapterVersion: nixenv.AdapterVersion, NixVersion: nixenv.NixVersion,
 		System: system, ProjectPath: r.ProjectPath, BaseFingerprint: r.BaseImageFingerprint,
@@ -316,10 +339,14 @@ func (b *Backend) builderNixReady(ctx context.Context, r Builder) error {
 }
 
 func (b *Backend) builderNixExec(ctx context.Context, r Builder, command ...string) ([]byte, error) {
-	args := []string{builderNixBinary, "--extra-experimental-features", "nix-command flakes", "--option", "accept-flake-config", "false", "--option", "pure-eval", "true", "--option", "flake-registry", "", "--option", "substituters", ""}
+	mode := builderNixFor(r)
+	args := []string{builderNixBinary, "--extra-experimental-features", "nix-command flakes", "--option", "accept-flake-config", "false", "--option", "pure-eval", "true", "--option", "flake-registry", "", "--option", "substituters", mode.substituters}
 	args = append(args, command...)
 	if len(command) > 0 && (command[0] == "eval" || command[0] == "build" || command[0] == "print-dev-env") {
-		args = append(args, "--offline", "--no-update-lock-file", "--no-write-lock-file")
+		if mode.offline {
+			args = append(args, "--offline")
+		}
+		args = append(args, "--no-update-lock-file", "--no-write-lock-file")
 	}
 	return b.builderGuestExec(ctx, r, args...)
 }

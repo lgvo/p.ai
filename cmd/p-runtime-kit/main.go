@@ -9,7 +9,9 @@ import (
 
 func main() {
 	var err error
-	if len(os.Args) != 2 {
+	if len(os.Args) == 4 && os.Args[1] == "prepare-builder-network" {
+		err = runtimekit.PrepareBuilderNetwork(os.Args[2], os.Args[3])
+	} else if len(os.Args) != 2 {
 		err = fmt.Errorf("expected one fixed runtime-kit operation")
 	} else {
 		switch os.Args[1] {

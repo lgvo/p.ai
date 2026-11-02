@@ -29,6 +29,17 @@ func (l *lifecycle) ensureEnvironment(ctx context.Context, op *api.Operation, ev
 
 func (l *lifecycle) ensureEnvironmentWithRuntime(ctx context.Context, op *api.Operation, ev control.CreationEvidence,
 	runtime environmentRecoveryRuntime, rebuild func(context.Context, *api.Operation, *control.CreationEvidence) (string, error)) (string, error) {
+	image, err := l.readyEnvironment(ctx, op, ev, runtime, rebuild)
+	if err != nil {
+		return "", err
+	}
+	// The builder is gone once the environment is ready, so an address slot
+	// held only for it goes back.
+	return image, l.store.ReleaseBuilderPublicAddress(ctx, op.SessionUUID)
+}
+
+func (l *lifecycle) readyEnvironment(ctx context.Context, op *api.Operation, ev control.CreationEvidence,
+	runtime environmentRecoveryRuntime, rebuild func(context.Context, *api.Operation, *control.CreationEvidence) (string, error)) (string, error) {
 	current := l.environmentIntent()
 	if current == nil || ev.Environment == nil || *current != *ev.Environment || ev.CapturedOID == "" {
 		return "", errors.New("pinned environment selection unavailable; repair required")
@@ -131,10 +142,14 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *api.Operation, ev 
 	if snapshot.CommitOID() != ev.CapturedOID || snapshot.Project() != op.Project {
 		return "", errors.New("captured environment source changed")
 	}
+	address, err := l.reserveBuilderPublicIPv4(ctx, op.SessionUUID)
+	if err != nil {
+		return "", err
+	}
 	r := runtimeincus.Builder{
 		RequestUUID: op.ID, ProjectPath: op.Project, CommitOID: ev.CapturedOID,
 		TreeOID: snapshot.TreeOID(), BaseImageFingerprint: ev.Environment.BaseFingerprint,
-		ContractVersion: "1",
+		ContractVersion: "1", PublicIPv4: address,
 	}
 	if ev.EnvironmentBuilder == nil && ev.BuilderTreeOID == "" {
 		// An empty durable tree precedes every builder dispatch in older workers.
@@ -396,13 +411,46 @@ func (l *lifecycle) cleanupEnvironmentBuilder(ctx context.Context, op *api.Opera
 	if snapshot.CommitOID() != ev.CapturedOID || snapshot.Project() != op.Project {
 		return errors.New("captured cleanup source changed")
 	}
+	address, err := l.builderPublicIPv4(ctx, op.SessionUUID)
+	if err != nil {
+		return err
+	}
 	r := runtimeincus.Builder{
 		RequestUUID: op.ID, ProjectPath: op.Project, CommitOID: ev.CapturedOID,
 		TreeOID: snapshot.TreeOID(), BaseImageFingerprint: ev.Environment.BaseFingerprint,
-		ContractVersion: "1",
+		ContractVersion: "1", PublicIPv4: address,
 	}
 	_, err = l.runtime.DeleteBuilder(ctx, r)
 	return err
+}
+
+// Builders reach the public internet whenever the host provides public
+// egress. A builder uses its session's address slot, reserved for it when the
+// session's own policy holds none. An empty address means no NIC.
+func (l *lifecycle) reserveBuilderPublicIPv4(ctx context.Context, sessionID string) (string, error) {
+	if l.cfg.PublicEgress == nil {
+		return "", nil
+	}
+	slot, err := l.store.ReserveBuilderPublicAddress(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("no public address for the environment builder: %w", err)
+	}
+	return l.cfg.PublicEgress.PublicEgressGuestIPv4(slot)
+}
+
+// builderPublicIPv4 is the address a session's builder holds, if any.
+func (l *lifecycle) builderPublicIPv4(ctx context.Context, sessionID string) (string, error) {
+	if l.cfg.PublicEgress == nil {
+		return "", nil
+	}
+	slot, err := l.store.PublicAddressSlot(ctx, sessionID)
+	if errors.Is(err, control.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return l.cfg.PublicEgress.PublicEgressGuestIPv4(slot)
 }
 
 func imageClaimFromCache(e control.EnvironmentImage) runtimeincus.BuilderImageClaim {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -34,6 +35,8 @@ type fakeBuilderIncus struct {
 	rootPool         string
 	hostArchitecture string
 	socket           string
+	public           *PublicEgressConfig // the host's proven public-egress substrate, if any
+	publicNIC        map[string]string
 	mutations        []string
 }
 
@@ -47,7 +50,17 @@ func (f *fakeBuilderIncus) run(ctx context.Context, binary string, argv, env []s
 	}
 	args := argv[3:]
 	switch args[0] {
-	case "project", "profile", "image":
+	case "project":
+		if f.public == nil {
+			return f.base.run(ctx, binary, argv, env)
+		}
+		return json.Marshal([]projectJSON{{Name: "user-1000", Config: map[string]string{"restricted": "true", "restricted.containers.privilege": "isolated", "restricted.containers.nesting": "block", "restricted.containers.lowlevel": "block", "restricted.devices.nic": "managed", "restricted.networks.access": f.public.Network, "restricted.devices.gpu": "block", "restricted.devices.disk": "allow", "features.profiles": "true", "features.networks": "false", "restricted.devices.disk.paths": "/var/lib/p-vm/endpoints"}}})
+	case "network":
+		if f.public == nil || !slices.Equal(args, []string{"network", "list", "--format", "json"}) {
+			return nil, errors.New("unexpected network query")
+		}
+		return json.Marshal([]egressNetworkJSON{{Name: f.public.Network, Project: "default", Type: "bridge", Status: "Created", Managed: true, Config: map[string]string{}}})
+	case "profile", "image":
 		return f.base.run(ctx, binary, argv, env)
 	case "storage":
 		if !slices.Equal(args, []string{"storage", "list", "--format", "json"}) {
@@ -95,6 +108,10 @@ func (f *fakeBuilderIncus) run(ctx context.Context, binary string, argv, env []s
 			devices["root"] = map[string]string{"type": "disk", "path": "/", "pool": pool, "size": builderRootSize}
 		}
 		expandedDevices := map[string]map[string]string{"root": root}
+		if f.publicNIC != nil {
+			devices[publicNICName] = f.publicNIC
+			expandedDevices[publicNICName] = f.publicNIC
+		}
 		if f.unsafeNIC {
 			expandedDevices["eth0"] = map[string]string{"type": "nic"}
 		}
@@ -106,11 +123,29 @@ func (f *fakeBuilderIncus) run(ctx context.Context, binary string, argv, env []s
 		f.exists, f.status, f.rootLimit = true, "Stopped", true
 		f.mutations = append(f.mutations, "init")
 	case "config":
+		if len(args) > 6 && slices.Equal(args[:6], []string{"config", "device", "add", builderName(f.request), publicNICName, "nic"}) {
+			f.publicNIC = map[string]string{"type": "nic"}
+			for _, pair := range args[6:] {
+				key, value, ok := strings.Cut(pair, "=")
+				if !ok {
+					return nil, errors.New("malformed NIC option")
+				}
+				f.publicNIC[key] = value
+			}
+			f.mutations = append(f.mutations, "public-nic")
+			return nil, nil
+		}
 		if !slices.Equal(args, []string{"config", "device", "override", builderName(f.request), "root", "size=" + builderRootSize}) {
 			return nil, errors.New("unsafe builder root override")
 		}
 		f.rootLimit = true
 		f.mutations = append(f.mutations, "root")
+	case "start":
+		if args[1] != builderName(f.request) {
+			return nil, errors.New("wrong start target")
+		}
+		f.status = "Running"
+		f.mutations = append(f.mutations, "start")
 	case "stop":
 		if args[1] != builderName(f.request) {
 			return nil, errors.New("wrong stop target")
@@ -134,6 +169,69 @@ func builderBackend(f *fakeBuilderIncus) *Backend {
 	b.config.BuilderStoragePool = "builders"
 	b.run = f.run
 	return b
+}
+
+// publicBuilderBackend serves a host whose Incus project and live packet
+// filters prove the public-egress substrate, as a configured host does.
+func publicBuilderBackend(t *testing.T, b *Backend, f *fakeBuilderIncus) *Backend {
+	t.Helper()
+	c := testEgressSubstrate()
+	b.config.PublicEgress, f.public = c, c
+	bridge := egressNetworkJSON{Name: c.Network, Project: "default", Type: "bridge", Status: "Created", Managed: true, Config: map[string]string{
+		"ipv4.address": c.BridgeIPv4, "ipv4.dhcp": "false", "ipv4.nat": "true", "ipv4.routing": "true", "ipv4.firewall": "true",
+		"ipv6.address": "none", "dns.mode": "none", "security.acls": c.ACL,
+		"security.acls.default.ingress.action": "reject", "security.acls.default.egress.action": "reject",
+	}}
+	acl := egressACLJSON{Name: c.ACL, Config: map[string]string{}, Ingress: []egressACLRuleJSON{}, Egress: expectedEgressRules(c)}
+	b.proofRun = func(_ context.Context, _ string, argv []string, _ []string) ([]byte, error) {
+		if slices.Contains(argv, c.BridgeProofBinary) {
+			return json.Marshal(egressPublicProofJSON{Network: bridge, ACL: acl})
+		}
+		return firewallFixture(t), nil
+	}
+	return b
+}
+
+func TestPublicBuilderGetsExactlyItsSessionAddressNIC(t *testing.T) {
+	r := testBuilder()
+	r.PublicIPv4 = "10.233.0.11/24"
+	f := &fakeBuilderIncus{request: r}
+	b := publicBuilderBackend(t, builderBackend(f), f)
+	ctx := context.Background()
+	got, err := b.CreateBuilder(ctx, r)
+	if err != nil || !got.Exists || !got.Ready {
+		t.Fatalf("create: %+v %v", got, err)
+	}
+	want := map[string]string{
+		"type": "nic", "name": "eth0", "network": "p-public-v1", "ipv4.address": "10.233.0.11", "ipv6.address": "none",
+		"security.acls": "p-public-v1-acl", "security.acls.default.ingress.action": "reject", "security.acls.default.egress.action": "reject",
+		"security.mac_filtering": "true", "security.ipv4_filtering": "true", "security.ipv6_filtering": "true",
+	}
+	if !maps.Equal(f.publicNIC, want) || !slices.Equal(f.mutations, []string{"init", "public-nic"}) {
+		t.Fatalf("builder NIC differs from a public session's: %v mutations=%v", f.publicNIC, f.mutations)
+	}
+	if _, err := b.CreateBuilder(ctx, r); err != nil || len(f.mutations) != 2 {
+		t.Fatalf("ready public builder was changed again: %v %v", err, f.mutations)
+	}
+	offline := r
+	offline.PublicIPv4 = ""
+	if _, err := b.InspectBuilder(ctx, offline); err == nil {
+		t.Fatal("NIC accepted on a builder without public egress")
+	}
+	f.publicNIC["security.acls"] = ""
+	if _, err := b.InspectBuilder(ctx, r); err == nil {
+		t.Fatal("public NIC without the egress ACL accepted")
+	}
+	f.publicNIC["security.acls"] = "p-public-v1-acl"
+	unreserved := r
+	unreserved.PublicIPv4 = "10.233.0.14/24"
+	if _, err := b.InspectBuilder(ctx, unreserved); err == nil {
+		t.Fatal("builder address outside the reserved slots accepted")
+	}
+	f.publicNIC = nil
+	if got, err := b.InspectBuilder(ctx, r); err == nil && got.Ready {
+		t.Fatal("public builder without its NIC reported ready")
+	}
 }
 
 func TestBuilderCreateAndVerifiedCleanup(t *testing.T) {
@@ -517,5 +615,47 @@ func TestBuilderInitGatePersistenceFailureAndLostReply(t *testing.T) {
 	// Core refuses a second absent outcome using its durable attempted marker.
 	if _, e := b.CreateBuilderWithGate(context.Background(), r, func() error { return refused }); !errors.Is(e, refused) || attempts != 1 {
 		t.Fatal("lost reply admitted another init")
+	}
+}
+
+func TestBuilderPolicyNamesItsPublicEgressSubstrate(t *testing.T) {
+	offline := BuilderPolicyDigest("")
+	public := BuilderPolicyDigest(strings.Repeat("a", 64))
+	changed := BuilderPolicyDigest(strings.Repeat("b", 64))
+	if offline == public || public == changed {
+		t.Fatal("a creation could resume under another builder network")
+	}
+}
+
+func TestInterruptedPublicBuilderCreationCanBeCleanedUpOrFinished(t *testing.T) {
+	r := testBuilder()
+	r.PublicIPv4 = "10.233.0.11/24"
+	f := &fakeBuilderIncus{request: r}
+	b := publicBuilderBackend(t, builderBackend(f), f)
+	ctx := context.Background()
+	run := b.run
+	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if len(argv) > 5 && argv[3] == "config" && argv[5] == "add" {
+			return nil, errors.New("fixture lost the NIC request")
+		}
+		return run(ctx, binary, argv, env)
+	}
+	if _, err := b.CreateBuilder(ctx, r); err == nil {
+		t.Fatal("creation without its NIC succeeded")
+	}
+	b.run = run
+	got, err := b.InspectBuilder(ctx, r)
+	if err != nil || !got.Exists || got.Ready {
+		t.Fatalf("owned builder awaiting its NIC: %+v %v", got, err)
+	}
+	if _, err := b.StartBuilder(ctx, r); err == nil {
+		t.Fatal("builder without its NIC started")
+	}
+	if got, err := b.CreateBuilder(ctx, r); err != nil || !got.Ready {
+		t.Fatalf("interrupted creation not finished: %+v %v", got, err)
+	}
+	f.publicNIC = nil
+	if got, err := b.DeleteBuilder(ctx, r); err != nil || got.Exists {
+		t.Fatalf("owned builder awaiting its NIC not removed: %+v %v", got, err)
 	}
 }

@@ -619,7 +619,7 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 		if name == "p-endpoint" && validEndpointDevice(d, s.EndpointSource) {
 			continue
 		}
-		if name == publicNICName && s.PublicIPv4 != "" && exactPublicNIC(d, publicNICDevice(b.config.PublicEgress, s)) {
+		if name == publicNICName && s.PublicIPv4 != "" && exactPublicNIC(d, publicNICDevice(b.config.PublicEgress, s.PublicIPv4)) {
 			publicNIC = true
 			continue
 		}
@@ -652,7 +652,7 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 		if name == "p-endpoint" && validEndpointDevice(d, s.EndpointSource) {
 			continue
 		}
-		if name == publicNICName && s.PublicIPv4 != "" && exactPublicNIC(d, publicNICDevice(b.config.PublicEgress, s)) {
+		if name == publicNICName && s.PublicIPv4 != "" && exactPublicNIC(d, publicNICDevice(b.config.PublicEgress, s.PublicIPv4)) {
 			continue
 		}
 		grant, ok := grants[name]
@@ -748,7 +748,7 @@ func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error
 	if err := b.CheckConfinement(ctx); err != nil {
 		return Observation{}, err
 	}
-	if err := b.checkPublicAddressCollision(ctx, s); err != nil {
+	if err := b.checkPublicAddressCollision(ctx, b.name(s), s.PublicIPv4); err != nil {
 		return Observation{}, err
 	}
 	before, err := b.inspect(ctx, s, true)
@@ -810,12 +810,7 @@ func (b *Backend) ensureSessionDevices(ctx context.Context, s Session, before Ob
 		return before, errors.New("session devices cannot be repaired on running instance")
 	}
 	if s.PublicIPv4 != "" && !before.PublicNIC {
-		device := publicNICDevice(b.config.PublicEgress, s)
-		argv := []string{"config", "device", "add", b.name(s), publicNICName, "nic"}
-		for _, key := range []string{"name", "network", "ipv4.address", "ipv6.address", "security.acls", "security.acls.default.ingress.action", "security.acls.default.egress.action", "security.mac_filtering", "security.ipv4_filtering", "security.ipv6_filtering"} {
-			argv = append(argv, key+"="+device[key])
-		}
-		_, mutationErr := b.command(ctx, argv...)
+		_, mutationErr := b.command(ctx, publicNICAddArgs(b.name(s), publicNICDevice(b.config.PublicEgress, s.PublicIPv4))...)
 		after, inspectErr := b.inspect(ctx, s, true)
 		if inspectErr != nil {
 			return Observation{}, errors.Join(mutationErr, inspectErr)
@@ -891,7 +886,7 @@ func (b *Backend) transition(ctx context.Context, s Session, action string) (Obs
 		return Observation{}, err
 	}
 	if action == "start" {
-		if err := b.checkPublicAddressCollision(ctx, s); err != nil {
+		if err := b.checkPublicAddressCollision(ctx, b.name(s), s.PublicIPv4); err != nil {
 			return Observation{}, err
 		}
 	}

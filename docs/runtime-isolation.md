@@ -90,8 +90,9 @@ still provisions Incus, the restricted user project/profile, storage pools,
 allowed disk paths and imported base image. Enabling P does not widen them.
 
 The hardened service accepts only `network: none` policies and no public-egress
-substrate. Its no-new-privileges and empty capability boundary prevent the
-scoped privileged network proofs needed for public egress. Public-egress
+substrate, so its environment builders stay offline too. Its no-new-privileges
+and empty capability boundary prevent the scoped privileged network proofs
+needed for public egress. Public-egress
 operation remains available through the separately owner-run daemon and its
 validated, fixed-argument proof commands; the service module refuses that
 configuration without weakening its hardening.
@@ -374,6 +375,14 @@ this resolver or gain a public NIC.
 There is no unsolicited inbound access, host network mode, published port, or
 general host route. A public forge may be reachable, but the runtime still
 receives no origin remote or origin credential.
+
+An environment builder is not a session, yet it gets this `public-egress`
+network whenever the host configures the substrate, whatever its project's
+session policy: the same NIC, ACL and proofs, its creating session's address
+slot, and the same guest resolver, configured by the runtime kit as root after
+each boot. Without the substrate a builder has no NIC.
+[Environment building](environment-building.md#security-boundary) owns the
+builder's network.
 
 ## Container baseline
 

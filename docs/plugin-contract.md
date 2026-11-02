@@ -451,9 +451,11 @@ verification, and its native broker call, with two concurrent slots. The
 runner limits linear memory to 16 MiB, module entry to 8 MiB, each command,
 result, diagnostic, and broker request/reply to 4 KiB, and broker calls to
 one. No directories, inherited environment, network sockets, credentials, or
-host command imports are passed to WASI. The native Nix batch currently
-allows only closed offline inputs and a five-minute per-command ceiling;
-public fetch/substitution policy remains pending. After an accepted realization,
+host command imports are passed to WASI. The native Nix commands run offline,
+or, with the host's public egress, fetch the committed inputs and substitute
+from the public binary cache
+([environment building](environment-building.md#2-realize)); each has a
+five-minute ceiling. After an accepted realization,
 core verifies activation, prepares and publishes the private Incus image, and
 records the project-scoped cache identity. Publication has a separate durable
 attempt and recovery boundary; WASI cannot choose an image or publish target.

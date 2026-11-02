@@ -150,11 +150,13 @@ outputs, or publish an environment image. The native adapter described below
 adds those stages. The pinned guest activation compatibility gate has passed, as recorded in
 [implementation progress](implementation-progress.md).
 
-A separate closed native adapter now resolves and realizes an offline
-devShell inside that verified builder and captures activation material. Its
-VM gate covers absent and invalid defaults, pure evaluation with a hashed
-source reference, committed-lock enforcement, and builder identity refusal.
-It has no network device or substituters. The content-pinned executable
+A separate closed native adapter now resolves and realizes a devShell inside
+that verified builder and captures activation material. Its VM gate covers
+absent and invalid defaults, pure evaluation with a hashed source reference,
+committed-lock enforcement, and builder identity refusal, using offline
+fixtures. The builder reaches the public internet only where the host
+configures public egress ([security boundary](#security-boundary)); otherwise
+it has no network device or substituters. The content-pinned executable
 environment plugin also passes its VM gate through this adapter, using the
 [closed environment ABI](plugin-contract.md#wasi-environment-abi). Native private
 image publication also passes its VM gate, including stopped-builder scrub,
@@ -162,8 +164,9 @@ closure retention, activation in two private roots, and independent Nix state
 across Stop/Start. The separate public CLI/daemon gate now covers offline
 devShell creation, project-scoped cache reuse and loss/rebuild, exact retry,
 and ordinary session activation. Two overlapping same-key builds also pass
-their public VM gate. General public fetching remains pending; offline
-fixtures do not establish network access.
+their public VM gate. These gates build offline fixtures. No committed check
+builds through a public builder; one exploratory VM run did, from a locked
+remote nixpkgs input ([checks debt](debts/checks.md)).
 
 For flakes, P:
 
@@ -206,7 +209,8 @@ P project path (MVP cache-isolation scope)
 P base-image fingerprint and runtime-kit contract
 committed flake/lock inputs required to resolve the default devShell
 resolved derivation identity
-trusted Nix substituter/sandbox policy affecting realization
+trusted Nix substituter/sandbox policy affecting realization (offline, or
+  public egress with the public binary cache)
 environment-image format version
 ```
 
@@ -231,8 +235,13 @@ without writing the source.
 ### 2. Realize
 
 The builder's local Nix daemon realizes the environment in its own writable
-`/nix` using only configured public substituters/fetches. It receives no host
-Nix daemon or store. It follows the
+`/nix`. It receives no host Nix daemon or store, and P runs no package cache.
+With the host's public egress, Nix fetches the committed flake inputs over
+HTTPS and substitutes from the public binary cache `https://cache.nixos.org`,
+the one substituter the base image trusts; the host, LAN and private ranges
+stay unreachable ([security boundary](#security-boundary)). Without public
+egress, Nix runs offline with no substituters, so only an environment that
+needs nothing from the network builds. It follows the
 [container Nix isolation policy](runtime-isolation.md#runtime-process-model):
 Incus provides the required isolation, and Nix build sandboxing is disabled
 inside the builder. Pure evaluation and the committed-source/lock rules remain
@@ -269,7 +278,9 @@ network configuration, and other builder-only data, then collects unreachable
 temporary Nix paths. A retained devShell closure may still contain committed
 source-derived store paths required by Nix. The image is therefore private and
 project-scoped. It must contain no writable workspace, session UUID, private
-key, origin credential/remote, or material from another P project.
+key, origin credential/remote, or material from another P project. A public
+builder's address and route end with each boot; its resolver file gives way to
+the image's own `/etc/resolv.conf` link.
 
 ### 7. Publish
 
@@ -339,8 +350,8 @@ Nix expressions and captured project hooks run only in the guest. See
 limits. Offline native builder realization and capture have also passed their
 VM gate. Native image publication and offline public session/cache composition
 have passed their separate gates. Trusted environment configuration enables
-that devShell path; omitting it retains base-only creation. Public fetching
-remains pending.
+that devShell path; omitting it retains base-only creation. No committed
+check covers public fetching through the builder's public egress.
 
 ## Cached Nix store model
 
@@ -433,13 +444,37 @@ confined P execution project but is never a session. It receives:
 
 - immutable committed source;
 - its private root and bounded scratch space;
-- configured public Nix substituters/fetch traffic; and
+- the public-egress network, when the host configures it; and
 - no other P runtime or host authority.
 
 It receives no Incus socket, host filesystem grant, workspace, SSH agent,
 origin/P Git private key, model key, event-handler credential, host Nix state, or
 general host/LAN route. Public egress must pass the same destination-isolation
 evidence required by runtime policy.
+
+Builders reach the public internet only, as the maintainer decided on
+2026-11-02. When the host configures the
+[public-egress substrate](runtime-isolation.md#network-contract), every builder
+gets the one NIC a public-egress session gets, whatever its project's session
+policy: on the trusted bridge, behind its ACL, with the same proofs before each
+create and start. It allows outbound TCP 80 and 443 and DNS to the pinned
+resolvers, and denies the host, LAN, private, carrier-grade NAT, link-local,
+metadata, multicast and sibling destinations over IPv4 and IPv6.
+
+- **Address.** The builder uses its creating session's static address slot. A
+  public-egress session lends its own; for any other session P holds a free
+  slot for the builder until the session's environment is ready. With all four
+  slots held, the build fails and can be retried.
+- **Guest network.** After each boot, before any Nix or project code runs, the
+  image's runtime kit runs as root with fixed arguments and configures the
+  address, the default route and the loopback DNS-over-HTTPS resolver: the steps
+  a public session's unit runs.
+- **Intent.** The builder's network and the substrate's digest belong to the
+  builder policy recorded in creation intent, so a creation never resumes under
+  another network.
+
+A host without the substrate, such as the hardened NixOS service, keeps its
+builders offline: no NIC and no substituters.
 
 MVP supplies no build secrets. Private flake inputs, authenticated caches,
 remote builders, KVM devices, and deployment credentials require separate
@@ -452,6 +487,7 @@ future capabilities rather than ambient credential mounts.
 | No default devShell | Use the pinned P base image directly |
 | Invalid devShell or lock mutation required | Fail resolution; do not fall back |
 | Fetch/substitution/realization failure | Report bounded Nix diagnostic; explicit retry starts from current Incus/Nix cache facts |
+| All four public address slots held | Fail before the builder exists; retry once a slot is free |
 | P loses contact with an Incus build operation | Query Incus; do not duplicate its operation state machine |
 | Builder disappears | Treat as interrupted cache build and retry |
 | Verification fails | Do not publish/register; retain bounded diagnostic and remove or expose builder cleanup |
@@ -491,8 +527,8 @@ remote `main`, as recorded in [implementation progress](implementation-progress.
   identity; it never transports image bytes.
 - **Incus API/operations** create the builder, publish the image, create the
   session root, and report runtime/image truth.
-- **Nix fetch traffic** reaches only configured public sources under the
-  builder network policy.
+- **Nix fetch traffic** reaches only public destinations through the
+  builder's public-egress network, and nothing on a host without one.
 - **Incus image/storage** retains cached image and instance bytes.
 
 Independent P instances rebuild the same environment or obtain inputs from
@@ -505,7 +541,8 @@ MVP includes:
 - conventional default flake devShell or base-only behavior;
 - pure committed-source resolution;
 - one pinned P Nix base per supported architecture;
-- restricted Incus builder instances;
+- restricted Incus builder instances, with public egress where the host
+  configures it;
 - private Incus environment images with coherent cached Nix stores;
 - private writable session Nix state;
 - exact activation inside sessions;

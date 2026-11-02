@@ -470,3 +470,92 @@ func TestBuilderNixReadyRequiresLiveDaemonRPC(t *testing.T) {
 		t.Fatalf("wrong daemon version was retried or accepted: probes=%d err=%v", probes, err)
 	}
 }
+
+func TestPublicBuilderStartPreparesNetworkAsRootAfterBoot(t *testing.T) {
+	for _, public := range []bool{false, true} {
+		r := testBuilder()
+		f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true}
+		b := nixBuilderBackend(t, f, nil)
+		if public {
+			r.PublicIPv4 = "10.233.0.12/24"
+			f.request = r
+			publicBuilderBackend(t, b, f)
+			f.publicNIC = publicNICDevice(b.config.PublicEgress, r.PublicIPv4)
+		}
+		var steps []string
+		b.runBuilder = func(_ context.Context, _ string, argv, _ []string) ([]byte, error) {
+			i := slices.Index(argv, "--")
+			guest := argv[i+1:]
+			user := argv[slices.Index(argv, "--user")+1]
+			if f.status != "Running" {
+				t.Fatalf("guest command before start: %q", guest)
+			}
+			if guest[0] == "/bin/sh" {
+				steps = append(steps, "boot-wait as "+user)
+				return nil, nil
+			}
+			steps = append(steps, strings.Join(guest, " ")+" as "+user)
+			return nil, nil
+		}
+		got, err := b.StartBuilder(context.Background(), r)
+		if err != nil || got.Status != "Running" {
+			t.Fatalf("start public=%t: %+v %v", public, got, err)
+		}
+		var want []string
+		if public {
+			want = []string{"boot-wait as 1000", "/usr/libexec/p/runtime-kit prepare-builder-network 10.233.0.12/24 10.233.0.1 as 0"}
+		}
+		if !slices.Equal(steps, want) {
+			t.Fatalf("public=%t builder network steps: %q", public, steps)
+		}
+	}
+}
+
+func TestPublicBuilderNixFetchesFromPublicCacheOnly(t *testing.T) {
+	keys := map[bool]string{}
+	for _, public := range []bool{false, true} {
+		r := testBuilder()
+		f := &fakeBuilderIncus{request: r, exists: true, status: "Running", rootLimit: true}
+		b := nixBuilderBackend(t, f, nil)
+		if public {
+			r.PublicIPv4 = "10.233.0.12/24"
+			f.request = r
+			publicBuilderBackend(t, b, f)
+			f.publicNIC = publicNICDevice(b.config.PublicEgress, r.PublicIPv4)
+		}
+		var guest []string
+		b.runBuilder = func(_ context.Context, _ string, argv, _ []string) ([]byte, error) {
+			guest = argv[slices.Index(argv, "--")+1:]
+			return nil, nil
+		}
+		if _, err := b.builderNixExec(context.Background(), r, "build", "--no-link", testDrv+"^*"); err != nil {
+			t.Fatal(err)
+		}
+		substituters := guest[slices.Index(guest, "substituters")+1]
+		offline := slices.Contains(guest, "--offline")
+		if public && (substituters != "https://cache.nixos.org" || offline) || !public && (substituters != "" || !offline) {
+			t.Fatalf("public=%t Nix network policy: %q", public, guest)
+		}
+		if !slices.Contains(guest, "--no-update-lock-file") || !slices.Contains(guest, "--no-write-lock-file") {
+			t.Fatalf("public=%t build may change the committed lock: %q", public, guest)
+		}
+		selected, err := resolveBuilderNixInputs(r, "x86_64-linux", guestFile{typ: "file", data: []byte("{}")}, guestFile{}, false, func(args ...string) ([]byte, error) {
+			switch {
+			case slices.Contains(args, "hash"):
+				return []byte(testNAR), nil
+			case slices.Contains(args, "--json"):
+				return []byte("true"), nil
+			case slices.Contains(args, "--raw"):
+				return []byte(testDrv), nil
+			}
+			return testShownDerivation("x86_64-linux"), nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys[public] = selected.KeyDigest
+	}
+	if keys[false] == keys[true] {
+		t.Fatal("public and offline builds share an environment key")
+	}
+}

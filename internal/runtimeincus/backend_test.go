@@ -558,7 +558,7 @@ func TestInspectCreatedRetainsExactCapturedDevices(t *testing.T) {
 				if err = json.Unmarshal(raw, &instances); err != nil {
 					return nil, err
 				}
-				device := publicNICDevice(b.config.PublicEgress, native)
+				device := publicNICDevice(b.config.PublicEgress, native.PublicIPv4)
 				instances[0].Devices[publicNICName] = device
 				instances[0].ExpandedDevices[publicNICName] = device
 				return json.Marshal(instances)

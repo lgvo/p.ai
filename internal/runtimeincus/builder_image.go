@@ -266,7 +266,8 @@ func (b *Backend) smokeBuilderImage(ctx context.Context, r Builder, result Build
 		return err
 	}
 	// The script and hook run only as the unprivileged builder user. The
-	// builder has no NIC, host store, session credentials, or extra devices.
+	// builder has no host store, session credentials, or devices beyond its
+	// root disk and, with public egress, its public NIC.
 	const smoke = "source /etc/p/devshell/activate.sh && test \"$HOME\" = /home/p && test \"$USER\" = p && test \"$PWD\" = /workspace && command -v bash >/dev/null && command -v nix >/dev/null && test -e /nix/var/nix/daemon-socket/socket"
 	if _, err := b.builderGuestExecAt(ctx, r, "/workspace", "/run/current-system/sw/bin/bash", "-c", smoke); err != nil {
 		return fmt.Errorf("unprivileged devShell activation smoke failed: %w", err)
@@ -319,7 +320,35 @@ func scrubBuilderImage(ctx context.Context, api builderImageFiles) error {
 			return err
 		}
 	}
-	return nil
+	return scrubBuilderResolver(ctx, api)
+}
+
+// scrubBuilderResolver takes the builder's network configuration out of the
+// image. Preparing a public builder's network replaced the image's resolver
+// link with a root file naming the loopback DNS-over-HTTPS resolver; the
+// image gets its link back. Anything else at the path is refused.
+func scrubBuilderResolver(ctx context.Context, api builderImageFiles) error {
+	const path, imageTarget, publicResolver = "/etc/resolv.conf", "/etc/static/resolv.conf", "nameserver 127.0.0.1\n"
+	if err := verifyScrubAncestors(ctx, api, path); err != nil {
+		return err
+	}
+	f, exists, err := api.getSymlinkBounded(ctx, path, 64)
+	if err != nil || !exists {
+		return errors.Join(err, errors.New("builder resolver configuration missing"))
+	}
+	if f.typ == "symlink" && f.uid == 0 && f.gid == 0 && string(f.data) == imageTarget {
+		return nil
+	}
+	if f.typ == "file" {
+		f, exists, err = api.getBounded(ctx, path, int64(len(publicResolver)))
+	}
+	if err != nil || !exists || f.typ != "file" || f.uid != 0 || f.gid != 0 || f.mode != 0644 || string(f.data) != publicResolver {
+		return errors.Join(err, errors.New("builder resolver configuration changed"))
+	}
+	if err := api.deleteTree(ctx, path); err != nil {
+		return err
+	}
+	return createGuestAbsent(ctx, api, path, guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte(imageTarget)})
 }
 
 func scrubBuilderScratch(ctx context.Context, api builderImageFiles) error {

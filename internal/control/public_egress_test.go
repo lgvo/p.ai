@@ -88,3 +88,48 @@ func TestPublicEgressSQLiteAddressReservation(t *testing.T) {
 		t.Fatalf("address reservations changed across restart: %d %v", count, err)
 	}
 }
+
+func TestBuilderBorrowsItsSessionPublicAddressSlot(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	session := func(project, policy string) string {
+		t.Helper()
+		op, err := s.BeginBlankProject(ctx, BlankProjectRequest{Key: project, Project: project}, json.RawMessage(policy), strings.Repeat("d", 64), testSelection())
+		if err != nil {
+			t.Fatal(err)
+		}
+		created, err := s.CommitBlankProject(ctx, op.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return created.UUID
+	}
+	public := session("team/public", `{"network":"public-egress"}`)
+	none := session("team/none", `{"network":"none"}`)
+	if slot, err := s.ReserveBuilderPublicAddress(ctx, public); err != nil || slot != 0 {
+		t.Fatalf("public session's builder did not use the session's slot: %d %v", slot, err)
+	}
+	for range 2 {
+		if slot, err := s.ReserveBuilderPublicAddress(ctx, none); err != nil || slot != 1 {
+			t.Fatalf("none session's builder slot: %d %v", slot, err)
+		}
+	}
+	if err := s.ReleaseBuilderPublicAddress(ctx, none); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PublicAddressSlot(ctx, none); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("none session kept its builder's address: %v", err)
+	}
+	if err := s.ReleaseBuilderPublicAddress(ctx, public); err != nil {
+		t.Fatal(err)
+	}
+	if slot, err := s.PublicAddressSlot(ctx, public); err != nil || slot != 0 {
+		t.Fatalf("public session lost its own address: %d %v", slot, err)
+	}
+	for i := range 3 {
+		session(fmt.Sprintf("team/public-%d", i), `{"network":"public-egress"}`)
+	}
+	if _, err := s.ReserveBuilderPublicAddress(ctx, none); !errors.Is(err, ErrConflict) {
+		t.Fatalf("builder took an address beyond the four slots: %v", err)
+	}
+}

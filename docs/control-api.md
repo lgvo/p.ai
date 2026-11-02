@@ -119,7 +119,9 @@ bootstrap addresses; the fixed resolver verifies the Cloudflare/Quad9 TLS
 names and uses TCP 443 without host DNS or plaintext fallback. A `none` session
 receives no NIC or running resolver even in a project that
 permits the public bridge. A changed or missing public substrate makes the
-captured public policy `invalid` and blocks Start.
+captured public policy `invalid` and blocks Start. With this substrate,
+environment builders get the same network, whatever the project's policy
+([environment building](environment-building.md#security-boundary)).
 
 Up to eight filesystem grants may name an exact canonical host file
 or directory under a configured, confined Incus disk ceiling. Each grant has a
@@ -157,8 +159,11 @@ the same trusted host-file checks as other selections. The system is explicitly
 pinned base architecture before selection. Current VM evidence covers x86_64;
 aarch64 support still requires its corresponding validation. The builder pool
 must satisfy the native adapter's btrfs quota checks.
-This initial path is offline: it supplies no NIC, public substituters, host
-store, filesystem grants, or credentials to the builder.
+With `public_egress` configured, the builder gets the public-egress network
+and the public binary cache, using its session's address slot while it builds
+([environment building](environment-building.md#security-boundary));
+without it, the builder gets no NIC or substituters. It never gets a host
+store, filesystem grants, or credentials.
 
 Creation records the module and configuration digests, system, base image,
 builder policy, and captured commit before effects. Retry requires the same

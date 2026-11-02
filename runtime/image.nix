@@ -117,6 +117,9 @@ in
     allowed-users = [ "p" ];
     trusted-users = [ "root" ];
     substituters = lib.mkForce [ ];
+    # An environment builder with public egress names this cache on its
+    # unprivileged Nix commands; the daemon accepts only a listed cache.
+    trusted-substituters = [ "https://cache.nixos.org" ];
   };
   nix.distributedBuilds = false;
 }

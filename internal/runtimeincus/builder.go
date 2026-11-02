@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -27,14 +28,19 @@ type Builder struct {
 	TreeOID              string
 	BaseImageFingerprint string
 	ContractVersion      string
+	PublicIPv4           string // its session's SQLite-reserved static address; empty means no NIC
 }
 
 type BuilderObservation struct {
 	Exists bool
 	Name   string
 	Status string
-	Ready  bool // the bounded private root is installed
+	Ready  bool // the bounded private root and any public NIC are installed
 }
+
+// builderDevices says which of a builder's devices are installed, for
+// finishing an interrupted creation.
+type builderDevices struct{ rootLimit, publicNIC bool }
 
 const (
 	builderCPU       = "2"
@@ -42,13 +48,21 @@ const (
 	builderProcesses = "512"
 	builderRootSize  = "8GiB"
 	builderSource    = "/opt/p/build/source"
+	// The image links its runtime kit here at boot.
+	builderRuntimeKit = "/usr/libexec/p/runtime-kit"
 )
 
 // BuilderPolicyDigest pins the native restriction and Nix execution contract
 // in durable creation intent. A changed policy cannot silently resume an old
-// operation under a new builder interpretation.
-func BuilderPolicyDigest() string {
-	sum := sha256.Sum256([]byte("p.builder/v1;cpu=" + builderCPU + ";memory=" + builderMemory + ";processes=" + builderProcesses + ";root=" + builderRootSize + ";pool=btrfs;no-nic;no-nesting;no-privilege;source-readonly;" + builderNixPolicy))
+// operation under a new builder interpretation. Builders reach the public
+// internet when the host has a public-egress substrate, named by its digest;
+// an empty digest means builders get no NIC.
+func BuilderPolicyDigest(publicEgressSHA256 string) string {
+	network, nix := "no-nic", offlineBuilderNix
+	if publicEgressSHA256 != "" {
+		network, nix = "public-egress="+publicEgressSHA256, publicBuilderNix
+	}
+	sum := sha256.Sum256([]byte("p.builder/v1;cpu=" + builderCPU + ";memory=" + builderMemory + ";processes=" + builderProcesses + ";root=" + builderRootSize + ";pool=btrfs;" + network + ";no-nesting;no-privilege;source-readonly;" + nix.policy))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -148,75 +162,108 @@ func builderIdentity(c map[string]string, r Builder) bool {
 // InspectBuilder verifies identity, isolation, effective devices, and resource
 // bounds. Unknown or changed instances are errors, never cleanup candidates.
 func (b *Backend) InspectBuilder(ctx context.Context, r Builder) (BuilderObservation, error) {
-	return b.inspectBuilder(ctx, r, false)
+	out, _, err := b.inspectBuilder(ctx, r, false)
+	return out, err
 }
 
-func (b *Backend) inspectBuilder(ctx context.Context, r Builder, allowPendingRoot bool) (BuilderObservation, error) {
+func (b *Backend) inspectBuilder(ctx context.Context, r Builder, allowPendingDevices bool) (BuilderObservation, builderDevices, error) {
 	var out BuilderObservation
+	var installed builderDevices
 	if err := validateBuilder(r); err != nil {
-		return out, err
+		return out, installed, err
+	}
+	var nic map[string]string
+	if r.PublicIPv4 != "" {
+		if b.config.PublicEgress == nil {
+			return out, installed, errors.New("public builder requires the public egress substrate")
+		}
+		if err := validatePublicAddress(b.config.PublicEgress, r.PublicIPv4); err != nil {
+			return out, installed, err
+		}
+		nic = publicNICDevice(b.config.PublicEgress, r.PublicIPv4)
 	}
 	if err := b.checkBuilderPool(ctx); err != nil {
-		return out, err
+		return out, installed, err
 	}
 	raw, err := b.command(ctx, "list", "^"+builderName(r)+"$", "--format", "json")
 	if err != nil {
-		return out, err
+		return out, installed, err
 	}
 	var instances []instanceJSON
 	if err := decode(raw, &instances); err != nil {
-		return out, err
+		return out, installed, err
 	}
 	if len(instances) == 0 {
-		return out, nil
+		return out, installed, nil
 	}
 	if len(instances) != 1 || instances[0].Name != builderName(r) {
-		return out, errors.New("ambiguous builder observation")
+		return out, installed, errors.New("ambiguous builder observation")
 	}
 	in := instances[0]
 	if in.Type != "container" || len(in.Profiles) != 1 || in.Profiles[0] != "default" || !builderIdentity(in.Config, r) || !builderIdentity(in.ExpandedConfig, r) || !safeSecurity(in.Config) || !safeSecurity(in.ExpandedConfig) || in.ExpandedConfig["security.idmap.isolated"] != "true" {
-		return out, errors.New("builder identity or security changed")
+		return out, installed, errors.New("builder identity or security changed")
 	}
 	for _, c := range []map[string]string{in.Config, in.ExpandedConfig} {
 		for key := range c {
 			if strings.HasPrefix(key, "environment.") {
-				return out, errors.New("builder inherited environment is not empty")
+				return out, installed, errors.New("builder inherited environment is not empty")
 			}
 		}
 		if c["limits.cpu"] != builderCPU || c["limits.memory"] != builderMemory || c["limits.processes"] != builderProcesses {
-			return out, errors.New("builder resource limits changed")
+			return out, installed, errors.New("builder resource limits changed")
 		}
 	}
-	if len(in.ExpandedDevices) != 1 || len(in.Devices) > 1 {
-		return out, errors.New("builder has an extra device")
+	// Besides its root disk, a builder has only its session's public NIC,
+	// and only when it reaches the public internet.
+	_, nicExpanded := in.ExpandedDevices[publicNICName]
+	_, nicLocal := in.Devices[publicNICName]
+	if nicExpanded || nicLocal {
+		if nic == nil || !exactPublicNIC(in.ExpandedDevices[publicNICName], nic) || !exactPublicNIC(in.Devices[publicNICName], nic) {
+			return out, installed, errors.New("builder has an extra device")
+		}
+		installed.publicNIC = true
+	}
+	_, rootOverride := in.Devices["root"]
+	if len(in.ExpandedDevices) != 1+btoi(installed.publicNIC) || len(in.Devices) != btoi(rootOverride)+btoi(installed.publicNIC) {
+		return out, installed, errors.New("builder has an extra device")
 	}
 	root := in.ExpandedDevices["root"]
 	if root["type"] != "disk" || root["path"] != "/" || root["pool"] != b.config.BuilderStoragePool || root["source"] != "" {
-		return out, errors.New("builder root disk unsafe")
+		return out, installed, errors.New("builder root disk unsafe")
 	}
 	for key := range root {
 		if key != "type" && key != "path" && key != "pool" && key != "size" {
-			return out, errors.New("builder root disk option unsafe")
+			return out, installed, errors.New("builder root disk option unsafe")
 		}
 	}
-	ready := root["size"] == builderRootSize
-	if len(in.Devices) == 1 {
+	if rootOverride {
 		d := in.Devices["root"]
 		if len(d) == 0 || d["type"] != "disk" || d["path"] != "/" || d["pool"] != b.config.BuilderStoragePool || d["size"] != builderRootSize || d["source"] != "" {
-			return out, errors.New("builder root override changed")
+			return out, installed, errors.New("builder root override changed")
 		}
 		for key := range d {
 			if key != "type" && key != "path" && key != "pool" && key != "size" {
-				return out, errors.New("builder root override option unsafe")
+				return out, installed, errors.New("builder root override option unsafe")
 			}
 		}
-	} else if !allowPendingRoot {
-		return out, errors.New("builder root size limit missing")
+	} else if !allowPendingDevices {
+		return out, installed, errors.New("builder root size limit missing")
 	}
-	if !ready && !allowPendingRoot {
-		return out, errors.New("builder root size limit changed")
+	installed.rootLimit = rootOverride && root["size"] == builderRootSize
+	if !allowPendingDevices && root["size"] != builderRootSize {
+		return out, installed, errors.New("builder root size limit changed")
 	}
-	return BuilderObservation{Exists: true, Name: in.Name, Status: in.Status, Ready: ready && len(in.Devices) == 1}, nil
+	// A NIC still to be attached leaves an owned builder unready, so an
+	// interrupted creation can be finished or removed.
+	ready := installed.rootLimit && (nic == nil || installed.publicNIC)
+	return BuilderObservation{Exists: true, Name: in.Name, Status: in.Status, Ready: ready}, installed, nil
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // CreateBuilder creates only a stopped builder from a locally pinned image.
@@ -245,7 +292,7 @@ func (b *Backend) createBuilder(ctx context.Context, r Builder, beforeInit func(
 	if err := b.checkBuilderPool(ctx); err != nil {
 		return BuilderObservation{}, err
 	}
-	before, err := b.inspectBuilder(ctx, r, true)
+	before, installed, err := b.inspectBuilder(ctx, r, true)
 	if err != nil {
 		return before, err
 	}
@@ -277,20 +324,37 @@ func (b *Backend) createBuilder(ctx context.Context, r Builder, beforeInit func(
 			}
 		}
 		_, createErr := b.command(ctx, "init", r.BaseImageFingerprint, builderName(r), "--profile", "default", "--storage", b.config.BuilderStoragePool, "--device", "root,size="+builderRootSize, "--config", "security.idmap.isolated=true", "--config", "security.privileged=false", "--config", "security.nesting=false", "--config", "limits.cpu="+builderCPU, "--config", "limits.memory="+builderMemory, "--config", "limits.processes="+builderProcesses, "--config", "user.p.builder_request_uuid="+r.RequestUUID, "--config", "user.p.builder_project_path="+r.ProjectPath, "--config", "user.p.builder_commit_oid="+r.CommitOID, "--config", "user.p.builder_tree_oid="+r.TreeOID, "--config", "user.p.builder_contract_version="+r.ContractVersion, "--config", "user.p.builder_base_image="+r.BaseImageFingerprint)
-		before, err = b.inspectBuilder(ctx, r, true)
+		before, installed, err = b.inspectBuilder(ctx, r, true)
 		if err != nil || !before.Exists {
 			return before, errors.Join(createErr, err, errors.New("builder creation postcondition failed"))
 		}
+		if before.Ready {
+			return before, nil
+		}
 	}
-	if !before.Ready {
+	if !installed.rootLimit {
 		_, overrideErr := b.command(ctx, "config", "device", "override", builderName(r), "root", "size="+builderRootSize)
-		after, err := b.InspectBuilder(ctx, r)
-		if err != nil || !after.Exists || !after.Ready {
+		after, devices, err := b.inspectBuilder(ctx, r, true)
+		if err != nil || !after.Exists || !devices.rootLimit {
 			return after, errors.Join(overrideErr, err, errors.New("builder root limit postcondition failed"))
 		}
-		return after, nil
+		installed = devices
 	}
-	return before, nil
+	if r.PublicIPv4 != "" && !installed.publicNIC {
+		if err := b.checkPublicAddressCollision(ctx, builderName(r), r.PublicIPv4); err != nil {
+			return before, err
+		}
+		_, addErr := b.command(ctx, publicNICAddArgs(builderName(r), publicNICDevice(b.config.PublicEgress, r.PublicIPv4))...)
+		after, devices, err := b.inspectBuilder(ctx, r, true)
+		if err != nil || !after.Exists || !devices.publicNIC {
+			return after, errors.Join(addErr, err, errors.New("builder public NIC postcondition failed"))
+		}
+	}
+	after, err := b.InspectBuilder(ctx, r)
+	if err != nil || !after.Exists || !after.Ready {
+		return after, errors.Join(err, errors.New("builder device postcondition failed"))
+	}
+	return after, nil
 }
 
 func (b *Backend) StartBuilder(ctx context.Context, r Builder) (BuilderObservation, error) {
@@ -306,7 +370,54 @@ func (b *Backend) StartBuilder(ctx context.Context, r Builder) (BuilderObservati
 	if err != nil || !exists || source.typ != "directory" || source.uid != 0 || source.gid != 0 || source.mode != 0555 {
 		return before, errors.Join(err, errors.New("builder source is not sealed"))
 	}
-	return b.builderTransition(ctx, r, "start")
+	if err := b.checkPublicAddressCollision(ctx, builderName(r), r.PublicIPv4); err != nil {
+		return before, err
+	}
+	after, err := b.builderTransition(ctx, r, "start")
+	if err != nil || r.PublicIPv4 == "" {
+		return after, err
+	}
+	return after, b.prepareBuilderNetwork(ctx, r)
+}
+
+// prepareBuilderNetwork gives a started public builder the network of a
+// public-egress session: its address, default route and the fixed
+// DNS-over-HTTPS resolver. The image's runtime kit does it, run as root with
+// fixed arguments, before any Nix or project code runs in this boot.
+func (b *Backend) prepareBuilderNetwork(ctx context.Context, r Builder) error {
+	if err := b.waitBuilderBoot(ctx, r); err != nil {
+		return err
+	}
+	if err := b.checkBuilderRunning(ctx, r); err != nil {
+		return err
+	}
+	gateway := strings.SplitN(b.config.PublicEgress.BridgeIPv4, "/", 2)[0]
+	if _, err := b.builderCommand(ctx, "exec", builderName(r), "--mode", "non-interactive", "--user", "0", "--group", "0", "--cwd", "/",
+		"--env", "PATH=/run/current-system/sw/bin", "--env", "LANG=C", "--env", "LC_ALL=C",
+		"--", builderRuntimeKit, "prepare-builder-network", r.PublicIPv4, gateway); err != nil {
+		return fmt.Errorf("builder public network preparation failed: %w", err)
+	}
+	return nil
+}
+
+// waitBuilderBoot waits until early boot has created the image's fixed
+// runtime paths. The Nix daemon socket listens only after sysinit.target,
+// which follows systemd-tmpfiles setup.
+func (b *Backend) waitBuilderBoot(ctx context.Context, r Builder) error {
+	ready, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if _, err := b.builderGuestExec(ready, r, "/bin/sh", "-c", "test -S "+builderNixSocket+" && test -x "+builderRuntimeKit); err == nil {
+			return nil
+		}
+		select {
+		case <-ready.Done():
+			return errors.New("builder did not finish booting")
+		case <-ticker.C:
+		}
+	}
 }
 func (b *Backend) StopBuilder(ctx context.Context, r Builder) (BuilderObservation, error) {
 	return b.builderTransition(ctx, r, "stop")

@@ -115,8 +115,9 @@ CREATE TABLE environment_images (
 CREATE INDEX environment_images_fingerprint ON environment_images(fingerprint);
 
 -- Public IPv4 slots are reserved with the session row, including a blank
--- project's bootstrap session. The four slots fit the confined Incus ceiling
--- and cannot be claimed twice by concurrent creation transactions.
+-- project's bootstrap session, and for a creating session's environment
+-- builder until its environment is ready. The four slots fit the confined
+-- Incus ceiling and cannot be claimed twice by concurrent transactions.
 CREATE TABLE session_public_addresses (
  session_uuid TEXT PRIMARY KEY REFERENCES sessions(uuid) ON DELETE CASCADE,
  slot INTEGER NOT NULL UNIQUE CHECK(slot BETWEEN 0 AND 3)
