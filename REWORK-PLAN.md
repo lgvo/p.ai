@@ -177,7 +177,7 @@ VM suite can check one at a time.
 |---|---|---|---|
 | 0 | Characterization tests | — | no |
 | 1 | `internal/api` | 3 | no |
-| 2 | dropped: `internal/config` (see below) | 3, 7 | — |
+| 2 | deferred: `internal/config` (see below) | 3, 7 | — |
 | 3a | One method table for the control-API surface | 4 | yes |
 | 3b | deferred: `internal/server` (see step 3) | 3 | — |
 | 4 | Operation journal in control | 1 | yes |
@@ -225,7 +225,7 @@ sites, for no client), the removal-preview types, `SummarizeOperation` and
 `CreationEnvironmentView` (they decode creation evidence). The tui-mock
 fixture is a server double and keeps importing control for these.
 
-**2. `internal/config` — dropped after measurement.** The configuration code
+**2. `internal/config` — deferred after measurement.** The configuration code
 calls the store's identifier validators (`validProject`, `validFingerprint`),
 its digest and policy normalization, and returns errors wrapping
 `control.ErrInvalid` that the daemon maps to `invalid_params`. Moving it out
@@ -323,10 +323,10 @@ drifted operation behaviors, routing native effects through the runtime plugin
 
 | Step | State | Commit | Review | VM suite |
 |---|---|---|---|---|
-| Plan | reviewed: settled | — | Codex, 3 rounds: challenge 3 findings accepted, 2 cuts; normal 1: 4 accepted, re-raised part settled by cutting the preview book; normal 2: 1 accepted | baseline running |
+| Plan | reviewed: settled | — | Codex, 3 rounds: challenge 3 findings accepted, 2 cuts; normal 1: 4 accepted, re-raised part settled by cutting the preview book; normal 2: 1 accepted | baseline recorded (see Rules) |
 | 0 | done | 7061a8b | Codex, 2 rounds: 5 + 1 findings accepted, 2 cuts; last fix verified by break-and-restore at the round limit | not needed (tests only) |
 | 1 | done | c656c40 | Codex, 1 round: 1 finding accepted (plan wording) | exempt (declarations moved) |
-| 2 | dropped (see step 2) | — | — | — |
+| 2 | deferred (see step 2) | — | — | — |
 | 3a | done | 4526621 | Codex, 1 round: no findings, 1 cut applied | 01–36 (no 34) and 38–58 match the baseline |
 | 3b | deferred (see step 3) | — | — | — |
 | 4 | done | bfbd3eb | Codex, 2 rounds: 1 finding accepted, 1 cut; 1 re-raised part rejected (on TO-DECIDE.md) | match the baseline; scenario 53 failed once on a native Incus SFTP refusal while two VMs ran, and passed on rerun |
