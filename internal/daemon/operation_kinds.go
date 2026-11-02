@@ -35,9 +35,7 @@ func init() {
 		control.KindProjectCreate: {process: (*lifecycle).processCreation},
 		control.KindSessionCreate: {process: (*lifecycle).processCreation,
 			refuseRetry: creationAwaitsInspection, admit: creationAwaitsInspection, resumeAtStart: resumeCreationAtStart},
-		control.KindEnvironmentCollect:   {process: (*lifecycle).processEnvironmentCollection, resumeAtStart: resumeRunningOnly},
 		control.KindProjectDelete:        {process: (*lifecycle).processProjectDelete, removal: "deleting"},
-		control.KindWorkspaceInspect:     {process: (*lifecycle).processWorkspaceInspect, refuseRetry: inspectionNeedsFreshRequest},
 		control.KindWorkspaceLossInspect: {process: (*lifecycle).processWorkspaceInspect, refuseRetry: inspectionNeedsFreshRequest},
 		control.KindSessionDiscard:       {process: (*lifecycle).processDiscard, removal: "discarding"},
 		control.KindSessionDelete:        {process: (*lifecycle).processDiscard, removal: "deleting"},
@@ -71,10 +69,6 @@ func resumeCreationAtStart(l *lifecycle, ctx context.Context, op api.Operation) 
 		return false, err
 	}
 	return !deferBlockedCreationUntilRetry(op), nil
-}
-
-func resumeRunningOnly(_ *lifecycle, _ context.Context, op api.Operation) (bool, error) {
-	return op.Status == "running", nil
 }
 
 func inspectionNeedsFreshRequest(_ *lifecycle, _ context.Context, op api.Operation) error {

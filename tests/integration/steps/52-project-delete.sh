@@ -257,9 +257,6 @@ if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
  view=$(rpc session.inspect "$(jq -nc --arg uuid "$work" '{v:1,uuid:$uuid}')")
  cache_image=$(jq -er '.result.session.environment|select(.cache=="miss")|.image_fingerprint|select(length==64)' <<< "$view")
  test "$cache_image" != "$base"
- cache_key=$(jq -er '.result.session.environment.environment_key|select(length==64)' <<< "$view")
- rpc environment.cache.list '{"v":1,"project":"bulk-delete","limit":8}' | \
-  jq -e --arg image "$cache_image" --arg key "$cache_key" '.result.images|length==1 and .[0].fingerprint==$image and .[0].environment_key==$key' >/dev/null
  inc image list --format json | jq -e --arg image "$cache_image" \
   'any(.fingerprint==$image and .properties["p.project_path"]=="bulk-delete")' >/dev/null
 fi
@@ -362,7 +359,6 @@ done
 test ! -e "$repo"
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
  inc image list --format json | jq -e --arg image "$cache_image" 'all(.fingerprint!=$image)' >/dev/null
- rpc environment.cache.list '{"v":1,"project":"bulk-delete","limit":8}' | jq -e '.result.images==[]' >/dev/null
  printf 'P_PROJECT_DELETE_CACHED_IMAGE_PASS\n'
 fi
 test -d "$other_repo"

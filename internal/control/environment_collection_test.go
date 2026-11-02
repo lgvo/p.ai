@@ -2,72 +2,32 @@ package control
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
-	"time"
 )
 
-func emptyRelatedDigest() string {
-	sum := sha256.Sum256(nil)
-	return hex.EncodeToString(sum[:])
-}
-
-func collectionClaim(e EnvironmentImage) EnvironmentCollectionClaim {
-	return EnvironmentCollectionClaim{
-		Image: e, ImagePresent: true, ObservedSize: 1024,
-		RelatedDigest: emptyRelatedDigest(), ConfirmationDigest: strings.Repeat("d", 64),
-		ConfirmationExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
-	}
-}
-
-func TestEnvironmentCollectionExactGenerationAndProjectGuard(t *testing.T) {
+func TestDeleteEnvironmentImageExactRemovesOnlyTheReviewedGeneration(t *testing.T) {
 	s, _ := openTestStore(t)
 	ctx := context.Background()
-	for _, project := range []string{"team/a", "team/b", "team/c"} {
-		if err := s.CreateProject(ctx, project, json.RawMessage(`{"network":"none"}`)); err != nil {
-			t.Fatal(err)
-		}
+	if err := s.CreateProject(ctx, "team/a", json.RawMessage(`{"network":"none"}`)); err != nil {
+		t.Fatal(err)
 	}
 	a := testEnvironmentImage("team/a")
 	a.LogicalSize = 1024
-	b := testEnvironmentImage("team/b")
-	b.LogicalSize = 2048
-	for _, e := range []EnvironmentImage{a, b} {
-		if err := s.PutEnvironmentImage(ctx, e); err != nil {
-			t.Fatal(err)
-		}
-	}
-	a, _, _ = s.GetEnvironmentImage(ctx, a.Project, a.Key)
-	b, _, _ = s.GetEnvironmentImage(ctx, b.Project, b.Key)
-	claimA, claimB := collectionClaim(a), collectionClaim(b)
-	opA, err := s.BeginEnvironmentCollection(ctx, "collect-a", claimA)
-	if err != nil {
+	if err := s.PutEnvironmentImage(ctx, a); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.BeginEnvironmentCollection(ctx, "collect-a", claimA); err != nil {
-		t.Fatalf("exact durable replay failed: %v", err)
-	}
-	if _, err := s.BeginEnvironmentCollection(ctx, "collect-a-different", claimA); !errors.Is(err, ErrConflict) {
-		t.Fatalf("second same-project collection accepted: %v", err)
-	}
-	if _, err := s.BeginEnvironmentCollection(ctx, "collect-b", claimB); err != nil {
-		t.Fatalf("other project collection rejected: %v", err)
-	}
-	if _, _, err := s.ReserveSession(ctx, ReserveSessionRequest{Key: "blocked-create", Project: "team/a", Branch: "feature", Choice: "existing"}); !errors.Is(err, ErrConflict) {
-		t.Fatal("new same-project creation bypassed durable guard")
-	}
+	a, _, _ = s.GetEnvironmentImage(ctx, a.Project, a.Key)
 	if err := s.DeleteEnvironmentImageExact(ctx, a); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, opA.ID, "completed", "index-absent", true, nil, ""); err != nil {
-		t.Fatal(err)
+	if _, found, err := s.GetEnvironmentImage(ctx, a.Project, a.Key); err != nil || found {
+		t.Fatalf("reviewed generation remained indexed: found=%v err=%v", found, err)
 	}
 	if err := s.PutEnvironmentImage(ctx, a); err != nil {
-		t.Fatalf("completed collection retained write guard: %v", err)
+		t.Fatal(err)
 	}
 	newer, _, _ := s.GetEnvironmentImage(ctx, a.Project, a.Key)
 	if newer.CreatedAt == a.CreatedAt {
@@ -79,37 +39,7 @@ func TestEnvironmentCollectionExactGenerationAndProjectGuard(t *testing.T) {
 		}
 	}
 	if err := s.DeleteEnvironmentImageExact(ctx, a); !errors.Is(err, ErrConflict) {
-		t.Fatalf("old accepted claim removed newer index generation: %v", err)
-	}
-}
-
-func TestEnvironmentCollectionRejectsStaleOrExpiredBeforeGuard(t *testing.T) {
-	s, _ := openTestStore(t)
-	ctx := context.Background()
-	if err := s.CreateProject(ctx, "team/a", json.RawMessage(`{"network":"none"}`)); err != nil {
-		t.Fatal(err)
-	}
-	e := testEnvironmentImage("team/a")
-	if err := s.PutEnvironmentImage(ctx, e); err != nil {
-		t.Fatal(err)
-	}
-	e, _, _ = s.GetEnvironmentImage(ctx, e.Project, e.Key)
-	stale := collectionClaim(e)
-	stale.Image.LogicalSize++
-	if _, err := s.BeginEnvironmentCollection(ctx, "stale-preview", stale); !errors.Is(err, ErrConflict) {
-		t.Fatalf("stale preview committed: %v", err)
-	}
-	expired := collectionClaim(e)
-	expired.ConfirmationExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
-	if _, err := s.BeginEnvironmentCollection(ctx, "expired-preview", expired); !errors.Is(err, ErrConflict) {
-		t.Fatalf("expired preview committed: %v", err)
-	}
-	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM operations WHERE kind='environment.collect'`).Scan(&count); err != nil || count != 0 {
-		t.Fatalf("rejected preview left guard: count=%d err=%v", count, err)
-	}
-	if err := s.PutEnvironmentImage(ctx, e); err != nil {
-		t.Fatalf("rejected preview blocked cache writes: %v", err)
+		t.Fatalf("old reviewed claim removed newer index generation: %v", err)
 	}
 }
 

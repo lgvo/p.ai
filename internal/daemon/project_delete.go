@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +44,32 @@ func (l *lifecycle) lockProjectDeleteSessions(ctx context.Context, sessions []co
 		releases = append(releases, r)
 	}
 	return release, nil
+}
+
+// collectionToken issues a project deletion preview's confirmation token.
+func collectionToken() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
+// observeCollection binds one indexed image's Incus presence, size and related
+// sessions into the claim a project deletion reviews.
+func (l *lifecycle) observeCollection(ctx context.Context, entry control.EnvironmentImage) (control.EnvironmentCollectionClaim, error) {
+	claim := control.EnvironmentCollectionClaim{Image: entry}
+	info, found, err := l.runtime.ObserveOwnedBuilderImage(ctx, imageClaimFromCache(entry))
+	if err != nil {
+		return claim, err
+	}
+	claim.ImagePresent = found
+	claim.ObservedSize = entry.LogicalSize
+	if found {
+		claim.ObservedSize = info.Size
+	}
+	claim.RelatedDigest, err = l.store.RelatedEnvironmentDigest(ctx, entry.Project, entry.Key, entry.Fingerprint)
+	return claim, err
 }
 func projectDeleteNamedResources(sessions []control.ProjectDeleteSession, images []control.EnvironmentCollectionClaim) (map[string]bool, map[string]bool) {
 	names, fps := map[string]bool{}, map[string]bool{}
@@ -165,7 +193,7 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		return p, errors.Join(err, errors.New("project cache exceeds aggregate review bound"))
 	}
 	for _, entry := range entries {
-		claim, _, e := l.observeCollection(ctx, entry)
+		claim, e := l.observeCollection(ctx, entry)
 		if e != nil {
 			return p, e
 		}
@@ -395,11 +423,6 @@ func (l *lifecycle) forgetProjectDeletePreviews(project string) {
 	for key, v := range l.removalPreviews {
 		if v.Preview.Project == project {
 			delete(l.removalPreviews, key)
-		}
-	}
-	for key, v := range l.collectionPreviews {
-		if v.Claim.Image.Project == project {
-			delete(l.collectionPreviews, key)
 		}
 	}
 	for key, v := range l.retainedDeletePreviews {

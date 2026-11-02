@@ -166,11 +166,7 @@ func safeGitConfig(raw []byte) ([]byte, error) {
 	return []byte(out.String()), nil
 }
 
-func sanitizeWorkspaceSnapshot(snapshot WorkspaceSnapshot) (WorkspaceSnapshot, error) {
-	return sanitizeWorkspaceMain(snapshot, false)
-}
-
-func sanitizeWorkspaceMain(snapshot WorkspaceSnapshot, allowLinked bool) (WorkspaceSnapshot, error) {
+func sanitizeWorkspaceMain(snapshot WorkspaceSnapshot) (WorkspaceSnapshot, error) {
 	if len(snapshot.Entries) < 2 || len(snapshot.Entries) > workspaceMaxEntries {
 		return WorkspaceSnapshot{}, errors.New("workspace snapshot incomplete")
 	}
@@ -201,7 +197,7 @@ func sanitizeWorkspaceMain(snapshot WorkspaceSnapshot, allowLinked bool) (Worksp
 		if strings.HasPrefix(entry.Path, ".git/") && entry.Type == "symlink" {
 			return WorkspaceSnapshot{}, errors.New("Git metadata symlink unavailable")
 		}
-		if entry.Path == ".git/index.lock" || entry.Path == ".git/shallow" || entry.Path == ".git/objects/info/alternates" || entry.Path == ".git/info/grafts" || entry.Path == ".git/commondir" || !allowLinked && entry.Path == ".git/worktrees" {
+		if entry.Path == ".git/index.lock" || entry.Path == ".git/shallow" || entry.Path == ".git/objects/info/alternates" || entry.Path == ".git/info/grafts" || entry.Path == ".git/commondir" {
 			return WorkspaceSnapshot{}, errors.New("Git worktree state unsupported")
 		}
 	}
@@ -240,29 +236,6 @@ func sanitizeWorkspaceLinked(snapshot WorkspaceSnapshot, link workspaceLinkedTre
 	return clean, nil
 }
 
-func (b *Backend) InstallWorkspaceHelperCopy(ctx context.Context, helper Session, snapshot WorkspaceSnapshot) error {
-	clean, err := sanitizeWorkspaceSnapshot(snapshot)
-	if err != nil {
-		return err
-	}
-	if err := b.verifyWorkspaceHelperBoot(ctx, helper); err != nil {
-		return err
-	}
-	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(helper)}
-	root, err := api.lstat(ctx, "/workspace")
-	if err != nil || root.typ != "directory" || root.uid != 1000 || root.gid != 1000 || root.mode&0777 != 0755 {
-		return errors.Join(err, errors.New("helper workspace root unsafe"))
-	}
-	names, err := api.listDirectory(ctx, "/workspace", 0)
-	if err != nil || len(names) != 0 {
-		return errors.Join(err, errors.New("helper workspace not empty"))
-	}
-	if err := installWorkspaceEntries(ctx, api, "/workspace", clean); err != nil {
-		return err
-	}
-	return b.verifyWorkspaceHelperBoot(ctx, helper)
-}
-
 // The linked-tree path is accepted only after the quiescent source export has
 // checked both Git pointers and every root ancestor. The copy stays under the
 // same closed paths in a no-NIC helper; the original common config is replaced
@@ -278,7 +251,7 @@ func (b *Backend) InstallWorkspaceLossCopy(ctx context.Context, helper Session, 
 	if err := boundWorkspaceLossSnapshot(loss); err != nil {
 		return err
 	}
-	main, err := sanitizeWorkspaceMain(loss.Main, true)
+	main, err := sanitizeWorkspaceMain(loss.Main)
 	if err != nil {
 		return err
 	}
@@ -404,13 +377,6 @@ type WorkspaceRef struct {
 	Upstream string `json:"upstream,omitempty"`
 }
 
-type WorkspaceAnalysis struct {
-	Branch  string            `json:"branch"`
-	HeadOID string            `json:"head_oid,omitempty"`
-	Changes []WorkspaceChange `json:"changes"`
-	Refs    []WorkspaceRef    `json:"refs"`
-}
-
 func (b *Backend) helperGit(ctx context.Context, helper Session, args ...string) ([]byte, error) {
 	return b.helperGitAt(ctx, helper, "/workspace", args...)
 }
@@ -442,63 +408,6 @@ func (b *Backend) helperGitAt(ctx context.Context, helper Session, cwd string, a
 		return nil, errors.Join(err, commandCtx.Err(), stopErr)
 	}
 	return out, err
-}
-
-func (b *Backend) AnalyzeWorkspaceHelper(ctx context.Context, helper Session) (WorkspaceAnalysis, error) {
-	var analysis WorkspaceAnalysis
-	index, err := b.helperGit(ctx, helper, "ls-files", "--stage", "-z")
-	if err != nil {
-		return analysis, err
-	}
-	if len(index) != 0 && index[len(index)-1] != 0 {
-		return WorkspaceAnalysis{}, errors.New("Git index output malformed")
-	}
-	for _, entry := range bytes.Split(bytes.TrimSuffix(index, []byte{0}), []byte{0}) {
-		if len(entry) == 0 {
-			continue
-		}
-		meta, filename, ok := bytes.Cut(entry, []byte{'\t'})
-		fields := bytes.Split(meta, []byte{' '})
-		if !ok || len(fields) != 3 || !validWorkspaceRelative(string(filename)) || !utf8.Valid(filename) ||
-			!validBuilderOID(string(fields[1])) || len(fields[2]) != 1 || fields[2][0] < '0' || fields[2][0] > '3' ||
-			!bytes.Equal(fields[0], []byte("100644")) && !bytes.Equal(fields[0], []byte("100755")) && !bytes.Equal(fields[0], []byte("120000")) {
-			return WorkspaceAnalysis{}, errors.New("Git index has unsupported gitlink or entry")
-		}
-	}
-	head, err := b.helperGit(ctx, helper, "symbolic-ref", "HEAD")
-	if err != nil {
-		return analysis, errors.New("detached or unsafe Git HEAD unavailable")
-	}
-	branchRef := strings.TrimSpace(string(head))
-	if !strings.HasPrefix(branchRef, "refs/heads/") || !safeGitToken.MatchString(strings.TrimPrefix(branchRef, "refs/heads/")) {
-		return analysis, errors.New("Git HEAD ref unsupported")
-	}
-	analysis.Branch = strings.TrimPrefix(branchRef, "refs/heads/")
-	refs, err := b.helperGit(ctx, helper, "for-each-ref", "--format=%(objectname)%09%(refname)%09%(upstream)")
-	if err != nil {
-		return analysis, err
-	}
-	analysis.Refs, err = parseWorkspaceRefs(refs)
-	if err != nil {
-		return WorkspaceAnalysis{}, err
-	}
-	for _, ref := range analysis.Refs {
-		if ref.Name == branchRef {
-			analysis.HeadOID = ref.OID
-		}
-	}
-	status, err := b.helperGit(ctx, helper, "status", "--porcelain=v1", "-z", "--no-renames", "--ignore-submodules=all", "--untracked-files=all", "--ignored=matching")
-	if err != nil {
-		return WorkspaceAnalysis{}, err
-	}
-	analysis.Changes, err = parseWorkspaceChanges(status)
-	if err != nil {
-		return WorkspaceAnalysis{}, err
-	}
-	if err := b.verifyWorkspaceHelperBoot(ctx, helper); err != nil {
-		return WorkspaceAnalysis{}, err
-	}
-	return analysis, nil
 }
 
 func parseWorkspaceRefs(raw []byte) ([]WorkspaceRef, error) {

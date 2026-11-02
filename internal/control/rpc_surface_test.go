@@ -23,7 +23,6 @@ const (
 	surfaceUUID2 = "66666666-7777-8888-9999-aaaaaaaaaaaa"
 	surfaceOID   = "0123456789abcdef0123456789abcdef01234567"
 	surfaceToken = "0123456789abcdef0123456789abcdef"
-	surfaceKey   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	surfaceUnit  = "p-project-api.service"
 )
 
@@ -73,18 +72,6 @@ func (l fullLife) ClaimAttachment(_ context.Context, token string, _ *Connection
 }
 func (l fullLife) ConfirmAttachment(_ context.Context, _ *Connection, operation string) error {
 	return l.record("ConfirmAttachment %s", operation)
-}
-func (l fullLife) ListEnvironmentCache(_ context.Context, project, after string, limit int) ([]EnvironmentCacheItem, string, error) {
-	return nil, "", l.record("ListEnvironmentCache %s %q %d", project, after, limit)
-}
-func (l fullLife) PreviewEnvironmentCollection(_ context.Context, project, key, token, after string, limit int) (EnvironmentCollectionPreview, error) {
-	return EnvironmentCollectionPreview{}, l.record("PreviewEnvironmentCollection %s %s %q %q %d", project, key, token, after, limit)
-}
-func (l fullLife) CollectEnvironmentCache(_ context.Context, key, token string) (api.Operation, error) {
-	return api.Operation{ID: "collect"}, l.record("CollectEnvironmentCache %s %s", key, token)
-}
-func (l fullLife) InspectWorkspace(_ context.Context, r WorkspaceInspectRequest) (api.Operation, error) {
-	return api.Operation{ID: "inspect"}, l.record("InspectWorkspace %+v", r)
 }
 func (l fullLife) InspectWorkspaceLoss(_ context.Context, r WorkspaceInspectRequest) (api.Operation, error) {
 	return api.Operation{ID: "loss"}, l.record("InspectWorkspaceLoss %+v", r)
@@ -251,8 +238,7 @@ func TestCapabilitiesListEachConfigurationInOrder(t *testing.T) {
 	optional := []string{
 		"session.services", "session.service.journal", "session.service.action",
 		"session.attach",
-		"environment.cache.list", "environment.cache.preview", "environment.cache.collect",
-		"workspace.inspect", "workspace.loss.inspect",
+		"workspace.loss.inspect",
 		"session.removal.preview", "session.discard", "session.delete",
 		"session.rename", "project.retained.rename",
 		"project.delete.preview", "project.delete.confirm",
@@ -297,7 +283,7 @@ func TestCapabilitiesListEachConfigurationInOrder(t *testing.T) {
 }
 
 func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
-	uuid, uuid2, oid, token, key := surfaceUUID, surfaceUUID2, surfaceOID, surfaceToken, surfaceKey
+	uuid, uuid2, oid, token := surfaceUUID, surfaceUUID2, surfaceOID, surfaceToken
 	for _, test := range []struct {
 		method, params, call string
 		// The result object's keys, and for an operation or session envelope
@@ -313,7 +299,6 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		{"session.create.cleanup.confirm", `{"v":1,"uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateCleanup " + uuid + " k " + token, []string{"operation", "v"}, "cleanup"},
 		{"session.create.replace.preview", `{"v":1,"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"new","source":"refs/heads/main"}`, "PreviewCreateReplace " + uuid + " {Key:k Project:team/app Branch:work Choice:new Source:refs/heads/main OriginRef: ExpectedCommitOID: ExpectedOriginURL:}", []string{"preview", "v"}, ""},
 		{"session.create.replace.confirm", `{"v":1,"old_uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateReplace " + uuid + " k " + token, []string{"operation", "v"}, "replace"},
-		{"workspace.inspect", `{"v":1,"key":"k","uuid":"` + uuid + `"}`, "InspectWorkspace {Key:k SessionUUID:" + uuid + "}", []string{"operation", "v"}, "inspect"},
 		{"workspace.loss.inspect", `{"v":1,"key":"k","uuid":"` + uuid + `"}`, "InspectWorkspaceLoss {Key:k SessionUUID:" + uuid + "}", []string{"operation", "v"}, "loss"},
 		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + uuid2 + `"}`, "PreviewRemoval {UUID:" + uuid + " Kind:discard LossOperationID:" + uuid2 + " AcknowledgeMissingRuntime:false}", []string{"preview", "v"}, ""},
 		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"delete","acknowledge_missing_runtime":true}`, "PreviewRemoval {UUID:" + uuid + " Kind:delete LossOperationID: AcknowledgeMissingRuntime:true}", []string{"preview", "v"}, ""},
@@ -339,9 +324,6 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		{"session.inspect", `{"v":1,"uuid":"` + uuid + `"}`, "InspectSession " + uuid, []string{"session", "v"}, uuid},
 		{"session.start", `{"v":1,"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"session", "v"}, uuid},
 		{"session.stop", `{"v":1,"uuid":"` + uuid + `"}`, "StopSession " + uuid, []string{"session", "v"}, uuid},
-		{"environment.cache.list", `{"v":1,"project":"team/app","after":"x","limit":8}`, `ListEnvironmentCache team/app "x" 8`, []string{"images", "next", "v"}, ""},
-		{"environment.cache.preview", `{"v":1,"project":"team/app","environment_key":"` + key + `","confirmation_token":"t","after":"a","limit":20}`, "PreviewEnvironmentCollection team/app " + key + ` "t" "a" 20`, []string{"preview", "v"}, ""},
-		{"environment.cache.collect", `{"v":1,"key":"k","confirmation_token":"` + token + `"}`, "CollectEnvironmentCache k " + token, []string{"operation", "v"}, "collect"},
 		{"session.services", `{"v":1,"uuid":"` + uuid + `"}`, "SessionServices " + uuid + "  list", []string{"observed_at", "uuid", "v"}, ""},
 		{"session.service.journal", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`, "SessionServices " + uuid + " " + surfaceUnit + " journal", []string{"observed_at", "unit", "uuid", "v"}, ""},
 		{"session.service.action", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"restart"}`, "SessionServices " + uuid + " " + surfaceUnit + " restart", []string{"observed_at", "unit", "uuid", "v"}, ""},
@@ -394,7 +376,6 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		{"session.create.cleanup.confirm", `{"v":1,"uuid":"` + uuid + `","key":"k","confirmation_token":"ABCDEF0123456789abcdef0123456789"}`},
 		{"session.create.replace.preview", `{"v":1,"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"maybe"}`},
 		{"session.create.replace.confirm", `{"v":1,"old_uuid":"` + uuid + `","key":"","confirmation_token":"` + token + `"}`},
-		{"workspace.inspect", `{"v":1,"key":"","uuid":"` + uuid + `"}`},
 		{"workspace.loss.inspect", `{"v":1,"key":"k","uuid":"bad"}`},
 		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"discard"}`},
 		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"x","acknowledge_missing_runtime":true}`},
@@ -424,9 +405,6 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		{"session.inspect", `{"v":1,"uuid":"bad"}`},
 		{"session.start", `{"v":1}`},
 		{"session.stop", `{"v":1,"uuid":"` + uuid + `","extra":1}`},
-		{"environment.cache.list", `{"v":1,"project":"team/app","limit":9}`},
-		{"environment.cache.preview", `{"v":1,"project":"team/app","environment_key":"short","limit":20}`},
-		{"environment.cache.collect", `{"v":1,"key":"k","confirmation_token":"short"}`},
 		{"session.services", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`},
 		{"session.service.journal", `{"v":1,"uuid":"` + uuid + `","unit":"sshd.service"}`},
 		{"session.service.action", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"reload"}`},
@@ -564,10 +542,10 @@ func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
 		{"project conflict keeps message", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New("session still attached")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nsession still attached"}},
 		{"project conflict message is bounded", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New(long)), api.RPCError{Code: -32003, Kind: "busy", Message: ("conflict\n" + long)[:900]}},
 		{"project invalid", "project.delete.preview", projectPreview, ErrInvalid, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid lifecycle request"}},
-		{"project not found", "project.delete.preview", projectPreview, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review"}},
+		{"project not found", "project.delete.preview", projectPreview, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair, or investigate exact native/credential/cache ownership before a new review"}},
 		{"project confirm conflict keeps message", "project.delete.confirm", projectConfirm, errors.Join(ErrConflict, errors.New("review changed")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nreview changed"}},
 		{"project confirm cancelled", "project.delete.confirm", projectConfirm, context.Canceled, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
-		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review"}},
+		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair, or investigate exact native/credential/cache ownership before a new review"}},
 		{"services conflict", "session.services", services, ErrConflict, api.RPCError{Code: -32003, Kind: "busy", Message: "lifecycle request conflicts with current authority"}},
 		{"services other", "session.services", services, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project services unavailable; require a ready owned runtime, session user manager, and compatible selected runtime package"}},
 	} {
@@ -608,7 +586,10 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		{"discard without its API", surfaceCoreLifecycle, "session.discard", discard, notFound},
 		{"services without their API", surfaceCoreLifecycle, "session.services", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
 		{"attach without its API", surfaceCoreLifecycle, "session.attach", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
-		{"cache without its API", surfaceCoreLifecycle, "environment.cache.list", `{"v":1,"project":"team/app","limit":1}`, notFound},
+		{"removed cache list", surfaceFullLifecycle, "environment.cache.list", `{"v":1}`, unknown},
+		{"removed cache preview", surfaceFullLifecycle, "environment.cache.preview", `{"v":1}`, unknown},
+		{"removed cache collection", surfaceFullLifecycle, "environment.cache.collect", `{"v":1}`, unknown},
+		{"removed workspace inspection", surfaceFullLifecycle, "workspace.inspect", `{"v":1}`, unknown},
 		{"cleanup without its API", surfaceCoreLifecycle, "session.create.cleanup.preview", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
 		{"repair preview without its API", surfaceCoreLifecycle, "session.repair.preview", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
 	} {

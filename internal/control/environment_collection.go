@@ -8,26 +8,15 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
-	"time"
-
-	"github.com/lgvo/p.ai/internal/api"
 )
 
-// EnvironmentCollectionClaim is the complete reviewed generation. It is
-// persisted before any Incus deletion and never rewritten on retry.
+// EnvironmentCollectionClaim is one reviewed image of a project deletion. It
+// is persisted before any Incus deletion and never rewritten on retry.
 type EnvironmentCollectionClaim struct {
-	Image                 EnvironmentImage `json:"image"`
-	ImagePresent          bool             `json:"image_present"`
-	ObservedSize          int64            `json:"observed_size"`
-	RelatedDigest         string           `json:"related_digest"`
-	ConfirmationDigest    string           `json:"confirmation_digest"`
-	ConfirmationExpiresAt string           `json:"confirmation_expires_at"`
-}
-
-func (c EnvironmentCollectionClaim) Valid() bool {
-	_, expiryErr := time.Parse(time.RFC3339Nano, c.ConfirmationExpiresAt)
-	return c.Image.valid() && validFingerprint(c.RelatedDigest) && validFingerprint(c.ConfirmationDigest) && c.ObservedSize >= 0 && c.ObservedSize <= 1<<50 &&
-		(!c.ImagePresent || c.ObservedSize > 0) && expiryErr == nil
+	Image         EnvironmentImage `json:"image"`
+	ImagePresent  bool             `json:"image_present"`
+	ObservedSize  int64            `json:"observed_size"`
+	RelatedDigest string           `json:"related_digest"`
 }
 
 type RelatedEnvironmentSession struct {
@@ -72,21 +61,13 @@ func relatedEnvironmentRows(ctx context.Context, q collectionQuerier, project, k
 	return items, next, nil
 }
 
-func (s *Store) ListRelatedEnvironmentSessions(ctx context.Context, project, key, fingerprint, after string, limit int) ([]RelatedEnvironmentSession, string, error) {
-	if !validProject(project) || !validFingerprint(key) || !validFingerprint(fingerprint) ||
-		(after != "" && !cacheUUID.MatchString(after)) || limit < 1 || limit > 100 {
-		return nil, "", ErrInvalid
-	}
-	return relatedEnvironmentRows(ctx, s.db, project, key, fingerprint, after, limit)
-}
-
-func relatedEnvironmentDigest(ctx context.Context, q collectionQuerier, project, key, fingerprint string) (string, int, error) {
+func relatedEnvironmentDigest(ctx context.Context, q collectionQuerier, project, key, fingerprint string) (string, error) {
 	h := sha256.New()
 	after, count := "", 0
 	for {
 		items, next, err := relatedEnvironmentRows(ctx, q, project, key, fingerprint, after, 100)
 		if err != nil {
-			return "", 0, err
+			return "", err
 		}
 		for _, v := range items {
 			encoded, _ := json.Marshal(v)
@@ -94,7 +75,7 @@ func relatedEnvironmentDigest(ctx context.Context, q collectionQuerier, project,
 			_, _ = h.Write([]byte{0})
 			count++
 			if count > 10000 {
-				return "", 0, errors.New("too many related environment sessions")
+				return "", errors.New("too many related environment sessions")
 			}
 		}
 		if next == "" {
@@ -102,12 +83,12 @@ func relatedEnvironmentDigest(ctx context.Context, q collectionQuerier, project,
 		}
 		after = next
 	}
-	return hex.EncodeToString(h.Sum(nil)), count, nil
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (s *Store) RelatedEnvironmentDigest(ctx context.Context, project, key, fingerprint string) (string, int, error) {
+func (s *Store) RelatedEnvironmentDigest(ctx context.Context, project, key, fingerprint string) (string, error) {
 	if !validProject(project) || !validFingerprint(key) || !validFingerprint(fingerprint) {
-		return "", 0, ErrInvalid
+		return "", ErrInvalid
 	}
 	return relatedEnvironmentDigest(ctx, s.db, project, key, fingerprint)
 }
@@ -158,88 +139,6 @@ func sameEnvironmentImage(a, b EnvironmentImage) bool {
 }
 
 func SameEnvironmentImage(a, b EnvironmentImage) bool { return sameEnvironmentImage(a, b) }
-
-type EnvironmentCacheItem struct {
-	Project         string `json:"project"`
-	Key             string `json:"environment_key"`
-	Fingerprint     string `json:"fingerprint"`
-	BaseFingerprint string `json:"base_image_fingerprint"`
-	CreatedAt       string `json:"created_at"`
-	LastUsedAt      string `json:"last_used_at,omitempty"`
-	LogicalSize     int64  `json:"logical_size"`
-	ImageStatus     string `json:"image_status"`
-	RelatedCount    int    `json:"related_count"`
-}
-
-type EnvironmentCollectionPreview struct {
-	Token           string                      `json:"confirmation_token"`
-	ExpiresAt       string                      `json:"expires_at"`
-	Item            EnvironmentCacheItem        `json:"item"`
-	RelatedSessions []RelatedEnvironmentSession `json:"related_sessions"`
-	RelatedNext     string                      `json:"related_next"`
-	Warning         string                      `json:"warning"`
-}
-
-func (s *Store) BeginEnvironmentCollection(ctx context.Context, key string, claim EnvironmentCollectionClaim) (api.Operation, error) {
-	if key == "" || len(key) > 128 || !claim.Valid() {
-		return api.Operation{}, ErrInvalid
-	}
-	request, _ := json.Marshal(claim)
-	if len(request) > 16384 {
-		return api.Operation{}, ErrInvalid
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return api.Operation{}, err
-	}
-	defer tx.Rollback()
-	if replay, err := keyRecordsRequest(ctx, tx, key, KindEnvironmentCollect, request); err != nil {
-		return api.Operation{}, err
-	} else if replay {
-		return getOperationTx(ctx, tx, key)
-	}
-	var current EnvironmentImage
-	var props string
-	err = tx.QueryRowContext(ctx, `SELECT fingerprint,base_fingerprint,system,material_digest,capture_store_path,builder_request_uuid,properties_json,created_at,last_used_at,logical_size
-	 FROM environment_images WHERE project_path=? AND environment_key=?`, claim.Image.Project, claim.Image.Key).
-		Scan(&current.Fingerprint, &current.BaseFingerprint, &current.System, &current.MaterialDigest, &current.CaptureStorePath,
-			&current.BuilderRequest, &props, &current.CreatedAt, &current.LastUsedAt, &current.LogicalSize)
-	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, ErrConflict
-	}
-	if err != nil {
-		return api.Operation{}, err
-	}
-	current.Project, current.Key = claim.Image.Project, claim.Image.Key
-	if json.Unmarshal([]byte(props), &current.Properties) != nil || !sameEnvironmentImage(current, claim.Image) {
-		return api.Operation{}, ErrConflict
-	}
-	related, _, err := relatedEnvironmentDigest(ctx, tx, claim.Image.Project, claim.Image.Key, claim.Image.Fingerprint)
-	if err != nil {
-		return api.Operation{}, err
-	}
-	if related != claim.RelatedDigest {
-		return api.Operation{}, ErrConflict
-	}
-	expiresAt, _ := time.Parse(time.RFC3339Nano, claim.ConfirmationExpiresAt)
-	if !time.Now().Before(expiresAt) {
-		return api.Operation{}, ErrConflict
-	}
-	opID, err := newUUID()
-	if err != nil {
-		return api.Operation{}, err
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err = insertOperation(ctx, tx, operationRecord{ID: opID, Key: key, Kind: KindEnvironmentCollect, Project: claim.Image.Project, Request: request, Phase: "accepted", Now: now})
-	if err != nil {
-		return api.Operation{}, classifyWrite(err)
-	}
-	if err := tx.Commit(); err != nil {
-		return api.Operation{}, err
-	}
-	return api.Operation{ID: opID, Key: key, Kind: "environment.collect", Project: claim.Image.Project, Request: request,
-		Status: "running", Phase: "accepted", CreatedAt: now, UpdatedAt: now}, nil
-}
 
 func (s *Store) DeleteEnvironmentImageExact(ctx context.Context, want EnvironmentImage) error {
 	if !want.valid() || want.CreatedAt == "" {

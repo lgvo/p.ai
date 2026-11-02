@@ -123,8 +123,7 @@ does not change owner-document lifecycle semantics.
 - [ ] Implement systemd activation/host supervision, journal diagnostic
   capture, and container shutdown on clean or failed persistent-host exit.
 - [ ] Implement the Nix environment builder, compatibility gate, immutable
-  image cache, private session roots, explicit cache collection, and blank
-  bootstrap base-image path.
+  image cache, private session roots, and blank bootstrap base-image path.
 - [ ] Implement typed filesystem/network grants and policy comparison as
   `current`, `outdated`, or `invalid`, including guided recreation.
 - [ ] Complete every relevant real-machine gate in

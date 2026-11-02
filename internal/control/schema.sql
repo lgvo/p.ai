@@ -33,8 +33,6 @@ CREATE TABLE operations (
  evidence_json TEXT, diagnostic TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
-CREATE UNIQUE INDEX collection_one_active_per_project ON operations(project_path)
- WHERE kind='environment.collect' AND status IN ('running','blocked','unknown');
 -- One active operation per session, except that a narrowly proved blocked
 -- creator shares its session with one read-only loss inspection or one
 -- assembled cleanup, which holds a reversible read guard on it.
@@ -199,14 +197,6 @@ CREATE TRIGGER immutable_operation_request BEFORE UPDATE OF id,idempotency_key,k
 CREATE TRIGGER operations_key_publication BEFORE INSERT ON operations
  WHEN EXISTS(SELECT 1 FROM publication_requests WHERE idempotency_key=NEW.idempotency_key)
  BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
--- A workspace read holds the same per-session durable exclusion as lifecycle
--- mutations. Its immutable request identifies the helper before Incus init;
--- phases and evidence are advanced only after exact native postconditions.
-CREATE TRIGGER workspace_read_requires_established BEFORE INSERT ON operations
- WHEN NEW.kind='workspace.inspect' AND NOT EXISTS(
-   SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
-   AND registry_state='established')
- BEGIN SELECT RAISE(ABORT,'constraint failed: workspace session unavailable'); END;
 CREATE TRIGGER discard_requires_established BEFORE INSERT ON operations
  WHEN NEW.kind='session.discard' AND NOT EXISTS(
   SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
@@ -227,25 +217,6 @@ CREATE TRIGGER repair_requires_established BEFORE INSERT ON operations
    SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
    AND registry_state='established')
  BEGIN SELECT RAISE(ABORT,'constraint failed: repair session unavailable'); END;
--- Repair preparation and confirmed image reconstruction use the same image
--- cache/publisher authority as creation. Collection must not race either.
-CREATE TRIGGER collect_requires_quiescent_project BEFORE INSERT ON operations
- WHEN NEW.kind='environment.collect' AND EXISTS(
-   SELECT 1 FROM operations WHERE project_path=NEW.project_path
-   AND kind IN ('project.create','session.create','session.repair','session.repair.prepare')
-   AND status IN ('running','blocked','unknown'))
- BEGIN SELECT RAISE(ABORT,'constraint failed: project environment effect active during cache collection'); END;
-CREATE TRIGGER create_excludes_collection BEFORE INSERT ON operations
- WHEN NEW.kind IN ('project.create','session.create','session.repair','session.repair.prepare') AND EXISTS(
-   SELECT 1 FROM operations WHERE project_path=NEW.project_path
-   AND kind='environment.collect' AND status IN ('running','blocked','unknown'))
- BEGIN SELECT RAISE(ABORT,'constraint failed: cache collection active'); END;
-CREATE TRIGGER retry_excludes_collection BEFORE UPDATE OF status ON operations
- WHEN NEW.kind IN ('project.create','session.create','session.repair','session.repair.prepare')
- AND NEW.status='running' AND OLD.status!='running' AND EXISTS(
-   SELECT 1 FROM operations WHERE project_path=NEW.project_path
-   AND kind='environment.collect' AND status IN ('running','blocked','unknown'))
- BEGIN SELECT RAISE(ABORT,'constraint failed: cache collection active'); END;
 CREATE TRIGGER repair_prepare_requires_established BEFORE INSERT ON operations
  WHEN NEW.kind='session.repair.prepare' AND NOT EXISTS(
    SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
@@ -361,14 +332,6 @@ CREATE TRIGGER publication_requests_retired_key BEFORE INSERT ON publication_req
  BEGIN SELECT RAISE(ABORT,'constraint failed: project-deleted request retired'); END;
 
 -- environment_images
-CREATE TRIGGER cache_insert_excludes_collection BEFORE INSERT ON environment_images
- WHEN EXISTS(SELECT 1 FROM operations WHERE project_path=NEW.project_path
-   AND kind='environment.collect' AND status IN ('running','blocked','unknown'))
- BEGIN SELECT RAISE(ABORT,'constraint failed: cache collection active'); END;
-CREATE TRIGGER cache_update_excludes_collection BEFORE UPDATE ON environment_images
- WHEN EXISTS(SELECT 1 FROM operations WHERE project_path=NEW.project_path
-   AND kind='environment.collect' AND status IN ('running','blocked','unknown'))
- BEGIN SELECT RAISE(ABORT,'constraint failed: cache collection active'); END;
 CREATE TRIGGER deleting_project_environment_images_insert BEFORE INSERT ON environment_images
  WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
  BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;

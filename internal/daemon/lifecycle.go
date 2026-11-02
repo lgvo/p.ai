@@ -49,7 +49,6 @@ type lifecycle struct {
 	eventContexts           map[string]eventContext
 	progress                map[string]string
 	changedPolicies         map[string]bool
-	collectionPreviews      map[string]collectionPreviewState
 	cacheKeyLocks           map[string]chan struct{}
 	removalPreviews         map[string]removalPreviewState
 	repairPreviews          map[string]repairPreviewState
@@ -69,8 +68,6 @@ var (
 	_ control.LifecycleAPI              = (*lifecycle)(nil)
 	_ control.ServiceAPI                = (*lifecycle)(nil)
 	_ control.AttachmentAPI             = (*lifecycle)(nil)
-	_ control.EnvironmentCacheAPI       = (*lifecycle)(nil)
-	_ control.WorkspaceReadAPI          = (*lifecycle)(nil)
 	_ control.WorkspaceLossReadAPI      = (*lifecycle)(nil)
 	_ control.RemovalPreviewAPI         = (*lifecycle)(nil)
 	_ control.DiscardAPI                = (*lifecycle)(nil)

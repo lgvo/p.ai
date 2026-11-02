@@ -4,8 +4,8 @@ How P prepares and caches a Nix development environment as an immutable Incus
 image without sharing writable Nix state between sessions.
 
 > **Status: design.** This document is authoritative for environment
-> selection, isolated realization, Incus image caching, activation, and cache
-> collection. [Runtime and isolation](runtime-isolation.md) owns the final
+> selection, isolated realization, Incus image caching and image lifetime, and
+> activation. [Runtime and isolation](runtime-isolation.md) owns the final
 > session instance and its private writable state.
 
 ## Contents
@@ -21,7 +21,7 @@ image without sharing writable Nix state between sessions.
 - [Nix activation compatibility gate](#nix-activation-compatibility-gate)
 - [Cached Nix store model](#cached-nix-store-model)
 - [Session activation and later Nix work](#session-activation-and-later-nix-work)
-- [Caching, concurrency, and collection](#caching-concurrency-and-collection)
+- [Caching, concurrency, and image lifetime](#caching-concurrency-and-image-lifetime)
 - [Security boundary](#security-boundary)
 - [Failures and retry](#failures-and-retry)
 - [Performance and evidence](#performance-and-evidence)
@@ -161,9 +161,9 @@ image publication also passes its VM gate, including stopped-builder scrub,
 closure retention, activation in two private roots, and independent Nix state
 across Stop/Start. The separate public CLI/daemon gate now covers offline
 devShell creation, project-scoped cache reuse and loss/rebuild, exact retry,
-and ordinary session activation. Explicit collection and interrupted-cleanup
-recovery also pass their public VM gate. General public fetching remains
-pending; offline fixtures do not establish network access.
+and ordinary session activation. Two overlapping same-key builds also pass
+their public VM gate. General public fetching remains pending; offline
+fixtures do not establish network access.
 
 For flakes, P:
 
@@ -339,8 +339,8 @@ Nix expressions and captured project hooks run only in the guest. See
 limits. Offline native builder realization and capture have also passed their
 VM gate. Native image publication and offline public session/cache composition
 have passed their separate gates. Trusted environment configuration enables
-that devShell path; omitting it retains base-only creation. Explicit collection
-has also passed its gate; public fetching remains pending.
+that devShell path; omitting it retains base-only creation. Public fetching
+remains pending.
 
 ## Cached Nix store model
 
@@ -395,7 +395,7 @@ session.
 Only committed source can produce a new shared environment image. P never
 turns dirty or uncommitted session state into a cache image automatically.
 
-## Caching, concurrency, and collection
+## Caching, concurrency, and image lifetime
 
 Incus is the image cache and byte authority. P performs a cache hit by looking
 up the environment key and verifying that exact fingerprint in the configured
@@ -410,13 +410,10 @@ P does not maintain artifact leases. Existing Incus instances own their
 private roots independently of the cache index. Removing an environment image
 never occurs as a side effect of stop, discard, or session deletion.
 
-Cache collection is explicit. It itemizes P-owned environment keys, image
-fingerprints, last-use metadata, logical size, and currently related sessions
-before removing the index and image. The preview warns that an existing
-instance continues without the image but may no longer be exactly recreatable
-if it is later lost and its branch environment has changed. This warning does
-not introduce a lease or implicit retention rule. A missing externally removed
-image is a cache miss. MVP has no automatic age- or pressure-based collection.
+P has no cache collection: an environment image stays until its project is
+deleted, and [aggregate project deletion](control-api.md#aggregate-project-deletion)
+removes every image indexed for that project. Images therefore accumulate
+while a project exists. A missing externally removed image is a cache miss.
 
 If a missing session runtime also lost its recorded derived image, P does not
 infer a replacement from the old cache key or the branch name. Explicit
@@ -520,12 +517,12 @@ MVP includes:
 - a pinned `nix print-dev-env --json` compatibility gate;
 - cache index by environment key and fingerprint;
 - bounded progress and explicit retry; and
-- explicit cache collection.
+- removal of a project's images with the project.
 
 MVP excludes Dockerfile/devcontainer providers, OCI packaging, raw closure
 mounts, shared writable Nix stores, host Nix access, automatic promotion from
-sessions, build secrets, remote builders, automatic cache collection, and
-portable image distribution between P instances.
+sessions, build secrets, remote builders, cache collection, and portable
+image distribution between P instances.
 
 ## Acceptance criteria
 

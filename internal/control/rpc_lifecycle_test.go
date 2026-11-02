@@ -346,39 +346,10 @@ func TestRemovalPreviewRPCUsesClosedVersionedRequest(t *testing.T) {
 	}
 }
 
-func (p *workspaceRPCProbe) InspectWorkspace(_ context.Context, req WorkspaceInspectRequest) (api.Operation, error) {
-	p.called++
-	p.request = req
-	return api.Operation{Kind: "workspace.inspect", Status: "running", SessionUUID: req.SessionUUID}, nil
-}
-
 func (p *workspaceRPCProbe) InspectWorkspaceLoss(_ context.Context, req WorkspaceInspectRequest) (api.Operation, error) {
 	p.called++
 	p.request = req
 	return api.Operation{Kind: "workspace.loss.inspect", Status: "running", SessionUUID: req.SessionUUID}, nil
-}
-
-func TestWorkspaceRPCUsesClosedVersionedRequest(t *testing.T) {
-	p := &workspaceRPCProbe{}
-	handler := NewHandler(HandlerConfig{Lifecycle: p})
-	uuid := "550e8400-e29b-41d4-a716-446655440000"
-	for _, raw := range []string{
-		`{"v":2,"key":"inspect-1","uuid":"` + uuid + `"}`,
-		`{"v":1,"key":"inspect-1","uuid":"` + uuid + `","path":"/workspace"}`,
-		`{"v":1,"key":"inspect-1","key":"inspect-1","uuid":"` + uuid + `"}`,
-		`{"v":1,"key":"inspect-1","uuid":"not-a-uuid"}`,
-	} {
-		if _, rpcErr := handler(context.Background(), "workspace.inspect", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind != "invalid_params" {
-			t.Fatalf("unsafe workspace request accepted: %s: %+v", raw, rpcErr)
-		}
-	}
-	if p.called != 0 {
-		t.Fatal("invalid requests reached the workspace authority")
-	}
-	result, rpcErr := handler(context.Background(), "workspace.inspect", json.RawMessage(`{"v":1,"key":"inspect-1","uuid":"`+uuid+`"}`))
-	if rpcErr != nil || p.called != 1 || p.request.Key != "inspect-1" || p.request.SessionUUID != uuid {
-		t.Fatalf("closed workspace request not routed: %+v %+v", result, rpcErr)
-	}
 }
 
 func TestWorkspaceLossRPCUsesClosedVersionedRequest(t *testing.T) {

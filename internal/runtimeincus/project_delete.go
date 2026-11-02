@@ -48,7 +48,7 @@ func (b *Backend) CheckProjectDeletionInventory(ctx context.Context, project str
 	}
 	for _, im := range all {
 		if im.Properties["p.project_path"] == project && !images[im.Fingerprint] {
-			return fmt.Errorf("unreviewed project image %s; exact owned cache investigation/collection required", im.Fingerprint)
+			return fmt.Errorf("unreviewed project image %s; exact owned cache investigation required", im.Fingerprint)
 		}
 	}
 	return nil

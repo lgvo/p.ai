@@ -12,18 +12,10 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-// InspectWorkspace accepts only one closed read-only operation. The operation
-// and helper name are durable before Incus init; it never runs Git in the
-// daemon or activates the target session.
-func (l *lifecycle) InspectWorkspace(ctx context.Context, req control.WorkspaceInspectRequest) (api.Operation, error) {
-	return l.inspectWorkspaceRead(ctx, req, "workspace.inspect")
-}
-
+// InspectWorkspaceLoss accepts only one closed read-only operation. The
+// operation and helper name are durable before Incus init; it never runs Git
+// in the daemon or activates the target session.
 func (l *lifecycle) InspectWorkspaceLoss(ctx context.Context, req control.WorkspaceInspectRequest) (api.Operation, error) {
-	return l.inspectWorkspaceRead(ctx, req, "workspace.loss.inspect")
-}
-
-func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.WorkspaceInspectRequest, kind string) (api.Operation, error) {
 	if req.Key == "" || len(req.Key) > 128 || len(req.SessionUUID) != 36 {
 		return api.Operation{}, control.ErrInvalid
 	}
@@ -36,7 +28,7 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 	if attached {
 		return api.Operation{}, control.ErrConflict
 	}
-	if prior, replayed, err := replayRequest(l, ctx, req.Key, kind, req); err != nil || replayed {
+	if prior, replayed, err := replayRequest(l, ctx, req.Key, control.KindWorkspaceLossInspect, req); err != nil || replayed {
 		return prior, err
 	}
 	s, err := l.store.GetSession(ctx, req.SessionUUID)
@@ -44,7 +36,7 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 		return api.Operation{}, err
 	}
 	var creator api.Operation
-	if s.Registry == "creating" && kind == "workspace.loss.inspect" {
+	if s.Registry == "creating" {
 		creator, err = l.store.CreationForSession(ctx, s.UUID)
 		if err != nil {
 			return api.Operation{}, err
@@ -70,7 +62,7 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 	if err != nil || !observed.Exists || observed.Status != "Running" && observed.Status != "Stopped" {
 		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
-	if kind == "workspace.loss.inspect" && (observed.IncusUUID == "" || observed.Generation == "") {
+	if observed.IncusUUID == "" || observed.Generation == "" {
 		return api.Operation{}, errors.New("workspace instance generation unavailable")
 	}
 	ev := control.WorkspaceInspectEvidence{InstanceUUID: l.instanceID, ImageFingerprint: native.ImageFingerprint,
@@ -85,12 +77,7 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 		}
 		control.BindWorkspaceCreator(&ev, creator)
 	}
-	var op api.Operation
-	if kind == "workspace.loss.inspect" {
-		op, err = l.store.BeginWorkspaceLossInspect(ctx, req, ev)
-	} else {
-		op, err = l.store.BeginWorkspaceInspect(ctx, req, ev)
-	}
+	op, err := l.store.BeginWorkspaceLossInspect(ctx, req, ev)
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -124,7 +111,7 @@ func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 		l.blockWorkspaceInspect(op, errors.New("workspace operation identity unavailable"))
 		return
 	}
-	if op.Kind == "workspace.loss.inspect" && (ev.SourceIncusUUID == "" || ev.SourceGeneration == "") {
+	if ev.SourceIncusUUID == "" || ev.SourceGeneration == "" {
 		l.blockWorkspaceInspect(op, errors.New("workspace instance generation unavailable"))
 		return
 	}
@@ -132,7 +119,7 @@ func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 	entryPhase := op.Phase
 	s, err := l.store.GetSession(ctx, op.SessionUUID)
 	if err != nil || s.Project != op.Project || s.Registry != "established" && ev.CreatorOperationID == "" ||
-		ev.CreatorOperationID != "" && (op.Kind != "workspace.loss.inspect" || s.Registry != "creating" || ev.OriginalStatus != "Stopped") {
+		ev.CreatorOperationID != "" && (s.Registry != "creating" || ev.OriginalStatus != "Stopped") {
 		l.blockWorkspaceInspect(op, errors.Join(err, errors.New("workspace session changed")))
 		return
 	}
@@ -153,7 +140,7 @@ func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 	}
 	helper := runtimeincus.WorkspaceHelper(ev.InstanceUUID, op.ID, op.SessionUUID, op.Project, ev.BaseFingerprint)
 	lossSourceMatches := func(observed runtimeincus.Observation) bool {
-		return op.Kind != "workspace.loss.inspect" || observed.IncusUUID == ev.SourceIncusUUID && observed.Generation == ev.SourceGeneration
+		return observed.IncusUUID == ev.SourceIncusUUID && observed.Generation == ev.SourceGeneration
 	}
 	advance := func(phase string) error {
 		raw, err := json.Marshal(ev)
@@ -235,12 +222,7 @@ func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 				fail(errors.New("workspace source status changed"))
 				return
 			}
-			if op.Kind == "workspace.loss.inspect" {
-				e = l.runtime.FreezeWorkspaceSourceExact(ctx, source, ev.SourceIncusUUID, ev.SourceGeneration, func() error { return advance("freeze-intent") })
-			} else {
-				e = l.runtime.FreezeWorkspaceSource(ctx, source, func() error { return advance("freeze-intent") })
-			}
-			if e != nil {
+			if e = l.runtime.FreezeWorkspaceSourceExact(ctx, source, ev.SourceIncusUUID, ev.SourceGeneration, func() error { return advance("freeze-intent") }); e != nil {
 				fail(e)
 				return
 			}
@@ -257,13 +239,7 @@ func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 		fallthrough
 	case "freeze-intent":
 		if entryPhase == "freeze-intent" {
-			var e error
-			if op.Kind == "workspace.loss.inspect" {
-				e = l.runtime.ReconcileWorkspaceFreezeExact(ctx, source, ev.SourceIncusUUID, ev.SourceGeneration)
-			} else {
-				e = l.runtime.ReconcileWorkspaceFreeze(ctx, source)
-			}
-			if e != nil {
+			if e := l.runtime.ReconcileWorkspaceFreezeExact(ctx, source, ev.SourceIncusUUID, ev.SourceGeneration); e != nil {
 				fail(e)
 				return
 			}
@@ -279,22 +255,7 @@ func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 			return
 		}
 		var e error
-		if op.Kind == "workspace.loss.inspect" {
-			ev.Result, e = l.inspectWorkspaceLossResult(ctx, s, source, helper, ev)
-		} else {
-			var snapshot runtimeincus.WorkspaceSnapshot
-			snapshot, e = l.runtime.ExportWorkspace(ctx, source)
-			if e == nil {
-				e = l.runtime.InstallWorkspaceHelperCopy(ctx, helper, snapshot)
-			}
-			if e == nil {
-				var result runtimeincus.WorkspaceAnalysis
-				result, e = l.runtime.AnalyzeWorkspaceHelper(ctx, helper)
-				if e == nil {
-					ev.Result, e = json.Marshal(result)
-				}
-			}
-		}
+		ev.Result, e = l.inspectWorkspaceLossResult(ctx, s, source, helper, ev)
 		if e != nil {
 			fail(e)
 			return
@@ -324,13 +285,7 @@ func (l *lifecycle) processWorkspaceInspect(op api.Operation) {
 		fallthrough
 	case "helper-absent":
 		if ev.OriginalStatus == "Running" {
-			var e error
-			if op.Kind == "workspace.loss.inspect" {
-				e = l.runtime.ThawWorkspaceSourceExact(ctx, source, ev.SourceIncusUUID, ev.SourceGeneration)
-			} else {
-				e = l.runtime.ThawWorkspaceSource(ctx, source)
-			}
-			if e != nil {
+			if e := l.runtime.ThawWorkspaceSourceExact(ctx, source, ev.SourceIncusUUID, ev.SourceGeneration); e != nil {
 				fail(e)
 				return
 			}
@@ -379,17 +334,15 @@ func (l *lifecycle) failWorkspaceInspect(op api.Operation, ev control.WorkspaceI
 		l.blockWorkspaceInspect(op, fmt.Errorf("workspace native effect outcome unresolved; exact positive state or administrative resolution required: %w", cause))
 		return
 	}
-	if op.Kind == "workspace.loss.inspect" {
-		observed, err := l.runtime.Inspect(l.ctx, source)
-		if err != nil || !observed.Exists || observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration {
-			l.blockWorkspaceInspect(op, errors.Join(cause, err, errors.New("workspace source generation changed before cleanup")))
-			return
-		}
+	observed, err := l.runtime.Inspect(l.ctx, source)
+	if err != nil || !observed.Exists || observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration {
+		l.blockWorkspaceInspect(op, errors.Join(cause, err, errors.New("workspace source generation changed before cleanup")))
+		return
 	}
 	if op.Phase == "helper-ready" && ev.OriginalStatus == "Running" {
 		observed, err := l.runtime.Inspect(l.ctx, source)
 		if err != nil || !observed.Exists || observed.Status != "Running" ||
-			op.Kind == "workspace.loss.inspect" && (observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration) {
+			observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration {
 			l.blockWorkspaceInspect(op, errors.Join(cause, err, errors.New("workspace source changed before owned freeze")))
 			return
 		}
@@ -402,30 +355,22 @@ func (l *lifecycle) failWorkspaceInspect(op api.Operation, ev control.WorkspaceI
 	}
 	ownedFreeze := op.Phase == "quiescent" || op.Phase == "analyzed" || op.Phase == "helper-absent" || op.Phase == "source-restored"
 	if ev.OriginalStatus == "Running" && ownedFreeze {
-		var err error
-		if op.Kind == "workspace.loss.inspect" {
-			err = l.runtime.ThawWorkspaceSourceExact(cleanupCtx, source, ev.SourceIncusUUID, ev.SourceGeneration)
-		} else {
-			err = l.runtime.ThawWorkspaceSource(cleanupCtx, source)
-		}
-		if err != nil {
+		if err := l.runtime.ThawWorkspaceSourceExact(cleanupCtx, source, ev.SourceIncusUUID, ev.SourceGeneration); err != nil {
 			l.blockWorkspaceInspect(op, errors.Join(cause, fmt.Errorf("source thaw unresolved: %w", err)))
 			return
 		}
 	} else {
 		observed, err := l.runtime.Inspect(cleanupCtx, source)
 		if err != nil || !observed.Exists || observed.Status != ev.OriginalStatus ||
-			op.Kind == "workspace.loss.inspect" && (observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration) {
+			observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration {
 			l.blockWorkspaceInspect(op, errors.Join(cause, err, errors.New("source state changed before owned freeze")))
 			return
 		}
 	}
-	if op.Kind == "workspace.loss.inspect" {
-		observed, err := l.runtime.Inspect(cleanupCtx, source)
-		if err != nil || !observed.Exists || observed.Status != ev.OriginalStatus || observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration {
-			l.blockWorkspaceInspect(op, errors.Join(cause, err, errors.New("workspace source generation changed before cleanup completion")))
-			return
-		}
+	observed, err = l.runtime.Inspect(cleanupCtx, source)
+	if err != nil || !observed.Exists || observed.Status != ev.OriginalStatus || observed.IncusUUID != ev.SourceIncusUUID || observed.Generation != ev.SourceGeneration {
+		l.blockWorkspaceInspect(op, errors.Join(cause, err, errors.New("workspace source generation changed before cleanup completion")))
+		return
 	}
 	message := fmt.Sprintf("workspace inspection unavailable after exact cleanup: %v", cause)
 	if len(message) > 900 {

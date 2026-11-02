@@ -27,13 +27,6 @@ type WorkspaceEntry struct {
 
 type WorkspaceSnapshot struct{ Entries []WorkspaceEntry }
 
-// ExportWorkspace sees only /workspace through the project-qualified file API.
-// Every component is LSTATed before descent, and any unsupported layout is an
-// error; callers must never turn a partial snapshot into a clean Git result.
-func (b *Backend) ExportWorkspace(ctx context.Context, source Session) (WorkspaceSnapshot, error) {
-	return b.exportWorkspace(ctx, source, false)
-}
-
 // ExportWorkspaceLoss captures only Git-known, narrowly located runtime-owned
 // worktrees. Every discovered tree is read while the exact source remains
 // stopped or frozen. A missing, unsafe, or over-bound tree makes the whole
@@ -56,7 +49,7 @@ func (b *Backend) ExportWorkspaceLoss(ctx context.Context, source Session) (Work
 			return zero, err
 		}
 	}
-	main, err := exportWorkspaceFilesPolicy(ctx, api, true)
+	main, err := exportWorkspaceFiles(ctx, api)
 	if err != nil {
 		return zero, err
 	}
@@ -100,7 +93,7 @@ func exportKnownLinkedTrees(ctx context.Context, api workspaceReader, main Works
 	}
 	result := WorkspaceLossSnapshot{Main: main, Linked: make([]workspaceLinkedSnapshot, 0, len(links))}
 	for _, link := range links {
-		snapshot, err := exportWorkspaceTree(ctx, api, link.Root, true, "file")
+		snapshot, err := exportWorkspaceTree(ctx, api, link.Root, "file")
 		if err != nil {
 			return zero, err
 		}
@@ -179,39 +172,6 @@ func boundWorkspaceLossSnapshot(result WorkspaceLossSnapshot) error {
 	return nil
 }
 
-func (b *Backend) exportWorkspace(ctx context.Context, source Session, allowLinked bool) (WorkspaceSnapshot, error) {
-	if source.WorkspaceOwner != "" {
-		return WorkspaceSnapshot{}, errors.New("helper cannot be a workspace source")
-	}
-	if err := b.CheckConfinement(ctx); err != nil {
-		return WorkspaceSnapshot{}, err
-	}
-	before, err := b.Inspect(ctx, source)
-	if err != nil || !before.Exists || before.Status != "Stopped" && before.Status != "Frozen" {
-		return WorkspaceSnapshot{}, errors.Join(err, errors.New("workspace source is not quiescent"))
-	}
-	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(source)}
-	if before.Status == "Frozen" {
-		if err := api.verifyFrozenWorkspaceMounts(ctx); err != nil {
-			return WorkspaceSnapshot{}, err
-		}
-	}
-	result, err := exportWorkspaceFilesPolicy(ctx, api, allowLinked)
-	if err != nil {
-		return WorkspaceSnapshot{}, err
-	}
-	if before.Status == "Frozen" {
-		if err := api.verifyFrozenWorkspaceMounts(ctx); err != nil {
-			return WorkspaceSnapshot{}, err
-		}
-	}
-	after, err := b.Inspect(ctx, source)
-	if err != nil || !after.Exists || after.Status != before.Status || after.Fingerprint != before.Fingerprint {
-		return WorkspaceSnapshot{}, errors.Join(err, errors.New("workspace source changed during export"))
-	}
-	return result, nil
-}
-
 type workspaceReader interface {
 	lstat(context.Context, string) (guestFile, error)
 	listDirectory(context.Context, string, int) ([]string, error)
@@ -219,15 +179,14 @@ type workspaceReader interface {
 	readlinkBounded(context.Context, string, int64) ([]byte, error)
 }
 
+// exportWorkspaceFiles reads the /workspace tree. Every component is LSTATed
+// before descent, and any unsupported layout is an error; callers must never
+// turn a partial snapshot into a clean Git result.
 func exportWorkspaceFiles(ctx context.Context, api workspaceReader) (WorkspaceSnapshot, error) {
-	return exportWorkspaceFilesPolicy(ctx, api, false)
+	return exportWorkspaceTree(ctx, api, "/workspace", "directory")
 }
 
-func exportWorkspaceFilesPolicy(ctx context.Context, api workspaceReader, allowLinked bool) (WorkspaceSnapshot, error) {
-	return exportWorkspaceTree(ctx, api, "/workspace", allowLinked, "directory")
-}
-
-func exportWorkspaceTree(ctx context.Context, api workspaceReader, rootPath string, allowLinked bool, gitType string) (WorkspaceSnapshot, error) {
+func exportWorkspaceTree(ctx context.Context, api workspaceReader, rootPath string, gitType string) (WorkspaceSnapshot, error) {
 	if !supportedWorkspaceTreeRoot(rootPath) {
 		return WorkspaceSnapshot{}, errors.New("workspace tree root outside closed paths")
 	}
@@ -268,8 +227,7 @@ func exportWorkspaceTree(ctx context.Context, api workspaceReader, rootPath stri
 				return errors.New("workspace path escaped root")
 			}
 			rel := strings.TrimPrefix(full, rootPath+"/")
-			if rel == ".git/commondir" || rel == ".git/config.worktree" || rel == ".git/objects/info/alternates" ||
-				!allowLinked && (rel == ".git/worktrees" || strings.HasPrefix(rel, ".git/worktrees/") || strings.HasSuffix(rel, "/.git")) {
+			if rel == ".git/commondir" || rel == ".git/config.worktree" || rel == ".git/objects/info/alternates" {
 				return errors.New("linked or external Git worktree layout unavailable")
 			}
 			f, err := api.lstat(ctx, full)

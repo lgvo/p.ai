@@ -133,10 +133,29 @@ func TestWorkspaceHelperInitPinsAndRechecksEffectiveLimits(t *testing.T) {
 func TestWorkspaceFreezeAttemptRemainsUnknownUntilExactFrozenState(t *testing.T) {
 	f := &fakeIncus{instance: true, status: "Running"}
 	b := fakeBackend(f)
+	const incusUUID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const generation = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 	marked := false
 	pauseAttempted := false
 	busyOperation := true
 	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if len(argv) > 3 && argv[3] == "list" {
+			raw, err := f.run(ctx, binary, argv, env)
+			if err != nil {
+				return nil, err
+			}
+			var instances []instanceJSON
+			if err := json.Unmarshal(raw, &instances); err != nil {
+				return nil, err
+			}
+			for i := range instances {
+				for _, c := range []map[string]string{instances[i].Config, instances[i].ExpandedConfig} {
+					c["volatile.uuid"] = incusUUID
+					c["volatile.uuid.generation"] = generation
+				}
+			}
+			return json.Marshal(instances)
+		}
 		if len(argv) > 3 && argv[3] == "operation" {
 			if busyOperation {
 				return []byte(`[{"status_code":103,"resources":{"instances":["/1.0/instances/p-550e8400-e29b-41d4-a716-446655440000?project=user-1000"]}}]`), nil
@@ -153,16 +172,16 @@ func TestWorkspaceFreezeAttemptRemainsUnknownUntilExactFrozenState(t *testing.T)
 		return f.run(ctx, binary, argv, env)
 	}
 	source := testSession()
-	if err := b.FreezeWorkspaceSource(context.Background(), source, func() error { marked = true; return nil }); err == nil || marked || pauseAttempted {
+	if err := b.FreezeWorkspaceSourceExact(context.Background(), source, incusUUID, generation, func() error { marked = true; return nil }); err == nil || marked || pauseAttempted {
 		t.Fatalf("active exec did not prevent freeze before durable marker: marked=%t attempted=%t err=%v", marked, pauseAttempted, err)
 	}
 	busyOperation = false
-	if err := b.FreezeWorkspaceSource(context.Background(), source, func() error { marked = true; return nil }); err == nil || !pauseAttempted {
+	if err := b.FreezeWorkspaceSourceExact(context.Background(), source, incusUUID, generation, func() error { marked = true; return nil }); err == nil || !pauseAttempted {
 		t.Fatalf("delayed pause not represented as uncertain: marked=%t attempted=%t err=%v", marked, pauseAttempted, err)
 	}
 	// Both the operation inventory and status can be unchanged while the
 	// request waits before Incus OperationCreate. This must retain the guard.
-	if err := b.ReconcileWorkspaceFreeze(context.Background(), source); err == nil {
+	if err := b.ReconcileWorkspaceFreezeExact(context.Background(), source, incusUUID, generation); err == nil {
 		t.Fatal("unchanged Running state released uncertain freeze")
 	}
 	if slices.Contains(f.mutations, "resume") {
@@ -171,7 +190,7 @@ func TestWorkspaceFreezeAttemptRemainsUnknownUntilExactFrozenState(t *testing.T)
 	// Only an exact Frozen state after no active matching operation permits
 	// recovery to continue with the same source identity.
 	f.status = "Frozen"
-	if err := b.ReconcileWorkspaceFreeze(context.Background(), source); err != nil {
+	if err := b.ReconcileWorkspaceFreezeExact(context.Background(), source, incusUUID, generation); err != nil {
 		t.Fatalf("positive exact freeze was not accepted: %v", err)
 	}
 }

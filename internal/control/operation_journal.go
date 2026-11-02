@@ -13,9 +13,7 @@ import (
 const (
 	KindProjectCreate        = "project.create"
 	KindSessionCreate        = "session.create"
-	KindEnvironmentCollect   = "environment.collect"
 	KindProjectDelete        = "project.delete"
-	KindWorkspaceInspect     = "workspace.inspect"
 	KindWorkspaceLossInspect = "workspace.loss.inspect"
 	KindSessionDiscard       = "session.discard"
 	KindSessionDelete        = "session.delete"
@@ -38,9 +36,8 @@ var unfinishedGroups = []struct {
 	orderBy string
 }{
 	{[]string{KindProjectCreate, KindSessionCreate}, "created_at"},
-	{[]string{KindEnvironmentCollect}, "created_at"},
 	{[]string{KindProjectDelete}, "created_at"},
-	{[]string{KindWorkspaceInspect, KindWorkspaceLossInspect}, "created_at"},
+	{[]string{KindWorkspaceLossInspect}, "created_at"},
 	{[]string{KindSessionDiscard, KindSessionDelete, KindCreateCleanup}, "created_at"},
 	{[]string{KindSessionRename}, "created_at"},
 	{[]string{KindRetainedRename}, "rowid"},

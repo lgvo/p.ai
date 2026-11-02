@@ -94,11 +94,11 @@ let
     GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -o "$out/environment.wasm" ./plugins/bundled/environment-nix
     cp plugins/bundled/environment-nix/plugin.json "$out/"
   '';
-  # Test-only immutable client shim: after one exact confirmed cache deletion,
-  # kill the daemon before its SQLite index cleanup to exercise restart repair.
-  collectionIncusWrapper = pkgs.writeShellScriptBin "p-incus-collection-wrapper" ''
+  # Test-only immutable client shim: hold an image publication until two named
+  # same-key builders exist, so their builds provably overlap.
+  publishBarrierIncusWrapper = pkgs.writeShellScriptBin "p-incus-publish-barrier-wrapper" ''
     set -eu
-    barrier=/tmp/p-vm-collection-publish-barrier-1000
+    barrier=/tmp/p-vm-publish-barrier-1000
     if test "''${4-}" = publish && test -f "$barrier"; then
       deadline=$((SECONDS+90))
       while test "$SECONDS" -lt "$deadline"; do
@@ -109,25 +109,13 @@ let
              ${pkgs.jq}/bin/jq -e --arg name "p-builder-$first" 'any(.[]; .name==$name)' >/dev/null &&
            ${pkgs.incus}/bin/incus --force-local --project user-1000 list "^p-builder-$second$" --format json |
              ${pkgs.jq}/bin/jq -e --arg name "p-builder-$second" 'any(.[]; .name==$name)' >/dev/null; then
-          ${pkgs.coreutils}/bin/touch /tmp/p-vm-collection-overlap-1000
+          ${pkgs.coreutils}/bin/touch /tmp/p-vm-publish-overlap-1000
           ${pkgs.coreutils}/bin/rm -f -- "$barrier"
           break
         fi
         ${pkgs.coreutils}/bin/sleep 0.2
       done
       test ! -f "$barrier" || exit 124
-    fi
-    marker=/tmp/p-vm-collection-cutover-1000
-    if test "''${4-}" = image && test "''${5-}" = delete && test -f "$marker"; then
-      read -r wanted daemon_pid < "$marker"
-      if test "''${6-}" = "$wanted"; then
-        if ${pkgs.incus}/bin/incus "$@"; then
-          ${pkgs.coreutils}/bin/rm -f -- "$marker"
-          kill -KILL "$daemon_pid"
-          exit 0
-        fi
-        exit 1
-      fi
     fi
     exec ${pkgs.incus}/bin/incus "$@"
   '';
@@ -252,7 +240,7 @@ let
       export P_TEST_RUNTIME_IMAGE_FILE=${runtimeIdentity}
       export P_TEST_RUNTIME_PLUGIN=${wasiRuntime}
       export P_TEST_ENV_PLUGIN=${wasiEnvironment}
-      export P_TEST_INCUS_WRAPPER=${collectionIncusWrapper}/bin/p-incus-collection-wrapper
+      export P_TEST_INCUS_WRAPPER=${publishBarrierIncusWrapper}/bin/p-incus-publish-barrier-wrapper
       export P_TEST_RUNTIME_HOSTILE=${wasiRuntimeHostile}
       export P_TEST_NIX_FIXTURE=${nixActivationFixture}
       export P_TEST_SELECTED_STEPS=${nixpkgs.lib.escapeShellArg (nixpkgs.lib.concatStringsSep "\n" selectedSteps)}

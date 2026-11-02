@@ -23,10 +23,10 @@ events, origin-backed creation, and explicit publication also pass in the VM.
 Restricted offline devShell realization, the selected environment WASI plugin,
 and native private-image publication pass their gates. Offline public devShell
 creation, project cache reuse/rebuild, activation, and private-state persistence
-also pass. Explicit cache collection, interrupted-cleanup recovery, and
-concurrent cache reuse pass their selected VM gate. The selected Codex adapter
-passes authentication-free event, private initialization, dummy credential
-isolation, and Stop/Start VM checks. That serial delivery checkpoint covered all
+also pass. Concurrent cache reuse passes its selected VM gate; explicit cache
+collection and the read-only `workspace.inspect` method have since been
+removed. The selected Codex adapter passes authentication-free event, private
+initialization, dummy credential isolation, and Stop/Start VM checks. That serial delivery checkpoint covered all
 58 steps at its tested revision, including the native live-TUI test, bounded workspace inspection and
 interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.

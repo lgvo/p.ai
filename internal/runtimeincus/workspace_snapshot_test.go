@@ -115,12 +115,6 @@ func TestWorkspaceExportRefusesEscapesAndUnsupportedLayouts(t *testing.T) {
 			f.files["/workspace/.git/commondir"] = guestFile{typ: "file", uid: 1000, gid: 1000, mode: 0644, data: []byte("/elsewhere")}
 			f.children["/workspace/.git"] = append(f.children["/workspace/.git"], "commondir")
 		}},
-		{"nested worktree", func(f *fakeWorkspaceReader) {
-			f.files["/workspace/nested"] = guestFile{typ: "directory", uid: 1000, gid: 1000, mode: 0755}
-			f.files["/workspace/nested/.git"] = guestFile{typ: "file", uid: 1000, gid: 1000, mode: 0644, data: []byte("gitdir: /elsewhere")}
-			f.children["/workspace"] = append(f.children["/workspace"], "nested")
-			f.children["/workspace/nested"] = []string{".git"}
-		}},
 		{"entry count", func(f *fakeWorkspaceReader) {
 			for i := 0; i < workspaceMaxEntries; i++ {
 				f.children["/workspace"] = append(f.children["/workspace"], "x")
@@ -159,10 +153,7 @@ func TestWorkspaceLossTreeExportAllowsOnlyVerifiedLinkedLayout(t *testing.T) {
 	f.files["/home/p/worktrees/side/.git"] = file("gitdir: /workspace/.git/worktrees/side\n")
 	f.files["/home/p/worktrees/side/tracked"] = file("side")
 	f.children["/home/p/worktrees/side"] = []string{".git", "tracked"}
-	if _, err := exportWorkspaceFiles(context.Background(), f); err == nil {
-		t.Fatal("v1 inspector accepted linked worktree")
-	}
-	main, err := exportWorkspaceFilesPolicy(context.Background(), f, true)
+	main, err := exportWorkspaceFiles(context.Background(), f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +161,7 @@ func TestWorkspaceLossTreeExportAllowsOnlyVerifiedLinkedLayout(t *testing.T) {
 	if err != nil || len(links) != 1 {
 		t.Fatalf("linked inventory: %+v %v", links, err)
 	}
-	linked, err := exportWorkspaceTree(context.Background(), f, links[0].Root, true, "file")
+	linked, err := exportWorkspaceTree(context.Background(), f, links[0].Root, "file")
 	if err != nil || len(linked.Entries) != 3 {
 		t.Fatalf("linked copy: %+v %v", linked, err)
 	}
@@ -178,7 +169,7 @@ func TestWorkspaceLossTreeExportAllowsOnlyVerifiedLinkedLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.files["/home/p/worktrees"] = guestFile{typ: "symlink", uid: 1000, gid: 1000, mode: 0777}
-	if _, err := exportWorkspaceTree(context.Background(), f, links[0].Root, true, "file"); err == nil {
+	if _, err := exportWorkspaceTree(context.Background(), f, links[0].Root, "file"); err == nil {
 		t.Fatal("linked copy followed parent symlink")
 	}
 }
@@ -210,7 +201,7 @@ func TestWorkspaceGitConfigRejectsExecutableControlsAndSanitizesIdentity(t *test
 			t.Fatalf("executable config accepted: %q", malicious)
 		}
 	}
-	if _, err := sanitizeWorkspaceSnapshot(WorkspaceSnapshot{Entries: []WorkspaceEntry{{Path: "", Type: "directory"}, {Path: ".git", Type: "directory"}, {Path: ".git/config", Type: "file", Data: []byte(base)}, {Path: ".git/HEAD", Type: "file", Data: []byte("ref: refs/heads/main\n")}, {Path: ".gitattributes", Type: "file", Data: []byte("*.txt filter=evil\n")}}}); err == nil {
+	if _, err := sanitizeWorkspaceMain(WorkspaceSnapshot{Entries: []WorkspaceEntry{{Path: "", Type: "directory"}, {Path: ".git", Type: "directory"}, {Path: ".git/config", Type: "file", Data: []byte(base)}, {Path: ".git/HEAD", Type: "file", Data: []byte("ref: refs/heads/main\n")}, {Path: ".gitattributes", Type: "file", Data: []byte("*.txt filter=evil\n")}}}); err == nil {
 		t.Fatal("attributes filter semantics accepted")
 	}
 }

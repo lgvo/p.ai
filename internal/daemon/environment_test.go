@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/nixenv"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
@@ -58,4 +59,28 @@ func TestDurablePublishGateDistinguishesPreparationAndUnknownOutcome(t *testing.
 	if _, _, err := runDurableImagePublish(context.Background(), bad, validate, record, onAttempt); err == nil || marked != 2 || attempts != 2 {
 		t.Fatalf("changed native claim reached publication: marked=%d attempts=%d err=%v", marked, attempts, err)
 	}
+}
+
+func TestSameEnvironmentKeySerializesAcceptanceWithoutCrossKeyBlocking(t *testing.T) {
+	l := &lifecycle{}
+	first, err := l.lockEnvironmentKey(context.Background(), "team/a", "key-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := l.lockEnvironmentKey(context.Background(), "team/a", "key-two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := l.lockEnvironmentKey(ctx, "team/a", "key-one"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("same-key acceptance overlapped: %v", err)
+	}
+	first()
+	second, err := l.lockEnvironmentKey(context.Background(), "team/a", "key-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second()
 }

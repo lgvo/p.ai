@@ -9,8 +9,8 @@ import (
 )
 
 // ObserveOwnedBuilderImage verifies an already accepted, exact image claim.
-// Collection deliberately does not require the base image to remain present:
-// its inherited properties are pinned in the durable accepted claim.
+// Project deletion deliberately does not require the base image to remain
+// present: its inherited properties are pinned in the durable accepted claim.
 func (b *Backend) ObserveOwnedBuilderImage(ctx context.Context, claim BuilderImageClaim) (BuilderImageInfo, bool, error) {
 	var zero BuilderImageInfo
 	if !fingerprintPattern.MatchString(claim.Fingerprint) || !validBuilderProject(claim.ProjectPath) ||
@@ -68,7 +68,7 @@ func (b *Backend) ObserveOwnedBuilderImage(ctx context.Context, claim BuilderIma
 	return zero, count == 1, nil
 }
 
-// DeleteOwnedBuilderImage is only for an accepted durable collection intent.
+// DeleteOwnedBuilderImage is only for an accepted durable project deletion.
 // It never resolves aliases or chooses a replacement cache generation.
 func (b *Backend) DeleteOwnedBuilderImage(ctx context.Context, claim BuilderImageClaim) error {
 	_, found, err := b.ObserveOwnedBuilderImage(ctx, claim)

@@ -48,7 +48,7 @@ func TestRefRepairRequiresCompletedInspectedLossSnapshot(t *testing.T) {
 	for _, changed := range []api.Operation{
 		func() api.Operation { v := op; v.Phase = "completed"; return v }(),
 		func() api.Operation { v := op; v.Status = "running"; return v }(),
-		func() api.Operation { v := op; v.Kind = "workspace.inspect"; return v }(),
+		func() api.Operation { v := op; v.Kind = "session.rename"; return v }(),
 		func() api.Operation { v := op; v.SessionUUID = "11111111-1111-4111-8111-111111111111"; return v }(),
 		func() api.Operation { v := op; v.Project = "other-project"; return v }(),
 	} {

@@ -177,18 +177,10 @@ func (b *Backend) ReconcileWorkspaceHelperInit(ctx context.Context, helper Sessi
 	return previous, nil
 }
 
-func (b *Backend) ReconcileWorkspaceFreeze(ctx context.Context, source Session) error {
-	return b.reconcileWorkspaceFreeze(ctx, source, "", "")
-}
-
 func (b *Backend) ReconcileWorkspaceFreezeExact(ctx context.Context, source Session, incusUUID, generation string) error {
 	if !uuidPattern.MatchString(incusUUID) || !uuidPattern.MatchString(generation) {
 		return errors.New("workspace source generation unavailable")
 	}
-	return b.reconcileWorkspaceFreeze(ctx, source, incusUUID, generation)
-}
-
-func (b *Backend) reconcileWorkspaceFreeze(ctx context.Context, source Session, incusUUID, generation string) error {
 	for i := 0; i < 2; i++ {
 		busy, err := b.workspaceResourceBusy(ctx, b.name(source))
 		if err != nil || busy {
@@ -198,7 +190,7 @@ func (b *Backend) reconcileWorkspaceFreeze(ctx context.Context, source Session, 
 		if err != nil || !observed.Exists || observed.Status != "Frozen" {
 			return errors.Join(err, errors.New("workspace freeze outcome unknown; Running state does not exclude delayed Incus admission"))
 		}
-		if generation != "" && (observed.IncusUUID != incusUUID || observed.Generation != generation) {
+		if observed.IncusUUID != incusUUID || observed.Generation != generation {
 			return errors.New("workspace source generation changed during freeze reconciliation")
 		}
 		if i == 0 {
@@ -496,18 +488,10 @@ func (b *Backend) DeleteWorkspaceHelper(ctx context.Context, helper Session) err
 	return nil
 }
 
-func (b *Backend) FreezeWorkspaceSource(ctx context.Context, source Session, beforePause func() error) error {
-	return b.freezeWorkspaceSource(ctx, source, "", "", beforePause)
-}
-
 func (b *Backend) FreezeWorkspaceSourceExact(ctx context.Context, source Session, incusUUID, generation string, beforePause func() error) error {
 	if !uuidPattern.MatchString(incusUUID) || !uuidPattern.MatchString(generation) {
 		return errors.New("workspace source generation unavailable")
 	}
-	return b.freezeWorkspaceSource(ctx, source, incusUUID, generation, beforePause)
-}
-
-func (b *Backend) freezeWorkspaceSource(ctx context.Context, source Session, incusUUID, generation string, beforePause func() error) error {
 	if source.WorkspaceOwner != "" {
 		return errors.New("helper cannot be frozen as a source")
 	}
@@ -518,7 +502,7 @@ func (b *Backend) freezeWorkspaceSource(ctx context.Context, source Session, inc
 	if err != nil || !before.Exists || before.Status != "Running" {
 		return errors.Join(err, errors.New("workspace source cannot be frozen"))
 	}
-	if generation != "" && (before.IncusUUID != incusUUID || before.Generation != generation) {
+	if before.IncusUUID != incusUUID || before.Generation != generation {
 		return errors.New("workspace source generation changed before freeze")
 	}
 	// Attachment tokens are process-local. A daemon restart can forget an
@@ -539,24 +523,16 @@ func (b *Backend) freezeWorkspaceSource(ctx context.Context, source Session, inc
 	if mutationErr != nil || inspectErr != nil || !after.Exists || after.Status != "Frozen" {
 		return errors.Join(mutationErr, inspectErr, errors.New("workspace freeze outcome unresolved"))
 	}
-	if generation != "" && (after.IncusUUID != incusUUID || after.Generation != generation) {
+	if after.IncusUUID != incusUUID || after.Generation != generation {
 		return errors.New("workspace source generation changed during freeze")
 	}
 	return nil
-}
-
-func (b *Backend) ThawWorkspaceSource(ctx context.Context, source Session) error {
-	return b.thawWorkspaceSource(ctx, source, "", "")
 }
 
 func (b *Backend) ThawWorkspaceSourceExact(ctx context.Context, source Session, incusUUID, generation string) error {
 	if !uuidPattern.MatchString(incusUUID) || !uuidPattern.MatchString(generation) {
 		return errors.New("workspace source generation unavailable")
 	}
-	return b.thawWorkspaceSource(ctx, source, incusUUID, generation)
-}
-
-func (b *Backend) thawWorkspaceSource(ctx context.Context, source Session, incusUUID, generation string) error {
 	if source.WorkspaceOwner != "" {
 		return errors.New("helper cannot be thawed as a source")
 	}
@@ -567,7 +543,7 @@ func (b *Backend) thawWorkspaceSource(ctx context.Context, source Session, incus
 	if err != nil || !before.Exists || before.Status != "Frozen" && before.Status != "Running" {
 		return errors.Join(err, errors.New("workspace source cannot be thawed"))
 	}
-	if generation != "" && (before.IncusUUID != incusUUID || before.Generation != generation) {
+	if before.IncusUUID != incusUUID || before.Generation != generation {
 		return errors.New("workspace source generation changed before thaw")
 	}
 	if before.Status == "Running" {
@@ -578,7 +554,7 @@ func (b *Backend) thawWorkspaceSource(ctx context.Context, source Session, incus
 	if inspectErr != nil || !after.Exists || after.Status != "Running" {
 		return errors.Join(mutationErr, inspectErr, errors.New("workspace thaw outcome unresolved"))
 	}
-	if generation != "" && (after.IncusUUID != incusUUID || after.Generation != generation) {
+	if after.IncusUUID != incusUUID || after.Generation != generation {
 		return errors.New("workspace source generation changed during thaw")
 	}
 	return nil

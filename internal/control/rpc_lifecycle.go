@@ -116,16 +116,6 @@ type LifecycleAPI interface {
 	StopSession(context.Context, string) (api.SessionView, error)
 }
 
-type EnvironmentCacheAPI interface {
-	ListEnvironmentCache(context.Context, string, string, int) ([]EnvironmentCacheItem, string, error)
-	PreviewEnvironmentCollection(context.Context, string, string, string, string, int) (EnvironmentCollectionPreview, error)
-	CollectEnvironmentCache(context.Context, string, string) (api.Operation, error)
-}
-
-type WorkspaceReadAPI interface {
-	InspectWorkspace(context.Context, WorkspaceInspectRequest) (api.Operation, error)
-}
-
 type WorkspaceLossReadAPI interface {
 	InspectWorkspaceLoss(context.Context, WorkspaceInspectRequest) (api.Operation, error)
 }
@@ -352,83 +342,6 @@ func addLifecycleMethods(t *methodTable, store *Store, life LifecycleAPI) {
 		t.addHidden("attachment.ping", attach)
 	} else {
 		t.unavailable("session.attach", "attachment.claim", "attachment.confirm", "attachment.ping")
-	}
-	if cache, ok := life.(EnvironmentCacheAPI); ok {
-		environmentCache := func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			switch method {
-			case "environment.cache.list":
-				var p struct {
-					V       int    `json:"v"`
-					Project string `json:"project"`
-					After   string `json:"after"`
-					Limit   int    `json:"limit"`
-				}
-				if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 {
-					return nil, errorRPC(-32602, "invalid_params", "invalid environment cache page")
-				}
-				items, next, err := cache.ListEnvironmentCache(ctx, p.Project, p.After, p.Limit)
-				if err != nil {
-					return nil, lifecycleRPC(err)
-				}
-				return boundedLifecyclePage("images", items, next, func(v EnvironmentCacheItem) string { return v.Key })
-			case "environment.cache.preview":
-				var p struct {
-					V       int    `json:"v"`
-					Project string `json:"project"`
-					Key     string `json:"environment_key"`
-					Token   string `json:"confirmation_token"`
-					After   string `json:"after"`
-					Limit   int    `json:"limit"`
-				}
-				if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || !validFingerprint(p.Key) ||
-					len(p.Token) > 64 || len(p.After) > 64 || p.Limit < 1 || p.Limit > 20 {
-					return nil, errorRPC(-32602, "invalid_params", "invalid environment collection preview")
-				}
-				preview, err := cache.PreviewEnvironmentCollection(ctx, p.Project, p.Key, p.Token, p.After, p.Limit)
-				if err != nil {
-					return nil, lifecycleRPC(err)
-				}
-				return map[string]any{"v": 1, "preview": preview}, nil
-			default:
-				var p struct {
-					V     int    `json:"v"`
-					Key   string `json:"key"`
-					Token string `json:"confirmation_token"`
-				}
-				if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 || len(p.Token) != 32 {
-					return nil, errorRPC(-32602, "invalid_params", "invalid environment collection confirmation")
-				}
-				op, err := cache.CollectEnvironmentCache(ctx, p.Key, p.Token)
-				if err != nil {
-					return nil, lifecycleRPC(err)
-				}
-				return map[string]any{"v": 1, "operation": op}, nil
-			}
-		}
-		t.add("environment.cache.list", environmentCache)
-		t.add("environment.cache.preview", environmentCache)
-		t.add("environment.cache.collect", environmentCache)
-	} else {
-		t.unavailable("environment.cache.list", "environment.cache.preview", "environment.cache.collect")
-	}
-	if workspace, ok := life.(WorkspaceReadAPI); ok {
-		t.add("workspace.inspect", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V    int    `json:"v"`
-				Key  string `json:"key"`
-				UUID string `json:"uuid"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) {
-				return nil, errorRPC(-32602, "invalid_params", "workspace.inspect requires v=1, key and session UUID")
-			}
-			op, e := workspace.InspectWorkspace(ctx, WorkspaceInspectRequest{Key: p.Key, SessionUUID: p.UUID})
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "operation": op}, nil
-		})
-	} else {
-		t.unavailable("workspace.inspect")
 	}
 	if workspace, ok := life.(WorkspaceLossReadAPI); ok {
 		t.add("workspace.loss.inspect", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
@@ -934,5 +847,5 @@ func projectDeleteRPC(err error) *api.RPCError {
 	if errors.Is(err, ErrInvalid) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return lifecycleRPC(err)
 	}
-	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair/collection, or investigate exact native/credential/cache ownership before a new review")
+	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair, or investigate exact native/credential/cache ownership before a new review")
 }

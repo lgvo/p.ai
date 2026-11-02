@@ -645,19 +645,13 @@ the SQLite reservation also rejects a captured URL mismatch. Exact replay keeps
 the original request/URL and does not recontact a changed origin. Older callers
 that omit this field retain their existing API behavior.
 
-## Workspace inspection foundation
+## Workspace loss inspection
 
-This read-only foundation passed review and its selected VM gate; see
-[implementation progress](implementation-progress.md). It is not a destructive
-loss preview and cannot authorize Discard/Delete or workspace mutations.
-
-The host method `workspace.inspect` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID"}` and returns
-`v` and a durable `operation`. Poll `operation.inspect` with that operation's
-ID. A successful result in `operation.evidence.result` contains `branch`, an
-optional `head_oid`, `changes` (`code`, `path`), and `refs` (`name`, `oid`,
-optional `upstream`). Status codes follow Git porcelain v1. Session RPC cannot
-invoke this method.
+`workspace.loss.inspect` accepts `{"v":1,"key":"idempotency-key","uuid":"session-UUID"}`
+and returns `v` and a durable `operation`. Poll `operation.inspect` with that
+operation's ID. It passed review and selected VM29; see
+[implementation progress](implementation-progress.md). It produces read-only
+evidence and does not authorize removal. Session RPC cannot invoke this method.
 
 Inspection requires an established, unattached session and spare container
 capacity for one disposable helper. P records the helper identity before
@@ -670,25 +664,10 @@ frozen; a stopped source stays stopped.
 An unresolved operation holds a durable guard against Start, Stop, and Attach.
 `operation.retry` reinspects the same accepted identities; an uncertain native
 request is not permission to create a second helper or release the guard.
-For `workspace.inspect` and `workspace.loss.inspect`, `failed` with phase
-`cleaned` is finalized: the helper was cleaned up and the source guard was
-released. Exact Retry returns `busy` without enqueueing work or changing that
-operation. Request a fresh inspection with a new key to capture current facts.
-
-The initial scan is limited to 512 entries, 16 MiB total file contents, 2 MiB
-per file, and depth 24. It refuses escapes, nested mounts, unsupported Git
-configuration, linked worktrees, and other unsupported layouts explicitly.
-An incomplete scan never produces a clean result. The separate loss-inspection
-method below provides bounded linked-worktree and retention evidence.
-[Removal previews and confirmation](#session-removal-preview) govern the
-implemented Discard and Delete lifecycle methods.
-
-## Workspace loss inspection
-
-`workspace.loss.inspect` accepts `{"v":1,"key":"idempotency-key","uuid":"session-UUID"}`
-and returns a durable operation. It passed review and selected VM29; see
-[implementation progress](implementation-progress.md). It produces read-only
-evidence and does not authorize removal.
+`failed` with phase `cleaned` is finalized: the helper was cleaned up and the
+source guard was released. Exact Retry returns `busy` without enqueueing work or
+changing that operation. Request a fresh inspection with a new key to capture
+current facts.
 
 The method also admits the narrow stopped assembled failed-creation case
 described by [session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
@@ -714,8 +693,10 @@ On completion, `operation.evidence.result` has schema `p.workspace-loss/v1`:
 The scan supports `/workspace` and up to eight Git-known linked worktrees at
 `/workspace/<name>` or `/home/p/worktrees/<name>`, with checked literal Git
 pointers and mount/ancestor evidence. Protected home roots, unsupported Git
-layouts, and out-of-policy paths are unavailable. The aggregate copy retains
-the foundation's 512-entry/16-MiB limits; commit inventory is limited to 256
+layouts, and out-of-policy paths are unavailable. The scan refuses escapes,
+nested mounts, unsupported Git configuration, and other unsupported layouts
+explicitly. The aggregate copy is limited to 512 entries, 16 MiB total file
+contents, 2 MiB per file, and depth 24; commit inventory is limited to 256
 and P branch inventory to 1,024. The final result must fit 12 KiB. Exceeding a
 bound refuses the report rather than returning partial loss evidence.
 
@@ -935,8 +916,8 @@ retained P ref and the union of commits losing P reachability, with fresh origin
 preservation or explicit unknown evidence. Its expiry is at most two minutes and
 does not outlive the earliest loss proof. Changed facts or expired reports need
 fresh loss inspection and a new preview/token/key. Refused preparation directs
-the caller to Stop/detach, supported failed-creation cleanup, reviewed resource
-collection or identity investigation; P does not delete uncertain resources.
+the caller to Stop/detach, supported failed-creation cleanup or identity
+investigation; P does not delete uncertain resources.
 
 After reviewing the complete preview, call `project.delete.confirm` with its
 token and a new key. It repeats bounded read-only loss inspection and fact checks
@@ -958,47 +939,6 @@ contents and delivered logs remain. Completion clears bulky claims and old raw
 requests/evidence, retaining a minimal completed result and immutable retired
 key/operation-ID/kind/request-digest receipts. Replaying old Create, origin or
 publication keys refuses instead of recreating deleted authority.
-
-## Explicit environment cache collection
-
-This API passed review and its selected 7c3 VM gate; see
-[implementation progress](implementation-progress.md). Collection is a host
-action. Session RPC cannot invoke it.
-
-| Method | Params | Result |
-|---|---|---|
-| `environment.cache.list` | `{"v":1,"project":"team/app","limit":1..8,"after":"optional-environment-key"}` | `v`, `images`, and `next` in environment-key order. |
-| `environment.cache.preview` | `{"v":1,"project":"team/app","environment_key":"<64 hex digits>","limit":1..20}`; include the returned `confirmation_token` and `after` cursor for later related-session pages | `v`, `preview` containing `item`, `related_sessions`, `related_next`, `warning`, `confirmation_token`, and `expires_at`. |
-| `environment.cache.collect` | `{"v":1,"key":"idempotency-key","confirmation_token":"<preview token>"}` | `v`, a durable `environment.collect` operation; poll `operation.inspect`. |
-
-Each image item contains the project, environment key, exact fingerprint, base
-fingerprint, creation time, optional last-use time, logical size in bytes,
-`image_status` (`present` or `missing`), and related-session count. Last-use
-records accepted session establishment, not inventory reads. Older entries may
-lack last-use metadata; if their image is also missing, logical size can be
-zero because no size observation was recorded. A preview lists
-related session UUIDs, branches, and registry states. Follow `related_next`
-with the same token to review the remaining sessions.
-
-The two-minute preview binds the observed image generation, metadata,
-presence, and related-session set. A changed or expired preview is refused
-before a collection operation is accepted. Daemon restart invalidates unused
-preview tokens. Accepted intent is durable: Retry targets only that reviewed
-fingerprint and exact cache entry, without another confirmation. Repeating an
-accepted idempotency key with its original token returns the recorded
-operation, even after token expiry.
-
-Collection removes the exact owned image and then its index entry. An
-externally missing image permits index-only cleanup. Existing private instance
-roots remain independent, but the preview warns that exact recreation may be
-unavailable if a runtime is later lost and its branch environment has changed.
-Collection is never a side effect of session Stop, Discard, or Delete.
-
-An unresolved accepted collection blocks new creation and creation retries in
-that project until exact cleanup completes; it does not block established
-session inspection, Start, or Stop. A project admits only one unresolved
-collection. Image ownership or metadata drift blocks destructive retry rather
-than selecting another generation.
 
 ## Terminal attachment
 

@@ -97,29 +97,27 @@ func TestProgressExplainsPendingSourcePreparation(t *testing.T) {
 }
 
 func TestFinalizedInspectionHasFreshRequestGuidanceAndInertRetryKey(t *testing.T) {
-	for _, kind := range []string{"workspace.inspect", "workspace.loss.inspect"} {
-		t.Run(kind, func(t *testing.T) {
-			client := &fakeClient{fn: func(string, params) (any, error) { t.Fatal("finalized Retry dispatched an RPC"); return nil, nil }}
-			m := fixture()
-			m.client = client
-			m.navigate("progress")
-			m.operationID = "finalized"
-			m.operation = api.Operation{ID: "finalized", Kind: kind, Status: "failed", Phase: "cleaned"}
-			_, lines, commands := m.inspectionContent()
-			if !strings.Contains(strings.Join(lines, "\n"), "Return and request a fresh inspection") || strings.Contains(commands, "retry") {
-				t.Fatalf("finalized inspection advertised Retry: %q %q", lines, commands)
-			}
-			var cmd tea.Cmd
-			m, cmd = press(m, "r")
-			if cmd != nil || m.working || len(client.calls) != 0 {
-				t.Fatal("actual r key accepted finalized inspection Retry")
-			}
-			m, cmd = press(m, "q")
-			if m.page != "sessions" || cmd != nil {
-				t.Fatal("Back did not leave finalized inspection")
-			}
-		})
-	}
+	t.Run("workspace.loss.inspect", func(t *testing.T) {
+		client := &fakeClient{fn: func(string, params) (any, error) { t.Fatal("finalized Retry dispatched an RPC"); return nil, nil }}
+		m := fixture()
+		m.client = client
+		m.navigate("progress")
+		m.operationID = "finalized"
+		m.operation = api.Operation{ID: "finalized", Kind: "workspace.loss.inspect", Status: "failed", Phase: "cleaned"}
+		_, lines, commands := m.inspectionContent()
+		if !strings.Contains(strings.Join(lines, "\n"), "Return and request a fresh inspection") || strings.Contains(commands, "retry") {
+			t.Fatalf("finalized inspection advertised Retry: %q %q", lines, commands)
+		}
+		var cmd tea.Cmd
+		m, cmd = press(m, "r")
+		if cmd != nil || m.working || len(client.calls) != 0 {
+			t.Fatal("actual r key accepted finalized inspection Retry")
+		}
+		m, cmd = press(m, "q")
+		if m.page != "sessions" || cmd != nil {
+			t.Fatal("Back did not leave finalized inspection")
+		}
+	})
 	client := &fakeClient{fn: func(method string, p params) (any, error) {
 		if method != "operation.retry" || p["id"] != "blocked" {
 			t.Fatalf("wrong resumable request: %s %+v", method, p)

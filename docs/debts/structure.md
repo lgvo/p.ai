@@ -3,7 +3,7 @@
 ## Lifecycle workers depend on concrete runtime, store and Git types
 
 - Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
-- Problem: Workers call a concrete `*runtimeincus.Backend` (49 methods, about 205 calls),
+- Problem: Workers call a concrete `*runtimeincus.Backend` (43 methods, about 195 calls),
   `*control.Store` and `*gitCapability`, so no worker can run against a stand-in.
 - Evidence: daemon statement coverage is 18.7%; every `process*` worker except
   `processCreateCleanup` and `processRetainedRename` is at 0%.
@@ -13,12 +13,16 @@
   freeze/thaw, builder, discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-02, 2 cases:
+- Added 2026-11-01, updated 2026-11-02, 3 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
     watcher against a stand-in runtime; its unit tests cover `observedCondition` and
     `endStartWatcher`, and VM scenarios such as 34 cover the whole Start-then-act sequence.
+  - 2026-11-02: "remove `workspace.inspect` and `environment.cache.*`" removed
+    `processEnvironmentCollection` and the read-only inspection path of
+    `processWorkspaceInspect`, which took the runtime from 49 methods and 204 calls to 43
+    and 195; the loss inspection's recovery branches are still reachable only in VM.
 
 ## Native sub-protocols are copied across workers
 
@@ -34,8 +38,11 @@
 - Fix: one component per sub-protocol with its durable phases, used by every worker.
 - Fix when: any of these sequences changes, or together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, 1 case:
+- Added 2026-11-01, updated 2026-11-02, 2 cases:
   - 2026-11-01: "complete rework of P's implementation" found the copies while mapping.
+  - 2026-11-02: "remove `workspace.inspect` and `environment.cache.*`" removed the
+    non-exact freeze and thaw from `processWorkspaceInspect`; `failWorkspaceInspect` still
+    restores its own freeze.
 
 ## Long worker functions
 
@@ -48,10 +55,13 @@
 - Fix: split each worker by phase once its sub-protocols are shared components.
 - Fix when: together with the sub-protocol components above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-02, 2 cases:
+- Added 2026-11-01, updated 2026-11-02, 3 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
+  - 2026-11-02: "remove `workspace.inspect` and `environment.cache.*`" cut
+    `processWorkspaceInspect` from 254 lines to 222; sixteen daemon functions still
+    exceed 150 lines.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
@@ -92,11 +102,11 @@
 
 - Where: internal/daemon `PreviewRemoval`, `PreviewRecordRepair`, `PreviewPrincipalRepair`,
   `PreviewRefRepair`, `previewRepair`, `PreviewCreateReplace`, `PreviewRetainedDelete`,
-  `PreviewCreateCleanup`, `PreviewProjectDelete`, `PreviewEnvironmentCollection`
+  `PreviewCreateCleanup`, `PreviewProjectDelete`
 - Problem: Each preview family issues its token, prunes expired entries, enforces its own
-  capacity (32, 64 or 128) and checks the frame size with its own copy of the code and its own
+  capacity (32 or 128) and checks the frame size with its own copy of the code and its own
   map on `lifecycle`.
-- Evidence: ten preview maps on `lifecycle`; capacity errors differ (`ErrConflict` answers
+- Evidence: nine preview maps on `lifecycle`; capacity errors differ (`ErrConflict` answers
   `busy`, a plain error answers `unavailable`).
 - Risk: a fix to token issue or expiry reaches one family and misses the others.
 - Fix: one preview-book type with an instance per family carrying its TTL, capacity and error.
@@ -104,10 +114,12 @@
   above), so each family's saturation can be characterized first.
 - Left by: the agent, by rule (a restructuring not pursued; the plan review cut it because its
   behavior cannot be characterized before the change).
-- Added 2026-11-01, updated 2026-11-02, 2 cases:
+- Added 2026-11-01, updated 2026-11-02, 3 cases:
   - 2026-11-01: "complete rework of P's implementation" cut it from step 5 after review.
   - 2026-11-02: "recover from a panic in a request handler" had to make the same lock change
     in each copy: the token read in all ten, the token delete in nine, the insert in seven.
+  - 2026-11-02: "remove `workspace.inspect` and `environment.cache.*`" removed
+    `PreviewEnvironmentCollection` and its map; nine families remain.
 
 ## Trusted configuration and the RPC server live in the store package
 
@@ -150,10 +162,13 @@
 - Fix when: the next new operation kind, or together with the check-then-act fix.
 - Left by: the agent, by rule (a restructuring not pursued: step 4 of REWORK-PLAN.md was
   scoped to inserts, the key rule and the unfinished listing).
-- Added 2026-11-01, updated 2026-11-02, 2 cases:
+- Added 2026-11-01, updated 2026-11-02, 3 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 4.
   - 2026-11-02: "collapse the 21 migrations into one schema file" moved the triggers that
     name kinds and phases from the migrations into schema.sql, unchanged.
+  - 2026-11-02: "remove `workspace.inspect` and `environment.cache.*`" had to drop
+    `workspace.inspect` by hand from `ActiveWorkspaceInspect`, the project-deletion snapshot
+    query and a schema trigger, and `environment.collect` from an index and five triggers.
 
 ## Incus instance inventory and metadata keys are written per caller
 

@@ -74,7 +74,7 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	// principals; a new settled mutation still invalidates an old report.
 	facts := []string{policy, sha, origin}
 	for _, query := range []string{
-		`SELECT id||':'||kind||':'||request_sha256||':'||status||':'||phase||':'||COALESCE(evidence_json,'') FROM operations WHERE project_path=? AND kind NOT IN ('workspace.inspect','workspace.loss.inspect') ORDER BY id`,
+		`SELECT id||':'||kind||':'||request_sha256||':'||status||':'||phase||':'||COALESCE(evidence_json,'') FROM operations WHERE project_path=? AND kind!='workspace.loss.inspect' ORDER BY id`,
 		`SELECT fingerprint||':'||role||':'||COALESCE(session_uuid,'')||':'||active FROM git_principals WHERE project_path=? ORDER BY fingerprint`,
 		`SELECT environment_key||':'||fingerprint||':'||properties_json||':'||created_at||':'||last_used_at||':'||logical_size FROM environment_images WHERE project_path=? ORDER BY environment_key`,
 	} {

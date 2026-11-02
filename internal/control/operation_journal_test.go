@@ -19,8 +19,8 @@ import (
 // request of the same kind.
 
 var journalKinds = []string{
-	"project.create", "session.create", "environment.collect", "project.delete",
-	"workspace.inspect", "workspace.loss.inspect",
+	"project.create", "session.create", "project.delete",
+	"workspace.loss.inspect",
 	"session.discard", "session.delete", "session.create.cleanup",
 	"session.rename", "project.retained.rename", "project.retained.delete",
 	"session.repair", "session.repair.prepare",
@@ -69,7 +69,7 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 	for i, kind := range journalKinds {
 		for _, row := range journalRows {
 			created := fmt.Sprintf("2026-01-01T00:%02d:%02dZ", i, journalCreated[row.name])
-			// Collections and project deletions allow one active row per project.
+			// Project deletions allow one active row per project.
 			project := "team/" + strings.ReplaceAll(kind, ".", "-") + "-" + row.name
 			if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
 			 VALUES(?,?,?,?,NULL,'{}','x',?,'forged',0,NULL,?,?)`, kind+":"+row.name, kind+":"+row.name, kind, project, row.status, created, created); err != nil {
@@ -85,16 +85,15 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 		return ids
 	}
 	byRowid := func(kind string) []string { return []string{kind + ":A", kind + ":B", kind + ":C"} }
-	// Recovery order: creations, collections, project deletions, workspace
+	// Recovery order: creations, project deletions, workspace loss
 	// inspections, removals, renames, retained renames and deletes, repairs,
 	// repair preparations, then ref, principal and record repairs. Each group
 	// keeps its own order.
 	var want []string
 	for _, group := range [][]string{
 		byCreated("project.create", "session.create"),
-		byCreated("environment.collect"),
 		byCreated("project.delete"),
-		byCreated("workspace.inspect", "workspace.loss.inspect"),
+		byCreated("workspace.loss.inspect"),
 		byCreated("session.discard", "session.delete", "session.create.cleanup"),
 		byCreated("session.rename"),
 		byRowid("project.retained.rename"),
@@ -328,45 +327,4 @@ func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
 			})
 		}
 	}
-}
-
-func TestEnvironmentCollectionKeyRefusesAnotherKindOrRequest(t *testing.T) {
-	for _, holder := range []struct {
-		name        string
-		anotherKind bool
-	}{{"another kind", true}, {"another request", false}} {
-		t.Run(holder.name, func(t *testing.T) {
-			s, claim := environmentCollectionKeyFixture(t)
-			kind, request, sha := "environment.collect", "{}", "another-request"
-			if holder.anotherKind {
-				kind = "project.retained.rename"
-				request, sha = encodedRequest(t, claim)
-			}
-			forgeKeyHolder(t, s, "shared-key", kind, claim.Image.Project, "", request, sha)
-			before := operationCount(t, s)
-			if _, err := s.BeginEnvironmentCollection(context.Background(), "shared-key", claim); !errors.Is(err, ErrConflict) {
-				t.Fatalf("answer %v, want a conflict", err)
-			}
-			if after := operationCount(t, s); after != before {
-				t.Fatalf("operations %d -> %d", before, after)
-			}
-		})
-	}
-}
-
-func environmentCollectionKeyFixture(t *testing.T) (*Store, EnvironmentCollectionClaim) {
-	t.Helper()
-	s, _ := openTestStore(t)
-	ctx := context.Background()
-	if err := s.CreateProject(ctx, "team/a", json.RawMessage(`{"network":"none"}`)); err != nil {
-		t.Fatal(err)
-	}
-	image := testEnvironmentImage("team/a")
-	image.LogicalSize = 1024
-	if err := s.PutEnvironmentImage(ctx, image); err != nil {
-		t.Fatal(err)
-	}
-	image, _, _ = s.GetEnvironmentImage(ctx, image.Project, image.Key)
-	claim := collectionClaim(image)
-	return s, claim
 }

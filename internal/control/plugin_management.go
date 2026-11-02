@@ -74,7 +74,7 @@ func (s *Store) CheckPluginRemovalDependencies(ctx context.Context, digest strin
 					break
 				}
 				if containsPluginDigest(data, digest) {
-					e = fmt.Errorf("%w: durable session/operation/cache depends on package %s; finish existing cleanup/collection with the pinned package before removal", ErrConflict, digest)
+					e = fmt.Errorf("%w: durable session/operation/cache depends on package %s; finish existing cleanup with the pinned package before removal", ErrConflict, digest)
 					break
 				}
 			}
@@ -95,7 +95,7 @@ func (s *Store) CheckPluginRemovalDependencies(ctx context.Context, digest strin
 		return e
 	}
 	if caches != 0 {
-		return fmt.Errorf("%w: collect indexed environment images before offline package removal; cache module provenance is not independently indexed", ErrConflict)
+		return fmt.Errorf("%w: delete the projects with indexed environment images before offline package removal; cache module provenance is not independently indexed", ErrConflict)
 	}
 	// Origin/publication rows do not pin a source module independently. Pending
 	// requests require the current selected capability for exact recovery.

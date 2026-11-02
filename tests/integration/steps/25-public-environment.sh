@@ -3,7 +3,7 @@
 # private image cache, and pre-host activation in persistent session roots.
 set -E
 umask 077
-if test "${P_COLLECTION_PROBE:-0}" = 1; then
+if test "${P_CACHE_OVERLAP_PROBE:-0}" = 1; then
   step_dir="$P_TEST_TMP/step-26"
   endpoint_prefix=/var/lib/p-vm/endpoints/pdev/step26
 else
@@ -41,7 +41,7 @@ stop_daemon() {
 }
 cleanup() {
   stop_daemon
-  rm -f -- /tmp/p-vm-collection-cutover-1000 /tmp/p-vm-collection-publish-barrier-1000 /tmp/p-vm-collection-overlap-1000
+  rm -f -- /tmp/p-vm-publish-barrier-1000 /tmp/p-vm-publish-overlap-1000
   for uuid in "${sessions[@]}"; do
     inc delete --force "p-$uuid" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
@@ -78,7 +78,7 @@ jq -s '{schema:"p.activation/v1",plugins:([.[0].plugins[0],.[1].plugins[0]])}' \
 base=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base}" -eq 64
 incus_binary=$(command -v incus)
-if test "${P_COLLECTION_PROBE:-0}" = 1; then
+if test "${P_CACHE_OVERLAP_PROBE:-0}" = 1; then
   test -x "$P_TEST_INCUS_WRAPPER"
   incus_binary=$P_TEST_INCUS_WRAPPER
 fi
@@ -331,14 +331,7 @@ jq -e --arg key "$key_one" '.result.session.environment | .cache=="miss" and .en
 test "$(exec_p "$a_uuid" cat /home/p/hook-count)" = 2
 exec_p "$a_uuid" nix path-info "$private_path" >/dev/null
 test "$(exec_p "$b_uuid" cat /home/p/pane-export)" = ready
-if test "${P_COLLECTION_PROBE:-0}" = 1; then
-  cache_page=$(rpc environment.cache.list '{"v":1,"project":"public-environment","limit":8}')
-  jq -e --arg image "$image_two" --arg key "$key_one" \
-    '.result.images | length==1 and .[0].fingerprint==$image and .[0].environment_key==$key and .[0].image_status=="present"' \
-    <<< "$cache_page" >/dev/null
-  stale_preview=$(rpc environment.cache.preview "$(jq -nc --arg key "$key_one" \
-    '{v:1,project:"public-environment",environment_key:$key,limit:8}')")
-  stale_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$stale_preview")
+if test "${P_CACHE_OVERLAP_PROBE:-0}" = 1; then
   # A keeps the private-root proof live; B has finished its cache-hit proof.
   discard_owned "$b_uuid" b-before-d
   test "$(exec_p "$a_uuid" git ls-remote origin refs/heads/env-a | cut -f1)" = "$valid_oid"
@@ -347,71 +340,26 @@ if test "${P_COLLECTION_PROBE:-0}" = 1; then
   wait_operation "$d_op" completed >/dev/null
   d_view=$(wait_ready "$d_uuid")
   jq -e --arg image "$image_two" '.result.session.environment | .cache=="hit" and .image_fingerprint==$image' <<< "$d_view" >/dev/null
-  if stale_collect=$(rpc environment.cache.collect "$(jq -nc --arg token "$stale_token" \
-    '{v:1,key:"collect-stale-preview",confirmation_token:$token}')" 2> "$step_dir/stale-collect.err"); then
-    echo 'accepted stale cache collection preview after established use' >&2; exit 1
-  fi
-  jq -e '.error.kind=="busy" and .error.code == -32003' <<< "$stale_collect" >/dev/null
-  rpc operation.list '{"v":1,"limit":20}' |
-    jq -e 'all(.result.operations[]; .idempotency_key!="collect-stale-preview")' >/dev/null
-  fresh_preview=$(rpc environment.cache.preview "$(jq -nc --arg key "$key_one" \
-    '{v:1,project:"public-environment",environment_key:$key,limit:8}')")
-  jq -e --arg image "$image_two" '.result.preview.item | .fingerprint==$image and .image_status=="present" and .related_count>=2' \
-    <<< "$fresh_preview" >/dev/null
-  fresh_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$fresh_preview")
-  printf '%s %s\n' "$image_two" "$daemon_pid" > /tmp/p-vm-collection-cutover-1000
-  chmod 0600 /tmp/p-vm-collection-cutover-1000
-  # A crash can sever the confirming RPC after its durable operation commits.
-  # Recover the exact idempotency key after restart if that reply is lost.
-  collect_reply=$(rpc environment.cache.collect "$(jq -nc --arg token "$fresh_token" \
-    '{v:1,key:"collect-present-image",confirmation_token:$token}')" 2>/dev/null || true)
-  collect_op=$(operation_id "$collect_reply" 2>/dev/null || true)
-  if test -n "$collect_op"; then op_ids+=("$collect_op"); fi
-  deadline=$((SECONDS+120))
-  while ((SECONDS < deadline)); do
-    daemon_state=$(ps -o stat= -p "$daemon_pid" 2>/dev/null || true)
-    if test -z "$daemon_state" || [[ "$daemon_state" == Z* ]]; then break; fi
-    sleep 0.2
-  done
-  daemon_state=$(ps -o stat= -p "$daemon_pid" 2>/dev/null || true)
-  if test -n "$daemon_state" && [[ "$daemon_state" != Z* ]]; then echo 'daemon survived collection cutover' >&2; exit 1; fi
-  wait "$daemon_pid" 2>/dev/null || true
-  daemon_pid=
-  test ! -e /tmp/p-vm-collection-cutover-1000
-  test "$(inc image list --format json | jq --arg image "$image_two" '[.[]|select(.fingerprint==$image)]|length')" -eq 0
-  p daemon "$step_dir/host.json" >> "$step_dir/daemon.out" 2>> "$step_dir/daemon.err" &
-  daemon_pid=$!
-  deadline=$((SECONDS+30))
-  while ((SECONDS < deadline)); do
-    if test -S "$socket" && rpc system.health | jq -e '.result.control_state=="ready"' >/dev/null 2>&1; then break; fi
-    if ! kill -0 "$daemon_pid" 2>/dev/null; then echo 'collection recovery daemon exited' >&2; exit 1; fi
-    sleep 0.1
-  done
-  if test -z "$collect_op"; then
-    collect_op=$(rpc operation.list '{"v":1,"limit":20}' | jq -er \
-      '.result.operations[] | select(.idempotency_key=="collect-present-image") | .id')
-    op_ids+=("$collect_op")
-  fi
-  wait_operation "$collect_op" completed >/dev/null
-  jq -e '.result.images | length==0' <<< "$(rpc environment.cache.list '{"v":1,"project":"public-environment","limit":8}')" >/dev/null
+  # Without its cached image, the next two same-key creations both miss.
+  inc image delete "$image_two"
   exec_p "$a_uuid" nix path-info "$private_path" >/dev/null
   test "$(exec_p "$c_uuid" cat /home/p/pane-export)" = ready
   test "$(exec_p "$d_uuid" cat /home/p/pane-export)" = ready
-  # A's private-root check and C's same-image collection check have passed.
-  # Release both reservations so D and two same-key builders can overlap.
+  # A's private root and C's runtime survived the image deletion. Release A
+  # and C so D and two same-key builders can overlap.
   discard_owned "$a_uuid" a-before-ef
   discard_owned "$c_uuid" c-before-ef
-  printf 'pending\n' > /tmp/p-vm-collection-publish-barrier-1000
-  chmod 0600 /tmp/p-vm-collection-publish-barrier-1000
+  printf 'pending\n' > /tmp/p-vm-publish-barrier-1000
+  chmod 0600 /tmp/p-vm-publish-barrier-1000
   create_branch env-e env-e refs/heads/env-a
   e_op=$new_op e_uuid=$new_uuid
   create_branch env-f env-f refs/heads/env-a
   f_op=$new_op f_uuid=$new_uuid
-  printf '%s %s\n' "$e_op" "$f_op" > /tmp/p-vm-collection-publish-barrier-1000
+  printf '%s %s\n' "$e_op" "$f_op" > /tmp/p-vm-publish-barrier-1000
   wait_operation "$e_op" completed >/dev/null
   wait_operation "$f_op" completed >/dev/null
-  test -f /tmp/p-vm-collection-overlap-1000
-  test ! -e /tmp/p-vm-collection-publish-barrier-1000
+  test -f /tmp/p-vm-publish-overlap-1000
+  test ! -e /tmp/p-vm-publish-barrier-1000
   e_view=$(wait_ready "$e_uuid")
   f_view=$(wait_ready "$f_uuid")
   image_three=$(jq -er '.result.session.environment.image_fingerprint | select(length==64)' <<< "$e_view")
@@ -422,22 +370,10 @@ if test "${P_COLLECTION_PROBE:-0}" = 1; then
     test "$(jq -r '.result.session.environment.cache' <<< "$e_view") $(jq -r '.result.session.environment.cache' <<< "$f_view")" = 'hit miss'
   test "$(inc image list --format json | jq --arg key "$key_one" --arg instance "$p_instance" \
     '[.[]|select(.properties["p.environment_key"]==$key and .properties["p.instance"]==$instance and .properties["p.project_path"]=="public-environment")]|length')" -eq 1
-  inc image delete "$image_three"
-  missing_preview=$(rpc environment.cache.preview "$(jq -nc --arg key "$key_one" \
-    '{v:1,project:"public-environment",environment_key:$key,limit:8}')")
-  jq -e --arg image "$image_three" '.result.preview.item | .fingerprint==$image and .image_status=="missing" and .related_count>=2' \
-    <<< "$missing_preview" >/dev/null
-  missing_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$missing_preview")
-  missing_reply=$(rpc environment.cache.collect "$(jq -nc --arg token "$missing_token" \
-    '{v:1,key:"collect-missing-image",confirmation_token:$token}')")
-  missing_op=$(operation_id "$missing_reply")
-  op_ids+=("$missing_op")
-  wait_operation "$missing_op" completed >/dev/null
-  jq -e '.result.images | length==0' <<< "$(rpc environment.cache.list '{"v":1,"project":"public-environment","limit":8}')" >/dev/null
   test "$(exec_p "$d_uuid" cat /home/p/pane-export)" = ready
   test "$(exec_p "$e_uuid" cat /home/p/pane-export)" = ready
   test "$(exec_p "$f_uuid" cat /home/p/pane-export)" = ready
-  echo P_ENVIRONMENT_CACHE_COLLECTION_PASS
+  echo P_ENVIRONMENT_CACHE_OVERLAP_PASS
   exit 0
 fi
 

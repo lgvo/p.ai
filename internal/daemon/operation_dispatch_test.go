@@ -20,8 +20,8 @@ import (
 // where the test reads it; no worker runs.
 
 var dispatchKinds = []string{
-	"project.create", "session.create", "environment.collect", "project.delete",
-	"workspace.inspect", "workspace.loss.inspect",
+	"project.create", "session.create", "project.delete",
+	"workspace.loss.inspect",
 	"session.discard", "session.delete", "session.create.cleanup",
 	"session.rename", "project.retained.rename", "project.retained.delete",
 	"session.repair", "session.repair.prepare",
@@ -79,13 +79,13 @@ func newJournalFixture(t *testing.T) *journalFixture {
 // operation records one journal row in creation order and returns its ID.
 // Rows keep the shape the store's own transition rules accept: a project
 // deletion is committed in ensure-absent, a failed-create cleanup carries its
-// local-cleanup evidence, and a workspace inspection carries evidence. An
+// local-cleanup evidence, and a workspace loss inspection carries evidence. An
 // empty phase selects that shape.
 func (f *journalFixture) operation(t *testing.T, kind, status, phase, session string, committed bool) string {
 	t.Helper()
 	project := "app"
-	if kind == "environment.collect" || kind == "project.delete" {
-		// One active collection or deletion per project.
+	if kind == "project.delete" {
+		// One active deletion per project.
 		project = fmt.Sprintf("app-%d", f.seq+1)
 	}
 	return f.operationIn(t, project, kind, status, phase, session, committed)
@@ -107,7 +107,7 @@ func (f *journalFixture) operationWith(t *testing.T, project, kind, status, phas
 		phase, committed = "ensure-absent", true
 	case kind == "session.create.cleanup":
 		phase, evidence = "local-cleanup", "{}"
-	case kind == "workspace.inspect" || kind == "workspace.loss.inspect":
+	case kind == "workspace.loss.inspect":
 		phase, evidence = "forged", "{}"
 	default:
 		phase = "forged"
@@ -173,12 +173,11 @@ func TestRetrySchedulesUnfinishedKnownOperations(t *testing.T) {
 	n++
 	rows = append(rows,
 		row{"unknown kind", f.operation(t, "origin.change", "blocked", "", "", false), outcome{control.ErrInvalid, "blocked", false}},
-		row{"cleaned workspace inspection", f.operation(t, "workspace.inspect", "failed", "cleaned", sessionUUID(n), false), outcome{control.ErrConflict, "failed", false}},
-		row{"cleaned workspace loss inspection", f.operation(t, "workspace.loss.inspect", "failed", "cleaned", sessionUUID(n+1), false), outcome{control.ErrConflict, "failed", false}},
-		row{"stale failed-create cleanup", f.operation(t, "session.create.cleanup", "failed", "stale", sessionUUID(n+2), false), outcome{control.ErrConflict, "failed", false}},
+		row{"cleaned workspace loss inspection", f.operation(t, "workspace.loss.inspect", "failed", "cleaned", sessionUUID(n), false), outcome{control.ErrConflict, "failed", false}},
+		row{"stale failed-create cleanup", f.operation(t, "session.create.cleanup", "failed", "stale", sessionUUID(n+1), false), outcome{control.ErrConflict, "failed", false}},
 	)
-	inspected := sessionUUID(n + 3)
-	f.operation(t, "workspace.inspect", "running", "", inspected, false)
+	inspected := sessionUUID(n + 2)
+	f.operation(t, "workspace.loss.inspect", "running", "", inspected, false)
 	rows = append(rows, row{"creation of an inspected session", f.operation(t, "session.create", "failed", "", inspected, false), outcome{control.ErrConflict, "failed", false}})
 
 	for _, test := range rows {
@@ -235,9 +234,7 @@ func TestRecoverSchedulesUnfinishedOperationsInKindOrder(t *testing.T) {
 	var want []string
 	want = append(want, unfinished("session.create", "project.create")...)
 	want = append(want, later)
-	// Recovery resumes only running collections.
-	want = append(want, ids["environment.collect running"])
-	want = append(want, unfinished("project.delete", "workspace.loss.inspect", "workspace.inspect",
+	want = append(want, unfinished("project.delete", "workspace.loss.inspect",
 		"session.create.cleanup", "session.delete", "session.discard", "session.rename",
 		"project.retained.rename", "project.retained.delete", "session.repair", "session.repair.prepare",
 		"session.ref.repair", "session.principal.repair", "session.record.repair")...)
@@ -311,7 +308,7 @@ func TestRemovingSessionConditionFollowsItsRemovalOperation(t *testing.T) {
 func TestSchedulingHoldsUnfinishedCreationDuringWorkspaceInspection(t *testing.T) {
 	f := newJournalFixture(t)
 	inspected := sessionUUID(800)
-	f.operation(t, "workspace.inspect", "running", "", inspected, false)
+	f.operation(t, "workspace.loss.inspect", "running", "", inspected, false)
 	for _, test := range []struct {
 		status string
 		err    error

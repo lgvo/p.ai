@@ -49,26 +49,15 @@ func validUUID(value string) bool {
 	return true
 }
 
-func (s *Store) BeginWorkspaceInspect(ctx context.Context, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (api.Operation, error) {
-	return s.beginWorkspaceRead(ctx, "workspace.inspect", req, ev)
-}
-
 func (s *Store) BeginWorkspaceLossInspect(ctx context.Context, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (api.Operation, error) {
-	return s.beginWorkspaceRead(ctx, "workspace.loss.inspect", req, ev)
-}
-
-func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req WorkspaceInspectRequest, ev WorkspaceInspectEvidence) (api.Operation, error) {
-	if kind != "workspace.inspect" && kind != "workspace.loss.inspect" {
-		return api.Operation{}, ErrInvalid
-	}
 	if len(req.Key) == 0 || len(req.Key) > 128 || !validUUID(req.SessionUUID) || !validUUID(ev.InstanceUUID) ||
 		!validFingerprint(ev.ImageFingerprint) || !validFingerprint(ev.BaseFingerprint) || ev.OriginalStatus != "Running" && ev.OriginalStatus != "Stopped" || len(ev.Result) != 0 {
 		return api.Operation{}, ErrInvalid
 	}
-	if kind == "workspace.loss.inspect" && (!validUUID(ev.SourceIncusUUID) || !validUUID(ev.SourceGeneration)) {
+	if !validUUID(ev.SourceIncusUUID) || !validUUID(ev.SourceGeneration) {
 		return api.Operation{}, ErrInvalid
 	}
-	if ev.CreatorOperationID != "" && (kind != "workspace.loss.inspect" || !validUUID(ev.CreatorOperationID) ||
+	if ev.CreatorOperationID != "" && (!validUUID(ev.CreatorOperationID) ||
 		!validFingerprint(ev.CreatorRequestSHA256) || !validFingerprint(ev.CreatorEvidenceSHA256) || ev.OriginalStatus != "Stopped") ||
 		ev.CreatorOperationID == "" && (ev.CreatorRequestSHA256 != "" || ev.CreatorEvidenceSHA256 != "") {
 		return api.Operation{}, ErrInvalid
@@ -80,7 +69,7 @@ func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req Workspa
 		return api.Operation{}, err
 	}
 	defer tx.Rollback()
-	if replay, err := keyRecordsRequest(ctx, tx, req.Key, kind, request); err != nil {
+	if replay, err := keyRecordsRequest(ctx, tx, req.Key, KindWorkspaceLossInspect, request); err != nil {
 		return api.Operation{}, err
 	} else if replay {
 		return getOperationTx(ctx, tx, req.Key)
@@ -105,14 +94,14 @@ func (s *Store) beginWorkspaceRead(ctx context.Context, kind string, req Workspa
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: kind, Project: project, Session: req.SessionUUID, Request: request, Phase: "helper-intent", Evidence: evidence, Now: now})
+	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: KindWorkspaceLossInspect, Project: project, Session: req.SessionUUID, Request: request, Phase: "helper-intent", Evidence: evidence, Now: now})
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err
 	}
-	return api.Operation{ID: id, Key: req.Key, Kind: kind, Project: project, SessionUUID: req.SessionUUID,
+	return api.Operation{ID: id, Key: req.Key, Kind: KindWorkspaceLossInspect, Project: project, SessionUUID: req.SessionUUID,
 		Request: request, Status: "running", Phase: "helper-intent", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
 }
 
@@ -121,7 +110,7 @@ func (s *Store) ActiveWorkspaceInspect(ctx context.Context, sessionUUID string) 
 		return api.Operation{}, false, ErrInvalid
 	}
 	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM operations WHERE session_uuid=? AND kind IN ('workspace.inspect','workspace.loss.inspect','session.create.cleanup','session.discard','session.delete','session.rename','session.repair','session.repair.prepare','session.ref.repair','session.principal.repair','session.record.repair')
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM operations WHERE session_uuid=? AND kind IN ('workspace.loss.inspect','session.create.cleanup','session.discard','session.delete','session.rename','session.repair','session.repair.prepare','session.ref.repair','session.principal.repair','session.record.repair')
 	 AND status IN ('running','blocked','unknown')`, sessionUUID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, false, nil

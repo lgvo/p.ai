@@ -101,9 +101,9 @@ func TestRepairPreparationDigestBindsConfirmedImageAndAcceptedOverride(t *testin
 	 VALUES('33333333-3333-4333-8333-333333333333','fixture-create','session.create',? ,?,'{}','fixture','completed','completed',1,?,'2026','2026')`, ev.Project, uuid, string(created)); err != nil {
 		t.Fatal(err)
 	}
-	related, _, err := s.ListRelatedEnvironmentSessions(ctx, ev.Project, ev.EnvironmentKey, ev.ImageFingerprint, "", 10)
+	related, _, err := relatedEnvironmentRows(ctx, s.db, ev.Project, ev.EnvironmentKey, ev.ImageFingerprint, "", 10)
 	if err != nil || len(related) != 1 || related[0].UUID != uuid {
-		t.Fatalf("repaired image omitted from collection loss preview: %+v %v", related, err)
+		t.Fatalf("repaired image omitted from its related sessions: %+v %v", related, err)
 	}
 }
 
@@ -121,10 +121,6 @@ func TestRepairPreparationDurableGuardAndRestart(t *testing.T) {
 	}
 	if _, active, e := s.ActiveWorkspaceInspect(ctx, uuid); e != nil || !active {
 		t.Fatalf("preparation guard unavailable: %v", e)
-	}
-	if _, e := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,committed,created_at,updated_at)
-	 VALUES('44444444-4444-4444-8444-444444444444','collect-during-prepare','environment.collect',?,'{}','x','running','reserved',0,'2026','2026')`, ev.Project); e == nil {
-		t.Fatal("cache collection admitted during builder preparation")
 	}
 	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "builder-init-issued", true, op.Evidence, "unknown init"); err != nil {
 		t.Fatal(err)
@@ -223,8 +219,8 @@ func TestAcceptedRepairImageUsesDurableInsertionOrder(t *testing.T) {
 	 VALUES('33333333-3333-4333-8333-333333333333','fixture-order-create','session.create',?,?,'{}','fixture','completed','completed',1,?,'2026','2026')`, first.Project, renameTestUUID, created); err != nil {
 		t.Fatal(err)
 	}
-	related, _, err := s.ListRelatedEnvironmentSessions(ctx, first.Project, second.EnvironmentState.Key, second.ImageFingerprint, "", 10)
+	related, _, err := relatedEnvironmentRows(ctx, s.db, first.Project, second.EnvironmentState.Key, second.ImageFingerprint, "", 10)
 	if err != nil || len(related) != 1 || related[0].UUID != renameTestUUID {
-		t.Fatalf("collection relation used an older repair: %+v %v", related, err)
+		t.Fatalf("image relation used an older repair: %+v %v", related, err)
 	}
 }

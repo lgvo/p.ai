@@ -11,15 +11,14 @@ func TestProjectDeleteCompletionPurgesOnlyRelatedReviewEvidence(t *testing.T) {
 	l := &lifecycle{
 		projectDeletePreviews: map[string]projectDeletePreviewState{"old": {Preview: control.ProjectDeletePreview{Project: "bulk"}}, "other": {Preview: control.ProjectDeletePreview{Project: "other"}}},
 		removalPreviews:       map[string]removalPreviewState{"old": {Preview: control.RemovalPreview{Project: "bulk"}}, "other": {Preview: control.RemovalPreview{Project: "other"}}},
-		collectionPreviews:    map[string]collectionPreviewState{"old": {Claim: control.EnvironmentCollectionClaim{Image: control.EnvironmentImage{Project: "bulk"}}}, "other": {Claim: control.EnvironmentCollectionClaim{Image: control.EnvironmentImage{Project: "other"}}}},
 		createCleanupPreviews: map[string]createCleanupPreviewState{"old": {Preview: control.CreateCleanupPreview{OldRequest: control.ReserveSessionRequest{Project: "bulk"}}}},
 		changedPolicies:       map[string]bool{"bulk": true, "other": true},
 	}
 	l.forgetProjectDeletePreviews("bulk")
-	if len(l.projectDeletePreviews) != 1 || len(l.removalPreviews) != 1 || len(l.collectionPreviews) != 1 || len(l.createCleanupPreviews) != 0 || len(l.changedPolicies) != 1 {
+	if len(l.projectDeletePreviews) != 1 || len(l.removalPreviews) != 1 || len(l.createCleanupPreviews) != 0 || len(l.changedPolicies) != 1 {
 		t.Fatal("completed deletion retained bulky evidence or purged unrelated reviews")
 	}
-	if l.projectDeletePreviews["other"].Preview.Project != "other" || l.removalPreviews["other"].Preview.Project != "other" || l.collectionPreviews["other"].Claim.Image.Project != "other" || !l.changedPolicies["other"] {
+	if l.projectDeletePreviews["other"].Preview.Project != "other" || l.removalPreviews["other"].Preview.Project != "other" || !l.changedPolicies["other"] {
 		t.Fatal("unrelated authority changed")
 	}
 }

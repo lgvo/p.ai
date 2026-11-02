@@ -583,8 +583,9 @@ invocation snapshots also acquire leases and honor disable markers.
 Removal requires trusted deselection and no durable dependency. Existing
 session/operation evidence, unresolved provenance, indexed environment images,
 pending origin/publication recovery or a live package lease refuse removal.
-Finish supported lifecycle cleanup, image collection or recovery first; unknown
-holders require investigation and preserve the package. The manager rechecks
+Finish supported lifecycle cleanup or recovery first, and delete the projects
+that hold indexed environment images; unknown holders require investigation
+and preserve the package. The manager rechecks
 trusted selection and dependencies under the exclusive package lease, syncs a
 disable marker and exact cleanup receipt before deleting bytes. Interrupted
 removal permits Retry for missing approved files and unchanged owned survivors;

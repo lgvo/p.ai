@@ -90,9 +90,6 @@ func TestAssembledWorkspaceLossGuardBindsSourceAcrossSQLiteReopen(t *testing.T) 
 	if _, err = s.BeginWorkspaceLossInspect(ctx, WorkspaceInspectRequest{Key: "second", SessionUUID: creator.SessionUUID}, ev); !errors.Is(err, ErrConflict) {
 		t.Fatalf("overlapping helper admitted: %v", err)
 	}
-	if _, err = s.BeginWorkspaceInspect(ctx, WorkspaceInspectRequest{Key: "ordinary", SessionUUID: creator.SessionUUID}, ev); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("ordinary workspace inspect accepted creator: %v", err)
-	}
 	if err = s.CompleteCreation(ctx, creator.ID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("creation promoted inspected session: %v", err)
 	}
