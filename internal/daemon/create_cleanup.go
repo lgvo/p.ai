@@ -109,9 +109,8 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string, lossIDs
 	if lossID == "" && !control.SafeCreateCleanupPhase(op) {
 		unsafe("assembled_workspace_requires_dedicated_loss_inspection; preserve_or_retry_exact_request")
 	}
-	l.mu.Lock()
-	working := l.working[op.ID] || l.hasAttachmentLocked(uuid)
-	l.mu.Unlock()
+	var working bool
+	l.withLock(func() { working = l.working[op.ID] || l.hasAttachmentLocked(uuid) })
 	if working {
 		unsafe("creation_worker_or_attachment_active")
 	}
@@ -232,9 +231,9 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	if op, found, e := replay(); found || e != nil {
 		return op, e
 	}
-	l.mu.Lock()
-	state, found := l.createCleanupPreviews[token]
-	l.mu.Unlock()
+	var state createCleanupPreviewState
+	var found bool
+	l.withLock(func() { state, found = l.createCleanupPreviews[token] })
 	if !found || state.Preview.UUID != uuid || !time.Now().Before(state.Expiry) {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -267,9 +266,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	if err != nil {
 		return op, err
 	}
-	l.mu.Lock()
-	delete(l.createCleanupPreviews, token)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.createCleanupPreviews, token) })
 	l.recordProgress(op, "running")
 	return op, l.enqueue(op.ID)
 }

@@ -86,9 +86,7 @@ func (l *lifecycle) PreviewEnvironmentCollection(ctx context.Context, project, k
 		return control.EnvironmentCollectionPreview{}, control.ErrInvalid
 	}
 	if token != "" {
-		l.mu.Lock()
-		state = l.collectionPreviews[token]
-		l.mu.Unlock()
+		l.withLock(func() { state = l.collectionPreviews[token] })
 		if state.ExpiresAt.IsZero() || time.Now().After(state.ExpiresAt) ||
 			state.Claim.Image.Project != project || state.Claim.Image.Key != key {
 			return control.EnvironmentCollectionPreview{}, control.ErrConflict
@@ -112,21 +110,25 @@ func (l *lifecycle) PreviewEnvironmentCollection(ctx context.Context, project, k
 		claim.ConfirmationDigest = collectionTokenDigest(token)
 		state = collectionPreviewState{Claim: claim, ExpiresAt: time.Now().Add(collectionPreviewLifetime)}
 		state.Claim.ConfirmationExpiresAt = state.ExpiresAt.UTC().Format(time.RFC3339Nano)
-		l.mu.Lock()
-		if l.collectionPreviews == nil {
-			l.collectionPreviews = map[string]collectionPreviewState{}
-		}
-		for id, old := range l.collectionPreviews {
-			if time.Now().After(old.ExpiresAt) {
-				delete(l.collectionPreviews, id)
+		stored := false
+		l.withLock(func() {
+			if l.collectionPreviews == nil {
+				l.collectionPreviews = map[string]collectionPreviewState{}
 			}
-		}
-		if len(l.collectionPreviews) >= 64 {
-			l.mu.Unlock()
+			for id, old := range l.collectionPreviews {
+				if time.Now().After(old.ExpiresAt) {
+					delete(l.collectionPreviews, id)
+				}
+			}
+			if len(l.collectionPreviews) >= 64 {
+				return
+			}
+			l.collectionPreviews[token] = state
+			stored = true
+		})
+		if !stored {
 			return control.EnvironmentCollectionPreview{}, control.ErrConflict
 		}
-		l.collectionPreviews[token] = state
-		l.mu.Unlock()
 	}
 	current, found, err := l.store.GetEnvironmentImage(ctx, project, key)
 	if err != nil || !found || !control.SameEnvironmentImage(current, state.Claim.Image) {
@@ -162,9 +164,8 @@ func (l *lifecycle) CollectEnvironmentCache(ctx context.Context, key, token stri
 	if !errors.Is(err, control.ErrNotFound) {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	state := l.collectionPreviews[token]
-	l.mu.Unlock()
+	var state collectionPreviewState
+	l.withLock(func() { state = l.collectionPreviews[token] })
 	if state.ExpiresAt.IsZero() || time.Now().After(state.ExpiresAt) || state.Claim.ConfirmationDigest != collectionTokenDigest(token) {
 		return api.Operation{}, control.ErrConflict
 	}

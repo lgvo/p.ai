@@ -82,9 +82,8 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 	}
 	requested := 0
 	for _, s := range sessions {
-		l.mu.Lock()
-		attached := l.hasAttachmentLocked(s.UUID) || l.startActive[s.UUID]
-		l.mu.Unlock()
+		var attached bool
+		l.withLock(func() { attached = l.hasAttachmentLocked(s.UUID) || l.startActive[s.UUID] })
 		if attached {
 			return p, fmt.Errorf("%w: detach and Stop all project sessions, then obtain fresh workspace loss inspections", control.ErrConflict)
 		}
@@ -279,9 +278,9 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 	if op, found, e := replay(); found || e != nil {
 		return op, e
 	}
-	l.mu.Lock()
-	state, found := l.projectDeletePreviews[req.ConfirmationToken]
-	l.mu.Unlock()
+	var state projectDeletePreviewState
+	var found bool
+	l.withLock(func() { state, found = l.projectDeletePreviews[req.ConfirmationToken] })
 	if !found || state.Request.Project != req.Project || !time.Now().Before(state.Expiry) {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -366,9 +365,7 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 	if err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	delete(l.projectDeletePreviews, req.ConfirmationToken)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.projectDeletePreviews, req.ConfirmationToken) })
 	l.recordProgress(accepted, "running")
 	return accepted, l.enqueue(accepted.ID)
 }

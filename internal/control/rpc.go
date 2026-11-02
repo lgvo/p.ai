@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -407,7 +409,9 @@ func ServeWithHandler(ctx context.Context, stateDir string, handler Handler) err
 var randRead = rand.Read
 
 // ServeConn handles independent requests concurrently so a cancellation
-// notification can interrupt a pending request on the same stream.
+// notification can interrupt a pending request on the same stream. A panic
+// while serving a request answers it internal and is logged with its stack;
+// the connection and the daemon keep serving.
 func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 	peerPID, peerUID := connectionPeer(conn)
 	owner := &Connection{peerPID: peerPID, peerUID: peerUID}
@@ -433,30 +437,29 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		_ = json.NewEncoder(conn).Encode(rpcResponse{JSONRPC: "2.0", ID: id, Result: result, Error: rpcErr})
 	}
-	reader := bufio.NewReaderSize(conn, api.MaxFrameBytes+1)
-	for {
-		conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
-		line, err := api.ReadFrame(reader)
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				write(json.RawMessage("null"), nil, errorRPC(-32700, "parse_error", err.Error()))
+	serveFrame := func(line []byte) {
+		var request rpcRequest
+		notification := false
+		defer func() {
+			if value := recover(); value != nil {
+				rpcErr := panicRPC("control", request.Method, value)
+				if !notification {
+					write(replyID(request.ID), nil, rpcErr)
+				}
 			}
-			break
-		}
+		}()
 		request, parseErr := parseRequest(line)
 		if parseErr != nil {
-			id := request.ID
-			if len(id) == 0 {
-				id = json.RawMessage("null")
-			}
-			write(id, nil, parseErr)
-			continue
+			write(replyID(request.ID), nil, parseErr)
+			return
 		}
+		notification = !request.HasID
+		var key string
 		if request.HasID {
-			requestKey, _ := canonicalID(request.ID)
-			if _, duplicated := active.Load(requestKey); duplicated {
+			key, _ = canonicalID(request.ID)
+			if _, duplicated := active.Load(key); duplicated {
 				write(json.RawMessage("null"), nil, errorRPC(-32600, "invalid_request", "duplicate in-flight id"))
-				continue
+				return
 			}
 		}
 		if request.Method == "rpc.cancel" {
@@ -470,7 +473,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 				if request.HasID {
 					write(request.ID, nil, errorRPC(-32602, "invalid_params", "cancel requires v and id"))
 				}
-				continue
+				return
 			}
 			if cancel, ok := active.Load(cancelKey); ok {
 				cancel.(context.CancelFunc)()
@@ -478,30 +481,34 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 			if request.HasID {
 				write(request.ID, map[string]any{"v": 1, "cancel_requested": true}, nil)
 			}
-			continue
+			return
 		}
 		if !request.HasID {
 			// Unknown notifications have no reply and no side effects.
-			continue
+			return
 		}
 		select {
 		case semaphore <- struct{}{}:
 		default:
 			write(request.ID, nil, errorRPC(-32003, "busy", "too many concurrent requests"))
-			continue
+			return
 		}
-		key, _ := canonicalID(request.ID)
 		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		if _, loaded := active.LoadOrStore(key, cancel); loaded {
 			cancel()
 			<-semaphore
 			write(json.RawMessage("null"), nil, errorRPC(-32600, "invalid_request", "duplicate in-flight id"))
-			continue
+			return
 		}
 		pending.Add(1)
 		go func(request rpcRequest) {
 			defer pending.Done()
 			defer func() { active.Delete(key); cancel(); <-semaphore }()
+			defer func() {
+				if value := recover(); value != nil {
+					write(request.ID, nil, panicRPC("control", request.Method, value))
+				}
+			}()
 			var result any
 			var rpcErr *api.RPCError
 			if owner.dedicatedAttachment() && request.Method != "attachment.confirm" && request.Method != "attachment.ping" {
@@ -520,7 +527,41 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 			write(request.ID, result, rpcErr)
 		}(request)
 	}
+	reader := bufio.NewReaderSize(conn, api.MaxFrameBytes+1)
+	for {
+		conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
+		line, err := api.ReadFrame(reader)
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				write(json.RawMessage("null"), nil, errorRPC(-32700, "parse_error", err.Error()))
+			}
+			break
+		}
+		serveFrame(line)
+	}
 	active.Range(func(_, value any) bool { value.(context.CancelFunc)(); return true })
 	conn.Close()
 	pending.Wait()
+}
+
+// replyID is the id a response carries: the request's, or null when the
+// request has none or its id is invalid.
+func replyID(id json.RawMessage) json.RawMessage {
+	if len(id) == 0 {
+		return json.RawMessage("null")
+	}
+	return id
+}
+
+// panicRPC logs a panic recovered while serving a request of server and
+// returns the error that request answers.
+func panicRPC(server, method string, value any) *api.RPCError {
+	logPanic(fmt.Sprintf("%s request %q", server, method), value)
+	return errorRPC(-32603, "internal", "request failed unexpectedly")
+}
+
+// logPanic logs a recovered panic with the stack of the goroutine that
+// panicked. Call it from the deferred function that recovered.
+func logPanic(what string, value any) {
+	log.Printf("%s panicked: %v\n%s", what, value, debug.Stack())
 }

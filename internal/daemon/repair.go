@@ -173,9 +173,7 @@ func (l *lifecycle) previewRepair(ctx context.Context, id, preparationID string)
 		preview.BlockedReason = "operation_active"
 		return preview, nil
 	}
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(id)
-	l.mu.Unlock()
+	attached := l.hasAttachment(id)
 	if attached {
 		preview.BlockedReason = "attachment_active"
 		return preview, nil
@@ -248,6 +246,7 @@ func (l *lifecycle) previewRepair(ctx context.Context, id, preparationID string)
 		return control.RepairPreview{}, errors.New("repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.repairPreviews == nil {
 		l.repairPreviews = map[string]repairPreviewState{}
 	}
@@ -257,11 +256,9 @@ func (l *lifecycle) previewRepair(ctx context.Context, id, preparationID string)
 		}
 	}
 	if len(l.repairPreviews) >= 128 {
-		l.mu.Unlock()
 		return control.RepairPreview{}, control.ErrConflict
 	}
 	l.repairPreviews[preview.ConfirmationToken] = repairPreviewState{Preview: preview, Expiry: expiry}
-	l.mu.Unlock()
 	return preview, nil
 }
 
@@ -279,10 +276,12 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 	if prior, replayed, err := replayRequest(l, ctx, req.Key, control.KindSessionRepair, pinned); err != nil || replayed {
 		return prior, err
 	}
-	l.mu.Lock()
-	state, found := l.repairPreviews[req.ConfirmationToken]
-	attached := l.hasAttachmentLocked(req.UUID)
-	l.mu.Unlock()
+	var state repairPreviewState
+	var found, attached bool
+	l.withLock(func() {
+		state, found = l.repairPreviews[req.ConfirmationToken]
+		attached = l.hasAttachmentLocked(req.UUID)
+	})
 	if !found || attached || !state.Preview.Eligible || state.Preview.SessionUUID != req.UUID || !time.Now().Before(state.Expiry) {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -425,9 +424,7 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 	if err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	delete(l.repairPreviews, req.ConfirmationToken)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.repairPreviews, req.ConfirmationToken) })
 	if err = l.enqueue(op.ID); err != nil {
 		return op, err
 	}

@@ -102,8 +102,10 @@
   above), so each family's saturation can be characterized first.
 - Left by: the agent, by rule (a restructuring not pursued; the plan review cut it because its
   behavior cannot be characterized before the change).
-- Added 2026-11-01, 1 case:
+- Added 2026-11-01, updated 2026-11-02, 2 cases:
   - 2026-11-01: "complete rework of P's implementation" cut it from step 5 after review.
+  - 2026-11-02: "recover from a panic in a request handler" had to make the same lock change
+    in each copy: the token read in all ten, the token delete in nine, the insert in seven.
 
 ## Trusted configuration and the RPC server live in the store package
 

@@ -141,6 +141,72 @@ func TestRPCRejectsInvalidHandlerEnvelopes(t *testing.T) {
 	}
 }
 
+func TestRPCHandlerPanicAnswersInternalAndConnectionKeepsServing(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	go ServeConn(context.Background(), server, func(_ context.Context, method string, _ json.RawMessage) (any, *api.RPCError) {
+		if method == "session.inspect" {
+			panic("handler bug")
+		}
+		return map[string]any{"v": 1}, nil
+	})
+	reader := bufio.NewReader(client)
+	exchange := func(request string) (response struct {
+		ID     json.RawMessage `json:"id"`
+		Result json.RawMessage `json:"result"`
+		Error  *api.RPCError   `json:"error"`
+	}) {
+		t.Helper()
+		if _, err := client.Write([]byte(request + "\n")); err != nil {
+			t.Fatal(err)
+		}
+		client.SetReadDeadline(time.Now().Add(2 * time.Second))
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(line, &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	failed := exchange(`{"jsonrpc":"2.0","id":"broken","method":"session.inspect","params":{"v":1}}`)
+	if string(failed.ID) != `"broken"` || failed.Result != nil || failed.Error == nil || failed.Error.Code != -32603 || failed.Error.Kind != "internal" {
+		t.Fatalf("panicking handler answered %s %s %+v", failed.ID, failed.Result, failed.Error)
+	}
+	next := exchange(`{"jsonrpc":"2.0","id":2,"method":"system.health","params":{"v":1}}`)
+	if string(next.ID) != "2" || string(next.Result) != `{"v":1}` || next.Error != nil {
+		t.Fatalf("request after the panic answered %s %s %+v", next.ID, next.Result, next.Error)
+	}
+}
+
+func TestRPCConnectionCloseSurvivesPanickingRelease(t *testing.T) {
+	client, server := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		ServeConn(context.Background(), server, func(ctx context.Context, _ string, _ json.RawMessage) (any, *api.RPCError) {
+			if err := ctx.Value(connectionKey{}).(*Connection).Own(func() { panic("release bug") }); err != nil {
+				return nil, lifecycleRPC(err)
+			}
+			return map[string]any{"v": 1}, nil
+		})
+		close(done)
+	}()
+	if _, err := client.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"attachment.claim","params":{"v":1}}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if line, err := bufio.NewReader(client).ReadBytes('\n'); err != nil || !strings.Contains(string(line), `"result"`) {
+		t.Fatalf("claim: %s %v", line, err)
+	}
+	client.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("connection teardown did not finish after its release panicked")
+	}
+}
+
 func TestClientCallsPrivateSocket(t *testing.T) {
 	store, dir := openTestStore(t)
 	ctx, cancel := context.WithCancel(context.Background())

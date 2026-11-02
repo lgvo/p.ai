@@ -32,9 +32,7 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 		return api.Operation{}, err
 	}
 	defer release()
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(req.SessionUUID)
-	l.mu.Unlock()
+	attached := l.hasAttachment(req.SessionUUID)
 	if attached {
 		return api.Operation{}, control.ErrConflict
 	}

@@ -35,9 +35,7 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 		return control.RemovalPreview{}, err
 	}
 	defer release()
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(req.UUID)
-	l.mu.Unlock()
+	attached := l.hasAttachment(req.UUID)
 	if attached {
 		return control.RemovalPreview{}, control.ErrConflict
 	}
@@ -142,6 +140,7 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 		return control.RemovalPreview{}, err
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.removalPreviews == nil {
 		l.removalPreviews = make(map[string]removalPreviewState)
 	}
@@ -151,11 +150,9 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 		}
 	}
 	if len(l.removalPreviews) >= 128 {
-		l.mu.Unlock()
 		return control.RemovalPreview{}, control.ErrConflict
 	}
 	l.removalPreviews[preview.ConfirmationToken] = removalPreviewState{Preview: preview, Expiry: expires}
-	l.mu.Unlock()
 	return preview, nil
 }
 

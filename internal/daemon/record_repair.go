@@ -74,9 +74,7 @@ func (l *lifecycle) recordRepairFacts(ctx context.Context, uuid string) (control
 	if active, e := l.store.HasActiveSessionOperation(ctx, uuid); e != nil || active {
 		unsafe("operation_active")
 	}
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(uuid)
-	l.mu.Unlock()
+	attached := l.hasAttachment(uuid)
 	if attached {
 		unsafe("attachment_active")
 	}
@@ -111,6 +109,7 @@ func (l *lifecycle) PreviewRecordRepair(ctx context.Context, uuid string) (contr
 		return control.RecordRepairPreview{}, errors.New("record repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.recordRepairPreviews == nil {
 		l.recordRepairPreviews = map[string]recordRepairPreviewState{}
 	}
@@ -120,11 +119,9 @@ func (l *lifecycle) PreviewRecordRepair(ctx context.Context, uuid string) (contr
 		}
 	}
 	if len(l.recordRepairPreviews) >= 128 {
-		l.mu.Unlock()
 		return control.RecordRepairPreview{}, errors.New("record repair preview capacity unavailable")
 	}
 	l.recordRepairPreviews[p.ConfirmationToken] = recordRepairPreviewState{Preview: p, Expiry: expiry}
-	l.mu.Unlock()
 	return p, nil
 }
 
@@ -142,9 +139,9 @@ func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token st
 	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRecordRepair, req); err != nil || replayed {
 		return prior, err
 	}
-	l.mu.Lock()
-	state, found := l.recordRepairPreviews[token]
-	l.mu.Unlock()
+	var state recordRepairPreviewState
+	var found bool
+	l.withLock(func() { state, found = l.recordRepairPreviews[token] })
 	if !found || !time.Now().Before(state.Expiry) || !state.Preview.Eligible || state.Preview.SessionUUID != uuid {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -169,9 +166,7 @@ func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token st
 	if err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	delete(l.recordRepairPreviews, token)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.recordRepairPreviews, token) })
 	if err = l.enqueue(op.ID); err != nil {
 		return op, err
 	}

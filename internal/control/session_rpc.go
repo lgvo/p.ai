@@ -77,15 +77,29 @@ func SessionReply(ctx context.Context, store *Store, uuid string, line []byte) (
 // SessionReplyWithCommit accepts a callback that only enqueues a reduced event.
 // It runs under the status reducer lock and must not inspect SQLite or invoke a
 // handler, so concurrent reports and attachment clears retain commit order.
-func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line []byte, onCommitted func(api.UnattendedCondition)) ([]byte, *api.UnattendedCondition) {
+// A panic while handling the message answers internal and is logged with its
+// stack, so the session's connection keeps serving.
+func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line []byte, onCommitted func(api.UnattendedCondition)) (encoded []byte, committed *api.UnattendedCondition) {
 	if !utf8.Valid(line) {
 		return []byte("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"kind\":\"parse_error\",\"message\":\"invalid UTF-8\"}}\n"), nil
 	}
+	var req rpcRequest
+	notification := false
+	defer func() {
+		if value := recover(); value != nil {
+			rpcErr := panicRPC("session "+uuid, req.Method, value)
+			encoded, committed = nil, nil
+			if notification {
+				return
+			}
+			if data, err := json.Marshal(rpcResponse{JSONRPC: "2.0", ID: replyID(req.ID), Error: rpcErr}); err == nil {
+				encoded = append(data, '\n')
+			}
+		}
+	}()
 	req, parseErr := parseRequest(line)
-	reply := rpcResponse{JSONRPC: "2.0", ID: req.ID}
-	if len(reply.ID) == 0 {
-		reply.ID = json.RawMessage("null")
-	}
+	notification = !req.HasID && parseErr == nil
+	reply := rpcResponse{JSONRPC: "2.0", ID: replyID(req.ID)}
 	if parseErr != nil {
 		reply.Error = parseErr
 	} else {
@@ -135,7 +149,7 @@ func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line
 			}
 		}
 	}
-	if !req.HasID && parseErr == nil {
+	if notification {
 		return nil, nil
 	}
 	data, err := json.Marshal(reply)

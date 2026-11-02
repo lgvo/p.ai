@@ -49,10 +49,12 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 	if prior, replayed, err := replayRequest(l, ctx, req.Key, "session."+action, pinned); err != nil || replayed {
 		return prior, err
 	}
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(req.UUID)
-	state, found := l.removalPreviews[req.ConfirmationToken]
-	l.mu.Unlock()
+	var attached, found bool
+	var state removalPreviewState
+	l.withLock(func() {
+		attached = l.hasAttachmentLocked(req.UUID)
+		state, found = l.removalPreviews[req.ConfirmationToken]
+	})
 	if attached || !found || state.Preview.Kind != action || state.Preview.SessionUUID != req.UUID || !time.Now().Before(state.Expiry) {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -96,9 +98,7 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 	if err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	delete(l.removalPreviews, req.ConfirmationToken)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.removalPreviews, req.ConfirmationToken) })
 	if err = l.enqueue(op.ID); err != nil {
 		return op, err
 	}

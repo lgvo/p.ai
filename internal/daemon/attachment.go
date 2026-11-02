@@ -33,6 +33,13 @@ func (l *lifecycle) expireAttachmentsLocked() {
 		}
 	}
 }
+
+// hasAttachment reports whether an attachment holds or reserves session id.
+func (l *lifecycle) hasAttachment(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.hasAttachmentLocked(id)
+}
 func (l *lifecycle) hasAttachmentLocked(id string) bool {
 	l.expireAttachmentsLocked()
 	for _, a := range l.attachments {
@@ -48,9 +55,7 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAt
 	// Retry only that in-progress start; conflicting lifecycle operations fail.
 	view, err := l.StartSession(ctx, id)
 	if err != nil {
-		l.mu.Lock()
-		starting := l.startActive[id]
-		l.mu.Unlock()
+		starting := l.startWatching(id)
 		if !errors.Is(err, control.ErrConflict) || !starting {
 			return zero, err
 		}
@@ -73,9 +78,7 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAt
 	// Another client's Start may own the session since the inspection that saw
 	// ready. Wait for its watcher to finish instead of rejecting attach.
 	for {
-		l.mu.Lock()
-		starting := l.startActive[id]
-		l.mu.Unlock()
+		starting := l.startWatching(id)
 		if !starting {
 			break
 		}
@@ -150,13 +153,14 @@ func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.Atta
 	return *state.AttachSpec, nil
 }
 func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *control.Connection) (api.AttachmentLaunch, error) {
-	l.mu.Lock()
-	candidate := l.attachments[token]
+	var candidate *attachment
 	session := ""
-	if candidate != nil {
-		session = candidate.session
-	}
-	l.mu.Unlock()
+	l.withLock(func() {
+		candidate = l.attachments[token]
+		if candidate != nil {
+			session = candidate.session
+		}
+	})
 	if session == "" {
 		return api.AttachmentLaunch{}, control.ErrConflict
 	}
@@ -185,9 +189,9 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *con
 }
 func (l *lifecycle) releaseAttachment(token string) {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	a := l.attachments[token]
 	if a == nil {
-		l.mu.Unlock()
 		return
 	}
 	if a.confirmed {
@@ -198,22 +202,22 @@ func (l *lifecycle) releaseAttachment(token string) {
 		})
 	}
 	delete(l.attachments, token)
-	l.mu.Unlock()
 }
 func (l *lifecycle) ConfirmAttachment(ctx context.Context, conn *control.Connection, operation string) error {
-	l.mu.Lock()
 	var a *attachment
-	for _, candidate := range l.attachments {
-		if candidate.connection == conn {
-			a = candidate
-			break
+	claimed := false
+	l.withLock(func() {
+		for _, candidate := range l.attachments {
+			if candidate.connection == conn {
+				a = candidate
+				break
+			}
 		}
-	}
-	if a == nil || a.confirmed || !time.Now().Before(a.expires) {
-		l.mu.Unlock()
+		claimed = a != nil && !a.confirmed && time.Now().Before(a.expires)
+	})
+	if !claimed {
 		return control.ErrConflict
 	}
-	l.mu.Unlock()
 	release, err := l.lockSession(ctx, a.session)
 	if err != nil {
 		return err

@@ -86,9 +86,9 @@ func (l *lifecycle) ConfirmRetainedDelete(ctx context.Context, key, project, bra
 	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRetainedDelete, req); err != nil || replayed {
 		return prior, err
 	}
-	l.mu.Lock()
-	state, found := l.retainedDeletePreviews[token]
-	l.mu.Unlock()
+	var state retainedDeletePreviewState
+	var found bool
+	l.withLock(func() { state, found = l.retainedDeletePreviews[token] })
 	if !found || state.Preview.Project != project || state.Preview.Branch != branch || !time.Now().Before(state.Expiry) {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -110,9 +110,7 @@ func (l *lifecycle) ConfirmRetainedDelete(ctx context.Context, key, project, bra
 	if err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	delete(l.retainedDeletePreviews, token)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.retainedDeletePreviews, token) })
 	if err = l.enqueue(op.ID); err != nil {
 		return op, err
 	}

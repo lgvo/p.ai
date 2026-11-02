@@ -59,6 +59,7 @@ func (l *lifecycle) observeView(v api.SessionView) {
 		return
 	}
 	l.eventMu.Lock()
+	defer l.eventMu.Unlock()
 	if l.observed == nil {
 		l.observed = make(map[string]observedFacts)
 	}
@@ -68,7 +69,6 @@ func (l *lifecycle) observeView(v api.SessionView) {
 	l.eventContexts[v.UUID] = eventContext{v.Project, v.Branch}
 	before, exists := l.observed[v.UUID]
 	l.observed[v.UUID] = observedFacts{v.Condition, v.PolicyCondition}
-	defer l.eventMu.Unlock()
 	if !exists {
 		return
 	}
@@ -85,6 +85,7 @@ func (l *lifecycle) recordCreation(op api.Operation, branch string) {
 		return
 	}
 	l.eventMu.Lock()
+	defer l.eventMu.Unlock()
 	if l.progress == nil {
 		l.progress = make(map[string]string)
 	}
@@ -96,11 +97,9 @@ func (l *lifecycle) recordCreation(op api.Operation, branch string) {
 	}
 	l.eventContexts[op.SessionUUID] = eventContext{op.Project, branch}
 	if l.progress[op.ID] != "" {
-		l.eventMu.Unlock()
 		return
 	}
 	l.progress[op.ID] = "accepted"
-	defer l.eventMu.Unlock()
 	l.events.emit("operation.progress", op.Project, op.SessionUUID, branch, "phase", "accepted")
 	if op.Kind == "session.create" {
 		l.observed[op.SessionUUID] = observedFacts{condition: "creating", policy: "current"}
@@ -133,18 +132,17 @@ func (l *lifecycle) recordProgress(op api.Operation, phase string) {
 		return
 	}
 	l.eventMu.Lock()
+	defer l.eventMu.Unlock()
 	if l.progress == nil {
 		l.progress = make(map[string]string)
 	}
 	if l.progress[op.ID] == phase {
-		l.eventMu.Unlock()
 		return
 	}
 	l.progress[op.ID] = phase
 	if phase == "blocked" || phase == "completed" || phase == "failed" || phase == "cancelled" {
 		delete(l.progress, op.ID)
 	}
-	defer l.eventMu.Unlock()
 	context := l.eventContexts[op.SessionUUID]
 	l.events.emit("operation.progress", op.Project, op.SessionUUID, context.branch, "phase", phase)
 }

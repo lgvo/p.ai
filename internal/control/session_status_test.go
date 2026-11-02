@@ -484,6 +484,33 @@ func TestSessionStreamPostCommitFailureAndFraming(t *testing.T) {
 	}
 }
 
+func TestSessionStreamKeepsServingAfterPanickingCommitCallback(t *testing.T) {
+	s, id := statusFixture(t)
+	server, client := net.Pipe()
+	defer client.Close()
+	client.SetDeadline(time.Now().Add(3 * time.Second))
+	go ServeSessionConn(context.Background(), server, s, id, func(context.Context, api.UnattendedCondition) error {
+		panic("event delivery bug")
+	})
+	if _, err := client.Write(append(reportLine("attention"), '\n')); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"session.identity","params":{"v":1}}` + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	line, err := bufio.NewReader(client).ReadBytes('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		ID     int             `json:"id"`
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(line, &envelope); err != nil || envelope.ID != 1 || !strings.Contains(string(envelope.Result), id) {
+		t.Fatalf("query after a panicking report: %s %v", line, err)
+	}
+}
+
 func TestSessionStreamAttemptBudgetAndOversizeFrame(t *testing.T) {
 	s, id := statusFixture(t)
 	server, client := net.Pipe()

@@ -121,9 +121,7 @@ func (l *lifecycle) principalRepairFacts(ctx context.Context, uuid string) (cont
 	if err := l.checkNoWorkspaceInspect(ctx, uuid); err != nil {
 		unsafe("operation_active")
 	}
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(uuid)
-	l.mu.Unlock()
+	attached := l.hasAttachment(uuid)
 	if attached {
 		unsafe("attachment_active")
 	}
@@ -155,6 +153,7 @@ func (l *lifecycle) PreviewPrincipalRepair(ctx context.Context, uuid string) (co
 		return control.PrincipalRepairPreview{}, errors.New("principal repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.principalRepairPreviews == nil {
 		l.principalRepairPreviews = map[string]principalRepairPreviewState{}
 	}
@@ -164,11 +163,9 @@ func (l *lifecycle) PreviewPrincipalRepair(ctx context.Context, uuid string) (co
 		}
 	}
 	if len(l.principalRepairPreviews) >= 128 {
-		l.mu.Unlock()
 		return control.PrincipalRepairPreview{}, errors.New("principal repair preview capacity unavailable")
 	}
 	l.principalRepairPreviews[p.ConfirmationToken] = principalRepairPreviewState{Preview: p, Expiry: expiry}
-	l.mu.Unlock()
 	return p, nil
 }
 
@@ -186,9 +183,9 @@ func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token
 	if prior, replayed, err := replayRequest(l, ctx, key, control.KindPrincipalRepair, request); err != nil || replayed {
 		return prior, err
 	}
-	l.mu.Lock()
-	state, found := l.principalRepairPreviews[token]
-	l.mu.Unlock()
+	var state principalRepairPreviewState
+	var found bool
+	l.withLock(func() { state, found = l.principalRepairPreviews[token] })
 	if !found || !time.Now().Before(state.Expiry) || !state.Preview.Eligible || state.Preview.SessionUUID != uuid {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -212,9 +209,7 @@ func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token
 	if err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	delete(l.principalRepairPreviews, token)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.principalRepairPreviews, token) })
 	if err := l.enqueue(op.ID); err != nil {
 		return op, err
 	}

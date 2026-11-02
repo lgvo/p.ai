@@ -162,9 +162,7 @@ func (l *lifecycle) PreviewRefRepair(ctx context.Context, uuid, lossID string) (
 	if err = l.checkNoWorkspaceInspect(ctx, uuid); err != nil {
 		unsafe("operation_active")
 	}
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(uuid)
-	l.mu.Unlock()
+	attached := l.hasAttachment(uuid)
 	if attached {
 		unsafe("attachment_active")
 	}
@@ -191,6 +189,7 @@ func (l *lifecycle) PreviewRefRepair(ctx context.Context, uuid, lossID string) (
 		return control.RefRepairPreview{}, errors.New("ref repair preview exceeds bounded response")
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.refRepairPreviews == nil {
 		l.refRepairPreviews = map[string]refRepairPreviewState{}
 	}
@@ -200,11 +199,9 @@ func (l *lifecycle) PreviewRefRepair(ctx context.Context, uuid, lossID string) (
 		}
 	}
 	if len(l.refRepairPreviews) >= 128 {
-		l.mu.Unlock()
 		return control.RefRepairPreview{}, errors.New("ref repair preview capacity unavailable")
 	}
 	l.refRepairPreviews[preview.ConfirmationToken] = refRepairPreviewState{Preview: preview, Expiry: expiry}
-	l.mu.Unlock()
 	return preview, nil
 }
 
@@ -257,9 +254,9 @@ func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token strin
 	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRefRepair, control.RefRepairRequest{Key: key, UUID: uuid, TokenSHA256: hex.EncodeToString(hash[:])}); err != nil || replayed {
 		return prior, err
 	}
-	l.mu.Lock()
-	state, found := l.refRepairPreviews[token]
-	l.mu.Unlock()
+	var state refRepairPreviewState
+	var found bool
+	l.withLock(func() { state, found = l.refRepairPreviews[token] })
 	if !found || !time.Now().Before(state.Expiry) || !state.Preview.Eligible || state.Preview.SessionUUID != uuid {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -292,9 +289,7 @@ func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token strin
 	if err := l.checkNoWorkspaceInspect(ctx, uuid); err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	attached := l.hasAttachmentLocked(uuid)
-	l.mu.Unlock()
+	attached := l.hasAttachment(uuid)
 	if attached {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -334,9 +329,7 @@ func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token strin
 	if err != nil {
 		return api.Operation{}, err
 	}
-	l.mu.Lock()
-	delete(l.refRepairPreviews, token)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.refRepairPreviews, token) })
 	if err = l.enqueue(op.ID); err != nil {
 		return op, err
 	}

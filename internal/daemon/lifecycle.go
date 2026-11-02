@@ -445,8 +445,18 @@ func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
 	}
 }
 
+// withLock runs f holding l.mu and releases it even when f panics: the
+// control server recovers a panicking request and keeps serving, and an l.mu
+// left held would stop every later request.
+func (l *lifecycle) withLock(f func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f()
+}
+
 func (l *lifecycle) sessionLockSlot(id string) chan struct{} {
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.sessionLocks == nil {
 		l.sessionLocks = map[string]chan struct{}{}
 	}
@@ -456,7 +466,6 @@ func (l *lifecycle) sessionLockSlot(id string) chan struct{} {
 		slot <- struct{}{}
 		l.sessionLocks[id] = slot
 	}
-	l.mu.Unlock()
 	return slot
 }
 
@@ -1302,9 +1311,7 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 // so the session stays starting until then even when the host looks ready: a
 // client that acts on ready must not find the lock taken.
 func (l *lifecycle) observedCondition(id string, state plugin.RuntimeState) string {
-	l.mu.Lock()
-	starting := l.startActive[id]
-	l.mu.Unlock()
+	starting := l.startWatching(id)
 	switch {
 	case !state.Exists:
 		return "missing"
@@ -1380,12 +1387,12 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 	if err = l.store.SetSessionStartDiagnostic(ctx, id, ""); err != nil {
 		return api.SessionView{}, err
 	}
-	l.mu.Lock()
-	if l.startActive == nil {
-		l.startActive = map[string]bool{}
-	}
-	l.startActive[id] = true
-	l.mu.Unlock()
+	l.withLock(func() {
+		if l.startActive == nil {
+			l.startActive = map[string]bool{}
+		}
+		l.startActive[id] = true
+	})
 	keepLock = true
 	go func() {
 		defer func() {
@@ -1420,6 +1427,14 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 	return v, nil
 }
 
+// startWatching reports whether Start's watcher for session id still runs and
+// holds the session lock.
+func (l *lifecycle) startWatching(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.startActive[id]
+}
+
 // endStartWatcher ends Start's watcher for session id and releases the session
 // lock it kept. Both happen under l.mu, where observedCondition reads
 // startActive, so no inspection sees the watcher ended while its lock is held.
@@ -1436,9 +1451,7 @@ func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView
 		return api.SessionView{}, err
 	}
 	defer release()
-	l.mu.Lock()
-	blocked := l.hasAttachmentLocked(id)
-	l.mu.Unlock()
+	blocked := l.hasAttachment(id)
 	if blocked {
 		return api.SessionView{}, control.ErrConflict
 	}

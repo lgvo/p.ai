@@ -65,9 +65,8 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" {
 		return nil, control.ErrConflict
 	}
-	l.mu.Lock()
-	working := l.working[op.ID] || l.hasAttachmentLocked(s.UUID)
-	l.mu.Unlock()
+	var working bool
+	l.withLock(func() { working = l.working[op.ID] || l.hasAttachmentLocked(s.UUID) })
 	if working {
 		return nil, control.ErrConflict
 	}
@@ -97,9 +96,7 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 		if _, err = os.Lstat(sessionKeyPath(l.store.StateDir(), s.UUID)); !errors.Is(err, os.ErrNotExist) {
 			return nil, control.ErrConflict
 		}
-		l.endpoints.mu.Lock()
-		opened := l.endpoints.opened[s.UUID] != nil
-		l.endpoints.mu.Unlock()
+		opened := l.endpoints.isOpen(s.UUID)
 		if opened {
 			return nil, control.ErrConflict
 		}
@@ -225,6 +222,7 @@ func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, re
 		return control.CreateReplacePreview{}, control.ErrConflict
 	}
 	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.createReplacePreviews == nil {
 		l.createReplacePreviews = map[string]createReplacePreviewState{}
 	}
@@ -234,11 +232,9 @@ func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, re
 		}
 	}
 	if len(l.createReplacePreviews) >= 128 {
-		l.mu.Unlock()
 		return control.CreateReplacePreview{}, control.ErrConflict
 	}
 	l.createReplacePreviews[p.ConfirmationToken] = createReplacePreviewState{Preview: p, Expiry: expiry}
-	l.mu.Unlock()
 	return p, nil
 }
 
@@ -262,9 +258,9 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	if prior, found, e := l.store.ReplayCreateReplacement(ctx, key, oldUUID, tokenHash); e != nil || found {
 		return prior, e
 	}
-	l.mu.Lock()
-	state, ok := l.createReplacePreviews[token]
-	l.mu.Unlock()
+	var state createReplacePreviewState
+	var ok bool
+	l.withLock(func() { state, ok = l.createReplacePreviews[token] })
 	if !ok || state.Preview.OldUUID != oldUUID || state.Preview.NewRequest.Key != key {
 		return api.Operation{}, control.ErrConflict
 	}
@@ -306,9 +302,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	if e != nil {
 		return api.Operation{}, e
 	}
-	l.mu.Lock()
-	delete(l.createReplacePreviews, token)
-	l.mu.Unlock()
+	l.withLock(func() { delete(l.createReplacePreviews, token) })
 	l.recordCreation(op, state.Preview.NewRequest.Branch)
 	if e = l.enqueue(op.ID); e != nil {
 		return op, e

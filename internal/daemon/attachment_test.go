@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,59 @@ func TestAttachmentPendingClaimExpiryAndStopExclusion(t *testing.T) {
 	l.mu.Unlock()
 	if blocked {
 		t.Fatal("unclaimed expired token blocked stop")
+	}
+}
+func TestAttachmentReleasePanicLeavesLifecycleLockFree(t *testing.T) {
+	ctx := context.Background()
+	store, err := control.OpenStore(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.Close() })
+	policy, _, err := control.ProjectPolicySnapshot(control.ProjectPolicy{Network: "none", FilesystemMounts: []control.FilesystemGrant{}, Command: []string{"/bin/sh"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CreateProject(ctx, "app", policy); err != nil {
+		t.Fatal(err)
+	}
+	selection := control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("a", 64), HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	op, session, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: "attached", Project: "app", Branch: "work", Choice: "existing"}, strings.Repeat("d", 64), selection, func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
+		return strings.Repeat("e", 40), true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.CompleteCreation(ctx, op.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err = store.ConfirmAttachment(ctx, session.UUID); err != nil {
+		t.Fatal(err)
+	}
+	token := strings.Repeat("a", 64)
+	l := &lifecycle{ctx: ctx, store: store,
+		attachments:  map[string]*attachment{token: {session: session.UUID, expires: time.Now().Add(time.Minute), confirmed: true}},
+		onAttachment: func(context.Context, string, int, bool) { panic("attachment event bug") }}
+	// The control server recovers a panic in the release it runs at connection close.
+	panicked := func() (value any) {
+		defer func() { value = recover() }()
+		l.releaseAttachment(token)
+		return nil
+	}()
+	if panicked == nil {
+		t.Fatal("release did not reach the panicking attachment callback")
+	}
+	answered := make(chan error, 1)
+	go func() {
+		answered <- l.ConfirmAttachment(ctx, &control.Connection{}, "/1.0/operations/11111111-1111-1111-1111-111111111111")
+	}()
+	select {
+	case err := <-answered:
+		if !errors.Is(err, control.ErrConflict) {
+			t.Fatal("unclaimed connection confirmed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the lifecycle lock stayed held after a panic in attachment release")
 	}
 }
 func TestAttachmentUnknownConnectionCannotConfirm(t *testing.T) {

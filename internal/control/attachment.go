@@ -44,15 +44,31 @@ func (c *Connection) Own(release func()) error {
 	return nil
 }
 func (c *Connection) dedicatedAttachment() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.dedicated }
+
+// close runs the attachment's release at connection teardown, where no request
+// is left to answer, so a panic in the release is logged and recovered there.
 func (c *Connection) close() {
+	release := c.takeRelease()
+	if release == nil {
+		return
+	}
+	defer func() {
+		if value := recover(); value != nil {
+			logPanic("attachment release at connection close", value)
+		}
+	}()
+	release()
+}
+
+// takeRelease marks the connection closed, so nothing can own it again, and
+// hands over its release once.
+func (c *Connection) takeRelease() func() {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.closed = true
 	release := c.release
 	c.release = nil
-	c.mu.Unlock()
-	if release != nil {
-		release()
-	}
+	return release
 }
 func attachmentHandler(ctx context.Context, method string, params json.RawMessage, life AttachmentAPI) (any, *api.RPCError) {
 	conn, _ := ctx.Value(connectionKey{}).(*Connection)

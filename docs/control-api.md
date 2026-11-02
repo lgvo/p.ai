@@ -1048,6 +1048,12 @@ kind/code pairs are `parse_error`/`-32700`, `invalid_request`/`-32600`,
 `cancelled`/`-32001`, `unsupported_version`/`-32002`, `busy`/`-32003`, and
 `unavailable`/`-32004`. Invalid request IDs are returned as JSON `null`.
 
+A request whose handling fails unexpectedly, because the daemon's code panics,
+answers `internal`/`-32603`; a notification gets no response. The daemon logs
+the failure with its stack and keeps serving: the connection stays open for
+later requests, and other connections are not affected. The private session
+RPC behaves the same way.
+
 Session-capacity admission refusals retain `busy`/`-32003` and explain the
 reserved loss-inspection slot and Discard/Delete remedy. Stop retains its
 reservation. Other authority conflicts keep their generic conflict message;

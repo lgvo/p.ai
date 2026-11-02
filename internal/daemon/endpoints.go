@@ -255,6 +255,14 @@ func (m *endpointManager) addConn(c net.Conn) bool {
 	m.conns[c] = struct{}{}
 	return true
 }
+
+// isOpen reports whether the endpoints of session uuid are open.
+func (m *endpointManager) isOpen(uuid string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.opened[uuid] != nil
+}
+
 func (m *endpointManager) removeConn(c net.Conn) { m.mu.Lock(); delete(m.conns, c); m.mu.Unlock() }
 
 const gitConnectionsPerSession = 8
