@@ -160,6 +160,13 @@ The rules:
   operation kind, and clients only display it. Facts that clients act on are
   projected into typed fields, as `environment` is today
   (`CreationEnvironmentView`).
+- **`intent` on every operation:** `api.Operation` and `api.OperationSummary`
+  carry `intent` (`api.OperationIntent`), a typed projection of the recorded
+  request: its project, target session, the branch named or held at
+  acceptance, and the caller's choices (new branch name, creation choice,
+  source or origin ref, URL, publication destination), never the guards read
+  from live state. The daemon records it at acceptance. The CLI's `--key`
+  replay compares it ([cli.md](cli.md#idempotency-keys)).
 - **Errors** are `api.Error`, defined in [errors.md](errors.md).
 - **`p api` stays raw:** it takes a method name and JSON params, as today. It
   is the one caller that sends untyped params, and only through
