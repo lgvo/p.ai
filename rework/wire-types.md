@@ -161,12 +161,31 @@ The rules:
   projected into typed fields, as `environment` is today
   (`CreationEnvironmentView`).
 - **`intent` on every operation:** `api.Operation` and `api.OperationSummary`
-  carry `intent` (`api.OperationIntent`), a typed projection of the recorded
-  request: its project, target session, the branch named or held at
-  acceptance, and the caller's choices (new branch name, creation choice,
-  source or origin ref, URL, publication destination), never the guards read
-  from live state. The daemon records it at acceptance. The CLI's `--key`
-  replay compares it ([cli.md](cli.md#idempotency-keys)).
+  carry `intent`, a typed projection of the recorded request that the daemon
+  records at acceptance. It holds only what the caller named, never the
+  guards read from live state (expected tips, URLs and commits, change tags).
+  The CLI's `--key` replay compares it ([cli.md](cli.md#idempotency-keys)).
+
+  ```go
+  type OperationIntent struct {
+  	Project         string `json:"project"`
+  	Session         string `json:"session,omitempty"`          // the target session; for a creation, the new one
+  	Branch          string `json:"branch,omitempty"`           // the P branch named, or held by the session, at acceptance
+  	NewBranch       string `json:"new_branch,omitempty"`       // session and retained-branch rename
+  	Choice          string `json:"choice,omitempty"`           // session.create: new or existing
+  	Source          string `json:"source,omitempty"`           // session.create: P ref or commit
+  	OriginRef       string `json:"origin_ref,omitempty"`       // session.create from the origin
+  	ReplacesSession string `json:"replaces_session,omitempty"` // session.create.replace: the blocked creation's UUID
+  	ReplacesBranch  string `json:"replaces_branch,omitempty"`  // and the branch it held, which may differ from Branch
+  	URL             string `json:"url,omitempty"`              // project.create, origin.change
+  	Destination     string `json:"destination,omitempty"`      // origin.publish
+  }
+  ```
+
+  A replacement's operation is the new creation, so `session` and `branch`
+  name the new session and its branch. The replaced session's row is deleted
+  (`DELETE FROM sessions` in internal/control/create_replace_store.go), so
+  only `replaces_session` and `replaces_branch` still name it.
 - **Errors** are `api.Error`, defined in [errors.md](errors.md).
 - **`p api` stays raw:** it takes a method name and JSON params, as today. It
   is the one caller that sends untyped params, and only through
