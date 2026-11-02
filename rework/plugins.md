@@ -59,7 +59,6 @@ internal/daemon
 ├─ events ─► p-event-file, or the selected handler      one process, JSON-RPC over a socket pair
 └─ runtimedriver.Driver ─► p-runtime-incus              also holds the tmux host files and git-ssh
      └─ Session.Assets: the codex-adapter package
-removed: wazero, the brokers, p.command/v1, p.broker/v1, p.asset-plan/v1, p.activation/v1, grants
 ```
 
 | | Today | After |
@@ -73,13 +72,8 @@ removed: wazero, the brokers, p.command/v1, p.broker/v1, p.asset-plan/v1, p.acti
 
 ## Each plugin
 
-| Package | What it decides | Its authority today | After |
-|---|---|---|---|
-| runtime-incus, environment-nix | Nothing | Broker calls | Gone in steps 8 and 1 |
-| source-git | Ref page size, tighter transport limits, refusal | Broker calls on one project; core checks every result | Folds into core; `p-git-ssh` moves to the Incus driver |
-| tmux-host | How the session host runs, within runtime-kit's contract | Root-owned units in the session | Files of the Incus driver |
-| file-log | Nothing: core does the work | None of its own | A bundled executable plugin |
-| codex-adapter | How Codex events map to P's conditions | The session's | Stays a package of files |
+runtime-incus and environment-nix are gone by steps 8 and 1. The other four
+follow.
 
 ### source-git folds into core
 
@@ -103,14 +97,18 @@ driver's `Session` already carries, so it becomes a file of the Incus driver.
 
 ### tmux-host's files move to the Incus driver
 
-The units run `/usr/libexec/p/runtime-kit` subcommands and `p-attach` runs
-`/usr/libexec/p/tmux`, links from P's base image (runtime/image.nix) that
-runtime-kit checks (`ValidateFixedAssets`). A replacement host must match
-runtime-kit and the image, so it cannot change on its own; the driver contract
-already makes the session host the driver's business, and one host exists.
-The three files join the Incus driver, and `runtime.host_plugin_id` and the
-session's host pin go. This answers what [runtime-driver.md](runtime-driver.md)
-left to this document: session hosts are not selected separately.
+The two units and `p-attach` define how the session host runs: they call
+runtime-kit and tmux, and attachment compares the guest's files with the
+selected package's bytes (`verifyAttachAssets` in
+internal/runtimeincus/attach.go). A replacement package can therefore change
+unit settings or attach options today. By the maintainer's decision, how a
+runtime runs the session host is the runtime's own business
+([runtime-driver.md](runtime-driver.md)); a Kubernetes driver would not run
+systemd units at all. So the three files join the Incus driver, and
+`runtime.host_plugin_id` and the session's host pin go. Customizing the host,
+which a replacement package allows today, then means changing the driver or
+a setting it offers. This answers what runtime-driver.md left to this
+document: session hosts are not selected separately.
 
 ### The event handler becomes an executable plugin
 
@@ -217,10 +215,8 @@ shape `{path, sha256, config}`:
 `p.activation/v1` goes: without grants, it would repeat host configuration in
 a second private file.
 
-The digest covers names, sizes and bytes, not modes, so `p plugins install`
-and `update` must set modes themselves. Today `StagePackage`
-(internal/plugin/managed.go) writes every file 0400, which leaves an entry
-that cannot run. Step 9 changes it to write the entry 0500, every other file
+The digest covers names, sizes and bytes, not modes, so installation sets
+them: `p plugins install` and `update` stage the entry 0500, every other file
 0400 and the package directory 0500, all owned by P's account, each file with
 one link.
 
@@ -229,7 +225,7 @@ one link.
 | `p plugins list`, `conformance` | Unchanged: validate packages and print digests; never run code |
 | `p plugins defaults` | Prints the host-configuration blocks for the bundled file-log and Codex adapter; the NixOS `bundledActivation` option writes them into the host configuration it generates |
 | `p plugins install`, `update`, `remove` | Offline, an exact approved digest, `STATE/plugins/packages/SHA256`, now with the modes above. Removal is refused while host configuration selects the package or a session's creation pins it; only the agent adapter is pinned now |
-| `p plugins run-event PACKAGE CONFIG EVENT` | Runs the launch checks, starts the handler once, sends one event and prints the result; replaces `emit` and today's `run-event` |
+| `p plugins run-event HOST_JSON EVENT` | Starts the handler that the host configuration's `events` block selects, with its digest and config, after the launch checks; sends one event and prints the result. A private host configuration holding only `state_dir` and `events` is enough to try a package. Replaces `emit` and today's `run-event`, which read an activation file |
 | `p plugins activate`, `plan-assets` | Gone, with the activation file and with core-chosen guest paths |
 
 ### Conformance
@@ -244,7 +240,8 @@ one link.
 ## Trust
 
 **Selection** is unchanged: only trusted host configuration names a plugin,
-by path and SHA-256. Repositories, requests, sessions and agents never do.
+by path and SHA-256, for the daemon and for `p plugins run-event` alike.
+Repositories, requests, sessions and agents never do.
 
 **Launch checks.** Today the WASI runner executes the bytes it hashed
 (`selectedModule` in internal/plugin/wasi_sandbox.go). A native start runs a
@@ -303,7 +300,7 @@ the maintainer to confirm it.
   goes; `events` and `runtime.agent_adapter` take a path, a digest and config
   instead of an activation file and a plugin ID.
 - `p plugins defaults` covers two packages; `activate`, `plan-assets` and
-  `emit` go; `run-event` takes a package.
+  `emit` go; `run-event` reads its selection from host configuration.
 - A package whose directory or files are writable by others, foreign-owned or
   hard-linked does not start.
 - A WASI event handler no longer runs; it must be rebuilt as a native
@@ -366,7 +363,7 @@ the maintainer to confirm it.
 |---|---|
 | Keep WASI for event handlers | A WASI handler can only append or skip; with no sockets it cannot notify anything. |
 | source-git as a native executable, or a source driver for all Git work | Open question 1. |
-| Session hosts as a package the Incus driver loads | They are bound to runtime-kit and P's base image, and a host contract would tie every driver to systemd. |
+| Session hosts as a package the Incus driver loads | The session host is the runtime's own business by the maintainer's decision, and a host package contract shared by drivers would tie them all to systemd units. |
 | Keep `p.activation/v1` as a separate file | Without grants it repeats host configuration. |
 | One process per event, as with WASI | A start per event, and no connection a handler can keep, for example to a webhook. |
 | Execute verified bytes from memory (`memfd_create` and `fexecve`) | The launch checks already leave only root and P's account able to change the file. |
@@ -423,8 +420,8 @@ the maintainer to confirm it.
   adapter) unchanged; 48 (bundled distribution) with two packages; 55 (NixOS
   service) with the selections in host configuration. 54 (plugin management)
   installs the file-log package with `p plugins install`, then handles an
-  event through `p plugins run-event` against the staged package and through
-  a daemon that selects it. New: kill the handler while the daemon runs and
+  event through `p plugins run-event` and through the daemon, both with a
+  host configuration that selects the staged package. New: kill the handler while the daemon runs and
   see later events delivered after the restart with the drop logged; a
   changed digest or a loosened mode refuses start.
 - **Boundaries:** go.mod has no wazero, and no `wasip1` build remains.
