@@ -39,12 +39,12 @@ means the document does not exist yet.
 | Runtime | The WASI runtime plugin decides nothing, about 200 Incus calls bypass it, and core never calls `runtime.delete`. | One owner for runtime effects, decided by the maintainer on 2026-11-02: a native Go runtime driver that every runtime effect goes through, replaceable like a plugin (for example a Kubernetes driver instead of Incus). Images, the session host and project services are the driver's internals; the contract exposes only operations. The WASI runtime plugin goes. | [runtime-driver.md](runtime-driver.md), services in [services-plugin.md](services-plugin.md) |
 | Services | Project services are systemd user units; core runs `systemctl` through the WASI runtime plugin's `runtime.services` broker, and the API carries systemd's state names. | Three runtime-driver operations (list, action, logs) with P's own states and a display-only detail; each driver implements services internally. On Incus nothing changes for users or agents. API renames (`unit` → `name`, `session.service.journal` → `session.service.logs`) land in step 2; the move lands in step 8. | [services-plugin.md](services-plugin.md) |
 | Plugins | The remaining executable plugins are WASI modules driven through brokers (source-git, Nix environment). | Native executables speaking JSON-RPC, like the runtime driver, where that makes sense; the Nix environment folds into the runtime driver's image build. Decided by the maintainer on 2026-11-02. Executable plugins are trusted code, contained by trusted selection, digest pinning and launch checks, with no sandbox; OS confinement is a later improvement (maintainer, 2026-11-02). | [plugins.md](plugins.md) |
-| Source | Git work is split between Go code in `internal/gitservice` and a WASI source-git plugin that decides almost nothing. | One source driver for all source and Git work, replaceable like the runtime driver (a native executable, pinned and launch-checked). Decided by the maintainer on 2026-11-02. | being drafted: source-driver.md |
+| Source | Git work is split between Go code in `internal/gitservice` and a WASI source-git plugin that decides almost nothing. | One source driver for all source and Git work, replaceable like the runtime driver (a native executable, pinned and launch-checked). Decided by the maintainer on 2026-11-02. | [source-driver.md](source-driver.md) |
 | Schema | P's SQLite state is built by replaying 21 migrations; the current schema exists only as their sum. | One schema file for fresh installs, edited directly by later steps; no migrations. Follows from fresh installs only, confirmed by the maintainer on 2026-11-02. | this plan |
 
 ## Steps
 
-Each step lands as one commit, after its decision document is settled. The 0 steps need no decision document: each rests only on a decision already made, and each lands as its own commit. Step 8 is the exception: it lands as the runtime driver's migration steps, one commit each.
+Each step lands as one commit, after its decision document is settled. The 0 steps need no decision document: each rests only on a decision already made, and each lands as its own commit. Steps 8 and 9 are the exceptions: step 8 lands as the runtime driver's migration steps and step 9 as the source driver's (S1–S7) and then the plugin changes, one commit each.
 
 | Step | What | Why in this order |
 |---|---|---|
@@ -63,7 +63,7 @@ Each step lands as one commit, after its decision document is settled. The 0 ste
 | 6 | Repairs | Builds on the single repair method from step 5. |
 | 7 | CLI | Builds on steps 4 to 6. |
 | 8 | Runtime | The largest step, and independent of the API. Last of the API-independent work, so it blocks nothing else. Lands as the driver's migration steps, one commit each. |
-| 9 | Plugins | Replaces the remaining WASI plugins with JSON-RPC executables where that makes sense, reusing the runtime driver's protocol from step 8. |
+| 9 | Source driver, then plugins | The source driver lands first, as its migration steps S1 to S7, one commit each ([source-driver.md](source-driver.md#migration)); then the plugin changes replace the remaining WASI plugins with JSON-RPC executables where that makes sense. Both reuse the runtime driver's protocol from step 8. |
 
 Every step:
 
@@ -108,6 +108,11 @@ them.
 - errors.md: do blocked and failed operations get a `reason` code beside their
   diagnostic? (yes); are panics in operation workers recovered, marking the
   operation blocked? (yes)
+- source-driver.md: does the SSH server stay in core? (yes); do the Git edits
+  in a stopped workspace stay in core? (yes); does `Export` hand the build a
+  Git bundle? (yes); is the driver pinned to an instance by the backend's
+  identity recorded at first start? (yes); does it land as the first part of
+  step 9? (yes)
 - waiting.md: keep only the newest finished start or stop per session? (yes);
   do origin change and publish become operations? (yes); does the session
   condition gain `stopping`? (yes)

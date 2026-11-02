@@ -109,8 +109,11 @@ or deleting an image, as it checks labels today.
 image for a commit (`BuildImage`). The driver does the whole build: a
 disposable builder from the pinned base image, the Nix steps that realize the
 commit's devShell (today's Nix environment plugin folds into this), and the
-published image, with no builder left behind. An image only has to work with
-the runtime that built it. The builder gets
+published image, with no builder left behind. The builder's input is the
+commit as the [source driver](source-driver.md) exports it, and the builder
+makes `/workspace` from it; whether that export is a Git bundle the builder
+clones or today's file tree is the source driver's open question 3. An image
+only has to work with the runtime that built it. The builder gets
 public internet access only, with no host or local-network route, as
 [environment building](../docs/environment-building.md) already designs
 ("Realize" and "Security boundary"); today's builder is still offline, and

@@ -36,12 +36,13 @@ nothing to do with Incus lives in the Incus adapter too.
 driver owns how sessions and images work: the image and its build, the guest,
 the session host, project services, terminals, devices, network, and the
 proofs of its own boundary. Core keeps lifecycle state, the journal, policy,
-Git, the proofs of absence, and the Git edits that rename and ref repair make
-in a stopped workspace. The WASI environment plugin folds into the driver's
+Git authority, the proofs of absence, and the Git edits that rename and ref
+repair make in a stopped workspace; Git effects go through the
+[source driver](source-driver.md). The WASI environment plugin folds into the driver's
 image build.
 
 **What users notice:** no workflow changes from the driver. Host
-configuration has a `driver` block instead of `runtime_plugin_id` and the
+configuration has a `runtime.driver` block instead of `runtime_plugin_id` and the
 Incus settings, and `p plugins defaults` lists four packages instead of six.
 With no helper slot kept free (`checkSessionCapacity`), one more session fits
 under the Incus project's container limit.
@@ -162,7 +163,7 @@ type Session struct {
 type Build struct {
 	Ref    Ref            // kind build
 	Labels Labels         // the image's identity: project, commit, base, system, builder version
-	Source SourceSnapshot // the commit's files from P's repository
+	Source SourceExport   // the commit, as the source driver's Export wrote it; form open (source-driver.md, question 3)
 }
 
 type Target struct {
@@ -382,7 +383,8 @@ The protocol: JSON-RPC 2.0 over a Unix socket pair with P's strict JSON
 framing, both directions so the driver can call a gate; one long-lived
 driver process started by the daemon; a hello that agrees on the version,
 refusing startup on a mismatch; each terminal on its own connection; host
-configuration `driver: {path, sha256, config}`.
+configuration `runtime.driver: {path, sha256, config}`, beside the source
+driver's `git.driver`.
 
 **Launch checks.** The path and digest alone do not prove that only root or
 P's account can change the file between the check and the start:
@@ -433,7 +435,7 @@ rename and ref repair stopped-only; 0g gave builders public egress.
 
 | Step | What | Removed |
 |---|---|---|
-| M1 | The full interface, an in-memory driver and a conformance suite; the Incus driver in process over `runtimeincus`, with the guest file plan, the host readiness wait and services.go as driver code. Host configuration gets `driver: {name, config}`. | — |
+| M1 | The full interface, an in-memory driver and a conformance suite; the Incus driver in process over `runtimeincus`, with the guest file plan, the host readiness wait and services.go as driver code. Host configuration gets `runtime.driver: {name, config}`. | — |
 | M2 | The 16 `plugin.RunRuntime` calls go to the driver: inspect, create, start and stop to the session operations, `runtime.services` to the services operations. Attachment keeps today's spec until M5. | The WASI runtime plugin, its broker, capability and grant; `runtime_plugin_id`; the daemon's `serviceBroker` |
 | M3 | `Check`, `Describe`, `Inventory`; core computes the proofs, with one inventory bound instead of today's per-caller 4 or 64. | The proof scans |
 | M4 | The remaining direct calls: `Delete`, `InspectGitKey`, `SetGitKey`, the workspace operations with the stopped-storage check, `Settle`, and `Create` at an incarnation for recovery. | The other `l.runtime` calls |

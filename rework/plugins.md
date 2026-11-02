@@ -157,7 +157,11 @@ share:
 
 - the daemon starts the entry with no inherited environment or arguments and
   one end of a Unix socket pair, and speaks JSON-RPC 2.0 over it in both
-  directions with P's strict JSON framing;
+  directions with P's strict JSON framing. One exception: the
+  [source driver](source-driver.md) also gets the daemon's `HOME` and
+  `SSH_AUTH_SOCK`, because it reaches origins with the daemon account's
+  OpenSSH configuration, known hosts and agent, as gitservice's origin runner
+  does today (`originEnv` in internal/gitservice/origin.go);
 - in the hello, P names the protocol version, the capability and the plugin's
   config, and the plugin answers with its version; a mismatch or a refused
   config stops the start;

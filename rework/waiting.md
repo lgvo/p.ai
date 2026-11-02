@@ -344,8 +344,9 @@ open question 1 bounds them.
 2. **Do `origin.change` and `origin.publish` become operations in step 4?**
    Recommendation: yes, as the "every change returns an operation" decision
    reads. Both contact the origin inside the request today, with origin
-   deadlines of 35 seconds (internal/plugin/sourcegit.go,
-   internal/gitservice/origin_publication.go) inside a 30-second request,
+   deadlines of 35 seconds (internal/plugin/sourcegit.go and
+   internal/gitservice/origin_publication.go, which become the
+   [source driver](source-driver.md)'s) inside a 30-second request,
    and a push cut by the request deadline stays `attempted` and replays
    `outcome_unknown` for its key (`PublishPublication` in
    internal/control/publication_api.go). As operations, `outcome_unknown`
