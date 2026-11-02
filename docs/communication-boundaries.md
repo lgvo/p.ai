@@ -74,7 +74,7 @@ The local user, TUI, and `p api` share the complete lifecycle surface:
 |---|---|
 | System | hello, health, protocol and build versions |
 | Projects | create, inspect, configure/remove origin, delete all P-owned data |
-| Sessions | list, create, attach, rename, stop, discard, delete, supported repair |
+| Sessions | list, create, attach, rename, stop, discard, delete |
 | Remotes | configure, refresh, inspect origin state, explicitly publish |
 | Observability | session condition, attachment count, latest unattended condition, policy condition, subscriptions |
 | Configuration | validated effective configuration and diagnostics |

@@ -167,7 +167,8 @@ content identity/digest
 `SessionSpec` and lifecycle code do not interpret the locator. The MVP Incus
 adapter accepts target kind `incus-system-image` and interprets the opaque
 locator as an Incus image fingerprint. SQLite separately indexes the
-project-scoped environment key and records the MVP handle needed for repair.
+project-scoped environment key and records the MVP handle each session's
+runtime was created from.
 This keeps the reusable backend seam honest without specifying formats for
 hypothetical providers.
 
@@ -520,9 +521,9 @@ attachment channel.
 
 ## Non-activating workspace access
 
-Loss inspection and Git repair must not run repository hooks, activation, or
-the interactive command. The Incus backend therefore exposes a closed
-`WorkspaceOperation` set.
+Loss inspection and rename's workspace Git changes must not run repository
+hooks, activation, or the interactive command. The Incus backend therefore
+exposes a closed `WorkspaceOperation` set.
 
 An implementation may use Incus file/storage facilities or a P-owned isolated
 helper attached only to the stopped/frozen instance storage. It must:
@@ -567,9 +568,8 @@ The same non-activating mechanism may read the fixed P-owned systemd journal
 and diagnostic paths from a stopped instance. It does not start the instance
 or treat logs as lifecycle authority.
 
-The MVP set covers Git status/ref inspection, branch/upstream rename, and the
-targeted ref operations required by lifecycle repair. It never accepts
-arbitrary argv, reset, clean, automatic commit, or force-push.
+The MVP set covers Git status/ref inspection and branch/upstream rename. It
+never accepts arbitrary argv, reset, clean, automatic commit, or force-push.
 
 The narrow assembled failed-creation loss inspection also uses this helper.
 It requires a stopped source with exact UUID/generation and a complete,
@@ -601,7 +601,8 @@ For an active session:
 
 - zero matching instances is `missing`;
 - one verified instance supplies current runtime state;
-- a name/metadata conflict is an ownership error requiring repair; and
+- a name/metadata conflict is an ownership error requiring manual Incus
+  investigation; and
 - machinery belonging to another P instance is never touched.
 
 Start, stop, exec, and delete outcomes come from Incus state and Incus
@@ -619,8 +620,8 @@ discard.
 |---|---|
 | Incus user socket unavailable | Runtime state is `unreachable`; do not create duplicates or claim stop/removal |
 | Configured Incus project missing or unrestricted | Refuse runtime creation with an actionable host-setup error |
-| Image fingerprint missing | Existing instances continue. New creation rebuilds from its exact committed request; missing-instance repair follows lifecycle and never substitutes silently. |
-| Instance absent | Report `missing`; defined repair may recreate only from committed P state |
+| Image fingerprint missing | Existing instances continue. New creation rebuilds from its exact committed request. |
+| Instance absent | Report `missing`; do not recreate the session's runtime. The user discards or deletes the session and creates a new one; see [session lifecycle](session-lifecycle.md#inconsistent-sessions) |
 | Instance metadata conflicts | Refuse adoption, attachment, or deletion |
 | Incus operation interrupted | Query Incus operation and instance state; do not duplicate its workflow |
 | Filesystem grant exceeds Incus restriction | Reject; never use administrative access as fallback |

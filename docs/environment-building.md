@@ -415,16 +415,11 @@ deleted, and [aggregate project deletion](control-api.md#aggregate-project-delet
 removes every image indexed for that project. Images therefore accumulate
 while a project exists. A missing externally removed image is a cache miss.
 
-If a missing session runtime also lost its recorded derived image, P does not
-infer a replacement from the old cache key or the branch name. Explicit
-repair preparation resolves the current committed assigned P tip using the
-same restricted builder and pinned base image contract as creation. It
-finishes only after that builder is exactly absent, and yields a bounded key
-and selection for a separate read-only repair preview. Confirmed repair
-re-resolves the same key, realizes/publishes or accepts an exact project cache
-entry, then creates the original session UUID. The session's accepted image
-locator changes only at completed repair; interrupted preparation or
-publication leaves durable evidence for reconciliation.
+A session's image is fixed at its creation. If a missing session runtime also
+lost its recorded derived image, P does not rebuild it or infer a replacement
+from the old cache key or the branch name. A new session on the retained branch
+resolves its environment from the branch's committed tip like any other
+creation.
 
 The other explicit removal path is confirmed **Delete project and all P data**.
 Its aggregate project preflight includes these project-scoped keys and images,

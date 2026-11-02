@@ -20,14 +20,6 @@ func TestSessionKeyOperationsRefuseAnUnsafeKeyDirectory(t *testing.T) {
 			return err
 		}, "session key directory is unsafe"},
 		{"remove", func(stateDir string) error { return removeSessionKeyAt(stateDir, uuid) }, "session key directory identity changed"},
-		{"inspect registered", func(stateDir string) error {
-			_, err := inspectRegisteredSessionKey(stateDir, uuid)
-			return err
-		}, "session key directory unavailable"},
-		{"principal repair", func(stateDir string) error {
-			_, err := principalKeyDir(stateDir)
-			return err
-		}, "session key directory is unsafe"},
 	} {
 		for _, unsafe := range []struct {
 			name    string

@@ -104,12 +104,8 @@ func (s *Store) PendingEnvironmentPublication(ctx context.Context, project, key,
 	}
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM operations WHERE project_path=? AND id!=?
-	 AND kind IN ('project.create','session.create','session.repair') AND status IN ('running','blocked','unknown')
-	 AND (phase='environment-publishing' OR (kind='session.repair' AND phase IN
-	  ('image-builder-init-issued','image-builder-created','image-source-transfer-issued',
-	   'image-source-ready','image-builder-start-issued','image-builder-running',
-	   'image-builder-delete-issued','image-builder-absent')))
-	 AND COALESCE(json_extract(evidence_json,'$.environment_state.key'),json_extract(evidence_json,'$.environment_key'))=?`,
+	 AND kind IN ('project.create','session.create') AND status IN ('running','blocked','unknown')
+	 AND phase='environment-publishing' AND json_extract(evidence_json,'$.environment_state.key')=?`,
 		project, excludeOperation, key).Scan(&count)
 	return count != 0, err
 }

@@ -42,7 +42,7 @@ func TestRegisteredSessionKeyCannotRotateOnRetry(t *testing.T) {
 	if err = os.Remove(filepath.Join(state, "session_keys", id)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = sessionKeyAt(ctx, id, state, principal); err == nil || !strings.Contains(err.Error(), "repair required") {
+	if _, _, err = sessionKeyAt(ctx, id, state, principal); err == nil || !strings.Contains(err.Error(), "registered session key missing") {
 		t.Fatalf("missing registered key silently rotated: %v", err)
 	}
 	if _, err = os.Lstat(filepath.Join(state, "session_keys", id)); !os.IsNotExist(err) {

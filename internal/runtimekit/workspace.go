@@ -31,7 +31,6 @@ type WorkspaceConfig struct {
 	EnvironmentSelection string `json:"environment_selection,omitempty"`
 	EnvironmentCommitOID string `json:"environment_commit_oid,omitempty"`
 	EnvironmentKey       string `json:"environment_key,omitempty"`
-	ImageFingerprint     string `json:"image_fingerprint,omitempty"` // v3: exact recorded image reused by explicit repair
 }
 
 func ParseWorkspaceConfig(data []byte) (WorkspaceConfig, error) {
@@ -47,7 +46,7 @@ func ParseWorkspaceConfig(data []byte) (WorkspaceConfig, error) {
 	if d.Decode(new(any)) != io.EOF {
 		return c, errors.New("trailing workspace config")
 	}
-	if c.Schema != "p.workspace/v1" && c.Schema != "p.workspace/v2" && c.Schema != "p.workspace/v3" || !workspaceName.MatchString(c.Repository) || len(c.Repository) > 255 || !workspaceName.MatchString(c.Branch) || len(c.Branch) > 200 || strings.Contains(c.Branch, "..") || strings.Contains(c.Branch, "@{") || strings.HasSuffix(c.Branch, ".lock") {
+	if c.Schema != "p.workspace/v1" && c.Schema != "p.workspace/v2" || !workspaceName.MatchString(c.Repository) || len(c.Repository) > 255 || !workspaceName.MatchString(c.Branch) || len(c.Branch) > 200 || strings.Contains(c.Branch, "..") || strings.Contains(c.Branch, "@{") || strings.HasSuffix(c.Branch, ".lock") {
 		return c, errors.New("invalid workspace identity")
 	}
 	for _, part := range strings.Split(c.Repository, "/") {
@@ -68,20 +67,14 @@ func ParseWorkspaceConfig(data []byte) (WorkspaceConfig, error) {
 		return c, errors.New("invalid initial OID")
 	}
 	if c.Schema == "p.workspace/v1" {
-		if c.EnvironmentSelection != "" || c.EnvironmentCommitOID != "" || c.EnvironmentKey != "" || c.ImageFingerprint != "" {
+		if c.EnvironmentSelection != "" || c.EnvironmentCommitOID != "" || c.EnvironmentKey != "" {
 			return c, errors.New("unresolved workspace cannot carry environment selection")
 		}
-	} else if c.Schema == "p.workspace/v2" && (c.InitialOID == "" || c.EnvironmentCommitOID != c.InitialOID || c.ImageFingerprint != "" ||
+	} else if c.Schema == "p.workspace/v2" && (c.InitialOID == "" || c.EnvironmentCommitOID != c.InitialOID ||
 		!(c.EnvironmentSelection == "base-no-flake" && c.EnvironmentKey == "" ||
 			c.EnvironmentSelection == "base-no-default" && c.EnvironmentKey == "" ||
 			c.EnvironmentSelection == "devshell" && workspaceKey.MatchString(c.EnvironmentKey))) {
 		return c, errors.New("accepted workspace environment differs from captured commit")
-	} else if c.Schema == "p.workspace/v3" && (c.InitialOID == "" || !workspaceKey.MatchString(c.ImageFingerprint) ||
-		!(c.EnvironmentSelection == "base-recorded" && c.EnvironmentKey == "" && (c.EnvironmentCommitOID == "" || workspaceOID.MatchString(c.EnvironmentCommitOID)) ||
-			workspaceOID.MatchString(c.EnvironmentCommitOID) && (c.EnvironmentSelection == "base-no-flake" && c.EnvironmentKey == "" ||
-				c.EnvironmentSelection == "base-no-default" && c.EnvironmentKey == "" ||
-				c.EnvironmentSelection == "devshell" && workspaceKey.MatchString(c.EnvironmentKey)))) {
-		return c, errors.New("repair image provenance unavailable")
 	}
 	return c, nil
 }
@@ -217,21 +210,15 @@ func initWorkspaceRemote(c WorkspaceConfig, dir, git, url string) error {
 		if err != nil || oid != c.InitialOID {
 			return errors.New("assigned branch moved from captured OID")
 		}
-		// Repair v3 checks out the freshly accepted P tip while explicitly
-		// retaining the recorded image's older environment provenance. A
-		// flake-presence comparison against the new tip would attribute that
-		// old image selection to a commit it was never built for.
-		if c.Schema != "p.workspace/v3" {
-			tree, err := gitRun("ls-tree", c.InitialOID, "--", "flake.nix")
-			if err != nil {
-				return err
-			}
-			if tree != "" && (c.Schema == "p.workspace/v1" || c.EnvironmentSelection == "base-no-flake") {
-				return errors.New("committed devShell activation unavailable for root flake")
-			}
-			if tree == "" && c.Schema == "p.workspace/v2" && c.EnvironmentSelection != "base-no-flake" {
-				return errors.New("accepted environment expected a captured root flake")
-			}
+		tree, err := gitRun("ls-tree", c.InitialOID, "--", "flake.nix")
+		if err != nil {
+			return err
+		}
+		if tree != "" && (c.Schema == "p.workspace/v1" || c.EnvironmentSelection == "base-no-flake") {
+			return errors.New("committed devShell activation unavailable for root flake")
+		}
+		if tree == "" && c.Schema == "p.workspace/v2" && c.EnvironmentSelection != "base-no-flake" {
+			return errors.New("accepted environment expected a captured root flake")
 		}
 		if _, err := gitRun("update-ref", "refs/heads/"+c.Branch, c.InitialOID); err != nil {
 			return err

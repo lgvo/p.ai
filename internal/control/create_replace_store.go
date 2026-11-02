@@ -86,7 +86,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if err = s.CheckOriginKeyConflict(ctx, intent.New.Key); err != nil {
 		return api.Operation{}, err
 	}
-	if err = s.checkSessionRepairCapacity(ctx, observe); err != nil {
+	if err = s.checkReplacementCapacity(ctx, observe); err != nil {
 		return api.Operation{}, err
 	}
 	tip, err := verify(ctx)

@@ -64,7 +64,7 @@ func TestEndpointRecoveryRequiresRecognizedDurableCreationProgress(t *testing.T)
 		{name: "established-session", registry: "established", loadErr: errors.New("must not load"), want: true},
 		{name: "removing", registry: "removing", loadErr: errors.New("must not load")},
 		{name: "missing-creation", phase: "principals-ready", loadErr: control.ErrNotFound},
-		{name: "wrong-kind", phase: "principals-ready", mutate: func(op *api.Operation) { op.Kind = "session.repair" }},
+		{name: "wrong-kind", phase: "principals-ready", mutate: func(op *api.Operation) { op.Kind = "session.rename" }},
 		{name: "wrong-session", phase: "principals-ready", mutate: func(op *api.Operation) { op.SessionUUID = "foreign" }},
 		{name: "wrong-project", phase: "principals-ready", mutate: func(op *api.Operation) { op.Project = "foreign" }},
 		{name: "uncommitted", phase: "principals-ready", mutate: func(op *api.Operation) { op.Committed = false }},

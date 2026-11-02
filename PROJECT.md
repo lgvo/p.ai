@@ -153,7 +153,7 @@ The canonical terms below are defined in the [glossary](GLOSSARY.md).
 | Communication | [docs/communication-boundaries.md](docs/communication-boundaries.md) | Git, RPC, SSH, attachment, build, gateway, and event-handler channel boundaries |
 | Implemented host API | [docs/control-api.md](docs/control-api.md) | Current trusted configuration, versioned RPC framing, and implemented method schemas; subject owners retain lifecycle semantics |
 | Observability | [docs/session-observability.md](docs/session-observability.md) | Public conditions, attachment presence, status reduction, and P events |
-| Environments | [docs/environment-building.md](docs/environment-building.md) | Nix selection, isolated realization, activation, image caching, and collection |
+| Environments | [docs/environment-building.md](docs/environment-building.md) | Nix selection, isolated realization, activation, image caching, and image lifetime |
 | Post-MVP model gateway | [docs/model-gateway.md](docs/model-gateway.md) | Retained Bifrost boundary, policy, principal lifecycle, and evolution |
 | Implementation choices | [docs/technology-stack.md](docs/technology-stack.md) | Stack choices, internal seams, dependencies, and capability behavior |
 | Plugin package and activation contract | [docs/plugin-contract.md](docs/plugin-contract.md) | Public package format, capability classes, compatibility, trusted selection and grants, execution containment, and conformance |

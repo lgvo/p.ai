@@ -22,43 +22,39 @@ import (
 )
 
 type lifecycle struct {
-	store                   *control.Store
-	cfg                     control.RuntimeConfig
-	git                     *gitCapability
-	runtime                 *runtimeincus.Backend
-	runtimePlugin           plugin.Active
-	environmentPlugin       *plugin.Active
-	hostPlan                plugin.AssetPlan
-	sourcePlan              plugin.AssetPlan
-	agentPlan               *plugin.AssetPlan
-	endpoints               *endpointManager
-	instanceID              string
-	ctx                     context.Context
-	mu                      sync.Mutex
-	working                 map[string]bool
-	pending                 []string
-	queueSlots              chan struct{}
-	sessionLocks            map[string]chan struct{}
-	confinementCheck        func(context.Context) error
-	startActive             map[string]bool
-	attachments             map[string]*attachment
-	onAttachment            func(context.Context, string, int, bool)
-	events                  *eventDelivery
-	eventMu                 sync.Mutex
-	observed                map[string]observedFacts
-	eventContexts           map[string]eventContext
-	progress                map[string]string
-	changedPolicies         map[string]bool
-	cacheKeyLocks           map[string]chan struct{}
-	removalPreviews         map[string]removalPreviewState
-	repairPreviews          map[string]repairPreviewState
-	refRepairPreviews       map[string]refRepairPreviewState
-	principalRepairPreviews map[string]principalRepairPreviewState
-	recordRepairPreviews    map[string]recordRepairPreviewState
-	retainedDeletePreviews  map[string]retainedDeletePreviewState
-	createReplacePreviews   map[string]createReplacePreviewState
-	createCleanupPreviews   map[string]createCleanupPreviewState
-	projectDeletePreviews   map[string]projectDeletePreviewState
+	store                  *control.Store
+	cfg                    control.RuntimeConfig
+	git                    *gitCapability
+	runtime                *runtimeincus.Backend
+	runtimePlugin          plugin.Active
+	environmentPlugin      *plugin.Active
+	hostPlan               plugin.AssetPlan
+	sourcePlan             plugin.AssetPlan
+	agentPlan              *plugin.AssetPlan
+	endpoints              *endpointManager
+	instanceID             string
+	ctx                    context.Context
+	mu                     sync.Mutex
+	working                map[string]bool
+	pending                []string
+	queueSlots             chan struct{}
+	sessionLocks           map[string]chan struct{}
+	confinementCheck       func(context.Context) error
+	startActive            map[string]bool
+	attachments            map[string]*attachment
+	onAttachment           func(context.Context, string, int, bool)
+	events                 *eventDelivery
+	eventMu                sync.Mutex
+	observed               map[string]observedFacts
+	eventContexts          map[string]eventContext
+	progress               map[string]string
+	changedPolicies        map[string]bool
+	cacheKeyLocks          map[string]chan struct{}
+	removalPreviews        map[string]removalPreviewState
+	retainedDeletePreviews map[string]retainedDeletePreviewState
+	createReplacePreviews  map[string]createReplacePreviewState
+	createCleanupPreviews  map[string]createCleanupPreviewState
+	projectDeletePreviews  map[string]projectDeletePreviewState
 }
 
 // The control-API surface dispatches each lifecycle method only to an
@@ -76,12 +72,6 @@ var (
 	_ control.RetainedRenameAPI         = (*lifecycle)(nil)
 	_ control.ProjectDeleteAPI          = (*lifecycle)(nil)
 	_ control.RetainedDeleteAPI         = (*lifecycle)(nil)
-	_ control.RepairAPI                 = (*lifecycle)(nil)
-	_ control.RepairPreparationAPI      = (*lifecycle)(nil)
-	_ control.PreparedRepairPreviewAPI  = (*lifecycle)(nil)
-	_ control.RefRepairAPI              = (*lifecycle)(nil)
-	_ control.PrincipalRepairAPI        = (*lifecycle)(nil)
-	_ control.RecordRepairAPI           = (*lifecycle)(nil)
 	_ control.CreateReplaceAPI          = (*lifecycle)(nil)
 	_ control.CreateCleanupAPI          = (*lifecycle)(nil)
 	_ control.AssembledCreateCleanupAPI = (*lifecycle)(nil)
@@ -1093,14 +1083,6 @@ func (l *lifecycle) runtimeSession(ctx context.Context, s control.Session) (runt
 		}
 		image = ev.ImageFingerprint
 	}
-	if accepted, ok, e := l.store.AcceptedRepairImage(ctx, s.UUID); e != nil {
-		return runtimeincus.Session{}, e
-	} else if ok {
-		if accepted.Project != s.Project || accepted.Branch != s.Branch {
-			return runtimeincus.Session{}, control.ErrConflict
-		}
-		image = accepted.ImageFingerprint
-	}
 	initialOID := ""
 	if op.Kind == "session.create" {
 		ev, e := control.Evidence(op)
@@ -1257,13 +1239,6 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 		return api.SessionView{}, err
 	}
 	v.Environment = control.CreationEnvironmentView(created)
-	if accepted, ok, e := l.store.AcceptedRepairImage(ctx, s.UUID); e != nil {
-		return api.SessionView{}, e
-	} else if ok {
-		if repaired := control.AcceptedRepairEnvironmentView(accepted); repaired != nil {
-			v.Environment = repaired
-		}
-	}
 	v.PolicyCondition = l.policyCondition(ctx, s)
 	if s.Registry == "creating" {
 		v.Condition = "creating"
@@ -1344,12 +1319,12 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 	if _, registered, e := l.store.SessionGitPrincipal(ctx, id); e != nil {
 		return api.SessionView{}, e
 	} else if !registered {
-		return api.SessionView{}, errors.New("session Git principal missing; repair required")
+		return api.SessionView{}, errors.New("session Git principal missing; discard the session and create a new one")
 	}
 	if active, e := l.store.IsSessionGitPrincipalActive(ctx, id); e != nil {
 		return api.SessionView{}, e
 	} else if !active {
-		return api.SessionView{}, errors.New("session Git principal revoked; repair required")
+		return api.SessionView{}, errors.New("session Git principal revoked; discard the session and create a new one")
 	}
 	if _, _, err = l.sessionKey(ctx, id); err != nil {
 		return api.SessionView{}, err

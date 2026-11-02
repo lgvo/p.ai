@@ -89,7 +89,7 @@ func (l *lifecycle) ensureEnvironmentWithRuntime(ctx context.Context, op *api.Op
 		if err != nil {
 			return "", err
 		}
-		// Creation recovery cannot substitute a later repair image or source.
+		// Creation recovery cannot substitute another image or source.
 		// The stored session policy and reserved address supply every device.
 		if owned.ImageFingerprint != ev.ImageFingerprint || owned.InitialOID != ev.CapturedOID {
 			return "", errors.New("creating runtime image or source differs from captured request")

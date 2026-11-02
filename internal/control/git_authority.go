@@ -335,7 +335,7 @@ func (s *Store) AcquireGitLease(ctx context.Context, fingerprint, project, servi
 
 // ConsumeGitUnbornGrant is called under a receive lease by the fixed
 // pre-receive callback for a validated old-zero update. Consumed is durable
-// even if Git then fails or crashes; repair must resolve an absent ref.
+// even if Git then fails or crashes, which leaves the branch ref absent.
 func (s *Store) ConsumeGitUnbornGrant(ctx context.Context, fingerprint, project string) (bool, error) {
 	var sessionID, branch, registry, state string
 	err := s.db.QueryRowContext(ctx, `SELECT s.uuid,s.branch,s.registry_state,g.state

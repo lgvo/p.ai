@@ -110,7 +110,7 @@ func (s *Store) ActiveWorkspaceInspect(ctx context.Context, sessionUUID string) 
 		return api.Operation{}, false, ErrInvalid
 	}
 	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM operations WHERE session_uuid=? AND kind IN ('workspace.loss.inspect','session.create.cleanup','session.discard','session.delete','session.rename','session.repair','session.repair.prepare','session.ref.repair','session.principal.repair','session.record.repair')
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM operations WHERE session_uuid=? AND kind IN ('workspace.loss.inspect','session.create.cleanup','session.discard','session.delete','session.rename')
 	 AND status IN ('running','blocked','unknown')`, sessionUUID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, false, nil

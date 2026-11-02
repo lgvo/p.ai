@@ -103,36 +103,6 @@ func (l fullLife) PreviewRetainedDelete(_ context.Context, project, branch strin
 func (l fullLife) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (api.Operation, error) {
 	return api.Operation{ID: "retained-delete"}, l.record("ConfirmRetainedDelete %s %s %s %s", key, project, branch, token)
 }
-func (l fullLife) PreviewRepair(_ context.Context, id string) (RepairPreview, error) {
-	return RepairPreview{}, l.record("PreviewRepair %s", id)
-}
-func (l fullLife) ConfirmRepair(_ context.Context, r RepairConfirmRequest) (api.Operation, error) {
-	return api.Operation{ID: "repair"}, l.record("ConfirmRepair %+v", r)
-}
-func (l fullLife) PrepareRepair(_ context.Context, key, id string) (api.Operation, error) {
-	return api.Operation{ID: "prepare"}, l.record("PrepareRepair %s %s", key, id)
-}
-func (l fullLife) PreviewPreparedRepair(_ context.Context, id, prepared string) (RepairPreview, error) {
-	return RepairPreview{}, l.record("PreviewPreparedRepair %s %s", id, prepared)
-}
-func (l fullLife) PreviewRefRepair(_ context.Context, id, loss string) (RefRepairPreview, error) {
-	return RefRepairPreview{}, l.record("PreviewRefRepair %s %s", id, loss)
-}
-func (l fullLife) ConfirmRefRepair(_ context.Context, key, id, token string) (api.Operation, error) {
-	return api.Operation{ID: "ref-repair"}, l.record("ConfirmRefRepair %s %s %s", key, id, token)
-}
-func (l fullLife) PreviewPrincipalRepair(_ context.Context, id string) (PrincipalRepairPreview, error) {
-	return PrincipalRepairPreview{}, l.record("PreviewPrincipalRepair %s", id)
-}
-func (l fullLife) ConfirmPrincipalRepair(_ context.Context, key, id, token string) (api.Operation, error) {
-	return api.Operation{ID: "principal-repair"}, l.record("ConfirmPrincipalRepair %s %s %s", key, id, token)
-}
-func (l fullLife) PreviewRecordRepair(_ context.Context, id string) (RecordRepairPreview, error) {
-	return RecordRepairPreview{}, l.record("PreviewRecordRepair %s", id)
-}
-func (l fullLife) ConfirmRecordRepair(_ context.Context, key, id, token string) (api.Operation, error) {
-	return api.Operation{ID: "record-repair"}, l.record("ConfirmRecordRepair %s %s %s", key, id, token)
-}
 func (l fullLife) PreviewCreateReplace(_ context.Context, old string, r ReserveSessionRequest) (CreateReplacePreview, error) {
 	return CreateReplacePreview{}, l.record("PreviewCreateReplace %s %+v", old, r)
 }
@@ -199,16 +169,6 @@ func (l cleanupLife) ConfirmCreateCleanup(_ context.Context, id, key, token stri
 	return api.Operation{}, l.record("ConfirmCreateCleanup %s %s %s", id, key, token)
 }
 
-// repairLife offers repair but not previews of a prepared repair.
-type repairLife struct{ coreLife }
-
-func (l repairLife) PreviewRepair(_ context.Context, id string) (RepairPreview, error) {
-	return RepairPreview{}, l.record("PreviewRepair %s", id)
-}
-func (l repairLife) ConfirmRepair(_ context.Context, r RepairConfirmRequest) (api.Operation, error) {
-	return api.Operation{}, l.record("ConfirmRepair %+v", r)
-}
-
 func surfaceCall(t *testing.T, h Handler, ctx context.Context, method, params string) (map[string]any, *api.RPCError) {
 	t.Helper()
 	result, rpcErr := h(ctx, method, json.RawMessage(params))
@@ -243,10 +203,6 @@ func TestCapabilitiesListEachConfigurationInOrder(t *testing.T) {
 		"session.rename", "project.retained.rename",
 		"project.delete.preview", "project.delete.confirm",
 		"project.retained.delete.preview", "project.retained.delete.confirm",
-		"session.repair.preview", "session.repair.confirm", "session.repair.prepare",
-		"session.ref.repair.preview", "session.ref.repair.confirm",
-		"session.principal.repair.preview", "session.principal.repair.confirm",
-		"session.record.repair.preview", "session.record.repair.confirm",
 		"session.create.replace.preview", "session.create.replace.confirm",
 		"session.create.cleanup.preview", "session.create.cleanup.confirm",
 	}
@@ -310,16 +266,6 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		{"project.delete.confirm", `{"v":1,"key":"k","project":"team/app","confirmation_token":"` + token + `"}`, "ConfirmProjectDelete {Key:k Project:team/app ConfirmationToken:" + token + "}", []string{"operation", "v"}, "project-delete"},
 		{"project.retained.delete.preview", `{"v":1,"project":"team/app","branch":"saved"}`, "PreviewRetainedDelete team/app saved", []string{"preview", "v"}, ""},
 		{"project.retained.delete.confirm", `{"v":1,"key":"k","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`, "ConfirmRetainedDelete k team/app saved " + token, []string{"operation", "v"}, "retained-delete"},
-		{"session.principal.repair.preview", `{"v":1,"uuid":"` + uuid + `"}`, "PreviewPrincipalRepair " + uuid, []string{"preview", "v"}, ""},
-		{"session.principal.repair.confirm", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "ConfirmPrincipalRepair k " + uuid + " " + token, []string{"operation", "v"}, "principal-repair"},
-		{"session.record.repair.preview", `{"v":1,"uuid":"` + uuid + `"}`, "PreviewRecordRepair " + uuid, []string{"preview", "v"}, ""},
-		{"session.record.repair.confirm", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "ConfirmRecordRepair k " + uuid + " " + token, []string{"operation", "v"}, "record-repair"},
-		{"session.ref.repair.preview", `{"v":1,"uuid":"` + uuid + `","loss_operation_id":"` + uuid2 + `"}`, "PreviewRefRepair " + uuid + " " + uuid2, []string{"preview", "v"}, ""},
-		{"session.ref.repair.confirm", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "ConfirmRefRepair k " + uuid + " " + token, []string{"operation", "v"}, "ref-repair"},
-		{"session.repair.preview", `{"v":1,"uuid":"` + uuid + `"}`, "PreviewRepair " + uuid, []string{"preview", "v"}, ""},
-		{"session.repair.preview", `{"v":1,"uuid":"` + uuid + `","preparation_operation_id":"` + uuid2 + `"}`, "PreviewPreparedRepair " + uuid + " " + uuid2, []string{"preview", "v"}, ""},
-		{"session.repair.prepare", `{"v":1,"key":"k","uuid":"` + uuid + `"}`, "PrepareRepair k " + uuid, []string{"operation", "v"}, "prepare"},
-		{"session.repair.confirm", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "ConfirmRepair {Key:k UUID:" + uuid + " ConfirmationToken:" + token + "}", []string{"operation", "v"}, "repair"},
 		{"operation.retry", `{"v":1,"id":"op-1"}`, "Retry op-1", []string{"operation", "v"}, "op-1"},
 		{"session.inspect", `{"v":1,"uuid":"` + uuid + `"}`, "InspectSession " + uuid, []string{"session", "v"}, uuid},
 		{"session.start", `{"v":1,"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"session", "v"}, uuid},
@@ -389,15 +335,6 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		{"project.delete.confirm", `{"v":1,"key":"k","project":"team/app","confirmation_token":"short"}`},
 		{"project.retained.delete.preview", `{"v":1,"project":"team/app","branch":".hidden"}`},
 		{"project.retained.delete.confirm", `{"v":1,"key":"","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`},
-		{"session.principal.repair.preview", `{"v":1,"uuid":"bad"}`},
-		{"session.principal.repair.confirm", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
-		{"session.record.repair.preview", `{"v":1,"uuid":"bad"}`},
-		{"session.record.repair.confirm", `{"v":1,"key":"","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`},
-		{"session.ref.repair.preview", `{"v":1,"uuid":"` + uuid + `"}`},
-		{"session.ref.repair.confirm", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
-		{"session.repair.preview", `{"v":1,"uuid":"` + uuid + `","preparation_operation_id":"bad"}`},
-		{"session.repair.prepare", `{"v":1,"key":"","uuid":"` + uuid + `"}`},
-		{"session.repair.confirm", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
 		{"operation.inspect", `{"v":1,"id":""}`},
 		{"operation.retry", `{"v":1}`},
 		{"operation.list", `{"v":1,"limit":21}`},
@@ -542,10 +479,10 @@ func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
 		{"project conflict keeps message", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New("session still attached")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nsession still attached"}},
 		{"project conflict message is bounded", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New(long)), api.RPCError{Code: -32003, Kind: "busy", Message: ("conflict\n" + long)[:900]}},
 		{"project invalid", "project.delete.preview", projectPreview, ErrInvalid, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid lifecycle request"}},
-		{"project not found", "project.delete.preview", projectPreview, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair, or investigate exact native/credential/cache ownership before a new review"}},
+		{"project not found", "project.delete.preview", projectPreview, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review"}},
 		{"project confirm conflict keeps message", "project.delete.confirm", projectConfirm, errors.Join(ErrConflict, errors.New("review changed")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nreview changed"}},
 		{"project confirm cancelled", "project.delete.confirm", projectConfirm, context.Canceled, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
-		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair, or investigate exact native/credential/cache ownership before a new review"}},
+		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review"}},
 		{"services conflict", "session.services", services, ErrConflict, api.RPCError{Code: -32003, Kind: "busy", Message: "lifecycle request conflicts with current authority"}},
 		{"services other", "session.services", services, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project services unavailable; require a ready owned runtime, session user manager, and compatible selected runtime package"}},
 	} {
@@ -591,7 +528,15 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		{"removed cache collection", surfaceFullLifecycle, "environment.cache.collect", `{"v":1}`, unknown},
 		{"removed workspace inspection", surfaceFullLifecycle, "workspace.inspect", `{"v":1}`, unknown},
 		{"cleanup without its API", surfaceCoreLifecycle, "session.create.cleanup.preview", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
-		{"repair preview without its API", surfaceCoreLifecycle, "session.repair.preview", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
+		{"removed session.repair.preview", surfaceFullLifecycle, "session.repair.preview", `{"v":1}`, notImplemented},
+		{"removed session.repair.confirm", surfaceFullLifecycle, "session.repair.confirm", `{"v":1}`, notImplemented},
+		{"removed session.repair.prepare", surfaceFullLifecycle, "session.repair.prepare", `{"v":1}`, notImplemented},
+		{"removed session.ref.repair.preview", surfaceFullLifecycle, "session.ref.repair.preview", `{"v":1}`, notImplemented},
+		{"removed session.ref.repair.confirm", surfaceFullLifecycle, "session.ref.repair.confirm", `{"v":1}`, notImplemented},
+		{"removed session.principal.repair.preview", surfaceFullLifecycle, "session.principal.repair.preview", `{"v":1}`, notImplemented},
+		{"removed session.principal.repair.confirm", surfaceFullLifecycle, "session.principal.repair.confirm", `{"v":1}`, notImplemented},
+		{"removed session.record.repair.preview", surfaceFullLifecycle, "session.record.repair.preview", `{"v":1}`, notImplemented},
+		{"removed session.record.repair.confirm", surfaceFullLifecycle, "session.record.repair.confirm", `{"v":1}`, notImplemented},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, calls := surfaceHandler(t, test.config)
@@ -615,8 +560,6 @@ func TestSpecializedPreviewsNeedTheirOwnAPI(t *testing.T) {
 	}{
 		{"assembled cleanup", func(c *surfaceCalls) LifecycleAPI { return cleanupLife{coreLife{c}} },
 			"session.create.cleanup.preview", `{"v":1,"uuid":"` + surfaceUUID + `","loss_operation_id":"` + surfaceUUID2 + `"}`},
-		{"prepared repair", func(c *surfaceCalls) LifecycleAPI { return repairLife{coreLife{c}} },
-			"session.repair.preview", `{"v":1,"uuid":"` + surfaceUUID + `","preparation_operation_id":"` + surfaceUUID2 + `"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			calls := &surfaceCalls{}

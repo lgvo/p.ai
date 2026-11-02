@@ -73,9 +73,9 @@ func validateAssembly(a Assembly) ([]guestInstall, error) {
 	if _, err := runtimekit.ParseWorkspaceConfig(workspace); err != nil {
 		return nil, err
 	}
-	if a.Workspace.Schema == "p.workspace/v2" || a.Workspace.Schema == "p.workspace/v3" {
+	if a.Workspace.Schema == "p.workspace/v2" {
 		if a.Workspace.EnvironmentSelection == "devshell" && a.SessionConfig.Activation != "devshell" ||
-			(a.Workspace.EnvironmentSelection == "base-no-flake" || a.Workspace.EnvironmentSelection == "base-no-default" || a.Workspace.EnvironmentSelection == "base-recorded") && a.SessionConfig.Activation != "base" {
+			(a.Workspace.EnvironmentSelection == "base-no-flake" || a.Workspace.EnvironmentSelection == "base-no-default") && a.SessionConfig.Activation != "base" {
 			return nil, errors.New("workspace environment differs from runtime activation")
 		}
 	}
@@ -162,9 +162,6 @@ func (b *Backend) Assemble(ctx context.Context, s Session, a Assembly) (Observat
 	}
 	if s.ProjectPath != a.Workspace.Repository || s.AssignedBranch != a.Workspace.Branch || s.InitialOID != a.Workspace.InitialOID {
 		return Observation{}, errors.New("assembly workspace differs from bound session intent")
-	}
-	if a.Workspace.Schema == "p.workspace/v3" && a.Workspace.ImageFingerprint != s.ImageFingerprint {
-		return Observation{}, errors.New("repair workspace image differs from bound runtime")
 	}
 	if err := b.CheckConfinement(ctx); err != nil {
 		return Observation{}, err

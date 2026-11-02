@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Explicit public repair after a fixture-caused runtime loss. No login occurs.
+# Discard and Delete after a fixture-caused runtime loss. No login occurs.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-34"
@@ -65,7 +65,7 @@ diagnose_session() {
   local id="$1" output="$step_dir/readiness-diagnostic.out"
   if test -z "$id" || test "$diagnosed_session" = "$id"; then return; fi
   diagnosed_session="$id"
-  printf 'P_MISSING_RUNTIME_REPAIR_DIAGNOSTIC session=%s\n' "$id" >&2
+  printf 'P_MISSING_RUNTIME_REMOVAL_DIAGNOSTIC session=%s\n' "$id" >&2
   # Whitelist public state and confined identity; never dump config, keys or
   # process environment. Each read has its own deadline and bounded output.
   if timeout 15 p api "$socket" session.inspect \
@@ -109,7 +109,7 @@ diagnose_session() {
   fi
 }
 on_error() {
-  printf 'P_MISSING_RUNTIME_REPAIR_FAIL line=%s status=%s\n' "$2" "$1" >&2
+  printf 'P_MISSING_RUNTIME_REMOVAL_FAIL line=%s status=%s\n' "$2" "$1" >&2
   diagnose_session "${readiness_session:-$uuid}"
   tail -c 3072 "$step_dir/daemon.err" >&2 || true
 }
@@ -157,10 +157,10 @@ start_daemon() {
   local deadline=$((SECONDS+30))
   while ((SECONDS < deadline)); do
     if test -S "$socket" && rpc system.health | jq -e '.result.control_state=="ready"' >/dev/null 2>&1; then return; fi
-    if ! kill -0 "$daemon_pid" 2>/dev/null; then echo 'repair daemon exited' >&2; return 1; fi
+    if ! kill -0 "$daemon_pid" 2>/dev/null; then echo 'removal daemon exited' >&2; return 1; fi
     sleep 0.1
   done
-  echo 'repair daemon health unavailable' >&2
+  echo 'removal daemon health unavailable' >&2
   return 1
 }
 wait_operation() {
@@ -215,9 +215,7 @@ exec "$host_git" "$@"
 WRAPPER
 chmod 0700 "$step_dir/bin/git"
 start_daemon
-rpc system.capabilities | jq -e '.result.available |
-  (index("session.repair.preview") != null and index("session.repair.confirm") != null)' >/dev/null
-created=$(rpc project.create '{"v":1,"key":"repair-bootstrap","project":"missing-runtime-repair"}')
+created=$(rpc project.create '{"v":1,"key":"removal-bootstrap","project":"missing-runtime-removal"}')
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 wait_operation "$create_op" >/dev/null
@@ -227,7 +225,7 @@ guest /run/current-system/sw/bin/git config user.email p@example.invalid
 guest /run/current-system/sw/bin/bash -c \
   'printf retained > tracked; git add tracked; git commit -qm retained; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-created_b=$(rpc session.create '{"v":1,"key":"repair-sibling","project":"missing-runtime-repair","branch":"sibling","choice":"new","source":"refs/heads/main"}')
+created_b=$(rpc session.create '{"v":1,"key":"removal-sibling","project":"missing-runtime-removal","branch":"sibling","choice":"new","source":"refs/heads/main"}')
 create_b_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$create_b_op" >/dev/null
@@ -247,9 +245,6 @@ rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
 renamed="p-renamed-$uuid"
 inc rename "p-$uuid" "$renamed"
 renamed_identity=$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')
-rename_preview=$(rpc session.repair.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')")
-jq -e '.result.preview | .eligible==false and .blocked_reason=="runtime_absence_unverified" and
-  (has("confirmation_token")|not)' <<< "$rename_preview" >/dev/null
 for removal_kind in discard delete; do
   expect_busy session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
     '{v:1,uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')"
@@ -266,26 +261,14 @@ wait_ready "$uuid"
 test "$(guest /run/current-system/sw/bin/cat lost-local)" = lost-local
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = lost-dummy
 
-# This fixture-only external fault removes A's native runtime. Public repair
-# must not silently recreate it through Start or disturb B.
+# This fixture-only external fault removes A's native runtime. Start must not
+# silently recreate it or disturb B.
 inc delete --force "p-$uuid"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 if start_reply=$(rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" 2> "$step_dir/start-missing.err"); then
   jq -e '.result.session.session_condition=="missing"' <<< "$start_reply" >/dev/null
 fi
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
-preview=$(rpc session.repair.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')")
-jq -e --arg uuid "$uuid" --arg tip "$main_oid" --arg image "$base_image" '
-  .result.preview | .kind=="missing_runtime" and .session_uuid==$uuid and
-  .branch=="main" and .assigned_tip==$tip and .image_fingerprint==$image and
-  (.image_source_commit // "")=="" and .image_source_differs==true and
-  .image_status=="present" and .runtime_local_loss=="unrecoverable" and
-  .eligible==true and (.policy_sha256|length==64) and
-  .incus_project=="user-1000" and .instance_name==("p-"+$uuid) and
-  (.credential_fingerprint|length==64) and
-  (.confirmation_token|test("^[0-9a-f]{32}$"))
-' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
   '{v:1,uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
 discard_token=$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")
@@ -299,8 +282,6 @@ inc init "$base_image" "$competing" --profile default \
   --config security.idmap.isolated=true --config security.privileged=false \
   --config security.nesting=false --config "user.p.session_uuid=$uuid"
 competing_identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
-expect_busy session.repair.confirm "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{v:1,key:"repair-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
 expect_busy session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
   '{v:1,key:"discard-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
 expect_busy session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$delete_token" \
@@ -318,39 +299,8 @@ inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$competing_identity"
 inc delete "$competing"
 competing=
-preview=$(rpc session.repair.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')")
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-confirmed=$(rpc session.repair.confirm "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{v:1,key:"repair-confirmed",uuid:$uuid,confirmation_token:$token}')")
-repair_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$confirmed")
-done_op=$(wait_operation "$repair_op")
-jq -e '.result.operation | .kind=="session.repair" and .status=="completed" and .phase=="completed"' <<< "$done_op" >/dev/null
-wait_ready "$uuid"
-inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
-test "$(guest /run/current-system/sw/bin/git rev-parse HEAD)" = "$main_oid"
-test "$(guest /run/current-system/sw/bin/git branch --show-current)" = main
-test "$(guest /run/current-system/sw/bin/cat tracked)" = retained
-guest /run/current-system/sw/bin/bash -c 'test ! -e /home/p/.codex/auth.json && test ! -e /workspace/lost-local'
-test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
-test -S "$endpoint_prefix/$uuid/git.sock"
-test "$(rpc session.repair.confirm "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{v:1,key:"repair-confirmed",uuid:$uuid,confirmation_token:$token}')" |
-  jq -er '.result.operation.id')" = "$repair_op"
-rpc project.branches '{"v":1,"project":"missing-runtime-repair","limit":8}' |
-  jq -e --arg tip "$main_oid" '.result.refs | length==2 and
-    any(.[]; .ref=="refs/heads/main" and .oid==$tip) and
-    any(.[]; .ref=="refs/heads/sibling" and .oid==$tip)' >/dev/null
-test "$(inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
-  /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = sibling-dummy
-stop_daemon
-start_daemon
-wait_ready "$uuid"
-test "$(guest /run/current-system/sw/bin/git rev-parse HEAD)" = "$main_oid"
-test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
-# Genuine absence remains eligible for both explicit removal outcomes. These
-# fixture-caused losses occur after all repair/persistence assertions above.
+# Genuine absence remains eligible for both explicit removal outcomes.
 discard_uuid=$uuid
-inc delete --force "p-$uuid"
 preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
   '{v:1,uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
@@ -361,9 +311,9 @@ test ! -e "$state/session_keys/$discard_uuid"
 test ! -e "$endpoint_prefix/$discard_uuid"
 rpc session.list '{"v":1,"limit":8}' | jq -e --arg old "$discard_uuid" \
   '.result.sessions | all(.[];.uuid!=$old)' >/dev/null
-rpc project.branches '{"v":1,"project":"missing-runtime-repair","limit":8}' |
+rpc project.branches '{"v":1,"project":"missing-runtime-removal","limit":8}' |
   jq -e --arg tip "$main_oid" '.result.refs | any(.[];.ref=="refs/heads/main" and .oid==$tip)' >/dev/null
-created=$(rpc session.create '{"v":1,"key":"missing-delete-create","project":"missing-runtime-repair","branch":"main","choice":"existing"}')
+created=$(rpc session.create '{"v":1,"key":"missing-delete-create","project":"missing-runtime-removal","branch":"main","choice":"existing"}')
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
 test "$uuid" != "$discard_uuid"
 wait_operation "$(jq -er '.result.operation.id' <<< "$created")" >/dev/null
@@ -394,7 +344,7 @@ blocked=$(wait_operation "$delete_op" blocked)
 jq -e '.result.operation | .phase=="secrets-absent" and .committed==true' <<< "$blocked" >/dev/null
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="removing"' >/dev/null
-rpc project.branches '{"v":1,"project":"missing-runtime-repair","limit":8}' |
+rpc project.branches '{"v":1,"project":"missing-runtime-removal","limit":8}' |
   jq -e --arg tip "$main_oid" '.result.refs | any(.[];.ref=="refs/heads/main" and .oid==$tip)' >/dev/null
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$competing_identity"
 inc delete "$competing"
@@ -404,7 +354,7 @@ rpc operation.retry "$(jq -nc --arg id "$delete_op" '{v:1,id:$id}')" |
 wait_operation "$delete_op" >/dev/null
 test ! -e "$state/session_keys/$uuid"
 test ! -e "$endpoint_prefix/$uuid"
-rpc project.branches '{"v":1,"project":"missing-runtime-repair","limit":8}' |
+rpc project.branches '{"v":1,"project":"missing-runtime-removal","limit":8}' |
   jq -e --arg tip "$main_oid" '.result.refs | length==1 and .[0].ref=="refs/heads/sibling" and .[0].oid==$tip' >/dev/null
 test "$(inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = sibling-dummy
@@ -415,4 +365,4 @@ rpc session.list '{"v":1,"limit":8}' | jq -e --arg sibling "$uuid_b" \
 test ! -e "$endpoint_prefix/$discard_uuid"
 test ! -e "$endpoint_prefix/$uuid"
 echo P_UUID_REMOVAL_ABSENCE_PASS
-echo P_MISSING_RUNTIME_REPAIR_PASS
+echo P_MISSING_RUNTIME_REMOVAL_PASS

@@ -24,8 +24,6 @@ var dispatchKinds = []string{
 	"workspace.loss.inspect",
 	"session.discard", "session.delete", "session.create.cleanup",
 	"session.rename", "project.retained.rename", "project.retained.delete",
-	"session.repair", "session.repair.prepare",
-	"session.ref.repair", "session.principal.repair", "session.record.repair",
 }
 
 var dispatchStatuses = []string{"running", "blocked", "unknown", "failed", "completed", "superseded"}
@@ -236,8 +234,7 @@ func TestRecoverSchedulesUnfinishedOperationsInKindOrder(t *testing.T) {
 	want = append(want, later)
 	want = append(want, unfinished("project.delete", "workspace.loss.inspect",
 		"session.create.cleanup", "session.delete", "session.discard", "session.rename",
-		"project.retained.rename", "project.retained.delete", "session.repair", "session.repair.prepare",
-		"session.ref.repair", "session.principal.repair", "session.record.repair")...)
+		"project.retained.rename", "project.retained.delete")...)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -278,7 +275,6 @@ func TestRemovingSessionConditionFollowsItsRemovalOperation(t *testing.T) {
 		{"discard", "app", "removing", "session.discard", "discarding", nil},
 		{"failed-create cleanup", "app", "removing", "session.create.cleanup", "discarding", nil},
 		{"delete", "app", "removing", "session.delete", "deleting", nil},
-		{"record repair", "app", "removing", "session.record.repair", "deleting", nil},
 		{"project delete", "gone", "removing", "project.delete", "deleting", nil},
 		{"another kind", "app", "removing", "session.rename", "", control.ErrNotFound},
 		{"no operation", "app", "removing", "", "", control.ErrNotFound},

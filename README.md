@@ -298,9 +298,8 @@ Discard releases that assignment and leaves an ordinary P branch; continuing
 on it creates a new UUID and assigns that same retained branch. Creating a
 different branch from it is a separate choice that asks for a source.
 
-Creation, start, attachment, rename, stop, destructive preflight, supported
-repair, and crash recovery are specified in
-[session lifecycle](docs/session-lifecycle.md).
+Creation, start, attachment, rename, stop, destructive preflight, and crash
+recovery are specified in [session lifecycle](docs/session-lifecycle.md).
 
 A separate project-level operation, **Delete project and all P data**, previews
 all sessions, retained branches, credentials, runtimes, and attachments that

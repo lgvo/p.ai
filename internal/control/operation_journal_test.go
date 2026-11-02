@@ -23,8 +23,6 @@ var journalKinds = []string{
 	"workspace.loss.inspect",
 	"session.discard", "session.delete", "session.create.cleanup",
 	"session.rename", "project.retained.rename", "project.retained.delete",
-	"session.repair", "session.repair.prepare",
-	"session.ref.repair", "session.principal.repair", "session.record.repair",
 }
 
 // Each kind gets one row per status. Rows are inserted A..F, so rowid order is
@@ -86,9 +84,8 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 	}
 	byRowid := func(kind string) []string { return []string{kind + ":A", kind + ":B", kind + ":C"} }
 	// Recovery order: creations, project deletions, workspace loss
-	// inspections, removals, renames, retained renames and deletes, repairs,
-	// repair preparations, then ref, principal and record repairs. Each group
-	// keeps its own order.
+	// inspections, removals, renames, then retained renames and deletes. Each
+	// group keeps its own order.
 	var want []string
 	for _, group := range [][]string{
 		byCreated("project.create", "session.create"),
@@ -98,11 +95,6 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 		byCreated("session.rename"),
 		byRowid("project.retained.rename"),
 		byRowid("project.retained.delete"),
-		byCreated("session.repair"),
-		byCreated("session.repair.prepare"),
-		byRowid("session.ref.repair"),
-		byRowid("session.principal.repair"),
-		byRowid("session.record.repair"),
 	} {
 		want = append(want, group...)
 	}
@@ -175,15 +167,12 @@ func encodedRequest(t *testing.T, request any) (string, string) {
 }
 
 func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
-	future := time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
 	for _, test := range []struct {
-		name string
-		kind string
-		// Principal repair observes native state before it reads the key.
-		observesFirst bool
-		fixture       func(t *testing.T) keyCase
+		name    string
+		kind    string
+		fixture func(t *testing.T) keyCase
 	}{
-		{"rename", "session.rename", false, func(t *testing.T) keyCase {
+		{"rename", "session.rename", func(t *testing.T) keyCase {
 			s, _, r, e := renameStoreFixture(t)
 			request := func(key string) RenameRequest { r.Key = key; return r }
 			return keyCase{s, "app", renameTestUUID, func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
@@ -191,7 +180,7 @@ func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
 				return err
 			}}
 		}},
-		{"retained delete", "project.retained.delete", false, func(t *testing.T) keyCase {
+		{"retained delete", "project.retained.delete", func(t *testing.T) keyCase {
 			s, _, r, e := retainedDeleteFixture(t)
 			request := func(key string) RetainedDeleteRequest { r.Key = key; return r }
 			return keyCase{s, "app", "", func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
@@ -199,77 +188,7 @@ func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
 				return err
 			}}
 		}},
-		{"repair", "session.repair", false, func(t *testing.T) keyCase {
-			s, _, r, e := repairStoreFixture(t)
-			request := func(key string) RepairRequest { r.Key = key; return r }
-			return keyCase{s, e.Project, renameTestUUID, func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
-				_, err := s.BeginRepair(context.Background(), request(key), e, observe, repairCapacity)
-				return err
-			}}
-		}},
-		{"repair preparation", "session.repair.prepare", false, func(t *testing.T) keyCase {
-			s, _, uuid, prep := repairPreparationFixture(t)
-			request := func(key string) any {
-				return struct {
-					Key  string `json:"key"`
-					UUID string `json:"uuid"`
-				}{key, uuid}
-			}
-			return keyCase{s, prep.Project, uuid, request, func(key string, observe func(context.Context) error) error {
-				_, err := s.BeginRepairPreparation(context.Background(), key, uuid, prep, observe, repairCapacity)
-				return err
-			}}
-		}},
-		{"principal repair", "session.principal.repair", true, func(t *testing.T) keyCase {
-			s, _, _, prior := repairStoreFixture(t)
-			req := PrincipalRepairRequest{UUID: renameTestUUID, TokenSHA256: strings.Repeat("c", 64)}
-			ev := PrincipalRepairEvidence{Project: prior.Project, Branch: prior.Branch, PolicySHA256: prior.PolicySHA256,
-				AssignedTip: prior.AssignedTip, RefPresent: true,
-				GuestKeyStatus: "matching", GuestKeySHA256: strings.Repeat("d", 64),
-				OldFingerprint: prior.CredentialFingerprint, OldActive: true, InstanceUUID: prior.InstanceUUID,
-				IncusProject: prior.IncusProject, InstanceName: prior.InstanceName,
-				IncusUUID:  "11111111-1111-4111-8111-111111111111",
-				Generation: "22222222-2222-4222-8222-222222222222", ImageFingerprint: prior.ImageFingerprint,
-				ExpiresAt: future}
-			request := func(key string) PrincipalRepairRequest { req.Key = key; return req }
-			return keyCase{s, prior.Project, renameTestUUID, func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
-				_, err := s.BeginPrincipalRepair(context.Background(), request(key), ev, observe)
-				return err
-			}}
-		}},
-		{"record repair", "session.record.repair", false, func(t *testing.T) keyCase {
-			s, _, _, prior := repairStoreFixture(t)
-			ev := RecordRepairEvidence{Project: prior.Project, Branch: prior.Branch,
-				Principal: prior.CredentialFingerprint, PrincipalActive: true,
-				ExternalAuthority: "none_registered",
-				PolicySHA256:      prior.PolicySHA256, InstanceUUID: prior.InstanceUUID,
-				IncusProject: prior.IncusProject, InstanceName: prior.InstanceName,
-				ExpiresAt: future}
-			req := RecordRepairRequest{UUID: renameTestUUID, TokenSHA256: strings.Repeat("a", 64)}
-			request := func(key string) RecordRepairRequest { req.Key = key; return req }
-			return keyCase{s, prior.Project, renameTestUUID, func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
-				_, err := s.BeginRecordRepair(context.Background(), request(key), ev, observe)
-				return err
-			}}
-		}},
-		{"ref repair", "session.ref.repair", false, func(t *testing.T) keyCase {
-			s, _, _, prior := repairStoreFixture(t)
-			lossRaw, _ := json.Marshal(WorkspaceInspectEvidence{Result: json.RawMessage(`{"schema":"p.workspace-loss/v1"}`)})
-			ev := RefRepairEvidence{Project: prior.Project, Branch: prior.Branch, Tip: prior.AssignedTip,
-				PolicySHA256: prior.PolicySHA256, CredentialFingerprint: prior.CredentialFingerprint,
-				InstanceUUID: prior.InstanceUUID, IncusProject: prior.IncusProject, InstanceName: prior.InstanceName,
-				ImageFingerprint: prior.ImageFingerprint, IncusUUID: "11111111-1111-4111-8111-111111111111",
-				Generation: "22222222-2222-4222-8222-222222222222", OriginalStatus: "Running",
-				LossOperationID: "77777777-7777-4777-8777-777777777777", LossFingerprint: strings.Repeat("a", 64), LossResultSHA256: digest(lossRaw),
-				PreviewExpiresAt: future}
-			req := RefRepairRequest{UUID: renameTestUUID, TokenSHA256: strings.Repeat("c", 64)}
-			request := func(key string) RefRepairRequest { req.Key = key; return req }
-			return keyCase{s, prior.Project, renameTestUUID, func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
-				_, err := s.BeginRefRepair(context.Background(), request(key), ev, observe)
-				return err
-			}}
-		}},
-		{"session create", "session.create", false, func(t *testing.T) keyCase {
+		{"session create", "session.create", func(t *testing.T) keyCase {
 			s, _ := openTestStore(t)
 			if err := s.CreateProject(context.Background(), "app", []byte(`{}`)); err != nil {
 				t.Fatal(err)
@@ -284,7 +203,7 @@ func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
 				return err
 			}}
 		}},
-		{"legacy reservation", "session.create", false, func(t *testing.T) keyCase {
+		{"legacy reservation", "session.create", func(t *testing.T) keyCase {
 			s, _ := openTestStore(t)
 			if err := s.CreateProject(context.Background(), "app", []byte(`{}`)); err != nil {
 				t.Fatal(err)
@@ -318,8 +237,8 @@ func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
 				if err := c.begin("shared-key", observe); !errors.Is(err, ErrConflict) {
 					t.Fatalf("answer %v, want a conflict", err)
 				}
-				if observed != test.observesFirst {
-					t.Fatalf("observed native state: %v", observed)
+				if observed {
+					t.Fatal("observed native state before refusing the key")
 				}
 				if after := operationCount(t, c.store); after != before {
 					t.Fatalf("operations %d -> %d", before, after)

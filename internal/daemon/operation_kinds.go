@@ -43,11 +43,6 @@ func init() {
 		control.KindSessionRename:        {process: (*lifecycle).processRename},
 		control.KindRetainedRename:       {process: (*lifecycle).processRetainedRename},
 		control.KindRetainedDelete:       {process: (*lifecycle).processRetainedDelete},
-		control.KindSessionRepair:        {process: (*lifecycle).processRepair},
-		control.KindRepairPrepare:        {process: (*lifecycle).processRepairPrepare},
-		control.KindRefRepair:            {process: (*lifecycle).processRefRepair},
-		control.KindPrincipalRepair:      {process: (*lifecycle).processPrincipalRepair},
-		control.KindRecordRepair:         {process: (*lifecycle).processRecordRepair, removal: "deleting"},
 	}
 }
 

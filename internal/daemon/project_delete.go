@@ -130,7 +130,7 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		}
 		local, e := l.reviewCreateCleanupLocal(ctx, creator, s)
 		if e != nil || local == nil {
-			return p, errors.Join(e, errors.New("exact session credentials/endpoints required; use existing principal/record repair or investigate manually"))
+			return p, errors.Join(e, errors.New("exact session credentials/endpoints required; investigate manually"))
 		}
 		ps.Local = *local
 		if observed.Exists {
@@ -438,26 +438,6 @@ func (l *lifecycle) forgetProjectDeletePreviews(project string) {
 	for key, v := range l.createReplacePreviews {
 		if v.Preview.OldRequest.Project == project {
 			delete(l.createReplacePreviews, key)
-		}
-	}
-	for key, v := range l.repairPreviews {
-		if v.Preview.Project == project {
-			delete(l.repairPreviews, key)
-		}
-	}
-	for key, v := range l.refRepairPreviews {
-		if v.Preview.Project == project {
-			delete(l.refRepairPreviews, key)
-		}
-	}
-	for key, v := range l.principalRepairPreviews {
-		if v.Preview.Project == project {
-			delete(l.principalRepairPreviews, key)
-		}
-	}
-	for key, v := range l.recordRepairPreviews {
-		if v.Preview.Project == project {
-			delete(l.recordRepairPreviews, key)
 		}
 	}
 	delete(l.changedPolicies, project)

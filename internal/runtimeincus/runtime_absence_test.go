@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestRecordRepairRequiresCompleteProjectAbsence(t *testing.T) {
+func TestConfirmSessionRuntimeAbsentRequiresCompleteProjectAbsence(t *testing.T) {
 	f := &fakeIncus{}
 	b := fakeBackend(f)
 	s := testSession()

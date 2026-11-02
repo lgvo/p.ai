@@ -21,11 +21,6 @@ const (
 	KindSessionRename        = "session.rename"
 	KindRetainedRename       = "project.retained.rename"
 	KindRetainedDelete       = "project.retained.delete"
-	KindSessionRepair        = "session.repair"
-	KindRepairPrepare        = "session.repair.prepare"
-	KindRefRepair            = "session.ref.repair"
-	KindPrincipalRepair      = "session.principal.repair"
-	KindRecordRepair         = "session.record.repair"
 )
 
 // unfinishedGroups lists unfinished operations in recovery order. Each group
@@ -42,11 +37,6 @@ var unfinishedGroups = []struct {
 	{[]string{KindSessionRename}, "created_at"},
 	{[]string{KindRetainedRename}, "rowid"},
 	{[]string{KindRetainedDelete}, "rowid"},
-	{[]string{KindSessionRepair}, "created_at"},
-	{[]string{KindRepairPrepare}, "created_at"},
-	{[]string{KindRefRepair}, "rowid"},
-	{[]string{KindPrincipalRepair}, "rowid"},
-	{[]string{KindRecordRepair}, "rowid"},
 }
 
 // UnfinishedOperations lists every running, blocked or unknown operation in

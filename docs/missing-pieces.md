@@ -134,8 +134,8 @@ does not change owner-document lifecycle semantics.
 - [ ] Implement Create with committed source plus the one bootstrap exception,
   exact immutable Retry, supported superseding **Try again with changes** and
   validated cleanup-then-new-Create fallback.
-- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, supported
-  Repair, and startup/restart reconciliation exactly as owned by
+- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, and
+  startup/restart reconciliation exactly as owned by
   [session lifecycle](session-lifecycle.md).
 - [ ] Validate expected/actual branch/upstream mismatch diagnostics, blocked
   dependent actions and manual Git correction/recheck without automatic reset.

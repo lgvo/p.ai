@@ -36,24 +36,6 @@ func CreationEnvironmentView(op api.Operation) *api.EnvironmentView {
 	return v
 }
 
-func AcceptedRepairEnvironmentView(ev RepairEvidence) *api.EnvironmentView {
-	if ev.Environment == nil || ev.EnvironmentSourceCommit == "" || ev.EnvironmentState == nil || ev.ImageFingerprint == "" {
-		return nil
-	}
-	v := &api.EnvironmentView{CommitOID: ev.EnvironmentSourceCommit, System: ev.Environment.System,
-		BaseImageFingerprint: ev.Environment.BaseFingerprint, ImageFingerprint: ev.ImageFingerprint,
-		Selection: ev.EnvironmentSelection, Cache: "none"}
-	if ev.EnvironmentKey != "" {
-		v.Selection = "devShells." + v.System + ".default"
-		v.Key = ev.EnvironmentKey
-		v.Cache = "miss"
-		if ev.EnvironmentState.CacheHit {
-			v.Cache = "hit"
-		}
-	}
-	return v
-}
-
 func NewSessionView(s Session) api.SessionView {
 	return api.SessionView{UUID: s.UUID, Project: s.Project, Branch: s.Branch, Registry: s.Registry, PolicySHA256: s.PolicySHA256}
 }
@@ -131,34 +113,6 @@ type RetainedRenameAPI interface {
 type RetainedDeleteAPI interface {
 	PreviewRetainedDelete(context.Context, string, string) (RetainedDeletePreview, error)
 	ConfirmRetainedDelete(context.Context, string, string, string, string) (api.Operation, error)
-}
-
-type RepairAPI interface {
-	PreviewRepair(context.Context, string) (RepairPreview, error)
-	ConfirmRepair(context.Context, RepairConfirmRequest) (api.Operation, error)
-}
-
-type RepairPreparationAPI interface {
-	PrepareRepair(context.Context, string, string) (api.Operation, error)
-}
-
-type PreparedRepairPreviewAPI interface {
-	PreviewPreparedRepair(context.Context, string, string) (RepairPreview, error)
-}
-
-type RefRepairAPI interface {
-	PreviewRefRepair(context.Context, string, string) (RefRepairPreview, error)
-	ConfirmRefRepair(context.Context, string, string, string) (api.Operation, error)
-}
-
-type PrincipalRepairAPI interface {
-	PreviewPrincipalRepair(context.Context, string) (PrincipalRepairPreview, error)
-	ConfirmPrincipalRepair(context.Context, string, string, string) (api.Operation, error)
-}
-
-type RecordRepairAPI interface {
-	PreviewRecordRepair(context.Context, string) (RecordRepairPreview, error)
-	ConfirmRecordRepair(context.Context, string, string, string) (api.Operation, error)
 }
 
 type CreateReplaceAPI interface {
@@ -558,174 +512,6 @@ func addLifecycleMethods(t *methodTable, store *Store, life LifecycleAPI) {
 	} else {
 		t.unavailable("project.retained.delete.preview", "project.retained.delete.confirm")
 	}
-	if repair, ok := life.(RepairAPI); ok {
-		t.add("session.repair.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V                      int    `json:"v"`
-				UUID                   string `json:"uuid"`
-				PreparationOperationID string `json:"preparation_operation_id,omitempty"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.PreparationOperationID != "" && !validUUID(p.PreparationOperationID) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid repair preview request")
-			}
-			var preview RepairPreview
-			var e error
-			if p.PreparationOperationID == "" {
-				preview, e = repair.PreviewRepair(ctx, p.UUID)
-			} else if prepared, ok := life.(PreparedRepairPreviewAPI); ok {
-				preview, e = prepared.PreviewPreparedRepair(ctx, p.UUID, p.PreparationOperationID)
-			} else {
-				return nil, lifecycleRPC(ErrNotFound)
-			}
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "preview": preview}, nil
-		})
-		t.add("session.repair.confirm", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V     int    `json:"v"`
-				Key   string `json:"key"`
-				UUID  string `json:"uuid"`
-				Token string `json:"confirmation_token"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid repair confirmation")
-			}
-			op, e := repair.ConfirmRepair(ctx, RepairConfirmRequest{Key: p.Key, UUID: p.UUID, ConfirmationToken: p.Token})
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "operation": op}, nil
-		})
-	} else {
-		t.unavailable("session.repair.preview", "session.repair.confirm")
-	}
-	if prepare, ok := life.(RepairPreparationAPI); ok {
-		t.add("session.repair.prepare", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V    int    `json:"v"`
-				Key  string `json:"key"`
-				UUID string `json:"uuid"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) == 0 || len(p.Key) > 128 || !validUUID(p.UUID) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid repair preparation")
-			}
-			op, e := prepare.PrepareRepair(ctx, p.Key, p.UUID)
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "operation": op}, nil
-		})
-	} else {
-		t.unavailable("session.repair.prepare")
-	}
-	if repair, ok := life.(RefRepairAPI); ok {
-		t.add("session.ref.repair.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V               int    `json:"v"`
-				UUID            string `json:"uuid"`
-				LossOperationID string `json:"loss_operation_id"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || !validUUID(p.LossOperationID) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid assigned-ref repair preview")
-			}
-			preview, e := repair.PreviewRefRepair(ctx, p.UUID, p.LossOperationID)
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "preview": preview}, nil
-		})
-		t.add("session.ref.repair.confirm", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V     int    `json:"v"`
-				Key   string `json:"key"`
-				UUID  string `json:"uuid"`
-				Token string `json:"confirmation_token"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) == 0 || len(p.Key) > 128 ||
-				!validUUID(p.UUID) || !validHexToken(p.Token) || len(p.Token) != 32 {
-				return nil, errorRPC(-32602, "invalid_params", "invalid assigned-ref repair confirmation")
-			}
-			op, e := repair.ConfirmRefRepair(ctx, p.Key, p.UUID, p.Token)
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "operation": op}, nil
-		})
-	} else {
-		t.unavailable("session.ref.repair.preview", "session.ref.repair.confirm")
-	}
-	if repair, ok := life.(PrincipalRepairAPI); ok {
-		t.add("session.principal.repair.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V    int    `json:"v"`
-				UUID string `json:"uuid"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid principal repair preview")
-			}
-			preview, e := repair.PreviewPrincipalRepair(ctx, p.UUID)
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "preview": preview}, nil
-		})
-		t.add("session.principal.repair.confirm", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V     int    `json:"v"`
-				Key   string `json:"key"`
-				UUID  string `json:"uuid"`
-				Token string `json:"confirmation_token"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 ||
-				!validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid principal repair confirmation")
-			}
-			op, e := repair.ConfirmPrincipalRepair(ctx, p.Key, p.UUID, p.Token)
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "operation": op}, nil
-		})
-	} else {
-		t.unavailable("session.principal.repair.preview", "session.principal.repair.confirm")
-	}
-	if repair, ok := life.(RecordRepairAPI); ok {
-		t.add("session.record.repair.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V    int    `json:"v"`
-				UUID string `json:"uuid"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid record repair preview")
-			}
-			preview, e := repair.PreviewRecordRepair(ctx, p.UUID)
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "preview": preview}, nil
-		})
-		t.add("session.record.repair.confirm", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V     int    `json:"v"`
-				Key   string `json:"key"`
-				UUID  string `json:"uuid"`
-				Token string `json:"confirmation_token"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Key == "" || len(p.Key) > 128 ||
-				!validUUID(p.UUID) || len(p.Token) != 32 || !validHexToken(p.Token) {
-				return nil, errorRPC(-32602, "invalid_params", "invalid record repair confirmation")
-			}
-			op, e := repair.ConfirmRecordRepair(ctx, p.Key, p.UUID, p.Token)
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "operation": op}, nil
-		})
-	} else {
-		t.unavailable("session.record.repair.preview", "session.record.repair.confirm")
-	}
 	if replace, ok := life.(CreateReplaceAPI); ok {
 		t.add("session.create.replace.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
 			var p struct {
@@ -847,5 +633,5 @@ func projectDeleteRPC(err error) *api.RPCError {
 	if errors.Is(err, ErrInvalid) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return lifecycleRPC(err)
 	}
-	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup/repair, or investigate exact native/credential/cache ownership before a new review")
+	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review")
 }

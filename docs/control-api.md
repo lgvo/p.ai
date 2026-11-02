@@ -216,8 +216,10 @@ child directory mode `0755` with exactly `git.sock` and `session.sock` mode
 socket is mounted privately into its matching runtime as `/run/p/session.sock`;
 it serves only the [private session methods](#private-session-rpc).
 `session_keys/<UUID>` in the state directory holds one private Ed25519 key per
-session. A registered key that is missing or changed blocks retry and Start
-for repair; P never rotates it silently.
+session. A registered key that is missing or changed blocks retry and Start.
+P never rotates it; the refusal directs the user to discard the session and
+create a new one, as described in
+[session lifecycle](session-lifecycle.md#inconsistent-sessions).
 
 ## Host framing and request envelope
 
@@ -605,7 +607,7 @@ or a valid flake without that default, and preserves the distinction from a
 commit without a flake. Invalid defaults fail without fallback. The offline
 public VM gate covers these selection and activation cases.
 Retry does not delete the assigned branch or reset an unexpected workspace;
-unrecognized workspace state blocks for repair. `ready`
+unrecognized workspace state leaves the creation blocked. `ready`
 requires the Incus instance running and `p-interactive.service` observed
 active and running. A running instance alone reports `starting` while
 readiness is unresolved.
@@ -779,127 +781,6 @@ remains blocked for exact recovery or targeted repair. The current supported
 workspace layout is a single ordinary worktree with loose branch refs; other
 layouts return unavailable before the ref commit point.
 
-`session.repair.prepare` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID"}` and returns a
-durable `session.repair.prepare` operation. It applies when the recorded
-derived image is missing and the pinned P base image remains available. It
-pins the committed assigned P tip and resolves its environment key in a
-restricted disposable builder. It does not create a session runtime or
-authorize repair. An uncertain builder effect stays guarded; completion
-requires exact builder absence and changes no accepted session image.
-
-`session.repair.preview` accepts `{"v":1,"uuid":"session-UUID"}` or the same
-request with `"preparation_operation_id":"operation-UUID"` after preparation
-completes. It returns `{"v":1,"preview":{...}}`. The plan is
-`kind:"missing_runtime"` and names the same UUID, project, assigned branch
-and committed P tip, recorded image fingerprint and its `image_status`, policy
-and registered credential fingerprints, exact Incus project and instance
-name, original `image_source_commit`, `image_source_differs`, and
-`runtime_local_loss:"unrecoverable"`. A blocked plan has `eligible:false` and
-`blocked_reason`, with no confirmation token. A fresh exact-absent plan has a
-short-lived `confirmation_token` and `expires_at`. A failed expected-name
-Incus inspection is an RPC error, never a missing-runtime observation. The preview is
-read-only. Eligibility requires an absence proof across the confined project's
-native inventory; a same-UUID runtime under another name produces
-`runtime_absence_unverified` without a token, as does an unavailable or
-ambiguous full inventory after a successful expected-name inspection.
-Confirmation rechecks that proof, and ordinary native init repeats it
-before any creation effect marker. For a missing recorded image it requires
-the exact completed
-preparation and adds `preparation_operation_id` plus `environment`:
-`source_commit`, `system`, `selection`, optional `environment_key`, pinned
-base/recorded image fingerprints, optional recorded key, `identity_differs`,
-`source_differs`, and `image_status` (`base`, `cache_hit`, or `needs_build`).
-`candidate_image_fingerprint` appears only for an already available candidate
-image.
-
-`session.repair.confirm` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns `{"v":1,"operation":{...}}`. It accepts only that fresh eligible
-missing-runtime plan, rechecks the exact P tip, policy, credential and image,
-and reserves the session and ref before using the reviewed image and same
-session key to recreate the runtime. It checks the registered private key
-without creating or rotating it. A prepared confirmation binds the completed
-preparation digest, selected key, tip, policy, and provenance. If needed, the
-confirmed operation re-resolves that key, realizes and publishes an image
-under a durable intent, then accepts the exact image before runtime init.
-The accepted session image changes only when the same-UUID repair completes.
-The repaired workspace records the image's actual source commit separately
-from the reviewed committed P tip it checks out. Runtime-local files,
-commits, processes and conversations cannot be recovered. The native init
-attempt is durably marked before submission. An uncertain init or start stays
-guarded; retry accepts only exact positive native identity and never issues a
-second possibly delayed init. The same key and exact request replay the
-operation. Other repair shapes remain unavailable
-in this gate.
-
-`session.ref.repair.preview` accepts
-`{"v":1,"uuid":"session-UUID","loss_operation_id":"completed-workspace-loss-operation-UUID"}`
-and returns `{"v":1,"preview":{...}}`. The preview reports
-`kind:"missing_assigned_ref"`, exact `session_uuid`, `project`, `branch`,
-`assigned_ref`, `assigned_ref_status`, `local_tip`, runtime status and
-Incus UUID/generation, image and policy fingerprints, registered credential
-fingerprint, loss operation/fingerprint, workspace `changes` and `ignored`
-summary, and `unsafe_reasons`. An eligible bare-present local commit has a
-short-lived `confirmation_token` and `expires_at`; `p_object_missing` is an
-unsupported MVP repair case with no token. It means the inspected commit
-exists only inside the runtime; this API does not transfer it into P's bare
-repository or alter the runtime. Only one ordinary runtime-owned worktree on
-the assigned branch is supported in this gate.
-
-A changed workspace branch returns `workspace_branch_mismatch` with structured
-`branch_mismatch.expected` and `branch_mismatch.actual` full ref names; detached
-HEAD is shown as `<detached>`. The preview is ineligible and has no confirmation
-token. Correct Git manually, run a fresh `workspace.loss.inspect`, and request
-a new preview. P does not switch branches or reset work to make repair pass.
-
-`session.ref.repair.confirm` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns a durable `session.ref.repair` operation. It rechecks the selected
-runtime, principal, policy and absent P ref, freezes a Running source, verifies
-the complete workspace bytes against the reviewed inspection, and attempts
-only an absent-ref compare-and-swap at the local tip. A stopped source remains
-stopped. Exact positive ref presence after an uncertain create can complete
-forward; absence after an issued request cannot authorize a second attempt.
-
-`session.principal.repair.preview` accepts `{"v":1,"uuid":"session-UUID"}`
-and returns `{"v":1,"preview":{...}}`. The read-only preview reports
-`kind:"session_git_principal"`, exact session/project/branch, old fingerprint,
-assigned-ref presence and tip,
-`registration_status` (`missing`, `revoked`, or `active`), host `key_status`
-(`missing`, `mismatch`, `matching`, or `unsafe`), guest `guest_key_status`
-and its bounded content digest, runtime status and exact Incus
-UUID/generation, image and policy fingerprints, `unsafe_reasons`, and
-`eligible`. An eligible preview has a short-lived `confirmation_token` and
-`expires_at`; a running or changed runtime has no token.
-
-`session.principal.repair.confirm` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns a durable `session.principal.repair` operation. It requires the
-reviewed assignment, policy, old credential facts, and exact stopped runtime.
-The operation stages one new key, disables old Git authority before installing
-the replacement into the fixed stopped runtime, and preserves the same UUID.
-An uncertain native file write remains guarded for exact positive recovery.
-
-`session.record.repair.preview` accepts `{"v":1,"uuid":"session-UUID"}`
-and returns `{"v":1,"preview":{...}}`. It reports the exact session/project/
-branch, registered Git principal and active flag, current `runtime_status`
-and `assigned_ref_status`, trusted Incus project and deterministic name,
-`external_authority:"none_registered"` for the current MVP selection, and
-`unsafe_reasons`. Only authoritative absence of both the exact runtime and
-assigned P ref produces `eligible:true`, a short-lived `confirmation_token`,
-and `expires_at`. Unreachable Incus or a same-UUID competing instance cannot
-be reviewed as absence.
-
-`session.record.repair.confirm` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns a durable `session.record.repair` operation. It rechecks both
-absences under the session and P-ref guards, disables the session Git
-principal with a durable `authority-disabled` phase, removes only that UUID's
-local key and endpoint, and then removes the registry row. Reappearance or an
-unknown readback blocks forward completion. It never deletes Git refs, an
-Incus instance, an image, or external data.
-
 ## Aggregate project deletion
 
 The implemented aggregate boundary requires at most four established, stopped,
@@ -1003,11 +884,10 @@ owns capacity accounting and the helper reservation.
 
 Without trusted runtime configuration, lifecycle mutations and inspection
 remain unavailable. Other methods under `project.`, `session.`, `origin.`,
-`runtime.`, and `status.` still return `unavailable` unless listed above. The
-implemented repair subset includes missing-runtime and bare-present
-missing-assigned-ref plans. Branch/upstream mismatch correction is manual, with
-P rechecking on the next attempt; no dedicated repair method is required.
-Abandonment and its associated tombstone/orphan-cleanup/forget workflow are
-outside MVP. Other unlisted repair plans remain unavailable. `project.branches`
+`runtime.`, and `status.` still return `unavailable` unless listed above.
+P has no session repair methods; [session lifecycle](session-lifecycle.md#inconsistent-sessions)
+describes what to do instead. Branch/upstream mismatch correction is manual,
+with P rechecking on the next attempt. Abandonment and its associated
+tombstone/orphan-cleanup/forget workflow are outside MVP. `project.branches`
 and `project.retained_branches` observe Git refs through the configured source
 package; they do not mutate lifecycle state.

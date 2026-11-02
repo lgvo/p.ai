@@ -32,11 +32,9 @@ type collectionQuerier interface {
 func relatedEnvironmentRows(ctx context.Context, q collectionQuerier, project, key, fingerprint, after string, limit int) ([]RelatedEnvironmentSession, string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT s.uuid,s.branch,s.registry_state FROM sessions s
 	 JOIN operations o ON o.session_uuid=s.uuid AND o.kind IN ('project.create','session.create')
-	 LEFT JOIN operations r ON r.id=(SELECT id FROM operations WHERE session_uuid=s.uuid AND kind='session.repair'
-	  AND status='completed' AND phase='completed' ORDER BY rowid DESC LIMIT 1)
 	 WHERE s.project_path=? AND s.uuid>?
-	 AND COALESCE(json_extract(r.evidence_json,'$.environment_state.key'),json_extract(o.evidence_json,'$.environment_state.key'))=?
-	 AND COALESCE(json_extract(r.evidence_json,'$.environment_state.fingerprint'),json_extract(o.evidence_json,'$.environment_state.fingerprint'))=?
+	 AND json_extract(o.evidence_json,'$.environment_state.key')=?
+	 AND json_extract(o.evidence_json,'$.environment_state.fingerprint')=?
  ORDER BY s.uuid COLLATE BINARY LIMIT ?`, project, after, key, fingerprint, limit+1)
 	if err != nil {
 		return nil, "", err

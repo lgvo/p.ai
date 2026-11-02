@@ -70,8 +70,8 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	if err != nil || rowErr != nil {
 		return nil, "", errors.Join(err, rowErr)
 	}
-	// Include every historical authority proof, including repairs and retired
-	// principals; a new settled mutation still invalidates an old report.
+	// Include every historical authority proof, including retired principals;
+	// a new settled mutation still invalidates an old report.
 	facts := []string{policy, sha, origin}
 	for _, query := range []string{
 		`SELECT id||':'||kind||':'||request_sha256||':'||status||':'||phase||':'||COALESCE(evidence_json,'') FROM operations WHERE project_path=? AND kind!='workspace.loss.inspect' ORDER BY id`,

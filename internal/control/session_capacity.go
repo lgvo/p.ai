@@ -44,9 +44,9 @@ func (s *Store) checkSessionAdmission(ctx context.Context, observe CapacityObser
 	return s.checkSessionCapacity(ctx, observe, 2)
 }
 
-// Repair consumes an existing missing session reservation, so it needs only
-// the one inspection-helper slot rather than another session slot.
-func (s *Store) checkSessionRepairCapacity(ctx context.Context, observe CapacityObserver) error {
+// A replacement takes over the reservation of the session it replaces, so it
+// needs only the one inspection-helper slot rather than another session slot.
+func (s *Store) checkReplacementCapacity(ctx context.Context, observe CapacityObserver) error {
 	return s.checkSessionCapacity(ctx, observe, 1)
 }
 

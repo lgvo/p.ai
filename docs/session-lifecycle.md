@@ -1,6 +1,6 @@
 # P — session lifecycle
 
-How P creates, starts, attaches, renames, stops, discards, deletes, and repairs
+How P creates, starts, attaches, renames, stops, discards, and deletes
 sessions without confusing intended state with Git, runtime, or
 credential facts.
 
@@ -30,7 +30,7 @@ credential facts.
 - [Destructive preflight](#destructive-preflight)
 - [Discard](#discard)
 - [Delete](#delete)
-- [Reconciliation and repair](#reconciliation-and-repair)
+- [Reconciliation](#reconciliation)
 - [Abandonment and orphans (post-MVP)](#abandonment-and-orphans-post-mvp)
 - [Credential and image-cache cleanup](#credential-and-image-cache-cleanup)
 - [Operation recovery summary](#operation-recovery-summary)
@@ -226,9 +226,9 @@ operation is incomplete:
 
 | Action | Conflict rule |
 |---|---|
-| Start or attach | Refused during create completion, rename, removal, or repair mutation. |
-| Rename | Refused during start, stop, removal, or repair mutation. |
-| Stop | Refused during create completion, rename, removal, or repair mutation. |
+| Start or attach | Refused during create completion, rename, or removal. |
+| Rename | Refused during start, stop, or removal. |
+| Stop | Refused during create completion, rename, or removal. |
 | Publish | Refused unless the session is established and its branch assignment is stable. |
 | Discard/delete | Refused during any other mutation and while a pending or confirmed attachment exists. |
 
@@ -255,8 +255,8 @@ runtime. P never relies on an in-memory `defer` to unpause it.
 Quiescence does not authorize the daemon to run Git inside its ambient host
 context. The Incus backend uses the closed, non-activating workspace interface in
 [runtime and isolation](runtime-isolation.md#non-activating-workspace-access).
-A future backend that cannot provide that isolation cannot implement rename,
-destructive preflight, or the corresponding repairs.
+A future backend that cannot provide that isolation cannot implement rename or
+destructive preflight.
 
 ## Create
 
@@ -302,10 +302,11 @@ may create only the already reserved `refs/heads/main` on its first push.
 The first update's server-side pre-receive check consumes a durable,
 single-use creation grant before Git commits the ref. Opening a receive
 connection or a dry-run push does not consume it. If the daemon fails after
-that check but before the ref outcome is known, P keeps the grant consumed;
-an absent `main` then requires explicit repair rather than permitting a
-second, potentially unrelated creation. An established bootstrap session can
-use its pending grant while `main` remains unborn.
+that check but before the ref outcome is known, P keeps the grant consumed
+rather than permitting a second, potentially unrelated creation. If `main` is
+then absent, that session can no longer create it. An established bootstrap
+session can use its pending grant while `main` remains unborn; while the
+project has no P refs, it can also be discarded or deleted.
 
 MVP has no repository-controlled P configuration. Creation snapshots the
 trusted project-scoped P configuration and evaluates only the ordinary Nix
@@ -329,6 +330,11 @@ otherwise the substrate-only environment applies.
 Environment realization may be shared with another operation. Once published,
 the immutable image is an Incus cache entry; the session's instance and later
 phases remain specific to its UUID.
+
+Before it records or sends the runtime init, creation proves that the complete
+confined-project inventory holds no runtime carrying the session UUID. A
+missing deterministic name is not enough: a renamed runtime is never treated as
+permission to create a duplicate.
 
 ### Failure, cancellation, and retry
 
@@ -529,14 +535,15 @@ the retained filesystem may let the tool resume itself.
 - Starting a runtime whose systemd persistent host is already active and
   attachable succeeds idempotently.
 - A stopped runtime must be reachable and match the session UUID labels.
-- `missing` requires repair/recreation; start does not silently construct a
-  replacement.
+- `missing` blocks start; start does not construct a replacement. See
+  [inconsistent sessions](#inconsistent-sessions).
 - `unreachable` blocks start because P cannot exclude a duplicate runtime.
-- Missing required Git/session credentials block start and produce a repair
-  plan. Post-MVP external-service plugins define their own health and
-  degradation evidence through their lifecycle contract. A missing cached
-  parent image does not affect an existing instance; it matters only if the
-  instance must be recreated.
+- Missing, revoked, or changed Git/session credentials block start; P never
+  reissues them, and the refusal directs the user to discard the session and
+  create a new one. Post-MVP external-service plugins define their own health
+  and degradation evidence through their lifecycle contract. A missing cached
+  parent image does not affect an existing instance; it matters only to a
+  creation that needs it.
 - Attachability requires `p-interactive.service` active/ready and the fixed
   attachment command present under trusted ownership.
 
@@ -642,15 +649,15 @@ ordinary ahead state for corruption.
 Before a native or Git effect is attempted, a proven refusal may release the
 reservation and retain the old mapping. An attempted backup write, freeze, or
 new-ref creation with an unknown outcome keeps both guards until its exact
-outcome is established or explicit repair resolves it. The new-ref-create-issued
-phase can already have created the new P ref, so it cannot roll back on an
-immediate absence observation. At and after a verified `new-ref-created`,
+outcome is established. The new-ref-create-issued phase can already have
+created the new P ref, so it cannot roll back on an immediate absence
+observation. At and after a verified `new-ref-created`,
 recovery completes forward to the new name. Start and attach remain blocked
 while the operation is unresolved.
 
 If another process altered a guarded ref or the workspace mapping despite
 quiescence, P does not guess. It leaves the runtime stopped/paused as safely as
-possible and presents the observed refs and repair choices.
+possible and reports the observed refs for manual investigation.
 
 Publishing under the new name is a later explicit origin operation.
 
@@ -674,7 +681,8 @@ terminal.
 Stop requests Incus's bounded graceful shutdown and uses its documented forced
 termination after the timeout. It never removes the instance. Already
 stopped succeeds idempotently. Missing or unreachable machinery is not reported
-as stopped and is handled through repair.
+as stopped. Unreachable Incus must be restored; a missing runtime is an
+[inconsistent session](#inconsistent-sessions).
 
 An interrupted stop is resolved from the Incus operation and current instance
 state: running means retry is available; stopped means success. P does not
@@ -806,10 +814,11 @@ commits.
 
 Once runtime removal begins, delete completes forward even if branch deletion
 temporarily fails. The session remains `removing`, its Git principal stays
-disabled, and reconciliation retries or requests repair; it does not restore a
-runtime around a branch the user authorized P to delete.
+disabled, and reconciliation retries or leaves the operation blocked with its
+diagnostic for manual investigation; it does not restore a runtime around a
+branch the user authorized P to delete.
 
-## Reconciliation and repair
+## Reconciliation
 
 ### Automatic reconciliation
 
@@ -829,98 +838,28 @@ observed condition. It never deletes an unconfirmed branch, removes a runtime
 outside a committed removal operation, resets a workspace, or creates a second
 runtime while the original may exist.
 
-### Repair
+### Inconsistent sessions
 
-Repair is an explicit mutation plan produced from current diagnostics. It is
-not a generic “make it work” command and accepts no arbitrary shell command.
+P has no session repair. When a session's authorities disagree in a way that
+automatic reconciliation must not resolve, P reports the condition and refuses
+the actions that depend on the missing fact. In most cases the user corrects
+the outside fact, or discards the session and creates a new one on the
+retained branch:
 
-Supported MVP repair shapes are:
-
-| Inconsistency | Repair behavior |
+| Inconsistency | What happens and what to do |
 |---|---|
-| Incomplete authorized operation | Resume its defined forward/rollback path. |
-| Stale runtime locator | Outside MVP: instance names are derived from the session UUID, and no mutable locator is stored. P reports the missing expected runtime; a same-UUID runtime under another name blocks recreation, and P does not adopt it. |
-| Missing runtime, assigned P branch intact | Reuse the recorded image when present. If absent, resolve the current committed P branch and show whether its environment identity differs before the user authorizes recreation for the same UUID; disclose that prior runtime-local state is unavailable. |
-| Runtime exists, assigned P ref missing, assigned local branch intact | Offer guarded restoration at the inspected local tip only when that commit object is already in P's bare repository. Otherwise report `p_object_missing` without a confirmation action. |
-| Missing/revoked session Git principal | Rotate/reissue the UUID-scoped principal and update only its runtime. |
-| Workspace branch/upstream mismatch | Show expected and actual branch/upstream values and block actions that depend on the assigned branch. The user or agent corrects Git manually; P rechecks on the next attempt. No dedicated repair action or automatic checkout/reset is required. |
-| Session row has neither runtime nor branch | Offer removal of the unrecoverable registry record after confirmation. |
+| Incomplete authorized operation | Reconciliation or `operation.retry` resumes its defined forward/rollback path. |
+| Stale runtime locator | Outside MVP: instance names are derived from the session UUID, and no mutable locator is stored. P reports the missing expected runtime; a same-UUID runtime under another name blocks removal, and P does not adopt it. |
+| Missing runtime, assigned P branch intact | Start refuses. Discard with the explicit missing-runtime acknowledgement described in [destructive preflight](#destructive-preflight), then create a new session on the retained branch. Delete accepts the same acknowledgement when the branch should go too. |
+| Missing, revoked, or changed session Git principal or key | Start refuses. Discard, then create a new session on the retained branch. Discard removes the runtime, so rescue uncommitted work from it by hand first. |
+| Runtime exists, assigned P ref missing | P has no remedy for this state. Discard and Delete refuse it: their previews report the assigned P ref unavailable. A blank project's bootstrap session is the exception while the project has no P refs. Commits that exist only in the runtime stay there; P does not import them. |
+| Session row has neither runtime nor branch | As with a missing assigned ref, Discard and Delete refuse the session, so its record remains. |
+| Workspace branch/upstream mismatch | Show expected and actual branch/upstream values and block actions that depend on the assigned branch. The user or agent corrects Git manually; P rechecks on the next attempt. P performs no automatic checkout or reset. |
 
-Repairing a missing runtime uses committed P-branch state. It cannot recover
-uncommitted files, unpushed commits, processes, terminal state, or conversations
-that existed only in the missing runtime. It also cannot promise the original
-environment after both that instance and cached image are gone: the branch may
-now define a different devShell. P presents that difference and never silently
-substitutes the new image during start or automatic reconciliation.
-Eligibility and confirmation require the complete confined-project native
-inventory to contain no runtime with the session UUID. Ordinary runtime
-creation repeats that absence proof before its init effect marker, so a renamed
-runtime is not treated as permission to create a duplicate. Disposable workspace
-helpers retain their separate operation identity and ownership checks.
-
-When the recorded derived image is absent, an explicit keyed preparation
-operation first reserves the assigned branch and one bounded builder slot,
-then resolves the current committed tip inside a restricted disposable
-builder. The builder's exact absence closes preparation; its result is
-environment evidence, not permission to recreate the runtime. A subsequent
-read-only preview compares the resolved key and source commit with the
-recorded image, and a separate confirmation binds that exact preparation.
-Confirmed repair rechecks the tip, policy, selected modules, credential and
-runtime absence, rebuilds or accepts the reviewed environment image under a
-durable publication boundary, and initializes only the original session UUID.
-The accepted image locator changes only on completed repair. An uncertain
-builder, publication or instance-init effect retains a guard for exact
-reconciliation; it never licenses an alternate image or second runtime.
-
-For a missing assigned P ref with an intact runtime, the supported restoration
-starts from a completed bounded workspace-loss inspection. The preview shows
-the absent assigned ref, the one ordinary `/workspace` local branch and HEAD
-commit, tracked/untracked changes and ignored summary, the exact Incus
-generation and policy/principal authority, and any unsafe reason. The current
-MVP permits confirmation only when that local commit object is already
-present in P's bare repository. If the commit exists only inside the runtime,
-P reports `p_object_missing` without a repair token. The runtime and its
-local branch remain untouched; the developer can preserve that work outside
-P or choose a separately confirmed lifecycle action. Automatic object
-transfer for this case is outside MVP. P does not parse or import raw runtime
-Git storage on the host.
-An eligible preview issues a short-lived token bound to the complete source
-inspection. Confirmation guards the assigned ref, re-quiesces the same runtime,
-and compares the complete workspace snapshot before a create-only zero-old-OID
-ref update. A changed workspace or ref is stale. An uncertain pause or ref
-create retains the guard for exact recovery. No branch reset, force update,
-principal issuance, runtime adoption, or local-file deletion is part of this
-repair.
-
-For a missing or revoked session Git principal, the read-only principal-repair
-preview distinguishes a missing registered key, a revoked registration, and a
-valid private key whose identity differs from the registration. It identifies
-the exact session assignment, image and Incus UUID/generation, and is eligible
-only while that runtime is already stopped and its fixed `/etc/p/git/identity`
-target has safe metadata. An absent P ref blocks this plan, including a
-bootstrap whose history cannot be proved from the P ref alone; missing-ref
-repair uses its separate explicit plan. Preview never creates a key. Explicit confirmation
-reserves the assigned ref, durably stages one new UUID-scoped Ed25519 key, and
-atomically disables the old registered authority before activating the new
-fingerprint. It then replaces only this session's host key and the credential
-in that exact stopped runtime. The guest file write has a durable issued marker;
-an uncertain outcome can advance only after an exact positive readback, never
-by reissuing against the instance name. No Git ref, workspace file, image, or
-other session credential is changed by this plan. The runtime stays stopped;
-Start is a separate action after repair completes.
-
-For an unrecoverable session record, preview requires authoritative absence
-of both the deterministic `p-<UUID>` Incus runtime and assigned P branch ref.
-The full confined-project native inventory must also contain no other runtime
-carrying that session UUID; a renamed or competing instance is not adopted.
-The preview reports the assignment, registered Git principal, both absences,
-and the current selected modules' lack of P-owned external credentials.
-Confirmation binds the reviewed facts to a short-lived token. Under a P-ref
-guard it rechecks both absences, durably marks the session removing and
-disables its Git principal before removing only its UUID-scoped local key and
-endpoint. Final row removal requires another exact absence observation. An
-unknown or reappeared runtime/ref leaves the removal guarded for targeted
-recovery; no runtime, branch, image, sibling or external mount is deleted.
+A new session on the retained branch starts from its committed tip. It cannot
+recover uncommitted files, unpushed commits, processes, terminal state, or
+conversations that existed only in the old runtime. Its environment comes from
+the branch's committed devShell, which may differ from the old session's image.
 
 ## Abandonment and orphans (post-MVP)
 
@@ -979,7 +918,7 @@ lifecycle state.
 Environment images are immutable Incus cache entries, not session-owned
 resources. Session lifecycle never leases or deletes them. Cache inspection and
 explicit deletion belong to environment building; a missing image is simply a
-cache miss the next time P needs to create or repair an instance.
+cache miss the next time a creation needs it.
 
 ## Operation recovery summary
 
@@ -992,7 +931,6 @@ cache miss the next time P needs to create or repair an instance.
 | Stop | None in P; Incus owns the operation | No duplicate P workflow | Inspect Incus; report stopped or expose retry |
 | Discard | Runtime removal committed | Revalidate or cancel without loss | Complete runtime/credential cleanup; retain branch |
 | Delete | Runtime removal committed | Revalidate or cancel without loss | Complete cleanup and confirmed branch deletion |
-| Repair | Plan-specific mutation persisted | Reinspect/cancel | Complete only the displayed repair plan |
 
 No client blindly retries an ambiguous durable mutation with a new
 idempotency key. It queries the existing operation and lets reconciliation
@@ -1008,7 +946,7 @@ same concepts:
 - registry state, observed session and policy condition, project, branch, and
   UUID;
 - destructive preflight facts and confirmation fingerprint; and
-- explicit repair or retry actions permitted by the current facts.
+- retry, cleanup, or removal actions permitted by the current facts.
 
 Attach returns a short-lived one-use pending token and structured `AttachSpec`.
 The trusted host helper redeems it on a dedicated attachment RPC connection;
@@ -1029,16 +967,12 @@ MVP includes:
 - committed-source creation plus the one unborn-main project bootstrap;
 - one UUID-to-project/branch assignment and one runtime per session;
 - start, attach/detach, transactional rename, and stop;
-- discard, delete, destructive preflight, and the supported repair shapes;
+- discard, delete, and destructive preflight;
 - persisted cross-authority operations, per-session/ref locking, Incus
   quiescence, and restart reconciliation;
 - local Git-principal and selected-plugin cleanup; and
 - identity checks and duplicate prevention for missing or manually changed
   containers, without adopting unfamiliar machinery.
-
-MVP ref repair does not transfer local-only Git objects into P's bare
-repository. A missing assigned ref with `p_object_missing` remains blocked;
-the supported ref repair is the bare-present case described above.
 
 MVP does not include runtime migration, branch-specific grants, automatic
 reclamation, service lifecycle, attempts, checks, session cloning, or recovery
@@ -1075,24 +1009,22 @@ The lifecycle design is implemented when integration tests prove:
 8. discard preserves the assigned branch as retained and delete removes only
    the confirmed P ref;
 9. missing and unreachable runtimes take different cleanup paths;
-10. repair never creates a duplicate runtime, resets a workspace, or widens a
-   credential;
-11. Incus unavailability leaves cleanup incomplete with identity, durable
+10. Incus unavailability leaves cleanup incomplete with identity, durable
     operation state and authorization restrictions retained; when it returns,
     Retry/reconciliation resume only confirmed work without duplicates or
     adoption of unfamiliar machinery;
-12. daemon restart drops pending attachment tokens and active leases; each
+11. daemon restart drops pending attachment tokens and active leases; each
     helper finishes temporary-client teardown while systemd preserves the
     persistent host, and operation reconciliation resumes;
-13. abrupt client death or transport loss ends only its temporary attach
+12. abrupt client death or transport loss ends only its temporary attach
     client, while a reachable daemon retains attachment presence until teardown
     completes;
-14. no automatic cleanup deletes a branch, runtime, or orphan record based only
+13. no automatic cleanup deletes a branch, runtime, or orphan record based only
     on age;
-15. activation or persistent-host failure leaves the container stopped with a
+14. activation or persistent-host failure leaves the container stopped with a
     bounded inspectable diagnostic and an ordinary Start retry;
-16. host exit shuts down the container while detach or switching sessions does
+15. host exit shuts down the container while detach or switching sessions does
     not; and
-17. branch/upstream mismatch diagnostics show expected and actual values,
+16. branch/upstream mismatch diagnostics show expected and actual values,
     block dependent actions, and recheck manually corrected Git on the next
     attempt without automatic checkout/reset.

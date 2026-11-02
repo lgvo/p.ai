@@ -30,11 +30,11 @@ initialization, dummy credential isolation, and Stop/Start VM checks. That seria
 58 steps at its tested revision, including the native live-TUI test, bounded workspace inspection and
 interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.
-Selected later VM checks also cover Discard/Delete, typed grants, guarded
-repairs, retained-branch rename/delete, and three early failed-creation
-replacement paths. The selected public-network VM now passes real DoH,
-hostname HTTPS, Nix fetch and public-to-private DNS/HTTPS redirect denials
-under the configured Incus and outer-VM restrictions. All 58 automated steps in that checkpoint
+Selected later VM checks also cover Discard/Delete, typed grants,
+retained-branch rename/delete, and three early failed-creation replacement
+paths. Session repair has since been removed. The selected public-network VM
+now passes real DoH, hostname HTTPS, Nix fetch and public-to-private DNS/HTTPS
+redirect denials under the configured Incus and outer-VM restrictions. All 58 automated steps in that checkpoint
 have passing coverage; the progress record
 preserves failed invocations and fixture fixes.
 Authenticated Codex acceptance is reserved for
@@ -163,22 +163,21 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
 
 ### Lifecycle, status, and events
 
-- Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, supported Repair,
-  retry, and restart reconciliation have defined outcomes.
+- Create, Start, Attach/Detach, Rename, Stop, Discard, Delete, retry, and
+  restart reconciliation have defined outcomes.
 - Branch/upstream mismatches must show expected and actual values and block
-  dependent actions. Rename diagnostics and missing-ref preview expected/actual
-  values plus manual-correction/recheck passed selected VM33/39. A dedicated
-  mismatch repair or automatic
-  checkout/reset is outside MVP.
+  dependent actions. Rename diagnostics with expected/actual values plus manual
+  correction and recheck passed selected VM33. A dedicated mismatch repair or
+  automatic checkout/reset is outside MVP.
 - Incus unavailability leaves cleanup incomplete with identity, durable
   confirmed operation and authorization restrictions retained. Retry/reconciliation
   may resume when it returns; uncertain resources are never forgotten or replaced.
   Explicit abandonment and its tombstone/orphan-cleanup/forget workflow are outside
   MVP. Manual investigation preserves existing identity and duplicate checks.
-- Missing assigned-ref repair is supported when the inspected local commit
-  object is already in P's bare repository. If it exists only in the runtime,
-  P reports `p_object_missing` and leaves the runtime untouched; automatic
-  object transfer is outside MVP.
+- P has no session repair. Discard a session with a missing runtime or a
+  broken Git principal, then create a new session on its retained branch. A
+  session whose assigned P ref is missing cannot currently be discarded or
+  deleted. See [inconsistent sessions](session-lifecycle.md#inconsistent-sessions).
 - A renamed Incus instance cannot be relinked in MVP. Its expected name is
   derived from the session UUID; P stores no mutable runtime locator and does
   not adopt a renamed instance.

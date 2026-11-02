@@ -106,7 +106,7 @@ Inside the actual terminal, tmux owns input. **Ctrl+B, then lowercase `d`** deta
 returns to the picker. Detach before opening Agents/Services: the prototype's
 in-terminal popup is not implemented. Agents shows the latest retained report,
 not an active-instance inventory or conversation history. Bulk project deletion,
-publication, plugin management and specialized repairs remain CLI/API workflows.
+publication and plugin management remain CLI/API workflows.
 
 Policy, agent reports, operation diagnostics and Help also support `j/k`, paging,
 and `gg/G` scrolling. Long fields wrap so they remain readable in small terminals.
@@ -553,7 +553,7 @@ action. A transport timeout does not prove the daemon abandoned an operation.
 | `busy` | Read the message: attachments, guarded resources, branch assignment, or capacity may prevent the action. Remove the specific conflict before retrying. |
 | Branch/upstream mismatch | Compare expected and actual values, correct Git manually, then recheck. |
 | Incus unavailable or runtime unreachable | Restore or investigate the authority. P retains identity and incomplete cleanup; it must not claim deletion or create an uncertain duplicate. |
-| Runtime missing | Use the supported identity-checked recovery or reviewed removal path. P does not adopt an unfamiliar replacement container. |
+| Runtime missing | Discard the session with `acknowledge_missing_runtime: true` in its removal preview, then create a new session on the retained branch. P does not adopt an unfamiliar replacement container. |
 | Failed Create needs different inputs | Try the explicit replacement preview only for supported cases. Otherwise use confirmed failed-create cleanup, then a new Create. |
 | Cleanup preview refuses | Read `unsafe_reasons`. Resolve the stated condition or investigate Incus manually; uncertain resources remain untouched. |
 
@@ -563,13 +563,17 @@ Retry example:
 api operation.retry "$(jq -nc --arg id "$OPERATION" '{v:1,id:$id}')"
 ```
 
-Replacement and repair are bounded capabilities, not universal recovery.
-For example, if an assigned P ref is gone and its commits exist only in the
-workspace, P does not promise to import those objects automatically. Preserve
-the workspace and investigate the reported condition. A supported cleanup path
-must still show loss, require confirmation, and verify ownership. Consult
-[failure and recovery behavior](session-lifecycle.md); deleting state directories
-or forgetting an uncertain container is not a supported repair procedure.
+Replacement and cleanup are bounded capabilities, not universal recovery, and
+P has no session repair. When a session's runtime is missing, or its Git
+principal or key is missing, revoked or changed, discard the session and create
+a new one on the retained branch. If its assigned P ref is gone, Discard and
+Delete refuse the session, and P does not import commits that exist only in its
+workspace. Preserve the workspace and investigate the reported condition. A
+supported cleanup path must still show loss, require confirmation, and verify
+ownership. Consult
+[inconsistent sessions](session-lifecycle.md#inconsistent-sessions); deleting
+state directories or forgetting an uncertain container is not a supported
+recovery procedure.
 
 ## What to expect from the development environment
 

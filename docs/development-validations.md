@@ -85,9 +85,7 @@ Launch two sessions from one fingerprint and prove:
 - new paths in one session do not affect the image or the other session;
 - stop/start retains private paths while removal deletes them;
 - removing the cached image does not break existing instances and becomes a
-  cache miss for new creation;
-- after both image and instance loss, repair exposes any environment change in
-  the current committed branch and requires explicit recreation approval; and
+  cache miss for new creation; and
 - base-only behavior works when no default devShell exists.
 
 Run the complete [Nix project workflow validation](nix-project-workflow-validation.md)
@@ -163,9 +161,9 @@ whole-runtime loss warnings do not claim private credential enumeration.
 **Validate:** Crash at every documented cross-authority commit point. Verify
 create/rename/discard/delete converge without duplicate Incus instances or
 silent Git ref loss. Verify Incus-owned start/stop uses Incus operation/state
-without a duplicate P workflow. Test missing versus unreachable, supported
-repair, identity conflicts, image cache misses, immutable-policy
-current/outdated/invalid comparison, and cleanup failures. Branch/upstream
+without a duplicate P workflow. Test missing versus unreachable, identity
+conflicts, image cache misses, immutable-policy current/outdated/invalid
+comparison, and cleanup failures. Branch/upstream
 mismatches must show expected and actual values, block dependent actions, and
 recheck on the next attempt after manual Git correction. No dedicated mismatch
 repair action or automatic checkout/reset is required.

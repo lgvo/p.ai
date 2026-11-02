@@ -212,16 +212,6 @@ CREATE TRIGGER rename_requires_established BEFORE INSERT ON operations
    SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
    AND registry_state='established')
  BEGIN SELECT RAISE(ABORT,'constraint failed: rename session unavailable'); END;
-CREATE TRIGGER repair_requires_established BEFORE INSERT ON operations
- WHEN NEW.kind='session.repair' AND NOT EXISTS(
-   SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
-   AND registry_state='established')
- BEGIN SELECT RAISE(ABORT,'constraint failed: repair session unavailable'); END;
-CREATE TRIGGER repair_prepare_requires_established BEFORE INSERT ON operations
- WHEN NEW.kind='session.repair.prepare' AND NOT EXISTS(
-   SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
-   AND registry_state='established')
- BEGIN SELECT RAISE(ABORT,'constraint failed: repair preparation session unavailable'); END;
 CREATE TRIGGER workspace_loss_read_requires_established BEFORE INSERT ON operations
  WHEN NEW.kind='workspace.loss.inspect' AND NOT EXISTS(
  SELECT 1 FROM sessions s WHERE s.uuid=NEW.session_uuid AND s.project_path=NEW.project_path AND (

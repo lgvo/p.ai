@@ -9,7 +9,7 @@ import (
 )
 
 func TestSessionRemovalKindUsesCommittedCurrentAuthority(t *testing.T) {
-	for _, kind := range []string{"session.discard", "session.delete", "session.create.cleanup", "session.record.repair", "project.delete"} {
+	for _, kind := range []string{"session.discard", "session.delete", "session.create.cleanup", "project.delete"} {
 		for _, status := range []string{"running", "blocked", "unknown"} {
 			t.Run(kind+"/"+status, func(t *testing.T) {
 				s, _ := openTestStore(t)
