@@ -1,5 +1,30 @@
 # MVP implementation progress
 
+## Notes TUI driver session-row matching — 2026-11-02
+
+VM scenario 58 failed on every run: its driver waited for selected rows in the
+`› notes58 / main` form, but the browser has drawn aligned project, tree/branch
+and runtime columns since the reviewed
+[session browser layout](#session-browser-layout-and-information-parity--2026-10-01).
+Only the driver was stale; the product, its layout and the driver's actions and
+assertions are unchanged. The driver now matches the selected row by project,
+`├─`/`└─` connector, branch (prefix) and, where required, runtime state, and
+names that row in its timeout.
+
+Before encoding the rows, the LLM navigated the production `p tui` against the
+mock socket (`just tui-mock --dataset empty`) at the driver's 100×28: it created
+`notes58`, stopped and re-entered main, created
+`feat/very-long-notes-qgG-review-branch-name`, then stopped and renamed it. The
+selected rows read `› notes58 └─ main … stopped`,
+`› notes58 ├─ feat/very-long-notes-qgG-review-branch-name … running` and
+`› notes58 └─ feat/renamed-notes-qgG … stopped`, padded into columns; the
+native failure screen showed the same main row. This establishes the row
+format only; it is not an experience review, and no presentation changed.
+
+Scenario 58 alone failed at the driver's first stopped-row wait before the
+change and passed after it (`P_NOTES_TUI_PASS`) in a fresh VM. Unit, TUI, flake
+evaluation and package checks passed.
+
 ## Serial-console redraw correction — 2026-10-01
 
 The unchanged public lab reproduced the developer's report: selection and

@@ -45,19 +45,25 @@ def run_notes(driver):
         # outcome until it becomes positive.
         return await_state(lambda: (driver_rpc(method, **params),), "notes read " + method)[0]
 
-    def page_ready(title, *content, selected_state=None):
+    def page_ready(title, *content, selected_branch=None, selected_state=""):
         # A heading renders before an asynchronous inventory completes.
         # Require the actual expected options/review controls before input.
         blocked = ("Waiting for daemon", "busy:", "invalid_params:", "unavailable:",
                    "internal:", "conflict:", "not_found:", "STALE ·",
                    "Origin observation unavailable", "Origin observation is stale")
+        # The browser draws a session row as aligned columns: the project, a
+        # tree connector before the branch, then the runtime state.
+        selected_row = None if selected_branch is None else re.compile(
+            "› " + re.escape(project) + " +[├└]─ " + re.escape(selected_branch) + ".*" + re.escape(selected_state))
         def ready():
             screen = driver["plain"]()
-            row_ready = selected_state is None or any(
-                selected_state[0] in line and selected_state[1] in line for line in screen.splitlines())
+            row_ready = selected_row is None or any(selected_row.search(line) for line in screen.splitlines())
             return (all(token in screen for token in (title, *content))
                     and not any(token in screen for token in blocked) and row_ready)
-        await_state(ready, "ready " + title + " with " + ", ".join(content))
+        label = "ready " + title + " with " + ", ".join(content)
+        if selected_row is not None:
+            label += " and selected row /" + selected_row.pattern + "/"
+        await_state(ready, label)
 
     def fixture(uuid, mode, value=None):
         argv = ["python3", os.environ["P_TEST_SOURCE"] + "/tests/integration/notes-tui-fixture.py",
@@ -276,7 +282,7 @@ def run_notes(driver):
                 "confirmed Stop ended notes runtime processes")
     expect("Stopped. Files and branch retained.")
     send("q")
-    page_ready("All project sessions", selected_state=("› notes58 / main", "stopped"))
+    page_ready("All project sessions", selected_branch="main", selected_state="stopped")
     send("\r"); attach(uuid)
     assert guest(uuid, "git", "rev-parse", "HEAD") == source_oid
     assert guest(uuid, "cat", "/home/p/notes58-private") == "private-retained"
@@ -315,7 +321,7 @@ def run_notes(driver):
     guest(branch_uuid, "test", "!", "-e", "/home/p/notes58-private")
     fixture(branch_uuid, "assert-empty")
     page_ready("All project sessions", "feat/very-long-notes")
-    send("j"); page_ready("All project sessions", "› notes58 / feat/very-long")
+    send("j"); page_ready("All project sessions", selected_branch="feat/very-long")
     send("\r"); attach(branch_uuid)
     send("python3 examples/notes/install.py > /workspace/notes58-install.log 2>&1; printf '%s' \"$?\" > /workspace/notes58-install.status\r")
     await_state(lambda: marker(branch_uuid, "notes58-install.status") == "0", "new branch real installer")
@@ -355,13 +361,13 @@ def run_notes(driver):
 
     def stop_selected(selected_uuid):
         assigned = rpc("session.inspect", uuid=selected_uuid)["session"]["branch"]
-        page_ready("All project sessions", "› " + project + " / " + assigned[:18])
+        page_ready("All project sessions", selected_branch=assigned[:18])
         send("s"); page_ready("Confirm action", "UUID: " + selected_uuid, "Confirm [y/N]")
         send("y")
         await_state(lambda: rpc("session.inspect", uuid=selected_uuid)["session"]["session_condition"] == "stopped",
                     "selected notes session stopped before removal")
         expect("Stopped. Files and branch retained.")
-        send("q"); page_ready("All project sessions", selected_state=("› " + project + " / " + assigned[:18], "stopped"))
+        send("q"); page_ready("All project sessions", selected_branch=assigned[:18], selected_state="stopped")
 
     def remove_selected(selected_uuid, key, *, default_no=False):
         send(key); page_ready("Removal loss preview", "y authorize", "[y/N] Default No")
