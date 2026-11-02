@@ -39,6 +39,7 @@ type lifecycle struct {
 	pending                []string
 	queueSlots             chan struct{}
 	sessionLocks           map[string]chan struct{}
+	sessionReads           map[string]*readsInFlight
 	confinementCheck       func(context.Context) error
 	startActive            map[string]bool
 	attachments            map[string]*attachment
@@ -456,16 +457,66 @@ func (l *lifecycle) sessionLockSlot(id string) chan struct{} {
 	return slot
 }
 
+// lockSession admits a change to session id. A change already holding the
+// session refuses it. Reads in flight do not: the change waits for them to
+// end, and readSession admits no new read while the change holds the session.
 func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) {
 	slot := l.sessionLockSlot(id)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-slot:
-		return func() { slot <- struct{}{} }, nil
 	default:
 		return nil, control.ErrConflict
 	}
+	release := func() { slot <- struct{}{} }
+	l.mu.Lock()
+	reads := l.sessionReads[id]
+	l.mu.Unlock()
+	if reads != nil {
+		select {
+		case <-ctx.Done():
+			release()
+			return nil, ctx.Err()
+		case <-reads.ended:
+		}
+	}
+	return release, nil
+}
+
+// readsInFlight counts the admitted reads of one session.
+type readsInFlight struct {
+	count int
+	ended chan struct{} // closed when the last of them ends
+}
+
+// readSession admits a read of session id unless a change holds the session.
+// Reads run alongside each other and refuse no change (see lockSession).
+func (l *lifecycle) readSession(id string) (func(), error) {
+	slot := l.sessionLockSlot(id)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(slot) == 0 {
+		return nil, control.ErrConflict
+	}
+	if l.sessionReads == nil {
+		l.sessionReads = map[string]*readsInFlight{}
+	}
+	reads := l.sessionReads[id]
+	if reads == nil {
+		reads = &readsInFlight{ended: make(chan struct{})}
+		l.sessionReads[id] = reads
+	}
+	reads.count++
+	return func() {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		reads.count--
+		if reads.count == 0 {
+			close(reads.ended)
+			delete(l.sessionReads, id)
+		}
+	}, nil
 }
 
 func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectRequest) (api.Operation, error) {

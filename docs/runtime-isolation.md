@@ -443,9 +443,13 @@ Interactive terminals inherit the same session-user endpoint through
 `systemctl --user` commands address their own manager. Host startup restores
 these runtime-owned values after devShell activation before starting tmux.
 
-Host-only service RPC binds the exact established session, holds its lifecycle
-lock, excludes workspace-inspection/removal conflicts, and uses the selected
-runtime WASI package with a core-bound `runtime.services` broker. The package
+Host-only service RPC binds the exact established session, excludes
+workspace-inspection/removal conflicts, and uses the selected runtime WASI
+package with a core-bound `runtime.services` broker. A service action holds the
+session's lifecycle lock. An inventory or journal read never overlaps a
+holder of that lock: it is refused while the lock is held, and a request that
+takes the lock waits for running reads to end
+([concurrency](session-lifecycle.md#concurrency-and-quiescence)). The package
 cannot choose a target, command, unit, action or UID. Core admits only validated
 project user service names and executes fixed systemctl/journalctl argv with
 UID/GID 1000 and the fixed `/run/user/1000` user-manager endpoint. Existing

@@ -29,7 +29,15 @@ func (l *lifecycle) SessionServices(ctx context.Context, id, unit, action string
 	if action != "list" && !runtimeincus.ValidProjectService(unit) {
 		return zero, control.ErrInvalid
 	}
-	release, err := l.lockSession(ctx, id)
+	// The inventory and the journal are reads: a change that arrives while one
+	// runs waits for it instead of being refused. An action is a change.
+	var release func()
+	var err error
+	if action == "list" || action == "journal" {
+		release, err = l.readSession(id)
+	} else {
+		release, err = l.lockSession(ctx, id)
+	}
 	if err != nil {
 		return zero, err
 	}

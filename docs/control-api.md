@@ -629,7 +629,11 @@ Incus target, or free-form systemctl action can be supplied. An established,
 ready owned runtime and compatible selected runtime package are required.
 The daemon holds its session/workspace guards, uses selected WASI
 `runtime.services`, executes fixed commands under guest UID/GID 1000, and checks
-native identity/generation before accepting results. See the
+native identity/generation before accepting results. An action holds the
+session's lifecycle lock and answers `busy` while another lifecycle request
+holds it. The inventory and journal reads answer `busy` while a lifecycle
+request holds the lock, but never cause a `busy` answer: a request that takes
+the lock waits for running reads to end. See the
 [runtime service boundary](runtime-isolation.md#project-user-services).
 
 Inventory combines loaded user units with installed user unit files, at most

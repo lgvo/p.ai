@@ -220,6 +220,11 @@ At most one mutating lifecycle operation may hold a session's lifecycle lock.
 Creation acquires the target project/ref reservation before a session lock
 exists. Rename and ref deletion also acquire a project/ref lock.
 
+A project-service inventory or journal read does not take the lock, so it
+never refuses a lifecycle request. A request that would take the lock while
+such reads run waits for them to end, and no such read starts while the lock
+is held. Several reads may run at once.
+
 Read-only inspection remains available during operations and reports the
 operation and phase. These actions are refused while a conflicting lifecycle
 operation is incomplete:
