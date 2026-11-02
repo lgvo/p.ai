@@ -36,9 +36,10 @@ nothing to do with Incus lives in the Incus adapter too.
 driver owns how sessions and images work: the image and its build, the guest,
 the session host, project services, terminals, devices, network, and the
 proofs of its own boundary. Core keeps lifecycle state, the journal, policy,
-Git authority, the proofs of absence, and the Git edits that rename makes in
-a stopped workspace; Git effects go through the
-[source driver](source-driver.md). The WASI environment plugin folds into the driver's
+Git authority and the proofs of absence. Git effects go through the
+[source driver](source-driver.md), which also computes the Git edits that
+rename makes in a stopped workspace; core reads and writes those files through
+the workspace operations. The WASI environment plugin folds into the driver's
 image build.
 
 **What users notice:** no workflow changes from the driver. Host
@@ -70,7 +71,7 @@ internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 | Session host | Core reads `systemctl show` and the journal | — | Inside `Start` and `Inspect` (host_observe.go, the daemon's readiness wait) |
 | Project services | `systemctl --user` through the WASI plugin | The API methods, the lock, the ready check | `Services`, `ServiceAction`, `ServiceLogs` (services.go) |
 | Terminals | The helper's own Incus exec channel | Token, lease, relay to the helper | `OpenTerminal` (attach.go, internal/attachment/incus.go) |
-| Workspace | Rename edits Git files in a stopped or frozen runtime | The Git edits, stopped sessions only | Workspace operations and the stopped-storage check |
+| Workspace | Rename edits Git files in a stopped or frozen runtime | Reading and writing those files, stopped sessions only; the source driver computes the edits | Workspace operations and the stopped-storage check |
 | Network | An egress address per session, reserved in SQLite | The reservation | Attaching the container to it, the egress proofs |
 | Endpoints and grants | Sockets on the host; grants captured under trusted ceilings | Both, unchanged | Their delivery into the session |
 | Images | Core and the WASI environment plugin drive builder containers; `incus publish` | The index and release rule ([commit-images.md](commit-images.md)) | `BuildImage` with public egress, the image operations (builder*.go, environmentnix, nixenv) |
@@ -80,8 +81,10 @@ internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 The driver is trusted code: it holds container authority. Only trusted host
 configuration selects it; repositories, requests and plugins never reach it.
 The Incus driver ships as the executable `p-runtime-incus`. Its Nix steps
-become a Go package that another driver can reuse. Core keeps
-workspace_rename.go with `safeGitConfig`.
+become a Go package that another driver can reuse. Rename's Git edits
+(workspace_rename.go with `safeGitConfig`) leave the Incus code: from M4 core
+runs them over the workspace operations, and in step 9 the source driver
+takes them ([source-driver.md](source-driver.md#renaming-a-sessions-clone)).
 
 ## The driver interface
 
@@ -90,7 +93,8 @@ Three ideas carry it:
 - **P's concepts, not the guest's layout.** Core names a session, its
   command, branch, key, endpoints, grants and network; the driver decides
   where they go. The one guest place core knows is the workspace, the Git
-  clone that rename edits while the session is stopped.
+  clone whose files core reads and writes for a rename while the session is
+  stopped; the source driver says which files.
 - **Gates.** A mutation takes a gate: a core function the driver calls once,
   after every check and right before the first effect. Core records its
   durable intent there. If the gate fails, nothing happened; if the call
@@ -161,7 +165,7 @@ type Session struct {
 type Build struct {
 	Ref    Ref            // kind build
 	Labels Labels         // the image's identity: project, commit, base, system, builder version
-	Source SourceExport   // the commit, as the source driver's Export wrote it; form open (source-driver.md, question 3)
+	Source SourceExport   // a Git bundle of the commit, as the source driver's Export wrote it
 }
 
 type Target struct {
@@ -229,9 +233,9 @@ var (
 | `Start`, `Stop` | Converge on the state and do nothing when it holds. `Start` re-checks grants, endpoints and the egress substrate and returns once the session host is ready; if the host fails, the runtime ends stopped and `Start` returns the bounded diagnostic. When the host exits, the runtime stops and is never restarted. `Stop` is graceful and bounded. |
 | `Delete` | Act only on the given incarnation; stop a running runtime first. After success the reference is absent and its private storage gone. |
 | `Inventory` | List every object in scope, P's or not, including ones being deleted, with labels as stored, within a stated bound; an error rather than a partial list. |
-| Workspace operations | Act only on a stopped session of the given incarnation. Never run code the session or its repository can change; never follow symlinks; read and write exact owner, mode and bytes, within bounds; reach only the session's private storage. |
+| Workspace operations | Act only on a stopped session of the given incarnation. Never run code the session or its repository can change; never follow symlinks; report a path absent, or its type, owner and mode, and read and write exact owner, mode and bytes, within bounds; reach only the session's private storage. |
 | `OpenTerminal` | Attach the session user to the session host with a PTY. Arm a completion witness before the attach starts, or fail; report `Proven` completion only from it. |
-| `BuildImage` | Build an image of the commit for this runtime, label it, and leave no builder behind on success or definite failure. The builder gets the commit's files, the public-egress network and nothing else. |
+| `BuildImage` | Build an image of the commit for this runtime, label it, and leave no builder behind on success or definite failure. The builder gets the commit's Git bundle, which it clones into `/workspace`, the public-egress network and nothing else. |
 | Images | Store labels immutably and return them verbatim. `DeleteImage` acts on the exact reference and labels and never affects runtimes created from the image. |
 | `Settle` | `Applied` only when the intended outcome is present exactly and nothing admitted on the target is still running; `NotApplied` only when the backend proves the effect can never be admitted later; otherwise `Unknown`. For `create`, the intended outcome is the initialized runtime at the reference, complete or not. Use native state only, so the answer holds after a restart. |
 | Services | Act only on the target session's project services, at its incarnation, while its host is ready, with the session user's authority; never on the runtime's own units. Return a complete, bounded inventory or an error; queue actions and return once queued, with progress shown in the inventory; bound the logs. The full table is in [services-plugin.md](services-plugin.md#guarantees). |
@@ -398,8 +402,9 @@ may come later, as a plugin.
 
 **Step 1 comes first, as decided.** It creates `internal/runtimedriver` with
 `BuildImage`, the image operations and `Settle` for builds, folds the
-environment plugin in, and writes commit images against them. The rest of
-step 8 stays last.
+environment plugin in, and writes commit images against them. Its builder
+already clones a Git bundle, which gitservice writes until the source driver's
+`Export` takes over. The rest of step 8 stays last.
 
 ## Migration
 
@@ -416,7 +421,7 @@ session repair; 0g gave builders public egress.
 | M1 | The full interface, an in-memory driver and a conformance suite; the Incus driver in process over `runtimeincus`, with the guest file plan, the host readiness wait and services.go as driver code. Host configuration gets `runtime.driver: {name, config}`. | — |
 | M2 | The 16 `plugin.RunRuntime` calls go to the driver: inspect, create, start and stop to the session operations, `runtime.services` to the services operations. Attachment keeps today's spec until M5. | The WASI runtime plugin, its broker, capability and grant; `runtime_plugin_id`; the daemon's `serviceBroker` |
 | M3 | `Check`, `Describe`, `Inventory`; core computes the proofs, with one inventory bound instead of today's per-caller 4 or 64. | The proof scans |
-| M4 | The remaining direct calls: `Delete`, the workspace operations with the stopped-storage check, `Settle`, and `Create` at an incarnation for recovering a partial create. | The other `l.runtime` calls |
+| M4 | The remaining direct calls: `Delete`, the workspace operations with the stopped-storage check, which rename's Git edits use from core, `Settle`, and `Create` at an incarnation for recovering a partial create. | The other `l.runtime` calls |
 | M5 | `OpenTerminal`; the daemon relays the terminal and the helper loses Incus access. | internal/attachment/incus.go, `ValidateAttachmentOperation`, the Incus fields of `AttachmentLaunch` |
 | M6 | The daemon holds only `runtimedriver.Driver`; `runtimeincus` moves to `internal/runtimedriver/incus`, and a test fails if another package imports it or runs `incus`. | `lifecycle.runtime` |
 | M7 | The protocol and the `p-runtime-incus` executable, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`. | `name` |

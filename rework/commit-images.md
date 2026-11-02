@@ -107,11 +107,12 @@ or deleting an image, as it checks labels today.
 image for a commit (`BuildImage`). The driver does the whole build: a
 disposable builder from the pinned base image, the Nix steps that realize the
 commit's devShell (today's Nix environment plugin folds into this), and the
-published image, with no builder left behind. The builder's input is the
-commit as the [source driver](source-driver.md) exports it, and the builder
-makes `/workspace` from it; whether that export is a Git bundle the builder
-clones or today's file tree is the source driver's open question 3. An image
-only has to work with the runtime that built it. The builder gets
+published image, with no builder left behind. The builder's input is a Git
+bundle of the commit, which it clones into `/workspace`; the
+[source driver](source-driver.md)'s `Export` writes it, and gitservice until that driver lands in step 9. The host no
+longer checks the commit's tree (gitservice's snapshot.go), since the checkout
+happens in the isolated builder. An image only has to work with the runtime
+that built it. The builder gets
 public internet access only, with no host or local-network route, as
 [environment building](../docs/environment-building.md) already designs
 ("Realize" and "Security boundary"); today's builder is still offline, and
@@ -197,7 +198,8 @@ These documents describe today's model and change with this step:
 
 - [environment building](../docs/environment-building.md): the image holds
   the environment only, is named by the environment key, and "the workspace
-  … [is] never part of the cached image"; MVP has no automatic collection.
+  … [is] never part of the cached image"; MVP has no automatic collection;
+  resolution receives a tree checked on the host, not a bundle.
 - [session lifecycle](../docs/session-lifecycle.md): the `environment-ready`
   and `workspace-ready` phases, and "Session lifecycle never leases or deletes"
   images.
@@ -225,4 +227,5 @@ These documents describe today's model and change with this step:
   project deletion deletes every image of the project.
 - VM scenarios: two sessions from one commit start from one image; a commit
   that changes only code builds a new image; deleting the last session from a
-  commit deletes its image.
+  commit deletes its image. Scenario 19 checks that the exported bundle clones
+  to exactly the commit, instead of checking the tree.
