@@ -1,7 +1,7 @@
 # Task commands in the CLI
 
 Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md).
-It designs step 7 and builds on steps 4 to 6.
+It designs step 7 and builds on steps 2 to 6.
 
 ## Summary
 
@@ -112,7 +112,10 @@ dependency is needed.
 
 Every client command accepts `--socket PATH` and `--json`. Socket selection
 is today's: `--socket`, then a nonempty `P_SOCKET`, then
-`/var/lib/p/control.sock`.
+`/var/lib/p/control.sock`. Each command connects with `api.Dial`, which sends
+`system.hello`, and calls through the typed `api.Do`
+([wire-types.md](wire-types.md#the-version-agreed-at-systemhello)), so the
+request types' `Validate` catches bad arguments before anything is sent.
 
 ### Command set
 
@@ -124,7 +127,7 @@ a dry run; [Risky changes](#risky-changes) describes them.
 
 | Command | API method | Behavior |
 |---|---|---|
-| `p status` | `system.hello`, `system.health`, `system.capabilities`, `system.inspect` | Instance ID, build version, control state, whether lifecycle methods are available, record counts |
+| `p status` | `system.hello`, `system.health`, `system.inspect` | Instance ID, build version, protocol, configured capabilities (`git`, `runtime`, `services`), control state, record counts |
 | `p project list` | `project.list` | |
 | `p project create PROJECT [--origin URL] [--attach]` | `project.create` | Waits. `--attach` enters the first session when creation makes one, as for a blank project; the TUI does the same. |
 | `p project delete PROJECT` | `project.delete` | Asks, waits. P stops running sessions itself. |
@@ -140,27 +143,28 @@ a dry run; [Risky changes](#risky-changes) describes them.
 | `p session show SESSION` | `session.inspect` | Conditions, attachments, the latest unattended agent report, policy, diagnostic |
 | `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`). `--from-origin` refreshes the origin and passes the observed commit and URL, and prints which commit it chose. |
 | `p session create … --replace SESSION` | `session.create.replace` | Asks, waits: replaces a blocked creation with this request |
-| `p session start SESSION` | `session.start` | Waits until ready |
-| `p session stop SESSION` | `session.stop` | Waits |
+| `p session start SESSION` | `session.start` | Waits for its operation, which completes when the session is ready ([waiting.md](waiting.md#start-and-stop-as-operations)) |
+| `p session stop SESSION` | `session.stop` | Waits for its operation |
 | `p session rename SESSION NEW` | `session.rename` | Reads the tip, as the TUI does; waits. A running session is refused. |
 | `p session discard SESSION` | `session.discard` | Asks, waits. P stops a running session itself. |
 | `p session delete SESSION` | `session.delete` | Same |
 | `p session repair SESSION` | `session.repair`; `session.repair.prepare` when the image is missing | Asks, waits. The daemon diagnoses which of the four repairs applies ([repairs.md](repairs.md)). |
 | `p session cleanup SESSION` | `session.create.cleanup` | Asks, waits: ends a failed creation and keeps its branch |
-| `p attach SESSION` | `session.attach` | Unchanged, plus the `PROJECT:BRANCH` form |
+| `p attach SESSION` | `session.start` if the session is not ready, `operation.wait`, then `session.attach` | `session.attach` no longer starts a session ([waiting.md](waiting.md#start-and-stop-as-operations)), so `p attach` starts it and waits first; users see the same result. Also accepts `PROJECT:BRANCH`. |
 | `p service list SESSION` | `session.services` | |
 | `p service start\|stop\|restart SESSION NAME` | `session.service.action` | Returns once queued ([services-plugin.md](services-plugin.md)); `p service list` shows progress |
 | `p service logs SESSION NAME` | `session.service.logs` | |
 | `p operation list` | `operation.list` | Shows each operation's key |
 | `p operation show ID` | `operation.inspect` | |
-| `p operation wait ID` | `operation.wait` | |
+| `p operation wait ID` | `operation.wait` | Waits until the status is not `running` |
 | `p operation retry ID` | `operation.retry` | Waits |
 
 List commands follow `next` to the end. `p help` lists the commands, and
 `p NOUN --help` describes one noun's commands.
 
 Only `rpc.cancel` has no command: it cancels a request on the caller's own
-connection. The methods steps 1 to 6 remove get none: `workspace.inspect`,
+connection. The methods steps 1 to 6 remove get none: `system.capabilities`
+(its capabilities move into `system.hello`), `workspace.inspect`,
 `workspace.loss.inspect`, `environment.cache.*`, the preview and confirm
 pairs, and the four separate repair methods.
 
@@ -168,10 +172,12 @@ pairs, and the four separate repair methods.
 
 ### Idempotency keys
 
-- **Generated:** one key per run call, `cli-` followed by 32 hex digits from
-  `crypto/rand`, the same scheme as the TUI's `tui-` keys
-  (`newKey` in internal/tui/model.go). A dry run carries no key. A run after a
-  new dry run carries a new tag, so it gets a new key.
+- **Generated:** one key per run call of a method that takes one, `cli-`
+  followed by 32 hex digits from `crypto/rand`, the same scheme as the TUI's
+  `tui-` keys (`newKey` in internal/tui/model.go). A dry run carries no key.
+  A run after a new dry run carries a new tag, so it gets a new key. Start,
+  stop and `operation.retry` take none
+  ([waiting.md](waiting.md#open-questions), question 1).
 - **Supplied:** `--key KEY` (1 to 128 bytes) makes a script's retry safe:
   repeating the same command with the same key returns the same operation
   instead of making a second change. On a command that asks, `--key` needs
@@ -183,11 +189,18 @@ pairs, and the four separate repair methods.
 
 ### Waiting
 
-A command that starts an operation waits for it by calling `operation.wait`
-in a loop, and prints each new phase on standard error. It stops waiting
-when the operation is `completed`, `blocked`, `failed`, `unknown` or
-`superseded`. `--no-wait` prints the operation ID as soon as the daemon
-accepts the change and exits 0; `p operation wait ID` waits later.
+A command that starts an operation waits for it with
+[`operation.wait`](waiting.md#operationwait), which returns as soon as the
+status is not `running` (`completed`, `failed`, `superseded` or `blocked`),
+or with the status still `running` when its timeout passes. The CLI asks for
+a timeout of 20 seconds, as the TUI does, inside a budget of 25 seconds for
+the whole call (connect, hello, wait, reply), so it stays under the server's
+30-second deadline. A wait that returns `running` is not an error: the CLI
+prints the operation's phase on standard error if it changed, and waits
+again. So a long build shows its phase at most every 20 seconds.
+
+`--no-wait` prints the operation ID as soon as the daemon accepts the change
+and exits 0; `p operation wait ID` waits later.
 
 Ctrl-C while waiting stops only the CLI. The operation runs on in the
 daemon, and the CLI prints its ID and `p operation wait ID`.
@@ -212,7 +225,7 @@ operation, so there is nothing to wait for.
 | Change | `{"operation": …}`, the operation after waiting, or as accepted with `--no-wait` |
 | Change that asks | `{"plan": …, "change_tag": …, "operation": …}`: the last dry run, and the operation if it ran |
 | `--dry-run` | The dry run's reply as the API returns it |
-| Any error | `{"error": …}`, the API's error object |
+| Any error | `{"error": …}`, the API's error object: `code`, `message` (the kind's name) and `data` ([errors.md](errors.md#the-error-object)) |
 
 Color and bold appear only when standard error is a terminal.
 
@@ -221,20 +234,36 @@ Color and bold appear only when standard error is a terminal.
 | Code | Meaning |
 |---|---|
 | 0 | Done: the read succeeded, the operation completed, or with `--no-wait` the daemon accepted it. `--dry-run` of an allowed change. |
-| 1 | Failed: the daemon returned an error or could not be reached, or the operation ended `failed`, `unknown` or `superseded`. |
-| 2 | Usage: the arguments or flags are invalid; nothing was sent. |
-| 3 | Not run, nothing changed: the plan is not allowed, the user declined or cancelled, no terminal could ask, or the state changed after the preview. |
+| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; or the operation ended `failed` or `superseded`. |
+| 2 | Usage: the arguments or flags are invalid, found by the CLI or answered `invalid` by the daemon (such as `key_reused` for a `--key`). |
+| 3 | Not run, nothing changed: the plan is not allowed; the daemon answered `conflict`, `capacity` or `precondition_failed`; the user declined or cancelled; or no terminal could ask. |
 | 4 | Not finished: the operation is `blocked`, or the CLI stopped waiting while it runs on. |
 
 `p api` keeps its own rule: 0, or 1 on any error.
 
 ### Errors
 
-The CLI prints one sentence per error kind, naming the next step, followed
-by the daemon's message if the errors step keeps one. On the kind that means
-"retry", the CLI repeats the identical call, with the same key and tag, for
-up to 10 seconds before it gives up. The identical key makes the repeat safe.
-VM scenario 57 retries `busy` reads by hand today.
+An error carries no text: `message` is the kind's name, and `data` holds a
+`reason` code, and where they apply a `target`, a `field` or the `supported`
+protocols ([errors.md](errors.md#the-error-object)). The CLI prints one
+sentence per reason, naming `target` or `field` when present, and falls back
+to its sentence for the kind when it meets a reason it does not know. Error
+reasons and refusal codes share one namespace, so they share the CLI's one
+sentence table ([Printing the plan](#printing-the-plan)).
+
+On `retry` the CLI sends the identical call again, with the same key and
+tag, which makes the repeat safe:
+
+- When `target` names an operation (reason `session_held`), the CLI says it
+  is waiting for that operation, waits for it with `operation.wait`, and
+  then repeats. If that operation ends `blocked`, the repeat answers
+  `conflict`, `operation_blocked`, and the CLI stops.
+- Otherwise (`too_many_requests`, `deadline`), it repeats after a short
+  pause, for up to 10 seconds.
+
+A risky run repeated this way may meet an expired or changed tag; that is
+`precondition_failed`, handled as in [The flow](#the-flow). VM scenario 57
+retries `busy` reads by hand today.
 
 ## Risky changes
 
@@ -266,9 +295,9 @@ wait for the operation, unless --no-wait
 The CLI reads only the envelope's `allowed`, `refusals`, `loss` and `gone` to
 decide what to print and whether to warn ([plan-shape.md](plan-shape.md)).
 The API carries no message text, so the CLI owns one sentence per refusal
-code and per loss kind. The sentences live in one table that the TUI and the
-CLI share, so both say the same thing; whichever step first needs it
-creates it.
+code, error reason and kind, and loss kind. The sentences live in one table
+that the TUI and the CLI share, so both say the same thing; whichever step
+first needs it creates it.
 
 1. **A heading** from the command's arguments and a few facts of its own
    `details` type:
@@ -303,6 +332,8 @@ the loss lines follow [plan-shape.md](plan-shape.md#kinds):
 | `destination_divergent` | The origin's `main` has commits that P's branch lacks; P publishes only by fast-forward. |
 | `recorded_image_missing` | The session's image is gone; it must be rebuilt from the session's source commit first. |
 | `session_not_established` (repair) | Session 4f1c… is still being created. Retry it with `p operation retry`, replace it with `p session create --replace`, or end it with `p session cleanup`. |
+| `session_held` (`retry`) | Waiting for operation 9b0e… (session.start) to finish… |
+| `runtime` (`not_configured`) | This instance has no runtime configured; ask the instance owner. |
 | `runtime_data` (loss) | the container of session 4f1c… and everything in it: uncommitted changes, files outside Git, commits not pushed to P; P does not look inside |
 | `runtime_data` (gone) | The runtime of session 4f1c… is already missing; whatever it held is gone. |
 | `p_commits` | 2 commits on branch work will be removed from P's repository; P does not check whether the origin has them |
@@ -362,11 +393,13 @@ terminals. Otherwise:
 
 **`p api`** stays for protocol work: debugging, a raw view of any reply, and
 the VM scenarios that test the API itself. It does nothing for the user: no
-keys, no waiting, no prompts. Its output and exit codes stay. Two things
-change with other steps: its default params follow the wire-types step's
-version handling (today `{"v":1}`), and its two-minute deadline for
-`project.delete.confirm` goes once project deletion returns an operation
-(step 4).
+keys, no waiting, no prompts. Its output and exit codes stay. Other steps
+change it: it sends `system.hello` itself and its params lose `"v":1`
+([wire-types.md](wire-types.md#summary)); its deadline for `operation.wait`
+is the requested timeout plus 5 seconds
+([waiting.md](waiting.md#operationwait)); and its two-minute deadline for
+`project.delete.confirm` goes, because project deletion returns an operation
+at once.
 
 **`p tui`** and **`p attach`** keep their forms, including the positional
 socket argument (`p attach [SOCKET] SESSION`). `p attach` also accepts
@@ -385,22 +418,22 @@ Host commands (run on the P host as the instance owner):
 ```
 
 Their arguments and JSON output stay; the NixOS module calls `p daemon` and
-`p plugins defaults` (nix/module.nix). Step 8 and step 9 own any change to
-them. `p git-hook` and `p attach-helper` stay unlisted: P runs them itself.
+`p plugins defaults` (nix/module.nix). Steps 8 and 9 own any change to them,
+and step 2 changes `p version` to report the protocol string instead of
+`control_api_version`. `p git-hook` and `p attach-helper` stay unlisted: P runs them itself.
 Every command, host commands included, exits 2 on a usage error.
 
 ## Depends on
 
-The documents for steps 2, 3 and 4 are being written alongside this one, and
-[repairs.md](repairs.md) (step 6) is proposed. For steps 2 to 4 this design
-follows their rows in the [plan](REWORK-PLAN.md#before-and-after); each item
-below is an assumption to check against the document when it settles.
+The documents for steps 2 to 6 are proposed alongside this one. Each item
+below is what this design takes from them; an open question there that
+changes it is named.
 
 | Document | What this design assumes |
 |---|---|
-| Wire types (step 2) | The CLI decodes every reply into the shared `internal/api` types, and `--json` prints them. How the version is agreed at `system.hello` decides how each connection starts and what `p api` sends by default. |
-| Errors (step 3) | Exit codes and sentences follow the eight kinds. The "retry" kind is safe to repeat with the same key. Whether errors keep a `message` is not settled. |
-| Waiting (step 4) | `operation.wait` returns at `completed`, `blocked` and the failed states. It returns or reports progress often enough to print phases and stay within the server's request deadline. Start and stop return operations. Not verified: whether `origin.change` and `origin.publish` return operations; if not, those commands print their result and do not wait. |
+| [wire-types.md](wire-types.md) (step 2) | `api.Dial` sends `system.hello` on each connection, and `api.Do` makes typed calls after `Validate`. `--json` prints the shared `internal/api` types. `system.capabilities` is gone; `p status` reads `capabilities` from the hello. `p api` sends the hello itself and drops `"v":1`. |
+| [errors.md](errors.md) (step 3) | Errors carry no text: `message` is the kind's name, and `data` holds `reason`, `target`, `field` and `supported`. The exit codes map the kinds; the sentences follow reasons, falling back to kinds; `retry` is repeated with the same key and tag, after the named operation leaves `running`. If its open question 1 is accepted, blocked and failed operations carry a `reason` too, and the CLI prints that sentence before the diagnostic. |
+| [waiting.md](waiting.md) (step 4) | `operation.wait {id, timeout}` with a timeout of 1 to 25 seconds returns at `completed`, `failed`, `superseded` or `blocked`, or with `running` at the timeout; there is no `unknown` status. Start and stop return operations, and `session.attach` no longer starts a session. Its open question 1 (start and stop take no key) sets which commands generate keys. Its open question 3 decides whether `origin.change` and `origin.publish` return operations; if not, those commands print their result and do not wait. |
 | [repairs.md](repairs.md) (step 6) | `session.repair` returns the plan of the repair that applies, named by `details.kind`; no repair plan has `loss`, so `--force` never counts down for one. `session.repair.prepare`, `session.create.replace` and `session.create.cleanup` stay separate, hence `--replace` and `p session cleanup`. repairs.md leaves the preparation (open question 2 below) and a TUI Repair action (open question 3) to this step. |
 | [plan-shape.md](plan-shape.md) | The envelope; step 5's final list of refusal codes for the sentence table. |
 | [state-hash-confirmation.md](state-hash-confirmation.md) | The two calls, `precondition_failed` with "expired" or "changed", `--force`. Not verified: whether `origin.publish` still takes `expected_origin_url` and `source_oid` once the tag binds them; the CLI reads and passes them as long as it does. |
@@ -486,12 +519,19 @@ These change when step 7 lands:
     code is 3;
   - `precondition_failed` after a prompt shows the new plan and asks again;
   - `--if-match` sends no dry run; `--dry-run` sends nothing else;
-  - waiting: `completed` exits 0, `blocked` 4, `failed` 1, Ctrl-C 4 without
-    cancelling the operation, `--no-wait` 0 at acceptance; a "retry" error is
-    repeated with the same key and tag;
+  - waiting: every `operation.wait` asks for 20 seconds within a 25-second
+    call budget; a wait that returns `running` is repeated; `completed`
+    exits 0, `blocked` 4, `failed` and `superseded` 1, Ctrl-C 4 without
+    cancelling the operation, `--no-wait` 0 at acceptance;
+  - a `retry` error naming an operation waits for it and then repeats the
+    call with the same key and tag; one without a target repeats for up to
+    10 seconds; `conflict`, `capacity` and `precondition_failed` exit 3,
+    `invalid` 2;
+  - `p attach` on a stopped session starts it, waits, then attaches;
   - every `--json` shape in the [Output](#output) table.
-- **A sentence test:** every refusal code, loss kind and error kind defined
-  in `internal/api` has a sentence.
+- **A sentence test:** every refusal code, error reason, error kind and loss
+  kind defined in `internal/api` has a sentence, and an unknown reason falls
+  back to its kind's sentence.
 - **VM scenario 57**, the developer workflow, moves from `p api` to the task
   commands and keeps its outcome checks. The other scenarios keep `p api`,
   because they test the API.
