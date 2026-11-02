@@ -223,8 +223,7 @@ Record repair today answers it with a refused plan.
 
 `session.repair {uuid, key, if_match}` replays the key, checks the expiry,
 diagnoses and plans again, compares the tags, and starts the kind's
-operation. The operation is the one step 5's method for that kind starts;
-step 6 changes only which method admits it.
+operation.
 
 | `details.kind` | Operation | What it does |
 |---|---|---|
@@ -307,10 +306,10 @@ principal is reported as `none`, `nothing_to_repair`).
 
 | Option | Why not |
 |---|---|
-| One method per repair, as after step 5 | The client must know the four repairs and which one fits; the session view does not tell it, so it tries them in turn. |
+| One method per repair, as after step 5 | The client must know which repair fits; see [Today](#today). |
 | A read-only `session.diagnose` beside the repair methods | Two calls and the same four methods; the dry run already is the diagnosis. |
 | Every repair that applies, as a list of plans | At most one can be allowed in any state, so the list holds one runnable plan at most, plus refused plans waiting on it. One plan and a fixed order say the same with one shape and one tag. |
-| A `kind` parameter, so the client asks for a repair | Lets a client ask for a repair that does not apply, and brings back the guessing. The daemon already knows. |
+| A `kind` parameter, so the client asks for a repair | Lets a client ask for a repair that does not apply. |
 | One operation kind for every repair | Each repair has its own phases and recovery, and the journal's registry describes each operation kind once. |
 
 ## How it will be checked
