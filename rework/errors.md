@@ -17,8 +17,7 @@ Two of them cover situations that need different next steps:
 
 So clients read the message text: project deletion passes its error's text
 through, capacity explains itself in its message, and the TUI and the
-attachment client show the message to the user. A panic in a request handler
-stops the daemon. Operations cut their diagnostics at 512, 900 or 1024
+attachment client show the message to the user. Operations cut their diagnostics at 512, 900 or 1024
 bytes, and list summaries cut them again at 256 or 512.
 
 **Proposed:**
@@ -32,8 +31,8 @@ bytes, and list summaries cut them again at 256 or 512.
 - An error carries no text. `data` holds a `reason` code and the facts the
   next step needs, such as the `target` to wait for. The daemon logs the raw
   cause; clients write sentences from codes.
-- A panic in a request handler is recovered, logged, and answered as
-  `internal`.
+- A panic in a request handler, recovered since groundwork step 0c,
+  answers `internal` with reason `panic`.
 - Every operation's diagnostic is cut once, at 1024 bytes, where the journal
   writes it.
 
@@ -58,7 +57,7 @@ rename and of operations in lists are no longer cut shorter than 1024 bytes.
 | A record does not exist | `unavailable`, "record was not found" | `not_found`, with the `target` |
 | A capability is not configured | `unavailable`, three different messages | `not_configured`; the reason names the capability |
 | Incus, Git, the origin or a plugin failed or could not be observed | `unavailable`, "lifecycle authority is unavailable" | `failed`; the reason names the authority |
-| The control store failed, a result could not be encoded, a handler panicked | `internal` on system methods, `unavailable` on lifecycle methods; a panic stops the daemon | `internal` |
+| The control store failed, a result could not be encoded, a handler panicked | `internal` on system methods, `unavailable` on lifecycle methods; `internal` for a panic once step 0c lands | `internal`, with reason `store`, `encoding` or `panic` |
 
 The same refusal, before and after:
 
@@ -249,45 +248,24 @@ Two smaller fixes come with the mapping:
   first, so the local-only check after it is never reached. After, it answers
   `conflict`, `origin_not_set`.
 
-## Panics in request handlers
+## Panics
 
-Today `ServeConn` (internal/control/rpc.go) runs each request in its own
-goroutine with no `recover`, so a panic in any handler ends the daemon, and
-with it every session's endpoints and running operations' workers.
+Groundwork step 0c ([plan](REWORK-PLAN.md#steps)) recovers a panic in a
+request handler before this step: it answers `internal` with today's error
+kinds, logs the panic, and keeps serving. Making that safe is part of 0c: a
+recovered panic between `Lock` and `Unlock` would leave a mutex held, and in
+internal/daemon 48 of the 57 `l.mu.Lock()` calls are not followed by `defer`,
+some on request paths, so 0c converts the request paths' lock sites to
+release by `defer`.
 
-After, the request goroutine defers one recovery that:
+Step 3 adds two things:
 
-1. logs the method, the request ID, the panic value and the stack;
-2. answers the request with `internal`, reason `panic`;
-3. lets the goroutine's other deferred steps run as today: forget the request
-   ID, cancel its context, free its slot.
-
-The daemon keeps serving. The same recovery wraps the inline paths of the
-read loop (`parseRequest`, `rpc.cancel`, hello), the connection's own cleanup
-(`owner.close`, which releases attachments), and the session RPC's
-`SessionReplyWithCommit`.
-
-**Recovery is only safe where locks are released by `defer`.** Today a panic
-ends the process, so no lock can stay held. Once panics are recovered, a
-panic between `Lock` and `Unlock` leaves the mutex locked, and every later
-request that needs it waits until its deadline. In internal/daemon, 48 of the
-57 `l.mu.Lock()` calls are not followed by `defer`, including on request
-paths:
-
-- `sessionLockSlot` (lifecycle.go), run by every `lockSession`;
-- `StartSession`'s update of `startActive` (lifecycle.go);
-- the expiry loops of the seven preview stores, such as
-  removal_preview.go, which unlock early inside the loop;
-- `ConfirmAttachment` and `releaseAttachment` (attachment.go); the second
-  calls the store and the attachment callback while holding `l.mu`.
-
-`endpoints.mu` is held the same way in assembled_cleanup.go and
-create_replace_cleanup.go. Every `lockSession`, project-deletion lock and Git
-authority lock on a request path is already released by `defer`.
-
-Step 3 moves the request paths' critical sections under `l.mu` and
-`endpoints.mu` into small functions that unlock by `defer`, and the panic test
-below panics inside one of them. Worker code is covered by open question 2.
+- **The answer's shape:** `internal` with reason `panic`, in the error object
+  above, with the method, request ID, panic value and stack in the log.
+- **Panics in operation workers,** if the maintainer accepts open question
+  2. The decision and 0c cover request handlers only; a worker panic still
+  ends the daemon. Worker code takes `l.mu` without `defer` as well, so
+  recovering there needs the same conversion in the workers' lock sites.
 
 ## One diagnostic limit
 
@@ -369,10 +347,10 @@ limit, or raises the bound.
   `deadline`.
 - A test that no error reply contains text from a Go error: every error the
   mapper produces is checked against the documented fields.
-- A panic test: a handler that panics is answered `internal`, `panic`; the
-  stack is logged; the next request on the same connection and on a new one
-  is answered; a handler that panics while holding the lifecycle mutex does
-  not block the next request.
+- 0c's panic test, extended: a handler that panics is answered `internal`
+  with reason `panic`. If open question 2 is accepted, a worker that panics
+  leaves its operation `blocked` with reason `internal`, the daemon keeps
+  serving, and the scheduler does not run the operation again.
 - Diagnostic tests: every journal write cuts at 1024 bytes on a character
   boundary; `operation.list` shows the full diagnostic; a page of 20
   operations at the limit fits one frame; scenario 33's rename diagnostic

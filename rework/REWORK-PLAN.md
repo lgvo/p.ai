@@ -58,7 +58,7 @@ Each step lands as one commit, after its decision document is settled. The 0 ste
 | 2 | Wire types | Every later step changes method shapes. With shared types, a changed shape fails to compile at each caller instead of failing in a VM run. |
 | 3 | Errors | Small, and steps 4 and 5 use the new retry and precondition kinds. |
 | 4 | Waiting | Start and stop become operations and clients wait with `operation.wait`. `project.delete.confirm` already records an operation; the wait inside it, for fresh loss inspections, goes in 0e, so the confirm returns its operation at once, which step 5 needs. |
-| 5 | Risky changes | Needs the shared types (2), the precondition errors (3) and project deletion as an operation (4). |
+| 5 | Risky changes | Needs the shared types (2), the precondition errors (3) and `operation.wait` (4), with which clients follow the operation each run returns. |
 | 6 | Repairs | Builds on the single repair method from step 5. |
 | 7 | CLI | Builds on steps 4 to 6. |
 | 8 | Runtime | The largest step, and independent of the API. Last of the API-independent work, so it blocks nothing else. Lands as the driver's migration steps, one commit each. |

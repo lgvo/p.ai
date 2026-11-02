@@ -16,13 +16,13 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
   seconds.
 
 The start watcher caused VM scenario 34's known failure: the scenario saw
-`ready`, acted, and got `busy` because the watcher still held the lock. A
-narrow fix of that race is in the working tree as I write, uncommitted: the
-session reads `starting` until the watcher ends, and the watcher releases the
-lock under the mutex that inspection reads (`observedCondition` and
-`endStartWatcher` in internal/daemon/lifecycle.go). Operation kinds also differ in what progress events they emit, in whether a
-blocked operation resumes when the daemon restarts, and in the order recovery
-lists them.
+`ready`, acted, and got `busy` because the watcher still held the lock.
+Groundwork step 0b ([plan](REWORK-PLAN.md#steps)) fixes that race narrowly:
+the session reads `starting` until the watcher ends, and the watcher releases
+the lock under the mutex that inspection reads (`observedCondition` and
+`endStartWatcher` in internal/daemon/lifecycle.go). Operation kinds also
+differ in what progress events they emit, in whether a blocked operation
+resumes when the daemon restarts, and in the order recovery lists them.
 
 **Proposed:**
 
@@ -147,8 +147,8 @@ refused with `retry`, as the held lock refuses it today.
 
 ### Scenario 34's race
 
-At the plan's baseline, as the state-safety debt entry recorded it before the
-narrow fix removed the entry:
+Before step 0b, as the state-safety debt entry recorded it until 0b removed
+the entry:
 
 ```text
 session.start          watcher goroutine takes the session lock; reply: starting
@@ -157,9 +157,9 @@ session.repair.preview lockSession finds the lock held: busy   (158 ms before th
 watcher                clears its starting flag, then releases the lock
 ```
 
-At that baseline `InspectSession` turned only `stopped` into `starting` while
+Before 0b `InspectSession` turned only `stopped` into `starting` while
 the watcher ran, never `ready`, and the watcher cleared its flag before it
-released the lock. The narrow fix closes both gaps for start. Stop has no
+released the lock. Step 0b closes both gaps for start. Stop has no
 watcher today because it stops the runtime inside the request; as an
 operation it needs the same guarantee.
 
@@ -333,7 +333,7 @@ them.
 
 | Option | Why not |
 |---|---|
-| Keep start returning `starting`, with the narrow fix of the watcher now in the working tree | Fixes scenario 34, but keeps a second way to wait, keeps `AttachSession`'s wait loops, and leaves start and stop the only changes without an operation, against the decision. |
+| Keep start returning `starting`, with step 0b's fix of the watcher | Fixes scenario 34, but keeps a second way to wait, keeps `AttachSession`'s wait loops, and leaves start and stop the only changes without an operation, against the decision. |
 | Start and stop as operations held only in memory | No journal rows to bound, but a second kind of operation that `operation.retry`, the resume rule and the recovery order do not cover. |
 | `operation.wait` without a timeout, or with one longer than the request deadline | The server cuts every request at 30 seconds; a longer wait would need a second deadline rule. |
 | `operation.wait` with timeout 0 instead of `operation.inspect` | One method fewer, but a read that may block holds a request slot, and the TUI's lists read operations at once. |
