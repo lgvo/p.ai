@@ -46,10 +46,10 @@ the daemon restarts; the user presses Retry, as for every other kind already.
 | Change | Today returns | After |
 |---|---|---|
 | `project.create`, `session.create`, `session.rename`, `project.retained.rename`, `operation.retry`, `session.repair.prepare`, each confirm (discard, delete, the four repairs, create replacement, create cleanup, retained-branch deletion) | An operation | Unchanged |
-| `session.start` | The session as `starting`; a watcher holds the lock until the host is ready | An operation of kind `session.start` |
-| `session.stop` | The session, after stopping the runtime inside the request | An operation of kind `session.stop` |
+| `session.start` | The session as `starting`; a watcher holds the lock until the host is ready | An operation of kind `session.start`, or `changed: false` when there is nothing to start |
+| `session.stop` | The session, after stopping the runtime inside the request | An operation of kind `session.stop`, or `changed: false` when there is nothing to stop |
 | `project.delete.confirm` (`project.delete` after step 5) | An operation, after fresh loss inspections inside the request | The operation, at once; groundwork step 0e removes the inspections |
-| `origin.change`, `origin.publish` | The origin state or publication result, after contacting or pushing to the origin inside the request | Operations; see open question 3 |
+| `origin.change`, `origin.publish` | The origin state or publication result, after contacting or pushing to the origin inside the request | Operations; see open question 2 |
 | `session.attach` | A pending attachment, after starting the session and waiting for it inside the request | A pending attachment for a ready session; it no longer starts one |
 | `session.service.action` | The result after systemd's job finished | Returns once queued, not an operation |
 | `origin.refresh` | The refreshed observation | Unchanged: a read that refreshes P's cached view, not a change |
@@ -66,9 +66,16 @@ After:
 
 ```text
 → session.start  {"uuid":"4f1c…"}
-← {"operation":{"id":"9b0e…","kind":"session.start","status":"running",…}}
+← {"changed":true,"operation":{"id":"9b0e…","kind":"session.start","status":"running",…}}
 → operation.wait {"id":"9b0e…","timeout":20}
 ← {"operation":{"id":"9b0e…","kind":"session.start","status":"completed",…}}
+```
+
+Starting it again once it is ready records nothing:
+
+```text
+→ session.start  {"uuid":"4f1c…"}
+← {"changed":false,"session":{…,"session_condition":"ready"}}
 ```
 
 ## `operation.wait`
@@ -118,8 +125,9 @@ operation holds the session.
 The check refuses competing work only. Requests that act on the unfinished
 operation itself pass it, as today:
 
-- a repeated start or stop, or a replay of the same idempotency key, returns
-  the existing operation;
+- a start or stop while one of the same kind is unfinished returns that
+  operation with `changed: false`, and a replay of the same idempotency key
+  returns the existing operation;
 - `operation.retry` resumes it;
 - the replacement and cleanup of a blocked creation, both dry run and run,
   which require that creation to be blocked
@@ -159,7 +167,8 @@ internal/daemon/create_replace_cleanup.go) follow the same path.
    current, its Git principal is registered and active, its key and
    endpoints exist, and its runtime exists. A failed check is an error and
    records nothing.
-2. **Record** a `session.start` operation, return it, and enqueue it.
+2. **Record** a `session.start` operation, return it with `changed: true`,
+   and enqueue it.
 3. **The worker** holds the session, starts the runtime and waits for the
    host, as `startOwned` and `awaitOwnedHost` do today; from step 8 it calls
    the runtime driver's `Start`, which "returns once the session host is
@@ -167,10 +176,22 @@ internal/daemon/create_replace_cleanup.go) follow the same path.
 4. **The end:** `completed` when the host is ready, or `failed` with the
    diagnostic when the runtime ended stopped, recorded after the hold ends.
 
-Starting a session that is already ready records an operation that completes
-at once. Starting a session whose start is unfinished returns that unfinished
-operation. `session.stop` follows the same steps with today's stop checks
+`session.stop` follows the same steps with today's stop checks
 (established, no pending or confirmed attachment) and the runtime stop.
+
+**A repeat changes nothing, and says so** (maintainer, 2026-11-02). Both
+methods answer `{changed, operation?, session?}`
+([wire-types.md](wire-types.md#the-types)):
+
+| The session | `session.start` / `session.stop` answers |
+|---|---|
+| Already ready (start) or already stopped (stop) | Records nothing: `{"changed": false, "session": {…the current view…}}` |
+| An operation of the same kind is unfinished | `{"changed": false, "operation": {…that operation…}}` |
+| Otherwise, once admitted | Records the new operation: `{"changed": true, "operation": {…}}` |
+
+So start and stop take no idempotency key: they converge, are safe to send
+again, and the reply says whether anything happened. The journal's required
+key column holds the operation's own ID.
 
 While a start or stop operation is unfinished, `session.inspect` and
 `session.list` report `starting` or `stopping` from the journal, whatever the
@@ -250,7 +271,7 @@ sequence number: `next` is a string the client passes back as `after`
 unchanged. Today the cursor is the last operation's ID, compared with
 `id > ?` (`ListOperations` in internal/control/lifecycle_store.go); a
 sequence cannot be looked up from an ID whose row is gone, and rows do go:
-project deletion deletes its project's operations, and open question 2 would
+project deletion deletes its project's operations, and open question 1 would
 delete old start and stop operations.
 
 Why acceptance order:
@@ -281,8 +302,8 @@ container stopped, or that a service changed state, only by looking.
 
 The TUI loads every operation on each refresh and refuses more than 4096
 records in all (`loadInventory` in internal/tui/client.go). Start and stop
-operations would add two rows per start and stop; open question 2 bounds
-them.
+operations would add two rows per start and stop that changed something;
+open question 1 bounds them.
 
 ## Departures from current docs
 
@@ -310,19 +331,17 @@ them.
 
 ## Open questions
 
-1. **Do start and stop take an idempotency key?** Recommendation: no. Both
-   converge and are safe to repeat, and a repeated start while one is
-   unfinished returns that operation. The journal's required key column
-   holds the operation's own ID.
-2. **How long are finished start and stop operations kept?** Recommendation:
-   only the newest finished start or stop of each session; recording a new
-   one deletes the older. Otherwise every start and stop adds a row that the
-   TUI loads on every refresh, until it reaches its 4096-record limit. The
+1. **How long are finished start and stop operations kept?** It concerns
+   only real starts and stops, since a repeat records nothing.
+   Recommendation: only the newest finished start or stop of each session;
+   recording a new one deletes the older. Otherwise every start and stop
+   adds a row that the TUI loads on every refresh, until it reaches its
+   4096-record limit. The
    session view takes a failed start's diagnostic from that newest
    operation, replacing the `session.start.diag:<uuid>` metadata rows, which
    are never deleted today
    ([state-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session)).
-3. **Do `origin.change` and `origin.publish` become operations in step 4?**
+2. **Do `origin.change` and `origin.publish` become operations in step 4?**
    Recommendation: yes, as the "every change returns an operation" decision
    reads. Both contact the origin inside the request today, with origin
    deadlines of 35 seconds (internal/plugin/sourcegit.go,
@@ -333,7 +352,7 @@ them.
    becomes a `failed` operation with that reason, never retried, as today;
    their request tables (`origin_requests`, `publication_requests`) fold into
    the journal.
-4. **May the session condition gain `stopping`?** Recommendation: yes. It is
+3. **May the session condition gain `stopping`?** Recommendation: yes. It is
    a new value users see for a few seconds, and without it a client that
    sees the runtime stopped could act while the stop operation is
    unfinished.
@@ -354,13 +373,17 @@ them.
   held by a `running` operation gets `retry` naming it, and held by a
   `blocked` one, `conflict` with reason `operation_blocked`, for every method
   that needs the session. In the same test the permitted paths pass: a
-  repeated start or stop and a key replay return the existing operation,
+  start or stop during an unfinished one of the same kind returns it with
+  `changed: false`, a key replay returns the existing operation,
   `operation.retry` resumes a blocked one, and the dry run and run of a
   blocked creation's replacement and cleanup succeed.
 - Unit tests for start and stop: `session.inspect` never reports `ready`
   while a start operation is unfinished, nor `stopped` while a stop
-  operation is; a second start returns the unfinished operation; a host that
-  fails gives `failed` with its diagnostic; stop with an attachment is
+  operation is; a start on a ready session, or a stop on a stopped one,
+  records no row and answers `changed: false` with the current view; a start
+  or stop during an unfinished one of the same kind returns that operation
+  with `changed: false`; otherwise a new operation comes with
+  `changed: true`; a host that fails gives `failed` with its diagnostic; stop with an attachment is
   refused; `session.attach` refuses a session that is not ready.
 - TUI tests: a wait that returns `running` keeps `attachOnComplete` and
   waits again; the TUI's wait timeout plus its connection fits its call

@@ -121,7 +121,17 @@ The rules:
   `operation.list` 1 to 20 and `project.list` 1 to 100, so each needs its own
   `Validate`.
 - **One result type per method;** several methods may share it. Every change
-  that returns an operation returns `api.OperationResult{Operation}`.
+  that returns an operation returns `api.OperationResult{Operation}`, except
+  start and stop, which may change nothing
+  ([waiting.md](waiting.md#start-and-stop-as-operations)):
+
+  ```go
+  type SessionChangeResult struct { // session.start and session.stop
+  	Changed   bool         `json:"changed"`
+  	Operation *Operation   `json:"operation,omitempty"` // new, or the unfinished one of the same kind
+  	Session   *SessionView `json:"session,omitempty"`   // the current view, when nothing was recorded
+  }
+  ```
 - **Strict decoding stays:** the daemon decodes with `internal/strictjson`, so
   unknown and duplicate fields are refused, as today.
 - **Lists keep their field names** (`projects`, `sessions`, `operations`,
