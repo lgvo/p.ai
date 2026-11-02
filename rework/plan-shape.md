@@ -125,7 +125,7 @@ mappings). The raw evidence that loss items summarize, `branch_loss`, stays in
 | Session | `session/<uuid>` | `session/4f1c…` | Discard, delete, create replacement (the old UUID), create cleanup |
 | Project | `project/<path>` | `project/team/app` | Project deletion |
 | P branch | `project/<path>:branch/<name>` | `project/team/app:branch/saved` | Retained-branch deletion; `p_commits` loss items |
-| Origin branch | `project/<path>:origin-branch/<name>` | `project/team/app:origin-branch/main` | Publication; `<name>` is `destination_ref` without `refs/heads/` |
+| Origin branch | `project/<path>:origin-branch/<name>` | `project/team/app:origin-branch/main` | Publication; `<name>` is the branch name the source driver's `CheckNames` returns for `destination_ref` ([source-driver.md](source-driver.md#names-urls-and-commit-ids)) |
 
 A project path has segments of `[A-Za-z0-9._-]` (`validProject` in
 `internal/control/store.go`), and Git refuses `:` in branch names, so the first

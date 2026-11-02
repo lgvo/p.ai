@@ -43,9 +43,10 @@ sessions from SQLite to authorize two kinds of head creation. Git authority
 - The driver lands as the first part of step 9 (S1 to S7), then plugins.md's
   work.
 - Git's rules move to the driver too: branch and origin ref names, origin
-  URLs, commit IDs, and the SSH command after its first word. Core stores and
-  compares names, URLs and commit IDs as bounded strings; the driver refuses
-  invalid ones as `invalid`. Git in the guest (runtime-kit's workspace setup,
+  URLs, commit IDs, and the SSH command, whose first words the driver
+  declares. Core stores and compares names, URLs and commit IDs as bounded
+  strings, strips no ref prefix, and holds no Git command word; the driver
+  refuses invalid values as `invalid`. Git in the guest (runtime-kit's workspace setup,
   git-stream, `p-git-ssh`, the builder's clone) stays with the runtime driver.
 
 **Proposed:** a `sourcedriver.Driver` in P's terms, with operations for the
@@ -88,7 +89,7 @@ Only effects whose owner or guarantee changes; the rest stays where
 | **A session's clone** | | |
 | Rename's Git edits: `.git/HEAD`, `.git/config`, the head and reflog files, a backup until done | workspace_rename.go in runtimeincus, with `safeGitConfig` | `RenameWorkspace` computes them; core reads and writes the files through the runtime driver |
 | **P's Git endpoint** | | |
-| Parse the SSH command: which service, which repository | `parseCommand` in gitservice | Core picks the service by the first word; `ServeGit` parses the rest |
+| Parse the SSH command: which service, which repository | `parseCommand` in gitservice | Core routes the first word to the service that declared it (`Describe()`); `ServeGit` parses the rest |
 | Transport limits, 1 GiB and 10 minutes | WASI `git.transport.plan`, which may only tighten them | Core passes them as ceilings |
 | `upload-pack` and `receive-pack` with today's restrictions | `handle` in gitservice | `ServeGit` |
 | Pre-receive check (one update, of the allowed head, to a commit, fast-forward), then approval, which consumes the unborn `main` grant | `p git-hook`, hook.go | The check: driver. Approval and grant: core, as `Approve` |
@@ -125,12 +126,12 @@ sits between them in each:
   clones the bundle into `/workspace`.
 - **The session's endpoint.** Core creates `git.sock` and serves it with its
   SSH server, which authenticates the key and picks the service by the
-  command's first word. Git, the only service, is registered for
-  `git-upload-pack` and `git-receive-pack`: `ServeGit` parses the rest of the
-  command and calls core's `open`, which checks the key's principal for that
-  project, takes the lease, and returns the service's limits and `Approve`.
-  The runtime driver makes `git.sock` reachable in the guest, with the key and
-  the SSH client files.
+  command's first word. Git, the only service, is registered for the words the
+  driver declares in `Describe()`, so core's routing table holds no Git word.
+  `ServeGit` parses the rest of the command and calls core's `open`, which
+  checks the key's principal for that project, takes the lease, and returns
+  the service's limits and `Approve`. The runtime driver makes `git.sock`
+  reachable in the guest, with the key and the SSH client files.
 - **A renamed session's clone.** Core reads the files `RenameWorkspace` asks
   for through the runtime driver's workspace operations, passes them in, and
   writes the edits it returns ([below](#renaming-a-sessions-clone)).
@@ -172,7 +173,7 @@ package sourcedriver // internal/sourcedriver
 // and the only code that runs Git against them or against an origin.
 type Driver interface {
 	// Host
-	Describe() Description           // the backend's identity, which core pins, and its version
+	Describe() Description           // the backend's identity, which core pins, its version, and its SSH command words
 	Check(ctx context.Context) error // prove the storage boundary and the Git tools
 
 	// Git's syntax, which core does not know
@@ -214,7 +215,7 @@ type Driver interface {
 type OID string // a commit ID; core only stores and compares it
 
 type Name struct {
-	Kind  NameKind // branch, renamed or retained branch, origin ref, creation source, origin URL or commit ID
+	Kind  NameKind // branch, renamed or retained branch, origin ref, creation source, publication destination, origin URL or commit ID
 	Value string   // within core's bounds
 }
 
@@ -293,7 +294,7 @@ The errors are `ErrUnknownOutcome` (the effect may have happened; settle it),
 |---|---|
 | All | Act only on P's repositories in its configured storage. Read native state fresh on every call; after an error, claim nothing. Never run code or configuration a repository can change: hooks, filters, repository config, submodules, lazy fetch. Never prune an object: P has no garbage collection, and a pending creation relies on an origin commit that no head holds yet. Accept every value `CheckNames` accepts, refuse others with `ErrInvalid`, and return only names it accepts. |
 | `Check` | Prove that its storage is private to P's account and that its Git tools are present, at start and before every mutation; refuse rather than proceed. |
-| `CheckNames` | Decide from each value and its kind only, offline, the same way every time. Return each value as core uses it: a creation source as a branch or a commit ID, so core picks `InspectBranch` or `InspectCommit` without reading Git's syntax. The bundled driver keeps today's rule for each field: `validBranch`, or `ValidateRenameBranch` with `git check-ref-format` for renamed and retained branches; `ValidGitOriginRef`; a creation source that is a head ref or a commit ID; `ValidateOriginURL`; `validOID`. |
+| `CheckNames` | Decide from each value and its kind only, offline, the same way every time. Return each value as core uses it: a creation source as a branch or a commit ID, so core picks `InspectBranch` or `InspectCommit`, and a publication destination as its branch name, from which core builds the `origin-branch` target ([plan-shape.md](plan-shape.md#targets)); core strips no prefix itself. The bundled driver keeps today's rule for each field: `validBranch`, or `ValidateRenameBranch` with `git check-ref-format` for renamed and retained branches; `ValidGitOriginRef`; a creation source that is a head ref or a commit ID; `ValidateOriginURL`; `validOID`. |
 | `CreateRepository` | Converge, so a repeated call is safe: make the repository complete or not at all, keep an existing one, and leave its default branch `main`, as `git.project.ensure` does. |
 | `DeleteRepository` | Act only on the given incarnation; afterwards the project's repository is absent. Safe to call again at the same incarnation. |
 | `Branches` | Return every head as one observation, in byte order, each tip a commit present in P's repository, or an error; `ErrLimit` above 1024 heads. The bundled driver reads twice and compares, as today's loss code does. |
@@ -486,7 +487,7 @@ runtime driver's workspace operations.
 | S2 | Repositories, heads and commits go through the driver: `EnsureBare`, `InspectBranchRef`, `CaptureLocalSource`, the three create methods, `DeleteAssignedBranchExact`, `ListRefsPage` behind `control.GitReader`, `PCommitPresent`, the loss methods, and project deletion's `os.RemoveAll`. The SQLite checks of `CreateCapturedOriginBranch` move to the daemon. Handlers check requests' names and commit IDs with `CheckNames` after their replay lookup, and core's checks keep only its bounds. Rename's workspace phases call `RenameWorkspace`. | Five command kinds; `RepositoryPath`; core's rename Git edits and `safeGitConfig`; the Git syntax in control's `validBranch` and `validOID`; `ValidateRenameBranch` |
 | S3 | Origin: core keeps the per-project lock and calls `ObserveOrigin`, `FetchOrigin`, `ComparePublication` and `Publish`; control's origin and publication interfaces adapt to them. `CheckNames` takes the URL rule. | `OriginScope`; three command kinds; `ValidateOriginURL` |
 | S4 | `Export` writes the bundle; core owns the staging directory and hands it to `BuildImage`. | gitservice's bundle code |
-| S5 | The SSH server leaves gitservice for a core package that authenticates keys and picks a service by the command's first word; `ServeGit` parses the rest and calls core's `open`, which takes the lease, and the hook approval becomes `Approve`. Core pins the backend instead of a source package per session. | `git.transport.plan`; the source-git package, `plugin.RunSourceGit` and the Git brokers; `activation_path` and `source_plugin_id` in `git`; the source pin in `CreationSelection`; `p-git-ssh` becomes a runtime driver file; `parseCommand`; `ValidGitOriginRef` |
+| S5 | The SSH server leaves gitservice for a core package that authenticates keys and routes the command's first word to the service that declared it, the driver through `Describe()`; `ServeGit` parses the rest and calls core's `open`, which takes the lease, and the hook approval becomes `Approve`. Core pins the backend instead of a source package per session. | `git.transport.plan`; the source-git package, `plugin.RunSourceGit` and the Git brokers; `activation_path` and `source_plugin_id` in `git`; the source pin in `CreationSelection`; `p-git-ssh` becomes a runtime driver file; `parseCommand`; `ValidGitOriginRef` |
 | S6 | The daemon holds only `sourcedriver.Driver`; a test fails if another package imports the bundled driver or runs `git` or `ssh` on the host. | `internal/gitservice` |
 | S7 | `p-source-git` over step 8's protocol package, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`; the hook executes the driver; `HOME` and `SSH_AUTH_SOCK` passed. | `name`; `p git-hook` |
 
@@ -559,9 +560,11 @@ rest.
     asked for or edited outside the workspace root and its Git directory;
   - names, from the tests of `validBranch`, `ValidateRenameBranch`,
     `ValidGitOriginRef`, `ValidateOriginURL` and `validOID`: today's accepted
-    and refused values of each kind; the first value at fault is named; every
+    and refused values of each kind; the first value at fault is named; a
+    creation source and a publication destination come back classified; every
     operation refuses what `CheckNames` refuses;
-  - the service: a command that does not parse is refused before `open`, and
+  - the service: `Describe()` names the command words it serves; a command
+    that does not parse is refused before `open`, and
     `open` is called once before any Git runs; upload advertises only heads
     and refuses a want by ID; receive refuses a second update, another head, a
     deletion, a non-commit and a non-fast-forward; `Approve` is called once,
