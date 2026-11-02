@@ -68,74 +68,34 @@ internal/daemon ─┬─ sourcedriver.Driver ─► p-source-git ─► git, ss
 session ─► git.sock ─► daemon proxy ─► SSH server
 ```
 
-## What P does with Git today
+## What changes owner
 
-Every source effect, by purpose, with where it lives and where it goes. "Core"
-and "driver" are the owners after this change.
-
-**Repositories**
+Only effects whose owner or guarantee changes; the rest stays where
+[Who does what](#who-does-what) puts it.
 
 | Effect | Today | After |
 |---|---|---|
-| Create an empty bare repository with HEAD on `main` | `EnsureBare` (`git.project.ensure`) → `InitBare` (service.go), from creation's `repo-pending` phase (lifecycle.go) | Driver: `CreateRepository` |
-| Check the repository before every use: private, owned ancestry; bare; safe control files; valid HEAD | `checkRepository`, `verifyBareDir` (service.go) | Driver, inside every call |
-| Delete the repository, pinned by its local identity, after a `DeleteIssued` marker | project_delete.go, project_delete_process.go: `RepositoryPath`, `os.RemoveAll` | Driver: `DeleteRepository` at an incarnation |
-
-**Heads and their authority**
-
-| Effect | Today | After |
-|---|---|---|
-| List heads, at most 1024, in WASI pages of up to 8 | `ListRefsPage` (`git.refs.list`), for `project.branches`, `project.retained_branches` and the loss code | Driver: `Branches` |
-| Read one head exactly; a symbolic ref occupies the name | `InspectBranchRef` (source.go), 26 direct daemon calls | Driver: `InspectBranch` |
-| Create a head only if absent: assignment, origin capture, session and retained rename, ref repair | `CreateBranch`, `CreateCapturedOriginBranch`, `CreateRenameBranchExact`, `CreateRestoredAssignedRefExact` (`git.branch.create`); two of them read SQLite | Driver: `CreateBranch`; the SQLite checks move to core |
-| Delete a head only at its expected tip: session delete, session and retained rename, retained delete | `DeleteAssignedBranchExact` (`git.branch.delete`) | Driver: `DeleteBranch` |
-| Check a new branch name | `ValidateRenameBranch` (`git check-ref-format` after `validBranch`) | Core: P's name rule |
-| Ref guards, principals, leases, unborn grants | control/git_authority.go and the stores' transactions | Core, unchanged |
-
-**Objects and commits**
-
-| Effect | Today | After |
-|---|---|---|
-| Resolve a creation source (a branch tip, or a commit reachable from a head) and check it is a commit | `CaptureLocalSource`, `ObserveSource` (`git.source.observe`) | Driver: `InspectBranch`, `InspectCommit`; the source rules stay in core |
-| Is a commit in P's repository | `PCommitPresent`, for ref repair, principal repair and retained rename | Driver: `InspectCommit` |
-| Every head with its tip; the commits a branch or project deletion removes (`p_commits`) | `AssignedBranchSnapshot`, `BranchRemovalLoss`, `ProjectRemovalLoss` | Driver: `Branches`, `LosingCommits` |
-| Materialize a commit's tree for the image builder | `CapturePinnedCommit` → `SourceSnapshot` (snapshot.go) → `TransferBuilderSource` (runtimeincus/builder.go) | Driver: `Export`; core hands it to the build |
-| Compare a workspace's local commits with P's heads | `RetainedLossRefs` | **Goes** in 0e, with the loss inspection and ref repair's comparison (assumed from [plan-shape.md](plan-shape.md#sessionrefrepair-refrepairpreview); 0e has not landed) |
-| Check the origin before a deletion | `CompareOriginRemoval`, and `WithOrigin` in delete_review.go, project_delete.go and retained_delete.go | **Goes** in 0e |
-
-**P's Git endpoint**
-
-| Effect | Today | After |
-|---|---|---|
-| A `git.sock` per session, proxied to the loopback SSH listener, at most 8 streams per session and 64 per instance | daemon/endpoints.go | Core |
-| SSH server: pinned host key, host client key as the read-only principal, key authentication, `exec` of the two Git services only, 16 concurrent | `Prepare` (service.go), daemon/git.go | Core |
-| Authorize a stream: project active, principal active and bound, session state, the assigned branch, no guard; hold the lease through the service | `AcquireGitLease` (control/git_authority.go) | Core |
-| Transport limits: 1 GiB input and 10 minutes, which the module may only tighten | `git.transport.plan` | Core passes the ceilings |
-| `upload-pack` and `receive-pack`: heads-only advertisement, no wants by object ID, no deletes or non-fast-forwards, bounded input, no implicit GC | `handle`, `transportGitConfigArgs` (service.go) | Driver: `ServeGit` |
-| Pre-receive: one update, of the allowed ref, to a commit, fast-forward; then approval over a per-push socket, which consumes the unborn `main` grant for a first push | `p git-hook` → `RunPreReceiveHook` (service.go), hook.go | The check: driver. The approval and the grant: core, as `ServeGit`'s gate |
-| Session keys; the guest's SSH configuration, `p-git-ssh` and `runtime-kit git-stream` | session_keys.go; runtime assembly; source-git's one asset | Core keeps the keys; the runtime driver delivers the rest ([plugins.md](plugins.md) moves `p-git-ssh`) |
-
-**Origin**
-
-| Effect | Today | After |
-|---|---|---|
-| Validate the URL: SSH forms only, no options or helpers | `ValidateOriginURL` | Core: P's rule; the driver accepts every URL it allows |
-| Observe advertised heads and tags (`ls-remote`), at most 1024 | `OriginScope.Observe` (`git.origin.observe`) | Driver: `ObserveOrigin` |
-| Fetch one observed ref's commit into the object store, creating no ref | `OriginScope.Fetch` (`git.origin.fetch`) | Driver: `FetchOrigin` |
-| Compare a P tip with the destination for publication | `PreviewPublication` (origin_publication.go) | Driver: `ComparePublication` |
-| Push one exact commit to one head, no force | `PublishPublication` (`git.origin.publish`) | Driver: `Publish` |
-| The per-project origin lock; URL, observations and their freshness; publication records | `WithOrigin`; control/origin_store.go, publication_store.go | Core |
-
-**The session's own clone**
-
-| Effect | Today | After |
-|---|---|---|
-| Rename's edits of `/workspace/.git`; ref repair's read of the branch tip | runtimeincus/workspace_rename.go, `safeGitConfig` in workspace_git.go | Core, through the runtime driver's workspace operations ([open question 2](#open-questions)) |
-| Initialize the clone | runtimekit/workspace.go, in the guest | The runtime driver's guest; with [commit images](commit-images.md), the image build and `workspace-ready` |
-| Workspace inspection and loss analysis in helper containers | workspace_git.go helpers, workspace_loss_git.go | **Goes** in 0d and 0e |
-
-`ListRefs`, `ListRefsPageObserved`, `Backend.Serve`, direct calls to `InitBare`
-and `CaptureCommittedSource` have only test-fixture callers; they go.
+| **Repositories** | | |
+| Create with HEAD on `main`; check the repository before every use | `EnsureBare` (WASI `git.project.ensure`), `checkRepository` in gitservice | `CreateRepository`; the checks inside every call |
+| Delete, pinned by local identity, after a `DeleteIssued` marker | `os.RemoveAll` in the daemon (project_delete_process.go) | `DeleteRepository` at an incarnation |
+| **Heads** | | |
+| List heads; read one exactly, a symbolic ref counting as present | `ListRefsPage` (WASI), `InspectBranchRef` | `Branches`, `InspectBranch` |
+| Create only if absent: assignment, origin capture, renames, ref repair | Four gitservice methods (WASI `git.branch.create`); two read SQLite | `CreateBranch`; the SQLite checks move to core |
+| Delete only at the expected tip | `DeleteAssignedBranchExact` (WASI) | `DeleteBranch` |
+| Check a new branch name | `git check-ref-format` in gitservice | Core's name rule |
+| **Commits** | | |
+| Resolve a creation source; is a commit present and reachable from a head | `CaptureLocalSource`, `ObserveSource` (WASI), `PCommitPresent` | `InspectBranch`, `InspectCommit`; the source rules stay in core |
+| Every head with its tip; the commits a deletion removes (`p_commits`) | `AssignedBranchSnapshot`, `BranchRemovalLoss`, `ProjectRemovalLoss` | `Branches`, `LosingCommits` |
+| The commit for the image builder | `CapturePinnedCommit` → `SourceSnapshot` → the Incus builder | `Export`, which core hands to `BuildImage` |
+| **P's Git endpoint** | | |
+| Transport limits, 1 GiB and 10 minutes | WASI `git.transport.plan`, which may only tighten them | Core passes them as ceilings |
+| `upload-pack` and `receive-pack` with today's restrictions | `handle` in gitservice | `ServeGit` |
+| Pre-receive check (one update, of the allowed head, to a commit, fast-forward), then approval, which consumes the unborn `main` grant | `p git-hook`, hook.go | The check: driver. Approval and grant: core, as `Approve` |
+| **Origin** | | |
+| URL rule: SSH forms only | `ValidateOriginURL` in gitservice | Core |
+| Observe, fetch, compare, push | `OriginScope`, three of them through WASI | `ObserveOrigin`, `FetchOrigin`, `ComparePublication`, `Publish` |
+| **Gone before the driver** | | |
+| Workspace inspection and loss analysis; `RetainedLossRefs`; origin checks before deletions (`CompareOriginRemoval`) | gitservice, runtimeincus helpers | **Go** in 0d and 0e. `RetainedLossRefs` is assumed from [plan-shape.md](plan-shape.md#sessionrefrepair-refrepairpreview); 0e has not landed |
 
 ## Who does what
 
@@ -225,7 +185,7 @@ type Driver interface {
 	ComparePublication(ctx context.Context, project, url string, source OID, dest *OriginRef) (Relation, error)
 	Publish(ctx context.Context, project string, p Publication, g Gate) (PublishStatus, error)
 
-	// What became of a call that returned ErrUnknownOutcome
+	// What became of a call that returned ErrUnknownOutcome, or of a lost ServeGit
 	Settle(ctx context.Context, e Effect) (Settlement, error)
 }
 
@@ -264,6 +224,7 @@ type Export struct {
 }
 
 type Service struct {
+	ID       string        // core's name for this service, for Settle
 	Project  string
 	Kind     ServiceKind   // upload or receive
 	Branch   string        // receive: the one head it may change
@@ -303,10 +264,11 @@ type Publication struct {
 type PublishStatus int // created, advanced, satisfied, refused
 
 type Effect struct {
-	Kind     EffectKind // create-branch, delete-branch, session-update
+	Kind     EffectKind // create-branch, delete-branch, or service
 	Project  string
 	Branch   string
-	Old, New OID // the state before, and the state intended
+	Old, New OID    // a head effect: the state before, and the state intended
+	Service  string // a service: its ID; Applied means it can no longer write
 }
 
 type Settlement int // Applied, NotApplied, Unknown
@@ -342,7 +304,7 @@ var (
 | `FetchOrigin` | Bring in the commit the observed ref names, creating no head; `ErrConflict` if the origin ref moved since the observation. Safe to repeat. |
 | `ComparePublication` | Fetch only the destination's objects, create no ref, and report the relation from Git ancestry. |
 | `Publish` | Push only for an absent or fast-forward relation, the exact commit to one head, with no force and no tags, and only while `SourceBranch` still names it. Call the gate before the push. Return `refused` only on the origin's definite rejection, and `ErrUnknownOutcome` when the answer is lost after the push started. |
-| `Settle` | `Applied` only when the intended state holds exactly and nothing the driver admitted can still change it; `NotApplied` only when the prior state holds and nothing can still change it; otherwise `Unknown`. The answer holds after a restart. |
+| `Settle` | For a head effect: `Applied` only when the intended state holds exactly and nothing the driver admitted can still change it; `NotApplied` only when the prior state holds and nothing can still change it; otherwise `Unknown`. For a service: `Applied` once nothing it started can still change a head, `Unknown` until then, never `NotApplied`. Answers hold after a restart. |
 
 ### What absent proves
 
@@ -360,22 +322,34 @@ never an absence.
 ### The Git service and ref guards
 
 Guards stay core's. `AcquireGitLease` refuses a receive service for a guarded
-branch before `ServeGit` is called, and holds Git authority's read lock while
-the service runs, so a guard can be set only while no push is in flight. The
-driver adds one rule: a session's head changes only inside `ServeGit`, and
-only after `Approve`. `Approve` rechecks that the update names the allowed
-head, and consumes the unborn `main` grant when the old value is empty
-(`ConsumeGitUnbornGrant`, durable even if the push then fails, as today).
+branch before `ServeGit` is called, and every service holds Git authority's
+read lock until it is over, so a guard can be set only while no service can
+write. The driver adds one rule: a session's head changes only inside
+`ServeGit`, and only after `Approve`. `Approve` rechecks that the update names
+the allowed head, and consumes the unborn `main` grant when the old value is
+empty (`ConsumeGitUnbornGrant`, durable even if the push then fails, as today).
 
-The head compare-and-swap remains the authority, as it is today: lifecycle code
+**A lease ends when its service can no longer write**, not when P learns what
+the push did. Leases are shared and not ordered per branch, and one session
+may hold eight streams, so two approved pushes can move a head A→B→C before
+core hears that the first ended; whether "A→B" applied is then neither
+answerable nor needed. A session push records no intent in core: the head is
+the record, and lifecycle code reads heads afresh under its guard. Today's
+`handle` likewise releases its lease when `receive-pack` exits, whatever the
+outcome.
+
+- When `ServeGit` returns, its service is over and core releases the lease.
+- When the call is lost, because the driver died or its connection dropped,
+  core keeps the lease until `Settle` reports that service ended. The bundled
+  driver runs `receive-pack` in the driver's process group, which the daemon
+  kills before a restart, so the restarted driver reports every earlier
+  service ended at once.
+- No push is replayed: the session's Git client sees a failed push and
+  decides for itself.
+
+The head compare-and-swap remains the authority, as today: lifecycle code
 creates and deletes heads at exact values, so a push that a guard missed makes
 the lifecycle change fail with a conflict instead of losing work.
-
-If the driver fails during a service, core releases the lease at once unless
-it approved an update for that service. Then it keeps the lease until `Settle`
-answers for that `session-update`. The bundled driver's `receive-pack` runs in
-the driver's process group, which the daemon kills before a restart, so its
-answer is immediate.
 
 ### Settling uncertain effects
 
@@ -391,58 +365,45 @@ The runtime driver's rules apply to P's repositories:
    exact presence or absence, as today.
 3. **An effect is never sent again blindly.** Head creations and deletions
    settle through `Settle`. `CreateRepository`, `DeleteRepository` and
-   `FetchOrigin` are idempotent by reference and may be called again. A push
-   to the origin is never settled or resent: `outcome_unknown` stays the
-   answer for its key, as today.
+   `FetchOrigin` are idempotent by reference and may be called again. A Git
+   service settles only as ended. A push to the origin is never settled or
+   resent: `outcome_unknown` stays the answer for its key, as today.
 
 ## The replaceability test: a forge
 
 The runtime driver's test is Kubernetes. The source driver's is a Forgejo
-instance: P's repositories live in the forge, sessions still reach them only
-through P's endpoint, and users can also browse them in the forge. Nothing was
-prototyped; this follows Git's protocol and Forgejo's documented REST API,
-unchecked against a running instance. A second local engine in the driver's
-process needs nothing the contract does not already allow.
+instance holding P's repositories, while sessions still reach them only
+through P's endpoint. Nothing was prototyped; this follows Git's protocol and
+Forgejo's documented REST API.
 
-The contract stays open to a forge by allowing:
+The contract allows a forge driver:
 
-- a repository incarnation that is the forge's repository ID, not a path;
-- compare-and-swap through Git's protocol, whose push commands carry the
-  expected old value, where the REST API takes no expected tip;
-- fetched origin commits held however the driver chooses, such as under a
-  private ref, as long as `Branches` and `ServeGit` show only heads;
-- `ServeGit` by relay to the forge, if its guarantees hold;
-- `Settle` answering `Unknown` when the forge cannot tell;
-- an export built from the forge's archive or from a local mirror.
+- a repository incarnation that is the forge's repository ID;
+- compare-and-swap through Git's push protocol, which carries the expected
+  old value, where the REST API takes none;
+- origin commits held under a private ref, as long as `Branches` and
+  `ServeGit` show only heads;
+- `ServeGit` by relay to the forge;
+- `Settle` answering `Unknown`.
 
-The hard parts:
+Unresolved blockers:
 
-- **The pre-receive check.** `Approve` must come after the pushed objects are
-  checked and before the head moves. A relay sees the update command, but not
-  whether the new commit fast-forwards until the objects are in the forge.
-  Forge-side hooks are an administrator setting. Staging the push under a
-  private ref, checking it, then moving the head by compare-and-swap would
-  work, but the session's push then succeeds only after a second push. Not
-  designed.
-- **What sessions may read.** P configures `upload-pack` to advertise only
-  heads and to refuse wants by object ID. A forge advertises its own refs, such
-  as pull-request refs, and applies its own rules; a relay can filter the
-  advertisement but cannot check a want's reachability without the objects.
-- **Garbage collection.** A forge collects on its own schedule, so an origin
-  commit that no ref holds can vanish before its creation makes the head.
-- **Reachability.** `InspectCommit.Reachable` and `LosingCommits` ask about
-  the whole head set; a REST API compares two refs at a time. A driver
-  probably needs a local mirror, refreshed before each answer.
-- **Absence.** An API may answer "not found" for a repository the account
-  cannot see, which must not count as absent.
-- **A second writer.** Users can move heads in the forge's web interface.
-  Compare-and-swap turns that into a conflict, not a lost update, as a hand
-  edit of a bare repository does today; the forge makes it easier.
-- **Latency.** Every head read is a network call, and core reads heads from
-  about 30 places.
-- **An unsettled push.** An approved update that the forge cannot settle keeps
-  Git authority's read lock held, which blocks every guard change on the
-  instance until it can.
+- **Approval timing.** `Approve` must come after the pushed objects are
+  checked and before the head moves. A relay cannot tell whether a commit
+  fast-forwards until the forge has the objects, and forge-side hooks are an
+  administrator setting.
+- **What sessions may read.** A forge advertises its own refs and has its own
+  rules for wants; a relay can filter the advertisement but cannot check a
+  want's reachability without the objects.
+- **Garbage collection.** The forge collects on its own schedule, which can
+  remove an origin commit that no ref holds yet.
+- **Reachability.** `InspectCommit.Reachable` and `LosingCommits` need the
+  whole head set; the REST API compares two refs at a time, so a driver
+  probably needs a local mirror.
+- **Proofs.** A "not found" may hide a repository the account cannot see, and
+  a relayed push may not be provably over. Core needs both proofs: absence
+  before it records a deletion, and a service's end before it releases the
+  lease, which blocks every guard change on the instance until then.
 
 ## Trust and launch
 
@@ -500,62 +461,36 @@ The steps assume 0d, 0e and step 8 have landed ([open question 5](#open-question
 Placement is [open question 5](#open-questions): recommended as the first
 part of step 9.
 
-## Departures from agreements
+## Integration checklist
 
-- [plugins.md](plugins.md): source-git no longer folds into core, and its open
-  question 1 is answered with the third choice, a source driver for all Git
-  work. [Product direction](../docs/PRODUCT.md)'s "first-party implementations
-  can be replaced" covers Git source again, which plugins.md had excluded.
+These documents change when the step lands:
+
 - [Plugin contract](../docs/plugin-contract.md): the `source-git` capability,
-  the `git.project` grant, the "WASI source-Git ABI" section and the
-  `p-git-ssh` asset role go.
-- [Technology stack](../docs/technology-stack.md): in "Git server", Wish stays
-  in core around the driver's services, and the source-git WASI paragraph
-  becomes the driver's; "Read-side queries shell out to Git" becomes the
-  bundled driver's. "Git's object, ref, and wire model is P's interchange;
-  there is no generic VCS provider" stays: this is a Git driver.
-- [Communication boundaries](../docs/communication-boundaries.md): in the P
-  Git data plane, the services run in the driver and the hook's approval is
-  `Approve`; "only the daemon creates, renames, guards or deletes P refs"
-  becomes: core decides and guards, the driver performs. The origin runner is
-  the driver's.
-- [Project lifecycle](../docs/project-lifecycle.md): repository creation and
-  deletion go through the driver, deletion pins an incarnation, and the
-  SHA-256 path layout becomes the bundled driver's.
-- [Session lifecycle](../docs/session-lifecycle.md): the authorities table
-  names the source driver; creation no longer pins a source package.
-- [Control API](../docs/control-api.md): the `git` block of host
-  configuration; `system.inspect`'s `source_plugin_id` and `source_sha256`
-  give way to the driver's backend, version and digest.
-- [Glossary](../GLOSSARY.md): a "Source driver" entry. "Origin … accessed only
-  by trusted host-side P operations" holds through the driver.
-- [PROJECT.md](../PROJECT.md): no changes beyond those plugins.md proposes for
-  trusted executables. The extension goal gains a replaceable source.
+  the `git.project` grant, the WASI source-Git ABI and the `p-git-ssh` asset
+  role go.
+- [Technology stack](../docs/technology-stack.md): "Git server" keeps Wish in
+  core around the driver's services; the source-git paragraph and "read-side
+  queries shell out to Git" become the bundled driver's; "no generic VCS
+  provider" stays, since this is a Git driver.
+- [Communication boundaries](../docs/communication-boundaries.md): the
+  services run in the driver and the approval is `Approve`; core decides and
+  guards, the driver performs; the origin runner is the driver's.
+- [Project lifecycle](../docs/project-lifecycle.md) and
+  [session lifecycle](../docs/session-lifecycle.md): repositories are created
+  and deleted through the driver, deletion by incarnation; the authorities
+  table names the driver; creation pins no source package.
+- [Control API](../docs/control-api.md): the `git` block; `system.inspect`'s
+  `source_plugin_id` and `source_sha256` give way to the driver's backend,
+  version and digest.
+- [Glossary](../GLOSSARY.md): a "Source driver" entry.
+- [Product direction](../docs/PRODUCT.md): "first-party implementations can be
+  replaced" covers Git source again.
 
-## Effects on other rework documents
-
-- [REWORK-PLAN.md](REWORK-PLAN.md): a "Source" row in "Before and after",
-  pointing here; the Plugins row and step 9 lose source-git to the driver
-  (open question 5).
-- [plugins.md](plugins.md), which another agent is updating: its source-git
-  section, sketch, "What users notice" (`git` keeps `listen` and gains
-  `driver`), "What is removed", open question 1 and its gitservice unit tests.
-  Its rule that executables inherit no environment needs the source driver's
-  two variables.
-- [runtime-driver.md](runtime-driver.md): "Core keeps … Git" becomes Git
-  authority, with Git effects in the source driver; `Build.Source` is
-  `Export`'s output, in the form open question 3 settles; with `git.driver`
-  beside it, its `driver` block should say it belongs to `runtime`. Its
-  "Core keeps workspace_rename.go with `safeGitConfig`" matches open question 2's
-  recommendation.
-- [commit-images.md](commit-images.md): how the image's clone is made (open
-  question 3).
-- [errors.md](errors.md): the adapters of outside authorities name the source
-  driver instead of `gitservice` and the source-Git plugin; the reasons `git`
-  and `origin` stay.
-- [waiting.md](waiting.md): open question 2 cites internal/plugin/sourcegit.go
-  for the origin deadline, which moves to the driver. If publication becomes
-  an operation, `Publish`'s gate still records `attempted`.
+Already aligned: [REWORK-PLAN.md](REWORK-PLAN.md) (the Source row, step 9),
+[plugins.md](plugins.md) (source-git, the environment exception),
+[runtime-driver.md](runtime-driver.md) (Git authority, `Build.Source`,
+`runtime.driver`), [commit-images.md](commit-images.md) (the image's clone),
+[errors.md](errors.md) and [waiting.md](waiting.md).
 
 ## Options set aside
 
@@ -650,14 +585,19 @@ part of step 9.
     parsing and bounds; a fetch creates no head and refuses a moved ref; the
     five relations; `created`, `advanced`, `satisfied`, `refused`, and
     `ErrUnknownOutcome` for a lost answer;
-  - settling: a driver killed after the gate of a head creation or deletion,
-    and after an approved push, answers `Applied` or `NotApplied` after
-    restart, never by sending the effect again.
+  - settling: a driver killed after the gate of a head creation or deletion
+    answers `Applied` or `NotApplied` after restart, never by sending the
+    effect again;
+  - overlapping pushes: two receive services of one session, both approved,
+    move a head A→B→C, and the driver is killed before core hears that either
+    ended; after the restart `Settle` reports both services ended, both leases
+    are released, neither update is sent again, and core reads the head as
+    Git left it.
 - **Workers** on the in-memory driver: session creation (local and origin),
   session and retained rename, retained deletion, discard, delete, ref repair
   (`p_object_missing` included), project deletion and publication, each with an
-  unknown outcome after the gate; a guard set while an approved push is
-  unsettled waits for it.
+  unknown outcome after the gate; a guard waits until every service of a
+  failed driver is reported ended.
 - **Boundaries:** only the bundled driver runs `git` or `ssh` on the host or
   opens its storage; the bundled driver imports no SQLite code; the launch
   checks refuse as they do for the runtime driver; only `HOME` and
@@ -666,4 +606,5 @@ part of step 9.
   their outcomes with no source package, except that 19 (committed snapshot)
   follows open question 3; 48 and 54 no longer see source-git.
   New: kill the driver during a session push after approval and during a head
-  creation, then check that the work is settled and nothing is pushed twice.
+  creation, then check that every lease is released, the creation is settled,
+  and nothing is pushed twice.
