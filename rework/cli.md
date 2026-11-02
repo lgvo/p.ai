@@ -85,14 +85,14 @@ a dry run; [Risky changes](#risky-changes) describes them.
 | `p session show SESSION` | `session.inspect` | Conditions, attachments, the latest unattended agent report, policy, diagnostic |
 | `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`). `--from-origin` refreshes the origin, takes the commit and URL only from a fresh observation, and prints which commit it chose. |
 | `p session create … --replace SESSION` | `session.create.replace` | Asks, waits: replaces a blocked creation with this request |
-| `p session start SESSION` | `session.start` | Waits for its operation, which completes when the session is ready ([waiting.md](waiting.md#start-and-stop-as-operations)) |
-| `p session stop SESSION` | `session.stop` | Waits for its operation |
+| `p session start SESSION` | `session.start` | Waits for its operation, which completes when the session is ready ([waiting.md](waiting.md#start-and-stop-as-operations)). A ready session prints "already running" and exits 0 ([Start and stop](#start-and-stop)). |
+| `p session stop SESSION` | `session.stop` | Waits for its operation. A stopped session prints "already stopped" and exits 0. |
 | `p session rename SESSION NEW` | `session.rename` | Reads the tip, as the TUI does; waits. A running session is refused. |
 | `p session discard SESSION` | `session.discard` | Asks, waits. P stops a running session itself. |
 | `p session delete SESSION` | `session.delete` | Same |
 | `p session repair SESSION` | `session.repair`; `session.repair.prepare` when the image is missing | Asks, waits. The daemon diagnoses which of the four repairs applies ([repairs.md](repairs.md)). |
 | `p session cleanup SESSION` | `session.create.cleanup` | Asks, waits: ends a failed creation and keeps its branch |
-| `p attach SESSION` | `session.start` if the session is not ready, `operation.wait`, then `session.attach` | `session.attach` no longer starts a session ([waiting.md](waiting.md#start-and-stop-as-operations)), so `p attach` starts it and waits first; users see the same result. Also accepts `PROJECT:BRANCH`. |
+| `p attach SESSION` | `session.start`, `operation.wait` when it returns an operation, then `session.attach` | `session.attach` no longer starts a session ([waiting.md](waiting.md#start-and-stop-as-operations)), so `p attach` calls start first, by the [same rule](#start-and-stop): a ready session attaches at once, otherwise it waits for the start; users see the same result. Also accepts `PROJECT:BRANCH`. |
 | `p service list SESSION` | `session.services` | |
 | `p service start\|stop\|restart SESSION NAME` | `session.service.action` | Returns once queued ([services-plugin.md](services-plugin.md)); `p service list` shows progress. Never repeated automatically ([Errors](#errors-and-automatic-repeats)). |
 | `p service logs SESSION NAME` | `session.service.logs` | |
@@ -155,8 +155,8 @@ Deleted session 4f1c… and branch work.
 followed by 32 hex digits from `crypto/rand`, the same scheme as the TUI's
 `tui-` keys (`newKey` in internal/tui/model.go). A dry run carries no key. A
 run after a new dry run carries a new tag, so it gets a new key. Start, stop
-and `operation.retry` take none ([waiting.md](waiting.md#open-questions),
-question 1).
+and `operation.retry` take none, by the maintainer's decision for start and
+stop.
 
 **Supplied:** `--key KEY` (1 to 128 bytes) lets a script repeat a command
 whose reply it lost, without making the change twice. The repeat must not
@@ -211,6 +211,21 @@ daemon, and the CLI prints its ID and `p operation wait ID`.
 
 Service actions have no operation, so there is nothing to wait for.
 
+### Start and stop
+
+By the maintainer's decision of 2026-11-02, a start or stop that would change
+nothing records nothing. `session.start` and `session.stop` answer in one of
+three ways, and `p session start`, `p session stop` and the start inside
+`p attach` follow each:
+
+| Reply | When | The CLI |
+|---|---|---|
+| `{"changed": false, "session": …}` | Start of a ready session, stop of a stopped one | Prints "already running" or "already stopped" and exits 0; `p attach` attaches at once |
+| `{"changed": false, "operation": …}` | A start or stop of the session is unfinished | Waits for that operation, as for its own |
+| `{"changed": true, "operation": …}` | The change was accepted | Waits for the operation |
+
+So repeating either command is always safe, and neither takes a key.
+
 ### Output
 
 - **Standard output** carries the result: a list, a record, or the final
@@ -225,7 +240,7 @@ Service actions have no operation, so there is nothing to wait for.
 | Command | `--json` prints |
 |---|---|
 | Read | The method's result; for lists, every page's items in one array, without `next` |
-| Change | `{"operation": …}`, the operation after waiting, or as accepted with `--no-wait` |
+| Change | `{"operation": …}`, the operation after waiting, or as accepted with `--no-wait`. Start and stop add `changed`; when it is `false` with no operation, they print `{"changed": false, "session": …}`. |
 | Change that asks | `{"plan": …, "change_tag": …, "operation": …}`: the last dry run, and the operation if it ran |
 | `--dry-run` | The dry run's reply as the API returns it |
 | Any error | `{"error": …}`, the API's error object: `code`, `message` (the kind's name) and `data` ([errors.md](errors.md#the-error-object)) |
@@ -236,7 +251,7 @@ Color and bold appear only when standard error is a terminal.
 
 | Code | Meaning |
 |---|---|
-| 0 | Done: the read succeeded, the operation completed, or with `--no-wait` the daemon accepted it. `--dry-run` of an allowed change. |
+| 0 | Done: the read succeeded, the operation completed, or with `--no-wait` the daemon accepted it; a start or stop found the session already as asked; `--dry-run` of an allowed change. |
 | 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; a service action's outcome is unknown; the origin observation is stale; or the operation ended `failed` or `superseded`. |
 | 2 | Usage: the arguments or flags are invalid, found by the CLI or answered `invalid` by the daemon; or a `--key` belongs to another command. |
 | 3 | Not run, nothing changed: the plan is not allowed; the daemon answered `conflict`, `capacity` or `precondition_failed`; the user declined or cancelled; or no terminal could ask. |
@@ -261,7 +276,7 @@ tag, only when a second call cannot act twice:
 |---|---|---|
 | `session_held` | Refused before dispatch: an operation holds the session | Says so, waits for the named operation with `operation.wait`, then repeats. Any call. |
 | `too_many_requests` | Refused at admission | Repeats after a short pause, for up to 10 seconds. Any call. |
-| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change (the key replays it) or a start or stop (a repeat returns the unfinished operation). Never a service action. |
+| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change (the key replays it) or a start or stop (a repeat changes nothing, or returns the unfinished operation). Never a service action. |
 
 A service action has no key and no record, and the runtime may have queued
 it before the deadline: `Backend.Services` (internal/runtimeincus/services.go)
@@ -428,7 +443,6 @@ open there:
 - **waiting.md, question 3:** if `origin.change` and `origin.publish` record
   operations, they wait and accept `--key`; if not, they print their result
   and refuse `--key`.
-- **waiting.md, question 1:** start and stop take no key, as recommended.
 - **errors.md, question 1:** if blocked and failed operations get a
   `reason`, the CLI prints its sentence before the diagnostic.
 - **A `key` filter on `operation.list`** would make the replay lookup one
@@ -518,8 +532,12 @@ cmd/p/main_test.go does today, cover what can lose work or act twice:
   `completed` exits 0, `blocked` 4, `failed` and `superseded` 1;
   `session_held` waits for the named operation, then repeats with the same
   key and tag; a queued service restart followed by a `deadline` issues
-  exactly one action call; `p attach` on a stopped session starts it, waits,
-  then attaches.
+  exactly one action call.
+- **Start and stop:** each of the three replies above: "already running" or
+  "already stopped" exits 0 and waits for nothing; an unfinished operation
+  returned with `changed: false` is waited for; `changed: true` waits for
+  the new operation. `p attach` attaches at once to a ready session, and on
+  a stopped one starts it, waits, then attaches.
 - **Origin refs:** a successful refresh followed by a failed one, with
   cached refs present, prints no refs and exits 1.
 - **Sentences:** every refusal code, error reason, error kind and loss kind
