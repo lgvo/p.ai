@@ -7,12 +7,12 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 **Today** the control API has no shared shapes. The daemon dispatches 56
 methods (53 advertised, plus the attachment helper's three); `rpc.cancel` is
 handled before dispatch. Each handler decodes its params into an anonymous
-struct declared inside the handler, and 46 places in `internal/control` build
-a result as `map[string]any`. The TUI writes about 40 request literals as
-`map[string]any` and decodes results into 12 struct shapes of its own. The
-TUI test daemon (`tests/integration/cmd/tui-mock`) keeps a third copy: a list
-of field names per method in `schema.go`. Every request and every result carries `"v":1`. A
-field renamed in the daemon therefore compiles everywhere and fails at run
+struct declared inside the handler, and most handlers in `internal/control`
+build their result as `map[string]any`. The TUI writes its requests as
+`map[string]any` and decodes results into struct shapes of its own. The TUI
+test daemon (`tests/integration/cmd/tui-mock`) keeps a third copy: a list of
+field names per method in `schema.go`. Every request and every result
+carries `"v":1`. A field renamed in the daemon therefore compiles everywhere and fails at run
 time, often first in a VM scenario.
 
 **Proposed:**
@@ -39,7 +39,7 @@ first.
 | | Today | After |
 |---|---|---|
 | Request shape | Anonymous struct inside each handler; the TUI and tui-mock write their own | `api.<Method>Request`, one per method |
-| Result shape | `map[string]any` (46 sites) or a type in `internal/api` or `internal/control` | `api.<Method>Result`, one per method; methods may share one, such as `api.OperationResult` |
+| Result shape | `map[string]any`, or a type in `internal/api` or `internal/control` | `api.<Method>Result`, one per method; methods may share one, such as `api.OperationResult` |
 | Bounds (limits, key and UUID length) | Inside each handler's decode condition | `Validate()` on the request type |
 | Version | `"v":1` in every request and result, checked per handler | Agreed once per connection at `system.hello` |
 | Which methods exist | `system.capabilities` lists the dispatched names | The protocol fixes the methods; `system.hello` lists the configured capabilities; a method whose capability is missing answers `not_configured` |
@@ -237,7 +237,7 @@ carries no information beyond that.
 | Reader today | After |
 |---|---|
 | The TUI's `loadInventory` (`internal/tui/client.go`), to skip lists that are not available | Reads `capabilities` from its hello |
-| 27 VM step scripts call it; 26 check `.result.available` | Check `.result.capabilities` from `system.hello` |
+| VM step scripts check `.result.available` | Check `.result.capabilities` from `system.hello` |
 | Scenario 07 reads `.result.git` | Reads `system.inspect`, which already returns the same details and which scenario 07 already compares with them |
 | The tui-mock answers it | Answers `system.hello` |
 
@@ -264,17 +264,17 @@ carries no information beyond that.
    A changed tag fails until the file, `docs/control-api.md` and the VM
    scripts change with it.
 
-The VM scenarios still check the wire end to end: their 563 occurrences of
-`"v":1` go, and their outcome checks stay.
+The VM scenarios still check the wire end to end: their `"v":1` params go,
+and their outcome checks stay.
 
 ## Departures from current docs
 
 - [Control API](../docs/control-api.md#host-framing-and-request-envelope):
   "System methods take exactly `{"v":1}`", every params and result table, the
   `system.capabilities` row, and `p api`'s default params.
-- [User guide](../docs/user-guide.md): seven `"v":1` examples and
+- [User guide](../docs/user-guide.md): its `"v":1` examples and
   `api system.capabilities '{"v":1}'`.
-- [Session lifecycle](../docs/session-lifecycle.md): five `"v":1` examples.
+- [Session lifecycle](../docs/session-lifecycle.md): its `"v":1` examples.
 - `p version` reports `control_api_version: 1`; it reports the protocol
   string instead.
 

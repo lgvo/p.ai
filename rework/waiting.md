@@ -106,14 +106,26 @@ TUI's operations page need.
 ## An operation ends only after its worker lets go
 
 **The rule: a worker that holds a session releases it before the journal
-records its operation's end.** Every request that needs the session goes
-through one admission check of the journal: an unfinished operation on the
-session answers `retry` naming it while it is `running`, and `conflict` with
-reason `operation_blocked` once it is `blocked`, since a blocked operation
-waits for Retry ([errors.md](errors.md)). So between the release and the
-recorded end, a request is refused by the journal, not by the lock; and once
-`operation.wait` returns the end, nothing of that operation holds the
-session.
+records its operation's end.** Work that would compete with an unfinished
+operation on the same session goes through one admission check of the
+journal: it answers `retry` naming the operation while it is `running`, and
+`conflict` with reason `operation_blocked` once it is `blocked`, since a
+blocked operation waits for Retry ([errors.md](errors.md)). So between the
+release and the recorded end, competing work is refused by the journal, not
+by the lock; and once `operation.wait` returns the end, nothing of that
+operation holds the session.
+
+The check refuses competing work only. Requests that act on the unfinished
+operation itself pass it, as today:
+
+- a repeated start or stop, or a replay of the same idempotency key, returns
+  the existing operation;
+- `operation.retry` resumes it;
+- the replacement and cleanup of a blocked creation, both dry run and run,
+  which require that creation to be blocked
+  ([state-hash-confirmation.md](state-hash-confirmation.md#the-api);
+  `create_replace_store.go` and `create_cleanup_store.go` in
+  internal/control).
 
 Today two workers break the rule:
 
@@ -295,7 +307,6 @@ them.
 | `operation.wait` with timeout 0 instead of `operation.inspect` | One method fewer, but a read that may block holds a request slot, and the TUI's lists read operations at once. |
 | Resume blocked work once at every restart, for every kind | Turns restarts into retries nobody asked for, including early creations that today deliberately stay blocked. |
 | Keep the kind-grouped recovery order | No kind depends on it, and it needs a table entry for every new kind. |
-| Keep the operation ID as `operation.list`'s cursor and look up its sequence | Fails once that operation is deleted. |
 
 ## Open questions
 
@@ -339,10 +350,13 @@ them.
   session (creation) or repairs and renames it (start, stop) without
   meeting the session's lock. With the hook placed before the commit
   instead, the same requests get `retry` naming the operation.
-- A unit test of the shared admission check: a request that needs a session
-  held by a `running` operation gets `retry` naming it; held by a `blocked`
-  one, `conflict` with reason `operation_blocked`; for every method that
-  needs the session.
+- A unit test of the shared admission check: competing work on a session
+  held by a `running` operation gets `retry` naming it, and held by a
+  `blocked` one, `conflict` with reason `operation_blocked`, for every method
+  that needs the session. In the same test the permitted paths pass: a
+  repeated start or stop and a key replay return the existing operation,
+  `operation.retry` resumes a blocked one, and the dry run and run of a
+  blocked creation's replacement and cleanup succeed.
 - Unit tests for start and stop: `session.inspect` never reports `ready`
   while a start operation is unfinished, nor `stopped` while a stop
   operation is; a second start returns the unfinished operation; a host that
