@@ -38,17 +38,8 @@ func (l *lifecycle) inspectWorkspaceRead(ctx context.Context, req control.Worksp
 	if attached {
 		return api.Operation{}, control.ErrConflict
 	}
-	if prior, err := l.store.GetOperationByKey(ctx, req.Key); err == nil {
-		var old control.WorkspaceInspectRequest
-		if prior.Kind != kind || json.Unmarshal(prior.Request, &old) != nil || old != req {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(err, control.ErrNotFound) {
-		return api.Operation{}, err
+	if prior, replayed, err := replayRequest(l, ctx, req.Key, kind, req); err != nil || replayed {
+		return prior, err
 	}
 	s, err := l.store.GetSession(ctx, req.SessionUUID)
 	if err != nil {

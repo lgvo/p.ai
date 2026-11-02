@@ -20,17 +20,8 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 		return api.Operation{}, err
 	}
 	defer release()
-	if prior, e := l.store.GetOperationByKey(ctx, req.Key); e == nil {
-		var saved control.RenameRequest
-		if prior.Kind != "session.rename" || json.Unmarshal(prior.Request, &saved) != nil || saved != req {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(e, control.ErrNotFound) {
-		return api.Operation{}, e
+	if prior, replayed, err := replayRequest(l, ctx, req.Key, control.KindSessionRename, req); err != nil || replayed {
+		return prior, err
 	}
 	if err := l.checkNoWorkspaceInspect(ctx, req.UUID); err != nil {
 		return api.Operation{}, err

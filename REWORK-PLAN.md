@@ -262,9 +262,15 @@ list. Left as they are, and recorded as debt: the 36 status/phase updates, the
 kind lists embedded in SQL (`ActiveWorkspaceInspect`, `SessionRemovalKind`,
 triggers), and status constants (statuses are embedded in SQL text).
 
-**5. Operation-kind registry.** One table in daemon lists each kind's
-worker, Retry eligibility, recovery rule and removal condition; `Retry`,
-`process`, `Recover`, the poll and `registryCondition` read it. One helper
+**5. Operation-kind registry.** One table in daemon
+(`internal/daemon/operation_kinds.go`) lists each kind's worker, Retry
+refusal, scheduling admission, start-up resumption rule and removal
+condition; `Retry`, `enqueue`, `process`, `Recover` and `registryCondition`
+read it. The creation worker that `process` held inline becomes
+`processCreation`. Retry accepts exactly the kinds in the table. An operation
+of an unknown kind that reached a worker used to fall into the creation code
+and be marked blocked; nothing can schedule one (Retry refuses it and recovery
+lists only known kinds), and it is now ignored. One helper
 replaces the ten idempotent-replay blocks. Preview tokens are not consolidated:
 each preview family has its own TTL, capacity (32, 64 or 128) and capacity
 error, and reaching a family's cap needs eligible previews whose facts come
@@ -309,5 +315,6 @@ drifted operation behaviors, routing native effects through the runtime plugin
 | 2 | dropped (see step 2) | — | — | — |
 | 3a | done | 4526621 | Codex, 1 round: no findings, 1 cut applied | 01–36 (no 34) and 38–58 match the baseline |
 | 3b | deferred (see step 3) | — | — | — |
-| 4 | done | step 4 commit | Codex, 2 rounds: 1 finding accepted, 1 cut; 1 re-raised part rejected (on TO-DECIDE.md) | match the baseline; scenario 53 failed once on a native Incus SFTP refusal while two VMs ran, and passed on rerun |
-| 5–8 | not started | — | — | — |
+| 4 | done | bfbd3eb | Codex, 2 rounds: 1 finding accepted, 1 cut; 1 re-raised part rejected (on TO-DECIDE.md) | match the baseline; scenario 53 failed once on a native Incus SFTP refusal while two VMs ran, and passed on rerun |
+| 5 | done | step 5 commit | Codex, 2 rounds: 1 finding accepted (admission test added), 2 cuts; settled | match the baseline |
+| 6–8 | not started | — | — | — |

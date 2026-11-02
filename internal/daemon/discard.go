@@ -49,17 +49,8 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 	defer release()
 	sum := sha256.Sum256([]byte(req.ConfirmationToken))
 	pinned := control.DiscardRequest{Key: req.Key, UUID: req.UUID, TokenSHA256: hex.EncodeToString(sum[:])}
-	if prior, e := l.store.GetOperationByKey(ctx, req.Key); e == nil {
-		var old control.DiscardRequest
-		if prior.Kind != "session."+action || json.Unmarshal(prior.Request, &old) != nil || old != pinned {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(e, control.ErrNotFound) {
-		return api.Operation{}, e
+	if prior, replayed, err := replayRequest(l, ctx, req.Key, "session."+action, pinned); err != nil || replayed {
+		return prior, err
 	}
 	l.mu.Lock()
 	attached := l.hasAttachmentLocked(req.UUID)

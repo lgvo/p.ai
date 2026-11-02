@@ -23,17 +23,8 @@ func (l *lifecycle) PrepareRepair(ctx context.Context, key, uuid string) (api.Op
 	if len(key) == 0 || len(key) > 128 || len(uuid) != 36 {
 		return api.Operation{}, control.ErrInvalid
 	}
-	if prior, err := l.store.GetOperationByKey(ctx, key); err == nil {
-		var req repairPrepareRequest
-		if prior.Kind != "session.repair.prepare" || json.Unmarshal(prior.Request, &req) != nil || req.Key != key || req.UUID != uuid {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(err, control.ErrNotFound) {
-		return api.Operation{}, err
+	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRepairPrepare, repairPrepareRequest{Key: key, UUID: uuid}); err != nil || replayed {
+		return prior, err
 	}
 	preview, err := l.PreviewRepair(ctx, uuid)
 	if err != nil {

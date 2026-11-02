@@ -139,17 +139,8 @@ func (l *lifecycle) ConfirmRecordRepair(ctx context.Context, key, uuid, token st
 	defer release()
 	hash := sha256.Sum256([]byte(token))
 	req := control.RecordRepairRequest{Key: key, UUID: uuid, TokenSHA256: hex.EncodeToString(hash[:])}
-	if prior, e := l.store.GetOperationByKey(ctx, key); e == nil {
-		var saved control.RecordRepairRequest
-		if prior.Kind != "session.record.repair" || json.Unmarshal(prior.Request, &saved) != nil || saved != req {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(e, control.ErrNotFound) {
-		return api.Operation{}, e
+	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRecordRepair, req); err != nil || replayed {
+		return prior, err
 	}
 	l.mu.Lock()
 	state, found := l.recordRepairPreviews[token]

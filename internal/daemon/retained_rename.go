@@ -14,17 +14,8 @@ func (l *lifecycle) RenameRetainedBranch(ctx context.Context, r control.Retained
 	if !control.ValidRetainedRenameRequest(r) {
 		return api.Operation{}, control.ErrInvalid
 	}
-	if prior, err := l.store.GetOperationByKey(ctx, r.Key); err == nil {
-		var saved control.RetainedRenameRequest
-		if prior.Kind != "project.retained.rename" || json.Unmarshal(prior.Request, &saved) != nil || saved != r {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(err, control.ErrNotFound) {
-		return api.Operation{}, err
+	if prior, replayed, err := replayRequest(l, ctx, r.Key, control.KindRetainedRename, r); err != nil || replayed {
+		return prior, err
 	}
 	if err := l.git.backend.ValidateRenameBranch(ctx, r.OldBranch); err != nil {
 		return api.Operation{}, err

@@ -253,19 +253,9 @@ func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token strin
 		return api.Operation{}, err
 	}
 	defer release()
-	if prior, e := l.store.GetOperationByKey(ctx, key); e == nil {
-		var saved control.RefRepairRequest
-		hash := sha256.Sum256([]byte(token))
-		if prior.Kind != "session.ref.repair" || json.Unmarshal(prior.Request, &saved) != nil ||
-			saved.Key != key || saved.UUID != uuid || saved.TokenSHA256 != hex.EncodeToString(hash[:]) {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(e, control.ErrNotFound) {
-		return api.Operation{}, e
+	hash := sha256.Sum256([]byte(token))
+	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRefRepair, control.RefRepairRequest{Key: key, UUID: uuid, TokenSHA256: hex.EncodeToString(hash[:])}); err != nil || replayed {
+		return prior, err
 	}
 	l.mu.Lock()
 	state, found := l.refRepairPreviews[token]
@@ -318,7 +308,6 @@ func (l *lifecycle) ConfirmRefRepair(ctx context.Context, key, uuid, token strin
 		loss.Fingerprint != p.LossFingerprint || lossEv.SourceIncusUUID != p.IncusUUID || lossEv.SourceGeneration != p.Generation {
 		return api.Operation{}, control.ErrConflict
 	}
-	hash := sha256.Sum256([]byte(token))
 	req := control.RefRepairRequest{Key: key, UUID: uuid, TokenSHA256: hex.EncodeToString(hash[:])}
 	ev := control.RefRepairEvidence{Project: p.Project, Branch: p.Branch, Tip: p.LocalTip, PolicySHA256: p.PolicySHA256,
 		CredentialFingerprint: principal, InstanceUUID: l.instanceID, IncusProject: p.IncusProject,

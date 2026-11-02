@@ -307,3 +307,31 @@ func TestRemovingSessionConditionFollowsItsRemovalOperation(t *testing.T) {
 		})
 	}
 }
+
+func TestSchedulingHoldsUnfinishedCreationDuringWorkspaceInspection(t *testing.T) {
+	f := newJournalFixture(t)
+	inspected := sessionUUID(800)
+	f.operation(t, "workspace.inspect", "running", "", inspected, false)
+	for _, test := range []struct {
+		status string
+		err    error
+	}{
+		{"failed", control.ErrConflict},
+		{"completed", nil},
+		{"superseded", nil},
+	} {
+		t.Run(test.status, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			l := closedLifecycle(ctx, f.store)
+			id := f.operation(t, "session.create", test.status, "", inspected, false)
+			err := l.enqueue(id)
+			if !errors.Is(err, test.err) || (err == nil) != (test.err == nil) {
+				t.Fatalf("answer %v, want %v", err, test.err)
+			}
+			if queued := l.queued(); (err == nil) != (len(queued) == 1 && queued[0] == id) {
+				t.Fatalf("queued %q", queued)
+			}
+		})
+	}
+}

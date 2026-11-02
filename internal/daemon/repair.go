@@ -321,17 +321,8 @@ func (l *lifecycle) ConfirmRepair(ctx context.Context, req control.RepairConfirm
 	defer release()
 	sum := sha256.Sum256([]byte(req.ConfirmationToken))
 	pinned := control.RepairRequest{Key: req.Key, UUID: req.UUID, TokenSHA256: hex.EncodeToString(sum[:])}
-	if prior, e := l.store.GetOperationByKey(ctx, req.Key); e == nil {
-		var old control.RepairRequest
-		if prior.Kind != "session.repair" || json.Unmarshal(prior.Request, &old) != nil || old != pinned {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(e, control.ErrNotFound) {
-		return api.Operation{}, e
+	if prior, replayed, err := replayRequest(l, ctx, req.Key, control.KindSessionRepair, pinned); err != nil || replayed {
+		return prior, err
 	}
 	l.mu.Lock()
 	state, found := l.repairPreviews[req.ConfirmationToken]

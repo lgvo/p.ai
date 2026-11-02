@@ -332,18 +332,14 @@ func (l *lifecycle) Recover() error {
 		after = next
 	}
 	for _, op := range ops {
-		if op.Kind == "session.create" {
-			if err = l.checkNoWorkspaceInspect(l.ctx, op.SessionUUID); errors.Is(err, control.ErrConflict) {
-				continue
-			} else if err != nil {
+		if kind := operationKinds[op.Kind]; kind.resumeAtStart != nil {
+			resume, err := kind.resumeAtStart(l, l.ctx, op)
+			if err != nil {
 				return err
 			}
-		}
-		if deferBlockedCreationUntilRetry(op) {
-			continue
-		}
-		if op.Kind == "environment.collect" && op.Status != "running" {
-			continue
+			if !resume {
+				continue
+			}
 		}
 		if err = l.enqueue(op.ID); err != nil {
 			return err
@@ -379,8 +375,8 @@ func (l *lifecycle) enqueue(id string) error {
 		if err != nil {
 			return err
 		}
-		if op.Kind == "session.create" && op.Status != "completed" && op.Status != "superseded" {
-			if err = l.checkNoWorkspaceInspect(l.ctx, op.SessionUUID); err != nil {
+		if kind := operationKinds[op.Kind]; kind.admit != nil {
+			if err = kind.admit(l, l.ctx, op); err != nil {
 				return err
 			}
 		}
@@ -639,20 +635,15 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 	if err != nil {
 		return op, err
 	}
-	if op.Kind != "project.delete" && op.Kind != "project.create" && op.Kind != "session.create" && op.Kind != "session.create.cleanup" && op.Kind != "environment.collect" && op.Kind != "workspace.inspect" && op.Kind != "workspace.loss.inspect" && op.Kind != "session.discard" && op.Kind != "session.delete" && op.Kind != "session.rename" && op.Kind != "project.retained.rename" && op.Kind != "project.retained.delete" && op.Kind != "session.repair" && op.Kind != "session.repair.prepare" && op.Kind != "session.ref.repair" && op.Kind != "session.principal.repair" && op.Kind != "session.record.repair" {
+	kind, known := operationKinds[op.Kind]
+	if !known {
 		return op, control.ErrInvalid
 	}
 	if op.Status == "superseded" {
 		return op, control.ErrConflict
 	}
-	if api.WorkspaceInspectionRequiresFreshRequest(op) {
-		return op, control.ErrConflict
-	}
-	if op.Kind == "session.create.cleanup" && op.Status == "failed" && op.Phase == "stale" {
-		return op, control.ErrConflict
-	}
-	if op.Kind == "session.create" && op.Status != "completed" {
-		if err = l.checkNoWorkspaceInspect(ctx, op.SessionUUID); err != nil {
+	if kind.refuseRetry != nil {
+		if err = kind.refuseRetry(l, ctx, op); err != nil {
 			return op, err
 		}
 	}
@@ -673,63 +664,18 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 }
 
 func (l *lifecycle) process(id string) {
-	ctx := l.ctx
-	op, err := l.store.GetOperation(ctx, id)
+	op, err := l.store.GetOperation(l.ctx, id)
 	if err != nil {
 		return
 	}
-	if op.Kind == "project.delete" {
-		l.processProjectDelete(op)
-		return
+	if kind, ok := operationKinds[op.Kind]; ok {
+		kind.process(l, op)
 	}
-	if op.Kind == "session.create.cleanup" {
-		l.processCreateCleanup(op)
-		return
-	}
-	if op.Kind == "environment.collect" {
-		l.processEnvironmentCollection(op)
-		return
-	}
-	if op.Kind == "session.discard" || op.Kind == "session.delete" {
-		l.processDiscard(op)
-		return
-	}
-	if op.Kind == "session.rename" {
-		l.processRename(op)
-		return
-	}
-	if op.Kind == "project.retained.rename" {
-		l.processRetainedRename(op)
-		return
-	}
-	if op.Kind == "project.retained.delete" {
-		l.processRetainedDelete(op)
-		return
-	}
-	if op.Kind == "session.repair" {
-		l.processRepair(op)
-		return
-	}
-	if op.Kind == "session.repair.prepare" {
-		l.processRepairPrepare(op)
-		return
-	}
-	if op.Kind == "session.ref.repair" {
-		l.processRefRepair(op)
-		return
-	}
-	if op.Kind == "session.principal.repair" {
-		l.processPrincipalRepair(op)
-		return
-	}
-	if op.Kind == "session.record.repair" {
-		l.processRecordRepair(op)
-		return
-	}
-	if op.Kind == "workspace.inspect" || op.Kind == "workspace.loss.inspect" {
-		l.processWorkspaceInspect(op)
-		return
-	}
+}
+
+func (l *lifecycle) processCreation(op api.Operation) {
+	ctx := l.ctx
+	var err error
 	if op.Status == "completed" || op.Status == "superseded" {
 		return
 	}
@@ -820,7 +766,7 @@ func (l *lifecycle) process(id string) {
 			}
 			l.recordCreatingSession(created)
 		}
-		op, err = l.store.GetOperation(ctx, id)
+		op, err = l.store.GetOperation(ctx, op.ID)
 		if err != nil {
 			return
 		}
@@ -1318,14 +1264,10 @@ func (l *lifecycle) registryCondition(ctx context.Context, s control.Session) (s
 	if err != nil {
 		return "", err
 	}
-	switch kind {
-	case "session.discard", "session.create.cleanup":
-		return "discarding", nil
-	case "session.delete", "project.delete", "session.record.repair":
-		return "deleting", nil
-	default:
-		return "", control.ErrConflict
+	if removal := operationKinds[kind].removal; removal != "" {
+		return removal, nil
 	}
+	return "", control.ErrConflict
 }
 
 func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.SessionView, resultErr error) {

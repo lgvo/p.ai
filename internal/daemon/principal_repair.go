@@ -214,17 +214,8 @@ func (l *lifecycle) ConfirmPrincipalRepair(ctx context.Context, key, uuid, token
 	defer release()
 	hash := sha256.Sum256([]byte(token))
 	request := control.PrincipalRepairRequest{Key: key, UUID: uuid, TokenSHA256: hex.EncodeToString(hash[:])}
-	if prior, e := l.store.GetOperationByKey(ctx, key); e == nil {
-		var saved control.PrincipalRepairRequest
-		if prior.Kind != "session.principal.repair" || json.Unmarshal(prior.Request, &saved) != nil || saved != request {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(e, control.ErrNotFound) {
-		return api.Operation{}, e
+	if prior, replayed, err := replayRequest(l, ctx, key, control.KindPrincipalRepair, request); err != nil || replayed {
+		return prior, err
 	}
 	l.mu.Lock()
 	state, found := l.principalRepairPreviews[token]

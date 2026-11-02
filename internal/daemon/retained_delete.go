@@ -83,17 +83,8 @@ func (l *lifecycle) ConfirmRetainedDelete(ctx context.Context, key, project, bra
 	}
 	sum := sha256.Sum256([]byte(token))
 	req := control.RetainedDeleteRequest{Key: key, Project: project, Branch: branch, TokenSHA256: hex.EncodeToString(sum[:])}
-	if prior, err := l.store.GetOperationByKey(ctx, key); err == nil {
-		var saved control.RetainedDeleteRequest
-		if prior.Kind != "project.retained.delete" || json.Unmarshal(prior.Request, &saved) != nil || saved != req {
-			return api.Operation{}, control.ErrConflict
-		}
-		if prior.Status == "running" {
-			_ = l.enqueue(prior.ID)
-		}
-		return prior, nil
-	} else if !errors.Is(err, control.ErrNotFound) {
-		return api.Operation{}, err
+	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRetainedDelete, req); err != nil || replayed {
+		return prior, err
 	}
 	l.mu.Lock()
 	state, found := l.retainedDeletePreviews[token]
