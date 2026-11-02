@@ -89,7 +89,7 @@ decision is applied.
 - Needs from you: confirm or reverse
 - From: the agent, on the rework request, 2026-11-01; coding-practice technical-debt record.
 
-### Configuration and the RPC server stay in the store package
+### Steps 2, 3b and 8 of the rework were deferred or dropped
 
 - Where: REWORK-PLAN.md, steps 2 and 3b; internal/control config.go, rpc*.go, attachment.go,
   session_rpc.go
@@ -99,9 +99,12 @@ decision is applied.
   control, more in the daemon), so both were deferred and recorded as debt
   (docs/debts/structure.md, "Trusted configuration and the RPC server live in the store
   package"). The method table (step 3a) was done inside control.
-- Chosen: defer steps 2 and 3b and do the higher-value steps 4–8 first. Set aside: moving
+- Chosen: defer steps 2 and 3b and do the higher-value steps 4–7 first. Set aside: moving
   them with duplicated validators (two copies of one rule), or adding the identifier package
-  within this rework.
+  within this rework. Step 8 (adapter boundaries) was also dropped after measurement: the
+  Incus inventory copies share only a few lines, and gitservice's journal reads are deliberate
+  authorization re-checks (REWORK-PLAN.md, step 8; the inventory copies are in
+  docs/debts/structure.md).
 - Needs from you: confirm or reverse
 - From: the agent, on the rework request, 2026-11-01; coding-practice "keep it small".
 

@@ -1,6 +1,6 @@
 # P implementation rework plan
 
-Status: **reviewed; step 0 in progress**. This file is the working plan for the
+Status: **steps 0, 1, 3a and 4–7 done; 2 and 3b deferred, 8 dropped**. This file is the working plan for the
 implementation rework requested on 2026-11-01. It is not a design authority:
 [PROJECT.md](PROJECT.md) and its authority map still own behavior, and this
 rework changes no documented contract. Decisions taken along the way wait for
@@ -85,9 +85,10 @@ and the TUI workflows covered by `just tui-tests`. Integration fixtures under
    repeated 5 times.
 7. **Adapters reach up or sideways.** runtimeincus returns control types
    (`ServiceResult`) and copies `PublicEgressConfig` back and forth;
-   gitservice holds `*control.Store` and checks daemon phases
-   (`internal/gitservice/source.go`, `restore_assigned_ref.go`); runtimeincus
-   imports gitservice for the snapshot type.
+   gitservice holds `*control.Store` (its journal reads in
+   `internal/gitservice/source.go` and `restore_assigned_ref.go` turned out to
+   be deliberate authorization re-checks, see step 8); runtimeincus imports
+   gitservice for the snapshot type.
 8. **runtimeincus has no Incus client layer**: 7 full `incus list` scans with
    the same validation loop, 7 hand-built `incus exec` argument lists, 6
    HTTP-over-socket clients, metadata keys as literals (`user.p.session_uuid`
@@ -183,7 +184,7 @@ VM suite can check one at a time.
 | 5 | Operation-kind registry in daemon | 1 | yes |
 | 6 | One session-key store in daemon | 6 | yes |
 | 7 | One WASI invocation core in plugin | 5 | yes |
-| 8 | Adapter boundaries: runtimeincus inventory and imports, gitservice store interface | 7, 8 | yes |
+| 8 | dropped: adapter boundaries (see step 8) | 7, 8 | — |
 
 **0. Characterization tests.** Pin behavior that will move and is thin on
 coverage, checked by break and restore against today's code:
@@ -298,12 +299,16 @@ characterization test pins each runner's answer to a module that outlives
 its deadline, floods its output or exits with a failure. The ABI and every
 bound stay as documented.
 
-**8. Adapter boundaries.** runtimeincus: one instance-inventory helper for the
-seven `incus list` scans, each caller keeping its bound and checks; metadata
-keys as constants. Its control import stays for public-egress configuration
-(step 2 was dropped). gitservice: depends on a narrow store
-interface instead of `*control.Store`; the daemon passes the creation and
-ref-repair checks that today read daemon phases inside gitservice.
+**8. Adapter boundaries — dropped after measurement.** The seven `incus list`
+scans share only their command, decode and size bound (about five lines
+each); their per-instance checks, bounds (4 or 64) and diagnostics differ, and
+most callers would first need characterization tests against a fake Incus.
+gitservice's reads of the journal are not misplaced daemon knowledge: they are
+deliberate authorization re-checks (`CreateCapturedOriginBranch`,
+`CreateRestoredAssignedRefExact` re-read the durable operation and session
+before a ref effect), and moving them to the daemon would weaken that.
+Finding 7 is corrected accordingly; the inventory duplication and metadata-key
+literals are recorded as debt.
 
 ## Not in this rework
 
@@ -327,5 +332,5 @@ drifted operation behaviors, routing native effects through the runtime plugin
 | 4 | done | bfbd3eb | Codex, 2 rounds: 1 finding accepted, 1 cut; 1 re-raised part rejected (on TO-DECIDE.md) | match the baseline; scenario 53 failed once on a native Incus SFTP refusal while two VMs ran, and passed on rerun |
 | 5 | done | 702fde6 | Codex, 2 rounds: 1 finding accepted (admission test added), 2 cuts; settled | match the baseline |
 | 6 | done | 8a59a39 | Codex, 1 round: no findings, 3 comment cuts; settled | match the baseline |
-| 7 | checks running | — | — | — |
-| 8 | not started | — | — | — |
+| 7 | done | 940264c | Codex, 1 round: no findings, 3 comment cuts; settled | match the baseline |
+| 8 | dropped (see step 8) | — | — | — |

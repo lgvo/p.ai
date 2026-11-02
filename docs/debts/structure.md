@@ -145,3 +145,23 @@
   scoped to inserts, the key rule and the unfinished listing).
 - Added 2026-11-01, 1 case:
   - 2026-11-01: "complete rework of P's implementation" scoped step 4.
+
+## Incus instance inventory and metadata keys are written per caller
+
+- Where: internal/runtimeincus create_replace.go, project_delete.go, record_repair.go,
+  workspace_creator.go, session_capacity.go, egress.go `checkPublicAddressCollision`,
+  workspace_helper.go; the `user.p.*` metadata keys across the package
+- Problem: Seven functions each run `incus list --format json`, decode, bound and validate
+  the instances with their own rules, and metadata keys such as `user.p.session_uuid`
+  (17 times) are string literals.
+- Evidence: listed while mapping the adapters on 2026-11-01; the bounds differ (4 or 64), see
+  TO-DECIDE.md "Four-instance bound in Incus inventory checks".
+- Risk: an inventory or confinement fix reaches one caller and misses another; a mistyped key
+  silently matches nothing.
+- Fix: one inventory reader returning validated instances under a caller-given bound, and the
+  metadata keys as constants; characterize each caller first.
+- Fix when: the next change to an inventory check or to P's Incus metadata.
+- Left by: the agent, by rule (a restructuring not pursued: step 8 of REWORK-PLAN.md was
+  dropped after measurement).
+- Added 2026-11-01, 1 case:
+  - 2026-11-01: "complete rework of P's implementation" dropped step 8.
