@@ -145,108 +145,73 @@ reply leaves out.
 [control API](../docs/control-api.md) lists them. A client that meets a
 reason it does not know falls back to its sentence for the kind.
 
-In Go, the daemon keeps returning errors and one mapper turns them into
-`api.Error`: the sentinels `ErrConflict`, `ErrNotFound` and `ErrInvalid`
-become typed errors that carry their kind, reason and target, so the reason
-is set where the condition is found, not guessed in the mapper.
+## Mapping today's errors
 
-## Mapping today's error sites
+The daemon keeps returning Go errors; one mapper turns them into `api.Error`
+by three rules, applied in this order:
 
-### The mappers and their branches
+1. **A context error.** `cancelled` when the client cancelled or closed the
+   connection; `retry`, reason `deadline`, when the server's deadline passed.
+2. **A typed error answers its own kind and reason.** The sentinels become
+   typed errors where the condition is found:
+
+   | Today | After |
+   |---|---|
+   | `ErrInvalid`, and the handlers' decode checks | `invalid`, reason `param` with `field`, from the request type's `Validate` |
+   | `ErrConflict`: a lock or a running operation holds the target | `retry`, naming the operation when there is one |
+   | `ErrConflict`: a blocked operation, or a state that forbids the request | `conflict`, with the state as reason |
+   | `ErrConflict`: a key recorded for another request | `invalid`, reason `key_reused` |
+   | `ErrConflict`: a token, change tag or expected value (`expected_old_tip`, `expected_url`, `expected_commit_oid`, `source_oid`) that no longer holds | `precondition_failed`, reason `expired` or `changed` |
+   | `*sessionCapacityError`, and other full tables (attachments, public egress addresses) | `capacity`, with the table as reason |
+   | `ErrNotFound` | `not_found` with the target; `not_configured` where it stands for a missing capability |
+   | A failure from an adapter of an outside authority: the runtime plugin and `runtimeincus`, `gitservice`, the source-Git plugin | `failed`, with the authority as reason |
+
+3. **Anything untyped answers `internal`** and is logged with its cause:
+   SQLite, file and encoding errors. A condition that nobody typed then shows
+   as `internal` in the log, instead of hiding as "lifecycle authority is
+   unavailable".
+
+The fixed answers outside the mapper:
 
 | Site | Today | After |
 |---|---|---|
-| `lifecycleRPC`, `ErrInvalid` | `invalid_params`, "invalid lifecycle request" | `invalid` |
-| `lifecycleRPC`, `*sessionCapacityError` | `busy` with its own message | `capacity`, reason `session_capacity` |
-| `lifecycleRPC`, `ErrConflict` | `busy`, "lifecycle request conflicts with current authority" | `retry`, `conflict`, `precondition_failed` or `invalid` (`key_reused`), by where it is raised; see below |
-| `lifecycleRPC`, `ErrNotFound` | `unavailable`, "record was not found" | `not_found` with the target, or `not_configured` where it stands for a missing capability |
-| `lifecycleRPC`, context cancelled or deadline | `cancelled` | `cancelled` for `rpc.cancel` or a closed connection; `retry`, reason `deadline`, for the server's deadline |
-| `lifecycleRPC`, any other error | `unavailable`, "lifecycle authority is unavailable" | The kind its type carries: `failed` with the authority as reason from the adapters, the condition's own kind elsewhere, `internal` when nobody typed it; see below |
-| `projectDeleteRPC`, `ErrConflict` | `busy` with the error's text, cut at 900 bytes | As `lifecycleRPC`; the text goes to the log |
-| `projectDeleteRPC`, any other error | `unavailable` with fixed advice to stop sessions and obtain fresh inspections | `failed` with the authority as reason; the advice goes, with the inspections ([plan-shape.md](plan-shape.md#by-category)) |
-| `internalRPC`, store errors | `internal`, "control state is unavailable" | `internal`, reason `store` |
-| `rpc_services.go`, errors that are not sentinels | `unavailable`, naming a ready runtime, a user manager and a "compatible selected runtime package" | `failed`, reason `runtime`; the driver's `ErrNoService` becomes `not_found`, reason `service` ([services-plugin.md](services-plugin.md#guarantees)) |
+| `parseRequest`, `ReadFrame` (internal/control/rpc.go) | `parse_error`, `invalid_request`, `unsupported_version` for `jsonrpc` other than 2.0, `invalid_params` for missing params | The same kinds; missing params mean `{}` |
+| `ServeConn`: duplicate in-flight ID; too many concurrent requests; a handler returning both or neither of result and error | `invalid_request`; `busy`; `internal` | `invalid_request`, `duplicate_id`; `retry`, `too_many_requests`; `internal`, `encoding` |
+| The attachment helper's connection calling another method, or `attachment.claim` from an untrusted connection | `busy`; `invalid_params` | `invalid_request` |
+| `unconfiguredMethod` and `methodTable.unavailable` | `unavailable` with three messages, or "record was not found" | `not_configured` with the capability for a method of the protocol; `method_not_found` for any other name ([wire-types.md](wire-types.md#the-method-table)) |
+| `projectDeleteRPC` and rpc_services.go's fixed texts | `busy` with the error's text, or `unavailable` with fixed advice | The rules above; the texts go to the log |
+| The session RPC (session_rpc.go) | Its own `unavailable`, `internal`, `invalid_request`, `method_not_found` | `not_found` for a session that is not established; the other kinds unchanged, in the new shape |
 
-### Direct constructions
+### What today's mapping gets wrong
 
-| Site | Today | After |
-|---|---|---|
-| The decode checks: 56 `errorRPC(-32602, …)` calls in seven files of internal/control, and 7 `lifecycleRPC(ErrInvalid)` in attachment.go | `invalid_params` with a message per handler | `invalid` from the request type's `Validate`, with `field` ([wire-types.md](wire-types.md#the-types)) |
-| `parseRequest` and `ReadFrame` (rpc.go) | `parse_error`, `invalid_request`, `unsupported_version` for `jsonrpc` other than 2.0, `invalid_params` for missing params | Unchanged kinds; missing params mean `{}` |
-| Duplicate in-flight ID (`ServeConn`) | `invalid_request` | `invalid_request`, reason `duplicate_id` |
-| Too many concurrent requests (`ServeConn`) | `busy` | `retry`, reason `too_many_requests` |
-| A handler returning both or neither of result and error | `internal` | `internal`, reason `encoding` |
-| The dedicated attachment connection calling another method (`ServeConn`) | `lifecycleRPC(ErrConflict)`, so `busy` | `invalid_request` |
-| `attachment.claim` from an untrusted connection | `invalid_params` | `invalid_request` |
-| `unconfiguredMethod`: `project.list` or `project.branches` without Git | `unavailable`, "Git capability is not configured" | `not_configured`, reason `git` |
-| `unconfiguredMethod`: other `project.`, `session.`, `origin.`, `runtime.`, `status.` names | `unavailable`, "capability is not implemented" | `not_configured` for a method of the protocol; `method_not_found` for any other name |
-| `methodTable.unavailable` (optional lifecycle interface missing) and the two in-handler fallbacks (`PreparedRepairPreviewAPI`, `AssembledCreateCleanupAPI`) | `lifecycleRPC(ErrNotFound)`: "record was not found" | Gone: the daemon implements every optional interface ([wire-types.md](wire-types.md#the-method-table)) |
-| `project.branches` for an inactive project | `unavailable`, "project is unavailable" | `not_found`, target `project/<path>` |
-| `project.branches` when Git cannot list refs | `unavailable`, "Git refs are unavailable" | `failed`, reason `git` |
-| A page or origin source too large for one frame (`boundedLifecyclePage`, origin_api.go) | `internal` | `internal`, reason `encoding` |
-| Session RPC (session_rpc.go): session not established, policy unreadable, `status.report` with an ID, unknown method | `unavailable`, `internal`, `invalid_request`, `method_not_found` | `not_found` (target the session), `internal`, `invalid_request`, `method_not_found`, in the new shape |
+These representative cases show why the rules above are needed; the step
+types each site of the same pattern.
 
-### What the sentinels stand for
-
-A classification of the errors that reach a handler on a request path, not
-inside operation workers, gives these groups. Counts are approximate: one
-refusal often joins several conditions with `||`.
-
-| What happened | Sites | Today | After |
-|---|---|---|---|
-| An in-memory lock is held: `lockSession`'s default branch (internal/daemon/lifecycle.go), project deletion's locks | 1 source, 27 acquisitions | `busy` | `retry`, `session_held` |
-| An unfinished operation, ref guard or workspace inspection holds the session, branch or project: `checkNoWorkspaceInspect`, the `active_session_operation` index, `git_ref_guards`, project deletion's unfinished-work check | ≈50 | `busy` | `retry` naming the operation while it runs; `conflict`, `operation_blocked`, once it is blocked. The inspections go by earlier decisions. |
-| An idempotency key recorded for another request: `keyRecordsRequest`, `replayRequest`, the retired-key check, the origin and publication key checks, the key triggers | ≈60, 5 mechanisms | `busy` | `invalid`, `key_reused` |
-| A preview token missing or expired, a confirm whose recheck differs, or a value the client expected that no longer holds (`expected_old_tip`, `expected_url`, `expected_commit_oid`, `source_oid`), or a loss proof older than two minutes | ≈145 | `busy` | `precondition_failed`, `expired` or `changed`. Tokens and loss proofs go in step 5. |
-| The state forbids it: not established, attached, superseded, branch assigned or existing, project exists or not active, host not ready | ≈115 | `busy` | `conflict` with a reason per state |
-| Session capacity | 1 construction, 5 callers | `busy` with its message | `capacity`, `session_capacity` |
-| Other full tables: attachments (128, 8 per session), public egress addresses, the preview stores | 13 | `busy`, or `unavailable` for three preview stores | `capacity` with its own reason; the preview stores go in step 5 |
-| A record does not exist | ≈50 | `unavailable`, or `busy` where joined with `ErrConflict` | `not_found` |
-| A capability or host setting is missing: no project policy, a local-only origin asked for `origin_ref`, the type-assertion fallbacks, `unconfiguredMethod` | ≈25 | `busy` or `unavailable` | `not_configured`, or `conflict`, `origin_not_set`, for a project without an origin |
-| Incus, the runtime plugin, Git, the origin or a plugin failed | ≈130 | `unavailable` | `failed` with the authority |
-| SQLite, file or random-source errors, and corrupt stored data | ≈270 | `unavailable`, "lifecycle authority is unavailable" | `internal` |
-
-Three mechanisms decide most of today's answers, and step 3 replaces each:
-
-- **`lifecycleRPC` tests `ErrConflict` first** (rpc_lifecycle.go:911-922). About
-  20 sites return `errors.Join(cause, ErrConflict)`, so a missing record, a
-  cancellation or an Incus failure behind them answers `busy`. After, the
-  mapper tests the context first, then the typed error nearest the cause.
-- **`classifyWrite`** (store.go) turns any SQLite constraint failure into
-  `ErrConflict`, at 52 call sites fed by 61 triggers whose text says which
-  case it is (a key reused, a branch reserved, the project being deleted), and
-  the mapper drops that text. After, each trigger's failure maps to its kind
-  and reason.
-- **Errors that are not sentinels** reach the default branch. Besides real
-  authority failures and store errors, they include conditions with another
-  meaning: "session Git principal missing; repair required" and "… revoked"
-  (lifecycle.go), "registered session key missing" and "… changed"
-  (session_keys.go), "interactive host is not ready" (runtimeincus/attach.go),
-  which are `conflict`; "P refs changed during branch loss preview"
-  (gitservice/removal_preview.go) and "endpoint manager closed", which are
-  `retry`; the size bounds of previews and inventories, such as "removal
-  preview exceeds bounded control response", which are `conflict`,
-  `bound_exceeded`; "public egress substrate unavailable"
-  (lifecycle.go), which is `not_configured`.
-
-After, the adapters that call outside authorities (the runtime plugin and
-`runtimeincus`, `gitservice`, the source-Git plugin) return errors typed
-`failed` with their authority, every condition above is typed where it is
-found, and an error nobody typed answers `internal`. A misclassified
-condition then shows as `internal` in the log instead of hiding as an
-authority failure.
-
-Two smaller fixes come with the mapping:
-
-- After an operation is recorded, `enqueue` returns the context's error when
-  the daemon is shutting down (lifecycle.go), and 19 request paths then
-  answer an error for an operation they accepted. After, they return the
-  operation; the resume rule runs it at the next start
-  ([waiting.md](waiting.md#resuming-after-a-restart)).
-- As the code reads (not run), a local-only project asked to publish answers
-  `busy`: the URL check in `publicationContext` (publication_api.go) runs
-  first, so the local-only check after it is never reached. After, it answers
-  `conflict`, `origin_not_set`.
+- **`lifecycleRPC` tests `ErrConflict` before anything else**
+  (rpc_lifecycle.go). Sites that return `errors.Join(cause, ErrConflict)`,
+  such as the removal preview's recheck (removal_preview.go), answer `busy`
+  when the cause is a missing record, a cancellation or an Incus failure.
+  Rule 1 and typed causes fix the order.
+- **`classifyWrite`** (store.go) turns every SQLite constraint failure into
+  `ErrConflict` and drops the trigger's text, which says whether a key was
+  reused, a branch is reserved or the project is being deleted. Each trigger
+  failure maps to its own kind and reason instead.
+- **Plain errors with another meaning** reach the default branch as an
+  authority failure: "session Git principal missing; repair required"
+  (lifecycle.go) and "interactive host is not ready" (runtimeincus/attach.go)
+  are `conflict`; "P refs changed during branch loss preview"
+  (gitservice/removal_preview.go) is `retry`; "removal preview exceeds
+  bounded control response" is `conflict`, `bound_exceeded`; "public egress
+  substrate unavailable" (lifecycle.go) is `not_configured`.
+- **A recorded operation reported as an error.** When the daemon is shutting
+  down, `enqueue` returns the context's error after the operation is
+  recorded (lifecycle.go), and the request answers an error. After, the
+  request returns the operation, and the resume rule runs it at the next
+  start ([waiting.md](waiting.md#resuming-after-a-restart)).
+- **A local-only project asked to publish** answers `busy`, as the code reads
+  (not run): the URL check in `publicationContext` (publication_api.go) runs
+  before the local-only check. After, it answers `conflict`,
+  `origin_not_set`.
 
 ## Panics
 
@@ -303,15 +268,10 @@ limit, or raises the bound.
 
 | Option | Why not |
 |---|---|
-| Keep `busy` and `unavailable`, and add reason codes | The kind would still not say what to do; every client would branch on reasons to find out. |
 | One kind per Go sentinel | `ErrConflict` alone stands for three next steps: retry, review again, change the state first. |
-| Message text beside the codes | Set aside by the maintainer on 2026-11-02: clients write sentences from codes. |
-| The raw cause in `data` | It carries Incus, Git and file-system text into the API, which is message text by another name; the daemon log keeps it. |
 | `capacity` as a `conflict` reason | Its next step, freeing a slot, applies to every creation and needs no target; a kind of its own lets clients say so without knowing reasons. |
 | `precondition_failed` for any state that forbids a request | It means that something the client sent as a condition, a change tag or an expected value such as `expected_old_tip`, no longer holds, as HTTP's 412 does for `If-Match`. A state the client stated nothing about is `conflict`. |
 | Reuse -32003 and -32004 for new kinds | A script testing the old codes would silently match a different meaning. |
-| Let systemd restart the daemon after a panic | Set aside by the maintainer: a panic answers `internal` and the daemon keeps running. A restart also ends attachments and in-flight requests. |
-| A diagnostic limit per kind | Set aside by the maintainer: one limit for every kind. |
 
 ## Open questions
 
@@ -357,15 +317,11 @@ limit, or raises the bound.
   still holds both names.
 - TUI and CLI tests: each kind and reason has a sentence; an unknown reason
   falls back to the kind's sentence.
-- The test clients move to the new kinds and keep their outcome checks.
-  Today they test `busy` and `unavailable` through copied helpers:
-  `expect_busy` (27 uses in 8 step scripts), `expect_error` (54 uses in 9,
-  which fails on any kind but `busy`, `unavailable` and `invalid_params`),
-  `expect_refusal` (14 uses in 3) and a few inline checks. Seven retry loops
-  (steps 55, 57 and 58, tui-drive.py, notes-attach.py,
-  notes-tui-fixture.py) treat `busy` as transient and become `retry` loops.
-  Three clients match message text and must move to reasons: the attachment
-  fixture's `"lifecycle request conflicts with current authority"`
-  (tests/integration/cmd/attachment-fixture/main.go), and the `busy:`
-  screen prefixes in tui_notes_driver.py and tui-drive.py. The tui-mock maps
-  unknown kinds to -32003 and uses the `api` kinds instead.
+- The test clients move to the new kinds and keep their outcome checks: the
+  copied step-script helpers (`expect_busy`, `expect_error`,
+  `expect_refusal`); the retry loops that treat `busy` as transient (steps 55,
+  57 and 58, tui-drive.py, notes-attach.py, notes-tui-fixture.py), which
+  become `retry` loops; the three clients that match message text (the
+  attachment fixture's "lifecycle request conflicts with current authority",
+  and the `busy:` screen prefixes in tui_notes_driver.py and tui-drive.py);
+  and the tui-mock, which maps unknown kinds to -32003.

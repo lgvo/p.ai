@@ -272,13 +272,7 @@ carries no information beyond that.
    `internal/daemon`, `internal/tui`, `internal/attachment`, `cmd/p` and the
    tui-mock and fails on a call to `api.CallRaw` outside `cmd/p`, and on a
    `map[string]any` passed as params or returned as a result.
-4. **A demonstration.** A check run with `nix flake check` builds the module
-   with `go build -overlay`, replacing `internal/api`'s types file with a copy
-   in which `SessionInspectRequest.UUID` is an `int`, and asserts that the
-   build fails in `internal/control`, `internal/tui`, `internal/attachment`
-   and the tui-mock. I confirmed that `go build -overlay` works in this
-   repository's development shell.
-5. **JSON names.** A renamed JSON tag compiles everywhere and still breaks
+4. **JSON names.** A renamed JSON tag compiles everywhere and still breaks
    shell clients. A golden-file test writes every method's request and result
    fields (JSON name, JSON type, optional or not) from the types by
    reflection and compares them with `internal/api/testdata/methods.golden`.
@@ -303,7 +297,6 @@ The VM scenarios still check the wire end to end: their 563 occurrences of
 
 | Option | Why not |
 |---|---|
-| Keep `v` in every request | Repeated on every call and checked in every handler; nothing needs requests of different versions on one connection. |
 | An optional hello, with no per-request version | A TUI left running across a daemon upgrade would fail in the middle of a workflow with `invalid` errors instead of being refused at connect. |
 | The version in the socket path or the method names | Renames every method or the socket; the hello already returns the instance identity and capabilities in one place. |
 | A list of protocols in the hello | The daemon speaks one protocol, and installs are fresh. |
