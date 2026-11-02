@@ -109,8 +109,9 @@ attached, keep answering `conflict`.
 
 **Why the deadline is `retry`.** The daemon gave up, not the client, and
 sending the same request again is safe: a change that was recorded before the
-deadline comes back through its idempotency key, or for start and stop
-because a repeated call returns the unfinished operation
+deadline comes back through its idempotency key. Start and stop take no key:
+sent again during an unfinished start or stop, they return that operation,
+and on a session already ready or stopped they answer `changed: false`
 ([waiting.md](waiting.md#start-and-stop-as-operations)). A cancellation the
 client asked for stays `cancelled`. Today `ServeConn` also replaces a result
 the handler did return with the error once the deadline has passed
