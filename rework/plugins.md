@@ -48,7 +48,7 @@ PROJECT.md and waits on the maintainer ([Trust](#trust), open question 2).
 Before (as step 8 leaves it)
 internal/daemon
 ├─ gitservice ─┬─ plugin.RunSourceGit ─► git.wasm in wazero ─► broker ─► git   9 command kinds
-│              └─ git directly                                                 reads, snapshots, loss analysis
+│              └─ git directly                                                 reads, snapshots
 ├─ events ─────┬─ file-log manifest ─► core appends the file
 │              └─ handler.wasm in wazero ─► broker ─► core appends the file
 └─ asset plans: tmux-host, source-git's p-git-ssh, codex-adapter ─► the driver's guest assembly
@@ -81,10 +81,9 @@ The module (plugins/bundled/source-git/main.go) sequences nine command kinds.
 Each broker call runs Git with arguments core chose, and core checks every
 postcondition; the module only picks the ref page size (1 to 8), tightens
 transport limits or refuses. Most Git work already skips it: reads
-(`InspectBranchRef`, 26 daemon call sites), snapshots and loss analysis run
-Git directly, and project deletion removes the repository itself. As a native
-process it would decide the same nothing, with write access to every
-repository.
+(`InspectBranchRef`, 26 daemon call sites) and snapshots run Git directly,
+and project deletion removes the repository itself. As a native process it
+would decide the same nothing, with write access to every repository.
 
 The nine operations become ordinary `gitservice` code built from today's
 broker bodies. The deadlines and limits on native Git and SSH stay; the limits
@@ -265,9 +264,8 @@ It then hashes the package and starts the entry it checked. Between check and
 start only root or P's account can change the bytes, and both already hold
 more than a plugin gains. A managed install meets these rules by construction;
 the bundled catalog in the Nix store meets them as root-owned, read-only
-files. The same checks apply to the runtime driver's executable:
-[runtime-driver.md](runtime-driver.md) pins it by path and SHA-256 but states
-no owner, mode or link check, so it has the same gap.
+files. The driver applies the same launch checks to its executable
+([runtime-driver.md](runtime-driver.md)).
 
 **What a plugin gains.** An executable plugin runs as P's account inside the
 daemon's service sandbox. On the NixOS service (nix/module.nix) that means no
@@ -301,8 +299,6 @@ the maintainer to confirm it.
   instead of an activation file and a plugin ID.
 - `p plugins defaults` covers two packages; `activate`, `plan-assets` and
   `emit` go; `run-event` reads its selection from host configuration.
-- A package whose directory or files are writable by others, foreign-owned or
-  hard-linked does not start.
 - A WASI event handler no longer runs; it must be rebuilt as a native
   executable.
 - Fresh installs only, by the maintainer's decision: an activation file is
@@ -345,8 +341,7 @@ the maintainer to confirm it.
 - [runtime-driver.md](runtime-driver.md): "`p plugins defaults` lists four
   packages instead of six" becomes two; "tmux from the interactive-host
   package" becomes the driver's own files, and `p-git-ssh` joins them;
-  `Session.Assets` carries only the agent adapter. Its executable needs the
-  launch checks above. "Repositories, requests and plugins never reach it"
+  `Session.Assets` carries only the agent adapter. "Repositories, requests and plugins never reach it"
   holds for the driver's socket pair, but an executable plugin running as P's
   account can open the Incus user socket. Whether a session's creation pins
   the driver's digest is not yet said there.
