@@ -74,7 +74,7 @@ internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 | Endpoints and grants | Sockets on the host; grants captured under trusted ceilings | Both, unchanged | Their delivery into the session |
 | Images | Core and the WASI environment plugin drive builder containers; `incus publish` | The index and release rule ([commit-images.md](commit-images.md)) | `BuildImage` with public egress, the image operations (builder*.go, environmentnix, nixenv) |
 | Uncertain effects | Positive outcomes only, never a reused identity | The guards | `Settle` (`workspaceResourceBusy`, `ReconcileBuilderPublication`) |
-| Freezing, loss inspection, `workspace.inspect`, helper containers | Pause, export, helper, Git analysis | **Go** in steps 0d and 0e, before the driver | **Go** (workspace_loss_*.go, workspace_snapshot.go, workspace_sftp_*.go, workspace_git.go, workspace_helper.go) |
+| Freezing, loss inspection, `workspace.inspect`, helper containers | Pause, export, helper, Git analysis | **Go** before the driver: `workspace.inspect` in step 0d, the rest in 0e | **Go** (workspace_loss_*.go, workspace_snapshot.go, workspace_sftp_*.go, workspace_git.go, workspace_helper.go) |
 
 The driver is trusted code: it holds container authority. Only trusted host
 configuration selects it; repositories, requests and plugins never reach it.
@@ -412,10 +412,10 @@ step 8 stays last.
 
 Each step is a commit that leaves `go vet`, the unit tests, the TUI tests,
 `nix flake check`, `nix build` and the VM scenarios green on a fresh install.
-The groundwork steps have already run: 0d removed `workspace.inspect`, the
-workspace helpers and their slot in admission; 0e removed the loss
-inspection and freezing and made rename and ref repair stopped-only; 0g gave
-builders public egress.
+The groundwork steps have already run: 0d removed the `workspace.inspect`
+method; 0e removed the loss inspection, and with it the workspace helpers,
+their Git analysis and their slot in admission, removed freezing, and made
+rename and ref repair stopped-only; 0g gave builders public egress.
 
 | Step | What | Removed |
 |---|---|---|
@@ -476,10 +476,6 @@ builders public egress.
 | The driver hands out egress addresses | The reservation would leave the session's SQLite transaction, so creations could race for an address. |
 | hashicorp/go-plugin | MPL-2.0 is not on P's [licensing list](../docs/technology-stack.md#licensing-policy), and it adds gRPC next to P's JSON-RPC. |
 | CRI as the protocol | Pods and containers only: no image build, no stopped-storage access, no Incus. |
-
-## Open questions
-
-None.
 
 ## How it will be checked
 

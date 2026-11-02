@@ -247,16 +247,9 @@ This lands with the runtime driver's migration (step 8), where the
 
 | Option | Why not |
 |---|---|
-| A separate services plugin, chosen apart from the driver | Services run inside the runtime and depend on how it boots its guest; a separate plugin would need runtime authority, a second owner of runtime effects. Set aside by the maintainer: replacing the driver replaces services. |
-| A WASI services plugin | P's WASI plugins give way to native executables where that makes sense, as the runtime driver does; a WASI module here would decide nothing. |
-| Core building `systemctl` commands over a generic run-a-command driver operation | Puts the Incus runtime's internals in core, so a Kubernetes driver could not run services its own way. |
-| Pod or sidecar containers as a contract requirement | Kubernetes-specific, and pod containers cannot be stopped or started one by one. Every driver would have to model services as containers. |
+| A separate or WASI services plugin; core building `systemctl` commands over a generic command operation; Pod or sidecar containers as a contract requirement | Settled by the maintainer's runtime-ownership decision: how a runtime runs services is the driver's own business, so services stay inside the driver and no runtime's way of running them enters the contract. |
 | A P services file and an in-session `p-service` command, portable across runtimes | A product change with no current user; definitions are the runtime's business. |
 | A durable operation for each service action | P records and recovers nothing about services; actions are fire and observe (see [Guarantees](#guarantees)). |
-
-## Open questions
-
-None.
 
 ## How it will be checked
 
