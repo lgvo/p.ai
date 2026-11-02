@@ -81,9 +81,9 @@ Every step:
 
 | Scenario | Cause | Resolved by |
 |---|---|---|
-| 34, missing-runtime repair | Start reports `ready` while its watcher still holds the session lock. | Step 0b |
+| 34, missing-runtime repair | Start reported `ready` while its watcher still held the session lock. | Fixed in step 0b (804680e) |
 | 37, public egress | Depends on an external redirect service that now refuses the probe. | Stays a known failure |
-| 58, notes TUI | The driver expects the session-row format from before 0dfc4ad. | Step 0a |
+| 58, notes TUI | The driver expected the session-row format from before 0dfc4ad. | Fixed in step 0a (51d7ac3) |
 
 ## Not in this plan
 
