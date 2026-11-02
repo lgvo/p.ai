@@ -99,6 +99,58 @@ func TestSessionMutationLockSerializesStartStop(t *testing.T) {
 	again()
 }
 
+func TestSessionStaysStartingWhileStartWatcherRuns(t *testing.T) {
+	ready := plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "active/running", HostReady: true}
+	stopped := plugin.RuntimeState{Exists: true, Status: "Stopped"}
+	for _, c := range []struct {
+		name     string
+		state    plugin.RuntimeState
+		watching bool
+		want     string
+	}{
+		{"ready host while watcher runs", ready, true, "starting"},
+		{"ready host without watcher", ready, false, "ready"},
+		{"stopped host while watcher runs", stopped, true, "starting"},
+		{"stopped host without watcher", stopped, false, "stopped"},
+		{"missing runtime while watcher runs", plugin.RuntimeState{}, true, "missing"},
+	} {
+		l := &lifecycle{startActive: map[string]bool{"session": c.watching}}
+		if got := l.observedCondition("session", c.state); got != c.want {
+			t.Errorf("%s: condition=%s want %s", c.name, got, c.want)
+		}
+	}
+}
+
+func TestClientActingOnReadyFindsSessionLockFree(t *testing.T) {
+	ctx := context.Background()
+	ready := plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "active/running", HostReady: true}
+	l := &lifecycle{startActive: map[string]bool{"session": true}}
+	release, err := l.lockSession(ctx, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acted := make(chan error, 1)
+	l.endStartWatcher("session", func() {
+		// A client polls for ready and then takes the session lock, while
+		// the watcher is between ending and releasing its lock.
+		go func() {
+			for l.observedCondition("session", ready) != "ready" {
+				time.Sleep(time.Millisecond)
+			}
+			next, err := l.lockSession(ctx, "session")
+			if err == nil {
+				next()
+			}
+			acted <- err
+		}()
+		time.Sleep(50 * time.Millisecond)
+		release()
+	})
+	if err := <-acted; err != nil {
+		t.Fatalf("client acting on ready found the session lock taken: %v", err)
+	}
+}
+
 func TestConfinementDriftInvalidatesPolicyAndBlocksStart(t *testing.T) {
 	ctx := context.Background()
 	snapshot, sha, err := control.ProjectPolicySnapshot(control.ProjectPolicy{Network: "none", FilesystemMounts: []control.FilesystemGrant{}, Command: []string{"/bin/sh"}})

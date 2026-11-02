@@ -44,7 +44,7 @@ readiness matrix:
 | Condition | Meaning |
 |---|---|
 | `creating` | One durable creation request owns the reserved session but has not established it. |
-| `starting` | Incus boot, endpoint/environment activation, or `p-interactive.service` startup is in progress. |
+| `starting` | Incus boot, endpoint/environment activation, or `p-interactive.service` startup is in progress, or Start's watcher has not yet ended. |
 | `ready` | Incus is running and the systemd-owned persistent host is active and attachable. |
 | `stopped` | The retained container is stopped and may receive an ordinary Start. |
 | `missing` | SQLite expects a runtime that Incus cannot find. |

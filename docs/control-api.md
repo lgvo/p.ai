@@ -404,7 +404,7 @@ failed-create cleanup followed by a separate Create.
 | `operation.list` | `{"v":1,"limit":1..20,"after":"optional-operation-UUID"}` | `v`, concise operation summaries (without request/evidence), `next` in bytewise ID order. |
 | `session.inspect` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
 | `session.list` | `{"v":1,"limit":1..8,"after":"optional-session-UUID"}` | `v`, `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
-| `session.start` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. |
+| `session.start` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused as `busy` by that watcher. |
 | `session.stop` | Same as Start | `v`, `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments return `busy`. |
 | `session.attach` | Same as Start | `v`, `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
 

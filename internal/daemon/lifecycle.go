@@ -1285,16 +1285,7 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 		v.Condition = "unreachable"
 		return v, nil
 	}
-	switch {
-	case !state.Exists:
-		v.Condition = "missing"
-	case state.Status == "Stopped":
-		v.Condition = "stopped"
-	case state.HostReady:
-		v.Condition = "ready"
-	default:
-		v.Condition = "starting"
-	}
+	v.Condition = l.observedCondition(id, state)
 	if state.DiagnosticAvailable {
 		v.Diagnostic = state.Diagnostic
 	}
@@ -1303,13 +1294,29 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 			v.Diagnostic = diagnostic
 		}
 	}
+	return v, nil
+}
+
+// observedCondition is the condition of established session id whose runtime
+// was observed as state. Start's watcher keeps the session lock until it ends,
+// so the session stays starting until then even when the host looks ready: a
+// client that acts on ready must not find the lock taken.
+func (l *lifecycle) observedCondition(id string, state plugin.RuntimeState) string {
 	l.mu.Lock()
 	starting := l.startActive[id]
 	l.mu.Unlock()
-	if starting && v.Condition == "stopped" {
-		v.Condition = "starting"
+	switch {
+	case !state.Exists:
+		return "missing"
+	case starting:
+		return "starting"
+	case state.Status == "Stopped":
+		return "stopped"
+	case state.HostReady:
+		return "ready"
+	default:
+		return "starting"
 	}
-	return v, nil
 }
 
 func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionView, error) {
@@ -1382,10 +1389,7 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 	keepLock = true
 	go func() {
 		defer func() {
-			l.mu.Lock()
-			delete(l.startActive, id)
-			l.mu.Unlock()
-			release()
+			l.endStartWatcher(id, release)
 			if l.ctx.Err() == nil {
 				_, _ = l.InspectSession(l.ctx, id)
 			}
@@ -1414,6 +1418,16 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 	v.PolicyCondition = policyCondition
 	l.observeView(v)
 	return v, nil
+}
+
+// endStartWatcher ends Start's watcher for session id and releases the session
+// lock it kept. Both happen under l.mu, where observedCondition reads
+// startActive, so no inspection sees the watcher ended while its lock is held.
+func (l *lifecycle) endStartWatcher(id string, release func()) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.startActive, id)
+	release()
 }
 
 func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView, error) {

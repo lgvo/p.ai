@@ -70,8 +70,8 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAt
 	if view.Condition != "ready" {
 		return zero, control.ErrConflict
 	}
-	// A host can become observably ready just before Start's goroutine releases
-	// its lock. Wait for that owned start to finish instead of rejecting attach.
+	// Another client's Start may own the session since the inspection that saw
+	// ready. Wait for its watcher to finish instead of rejecting attach.
 	for {
 		l.mu.Lock()
 		starting := l.startActive[id]

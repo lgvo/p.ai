@@ -13,9 +13,12 @@
   freeze/thaw, builder, discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, 1 case:
+- Added 2026-11-01, updated 2026-11-02, 2 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
+  - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
+    watcher against a stand-in runtime; its unit tests cover `observedCondition` and
+    `endStartWatcher`, and VM scenarios such as 34 cover the whole Start-then-act sequence.
 
 ## Native sub-protocols are copied across workers
 
