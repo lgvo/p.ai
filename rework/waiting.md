@@ -45,7 +45,7 @@ the daemon restarts; the user presses Retry, as for every other kind already.
 
 | Change | Today returns | After |
 |---|---|---|
-| `project.create`, `session.create`, `session.rename`, `project.retained.rename`, `operation.retry`, `session.repair.prepare`, each confirm (discard, delete, the four repairs, create replacement, create cleanup, retained-branch deletion) | An operation | Unchanged |
+| `project.create`, `session.create`, `session.rename`, `project.retained.rename`, `operation.retry`, each confirm (discard, delete, create replacement, create cleanup, retained-branch deletion) | An operation | Unchanged |
 | `session.start` | The session as `starting`; a watcher holds the lock until the host is ready | An operation of kind `session.start`, or `changed: false` when there is nothing to start |
 | `session.stop` | The session, after stopping the runtime inside the request | An operation of kind `session.stop`, or `changed: false` when there is nothing to stop |
 | `project.delete.confirm` (`project.delete` after step 5) | An operation, after fresh loss inspections inside the request | The operation, at once; groundwork step 0e removes the inspections |
@@ -208,7 +208,7 @@ operation and then attach, so users see the same result. The wait loops in
 
 The journal's existing rule, one unfinished operation per session (the
 `active_session_operation` index in internal/control/store.go), now covers
-start and stop: a rename, repair or removal of a session that is starting is
+start and stop: a rename or removal of a session that is starting is
 refused through the same admission check.
 
 ## One journal write path
@@ -367,7 +367,7 @@ open question 1 bounds them.
 - A deterministic test of the end rule, for creation, start and stop: a test
   hook pauses the worker right after its end is committed; a client that
   follows the operation with `operation.wait` then starts or attaches to the
-  session (creation) or repairs and renames it (start, stop) without
+  session (creation) or renames it (start, stop) without
   meeting the session's lock. With the hook placed before the commit
   instead, the same requests get `retry` naming the operation.
 - A unit test of the shared admission check: competing work on a session
@@ -396,7 +396,7 @@ open question 1 bounds them.
   operations list in acceptance order across kinds; `operation.list`
   continues correctly after the last operation of the previous page is
   deleted.
-- VM scenario 34 passes; the scenarios move from polling `operation.inspect`
+- The VM scenarios move from polling `operation.inspect`
   and `session.inspect` (`wait_operation`, `wait_ready`) to
   `operation.wait`, keeping their outcome checks. Scenarios 47, 49, 51 and
   52 keep their Retry after a restart.

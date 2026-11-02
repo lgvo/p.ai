@@ -82,7 +82,7 @@ After
 | `cancelled` | -32001 | Nothing: the client cancelled | — |
 | `unsupported_version` | -32002 | Use a client that speaks a protocol in `supported` | `protocol` |
 | `retry` | -32010 | Send the same request again, after the `target` operation leaves `running` if one is named | `session_held`, `too_many_requests`, `deadline` |
-| `conflict` | -32011 | Change the named state first: detach, Retry or repair, wait for a person | `attachment_active`, `session_not_established`, `operation_blocked`, `operation_superseded` |
+| `conflict` | -32011 | Change the named state first: detach, Retry, wait for a person | `attachment_active`, `session_not_established`, `operation_blocked`, `operation_superseded` |
 | `capacity` | -32012 | Discard or delete a session to free a slot | `session_capacity` |
 | `precondition_failed` | -32013 | Read the state again and decide again: for a risky change, a new dry run ([state-hash-confirmation.md](state-hash-confirmation.md)) | `expired`, `changed` |
 | `precondition_required` | -32014 | Send the change tag in `if_match` | `if_match_missing` |
@@ -100,9 +100,9 @@ three kinds of situations: something holds the session for a moment, a
 preview went stale, or the state forbids the request until something else
 happens. The first is `retry` and the second `precondition_failed`. The third
 is neither: sending the request again fails the same way until the user
-detaches a terminal, retries a blocked operation or repairs the session, and
-nothing failed. Step 5 turns these conditions into refusals inside the plan
-for the eleven risky changes
+detaches a terminal or retries a blocked operation, and nothing failed.
+Step 5 turns these conditions into refusals inside the plan for the seven
+risky changes
 ([plan-shape.md](plan-shape.md#fields-that-do-not-fit-the-envelope), item 2),
 using the same codes; the others, such as stopping a session with a terminal
 attached, keep answering `conflict`.

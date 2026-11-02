@@ -6,7 +6,7 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 
 Some changes can lose work or replace something: discarding or deleting a
 session, deleting a project or a retained branch, publishing to an origin,
-and the session repairs. P shows each of
+and cleaning up or replacing a failed session creation. P shows each of
 these as a preview first and runs it only when the user confirms.
 
 **Today** the daemon remembers each preview. It keeps the preview in memory
@@ -109,19 +109,15 @@ instead of quietly returning a dry run:
 ### The API
 
 Today each change has two methods, a preview and a confirm: 23 methods in all.
-After this decision each change has one method, called twice: 11 methods in
-all. Step 6 then merges the four repairs of an established session into
-`session.repair`, which diagnoses the session and returns the plan of the
-repair that applies ([repairs.md](repairs.md)): 8 methods after step 6.
+Groundwork removes ten of them first: the cache preview and collection
+(step 0d) and the four session repairs (step 0h, [repairs.md](repairs.md)).
+After this decision each remaining change has one method, called twice: 7
+methods in all.
 
 | Change | Before | After: one method, called twice |
 |---|---|---|
 | Discard a session | `session.removal.preview` with `kind: "discard"`, then `session.discard` | `session.discard` |
 | Delete a session | `session.removal.preview` with `kind: "delete"`, then `session.delete` | `session.delete` |
-| Repair a missing runtime | `session.repair.preview`, then `session.repair.confirm` | `session.repair` |
-| Restore a missing assigned ref | `session.ref.repair.preview`, then `session.ref.repair.confirm` | `session.ref.repair` |
-| Reissue the session Git principal | `session.principal.repair.preview`, then `session.principal.repair.confirm` | `session.principal.repair` |
-| Remove an unrecoverable session record | `session.record.repair.preview`, then `session.record.repair.confirm` | `session.record.repair` |
 | Replace a blocked session creation | `session.create.replace.preview`, then `session.create.replace.confirm` | `session.create.replace` |
 | Clean up a blocked session creation | `session.create.cleanup.preview`, then `session.create.cleanup.confirm` | `session.create.cleanup` |
 | Delete a project | `project.delete.preview`, then `project.delete.confirm` | `project.delete` |
@@ -134,9 +130,7 @@ Cached environment images are no longer managed through the API:
 (a separate decision; see the [plan](REWORK-PLAN.md)).
 
 Calls without a preview stay single calls: create, start, stop, rename,
-service actions, `session.repair.prepare` (whose image now comes from the
-session's source commit; see [commit-images.md](commit-images.md)), and
-`origin.change`, which already guards itself with the expected current URL.
+service actions, and `origin.change`, which already guards itself with the expected current URL.
 Start and stop now return operations, as every change does except service
 actions ([waiting.md](waiting.md)).
 
@@ -188,7 +182,7 @@ keeps only what is specific to it.
 internal/daemon/
   plan.go                 dry run, change hash and tag, key replay, lock, recheck: written once
   removal_preview.go      read the state and plan discard and delete
-  repair.go               read the state and plan missing-runtime repair
+  create_cleanup.go       read the state and plan create cleanup
   …
 ```
 
@@ -267,7 +261,7 @@ accident.
 daemon's clock sets and checks the expiry.
 
 Because `action` and `target` are in the change hash, a tag for deleting one
-session cannot delete another session or repair this one. Because `plan` is in
+session cannot delete another session or discard this one. Because `plan` is in
 the change hash, a daemon upgrade that changes how a change is planned makes
 older tags stop matching.
 
@@ -278,8 +272,8 @@ older tags stop matching.
 - A change runs only when the state it was planned from is unchanged, and
   only within two minutes of the dry run. The checks that decide "unchanged"
   are today's, except the ones the maintainer removed: deletions no longer
-  look at the workspace or the origin, and rename and ref repair require a
-  stopped session.
+  look at the workspace or the origin, and rename requires a stopped
+  session.
 - A repeated run with the same idempotency key returns the same operation,
   also after a restart. The same key with a different tag is refused.
 
@@ -290,7 +284,7 @@ older tags stop matching.
   of 2026-11-02: no workspace loss inspection first, no `loss_operation_id`,
   and no pause or re-check while deleting. The plan states the loss by
   category ([plan-shape.md](plan-shape.md)), and P stops a running container
-  as part of deleting it. Rename and ref repair require the session stopped.
+  as part of deleting it. Rename requires the session stopped.
 - The run call repeats the dry run's inputs, because the daemon no longer
   keeps them.
 - `change_tag` and `if_match` replace `confirmation_token`. The tag carries its
@@ -369,9 +363,9 @@ and offers no force.
 | The expiry and the facts in one hash (an earlier draft) | Binds the expiry as well, but leaves no stable name for the change: the journal could not record which change ran independent of when it was previewed. |
 | The expiry outside any hash (an earlier draft) | Set aside by the maintainer on 2026-11-02: the expiry should be bound to the change. |
 | No expiry | Set aside by the maintainer on 2026-11-02: a confirmation should follow a recent preview. |
-| One `plan.preview` method for every change (an earlier draft) | Its params and its plan would be a union of all eleven changes' shapes, so it could not be documented or typed on its own. |
+| One `plan.preview` method for every change (an earlier draft) | Its params and its plan would be a union of all seven changes' shapes, so it could not be documented or typed on its own. |
 | An explicit `dry_run` flag | Not needed: the call without `key` or `if_match` is already the dry run, and a `key` without `if_match` catches a forgotten tag. |
-| A preview method per change, as today | Eleven more methods doing what the dry run already does. |
+| A preview method per change, as today | Seven more methods doing what the dry run already does. |
 | `if_match: "*"` | A risky change would run a plan nobody saw, which the loss warning rule forbids. |
 | Force in the daemon, skipping the check | A second way to run a change, and the journal would hold operations whose plan nobody checked. |
 | `--force` only for changes that cannot lose work | Set aside by the maintainer: forcing should work everywhere. The loss warning and the countdown keep PROJECT.md's success signal, "destructive actions explain what will be lost before proceeding." |
@@ -395,6 +389,6 @@ and offers no force.
   sends the run call only after 10 seconds; Ctrl-C during the countdown sends
   nothing; a plan that loses nothing runs at once; a refusal after the
   countdown prints the new plan and stops.
-- The VM scenarios that use previews (session removal, the repairs, project
-  deletion, publication) move to the new methods and keep their outcome
+- The VM scenarios that use previews (session removal, failed-creation
+  cleanup and replacement, project deletion, publication) move to the new methods and keep their outcome
   checks.

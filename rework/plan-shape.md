@@ -51,11 +51,11 @@ Before, a session deletion preview, abridged:
  "confirmation_token": "<32 hex>", "expires_at": "…"}
 ```
 
-and a blocked ref repair, with "allowed" and "why not" under other names:
+and a publication to a divergent destination, which says "not allowed" only
+through `relation`:
 
 ```json
-{"kind": "missing_assigned_ref", "session_uuid": "4f1c…", "eligible": false,
- "unsafe_reasons": ["p_object_missing"], "changes": […], …}
+{"project": "team/app", "destination_ref": "refs/heads/main", "relation": "divergent", …}
 ```
 
 After:
@@ -78,12 +78,12 @@ After:
 
 ```json
 {"plan": {
-   "action": "session.repair",
-   "target": "session/4f1c…",
+   "action": "origin.publish",
+   "target": "project/team/app:origin-branch/main",
    "allowed": false,
-   "refusals": [{"code": "p_object_missing"}],
+   "refusals": [{"code": "destination_divergent"}],
    "loss": [],
-   "details": {"kind": "missing_assigned_ref", "local_tip": "…", …}
+   "details": {"project": "team/app", "destination_ref": "refs/heads/main", …}
  }}
 ```
 
@@ -108,7 +108,7 @@ A dry run, a call with neither `key` nor `if_match`, has three outcomes, as
 | `refusals` | array of refusals, never null | Why the change cannot run. Empty when allowed. |
 | `loss` | array of loss items, never null | What the change would destroy. Empty means nothing is lost. |
 | `gone` | array of loss items, never null | What is already lost before the change runs, such as the contents of a runtime that is missing. Information only: the change destroys none of it. |
-| `details` | object, one type per method; for `session.repair`, one per repair kind, named by `details.kind` ([repairs.md](repairs.md#the-plan)) | Everything else the preview shows today. |
+| `details` | object, one type per method | Everything else the preview shows today. |
 
 `details` keeps every field of today's preview except these, which leave it:
 the field naming the target (`session_uuid`, `uuid`, `old_uuid`), the removal
@@ -116,14 +116,13 @@ the field naming the target (`session_uuid`, `uuid`, `old_uuid`), the removal
 `confirmation_token`, `expires_at`, the fixed prose texts, and the fields that
 came from a workspace inspection (see [By category](#by-category) and the
 mappings). The raw evidence that loss items summarize, `branch_loss`, stays in
-`details` whole. The repair previews keep their `kind`, which step 6 needs when
-one `session.repair` method returns whichever repair applies.
+`details` whole.
 
 ### Targets
 
 | Target | Form | Example | Used by |
 |---|---|---|---|
-| Session | `session/<uuid>` | `session/4f1c…` | Discard, delete, the four repairs, create replacement (the old UUID), create cleanup |
+| Session | `session/<uuid>` | `session/4f1c…` | Discard, delete, create replacement (the old UUID), create cleanup |
 | Project | `project/<path>` | `project/team/app` | Project deletion |
 | P branch | `project/<path>:branch/<name>` | `project/team/app:branch/saved` | Retained-branch deletion; `p_commits` loss items |
 | Origin branch | `project/<path>:origin-branch/<name>` | `project/team/app:origin-branch/main` | Publication; `<name>` is `destination_ref` without `refs/heads/` |
@@ -138,7 +137,7 @@ A refusal is an object:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `code` | string | A stable snake_case code. Today's `blocked_reason` and `unsafe_reasons` codes keep their names, such as `p_object_missing` and `runtime_absence_unverified`. |
+| `code` | string | A stable snake_case code. Today's `unsafe_reasons` codes keep their names, such as `old_creation_not_blocked` and `request_unchanged`. |
 | `target` | string, optional | What the refusal is about when it is not the plan's target, in target form: for example the one session that blocks a project deletion. |
 
 A refusal carries no message text, by the maintainer's decision of
@@ -155,16 +154,13 @@ These codes change:
   loses its inspection half. A creator container that P cannot identify
   exactly is still refused; step 5 names that code with the others from
   today's conflict errors. The error text goes to the daemon log.
-- Ref repair gains `session_running`, and loses the codes that checked a
-  workspace snapshot or the worktree's HEAD; see its
-  [mapping](#sessionrefrepair-refrepairpreview).
 - Publication gains `destination_divergent`, from `relation: "divergent"`.
 
 ### A plan that is not allowed
 
 A plan that is not allowed still lists `loss` and `details`, holding what P
-found before it stopped. They can be incomplete: missing-runtime repair, for
-example, stops at its first blocked reason. So only an allowed plan's `loss`
+found before it stopped. They can be incomplete, because planning may stop
+at its first refusal. So only an allowed plan's `loss`
 is complete, and a client must not read an empty `loss` in a refused plan as
 "nothing would be lost".
 
@@ -220,9 +216,8 @@ lists changed files, ignored-file summaries and local-only commits, changes
 when step 5 lands.
 
 A second decision of the same day: P reads or changes a session's workspace
-only while the session is stopped, and never freezes it. Rename and ref repair
-require the session stopped and refuse a running one with `session_running`.
-Ref repair reads only the assigned branch's tip in the stopped workspace.
+only while the session is stopped, and never freezes it. Rename requires the
+session stopped and refuses a running one with `session_running`.
 
 ### Fields
 
@@ -307,62 +302,9 @@ of the preview type stays in `details` with its name and content.
 | Not allowed | Refusal codes from today's conflict errors, from step 5; see [Fields that do not fit](#fields-that-do-not-fit-the-envelope), item 2. A running session is not refused: P stops it as part of deleting it. An attached terminal is refused with `attachment_active`. |
 
 Discard and delete share one details type; discard has no `branch_loss`, so it
-has no `p_commits`.
-
-### `session.repair` (`RepairPreview`)
-
-Under [commit-images.md](commit-images.md), missing-runtime repair creates the
-runtime from the session's source-commit image, rebuilt from that same commit
-if it is gone, and then checks out the branch's latest committed tip. Today a
-rebuilt image comes from the branch's tip instead: preparation pins
-`AssignedTip` (`CapturePinnedCommit` in `internal/daemon/repair_prepare.go`),
-and the preview builds its candidate `environment` from that tip
-(`internal/daemon/repair.go`). The plan keeps the two commits apart.
-
-| Today | After |
-|---|---|
-| `session_uuid` | `target` |
-| `eligible`, `blocked_reason` | `allowed`, `refusals` (at most one). `preparation_unavailable`, `preparation_stale` and `base_image_missing` leave with the candidate environment. `recorded_image_missing` stays: the image is gone, and `session.repair.prepare` rebuilds it. |
-| `runtime_local_loss: "unrecoverable"` | `gone`: `runtime_data`, but only after absence is proven: not with `policy_invalid`, `runtime_present` or `runtime_absence_unverified` |
-| `image_source_commit` | The session's source commit (`CapturedOID` in its creation's evidence): the commit the runtime's image is built from. A missing image is rebuilt from it. |
-| `assigned_tip` | Unchanged: the branch's latest committed tip, which the run checks out |
-| `image_source_differs` | Kept: true when `assigned_tip` is not `image_source_commit`, so the checkout is newer than the image's code and environment |
-| `image_fingerprint`, `image_status` | The image the run uses, `present` or `missing`: the session's recorded image, or the image tagged with the session's source commit that preparation built. A missing image refuses the plan with `recorded_image_missing`. |
-| `preparation_operation_id` (param and field), `environment` | Removed. `session.repair.prepare` now builds the missing image from the session's source commit (`CapturedOID`), tags it with that commit and lets commit-images.md's rule keep it while the session exists, so the plan finds it by commit. `environment` described a candidate resolved from the branch's tip and has no counterpart. |
-| `confirmation_token`, `expires_at` | Removed |
-
-The repair run then only creates the runtime from that image and checks out
-`assigned_tip`. The image publication inside today's run
-(`internal/daemon/repair_image.go`) moves to preparation.
-
-### `session.ref.repair` (`RefRepairPreview`)
-
-| Today | After |
-|---|---|
-| `session_uuid` | `target` |
-| `eligible`, `unsafe_reasons` | `allowed`, `refusals`. Adds `session_running`: the session must be stopped. The codes that checked the inspection snapshot or the worktree's HEAD leave: `loss_snapshot_unavailable`, `loss_snapshot_expired`, `p_refs_changed`, `workspace_branch_mismatch`, `local_branch_tip_mismatch`. |
-| `loss_operation_id` (param); `loss_operation_id`, `loss_fingerprint`, `changes`, `ignored`, `branch_mismatch` | Removed: P reads only the assigned branch's tip in the stopped workspace, so the plan carries no workspace snapshot; see [By category](#by-category) |
-| `local_tip` | Details: now the tip of the assigned branch in the stopped workspace, not the worktree's HEAD |
-| Loss | None: the repair creates the absent P ref and leaves the workspace untouched. |
-| `confirmation_token`, `expires_at` | Removed |
-
-### `session.principal.repair` (`PrincipalRepairPreview`)
-
-| Today | After |
-|---|---|
-| `session_uuid` | `target` |
-| `eligible`, `unsafe_reasons` | `allowed`, `refusals`. `runtime_not_stopped` is renamed `session_running`, the code ref repair uses for a running session ([repairs.md](repairs.md#the-plan)). |
-| Loss | None: it replaces a credential. "No Git ref, workspace file, image, or other session credential is changed by this plan" ([session lifecycle](../docs/session-lifecycle.md#repair)). |
-| `confirmation_token`, `expires_at` | Removed |
-
-### `session.record.repair` (`RecordRepairPreview`)
-
-| Today | After |
-|---|---|
-| `session_uuid` | `target` |
-| `eligible`, `unsafe_reasons` | `allowed`, `refusals` |
-| Loss | None: an allowed plan has proven the runtime and the assigned ref absent, and the repair removes only the record, its key and its endpoint. `gone` lists `runtime_data`. |
-| `confirmation_token`, `expires_at` | Removed |
+has no `p_commits`. From step 0e, removal accepts a missing assigned ref
+([repairs.md](repairs.md)): delete then lists no `p_commits`, and discard has
+no branch to keep.
 
 ### `session.create.replace` (`CreateReplacePreview`)
 
@@ -438,7 +380,7 @@ preview.
    retained-branch deletion refuse with RPC errors today; removal answers
    every such case with the same `busy` "lifecycle request conflicts with
    current authority". By the maintainer's decision of 2026-11-02 they answer
-   like the repairs: each "not now, do this first" condition becomes a
+   like create cleanup and replacement: each "not now, do this first" condition becomes a
    refusal code in an `allowed: false` plan, for example `attachment_active`,
    `session_not_established` and `runtime_changed`. Errors stay for invalid
    input, unknown records, unreachable authorities, and a session held for
@@ -469,7 +411,7 @@ branch loss. The shared code sets
 
 | Option | Why not |
 |---|---|
-| Per-method plans with no common envelope | Every client must learn eleven shapes to answer "allowed?" and "what is lost?"; the CLI warning and the TUI would each need eleven renderers. |
+| Per-method plans with no common envelope | Every client must learn seven shapes to answer "allowed?" and "what is lost?"; the CLI warning and the TUI would each need seven renderers. |
 | One generic plan with untyped details (`map[string]any` or raw JSON) | Loses the compile-time checks that shared wire types (step 2) exist to give, and the details cannot be documented as types. |
 | Loss as prose lines, like today's `warnings` | Prose cannot be hashed stably, clients cannot tell a certain loss from a possible one, and translation or rewording would change the hash. |
 | List the container's contents before deleting it (today's workspace loss inspection: changed files, ignored files, commits only in the runtime) | Set aside by the maintainer on 2026-11-02: deletions state loss by category. The inspection needs a helper container, pauses a running source, expires after two minutes and is checked again while deleting. |
@@ -489,10 +431,6 @@ detached; that requirement served its loss proofs, which are gone.
 
 ## How it will be checked
 
-- Repair of a session created at commit C after its branch moved to D: when
-  its image is lost, preparation builds the image from C, release keeps it
-  while the session exists, and the repair checks out D.
-
 - For each change, a unit test that compares today's preview with the new
   plan for the same state and finds every field in `details`, the envelope or
   a loss item, except the fields this document removes.
@@ -503,8 +441,8 @@ detached; that requirement served its loss proofs, which are gone.
   exists lists one certain `runtime_data` item and makes no call into the
   container; a running session is planned and stopped as part of the run; an
   attached terminal is refused with `attachment_active`.
-- Unit tests for ref repair: a running session is refused with
-  `session_running`, and the plan reads only the assigned branch's tip.
+- Unit tests for removal with the assigned ref missing: discard and delete
+  are allowed, and delete lists no `p_commits`.
 - CLI tests: `--force` reads only `allowed`, `refusals`, `loss` and `gone`,
   and prints one line per item; a plan whose only items are in `gone` runs
   without a countdown; a plan that is not allowed is refused with or without

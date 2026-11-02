@@ -40,7 +40,6 @@ commit. There is no separate environment.
 | Looking up an image | Resolve the devShell in a disposable builder, then look up the key | Look up the commit; a hit needs no builder |
 | When P builds | The first session of a new environment | The first session from a new commit |
 | How long an image lives | Until deleted by hand or with its project | While a session started from its commit exists |
-| Repair of a lost container | Reuse the session's image if present, else rebuild from the branch's current tip; then check out the branch's latest committed tip | Reuse the source commit's image if present, else rebuild it from that commit; then check out the branch's latest committed tip, as today |
 | `environment.cache.*` | Manual list and delete | Removed |
 
 The creation phases, before:
@@ -75,7 +74,6 @@ Example, with `main` moving under active work:
 | Session B from `main`, still at 4321 | Reuses the 4321 image: no build, no clone |
 | A and B work | Each container drifts; nothing is rebuilt |
 | `main` moves to 4322; session C from `main` | No image tagged 4322: P builds one, even if only code changed |
-| A's container is lost | Repair reuses the 4321 image, or rebuilds it from 4321, then checks out the latest commit A pushed |
 
 ## The image
 
@@ -134,7 +132,7 @@ gone, P deletes the image.
 
 The links already exist. Creation records each session's source commit
 (`CapturedOID` in its creation's evidence), and it never changes over the
-session's life, because repair rebuilds from the same commit. Every image
+session's life. Every image
 names its commit. So "is this image in use?" is "does any session of this
 project have this source commit?". A session counts in every state:
 `creating` (including a failed creation waiting for Retry), `established` and
@@ -142,7 +140,6 @@ project have this source commit?". A session counts in every state:
 
 What the rule means in practice:
 
-- **Repair always finds its image,** because the session itself keeps it.
 - **Discard, then Create on the retained branch** usually needs a new image
   anyway: if the session committed work, the branch has moved, so the new
   session starts from a different commit. Only a branch that did not move
@@ -170,11 +167,6 @@ The mechanics:
 - A session from a new commit builds an image, even when only code changed:
   a full build, as long as today's build of a new environment, and a full
   image on disk while sessions from that commit exist.
-- Repair of a lost container starts from the session's original image,
-  rebuilt from its source commit if needed, and then checks out the latest
-  work committed to its branch, as today. The environment is therefore always
-  the one the session started with. Today, when the original image is gone,
-  repair rebuilds the environment from the branch's latest commit instead.
 - Code now also lives in images. Deleting a branch does not remove its code
   from images that were built from its commits; the deletion rule or project
   deletion does. A secret committed by mistake therefore stays in an image
@@ -230,10 +222,7 @@ These documents describe today's model and change with this step:
   that commit; the tag in
   the index and the label on the image agree; release never deletes an image
   while a creation holds its commit lock; a `releasing` row is never reused;
-  repair rebuilds a missing image from the session's source commit and checks
-  out the branch's latest committed tip; project deletion deletes every image
-  of the project.
+  project deletion deletes every image of the project.
 - VM scenarios: two sessions from one commit start from one image; a commit
   that changes only code builds a new image; deleting the last session from a
-  commit deletes its image; repairing a session whose image was deleted
-  outside P rebuilds it and restores the branch's latest committed work.
+  commit deletes its image.

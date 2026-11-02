@@ -37,8 +37,8 @@ layout and safety checks, objects, heads and their compare-and-swap, the Git
 service behind P's endpoint with its pre-receive check, the origin transport,
 and the commit export for image builds. Core keeps lifecycle state, the
 journal, policy, change tags, Git authority in SQLite, the SSH server and its
-keys, the origin URL and observations, and the Git edits that rename and ref
-repair make in a stopped workspace. The driver ships as `p-source-git`, started
+keys, the origin URL and observations, and the Git edits that rename makes
+in a stopped workspace. The driver ships as `p-source-git`, started
 and checked like `p-runtime-incus`.
 
 Five questions wait on the maintainer ([below](#open-questions)); the first two
@@ -63,7 +63,7 @@ Only effects whose owner or guarantee changes; the rest stays where
 | Delete, pinned by local identity, after a `DeleteIssued` marker | `os.RemoveAll` in the daemon (project_delete_process.go) | `DeleteRepository` at an incarnation |
 | **Heads** | | |
 | List heads; read one exactly, a symbolic ref counting as present | `ListRefsPage` (WASI), `InspectBranchRef` | `Branches`, `InspectBranch` |
-| Create only if absent: assignment, origin capture, renames, ref repair | Four gitservice methods (WASI `git.branch.create`); two read SQLite | `CreateBranch`; the SQLite checks move to core |
+| Create only if absent: assignment, origin capture, renames | Three gitservice methods once 0h removes ref repair's (WASI `git.branch.create`); one reads SQLite | `CreateBranch`; the SQLite checks move to core |
 | Delete only at the expected tip | `DeleteAssignedBranchExact` (WASI) | `DeleteBranch` |
 | Check a new branch name | `git check-ref-format` in gitservice | Core's name rule |
 | **Commits** | | |
@@ -78,7 +78,7 @@ Only effects whose owner or guarantee changes; the rest stays where
 | URL rule: SSH forms only | `ValidateOriginURL` in gitservice | Core |
 | Observe, fetch, compare, push | `OriginScope`, three of them through WASI | `ObserveOrigin`, `FetchOrigin`, `ComparePublication`, `Publish` |
 | **Gone before the driver** | | |
-| Workspace inspection and loss analysis; `RetainedLossRefs`; origin checks before deletions (`CompareOriginRemoval`) | gitservice, runtimeincus helpers | **Go** in 0d and 0e. `RetainedLossRefs` is assumed from [plan-shape.md](plan-shape.md#sessionrefrepair-refrepairpreview); 0e has not landed |
+| Workspace inspection and loss analysis; `RetainedLossRefs`; origin checks before deletions (`CompareOriginRemoval`) | gitservice, runtimeincus helpers | **Go** in 0d, 0e and 0h: `RetainedLossRefs` serves only the loss inspection (0e) and ref repair (0h) |
 
 ## Who does what
 
@@ -255,7 +255,7 @@ never an absence.
 |---|---|
 | `InspectRepository`: not `Exists` | Nothing is at the project's address, complete or partial |
 | `InspectBranch`: absent | Neither a head nor a symbolic ref holds the name |
-| `InspectCommit`: not `Present` | The object is not a commit in P's repository. It says nothing about the origin or a workspace; ref repair refuses with `p_object_missing` |
+| `InspectCommit`: not `Present` | The object is not a commit in P's repository. It says nothing about the origin or a workspace |
 | `ObserveOrigin`: no such ref | The origin did not advertise it in this observation |
 | `LosingCommits`: none | Every commit of the removed heads stays reachable from a remaining head of the observation |
 
@@ -298,7 +298,7 @@ The runtime driver's rules apply to P's repositories:
 1. **A guard until settled.** The gate's record stays until the effect settles:
    creation's `RefCASIntent`; rename's `new-ref-create-issued` and
    `old-ref-delete-issued`; retained rename's and retained delete's issued
-   phases; ref repair's `ref-create-issued`; session deletion's
+   phases; session deletion's
    `branch-delete-issued`; project deletion's `DeleteIssued`; publication's
    `attempted`.
 2. **Only a positive outcome settles.** An issued phase advances only on
@@ -374,7 +374,7 @@ The steps assume 0d, 0e and step 8 have landed ([open question 5](#open-question
 | Step | What | Removed |
 |---|---|---|
 | S1 | `internal/sourcedriver`: the interface, an in-memory driver and a conformance suite; the bundled driver in process (`internal/sourcedriver/git`), built from gitservice's broker bodies and its direct Git code. Host configuration gets `git.driver: {name, config}`. | — |
-| S2 | Repositories, heads and commits go through the driver: `EnsureBare`, `InspectBranchRef`, `CaptureLocalSource`, the four create methods, `DeleteAssignedBranchExact`, `ListRefsPage` behind `control.GitReader`, `PCommitPresent`, the loss methods, and project deletion's `os.RemoveAll`. The SQLite checks of `CreateCapturedOriginBranch` and `CreateRestoredAssignedRefExact` move to the daemon; `ValidateRenameBranch` becomes P's name rule. | Five command kinds; `RepositoryPath` |
+| S2 | Repositories, heads and commits go through the driver: `EnsureBare`, `InspectBranchRef`, `CaptureLocalSource`, the three create methods, `DeleteAssignedBranchExact`, `ListRefsPage` behind `control.GitReader`, `PCommitPresent`, the loss methods, and project deletion's `os.RemoveAll`. The SQLite checks of `CreateCapturedOriginBranch` move to the daemon; `ValidateRenameBranch` becomes P's name rule. | Five command kinds; `RepositoryPath` |
 | S3 | Origin: core keeps the per-project lock and calls `ObserveOrigin`, `FetchOrigin`, `ComparePublication` and `Publish`; control's origin and publication interfaces adapt to them. | `OriginScope`; three command kinds |
 | S4 | `Export` replaces `CapturePinnedCommit`; core owns the staging directory and hands it to `BuildImage`. | `SourceSnapshot`, `CaptureCommittedSource` |
 | S5 | The SSH server and its stream authorization leave gitservice for a core package that takes the lease and calls `ServeGit`; the hook approval becomes `Approve`. | `git.transport.plan`; the source-git package, `plugin.RunSourceGit` and the Git brokers; `activation_path` and `source_plugin_id` in `git`; the source pin in `CreationSelection`; `p-git-ssh` becomes a runtime driver file |
@@ -439,9 +439,9 @@ rest.
      restrictions, and each connection crosses the process boundary twice
      before any Git runs.
 2. **Do the workspace Git edits stay in core?** Rename rewrites `.git/HEAD`,
-   `.git/config` and head files in the session's clone, and ref repair reads
-   its branch tip, through the runtime driver's operations on a stopped
-   session.
+   `.git/config` and head files in the session's clone, through the runtime
+   driver's operations on a stopped session. Rename is their only user, since
+   session repair is removed ([repairs.md](repairs.md)).
    - (a) Core, as runtime-driver.md says. *Recommended:* the clone belongs to
      the session and is made by the guest's Git, so it looks the same whatever
      stores P's repositories. A forge driver would carry on-disk ref editing it
@@ -518,15 +518,15 @@ rest.
     are released, neither update is sent again, and core reads the head as
     Git left it.
 - **Workers** on the in-memory driver: session creation (local and origin),
-  session and retained rename, retained deletion, discard, delete, ref repair
-  (`p_object_missing` included), project deletion and publication, each with an
+  session and retained rename, retained deletion, discard, delete, project
+  deletion and publication, each with an
   unknown outcome after the gate; a guard waits until every service of a
   failed driver is reported ended.
 - **Boundaries:** only the bundled driver runs `git` or `ssh` on the host or
   opens its storage; the bundled driver imports no SQLite code; the launch
   checks refuse as they do for the runtime driver; only `HOME` and
   `SSH_AUTH_SOCK` reach the driver's environment.
-- **VM scenarios** 04, 07, 08, 14, 16 to 20, 31 to 33, 39, 43, 44 and 52 keep
+- **VM scenarios** 04, 07, 08, 14, 16 to 20, 31 to 33, 43, 44 and 52 keep
   their outcomes with no source package, except that 19 (committed snapshot)
   follows open question 3; 48 and 54 no longer see source-git.
   New: kill the driver during a session push after approval and during a head

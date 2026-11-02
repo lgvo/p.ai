@@ -1,7 +1,7 @@
 # Task commands in the CLI
 
 Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md).
-It designs step 7 and builds on steps 2 to 6.
+It designs step 7 and builds on steps 2 to 5.
 
 ## Summary
 
@@ -33,7 +33,7 @@ command:
 stays for protocol work. The host commands (`p daemon`, `p plugins`) keep
 their arguments and output and are listed under their own heading.
 
-Two questions about the CLI wait on the maintainer; see
+One question about the CLI waits on the maintainer; see
 [Open questions](#open-questions).
 
 ## The commands
@@ -91,7 +91,6 @@ a dry run; [Risky changes](#risky-changes) describes them.
 | `p session rename SESSION NEW` | `session.rename` | Reads the tip, as the TUI does; waits. A running session is refused. |
 | `p session discard SESSION` | `session.discard` | Asks, waits. P stops a running session itself. |
 | `p session delete SESSION` | `session.delete` | Same |
-| `p session repair SESSION` | `session.repair`; `session.repair.prepare` when the image is missing | Asks, waits. The daemon diagnoses which of the four repairs applies ([repairs.md](repairs.md)). |
 | `p session cleanup SESSION` | `session.create.cleanup` | Asks, waits: ends a failed creation and keeps its branch |
 | `p attach SESSION` | `session.start`, `operation.wait` when it returns an operation, then `session.attach` | `session.attach` no longer starts a session ([waiting.md](waiting.md#start-and-stop-as-operations)), so `p attach` calls start first, by the [same rule](#start-and-stop): a ready session attaches at once, otherwise it waits for the start; users see the same result. Also accepts `PROJECT:BRANCH`. |
 | `p service list SESSION` | `session.services` | |
@@ -298,9 +297,9 @@ after a wait may meet an expired or changed tag; that is
 
 ## Risky changes
 
-The commands that ask are the ones whose API method has a dry run: the eight
-methods left after step 6 ([repairs.md](repairs.md#before-and-after)).
-They are session discard, delete, repair, create replacement and cleanup;
+The commands that ask are the ones whose API method has a dry run: the seven
+methods in [state-hash-confirmation.md](state-hash-confirmation.md#the-api).
+They are session discard, delete, create replacement and cleanup;
 project deletion; retained-branch deletion; and publication.
 
 ### The flow
@@ -346,8 +345,7 @@ first needs it creates it.
 
 | Command | Heading facts |
 |---|---|
-| `p session discard`, `delete` | UUID and `PROJECT:BRANCH`; for delete, that the branch goes too, and for discard, that it stays |
-| `p session repair` | Which repair applies (the details' `kind`); for a missing runtime, the source commit of the image and the tip it checks out |
+| `p session discard`, `delete` | UUID, `PROJECT:BRANCH`, and whether the branch stays or goes |
 | `p session create --replace`, `cleanup` | The blocked creation's UUID and branch; for replacement, the new request; for cleanup, what it keeps: the branch and shared images |
 | `p project delete` | The project, its sessions and branches, and what deletion keeps: granted host directories, shared images, other projects, and logs already delivered to event handlers, whose retention is the handler's own |
 | `p branch delete` | `PROJECT:BRANCH` and its tip |
@@ -453,7 +451,8 @@ These change when step 7 lands:
 - [User guide](../docs/user-guide.md): every walkthrough uses the task
   commands instead of `api` helpers and `jq`. The TUI section's "Bulk project
   deletion, publication, plugin management and specialized repairs remain
-  CLI/API workflows" now names the commands.
+  CLI/API workflows" names the commands and drops the repairs, which P no
+  longer has ([repairs.md](repairs.md)).
 - [Control API](../docs/control-api.md#host-framing-and-request-envelope):
   the paragraph on `p api` gains the task commands and loses the two-minute
   deadline.
@@ -469,19 +468,6 @@ These change when step 7 lands:
    tag makes the daemon run that plan or nothing. Without it, a script that
    decides from the plan has to use `p api`, and `--force` runs whatever the
    plan has become by then.
-2. **Should `p session repair` build a missing image itself?** The image is
-   rebuilt by a separate call, `session.repair.prepare`, which
-   [repairs.md](repairs.md#sessionrepairprepare-stays) keeps; until it has
-   run, the plan refuses with `recorded_image_missing`, and repairs.md leaves
-   the CLI's behavior to this step. *Recommendation:* yes. When that refusal
-   is the only one, the CLI says the image will be rebuilt, runs the
-   preparation and waits, then makes a new dry run and asks as usual.
-   Preparation destroys nothing, and the user asked for a repair. `--dry-run`
-   never builds. The alternative is a refusal sentence that tells the user to
-   run a second command.
-
-Whether the TUI gets a Repair action in step 7 is a TUI question, listed in
-the plan's [Waits on you](REWORK-PLAN.md#waits-on-you).
 
 ## How it will be checked
 

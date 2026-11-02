@@ -32,12 +32,12 @@ nothing to do with Incus lives in the Incus adapter too.
 - Builders get public internet access only. No package cache for now.
 - P targets fresh installs: no upgrade path.
 
-**Proposed:** a `Driver` of 22 operations in P's terms, in six groups. The
+**Proposed:** a `Driver` of 20 operations in P's terms, in six groups. The
 driver owns how sessions and images work: the image and its build, the guest,
 the session host, project services, terminals, devices, network, and the
 proofs of its own boundary. Core keeps lifecycle state, the journal, policy,
-Git authority, the proofs of absence, and the Git edits that rename and ref
-repair make in a stopped workspace; Git effects go through the
+Git authority, the proofs of absence, and the Git edits that rename makes in
+a stopped workspace; Git effects go through the
 [source driver](source-driver.md). The WASI environment plugin folds into the driver's
 image build.
 
@@ -66,11 +66,11 @@ internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 | Boundary | `CheckConfinement` and the egress proofs, before every mutation | — | `Check`, `Describe` (backend.go, egress.go, egress_firewall.go) |
 | Capacity and absence | Seven `incus list` scans; one slot kept for a helper | Admission and the proofs, from `Inspect` and `Inventory`; no helper slot | `Inventory`, one reader |
 | Session runtimes | `incus init`, devices, start, stop | Lifecycle, gates, locks | `Inspect`, `Create`, `Start`, `Stop`, `Delete` (backend.go, discard.go) |
-| Guest and Git key | Core's guest file plan and key replacement over the file API | The session spec; principal repair's decisions | Inside `Create`; `InspectGitKey`, `SetGitKey` (assembly.go, principal_repair.go) |
+| Guest and Git key | Core's guest file plan over the file API | The session spec | Inside `Create` (assembly.go) |
 | Session host | Core reads `systemctl show` and the journal | — | Inside `Start` and `Inspect` (host_observe.go, the daemon's readiness wait) |
 | Project services | `systemctl --user` through the WASI plugin | The API methods, the lock, the ready check | `Services`, `ServiceAction`, `ServiceLogs` (services.go) |
 | Terminals | The helper's own Incus exec channel | Token, lease, relay to the helper | `OpenTerminal` (attach.go, internal/attachment/incus.go) |
-| Workspace | Rename and ref repair edit Git files in a stopped or frozen runtime | The Git edits and the branch-tip read, stopped sessions only | Workspace operations and the stopped-storage check |
+| Workspace | Rename edits Git files in a stopped or frozen runtime | The Git edits, stopped sessions only | Workspace operations and the stopped-storage check |
 | Network | An egress address per session, reserved in SQLite | The reservation | Attaching the container to it, the egress proofs |
 | Endpoints and grants | Sockets on the host; grants captured under trusted ceilings | Both, unchanged | Their delivery into the session |
 | Images | Core and the WASI environment plugin drive builder containers; `incus publish` | The index and release rule ([commit-images.md](commit-images.md)) | `BuildImage` with public egress, the image operations (builder*.go, environmentnix, nixenv) |
@@ -90,7 +90,7 @@ Three ideas carry it:
 - **P's concepts, not the guest's layout.** Core names a session, its
   command, branch, key, endpoints, grants and network; the driver decides
   where they go. The one guest place core knows is the workspace, the Git
-  clone that rename and ref repair edit while the session is stopped.
+  clone that rename edits while the session is stopped.
 - **Gates.** A mutation takes a gate: a core function the driver calls once,
   after every check and right before the first effect. Core records its
   durable intent there. If the gate fails, nothing happened; if the call
@@ -118,8 +118,6 @@ type Driver interface {
 	Start(ctx context.Context, s Session) (Observation, error)                          // returns with the host ready, or stopped with a diagnostic
 	Stop(ctx context.Context, s Session) (Observation, error)
 	Delete(ctx context.Context, r Ref, at Incarnation, g Gate) error // a session, or a build's leftovers
-	InspectGitKey(ctx context.Context, t Target) (GitKey, error)     // stopped session
-	SetGitKey(ctx context.Context, t Target, key []byte, replaces GitKey, g Gate) error
 	OpenTerminal(ctx context.Context, t Target, size Size) (Terminal, error)
 
 	// The workspace of a stopped session; paths relative to its root
@@ -178,20 +176,13 @@ type Observation struct {
 	Host        HostState   // ready or not, with a bounded diagnostic
 }
 
-type GitKey struct { // never the key's bytes
-	Present     bool
-	Fingerprint string // empty when the file is not a valid Ed25519 key
-	SHA256      string // digest of the file's bytes
-	SafeTarget  bool   // the key's place is a private file the driver controls
-}
-
 type Effect struct {
-	Kind     EffectKind // create, start, stop, delete, set-git-key, write, remove, build, delete-image, terminal
+	Kind     EffectKind // create, start, stop, delete, write, remove, build, delete-image, terminal
 	Target   Target
 	Build    Build
 	Image    Image
 	Path     string
-	Content  File // set-git-key and write: what must now be there
+	Content  File // write: what must now be there
 	Terminal string
 }
 
@@ -238,7 +229,7 @@ var (
 | `Start`, `Stop` | Converge on the state and do nothing when it holds. `Start` re-checks grants, endpoints and the egress substrate and returns once the session host is ready; if the host fails, the runtime ends stopped and `Start` returns the bounded diagnostic. When the host exits, the runtime stops and is never restarted. `Stop` is graceful and bounded. |
 | `Delete` | Act only on the given incarnation; stop a running runtime first. After success the reference is absent and its private storage gone. |
 | `Inventory` | List every object in scope, P's or not, including ones being deleted, with labels as stored, within a stated bound; an error rather than a partial list. |
-| `InspectGitKey`, `SetGitKey`, workspace operations | Act only on a stopped session of the given incarnation. Never run code the session or its repository can change; never follow symlinks; read and write exact owner, mode and bytes, within bounds; reach only the session's private storage. `InspectGitKey` never returns key bytes. `SetGitKey` refuses unless the session still holds the key `replaces` describes and its place is safe, then writes and reads back. |
+| Workspace operations | Act only on a stopped session of the given incarnation. Never run code the session or its repository can change; never follow symlinks; read and write exact owner, mode and bytes, within bounds; reach only the session's private storage. |
 | `OpenTerminal` | Attach the session user to the session host with a PTY. Arm a completion witness before the attach starts, or fail; report `Proven` completion only from it. |
 | `BuildImage` | Build an image of the commit for this runtime, label it, and leave no builder behind on success or definite failure. The builder gets the commit's files, the public-egress network and nothing else. |
 | Images | Store labels immutably and return them verbatim. `DeleteImage` acts on the exact reference and labels and never affects runtimes created from the image. |
@@ -257,7 +248,7 @@ external rename can move a runtime away from its address.
 | Network `none` | Nothing is reachable except the two P endpoints. (No NIC.) |
 | Network `public-egress`, for sessions and builders | Outbound TCP 80 and 443 and DNS to the configured resolvers only; host, private, CGNAT, link-local, metadata, multicast, sibling runtimes and the driver's API denied over IPv4 and IPv6; proven from live state before each create and start, by a check the daemon's account cannot forge. (Managed bridge, ACL and nftables read by two fixed sudo commands.) |
 | Private state | Everything the session writes is kept: the whole private root survives stop and start, belongs to this runtime only, and is gone after `Delete`. (The instance root.) |
-| Stopped storage | Workspace and Git-key operations reach only the session's private root: never a grant, the endpoint directory, a host path, another runtime's storage or a guest-made mount, at, below or above the path; a driver that cannot tell refuses. (A stopped instance's file API sees only its storage volume; the mountinfo parser in workspace_mounts.go stays for drivers that read through a live mount namespace.) |
+| Stopped storage | Workspace operations reach only the session's private root: never a grant, the endpoint directory, a host path, another runtime's storage or a guest-made mount, at, below or above the path; a driver that cannot tell refuses. (A stopped instance's file API sees only its storage volume; the mountinfo parser in workspace_mounts.go stays for drivers that read through a live mount namespace.) |
 | Session host and services | The runtime runs the session's command in a persistent host that terminals attach to, reports it ready or not ready with a bounded diagnostic, and runs project services its own way. (systemd, tmux from the interactive-host package, user units.) |
 | Identity | Labels stored and returned exactly; an incarnation stable across start and stop, new on re-create or restore. (`user.p.*` keys, `volatile.uuid` and its generation, image properties.) |
 | Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints`, and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. (Disk devices within the project's ceilings.) |
@@ -270,14 +261,14 @@ contract keeps today's rules:
 
 1. **A guard until settled.** The gate's record stays until the effect
    settles: the creation's init state, the build's states and publication
-   claim, rename's write marker, the key-install marker, the delete mark.
+   claim, rename's write marker, the delete mark.
 2. **Only a positive outcome settles**: the intended object or state, seen
    exactly on two observations 250 ms apart with no Incus operation active
    on it. The Incus driver never returns `NotApplied` for a create or a build.
 3. **A non-idempotent effect is never sent again.** A fresh `Create`, a
-   build, a delete, a key write and a workspace write are settled, never
-   resent; a new build gets a new reference, and a delayed admission on the
-   old one shows up in `Inventory` or `Images`, where core accepts or deletes
+   build, a delete and a workspace write are settled, never resent; a new
+   build gets a new reference, and a delayed admission on the old one shows
+   up in `Inventory` or `Images`, where core accepts or deletes
    it exactly. Operations that are idempotent by reference may be called
    again: `Create` at an exact incarnation, `Start`, `Stop`.
 
@@ -289,20 +280,6 @@ at that incarnation, which completes it and can never initialize a second
 one. An uncertain guest write is found identical and kept, or found
 different and refused, which leaves the creation for cleanup. Whether an
 interrupted Incus file write can leave a partial file was not verified.
-
-**Principal repair.** Core reads `InspectGitKey` to decide eligibility and to
-bind the confirmation to the observed digest. It keeps today's three-part
-intact check (principal_repair.go, `principalKeyStatus` in session_keys.go):
-the principal is intact only when the registration is active, the host-side
-private key matches the registered fingerprint, and the guest key matches it
-too. Today that refuses principal repair as `principal_intact`; with step 6's
-single `session.repair`, the dry run reports it as kind `none`, refused with
-`nothing_to_repair` ([repairs.md](repairs.md#the-dry-run-diagnoses)). A missing host key stays its own condition,
-`missing`, which repair fixes. Before it
-rotates authority, it reads the key again and requires the same digest.
-`SetGitKey` takes that observation as `replaces`, so the write itself
-refuses a key that changed meanwhile. An uncertain write is settled by
-reading back the intended digest.
 
 ### Terminals
 
@@ -431,14 +408,15 @@ Each step is a commit that leaves `go vet`, the unit tests, the TUI tests,
 The groundwork steps have already run: 0d removed the `workspace.inspect`
 method; 0e removed the loss inspection, and with it the workspace helpers,
 their Git analysis and their slot in admission, removed freezing, and made
-rename and ref repair stopped-only; 0g gave builders public egress.
+rename stopped-only and let removal accept a missing branch ref; 0h removed
+session repair; 0g gave builders public egress.
 
 | Step | What | Removed |
 |---|---|---|
 | M1 | The full interface, an in-memory driver and a conformance suite; the Incus driver in process over `runtimeincus`, with the guest file plan, the host readiness wait and services.go as driver code. Host configuration gets `runtime.driver: {name, config}`. | — |
 | M2 | The 16 `plugin.RunRuntime` calls go to the driver: inspect, create, start and stop to the session operations, `runtime.services` to the services operations. Attachment keeps today's spec until M5. | The WASI runtime plugin, its broker, capability and grant; `runtime_plugin_id`; the daemon's `serviceBroker` |
 | M3 | `Check`, `Describe`, `Inventory`; core computes the proofs, with one inventory bound instead of today's per-caller 4 or 64. | The proof scans |
-| M4 | The remaining direct calls: `Delete`, `InspectGitKey`, `SetGitKey`, the workspace operations with the stopped-storage check, `Settle`, and `Create` at an incarnation for recovery. | The other `l.runtime` calls |
+| M4 | The remaining direct calls: `Delete`, the workspace operations with the stopped-storage check, `Settle`, and `Create` at an incarnation for recovering a partial create. | The other `l.runtime` calls |
 | M5 | `OpenTerminal`; the daemon relays the terminal and the helper loses Incus access. | internal/attachment/incus.go, `ValidateAttachmentOperation`, the Incus fields of `AttachmentLaunch` |
 | M6 | The daemon holds only `runtimedriver.Driver`; `runtimeincus` moves to `internal/runtimedriver/incus`, and a test fails if another package imports it or runs `incus`. | `lifecycle.runtime` |
 | M7 | The protocol and the `p-runtime-incus` executable, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`. | `name` |
@@ -507,9 +485,6 @@ rename and ref repair stopped-only; 0g gave builders public egress.
     absent observation stays `Unknown` and never authorizes a second one;
     `Applied` needs the exact outcome with nothing in flight; the same
     answers after a driver restart;
-  - the Git key: `InspectGitKey` reports missing, invalid and valid keys and
-    never key bytes, refuses an unsafe target, and `SetGitKey` refuses when
-    the digest in `replaces` no longer matches;
   - stopped storage, from workspace_mounts_test.go: a foreign mount at, below
     or above the workspace, escaped names included, is refused, and
     `/workspace-sibling` is not confused with it; a marker in a grant source
@@ -521,13 +496,10 @@ rename and ref repair stopped-only; 0g gave builders public egress.
     destinations and nothing local; a host failure leaves the runtime
     stopped with a diagnostic;
   - the services cases in [services-plugin.md](services-plugin.md#how-it-will-be-checked).
-- **Workers** on the in-memory driver: create, discard, delete, rename, ref
-  repair, principal repair, repair and project deletion, each with an unknown
-  outcome after the gate; rename and ref repair refused with
-  `session_running`; discard and delete refused while a terminal is attached;
-  principal repair refused only when registration, host key and guest key
-  all match, allowed for a missing host key, and blocked when the digest
-  changes before rotation.
+- **Workers** on the in-memory driver: create, discard, delete, rename and
+  project deletion, each with an unknown outcome after the gate; rename
+  refused with `session_running`; discard and delete refused while a
+  terminal is attached.
 - **Attachment**, from helper_test.go: the lease is kept until proven
   completion; daemon loss closes the channel without re-registering; a failed
   launch never confirms. New: a driver failure ends terminals unproven and
