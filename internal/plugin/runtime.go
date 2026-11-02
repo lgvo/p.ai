@@ -8,14 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"time"
 
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-	"github.com/tetratelabs/wazero/sys"
 )
 
 const RuntimeCommandSchema = "p.command/v1"
@@ -118,16 +114,15 @@ func RunRuntime(parent context.Context, selected Active, kind string, broker Run
 	default:
 		return zero, errors.New("unknown runtime command")
 	}
-	current, retained, err := packageSnapshot(ctx, selected.Package.Path, map[string]bool{m.Runtime.Entry: true})
-	if err != nil || current.SHA256 != selected.Package.SHA256 || !reflect.DeepEqual(current.Manifest, m) {
+	moduleBytes, unavailable := selectedModule(ctx, selected)
+	switch unavailable {
+	case moduleUnreadable, moduleChanged:
 		return zero, errors.New("runtime package changed")
-	}
-	moduleBytes := retained[m.Runtime.Entry]
-	if len(moduleBytes) == 0 {
+	case moduleMissing:
 		return zero, errors.New("runtime module missing")
 	}
 	var nonce [16]byte
-	if _, err = rand.Read(nonce[:]); err != nil {
+	if _, err := rand.Read(nonce[:]); err != nil {
 		return zero, err
 	}
 	cmd := RuntimeCommand{Schema: RuntimeCommandSchema, Kind: kind, Scope: hex.EncodeToString(nonce[:])}
@@ -135,11 +130,11 @@ func RunRuntime(parent context.Context, selected Active, kind string, broker Run
 	if err != nil || len(input) > maxCommandBytes {
 		return zero, errors.New("runtime command exceeds limit")
 	}
-	rt := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfigInterpreter().WithMemoryLimitPages(256).WithCloseOnContextDone(true))
-	defer rt.Close(ctx)
-	if _, err = wasi_snapshot_preview1.Instantiate(ctx, rt); err != nil {
+	rt, err := newSandbox(ctx)
+	if err != nil {
 		return zero, errors.New("runtime WASI initialization failed")
 	}
+	defer rt.Close(ctx)
 	calls, mutations, hostReads := 0, 0, 0
 	inspected := false
 	var brokerFailure error
@@ -150,7 +145,7 @@ func RunRuntime(parent context.Context, selected Active, kind string, broker Run
 			brokerFailure = errors.New("runtime broker bounds exceeded")
 			return -1
 		}
-		memory := module.ExportedMemory("memory")
+		memory := guestMemory(module)
 		if memory == nil {
 			brokerFailure = errors.New("runtime module memory missing")
 			return -1
@@ -240,25 +235,20 @@ func RunRuntime(parent context.Context, selected Active, kind string, broker Run
 	if _, err = host.Instantiate(ctx); err != nil {
 		return zero, errors.New("runtime broker initialization failed")
 	}
-	var output, diagnostic boundedOutput
-	_, err = rt.InstantiateWithConfig(ctx, moduleBytes, wazero.NewModuleConfig().WithStdin(bytes.NewReader(append(input, '\n'))).WithStdout(&output).WithStderr(&diagnostic))
+	output, failed := runModule(ctx, rt, moduleBytes, input)
 	if brokerFailure != nil {
 		return zero, brokerFailure
 	}
-	if ctx.Err() != nil {
+	switch failed {
+	case runTimedOut:
 		return zero, errors.New("runtime plugin timed out; native state must be re-inspected")
-	}
-	if output.overflow || diagnostic.overflow {
+	case runOutputExceeded:
 		return zero, errors.New("runtime plugin output exceeded limit")
-	}
-	if err != nil {
-		var exit *sys.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != 0 {
-			return zero, errors.New("runtime plugin execution failed")
-		}
+	case runFailed:
+		return zero, errors.New("runtime plugin execution failed")
 	}
 	var result CommandResult
-	if strictJSON(bytes.TrimSpace(output.Bytes()), &result) != nil || result.Schema != WASIResultSchema || len(result.Message) > 256 {
+	if strictJSON(bytes.TrimSpace(output), &result) != nil || result.Schema != WASIResultSchema || len(result.Message) > 256 {
 		return zero, errors.New("runtime plugin result invalid")
 	}
 	if result.Status == "refused" {

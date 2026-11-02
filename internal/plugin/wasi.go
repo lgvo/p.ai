@@ -5,14 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"slices"
 	"time"
 
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-	"github.com/tetratelabs/wazero/sys"
 )
 
 const (
@@ -96,29 +92,26 @@ func RunEvent(parent context.Context, selected Active, event Event) (CommandResu
 	if err := strictJSON(selected.Config, &config); err != nil {
 		return result, errors.New("invalid trusted event-handler config")
 	}
-	current, retained, err := packageSnapshot(ctx, selected.Package.Path, map[string]bool{m.Runtime.Entry: true})
-	if err != nil {
-		if ctx.Err() != nil {
-			return result, errors.New("plugin execution timed out or was cancelled")
-		}
+	moduleBytes, unavailable := selectedModule(ctx, selected)
+	switch {
+	case unavailable == moduleUnreadable && ctx.Err() != nil:
+		return result, errors.New("plugin execution timed out or was cancelled")
+	case unavailable == moduleUnreadable:
 		return result, errors.New("selected package digest changed or invalid")
-	}
-	if current.SHA256 != selected.Package.SHA256 || !reflect.DeepEqual(current.Manifest, m) {
+	case unavailable == moduleChanged:
 		return result, errors.New("selected package digest changed")
-	}
-	moduleBytes := retained[m.Runtime.Entry]
-	if len(moduleBytes) == 0 {
+	case unavailable == moduleMissing:
 		return result, errors.New("module entry missing")
 	}
 	input, err := json.Marshal(CommandRequest{Schema: WASIRequestSchema, Kind: "event.handle", Event: event})
 	if err != nil || len(input) > maxCommandBytes {
 		return result, errors.New("command input exceeds limit")
 	}
-	runtime := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfigInterpreter().WithMemoryLimitPages(256).WithCloseOnContextDone(true))
-	defer runtime.Close(ctx)
-	if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
+	runtime, err := newSandbox(ctx)
+	if err != nil {
 		return result, errors.New("WASI runtime initialization failed")
 	}
+	defer runtime.Close(ctx)
 	var brokerFailure error
 	callCount := 0
 	broker := runtime.NewHostModuleBuilder("p_broker_v1")
@@ -133,10 +126,7 @@ func RunEvent(parent context.Context, selected Active, event Event) (CommandResu
 				brokerFailure = errors.New("broker request exceeds limit")
 				return -1
 			}
-			// wazero's Module.Memory can hold a typed nil when a module has
-			// no memory. WASI commands export their linear memory as "memory";
-			// ExportedMemory returns a real nil for a missing export.
-			memory := module.ExportedMemory("memory")
+			memory := guestMemory(module)
 			if memory == nil {
 				brokerFailure = errors.New("broker request outside module memory")
 				return -1
@@ -169,25 +159,19 @@ func RunEvent(parent context.Context, selected Active, event Event) (CommandResu
 	if _, err := broker.Instantiate(ctx); err != nil {
 		return result, errors.New("broker initialization failed")
 	}
-	var output, diagnostic boundedOutput
-	moduleConfig := wazero.NewModuleConfig().WithStdin(bytes.NewReader(append(input, '\n'))).WithStdout(&output).WithStderr(&diagnostic)
-	_, err = runtime.InstantiateWithConfig(ctx, moduleBytes, moduleConfig)
+	output, failed := runModule(ctx, runtime, moduleBytes, input)
 	if brokerFailure != nil {
 		return result, brokerFailure
 	}
-	if ctx.Err() != nil {
+	switch failed {
+	case runTimedOut:
 		return result, errors.New("plugin execution timed out or was cancelled")
-	}
-	if output.overflow || diagnostic.overflow {
+	case runOutputExceeded:
 		return result, errors.New("plugin output exceeds limit")
+	case runFailed:
+		return result, errors.New("plugin execution failed")
 	}
-	if err != nil {
-		var exit *sys.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != 0 {
-			return result, errors.New("plugin execution failed")
-		}
-	}
-	if err := strictJSON(bytes.TrimSpace(output.Bytes()), &result); err != nil || result.Schema != WASIResultSchema || (result.Status != "appended" && result.Status != "skipped") || len(result.Message) > 256 || (result.Status == "appended") != (callCount == 1) {
+	if err := strictJSON(bytes.TrimSpace(output), &result); err != nil || result.Schema != WASIResultSchema || (result.Status != "appended" && result.Status != "skipped") || len(result.Message) > 256 || (result.Status == "appended") != (callCount == 1) {
 		return CommandResult{}, errors.New("invalid plugin result")
 	}
 	return result, nil

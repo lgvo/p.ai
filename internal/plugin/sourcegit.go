@@ -7,15 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"slices"
 	"time"
 	"unicode/utf8"
 
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-	"github.com/tetratelabs/wazero/sys"
 )
 
 const GitCommandSchema = "p.command/v1"
@@ -214,12 +210,11 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	default:
 		return outcome, errors.New("unknown source-git method")
 	}
-	current, retained, err := packageSnapshot(ctx, selected.Package.Path, map[string]bool{m.Runtime.Entry: true})
-	if err != nil || current.SHA256 != selected.Package.SHA256 || !reflect.DeepEqual(current.Manifest, m) {
+	moduleBytes, unavailable := selectedModule(ctx, selected)
+	switch unavailable {
+	case moduleUnreadable, moduleChanged:
 		return outcome, errors.New("source-git package changed")
-	}
-	moduleBytes := retained[m.Runtime.Entry]
-	if len(moduleBytes) == 0 {
+	case moduleMissing:
 		return outcome, errors.New("source-git module is missing")
 	}
 	var nonce [16]byte
@@ -231,11 +226,11 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	if err != nil || len(input) > maxCommandBytes {
 		return outcome, errors.New("source-git command exceeds limit")
 	}
-	runtime := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfigInterpreter().WithMemoryLimitPages(256).WithCloseOnContextDone(true))
-	defer runtime.Close(ctx)
-	if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
+	runtime, err := newSandbox(ctx)
+	if err != nil {
 		return outcome, errors.New("WASI initialization failed")
 	}
+	defer runtime.Close(ctx)
 	var brokerFailure error
 	callCount, offset, prepared := 0, 0, false
 	inspected, initialized, headSet := false, false, false
@@ -253,7 +248,7 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 			brokerFailure = errors.New("source-git broker bounds exceeded")
 			return -1
 		}
-		memory := module.ExportedMemory("memory")
+		memory := guestMemory(module)
 		if memory == nil {
 			brokerFailure = errors.New("source-git memory missing")
 			return -1
@@ -426,26 +421,20 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	if _, err := mod.Instantiate(ctx); err != nil {
 		return outcome, errors.New("source-git broker initialization failed")
 	}
-	var output, diagnostic boundedOutput
-	config := wazero.NewModuleConfig().WithStdin(bytes.NewReader(append(input, '\n'))).WithStdout(&output).WithStderr(&diagnostic)
-	_, err = runtime.InstantiateWithConfig(ctx, moduleBytes, config)
+	output, failed := runModule(ctx, runtime, moduleBytes, input)
 	if brokerFailure != nil {
 		return outcome, brokerFailure
 	}
-	if ctx.Err() != nil {
+	switch failed {
+	case runTimedOut:
 		return outcome, errors.New("source-git execution timed out")
-	}
-	if output.overflow || diagnostic.overflow {
+	case runOutputExceeded:
 		return outcome, errors.New("source-git output exceeded limit")
-	}
-	if err != nil {
-		var exit *sys.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != 0 {
-			return outcome, errors.New("source-git execution failed")
-		}
+	case runFailed:
+		return outcome, errors.New("source-git execution failed")
 	}
 	var result GitResult
-	if strictJSON(bytes.TrimSpace(output.Bytes()), &result) != nil || result.Schema != GitResultSchema || len(result.Message) > 256 {
+	if strictJSON(bytes.TrimSpace(output), &result) != nil || result.Schema != GitResultSchema || len(result.Message) > 256 {
 		return outcome, errors.New("invalid source-git result")
 	}
 	if result.Status == "refused" {

@@ -7,14 +7,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"reflect"
 	"slices"
 	"time"
 
-	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
-	"github.com/tetratelabs/wazero/sys"
 )
 
 const EnvironmentCommandSchema = "p.command/v1"
@@ -73,12 +69,11 @@ func RunEnvironment(parent context.Context, selected Active, kind string, broker
 	if kind != "environment.resolve" && kind != "environment.realize" {
 		return errors.New("unknown environment command")
 	}
-	current, retained, err := packageSnapshot(ctx, selected.Package.Path, map[string]bool{m.Runtime.Entry: true})
-	if err != nil || current.SHA256 != selected.Package.SHA256 || !reflect.DeepEqual(current.Manifest, m) {
+	moduleBytes, unavailable := selectedModule(ctx, selected)
+	switch unavailable {
+	case moduleUnreadable, moduleChanged:
 		return errors.New("environment package changed")
-	}
-	moduleBytes := retained[m.Runtime.Entry]
-	if len(moduleBytes) == 0 {
+	case moduleMissing:
 		return errors.New("environment module missing")
 	}
 	var nonce [16]byte
@@ -90,11 +85,11 @@ func RunEnvironment(parent context.Context, selected Active, kind string, broker
 	if err != nil || len(input) > maxCommandBytes {
 		return errors.New("environment command exceeds limit")
 	}
-	rt := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfigInterpreter().WithMemoryLimitPages(256).WithCloseOnContextDone(true))
-	defer rt.Close(ctx)
-	if _, err := wasi_snapshot_preview1.Instantiate(ctx, rt); err != nil {
+	rt, err := newSandbox(ctx)
+	if err != nil {
 		return errors.New("environment WASI initialization failed")
 	}
+	defer rt.Close(ctx)
 	calls := 0
 	var brokerFailure error
 	host := rt.NewHostModuleBuilder("p_broker_v1")
@@ -104,7 +99,7 @@ func RunEnvironment(parent context.Context, selected Active, kind string, broker
 			brokerFailure = errors.New("environment broker bounds exceeded")
 			return -1
 		}
-		memory := module.ExportedMemory("memory")
+		memory := guestMemory(module)
 		if memory == nil {
 			brokerFailure = errors.New("environment module memory missing")
 			return -1
@@ -137,25 +132,20 @@ func RunEnvironment(parent context.Context, selected Active, kind string, broker
 	if _, err := host.Instantiate(ctx); err != nil {
 		return errors.New("environment broker initialization failed")
 	}
-	var output, diagnostic boundedOutput
-	_, err = rt.InstantiateWithConfig(ctx, moduleBytes, wazero.NewModuleConfig().WithStdin(bytes.NewReader(append(input, '\n'))).WithStdout(&output).WithStderr(&diagnostic))
+	output, failed := runModule(ctx, rt, moduleBytes, input)
 	if brokerFailure != nil {
 		return brokerFailure
 	}
-	if ctx.Err() != nil {
+	switch failed {
+	case runTimedOut:
 		return errors.New("environment WASI timed out; native state requires inspection")
-	}
-	if output.overflow || diagnostic.overflow {
+	case runOutputExceeded:
 		return errors.New("environment WASI output exceeded limit")
-	}
-	if err != nil {
-		var exit *sys.ExitError
-		if !errors.As(err, &exit) || exit.ExitCode() != 0 {
-			return errors.New("environment WASI execution failed")
-		}
+	case runFailed:
+		return errors.New("environment WASI execution failed")
 	}
 	var result environmentResult
-	if strictJSON(bytes.TrimSpace(output.Bytes()), &result) != nil || result.Schema != WASIResultSchema {
+	if strictJSON(bytes.TrimSpace(output), &result) != nil || result.Schema != WASIResultSchema {
 		return errors.New("environment WASI result invalid")
 	}
 	if result.Status == "refused" {

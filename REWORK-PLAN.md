@@ -285,13 +285,18 @@ five copies (the endpoint prefix uses the same rule). Each operation keeps its
 own diagnostic, since those texts reach operation diagnostics; a
 characterization test pins them first.
 
-**7. WASI invocation core.** One function in plugin performs lease, slot,
-deadline, package re-snapshot and digest check, wazero instantiation with the
-broker import and memory checks, bounded I/O and the exit check; the four
-runners keep their own command and scope construction and their typed result
-decoding (event requests have no scope, and the environment result accepts
-fewer fields), and supply their broker handler and limits. Schema constants are
-defined once. The ABI and every bound stay as documented.
+**7. WASI sandbox in one place.** `internal/plugin/wasi_sandbox.go` holds the
+sandbox every executable capability runs in (interpreter, 16 MiB memory limit,
+close on deadline or cancellation, WASI Preview 1 imports), the re-read of the
+selected module under its approved digest and manifest, guest memory access,
+and the module run with bounded output and the exit check. The four runners
+keep their own lease, slot, deadline, command, broker host function, check
+order and diagnostics: those differ per runner (for example the event handler
+checks its reply fits before its effect), and their texts reach operation
+diagnostics, so each runner maps the shared failures to its own messages. A
+characterization test pins each runner's answer to a module that outlives
+its deadline, floods its output or exits with a failure. The ABI and every
+bound stay as documented.
 
 **8. Adapter boundaries.** runtimeincus: one instance-inventory helper for the
 seven `incus list` scans, each caller keeping its bound and checks; metadata
@@ -321,5 +326,6 @@ drifted operation behaviors, routing native effects through the runtime plugin
 | 3b | deferred (see step 3) | — | — | — |
 | 4 | done | bfbd3eb | Codex, 2 rounds: 1 finding accepted, 1 cut; 1 re-raised part rejected (on TO-DECIDE.md) | match the baseline; scenario 53 failed once on a native Incus SFTP refusal while two VMs ran, and passed on rerun |
 | 5 | done | 702fde6 | Codex, 2 rounds: 1 finding accepted (admission test added), 2 cuts; settled | match the baseline |
-| 6 | done | step 6 commit | Codex, 1 round: no findings, 3 comment cuts; settled | match the baseline |
-| 7–8 | not started | — | — | — |
+| 6 | done | 8a59a39 | Codex, 1 round: no findings, 3 comment cuts; settled | match the baseline |
+| 7 | checks running | — | — | — |
+| 8 | not started | — | — | — |
