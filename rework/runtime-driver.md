@@ -384,6 +384,18 @@ driver process started by the daemon; a hello that agrees on the version,
 refusing startup on a mismatch; each terminal on its own connection; host
 configuration `driver: {path, sha256, config}`.
 
+**Launch checks.** The path and digest alone do not prove that only root or
+P's account can change the file between the check and the start:
+`CheckTrustedAncestors` (internal/control/config.go) starts at the file's
+parent, and nothing checks the file's owner, mode or link count. Before every
+start, and before hashing, the daemon applies the launch checks of
+[plugins.md](plugins.md#trust): the executable's directory and its ancestors
+owned by root or P's account and not group- or world-writable, with today's
+exception for a root-owned sticky ancestor; the executable a regular file
+owned by root or P's account, not group- or world-writable, with one link
+unless root owns it and no one may write it; and its owner's execute bit
+set. It then hashes the file and starts the file it checked.
+
 ## Images and step 1
 
 The driver owns the image: [commit-images.md](commit-images.md)'s build,
@@ -519,9 +531,11 @@ rename and ref repair stopped-only; 0g gave builders public egress.
   launch never confirms. New: a driver failure ends terminals unproven and
   keeps the lease until settled or stopped.
 - **Boundaries**: only the Incus driver imports `runtimeincus` or runs
-  `incus`; internal/attachment has no Incus code; a wrong SHA-256 or protocol
-  version refuses startup; a driver killed in a call yields
-  `ErrUnknownOutcome` and a settlement.
+  `incus`; internal/attachment has no Incus code; the daemon refuses to start
+  a driver whose file or directory is owned by another account or is group-
+  or world-writable, whose file has a second link while writable or lacks
+  the owner's execute bit, or whose SHA-256 or protocol version differs; a
+  driver killed in a call yields `ErrUnknownOutcome` and a settlement.
 - **VM scenarios** pass or match the plan's known failures, except those the
   decisions change (freezing, inspection, scenario 28). Scenario 06 runs the
   conformance suite against real Incus. New scenarios kill the driver during
