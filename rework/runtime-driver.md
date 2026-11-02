@@ -292,9 +292,11 @@ interrupted Incus file write can leave a partial file was not verified.
 **Principal repair.** Core reads `InspectGitKey` to decide eligibility and to
 bind the confirmation to the observed digest. It keeps today's three-part
 intact check (principal_repair.go, `principalKeyStatus` in session_keys.go):
-repair is refused as `principal_intact` only when the registration is
-active, the host-side private key matches the registered fingerprint, and
-the guest key matches it too. A missing host key stays its own condition,
+the principal is intact only when the registration is active, the host-side
+private key matches the registered fingerprint, and the guest key matches it
+too. Today that refuses principal repair as `principal_intact`; with step 6's
+single `session.repair`, the dry run reports it as kind `none`, refused with
+`nothing_to_repair` ([repairs.md](repairs.md#the-dry-run-diagnoses)). A missing host key stays its own condition,
 `missing`, which repair fixes. Before it
 rotates authority, it reads the key again and requires the same digest.
 `SetGitKey` takes that observation as `replaces`, so the write itself

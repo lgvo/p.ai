@@ -110,7 +110,9 @@ instead of quietly returning a dry run:
 
 Today each change has two methods, a preview and a confirm: 23 methods in all.
 After this decision each change has one method, called twice: 11 methods in
-all.
+all. Step 6 then merges the four repairs of an established session into
+`session.repair`, which diagnoses the session and returns the plan of the
+repair that applies ([repairs.md](repairs.md)): 8 methods after step 6.
 
 | Change | Before | After: one method, called twice |
 |---|---|---|

@@ -27,8 +27,16 @@ know which one fits.
   stay separate methods: both can apply to the same failed creation, beside
   Retry, and the user chooses.
 
-Every repair runs the same checks and reaches the same result. One question
-waits on the maintainer: what a running session shows when nothing is found.
+**What users notice:** one method, and one CLI command, `p session repair`
+([step 7](cli.md)), for every repair of an established session; a client
+needs to know nothing about the four kinds to offer it. The same repairs run
+with the same checks and outcomes, including the
+[combinations no repair fixes](#can-two-apply-at-once). Missing-runtime
+repair's operation is renamed `session.runtime.repair`. Whether the TUI gets
+a Repair action is a question for [step 7](cli.md#open-questions).
+
+One question waits on the maintainer:
+[what a running session shows when nothing is found](#the-dry-run-diagnoses).
 
 ## Today
 
@@ -39,8 +47,10 @@ missing-runtime and record repair, and nothing about the assigned ref or the
 principal (`SessionView` in `internal/api/types.go`). So a client tries a
 preview and reads its refusals, five of which only say that the repair tried
 does not fit ([listed below](#the-plan)). Ref repair also needs a completed
-`workspace.loss.inspect` first, until step 5 removes it. The TUI offers no
-repair, and the CLI reaches them only through `p api` with hand-written JSON.
+`workspace.loss.inspect` first, until step 0e of the
+[plan](REWORK-PLAN.md#steps) removes it and makes ref repair require a
+stopped session. The TUI offers no repair, and the CLI reaches them only
+through `p api` with hand-written JSON.
 
 | Repair (preview `kind`) | Runtime | Assigned P ref | Git principal | Also required |
 |---|---|---|---|---|
@@ -53,9 +63,7 @@ All four need an established session. The rules are in `previewRepair`
 (repair.go), `PreviewRefRepair` (ref_repair.go), `principalRepairFacts`
 (principal_repair.go) and `recordRepairFacts` (record_repair.go) in
 `internal/daemon`, and in
-[session lifecycle](../docs/session-lifecycle.md#repair). Step 5 makes ref
-repair require a stopped session and read only the assigned branch's tip
-([plan-shape.md](plan-shape.md#by-category)).
+[session lifecycle](../docs/session-lifecycle.md#repair).
 
 Failed-creation **cleanup** and **replacement** need a session that is still
 `creating`, with its creation blocked in a supported phase
@@ -66,36 +74,42 @@ caller supplies.
 
 ### Can two apply at once?
 
-Not among the four repairs of an established session. Their rules split on
-two facts:
+Not among the four repairs of an established session. The table's runtime
+and ref columns split them: without a runtime, the ref decides between
+missing-runtime and record repair; with a runtime, a missing ref means ref
+repair, and principal repair needs the ref present. So at most one repair
+can be allowed in any state.
 
-| | Assigned ref present | Assigned ref absent |
-|---|---|---|
-| **Runtime absent** | Missing runtime | Unrecoverable record |
-| **Runtime present** | Git principal, if the principal is not intact | Missing assigned ref |
+A session with several problems gets the one repair that applies, refused.
+Two combinations have no repair, and both need the principal broken on the
+host: its registration missing or revoked, or its host key missing or
+different. Missing-runtime and ref repair check only those. A key damaged
+only inside the runtime blocks neither: with the ref missing, ref repair
+runs first, and principal repair then replaces that key.
 
-So at most one repair can be allowed in any state. A session can still have
-several problems; then one repair applies and refuses. Two such
-combinations have no repair:
+- **Runtime missing, ref intact.** Missing-runtime repair refuses with
+  `credential_unavailable`, and principal repair needs a runtime to install
+  the key into. Discard and Delete remain, at least for a missing or revoked
+  registration or a missing host key: removal checks no principal
+  (removal_preview.go), disables any principal it finds (`commitRemoval` in
+  internal/control/discard_store.go), and tolerates an absent key
+  (`removeSessionKeyAt` in internal/daemon/session_keys.go).
+- **Runtime present, ref missing, session made by `session.create`.** Ref
+  repair refuses with `credential_unavailable`, principal repair refuses the
+  missing ref, and record repair needs the runtime absent. Discard and Delete
+  refuse too: both previews read the assigned branch through
+  `AssignedBranchSnapshot`, which rejects an absent ref
+  (internal/gitservice/removal_preview.go). P's API has no way out. The
+  prerequisite is to restore `refs/heads/<branch>` in P's repository at a
+  commit P already has, by an outside host Git operation, since the host Git
+  principal is read-only; the next dry run then diagnoses principal repair.
+  The CLI and TUI sentence for `credential_unavailable` in a
+  `missing_assigned_ref` plan names that prerequisite.
 
-- **Runtime missing and principal broken, ref intact.** Missing-runtime
-  repair refuses with `credential_unavailable`, and principal repair needs a
-  runtime to install the key into. Discard and Delete remain, at least for a
-  missing or revoked registration or a missing host key: removal checks no
-  principal (removal_preview.go), disables any principal it finds
-  (`commitRemoval` in internal/control/discard_store.go), and tolerates an
-  absent key (`removeSessionKeyAt` in internal/daemon/session_keys.go).
-- **Ref missing and principal broken, runtime present.** Ref repair refuses
-  with `credential_unavailable`, principal repair refuses the missing ref,
-  and record repair needs the runtime absent. Discard and Delete refuse as
-  well: both previews read the assigned branch through
-  `AssignedBranchSnapshot`, which rejects an absent ref for a session made by
-  `session.create` (internal/gitservice/removal_preview.go). P's API has no
-  way out. The prerequisite is to restore `refs/heads/<branch>` in P's
-  repository at a commit P already has, by an outside host Git operation,
-  since the host Git principal is read-only. The next dry run then diagnoses
-  principal repair. The CLI and TUI sentence for `credential_unavailable` in
-  a `missing_assigned_ref` plan names that prerequisite.
+The first session of a blank project, made by `project.create`, is the
+exception to the second case: its removal accepts an absent ref while the
+project has no branches at all (`allowUnborn` in
+internal/daemon/removal_preview.go), so Discard and Delete remain.
 
 Failed creations differ. Cleanup and replacement both accept a creation
 blocked in its early phases, so both can be allowed for the same session at
@@ -151,20 +165,13 @@ policy or image evidence cannot be read is still diagnosed, and record
 repair still removes it when its runtime and ref are both gone. The kinds
 that need the image or the policy read them in their own checks.
 
-**Why this order.** Each check settles a fact the later repairs need:
-
-1. **The runtime first.** Ref repair reads the branch tip from the stopped
-   runtime, and principal repair installs the new key into it; neither can
-   run without a runtime. Without one, the ref tells missing-runtime repair
-   from record repair.
-2. **The ref next.** Principal repair refuses to rotate a key without the P
-   ref: "This repair never interprets an absent P ref as an authority to
-   rotate a key" (principal_repair.go).
-3. **The principal last.** It needs both.
-
-Because the four repairs are disjoint, the order never hides a repair that
-could run. For a session with several problems, it shows the plan whose
-prerequisites come first.
+**Why this order.** Ref repair reads the branch tip from the stopped
+runtime, and principal repair installs the new key into it, so the runtime
+comes first. Principal repair refuses to rotate a key without the P ref
+("This repair never interprets an absent P ref as an authority to rotate a
+key", principal_repair.go), so the ref comes next. Because the four repairs
+are disjoint, the order never hides a repair that could run; for a session
+with several problems, it shows the plan whose prerequisites come first.
 
 The diagnosis and the chosen kind's plan are read under one session lock,
 and every fact the diagnosis reads is in the change hash. If the state moves
@@ -236,7 +243,9 @@ three keep their names. A key replays its operation whatever its kind.
 source commit, as [commit-images.md](commit-images.md) decides. It is
 accepted only when the dry run's kind is `missing_runtime` and its only
 refusal is `recorded_image_missing`. It destroys nothing, so it needs no
-confirmation. Once it completes, a new dry run finds the image.
+confirmation. Once it completes, a new dry run finds the image. Building the
+image inside the run instead was set aside in
+[plan-shape.md](plan-shape.md#sessionrepair-repairpreview).
 
 ### Failed creations keep their own methods
 
@@ -276,18 +285,6 @@ In the code, the dry run's plan function becomes the diagnosis, which calls
 the chosen kind's plan function; each kind keeps its plan and run in its own
 file, and the RPC layer has two repair handlers instead of five.
 
-## What users and clients notice
-
-- One method, and one CLI command (`p session repair`, step 7), for every
-  repair of an established session. The plan says which repair it is; a
-  client needs to know nothing about the four kinds to offer it.
-- The same repairs run with the same checks and outcomes, including the two
-  combinations above that no repair fixes.
-- Missing-runtime repair's operation is named `session.runtime.repair`.
-
-Whether the TUI gains a Repair action belongs to step 7
-([cli.md](cli.md)).
-
 ## Departures from agreements
 
 These change with this step:
@@ -298,12 +295,13 @@ These change with this step:
 - [Control API](../docs/control-api.md): the sections for the four repairs.
 - [User guide](../docs/user-guide.md): the troubleshooting rows that name
   repair paths.
-- [state-hash-confirmation.md](state-hash-confirmation.md) lists ref,
-  principal and record repair as methods of their own.
-- [plan-shape.md](plan-shape.md) gives `details` one type per method;
-  `session.repair` has one per kind. Its ref-repair example's `action`
-  becomes `session.repair`, and its principal-repair mapping gains
-  `session_running` in place of `runtime_not_stopped`.
+
+The other rework documents note the change where they describe step 5's
+methods: [state-hash-confirmation.md](state-hash-confirmation.md#the-api)
+(8 methods after step 6), [plan-shape.md](plan-shape.md) (`details` per
+repair kind, the ref-repair example's `action`, principal repair's
+`session_running`) and [runtime-driver.md](runtime-driver.md) (an intact
+principal is reported as `none`, `nothing_to_repair`).
 
 ## Options set aside
 
@@ -313,31 +311,27 @@ These change with this step:
 | A read-only `session.diagnose` beside the repair methods | Two calls and the same four methods; the dry run already is the diagnosis. |
 | Every repair that applies, as a list of plans | At most one can be allowed in any state, so the list holds one runnable plan at most, plus refused plans waiting on it. One plan and a fixed order say the same with one shape and one tag. |
 | A `kind` parameter, so the client asks for a repair | Lets a client ask for a repair that does not apply, and brings back the guessing. The daemon already knows. |
-| Cleanup and replacement under `session.repair` | Both can be allowed for the same failed creation, beside Retry: a choice for the user, not for a diagnosis. Replacement also needs a new create request. |
-| Building a missing image inside the run, dropping `session.repair.prepare` | Set aside in [plan-shape.md](plan-shape.md#sessionrepair-repairpreview): the run only creates the runtime. The image belongs to the commit, and building it destroys nothing. |
 | One operation kind for every repair | Each repair has its own phases and recovery, and the journal's registry describes each operation kind once. |
-
-## Open questions
-
-One, stated beside the diagnosis:
-[what a running session shows when nothing is found on the host](#the-dry-run-diagnoses).
-The recommendation is `none`, refused with `session_running`.
 
 ## How it will be checked
 
 - Unit tests for the diagnosis, one per line of its sketch: a creating
-  session; an unreachable Incus; each cell of the runtime-and-ref table; a
-  principal broken on the host, running and stopped; a runtime key that
-  `InspectGitKey` refuses as unsafe or cannot read, which gives
-  `runtime_key_target_unavailable` and no tag; a different key in a stopped
-  runtime; a healthy session, running and stopped, where
-  `nothing_to_repair` comes only after all three checks match.
+  session; an unreachable Incus; runtime absent with the ref present and
+  absent; runtime present with the ref absent; a principal broken on the
+  host, running and stopped; a runtime key that `InspectGitKey` refuses as
+  unsafe or cannot read, which gives `runtime_key_target_unavailable` and no
+  tag; a different key in a stopped runtime; a healthy session, running and
+  stopped, where `nothing_to_repair` comes only after all three checks match.
 - Record repair is diagnosed and allowed when the session's stored policy
   cannot be parsed and its creation or image evidence cannot be read.
-- The two combinations without a repair keep today's refusal,
-  `credential_unavailable`. In the first, Discard and Delete are still
-  allowed for a missing or revoked registration and a missing host key; in
-  the second, they are refused.
+- The two combinations without a repair, with the registration or host key
+  broken, keep today's refusal, `credential_unavailable`. In the first,
+  Discard and Delete stay allowed for a missing or revoked registration and
+  a missing host key. In the second, for a session made by `session.create`,
+  they are refused; for a `project.create` session in a project with no
+  branches, they stay allowed.
+- With the ref missing and only the runtime's key damaged, ref repair is
+  allowed, and after it runs the next dry run gives principal repair.
 - A tag from one kind's plan is refused with `precondition_failed` after the
   state moves to another kind, for example when the ref reappears.
 - The run starts the operation that matches `details.kind`; a key replays
@@ -348,5 +342,5 @@ The recommendation is `none`, refused with `session_running`.
 - Today's preview tests for the four repairs call `session.repair` instead,
   with the same states and outcomes.
 - VM scenarios 34, 38, 39, 40 and 42 call `session.repair` and keep their
-  outcome checks; 34 stays a known failure until step 4. Scenarios 45 to 47,
-  49 and 51 keep the failed-creation methods.
+  outcome checks. Scenarios 45 to 47, 49 and 51 keep the failed-creation
+  methods.

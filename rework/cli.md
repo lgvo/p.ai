@@ -32,7 +32,7 @@ command:
 stays for protocol work. The host commands (`p daemon`, `p plugins`) keep
 their arguments and output and are listed under their own heading.
 
-Two questions wait on the maintainer; see [Open questions](#open-questions).
+Three questions wait on the maintainer; see [Open questions](#open-questions).
 
 ## Before and after
 
@@ -401,7 +401,7 @@ below is an assumption to check against the document when it settles.
 | Wire types (step 2) | The CLI decodes every reply into the shared `internal/api` types, and `--json` prints them. How the version is agreed at `system.hello` decides how each connection starts and what `p api` sends by default. |
 | Errors (step 3) | Exit codes and sentences follow the eight kinds. The "retry" kind is safe to repeat with the same key. Whether errors keep a `message` is not settled. |
 | Waiting (step 4) | `operation.wait` returns at `completed`, `blocked` and the failed states. It returns or reports progress often enough to print phases and stay within the server's request deadline. Start and stop return operations. Not verified: whether `origin.change` and `origin.publish` return operations; if not, those commands print their result and do not wait. |
-| [repairs.md](repairs.md) (step 6) | `session.repair` returns the plan of the repair that applies, named by `details.kind`; no repair plan has `loss`, so `--force` never counts down for one. `session.repair.prepare`, `session.create.replace` and `session.create.cleanup` stay separate, hence `--replace` and `p session cleanup`. repairs.md leaves the preparation to this step (open question 2 below), and its own open question 2 proposes a TUI Repair action in step 7. If the maintainer accepts that, step 7 also adds the action, showing the same plan and sentences, under the [TUI change and validation workflow](../docs/development-validations.md#tui-change-and-validation-workflow). |
+| [repairs.md](repairs.md) (step 6) | `session.repair` returns the plan of the repair that applies, named by `details.kind`; no repair plan has `loss`, so `--force` never counts down for one. `session.repair.prepare`, `session.create.replace` and `session.create.cleanup` stay separate, hence `--replace` and `p session cleanup`. repairs.md leaves the preparation (open question 2 below) and a TUI Repair action (open question 3) to this step. |
 | [plan-shape.md](plan-shape.md) | The envelope; step 5's final list of refusal codes for the sentence table. |
 | [state-hash-confirmation.md](state-hash-confirmation.md) | The two calls, `precondition_failed` with "expired" or "changed", `--force`. Not verified: whether `origin.publish` still takes `expected_origin_url` and `source_oid` once the tag binds them; the CLI reads and passes them as long as it does. |
 | [services-plugin.md](services-plugin.md) | `name`, `state`, `detail`, `session.service.logs`; actions return once queued. |
@@ -460,6 +460,13 @@ These change when step 7 lands:
    Preparation destroys nothing, and the user asked for a repair. `--dry-run`
    never builds. The alternative is a refusal sentence that tells the user to
    run a second command.
+3. **Should the TUI get a Repair action in step 7, alongside
+   `p session repair`?** The TUI offers no repair today, and the user guide
+   sends repairs to the CLI. With one `session.repair` method, the TUI needs
+   one action on a session that shows the plan and asks, as it does for a
+   removal. *Recommendation:* yes, with the same plan and the same sentence
+   per refusal code as the CLI, under the
+   [TUI change and validation workflow](../docs/development-validations.md#tui-change-and-validation-workflow).
 
 ## How it will be checked
 

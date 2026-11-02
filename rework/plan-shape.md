@@ -78,7 +78,7 @@ After:
 
 ```json
 {"plan": {
-   "action": "session.ref.repair",
+   "action": "session.repair",
    "target": "session/4f1c…",
    "allowed": false,
    "refusals": [{"code": "p_object_missing"}],
@@ -108,7 +108,7 @@ A dry run, a call with neither `key` nor `if_match`, has three outcomes, as
 | `refusals` | array of refusals, never null | Why the change cannot run. Empty when allowed. |
 | `loss` | array of loss items, never null | What the change would destroy. Empty means nothing is lost. |
 | `gone` | array of loss items, never null | What is already lost before the change runs, such as the contents of a runtime that is missing. Information only: the change destroys none of it. |
-| `details` | object, one type per method | Everything else the preview shows today. |
+| `details` | object, one type per method; for `session.repair`, one per repair kind, named by `details.kind` ([repairs.md](repairs.md#the-plan)) | Everything else the preview shows today. |
 
 `details` keeps every field of today's preview except these, which leave it:
 the field naming the target (`session_uuid`, `uuid`, `old_uuid`), the removal
@@ -351,7 +351,7 @@ The repair run then only creates the runtime from that image and checks out
 | Today | After |
 |---|---|
 | `session_uuid` | `target` |
-| `eligible`, `unsafe_reasons` | `allowed`, `refusals` |
+| `eligible`, `unsafe_reasons` | `allowed`, `refusals`. `runtime_not_stopped` is renamed `session_running`, the code ref repair uses for a running session ([repairs.md](repairs.md#the-plan)). |
 | Loss | None: it replaces a credential. "No Git ref, workspace file, image, or other session credential is changed by this plan" ([session lifecycle](../docs/session-lifecycle.md#repair)). |
 | `confirmation_token`, `expires_at` | Removed |
 
