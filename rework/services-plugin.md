@@ -33,14 +33,16 @@ tests use: list the session's services with their states, start, stop or
 restart one, and read a recent log tail. States are P's: stopped, starting,
 running, stopping, failed, with the driver's own words as display detail.
 Defining a service stays inside the session, in the runtime's own way; P never
-defines one. The Incus driver implements the group with today's code.
+defines one. The Incus driver implements the group with today's code, plus
+the state mapping and `--no-block` on actions.
 
-**What users notice:** nothing on Incus. Agents keep writing
+**What users notice:** little on Incus. Agents keep writing
 `p-project-*.service` user units and using `systemctl --user`; the TUI shows
-the same names, states and journals. API clients see new field names (`name`,
-`state`, `detail`) in the [wire types step](REWORK-PLAN.md#steps). On another
-runtime, how an agent defines services is that driver's documented
-convention.
+the same names, states and journals. An action now returns once queued, so the
+TUI shows the service pass through `starting`. API clients see new field
+names (`name`, `state`, `detail`) in the
+[wire types step](REWORK-PLAN.md#steps). On another runtime, how an agent
+defines services is that driver's documented convention.
 
 ## Before and after
 
@@ -52,16 +54,6 @@ convention.
 | States in the API | `active_state` and `sub_state`, systemd's words | `state`, P's closed set; `detail`, the driver's words for display |
 | How services are defined | Unit files in the session, `systemctl --user daemon-reload` | Unchanged on Incus; each driver's own convention elsewhere |
 | Replacing the implementation | Not possible | Replace the runtime driver |
-
-```text
-Before
-TUI, CLI ─► session.service* ─► daemon ─► runtime.wasm ─► broker ─► runtimeincus.Backend.Services ─► incus exec systemctl / journalctl
-
-After
-TUI, CLI ─► session.service* ─► daemon ─► runtimedriver.Driver: Services, ServiceAction, ServiceLogs
-                                             └─ Incus driver ─► incus exec systemctl / journalctl, as today
-agent in the session ─► the runtime's own tools (Incus: systemctl --user, journalctl --user), unchanged
-```
 
 ## How services are used today
 
@@ -92,7 +84,7 @@ stay inside the runtime.
 
 ### Sketch
 
-Added to the driver interface of [runtime-driver.md](runtime-driver.md#operations).
+Added to the driver interface of [runtime-driver.md](runtime-driver.md#the-driver-interface).
 The sketch is illustrative; names may change in implementation.
 
 ```go
@@ -154,6 +146,16 @@ as today.
 | Return at most 100 entries and 16,000 bytes of log, valid UTF-8, with truncation reported | `journalctl -n 100`, the tail cut |
 | Return `ErrNoService` for a name the session does not have, `ErrUnavailable` when its service manager cannot be reached | Today both are one `unavailable` message |
 
+**Decided by the maintainer on 2026-11-02:**
+
+- **Fire and observe.** An action returns once the runtime has queued it, and
+  the inventory shows its progress. Actions are not P operations: restarting
+  a service is cheap and repeatable, so there is nothing to journal or
+  recover, and the 30-second request limit no longer matters.
+- **Names.** The Incus driver reports the unit name, such as
+  `p-project-notes-db.service`, as today: the agent chose it, and nothing
+  visible changes. Core treats it as opaque.
+
 Core keeps the session lock, the check that the session is established and
 ready, a generic name check (printable, at most 128 bytes), the mapping to
 API errors, and the 48,000-byte bound on the encoded result.
@@ -161,13 +163,14 @@ API errors, and the 48,000-byte bound on the encoded result.
 ## The Incus driver
 
 The Incus driver implements the group with internal/runtimeincus/services.go,
-moved into the driver unchanged except for the state mapping:
+moved into the driver with two changes: the state mapping, and `--no-block`
+on the action command so that it returns once systemd has queued the job.
 
-| Operation | Native effect, as today |
+| Operation | Native effect |
 |---|---|
-| `Services` | `systemctl --user list-units --all --type=service --output=json 'p-project-*.service'`, merged with `list-unit-files` for installed units not loaded; `emptyUnitFileInventory` still accepts the exit status 1 that comes with an empty list |
-| `ServiceAction` | `systemctl --user --no-pager <start|stop|restart> <unit>` |
-| `ServiceLogs` | `journalctl --user-unit=<unit> --no-pager --output=short-iso -n 100`, cut to a 16,000-byte tail |
+| `Services` | As today: `systemctl --user list-units --all --type=service --output=json 'p-project-*.service'`, merged with `list-unit-files` for installed units not loaded; `emptyUnitFileInventory` still accepts the exit status 1 that comes with an empty list |
+| `ServiceAction` | `systemctl --user --no-pager --no-block <start|stop|restart> <unit>`; today's command has no `--no-block` and waits for the job |
+| `ServiceLogs` | As today: `journalctl --user-unit=<unit> --no-pager --output=short-iso -n 100`, cut to a 16,000-byte tail |
 
 All three run through `/usr/libexec/p/systemctl` or `/usr/libexec/p/journalctl`
 as UID and GID 1000, with `XDG_RUNTIME_DIR=/run/user/1000` and
@@ -183,20 +186,13 @@ and grants, and publish no host ports.
 
 ## A Kubernetes driver
 
-Not designed here. A Kubernetes driver would implement the same three
-operations in its own way: with a service manager inside the session's
-container, or with containers in the session's pod. The second has limits the
-driver would carry, not the contract. A pod's containers are fixed when it is
-created ("you cannot add a container to a Pod once it has been created",
-[ephemeral containers](https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/)),
-so a new or changed service waits for the next session start. Kubernetes has
-no call that stops or starts one container; it restarts an exited container
-by its restart policy only
-([pod lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)),
-so per-service stop and start need a small process manager inside each
-container. Containers share the pod's network but only the directories
-mounted into each of them. How an agent defines services there would be that
-driver's documented convention.
+Not designed here; its feasibility limits are in the
+[runtime driver's Kubernetes section](runtime-driver.md#kubernetes). It would
+implement the same three operations its own way, for example with a process
+manager in the session's container. Containers in the session's Pod are
+possible too, but their limits stay with that driver: a Pod's containers are
+fixed when it is created, and Kubernetes cannot stop or start one container
+on its own ([pod lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)).
 
 ## What P's API and TUI keep
 
@@ -223,7 +219,7 @@ runtime package" goes.
 |---|---|
 | internal/daemon/services.go: `serviceBroker` and `plugin.RunRuntime(..., "runtime.services", ...)` | The daemon calls the driver's three operations |
 | `RuntimeServicesBroker` and the `runtime.services` kind (internal/plugin/runtime.go), and its case in plugins/bundled/runtime-incus/main.go | Gone with the WASI runtime plugin |
-| internal/runtimeincus/services.go | The Incus driver, with the state mapping added |
+| internal/runtimeincus/services.go | The Incus driver, with the state mapping added and `--no-block` on actions |
 | `api.ValidProjectServiceUnit` and its pattern, used by internal/control and internal/daemon | The Incus driver; core keeps only the generic name check |
 | The UUID and generation recheck after each call | The target's incarnation |
 | `checkNoWorkspaceInspect` in the services call | Gone with `workspace.inspect` ([runtime driver](runtime-driver.md#summary)) |
@@ -256,20 +252,11 @@ This lands with the runtime driver's migration (step 8), where the
 | Core building `systemctl` commands over a generic run-a-command driver operation | Puts the Incus runtime's internals in core, so a Kubernetes driver could not run services its own way. |
 | Pod or sidecar containers as a contract requirement | Kubernetes-specific, and pod containers cannot be stopped or started one by one. Every driver would have to model services as containers. |
 | A P services file and an in-session `p-service` command, portable across runtimes | A product change with no current user; definitions are the runtime's business. |
-| A durable operation for each service action | P records and recovers nothing about services; see open question 2. |
+| A durable operation for each service action | P records and recovers nothing about services; actions are fire and observe (see [Guarantees](#guarantees)). |
 
 ## Open questions
 
 None.
-
-- **The name the Incus driver reports** is the unit name, such as
-  `p-project-notes-db.service`, as today (chosen by the agent; nothing visible
-  changes). Core treats it as opaque.
-- **Service actions are fire and observe,** by the maintainer's decision of
-  2026-11-02: an action returns once the runtime has queued it, and the
-  inventory shows its progress. They are not P operations: restarting a
-  service is cheap and repeatable, so there is nothing to journal or recover,
-  and the 30-second request limit no longer matters.
 
 ## How it will be checked
 
