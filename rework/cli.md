@@ -18,7 +18,8 @@ verb: `p session delete`, `p project create`, `p origin publish`. Each
 command:
 
 - takes the names users see: project paths, `PROJECT:BRANCH`, session UUIDs;
-- makes its own idempotency keys;
+- makes its own idempotency keys, and with `--key` replays a request whose
+  reply was lost without recomputing it;
 - waits for the operation it starts, unless given `--no-wait`;
 - prints for people by default, and the API's own types with `--json`;
 - for a change whose API method has a dry run, previews it, prints the plan
@@ -33,65 +34,6 @@ stays for protocol work. The host commands (`p daemon`, `p plugins`) keep
 their arguments and output and are listed under their own heading.
 
 Three questions wait on the maintainer; see [Open questions](#open-questions).
-
-## Before and after
-
-| Task | Today | After |
-|---|---|---|
-| Create a project | `p api project.create '{"v":1,"key":"…","project":"team/app"}'`, then poll `operation.inspect` | `p project create team/app` |
-| Create a session | `p api session.create` with `choice`, `source` or `origin_ref` and `expected_commit_oid` copied from `origin.sources`, then poll | `p session create team/app:work --from main` |
-| Start | `p api session.start`, then poll `session.inspect` until `ready` | `p session start team/app:work` |
-| Rename | `p api session.rename` with the tip copied from `project.branches` | `p session rename team/app:work feature` |
-| Delete a session | Loss inspection, poll, preview, copy the token, delete, poll: six calls | `p session delete team/app:work` |
-| Publish | `p api origin.inspect`, `project.branches`, `origin.publication.preview`, then `origin.publish` with the URL and OID copied | `p origin publish team/app:work` |
-| Delete a project | Stop and detach every session, one loss inspection per session, preview, confirm, poll | `p project delete team/app` |
-| Repair | Choose among four repair families, prepare an image if needed, preview, confirm, poll | `p session repair team/app:work` |
-| Restart a service | `p api session.service.action '{"v":1,"uuid":"…","unit":"…","action":"restart"}'` | `p service restart team/app:work p-project-db.service` |
-| Retry a blocked operation | `p api operation.retry '{"v":1,"id":"…"}'`, then poll | `p operation retry 7d3e…` |
-
-Deleting a session, before (abridged from the user guide):
-
-```bash
-LOSS=$(api workspace.loss.inspect '{"v":1,"key":"demo-loss-1","uuid":"4f1c…"}')
-api operation.inspect '{"v":1,"id":"…"}'      # repeat until completed
-PREVIEW=$(api session.removal.preview '{"v":1,"uuid":"4f1c…","kind":"delete","loss_operation_id":"…"}')
-jq '.result.preview' <<< "$PREVIEW"           # read the loss report
-TOKEN=$(jq -er '.result.preview.confirmation_token' <<< "$PREVIEW")
-api session.delete "{\"v\":1,\"key\":\"demo-delete-1\",\"uuid\":\"4f1c…\",\"confirmation_token\":\"$TOKEN\"}"
-api operation.inspect '{"v":1,"id":"…"}'      # repeat until completed
-```
-
-After. The output is illustrative, and the operation's phases depend on
-step 4:
-
-```text
-$ p session list --project team/app
-SESSION                                PROJECT:BRANCH   CONDITION  ATTACHED
-4f1c2a9e-0b7d-4c55-9e2a-31f0c8d4a6b1   team/app:work    ready      0
-b5f6c1c2-1111-2222-3333-444455556666   team/app:docs    stopped    0
-
-$ p origin publish team/app:work
-Publish team/app:work (9f2c4e1) to ssh://git.example.com/team/app.git
-  refs/heads/work: absent; the push creates it
-Publish? [y/N] y
-Published: created refs/heads/work at 9f2c4e1.
-
-$ p session delete team/app:work
-Delete session 4f1c2a9e-… (team/app:work); the branch work is removed too.
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!!  THIS WILL LOSE WORK
-!!
-!!  - the container of session 4f1c… and everything in it: uncommitted
-!!    changes, files outside Git, commits not pushed to P; P does not
-!!    look inside
-!!  - 2 commits on branch work will be removed from P's repository;
-!!    P does not check whether the origin has them
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-Delete session 4f1c…? [y/N] y
-Deleted session 4f1c… and branch work.
-```
 
 ## The commands
 
@@ -134,14 +76,14 @@ a dry run; [Risky changes](#risky-changes) describes them.
 | `p branch list PROJECT [--retained]` | `project.branches`; `project.retained_branches` with `--retained` | |
 | `p branch rename PROJECT:BRANCH NEW` | `project.retained.rename` | Reads the current tip for `expected_old_tip`, as the TUI does for a session rename; waits |
 | `p branch delete PROJECT:BRANCH` | `project.retained.delete` | Asks, waits |
-| `p origin show PROJECT [--refresh]` | `origin.inspect`; `origin.refresh` with `--refresh` | |
-| `p origin refs PROJECT` | `origin.refresh`, then `origin.sources` | Refreshes first, as the TUI does |
+| `p origin show PROJECT [--refresh]` | `origin.inspect`; `origin.refresh` with `--refresh` | Shows the status, `fresh`, `unknown` or `local-only`, with the observation time |
+| `p origin refs PROJECT` | `origin.refresh`, then `origin.sources` | Lists refs only from a fresh observation, as the TUI does ([below](#origin-refs-must-be-fresh)) |
 | `p origin set PROJECT URL` | `origin.change`, kind `set` | Reads the current URL for `expected_url` |
 | `p origin remove PROJECT` | `origin.change`, kind `remove` | Same |
 | `p origin publish PROJECT:BRANCH [--to NAME]` | `origin.publish` | Asks. Kind `session` when a session holds the branch, otherwise `retained`. `--to` defaults to the same branch name. |
 | `p session list [--project PROJECT]` | `session.list` | The project filter is applied by the CLI |
 | `p session show SESSION` | `session.inspect` | Conditions, attachments, the latest unattended agent report, policy, diagnostic |
-| `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`). `--from-origin` refreshes the origin and passes the observed commit and URL, and prints which commit it chose. |
+| `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`). `--from-origin` refreshes the origin, takes the commit and URL only from a fresh observation, and prints which commit it chose. |
 | `p session create … --replace SESSION` | `session.create.replace` | Asks, waits: replaces a blocked creation with this request |
 | `p session start SESSION` | `session.start` | Waits for its operation, which completes when the session is ready ([waiting.md](waiting.md#start-and-stop-as-operations)) |
 | `p session stop SESSION` | `session.stop` | Waits for its operation |
@@ -152,7 +94,7 @@ a dry run; [Risky changes](#risky-changes) describes them.
 | `p session cleanup SESSION` | `session.create.cleanup` | Asks, waits: ends a failed creation and keeps its branch |
 | `p attach SESSION` | `session.start` if the session is not ready, `operation.wait`, then `session.attach` | `session.attach` no longer starts a session ([waiting.md](waiting.md#start-and-stop-as-operations)), so `p attach` starts it and waits first; users see the same result. Also accepts `PROJECT:BRANCH`. |
 | `p service list SESSION` | `session.services` | |
-| `p service start\|stop\|restart SESSION NAME` | `session.service.action` | Returns once queued ([services-plugin.md](services-plugin.md)); `p service list` shows progress |
+| `p service start\|stop\|restart SESSION NAME` | `session.service.action` | Returns once queued ([services-plugin.md](services-plugin.md)); `p service list` shows progress. Never repeated automatically ([Errors](#errors-and-automatic-repeats)). |
 | `p service logs SESSION NAME` | `session.service.logs` | |
 | `p operation list` | `operation.list` | Shows each operation's key |
 | `p operation show ID` | `operation.inspect` | |
@@ -162,30 +104,92 @@ a dry run; [Risky changes](#risky-changes) describes them.
 List commands follow `next` to the end. `p help` lists the commands, and
 `p NOUN --help` describes one noun's commands.
 
-Only `rpc.cancel` has no command: it cancels a request on the caller's own
-connection. The methods steps 1 to 6 remove get none: `system.capabilities`
-(its capabilities move into `system.hello`), `workspace.inspect`,
-`workspace.loss.inspect`, `environment.cache.*`, the preview and confirm
-pairs, and the four separate repair methods.
+Only `rpc.cancel`, which cancels a request on the caller's own connection,
+has no command.
+
+### Origin refs must be fresh
+
+A refresh whose contact fails still succeeds: it records status `unknown`,
+and `origin.sources` then returns the cached refs marked `stale`
+(`OriginAPI.Refresh` and `addOriginMethods` in internal/control/origin_api.go).
+A stale ref cannot authorize a source choice, so the TUI withholds stale refs
+(internal/tui/workflows.go). The CLI does the same: `p origin refs` and
+`--from-origin` use refs only when the refresh returned `fresh` and every
+page of `origin.sources` says `fresh`. Otherwise they print no refs, say when
+the origin was last reached, and exit 1. A local-only project has no refs and
+exits 3.
+
+### A sample session
+
+The output is illustrative:
+
+```text
+$ p origin publish team/app:work
+Publish team/app:work (9f2c4e1) to ssh://git.example.com/team/app.git
+  refs/heads/work: absent; the push creates it
+Publish? [y/N] y
+Published: created refs/heads/work at 9f2c4e1.
+
+$ p session delete team/app:work
+Delete session 4f1c2a9e-… (team/app:work); the branch work is removed too.
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!  THIS WILL LOSE WORK
+!!
+!!  - the container of session 4f1c… and everything in it: uncommitted
+!!    changes, files outside Git, commits not pushed to P; P does not
+!!    look inside
+!!  - 2 commits on branch work will be removed from P's repository;
+!!    P does not check whether the origin has them
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+Delete session 4f1c…? [y/N] y
+Deleted session 4f1c… and branch work.
+```
 
 ## Running a change
 
 ### Idempotency keys
 
-- **Generated:** one key per run call of a method that takes one, `cli-`
-  followed by 32 hex digits from `crypto/rand`, the same scheme as the TUI's
-  `tui-` keys (`newKey` in internal/tui/model.go). A dry run carries no key.
-  A run after a new dry run carries a new tag, so it gets a new key. Start,
-  stop and `operation.retry` take none
-  ([waiting.md](waiting.md#open-questions), question 1).
-- **Supplied:** `--key KEY` (1 to 128 bytes) makes a script's retry safe:
-  repeating the same command with the same key returns the same operation
-  instead of making a second change. On a command that asks, `--key` needs
-  `--if-match`, because the daemon refuses a used key with a different tag.
-- **Shown:** always in `--json` output, inside the operation. In human output
-  only when the CLI sent a change and lost the connection before the reply,
-  so it cannot tell whether the daemon accepted it: it prints the key and
-  the command that replays it. `p operation list` shows every operation's key.
+**Generated:** one key per run call of a method that takes one, `cli-`
+followed by 32 hex digits from `crypto/rand`, the same scheme as the TUI's
+`tui-` keys (`newKey` in internal/tui/model.go). A dry run carries no key. A
+run after a new dry run carries a new tag, so it gets a new key. Start, stop
+and `operation.retry` take none ([waiting.md](waiting.md#open-questions),
+question 1).
+
+**Supplied:** `--key KEY` (1 to 128 bytes) lets a script repeat a command
+whose reply it lost, without making the change twice. The repeat must not
+recompute inputs from state the first request changed. After
+`p origin set team/app NEW --key K`, the current URL is `NEW`, so a
+recomputed `expected_url` differs from the recorded one and the daemon
+refuses the key as reused (`CompletedOriginChange` in
+internal/control/origin_store.go). After a branch rename the old branch has
+no tip to read, and after a session deletion `team/app:work` resolves to
+nothing. So with `--key`, the CLI looks for an operation recorded under that
+key before it resolves any argument:
+
+1. **Found:** it sends no change. If the operation's kind and target match
+   this command, it reports the operation and waits for it as usual;
+   otherwise it exits 2.
+2. **Not found:** it resolves the arguments and sends the request with the
+   key. If the first request is recorded between the lookup and the send,
+   the daemon replays it or refuses the changed request as `key_reused`; the
+   change happens at most once.
+
+The lookup pages `operation.list`, whose summaries carry each key; a key
+whose operation the journal no longer keeps, such as one of a deleted
+project, is not found. `origin.change` and `origin.publish` record no
+operation today (waiting.md, open question 3), so until they do, the CLI
+refuses `--key` on `p origin set`, `remove` and `publish`. On a command that
+asks, a `precondition_failed` under `--key` stops with exit 3 instead of
+asking again, so one key is never sent with two tags.
+
+**Shown:** always in `--json` output, inside the operation. In human output
+only when the CLI sent a change and lost the connection before the reply, so
+it cannot tell whether the daemon accepted it: it prints the key and the
+same command with `--key`, which replays it as above. `p operation list`
+shows every operation's key.
 
 ### Waiting
 
@@ -205,8 +209,7 @@ and exits 0; `p operation wait ID` waits later.
 Ctrl-C while waiting stops only the CLI. The operation runs on in the
 daemon, and the CLI prints its ID and `p operation wait ID`.
 
-Service actions are the exception: they return once queued and have no
-operation, so there is nothing to wait for.
+Service actions have no operation, so there is nothing to wait for.
 
 ### Output
 
@@ -234,14 +237,14 @@ Color and bold appear only when standard error is a terminal.
 | Code | Meaning |
 |---|---|
 | 0 | Done: the read succeeded, the operation completed, or with `--no-wait` the daemon accepted it. `--dry-run` of an allowed change. |
-| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; or the operation ended `failed` or `superseded`. |
-| 2 | Usage: the arguments or flags are invalid, found by the CLI or answered `invalid` by the daemon (such as `key_reused` for a `--key`). |
+| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; a service action's outcome is unknown; the origin observation is stale; or the operation ended `failed` or `superseded`. |
+| 2 | Usage: the arguments or flags are invalid, found by the CLI or answered `invalid` by the daemon; or a `--key` belongs to another command. |
 | 3 | Not run, nothing changed: the plan is not allowed; the daemon answered `conflict`, `capacity` or `precondition_failed`; the user declined or cancelled; or no terminal could ask. |
 | 4 | Not finished: the operation is `blocked`, or the CLI stopped waiting while it runs on. |
 
 `p api` keeps its own rule: 0, or 1 on any error.
 
-### Errors
+### Errors and automatic repeats
 
 An error carries no text: `message` is the kind's name, and `data` holds a
 `reason` code, and where they apply a `target`, a `field` or the `supported`
@@ -251,19 +254,25 @@ to its sentence for the kind when it meets a reason it does not know. Error
 reasons and refusal codes share one namespace, so they share the CLI's one
 sentence table ([Printing the plan](#printing-the-plan)).
 
-On `retry` the CLI sends the identical call again, with the same key and
-tag, which makes the repeat safe:
+On `retry`, the CLI sends the identical call again, with the same key and
+tag, only when a second call cannot act twice:
 
-- When `target` names an operation (reason `session_held`), the CLI says it
-  is waiting for that operation, waits for it with `operation.wait`, and
-  then repeats. If that operation ends `blocked`, the repeat answers
-  `conflict`, `operation_blocked`, and the CLI stops.
-- Otherwise (`too_many_requests`, `deadline`), it repeats after a short
-  pause, for up to 10 seconds.
+| Reason | What the daemon did | The CLI |
+|---|---|---|
+| `session_held` | Refused before dispatch: an operation holds the session | Says so, waits for the named operation with `operation.wait`, then repeats. Any call. |
+| `too_many_requests` | Refused at admission | Repeats after a short pause, for up to 10 seconds. Any call. |
+| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change (the key replays it) or a start or stop (a repeat returns the unfinished operation). Never a service action. |
 
-A risky run repeated this way may meet an expired or changed tag; that is
-`precondition_failed`, handled as in [The flow](#the-flow). VM scenario 57
-retries `busy` reads by hand today.
+A service action has no key and no record, and the runtime may have queued
+it before the deadline: `Backend.Services` (internal/runtimeincus/services.go)
+runs `systemctl` before it observes the runtime again. So after a `deadline`
+or a lost connection, `p service start|stop|restart` sends nothing more: it
+says the action may have been queued, points to `p service list`, and exits 1.
+
+If the operation a `session_held` names ends `blocked`, the repeat answers
+`conflict`, `operation_blocked`, and the CLI stops. A risky run repeated
+after a wait may meet an expired or changed tag; that is
+`precondition_failed`, handled as in [The flow](#the-flow).
 
 ## Risky changes
 
@@ -275,6 +284,7 @@ project deletion; retained-branch deletion; and publication.
 ### The flow
 
 ```text
+with --key: an operation under that key? report it and stop (Idempotency keys)
 resolve the arguments (PROJECT:BRANCH to a UUID; current tips and URLs)
 dry run: the method without key or if_match
 print the plan
@@ -286,7 +296,7 @@ run: the method with key, if_match = change_tag, and the dry run's inputs
 precondition_failed?
   say whether the tag expired or the state changed
   new dry run, print the new plan
-  --force: stop, exit 3          asked: ask again
+  --force or --key: stop, exit 3          asked: ask again
 wait for the operation, unless --no-wait
 ```
 
@@ -312,32 +322,19 @@ first needs it creates it.
 | `p origin publish` | The origin URL, the source commit, the destination and what the push does: create, fast-forward or nothing |
 
 2. **Refusals**, when the plan is not allowed: one sentence per item,
-   naming its `target` when it is not the plan's. The CLI does not print the
-   loss of a refused plan, which can be incomplete
+   naming its `target` when it is not the plan's. For example,
+   `attachment_active`: "A terminal is attached to session 4f1c…. Detach it
+   (Ctrl+B, then d) and try again." The CLI does not print the loss of a
+   refused plan, which can be incomplete
    ([plan-shape.md](plan-shape.md#a-plan-that-is-not-allowed)).
 3. **Already gone:** one line per `gone` item, as information. It never
    starts the countdown.
 4. **The loss warning** when `loss` is not empty: the large block from
    [state-hash-confirmation.md](state-hash-confirmation.md#--force-in-the-cli),
-   one line per item, with or without `--force`. An item with
-   `certain: false` reads "possibly: …".
-
-Illustrative sentences. Step 5 settles the full list of refusal codes, and
-the loss lines follow [plan-shape.md](plan-shape.md#kinds):
-
-| Code or kind | Sentence |
-|---|---|
-| `attachment_active` | A terminal is attached to session 4f1c…. Detach it (Ctrl+B, then d) and try again. |
-| `session_running` | Session 4f1c… is running. Stop it with `p session stop` and try again. |
-| `destination_divergent` | The origin's `main` has commits that P's branch lacks; P publishes only by fast-forward. |
-| `recorded_image_missing` | The session's image is gone; it must be rebuilt from the session's source commit first. |
-| `session_not_established` (repair) | Session 4f1c… is still being created. Retry it with `p operation retry`, replace it with `p session create --replace`, or end it with `p session cleanup`. |
-| `session_held` (`retry`) | Waiting for operation 9b0e… (session.start) to finish… |
-| `runtime` (`not_configured`) | This instance has no runtime configured; ask the instance owner. |
-| `runtime_data` (loss) | the container of session 4f1c… and everything in it: uncommitted changes, files outside Git, commits not pushed to P; P does not look inside |
-| `runtime_data` (gone) | The runtime of session 4f1c… is already missing; whatever it held is gone. |
-| `p_commits` | 2 commits on branch work will be removed from P's repository; P does not check whether the origin has them |
-| `unreachable_objects` | possibly: Git objects in P's repository that no branch reaches; P does not count them |
+   one line per item, with or without `--force`. For example, `p_commits`:
+   "2 commits on branch work will be removed from P's repository; P does not
+   check whether the origin has them". An item with `certain: false` reads
+   "possibly: …".
 
 A code the table lacks prints as the code itself. That cannot happen in a
 release: the CLI and the daemon are the same `p` binary, and a unit test
@@ -353,16 +350,12 @@ minutes, so a slow answer can expire it; the run is then refused with
 ### `--force`
 
 Exactly as [state-hash-confirmation.md](state-hash-confirmation.md#--force-in-the-cli)
-decides:
-
-| | Plan loses nothing | Plan loses work |
-|---|---|---|
-| Without `--force` | Print the plan, ask, then run. | Print the plan with the loss warning, ask, then run. |
-| With `--force` | Print the plan and run at once. | Print the plan with the loss warning, count down 10 seconds, then run. Ctrl-C during the countdown cancels, and nothing is sent. |
-
-A refusal after the countdown makes a new dry run, prints the new plan and
-stops, so a forced run never acts on a plan nobody saw. A plan that is not
-allowed is refused with or without `--force`. The TUI offers no force.
+decides: a plan that loses nothing runs at once; a plan that loses work
+prints the loss warning and counts down 10 seconds, and Ctrl-C during the
+countdown cancels with nothing sent. A refusal after the countdown makes a
+new dry run, prints the new plan and stops, so a forced run never acts on a
+plan nobody saw. A plan that is not allowed is refused with or without
+`--force`. The TUI offers no force.
 
 ### Without a terminal
 
@@ -384,8 +377,7 @@ terminals. Otherwise:
   countdown, because the caller saw that plan from `--dry-run`, warning
   included, and the daemon runs it only if nothing changed; otherwise the CLI
   prints the refusal and exits 3. It is the API's own two calls, for scripts
-  that decide from the plan. With `--key`, the same command replays the same
-  operation. See [Open questions](#open-questions).
+  that decide from the plan. See [Open questions](#open-questions).
 
 `--dry-run`, `--force` and `--if-match` exclude one another.
 
@@ -420,27 +412,30 @@ Host commands (run on the P host as the instance owner):
 Their arguments and JSON output stay; the NixOS module calls `p daemon` and
 `p plugins defaults` (nix/module.nix). Steps 8 and 9 own any change to them,
 and step 2 changes `p version` to report the protocol string instead of
-`control_api_version`. `p git-hook` and `p attach-helper` stay unlisted: P runs them itself.
-Every command, host commands included, exits 2 on a usage error.
+`control_api_version`. `p git-hook` and `p attach-helper` stay unlisted: P
+runs them itself. Every command, host commands included, exits 2 on a usage
+error.
 
 ## Depends on
 
-The documents for steps 2 to 6 are proposed alongside this one. Each item
-below is what this design takes from them; an open question there that
-changes it is named.
+The shapes come from [wire-types.md](wire-types.md), [errors.md](errors.md),
+[waiting.md](waiting.md), [repairs.md](repairs.md),
+[plan-shape.md](plan-shape.md),
+[state-hash-confirmation.md](state-hash-confirmation.md) and
+[services-plugin.md](services-plugin.md), cited where each applies. Still
+open there:
 
-| Document | What this design assumes |
-|---|---|
-| [wire-types.md](wire-types.md) (step 2) | `api.Dial` sends `system.hello` on each connection, and `api.Do` makes typed calls after `Validate`. `--json` prints the shared `internal/api` types. `system.capabilities` is gone; `p status` reads `capabilities` from the hello. `p api` sends the hello itself and drops `"v":1`. |
-| [errors.md](errors.md) (step 3) | Errors carry no text: `message` is the kind's name, and `data` holds `reason`, `target`, `field` and `supported`. The exit codes map the kinds; the sentences follow reasons, falling back to kinds; `retry` is repeated with the same key and tag, after the named operation leaves `running`. If its open question 1 is accepted, blocked and failed operations carry a `reason` too, and the CLI prints that sentence before the diagnostic. |
-| [waiting.md](waiting.md) (step 4) | `operation.wait {id, timeout}` with a timeout of 1 to 25 seconds returns at `completed`, `failed`, `superseded` or `blocked`, or with `running` at the timeout; there is no `unknown` status. Start and stop return operations, and `session.attach` no longer starts a session. Its open question 1 (start and stop take no key) sets which commands generate keys. Its open question 3 decides whether `origin.change` and `origin.publish` return operations; if not, those commands print their result and do not wait. |
-| [repairs.md](repairs.md) (step 6) | `session.repair` returns the plan of the repair that applies, named by `details.kind`; no repair plan has `loss`, so `--force` never counts down for one. `session.repair.prepare`, `session.create.replace` and `session.create.cleanup` stay separate, hence `--replace` and `p session cleanup`. repairs.md leaves the preparation (open question 2 below) and a TUI Repair action (open question 3) to this step. |
-| [plan-shape.md](plan-shape.md) | The envelope; step 5's final list of refusal codes for the sentence table. |
-| [state-hash-confirmation.md](state-hash-confirmation.md) | The two calls, `precondition_failed` with "expired" or "changed", `--force`. Not verified: whether `origin.publish` still takes `expected_origin_url` and `source_oid` once the tag binds them; the CLI reads and passes them as long as it does. |
-| [services-plugin.md](services-plugin.md) | `name`, `state`, `detail`, `session.service.logs`; actions return once queued. |
-| [commit-images.md](commit-images.md), [runtime-driver.md](runtime-driver.md) | No image or cache commands. Host configuration changes do not touch the client commands. |
-
-No conflict with a settled document was found.
+- **waiting.md, question 3:** if `origin.change` and `origin.publish` record
+  operations, they wait and accept `--key`; if not, they print their result
+  and refuse `--key`.
+- **waiting.md, question 1:** start and stop take no key, as recommended.
+- **errors.md, question 1:** if blocked and failed operations get a
+  `reason`, the CLI prints its sentence before the diagnostic.
+- **A `key` filter on `operation.list`** would make the replay lookup one
+  call instead of paging; waiting.md does not have one yet.
+- **Step 5:** the full list of refusal codes, and whether `origin.publish`
+  still takes `expected_origin_url` and `source_oid` once the tag binds
+  them; the CLI passes them as long as it does.
 
 ## Departures from current docs
 
@@ -463,15 +458,13 @@ These change when step 7 lands:
 |---|---|
 | Keep `p api` as the only client command | The reason for this step: hand-written JSON, copied tokens and polling for every risky change. |
 | A generic `p call METHOD --field value` built from the wire types | Spares the JSON but not the flow: the user still makes the dry run, copies the tag and polls, and nothing prints the plan. |
+| On a repeat with `--key`, recompute the inputs and resend | The first request may have changed what the inputs are read from, so the repeat is refused or cannot resolve its arguments. |
+| Show stale origin refs, marked stale | A stale ref cannot authorize a source choice, and the TUI withholds them. |
 | Ask before Stop and Rename, as the TUI does | The TUI asks because one key press acts; a typed command is already deliberate. Neither change has a plan to show. |
-| A flag that skips the countdown, or `--yes` beside `--force` | The maintainer wants a forced loss impossible to miss; one flag with one meaning keeps it so. |
-| The countdown only on a terminal | [state-hash-confirmation.md](state-hash-confirmation.md#--force-in-the-cli) makes no exception; the warning lands in the script's log, and a signal can still cancel. |
 | Type the session or project name to confirm a loss | The TUI confirms with `y`; the loss warning comes right before the prompt. |
 | Unique UUID prefixes as session names | A prefix unique today can match another session tomorrow, also inside a script. `PROJECT:BRANCH` is the name the TUI shows. |
 | Drop the positional socket argument from `p api`, `p tui` and `p attach` | Every VM scenario passes it, and `--socket` and `P_SOCKET` already cover the new commands. |
 | `p host daemon`, `p host plugins` | Longer to type and changes the NixOS module, for a grouping a heading in `p help` gives. |
-| Short service names (`db` for `p-project-db.service`) | Service names are opaque to P; the CLI cannot know a driver's naming convention. |
-| Wait for a service to settle after an action | Service actions return once queued, by the maintainer's decision; `p service list` shows the progress. |
 | `p session publish` and `p branch publish` | Two commands for one task. The user names the branch, and the CLI works out whether a session holds it. |
 | A CLI framework such as cobra | A new dependency for a command set the standard `flag` package handles. |
 
@@ -493,47 +486,46 @@ These change when step 7 lands:
    Preparation destroys nothing, and the user asked for a repair. `--dry-run`
    never builds. The alternative is a refusal sentence that tells the user to
    run a second command.
-3. **Should the TUI get a Repair action in step 7, alongside
-   `p session repair`?** The TUI offers no repair today, and the user guide
-   sends repairs to the CLI. With one `session.repair` method, the TUI needs
-   one action on a session that shows the plan and asks, as it does for a
-   removal. *Recommendation:* yes, with the same plan and the same sentence
-   per refusal code as the CLI, under the
+3. **A TUI question, separate from the CLI commands: should the TUI get a
+   Repair action in step 7?** The TUI offers no repair today, and the user
+   guide sends repairs to the CLI. With one `session.repair` method, the TUI
+   needs one action on a session that shows the plan and asks, as it does
+   for a removal. *Recommendation:* yes, with the same plan and the same
+   sentence per refusal code as the CLI, under the
    [TUI change and validation workflow](../docs/development-validations.md#tui-change-and-validation-workflow).
 
 ## How it will be checked
 
-- **CLI unit tests** against a fake daemon on a Unix socket, as
-  cmd/p/main_test.go does today:
-  - each command sends its method with the expected params; `PROJECT:BRANCH`
-    resolves to the session holding the branch, and no match exits 1;
-  - a dry run carries no key; the run repeats the dry run's inputs with a
-    fresh `cli-` key and the tag; `--key` is sent as given;
-  - nothing runs without `y`; Ctrl-C at the prompt sends nothing;
-  - the `--force` tests from
-    [state-hash-confirmation.md](state-hash-confirmation.md#how-it-will-be-checked),
-    on a fake clock;
-  - a refused plan exits 3 with or without `--force` and prints no loss;
-    `gone` alone starts no countdown;
-  - without a terminal and without `--force`, nothing is sent and the exit
-    code is 3;
-  - `precondition_failed` after a prompt shows the new plan and asks again;
-  - `--if-match` sends no dry run; `--dry-run` sends nothing else;
-  - waiting: every `operation.wait` asks for 20 seconds within a 25-second
-    call budget; a wait that returns `running` is repeated; `completed`
-    exits 0, `blocked` 4, `failed` and `superseded` 1, Ctrl-C 4 without
-    cancelling the operation, `--no-wait` 0 at acceptance;
-  - a `retry` error naming an operation waits for it and then repeats the
-    call with the same key and tag; one without a target repeats for up to
-    10 seconds; `conflict`, `capacity` and `precondition_failed` exit 3,
-    `invalid` 2;
-  - `p attach` on a stopped session starts it, waits, then attaches;
-  - every `--json` shape in the [Output](#output) table.
-- **A sentence test:** every refusal code, error reason, error kind and loss
-  kind defined in `internal/api` has a sentence, and an unknown reason falls
-  back to its kind's sentence.
-- **VM scenario 57**, the developer workflow, moves from `p api` to the task
-  commands and keeps its outcome checks. The other scenarios keep `p api`,
-  because they test the API.
-- **The user guide's** walkthroughs are rewritten with the task commands,
-  and each command they show is one the unit tests cover.
+CLI unit tests against a fake daemon on a Unix socket, as
+cmd/p/main_test.go does today, cover what can lose work or act twice:
+
+- **Confirmation:** a dry run carries no key, and the run repeats its inputs
+  with the tag; nothing runs without `y`; a refused plan exits 3 with or
+  without `--force` and prints no loss; `gone` alone starts no countdown;
+  without a terminal and without `--force`, nothing is sent;
+  `precondition_failed` after a prompt shows the new plan and asks again;
+  `--if-match` sends no dry run; the `--force` tests from
+  [state-hash-confirmation.md](state-hash-confirmation.md#how-it-will-be-checked),
+  on a fake clock.
+- **Replay,** each with the first reply lost: an origin replacement, a
+  branch rename and a session deletion, repeated with the same `--key`, find
+  the recorded operation and send no change; a key recorded for another kind
+  or target exits 2 without sending.
+- **Cancellation:** Ctrl-C at the prompt or during the countdown sends
+  nothing; Ctrl-C while waiting exits 4 and leaves the operation running.
+- **Waiting and repeats:** every `operation.wait` asks for 20 seconds within
+  a 25-second call budget; a wait that returns `running` is repeated;
+  `completed` exits 0, `blocked` 4, `failed` and `superseded` 1;
+  `session_held` waits for the named operation, then repeats with the same
+  key and tag; a queued service restart followed by a `deadline` issues
+  exactly one action call; `p attach` on a stopped session starts it, waits,
+  then attaches.
+- **Origin refs:** a successful refresh followed by a failed one, with
+  cached refs present, prints no refs and exits 1.
+- **Sentences:** every refusal code, error reason, error kind and loss kind
+  in `internal/api` has a sentence, and an unknown reason falls back to its
+  kind's.
+
+VM scenario 57, the developer workflow, moves from `p api` to the task
+commands and keeps its outcome checks. The other scenarios keep `p api`,
+because they test the API.
