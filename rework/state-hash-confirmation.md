@@ -133,10 +133,12 @@ Cached environment images are no longer managed through the API:
 `environment.cache.collect` are removed, and P manages image lifetime itself
 (a separate decision; see the [plan](REWORK-PLAN.md)).
 
-Calls without a preview stay as they are: create, start, stop, rename,
+Calls without a preview stay single calls: create, start, stop, rename,
 service actions, `session.repair.prepare` (whose image now comes from the
 session's source commit; see [commit-images.md](commit-images.md)), and
 `origin.change`, which already guards itself with the expected current URL.
+Start and stop now return operations, as every change does except service
+actions ([waiting.md](waiting.md)).
 
 `session.create.replace` is the one method whose preview takes a `key` today:
 the idempotency key of the new session it creates. Its dry run leaves `key`
@@ -155,14 +157,15 @@ Before:
 ← {"v":1,"operation":{…}}
 ```
 
-After:
+After, with no `"v":1`, since the version is agreed once per connection
+([wire-types.md](wire-types.md)):
 
 ```text
-→ session.delete  {"v":1,"uuid":"…"}
-← {"v":1,"plan":{…},"change_tag":"20261102T153012Z-<64 hex>"}
-→ session.delete  {"v":1,"uuid":"…","key":"k1","if_match":"20261102T153012Z-<64 hex>"}
-← {"v":1,"operation":{…}}
-  or a precondition_failed error saying "expired" or "changed", with no plan and no tag
+→ session.delete  {"uuid":"…"}
+← {"plan":{…},"change_tag":"20261102T153012Z-<64 hex>"}
+→ session.delete  {"uuid":"…","key":"k1","if_match":"20261102T153012Z-<64 hex>"}
+← {"operation":{…}}
+  or a precondition_failed error with reason "expired" or "changed", with no plan and no tag
 ```
 
 ### The code
@@ -294,7 +297,7 @@ older tags stop matching.
   expiry, so `expires_at` is no longer a separate field.
 - Refusals are `precondition_failed` and `precondition_required` instead of
   `busy`. Like every error, they carry no change tag and no plan; a new dry
-  run returns both. The [errors decision](REWORK-PLAN.md#before-and-after)
+  run returns both. The [errors decision](errors.md)
   places these two kinds among the others.
 - A preview survives a daemon restart until it expires. A full preview store
   no longer causes a `busy` refusal, because there is no store.

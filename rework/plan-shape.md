@@ -441,7 +441,11 @@ preview.
    like the repairs: each "not now, do this first" condition becomes a
    refusal code in an `allowed: false` plan, for example `attachment_active`,
    `session_not_established` and `runtime_changed`. Errors stay for invalid
-   input, unknown records and unreachable authorities. Step 5 makes the
+   input, unknown records, unreachable authorities, and a session held for
+   the moment by another request or a running operation (`retry`); methods
+   that are not risky changes, such as stopping a session with a terminal
+   attached, keep answering a forbidding state with `conflict`
+   ([errors.md](errors.md)). Step 5 makes the
    change, because it rewrites these methods, and settles the full list of
    codes from today's conflict errors. Publication gains
    `destination_divergent` the same way.
@@ -454,8 +458,9 @@ preview.
 
 The envelope, the refusal and the loss item become wire types in
 `internal/api`: a generic `Plan[D]` around each method's details type,
-`Refusal` and `Loss`, as the wire-types decision in the
-[plan](REWORK-PLAN.md) proposes. The loss summaries are written once in the
+`Refusal` and `Loss`, and each risky change's result is a
+`ChangeResult[D]` holding either the plan and its tag or the operation
+([wire-types.md](wire-types.md#the-types)). The loss summaries are written once in the
 daemon, one per source: a container that exists, a missing runtime, and a
 branch loss. The shared code sets
 `allowed` from `refusals`.

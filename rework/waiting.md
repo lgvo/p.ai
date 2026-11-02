@@ -35,8 +35,8 @@ lists them.
 - A start operation completes only after it has released the session, and
   the session reads `starting` until then, which keeps scenario 34's race
   closed by construction, for stop as well.
-- Project deletion returns its operation at once; nothing waits inside the
-  request.
+- Project deletion returns its operation at once, once step 0e has removed
+  its inspections; nothing waits inside the request.
 - One journal write path emits the same progress events for every kind and
   wakes waiters. At restart the daemon resumes running operations, and a
   blocked operation waits for Retry. Unfinished operations list in the order
@@ -55,8 +55,8 @@ the daemon restarts; the user presses Retry, as for every other kind already.
 | `project.create`, `session.create`, `session.rename`, `project.retained.rename`, `operation.retry`, `session.repair.prepare`, each confirm (discard, delete, the four repairs, create replacement, create cleanup, retained-branch deletion) | An operation | Unchanged |
 | `session.start` | The session as `starting`; a watcher holds the lock until the host is ready | An operation of kind `session.start` |
 | `session.stop` | The session, after stopping the runtime inside the request | An operation of kind `session.stop` |
-| `project.delete.confirm` (`project.delete` after step 5) | An operation, after up to 30 seconds of fresh loss inspections inside the request | The operation, at once |
-| `origin.change`, `origin.publish` | The origin state or publication result, after contacting or pushing to the origin inside the request | Operations; see open question 4 |
+| `project.delete.confirm` (`project.delete` after step 5) | An operation, after up to 30 seconds of fresh loss inspections inside the request | The operation, at once (from step 0e) |
+| `origin.change`, `origin.publish` | The origin state or publication result, after contacting or pushing to the origin inside the request | Operations; see open question 3 |
 | `session.attach` | A pending attachment, after starting the session and waiting for it inside the request | A pending attachment for a ready session; it no longer starts one |
 | `session.service.action` | The result after systemd's job finished | Returns once queued, not an operation ([services-plugin.md](services-plugin.md)) |
 | `origin.refresh` | The refreshed observation | Unchanged: a read that refreshes P's cached view, not a change |
@@ -191,8 +191,15 @@ The maintainer removed the workspace loss inspection from deletions on
 2026-11-02 ([plan-shape.md](plan-shape.md#by-category)). Without it the
 confirm checks the reviewed state, records the operation and returns it. The
 worker, `processProjectDelete`, does the deletion as today, and the client
-waits with `operation.wait`. The two-minute special case in `p api` goes. See
-open question 3 for which step removes the inspection.
+waits with `operation.wait`. The two-minute special case in `p api` goes.
+
+Groundwork step 0e ([plan](REWORK-PLAN.md#steps)) removes these inspections
+together with the other deletion inspections: both the preview's
+`loss_operations` parameter and the confirm's inspection loop. Removing both
+at once keeps the preview from binding an inspection that the confirm no
+longer rechecks. After 0e the confirm already returns its operation at once;
+step 4 adds `operation.wait` for the client, and step 5 reshapes the preview
+into the plan.
 
 ## One journal write path
 
@@ -348,12 +355,7 @@ them.
    operation, replacing the `session.start.diag:<uuid>` metadata rows, which
    are never deleted today
    ([state-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session)).
-3. **Which step removes project deletion's fresh loss inspections?**
-   Recommendation: step 4, both the preview's `loss_operations` and the
-   confirm's inspection loop, so the confirm can return at once; step 5 then
-   reshapes the preview into the plan. Removing only the loop would leave a
-   preview that binds an inspection the confirm no longer rechecks.
-4. **Do `origin.change` and `origin.publish` become operations in step 4?**
+3. **Do `origin.change` and `origin.publish` become operations in step 4?**
    Recommendation: yes, as the "every change returns an operation" decision
    reads. Both contact the origin inside the request today, with origin
    deadlines of 35 seconds (internal/plugin/sourcegit.go,
@@ -364,7 +366,7 @@ them.
    As operations, `outcome_unknown` becomes a `failed` operation with that
    reason, never retried, as today; their request tables (`origin_requests`,
    `publication_requests`) fold into the journal.
-5. **May the session condition gain `stopping`?** Recommendation: yes. It is
+4. **May the session condition gain `stopping`?** Recommendation: yes. It is
    a new value users see for a few seconds, and without it the stop
    operation reopens scenario 34's race for stop; see
    [Start and stop as operations](#start-and-stop-as-operations).
@@ -387,8 +389,8 @@ them.
   start; a blocked one of every kind does not until Retry; unfinished
   operations list in acceptance order across kinds, including after a row is
   deleted.
-- A unit test that `project.delete.confirm` returns its operation without
-  starting an inspection.
+- From step 0e, a unit test that `project.delete.confirm` returns its
+  operation without starting an inspection; step 4 keeps it.
 - VM scenario 34 passes; the scenarios move from polling `operation.inspect`
   and `session.inspect` (`wait_operation` in 30 step scripts, `wait_ready` in
   22) to `operation.wait`, keeping their outcome checks. Scenarios 47, 49, 51

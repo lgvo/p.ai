@@ -114,9 +114,10 @@ var ErrNoService = errors.New("no such project service in this session")
 ```
 
 `Capabilities` gains `Services bool`. A driver without services returns
-`ErrUnsupported`, and the daemon then registers the three methods as
-unavailable, as it does today when no service API is configured
-(internal/control/rpc_lifecycle.go).
+`ErrUnsupported`; the daemon then answers the three methods with
+`not_configured`, reason `services` ([errors.md](errors.md)), and leaves
+`services` out of the capabilities that `system.hello` reports
+([wire-types.md](wire-types.md#the-version-agreed-at-systemhello)).
 
 ### States
 
@@ -158,7 +159,9 @@ as today.
 
 Core keeps the session lock, the check that the session is established and
 ready, a generic name check (printable, at most 128 bytes), the mapping to
-API errors, and the 48,000-byte bound on the encoded result.
+API errors, and the 48,000-byte bound on the encoded result. The mapping
+follows [errors.md](errors.md): `ErrNoService` answers `not_found`, reason
+`service`, and `ErrUnavailable` answers `failed`, reason `runtime`.
 
 ## The Incus driver
 
