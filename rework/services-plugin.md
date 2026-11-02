@@ -157,8 +157,11 @@ as today.
   `p-project-notes-db.service`, as today: the agent chose it, and nothing
   visible changes. Core treats it as opaque.
 
-Core keeps the session lock, the check that the session is established and
-ready, a generic name check (printable, at most 128 bytes), the mapping to
+Core keeps the session's admission, as step 0i left it: the inventory and
+logs reads take a read admission, refused while a change holds the session,
+and a change that arrives while reads run waits for them; a service action
+takes the session lock. Core also keeps the check that the session is
+established and ready, a generic name check (printable, at most 128 bytes), the mapping to
 API errors, and the 48,000-byte bound on the encoded result. The mapping
 follows [errors.md](errors.md): `ErrNoService` answers `not_found`, reason
 `service`, and `ErrUnavailable` answers `failed`, reason `runtime`.
@@ -265,7 +268,8 @@ This lands with the runtime driver's migration (step 8), where the
 - **Incus driver unit tests:** today's internal/runtimeincus/services_test.go,
   moved, plus the state mapping, including an installed unit not loaded as
   `stopped` with detail `installed`.
-- **Core tests** on the in-memory driver: the session lock is held, a session
+- **Core tests** on the in-memory driver: reads take the read admission and
+  actions the session lock, a session
   that is not ready is refused, driver errors map to API errors, nothing is
   retried.
 - **TUI tests:** `s` follows `state`; the row shows `detail` as today.
