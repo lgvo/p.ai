@@ -64,20 +64,9 @@ In the daemon, before (`sessionAction` in `internal/control/rpc_lifecycle.go`,
 abridged):
 
 ```go
-sessionAction := func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-	var p struct {
-		V    int    `json:"v"`
-		UUID string `json:"uuid"`
-	}
-	if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.UUID) != 36 {
-		return nil, errorRPC(-32602, "invalid_params", "session UUID required")
-	}
-	switch method {
-	case "session.inspect":
-		view, e = life.InspectSession(ctx, p.UUID)
-	…
-	return map[string]any{"v": 1, "session": view}, nil
-}
+var p struct{ V int `json:"v"`; UUID string `json:"uuid"` }   // declared in the handler
+…
+return map[string]any{"v": 1, "session": view}, nil
 ```
 
 After:
@@ -89,15 +78,11 @@ register(t, api.SessionInspect, func(ctx context.Context, r api.SessionInspectRe
 })
 ```
 
-In the TUI, before (`internal/tui/workflows.go` and `model.go`):
+In the TUI, before (`internal/tui/workflows.go` and `model.go`, abridged):
 
 ```go
-m.begin("session.inspect", params{"v": 1, "uuid": id})
-…
-var r struct {
-	Session api.SessionView `json:"session"`
-}
-json.Unmarshal(v.raw, &r)
+m.begin("session.inspect", params{"v": 1, "uuid": id})   // params is map[string]any
+var r struct{ Session api.SessionView `json:"session"` }  // the TUI's own shape
 ```
 
 After:

@@ -106,9 +106,11 @@ TUI's operations page need.
 ## An operation ends only after its worker lets go
 
 **The rule: a worker that holds a session releases it before the journal
-records its operation's end.** Every request that needs the session checks
-the journal for an unfinished operation on it and answers `retry`, naming
-that operation ([errors.md](errors.md)). So between the release and the
+records its operation's end.** Every request that needs the session goes
+through one admission check of the journal: an unfinished operation on the
+session answers `retry` naming it while it is `running`, and `conflict` with
+reason `operation_blocked` once it is `blocked`, since a blocked operation
+waits for Retry ([errors.md](errors.md)). So between the release and the
 recorded end, a request is refused by the journal, not by the lock; and once
 `operation.wait` returns the end, nothing of that operation holds the
 session.
@@ -174,7 +176,7 @@ operation and then attach, so users see the same result. The wait loops in
 The journal's existing rule, one unfinished operation per session (the
 `active_session_operation` index in internal/control/store.go), now covers
 start and stop: a rename, repair or removal of a session that is starting is
-refused with `retry`.
+refused through the same admission check.
 
 ## One journal write path
 
@@ -248,11 +250,9 @@ Why acceptance order:
   session creation needs an active project; Git ref guards serialize work on
   one branch.
 - Acceptance order is the order in which requests filled the worker queue
-  (`enqueue` appends), so recovery refills it close to how it stood.
-- Today's `unfinishedGroups` (internal/control/operation_journal.go) sort 13
-  kind groups by `created_at` or `rowid`. `created_at` is RFC 3339 text with
-  trailing zeros dropped, so `…:12Z` sorts after `…:12.5Z`, and `rowid` can
-  be reused after the newest row is deleted.
+  (`enqueue` appends), so recovery refills it close to how it stood. It
+  replaces today's per-kind groups (`unfinishedGroups` in
+  internal/control/operation_journal.go).
 
 ## The TUI's refresh
 
@@ -339,6 +339,10 @@ them.
   session (creation) or repairs and renames it (start, stop) without
   meeting the session's lock. With the hook placed before the commit
   instead, the same requests get `retry` naming the operation.
+- A unit test of the shared admission check: a request that needs a session
+  held by a `running` operation gets `retry` naming it; held by a `blocked`
+  one, `conflict` with reason `operation_blocked`; for every method that
+  needs the session.
 - Unit tests for start and stop: `session.inspect` never reports `ready`
   while a start operation is unfinished, nor `stopped` while a stop
   operation is; a second start returns the unfinished operation; a host that

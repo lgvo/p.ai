@@ -17,8 +17,9 @@ Two of them cover situations that need different next steps:
 
 So clients read the message text: project deletion passes its error's text
 through, capacity explains itself in its message, and the TUI and the
-attachment client show the message to the user. Operations cut their diagnostics at 512, 900 or 1024
-bytes, and list summaries cut them again at 256 or 512.
+attachment client show the message to the user. Operations cut their
+diagnostics at 512, 900 or 1024 bytes, and list summaries cut them again at
+256 or 512.
 
 **Proposed:**
 
@@ -33,8 +34,8 @@ bytes, and list summaries cut them again at 256 or 512.
   cause; clients write sentences from codes.
 - A panic in a request handler, recovered since groundwork step 0c,
   answers `internal` with reason `panic`.
-- Every operation's diagnostic is cut once, at 1024 bytes, where the journal
-  writes it.
+- Every diagnostic is cut once, at 1024 bytes, by one primitive that every
+  writer calls.
 
 **What users notice:** the TUI and CLI show their own sentences for errors
 instead of the daemon's. Scripts that test `.error.kind` test
@@ -119,8 +120,8 @@ becomes `retry` or `cancelled`.
 
 **Why `retry` and `conflict` differ by the holder's status.** An unfinished
 operation that holds the session gives `retry` while it is `running`: it will
-leave `running` without anyone acting, and the client can wait for it with
-`operation.wait` ([waiting.md](waiting.md)). A `blocked` one gives `conflict`
+leave `running` without anyone acting, and from step 4 the client can wait
+for it with `operation.wait` ([waiting.md](waiting.md)). A `blocked` one gives `conflict`
 with reason `operation_blocked`: it waits for a person.
 
 ## The error object
@@ -235,34 +236,39 @@ Step 3 adds two things:
 ## One diagnostic limit
 
 An operation's `diagnostic` is the bounded detail of why it blocked or
-failed, shown verbatim. Today each worker cuts its own:
+failed, shown verbatim. Today the largest limit is 1024 bytes:
+`AdvanceOperation` (internal/control/store.go) refuses longer diagnostics, and
+the start diagnostic is cut at 1024 before `SetSessionStartDiagnostic` stores
+it in `metadata`. Workers cut their own at 512 or 900 bytes before writing,
+and `SummarizeOperation` cuts again, to 256 (512 for rename), for
+`operation.list`.
 
-| Limit | Where |
-|---|---|
-| 1024 bytes | `AdvanceOperation` (internal/control/store.go) refuses longer ones; create cleanup (internal/daemon/create_cleanup.go); the start diagnostic (`StartSession`, stored by `SetSessionStartDiagnostic`) |
-| 900 bytes | Creation's `fail` (internal/daemon/lifecycle.go), project deletion (project_delete_process.go), environment collection, principal repair, retained-branch rename, and `projectDeleteRPC`'s message |
-| 512 bytes | Discard and delete (discard_process.go, discard_store.go), rename (rename_store.go), assembled cleanup, repair preparation, and each resource of a project deletion |
-| 256 bytes, 512 for rename | `SummarizeOperation`, again, for `operation.list` |
-
-**After: one limit, 1024 bytes,** `api.MaxDiagnosticBytes`. The journal's one
-write path ([waiting.md](waiting.md#one-journal-write-path)) applies it to
-every operation's diagnostic and every diagnostic inside its evidence, and
-cuts at a UTF-8 character boundary; today's `d[:limit]` can split a
-character. Workers stop cutting. `operation.list` shows the same diagnostic
-as `operation.inspect`, and the session view's start diagnostic is its start
-operation's ([waiting.md](waiting.md#start-and-stop-as-operations)).
+**After: one limit, 1024 bytes,** `api.MaxDiagnosticBytes`, applied by one
+primitive that step 3 adds: a function that bounds a diagnostic at a UTF-8
+character boundary (today's `d[:limit]` can split a character). Every
+writer of a diagnostic calls it: `AdvanceOperation`, the store's other
+methods that write an operation's diagnostic, the per-resource diagnostics
+inside project deletion's evidence, and `SetSessionStartDiagnostic`. Workers
+stop cutting, and `SummarizeOperation` stops cutting again, so `operation.list`
+shows the same diagnostic as `operation.inspect`. Step 4's journal write path
+([waiting.md](waiting.md#one-journal-write-path)) calls the same primitive.
+The start diagnostic stays in `metadata` until step 4 makes start an
+operation; then the session view reads it from the start operation.
 
 Why 1024: it is the largest of today's limits, so no diagnostic gets shorter,
-and the store already refuses anything longer. Rename needs at least 512 to
-keep both branch names visible (scenario 33 checks both). A page of 20
-operations at the limit adds 20 KiB, inside the 63 KiB that
-`boundedLifecyclePage` allows, and that function already shortens a page that
-would not fit. Project deletion's evidence holds about 13 resource
-diagnostics (at most four sessions with two resources each, after
-[commit images](commit-images.md) at most one image per session, and the
-repository) under a 24 KiB evidence bound (project_delete_store.go); I did not
-measure the rest of that evidence, so the step checks that it fits at the new
-limit, or raises the bound.
+and the store already refuses anything longer. Three cases constrain it:
+
+- Rename needs at least 512 bytes to keep both branch names visible; scenario
+  33 checks both.
+- A page of 20 operations at the limit adds 20 KiB, inside the 63 KiB that
+  `boundedLifecyclePage` allows, and that function already shortens a page
+  that would not fit.
+- Project deletion's evidence holds about 13 resource diagnostics (at most
+  four sessions with two resources each, after
+  [commit images](commit-images.md) at most one image per session, and the
+  repository) under a 24 KiB evidence bound (project_delete_store.go). I did
+  not measure the rest of that evidence, so the step checks that it fits at
+  the new limit, or raises the bound.
 
 ## Options set aside
 
@@ -311,8 +317,11 @@ limit, or raises the bound.
   with reason `panic`. If open question 2 is accepted, a worker that panics
   leaves its operation `blocked` with reason `internal`, the daemon keeps
   serving, and the scheduler does not run the operation again.
-- Diagnostic tests: every journal write cuts at 1024 bytes on a character
-  boundary; `operation.list` shows the full diagnostic; a page of 20
+- Diagnostic tests: the primitive cuts at 1024 bytes on a character
+  boundary; a store test writes an over-long diagnostic through each method
+  that takes one, the start diagnostic included, and reads back at most 1024
+  bytes; `operation.list` shows the full
+  diagnostic; a page of 20
   operations at the limit fits one frame; scenario 33's rename diagnostic
   still holds both names.
 - TUI and CLI tests: each kind and reason has a sentence; an unknown reason
