@@ -33,8 +33,9 @@ command:
 stays for protocol work. The host commands (`p daemon`, `p plugins`) keep
 their arguments and output and are listed under their own heading.
 
-One question about the CLI waits on the maintainer; see
-[Open questions](#open-questions).
+**Decided by the maintainer on 2026-11-02:** a script may run a reviewed
+plan by its tag, with `--if-match` and no prompt or countdown
+([below](#--dry-run-and---if-match)).
 
 ## The commands
 
@@ -79,9 +80,9 @@ a dry run; [Risky changes](#risky-changes) describes them.
 | `p branch delete PROJECT:BRANCH` | `project.retained.delete` | Asks, waits |
 | `p origin show PROJECT [--refresh]` | `origin.inspect`; `origin.refresh` with `--refresh` | Shows the status, `fresh`, `unknown` or `local-only`, with the observation time |
 | `p origin refs PROJECT` | `origin.refresh`, then `origin.sources` | Lists refs only from a fresh observation, as the TUI does ([below](#origin-refs-must-be-fresh)) |
-| `p origin set PROJECT URL` | `origin.change`, kind `set` | Reads the current URL for `expected_url` |
+| `p origin set PROJECT URL` | `origin.change`, kind `set` | Reads the current URL for `expected_url`; waits |
 | `p origin remove PROJECT` | `origin.change`, kind `remove` | Same |
-| `p origin publish PROJECT:BRANCH [--to NAME]` | `origin.publish` | Asks. Kind `session` when a session holds the branch, otherwise `retained`. `--to` defaults to the same branch name. |
+| `p origin publish PROJECT:BRANCH [--to NAME]` | `origin.publish` | Asks, waits. Kind `session` when a session holds the branch, otherwise `retained`. `--to` defaults to the same branch name. |
 | `p session list [--project PROJECT]` | `session.list` | The project filter is applied by the CLI |
 | `p session show SESSION` | `session.inspect` | Conditions, attachments, the latest unattended agent report, policy, diagnostic |
 | `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`). `--from-origin` refreshes the origin, takes the commit and URL only from a fresh observation, and prints which commit it chose. |
@@ -180,9 +181,10 @@ The lookup pages `operation.list`; a `key` filter there would make it one
 call. A key whose operation the journal no longer keeps, such as one of a
 deleted project, is not found.
 
-`origin.change` and `origin.publish` record no operation unless waiting.md's
-open question 2 is accepted; until then the CLI refuses `--key` on
-`p origin set`, `remove` and `publish`. On a command that asks, a
+`origin.change` and `origin.publish` record operations
+([waiting.md](waiting.md#origin-change-and-publish-as-operations)), so
+`p origin set`, `remove` and `publish` take `--key` like any other change. On
+a command that asks, a
 `precondition_failed` under `--key` stops with exit 3 instead of asking
 again, so one key is never sent with two tags.
 
@@ -213,17 +215,12 @@ daemon, and the CLI prints its ID and `p operation wait ID`.
 
 ### Changes without an operation
 
-Three changes record no operation, so there is nothing to wait for or look
+Service actions record no operation, so there is nothing to wait for or look
 up by key:
 
 | Command | Result (`--json` prints it) | Human output | Reply lost |
 |---|---|---|---|
 | `p service start\|stop\|restart` | `{"uuid", "name", "observed_at"}`: today's `ServiceResult` without `v`, with `unit` renamed `name` ([services-plugin.md](services-plugin.md#what-ps-api-and-tui-keep)). It says the runtime queued the action, nothing about its state. | "Queued restart of NAME; `p service list SESSION` shows its progress." Exit 0. | Never resent ([Errors](#errors-and-automatic-repeats)). Says the action may have been queued; exit 1. |
-| `p origin set`, `remove` | `{"origin": …}`, the origin state after the change | The URL and status | Says the change may have been applied and points to `p origin show`; exit 1. |
-| `p origin publish`, the run | `{"publication": …}` with status `created`, `advanced`, `satisfied` or `outcome_unknown` | The status; `outcome_unknown` exits 1 | Says the push may have happened and points to `p origin refs`; exit 1. |
-
-The origin rows hold until waiting.md's open question 2 makes those changes
-operations; then they wait and replay like any other change.
 
 ### Start and stop
 
@@ -253,7 +250,7 @@ another is unfinished returns that operation
 | Change | `{"operation": …}`, the operation after waiting, or as accepted with `--no-wait` |
 | Start and stop | The reply in [Start and stop](#start-and-stop): `changed`, with `operation` or `session` |
 | Change without an operation | The method's result, as in [Changes without an operation](#changes-without-an-operation) |
-| Change that asks | `{"plan": …, "change_tag": …, "operation": …}`: the last dry run, and the operation if it ran; a publication without an operation has `publication` instead |
+| Change that asks | `{"plan": …, "change_tag": …, "operation": …}`: the last dry run, and the operation if it ran |
 | `--dry-run` | The dry run's reply as the API returns it |
 | Any error | `{"error": …}`, the API's error object: `code`, `message` (the kind's name) and `data` ([errors.md](errors.md#the-error-object)) |
 
@@ -264,7 +261,7 @@ Color and bold appear only when standard error is a terminal.
 | Code | Meaning |
 |---|---|
 | 0 | Done: the read succeeded, the operation completed, or with `--no-wait` the daemon accepted it; a start or stop found the session already as asked; `--dry-run` of an allowed change. |
-| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; the outcome of a change without an operation is unknown, or a publication ended `outcome_unknown`; the origin observation is stale; or the operation ended `failed` or `superseded`. |
+| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; the outcome of a service action is unknown; the origin observation is stale; or the operation ended `failed` or `superseded`. |
 | 2 | Usage: the arguments or flags are invalid, found by the CLI or answered `invalid` by the daemon; or a `--key` belongs to another command. |
 | 3 | Not run, nothing changed: the plan is not allowed; the daemon answered `conflict`, `capacity` or `precondition_failed`; the user declined or cancelled; or no terminal could ask. |
 | 4 | Not finished: the operation is `blocked`, or the CLI stopped waiting while it runs on. |
@@ -279,7 +276,10 @@ protocols ([errors.md](errors.md#the-error-object)). The CLI prints one
 sentence per reason, naming `target` or `field` when present, and falls back
 to its sentence for the kind when it meets a reason it does not know. Error
 reasons and refusal codes share one namespace, so they share the CLI's one
-sentence table ([Printing the plan](#printing-the-plan)).
+sentence table ([Printing the plan](#printing-the-plan)). An operation that
+ends `blocked` or `failed` carries a `reason` as well
+([errors.md](errors.md#a-reason-beside-the-diagnostic)); the CLI prints its
+sentence before the diagnostic.
 
 On `retry`, the CLI sends the identical call again, with the same key and
 tag, only when a second call cannot act twice:
@@ -390,7 +390,7 @@ terminals. Otherwise:
   countdown, because the caller saw that plan from `--dry-run`, warning
   included, and the daemon runs it only if nothing changed; otherwise the CLI
   prints the refusal and exits 3. It is the API's own two calls, for scripts
-  that decide from the plan. See [Open questions](#open-questions).
+  that decide from the plan. Decided by the maintainer on 2026-11-02.
 
 `--dry-run`, `--force` and `--if-match` exclude one another.
 
@@ -433,11 +433,6 @@ error.
 
 Still open in the documents this design builds on:
 
-- **waiting.md, question 2:** if `origin.change` and `origin.publish` record
-  operations, they wait and accept `--key`; if not, they behave as in
-  [Changes without an operation](#changes-without-an-operation).
-- **errors.md, question 1:** if blocked and failed operations get a
-  `reason`, the CLI prints its sentence before the diagnostic.
 - **A `key` filter on `operation.list`** would make the replay lookup one
   call instead of paging; waiting.md does not have one yet.
 - **Step 5:** the full list of refusal codes, and whether `origin.publish`
@@ -460,15 +455,6 @@ These change when step 7 lands:
   `p status` and `p project list`.
 - `usage()` in cmd/p/main.go becomes `p help`.
 
-## Open questions
-
-1. **May scripts run a reviewed plan by its tag (`--if-match`)?** It skips
-   the prompt and the countdown at run time. *Recommendation:* yes. The
-   `--dry-run` call already printed the plan and the loss warning, and the
-   tag makes the daemon run that plan or nothing. Without it, a script that
-   decides from the plan has to use `p api`, and `--force` runs whatever the
-   plan has become by then.
-
 ## How it will be checked
 
 CLI unit tests against a fake daemon on a Unix socket, as
@@ -489,14 +475,11 @@ cmd/p/main_test.go does today, cover what can lose work or act twice:
   (`p session create app:new --from main --replace app:old`), matched by
   `branch` and `replaces_branch` after the old session is gone. The same key
   with another rename destination or creation source, or naming the other
-  of two retained branches in one project, exits 2 without sending. If
-  waiting.md's question 2 makes origin changes operations, an origin
-  replacement replays the same way; until then `--key` on `p origin set`,
-  `remove` and `publish` exits 2.
+  of two retained branches in one project, exits 2 without sending. An
+  origin change and a publication replay the same way.
 - **Changes without an operation:** a queued service action prints its
   result and exits 0; a queued restart followed by a `deadline` or a lost
-  reply issues exactly one action call and exits 1. An origin change whose
-  reply is lost exits 1 and points to `p origin show`.
+  reply issues exactly one action call and exits 1.
 - **Cancellation:** Ctrl-C at the prompt or during the countdown sends
   nothing; Ctrl-C while waiting exits 4 and leaves the operation running.
 - **Waiting and repeats:** every `operation.wait` asks for 20 seconds within
@@ -510,8 +493,8 @@ cmd/p/main_test.go does today, cover what can lose work or act twice:
   and on a stopped one starts it, waits, then attaches.
 - **Origin refs:** a successful refresh followed by a failed one, with
   cached refs present, prints no refs and exits 1.
-- **Sentences:** every refusal code, error reason, error kind and loss kind
-  in `internal/api` has a sentence, and an unknown reason falls back to its
+- **Sentences:** every refusal code, error and operation reason, error kind
+  and loss kind in `internal/api` has a sentence, and an unknown reason falls back to its
   kind's.
 
 VM scenario 57, the developer workflow, moves from `p api` to the task

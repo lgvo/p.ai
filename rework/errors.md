@@ -34,6 +34,10 @@ diagnostics at 512, 900 or 1024 bytes, and list summaries cut them again at
   cause; clients write sentences from codes.
 - A panic in a request handler, recovered since groundwork step 0c,
   answers `internal` with reason `panic`.
+- Decided by the maintainer on 2026-11-02: blocked and failed operations
+  carry a `reason` code beside their diagnostic, and the diagnostic keeps
+  only detail, no advice. A panic in operation work is recovered too, and the
+  operation recorded `blocked` with reason `internal`.
 - Every diagnostic is cut once, at 1024 bytes, by one primitive that every
   writer calls.
 
@@ -229,10 +233,26 @@ Step 3 adds two things:
 
 - **The answer's shape:** `internal` with reason `panic`, in the error object
   above, with the method, request ID, panic value and stack in the log.
-- **Panics in operation workers,** if the maintainer accepts open question
-  2. The decision and 0c cover request handlers only; a worker panic still
-  ends the daemon. Worker code takes `l.mu` without `defer` as well, so
-  recovering there needs the same conversion in the workers' lock sites.
+- **Panics in operation workers,** decided by the maintainer on 2026-11-02.
+  0c covers request handlers only, and a worker panic still ends the daemon.
+  Simply recovering it would leave the operation `running`, so the 1-second
+  scheduler would run it again every second. Instead the daemon recovers,
+  logs, and records the operation `blocked` with reason `internal`, keeping
+  its guards, so it waits for Retry like any blocked operation
+  ([waiting.md](waiting.md#resuming-after-a-restart)). Worker code takes
+  `l.mu` without `defer` as well, so recovering there needs the same
+  conversion in the workers' lock sites.
+
+## A reason beside the diagnostic
+
+Decided by the maintainer on 2026-11-02: an operation that ends `blocked` or
+`failed` carries a `reason` code beside its diagnostic, from step 3. Today
+diagnostics mix raw detail with P's own advice, such as rename's "correct Git
+manually" (checked by scenario 33) and project deletion's "Retry/investigate
+that read before a new project review"; that advice is message text, which
+the maintainer ruled out of the API. Clients write the advice from the
+reason, and the diagnostic keeps only the detail. Every site that blocks or
+fails an operation names its reason.
 
 ## One diagnostic limit
 
@@ -280,24 +300,6 @@ and the store already refuses anything longer. Three cases constrain it:
 | `precondition_failed` for any state that forbids a request | It means that something the client sent as a condition, a change tag or an expected value such as `expected_old_tip`, no longer holds, as HTTP's 412 does for `If-Match`. A state the client stated nothing about is `conflict`. |
 | Reuse -32003 and -32004 for new kinds | A script testing the old codes would silently match a different meaning. |
 
-## Open questions
-
-1. **Do blocked and failed operations get a `reason` code beside their
-   diagnostic?** Recommendation: yes, in this step. Diagnostics today mix
-   raw detail with P's own advice, such as rename's "correct Git manually"
-   (checked by scenario 33) and project deletion's "Retry/investigate that
-   read before a new project review"; that advice is message text, which the
-   maintainer ruled out of the API. With a `reason`, clients write the advice
-   from the code and the diagnostic keeps only the detail. The cost is a
-   reason at every site that blocks or fails an operation.
-2. **Are panics in operation workers recovered too?** The decision covers
-   request handlers. A worker panic also ends the daemon today, and simply
-   recovering it would leave the operation `running`, so the 1-second
-   scheduler would run it again every second. Recommendation: recover, log,
-   and record the operation `blocked` with reason `internal`, keeping its
-   guards, so it waits for Retry like any blocked operation
-   ([waiting.md](waiting.md#resuming-after-a-restart)).
-
 ## How it will be checked
 
 - A unit test for each kind and reason: the condition that raises it, the
@@ -315,16 +317,19 @@ and the store already refuses anything longer. Three cases constrain it:
 - A test that no error reply contains text from a Go error: every error the
   mapper produces is checked against the documented fields.
 - 0c's panic test, extended: a handler that panics is answered `internal`
-  with reason `panic`. If open question 2 is accepted, a worker that panics
-  leaves its operation `blocked` with reason `internal`, the daemon keeps
-  serving, and the scheduler does not run the operation again.
+  with reason `panic`. A worker that panics leaves its operation `blocked`
+  with reason `internal` and its guards in place, the daemon keeps serving,
+  and the scheduler does not run the operation again.
 - Diagnostic tests: the primitive cuts at 1024 bytes on a character
   boundary; a store test writes an over-long diagnostic through each method
   that takes one, the start diagnostic included, and reads back at most 1024
   bytes; `operation.list` shows the full
   diagnostic; a page of 20
   operations at the limit fits one frame; scenario 33's rename diagnostic
-  still holds both names.
+  still holds both names, and the scenario checks the operation's reason
+  instead of the advice text.
+- Every site that blocks or fails an operation records a reason, and no
+  diagnostic carries advice.
 - TUI and CLI tests: each kind and reason has a sentence; an unknown reason
   falls back to the kind's sentence.
 - The test clients move to the new kinds and keep their outcome checks: the

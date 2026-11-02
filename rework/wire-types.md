@@ -255,12 +255,15 @@ Clients use `api.Dial`, which connects and sends the hello, and `api.Do`,
 which runs `Validate` and makes one typed call. The TUI may keep its one
 connection per call; on a local socket the hello costs one more line.
 
-**The private session RPC keeps `v` in this step.** It is the agent-facing
-socket of [communication boundaries](../docs/communication-boundaries.md#session-rpc-audience),
+**The private session RPC keeps `v` for now,** decided by the maintainer on
+2026-11-02; whether it starts with a hello is decided with the plugin
+contract in step 9. It is the agent-facing socket of
+[communication boundaries](../docs/communication-boundaries.md#session-rpc-audience),
 part of the plugin contract, and its main message, `status.report`, is a
 notification that receives no reply and so cannot take part in a hello. Its
-three methods get typed request and result types, and its errors take the new
-shape because they share `api.Error`. See open question 1.
+clients are agent adapters (the bundled Codex adapter sends `status.report`).
+Its three methods get typed request and result types, and its errors take
+the new shape because they share `api.Error`.
 
 ## What happens to `system.capabilities`
 
@@ -325,13 +328,6 @@ and their outcome checks stay.
 | One generic page type with an `items` field | Renames the list fields that scripts read, for no gain in the Go clients. |
 | Type each operation kind's evidence | A union over 17 kinds of the workers' durable records, which clients only display. |
 | Keep `system.capabilities` | Its method list repeats the protocol, and `lifecycle` is always `partial` with a runtime. |
-
-## Open questions
-
-1. **Does the private session RPC move to a hello too?** Recommendation: not
-   in this step. Its clients are agent adapters (the bundled Codex adapter
-   sends `status.report`), it is part of the plugin contract, and a
-   notification cannot negotiate. Decide it with the plugins step (9).
 
 ## How it will be checked
 

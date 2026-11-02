@@ -25,6 +25,8 @@ almost nothing.
 - source-git becomes a source driver: one interface for all source and Git
   work, replaceable like the runtime driver, designed in
   [source-driver.md](source-driver.md). No WASI source module remains.
+- The bundled file-log stays a plugin: a small executable, `p-event-file`, so
+  a default installation runs the protocol other handlers use.
 
 **Proposed:**
 
@@ -32,7 +34,6 @@ almost nothing.
   selected separately.
 - **The event handler becomes the one executable plugin capability:** a
   native process the daemon starts and talks to over the driver's protocol.
-  The bundled file-log becomes a small executable.
 - **The Codex adapter stays a package of files**, handed to the driver in
   `Session.Assets`.
 - Host configuration selects a plugin by path and SHA-256, as it selects the
@@ -115,7 +116,8 @@ cannot be written in it.
 Here a native executable makes sense: P starts it, sends it reduced events
 and never waits on it for a decision. The bundled file-log becomes
 `p-event-file`, built from today's append code, with the same checks, file and
-rotation (open question 1 weighs keeping it in core). The example becomes a
+rotation; the maintainer decided on 2026-11-02 that it stays a plugin. The
+example becomes a
 native filter. Core keeps event reduction and validation, the 64-event queue,
 the 2-second deadline and the dropped-events diagnostic; a handler failure
 stays diagnostic and never rolls back state.
@@ -387,8 +389,8 @@ P's account reaches it through group membership.
   and plugins never reach it" holds for the driver's socket pair, but an executable plugin running as P's
   account can open the Incus user socket. Whether a session's creation pins
   the driver's digest is not yet said there.
-- [wire-types.md](wire-types.md): its open question 1 is answered; the session
-  RPC keeps `v`.
+- [wire-types.md](wire-types.md): the session RPC keeps `v`, as the
+  maintainer decided there.
 - [REWORK-PLAN.md](REWORK-PLAN.md): the Plugins row and step 9 expect the
   WASI plugins to become JSON-RPC executables. Here source-git becomes the
   source driver instead, and the one executable plugin is the event handler,
@@ -409,16 +411,7 @@ P's account reaches it through group membership.
 | A package cache | Deferred by the maintainer; it may come later as a plugin. |
 | OS confinement of executable plugins now | Decided by the maintainer: a later improvement ([above](#later-improvement-confining-executable-plugins)). |
 | hashicorp/go-plugin | Set aside for the driver: MPL-2.0 and gRPC. |
-
-## Open questions
-
-1. **Does the bundled file-log stay a plugin?**
-   - (a) A small executable, `p-event-file`. *Recommended:* a default
-     installation then runs the protocol other handlers use, which is how
-     PRODUCT.md asks first-party functionality to prove its contracts. The
-     cost is one process and one more binary.
-   - (b) Core writes the file from host configuration, and nothing in a
-     default installation exercises the plugin protocol.
+| Core writes the event file from host configuration | Set aside by the maintainer on 2026-11-02: nothing in a default installation would exercise the plugin protocol. |
 
 ## How it will be checked
 

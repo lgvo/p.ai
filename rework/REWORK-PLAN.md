@@ -30,9 +30,9 @@ means the document does not exist yet.
 | Area | Before | After | Decision |
 |---|---|---|---|
 | Risky changes | A preview method and a confirm method per change, 23 in all. The daemon keeps each preview in memory under a random token. | HTTP-style conditional requests, one method per change, called twice: the first call is a dry run that returns a change tag (expiry plus a hash of the change), and the second runs it with `if_match` set to that tag. 7 methods in all, once groundwork removes the cache and repair methods, and nothing is stored. Every plan shares one envelope: allowed, refusals, loss, details. | [state-hash-confirmation.md](state-hash-confirmation.md), [plan-shape.md](plan-shape.md) |
-| Errors | Nine JSON-RPC error kinds. `busy` and `unavailable` each cover several situations, so clients read the message text. | Each kind names the next step: retry, conflict, precondition failed, precondition required, capacity, not found, not configured, invalid, failed. A panic in a request handler answers `internal` and is logged instead of stopping the daemon. One diagnostic size limit for every operation kind (today 512, 900 or 1024 bytes). | [errors.md](errors.md) |
-| Wire types | The daemon builds about 40 results as loose maps, and the TUI writes its own struct shapes. Every request carries `"v":1`. | One request type and one result type per method in `internal/api`, shared by the daemon, TUI, CLI and tests. The version is agreed once, at `system.hello`. | [wire-types.md](wire-types.md) |
-| Waiting | Start and stop return a session view and tell clients to poll. Project deletion blocks inside the request, and the server cuts every request at 30 seconds. | Every change returns an operation. `operation.wait` returns when the operation finishes. Every operation kind emits the same progress events and follows one rule for resuming blocked work after a restart; unfinished operations list in one order. Service actions are the exception: they return once queued, and the service list shows their progress. | [waiting.md](waiting.md) |
+| Errors | Nine JSON-RPC error kinds. `busy` and `unavailable` each cover several situations, so clients read the message text. | Each kind names the next step: retry, conflict, precondition failed, precondition required, capacity, not found, not configured, invalid, failed. A panic in a request handler answers `internal` and is logged instead of stopping the daemon. Blocked and failed operations carry a `reason` code beside their diagnostic, and a panic in operation work leaves the operation `blocked` with reason `internal`. One diagnostic size limit for every operation kind (today 512, 900 or 1024 bytes). | [errors.md](errors.md) |
+| Wire types | The daemon builds about 40 results as loose maps, and the TUI writes its own struct shapes. Every request carries `"v":1`. | One request type and one result type per method in `internal/api`, shared by the daemon, TUI, CLI and tests. The version is agreed once, at `system.hello`; the in-session socket keeps `"v":1` until step 9 decides. | [wire-types.md](wire-types.md) |
+| Waiting | Start and stop return a session view and tell clients to poll. Project deletion blocks inside the request, and the server cuts every request at 30 seconds. | Every change returns an operation. `operation.wait` returns when the operation finishes. Every operation kind emits the same progress events and follows one rule for resuming blocked work after a restart; unfinished operations list in one order. Service actions are the exception: they return once queued, and the service list shows their progress. Origin change and publish become operations; a session keeps only its newest finished start or stop; the session condition gains `stopping`. | [waiting.md](waiting.md) |
 | Images | An image holds one environment's Nix packages, named by what the devShell resolves to; the code is cloned at session start. Images pile up until deleted by hand (`environment.cache.*`, used by nothing but the VM tests) or with the project. | One image per source commit, built from everything at that commit and tagged with it. Sessions from the same commit share it and drift on their own. An image is kept while a session started from its commit exists; no cache API. | [commit-images.md](commit-images.md) |
 | Repairs | The client picks among four repair families. | Removed by the maintainer on 2026-11-02: discard or delete, then create a new session on the retained branch. Removal accepts a missing branch ref. | [repairs.md](repairs.md) |
 | CLI | Deletion and recovery only through `p api` with hand-written JSON, idempotency keys and copied tokens. | Task commands such as `p session delete` and `p origin publish` that preview, show and confirm, with `--force`. | `--force` in [state-hash-confirmation.md](state-hash-confirmation.md); the rest to write |
@@ -94,22 +94,5 @@ and 3b of the earlier rework) stays recorded as debt in
 
 ## Waits on you
 
-Each has a recommendation in its document; "take the recommendations" settles
-them.
-
-- plugins.md: does the bundled file-log stay an executable plugin? (yes)
-- cli.md: may a script run a reviewed plan with `--if-match` without the
-  prompt and countdown? (yes)
-- wire-types.md: does the in-session socket also start with a hello? (not now;
-  decide in step 9)
-- errors.md: do blocked and failed operations get a `reason` code beside their
-  diagnostic? (yes); are panics in operation workers recovered, marking the
-  operation blocked? (yes)
-- source-driver.md: does the SSH server stay in core? (yes); do the Git edits
-  in a stopped workspace stay in core? (yes); does `Export` hand the build a
-  Git bundle? (yes); is the driver pinned to an instance by the backend's
-  identity recorded at first start? (yes); does it land as the first part of
-  step 9? (yes)
-- waiting.md: keep only the newest finished start or stop per session? (yes);
-  do origin change and publish become operations? (yes); does the session
-  condition gain `stopping`? (yes)
+Nothing right now. The maintainer answered every open question on
+2026-11-02, and each document records its answer.

@@ -35,6 +35,10 @@ and in the order recovery lists them.
   blocked operation waits for Retry. Unfinished operations list in the order
   they were accepted.
 
+**Decided by the maintainer on 2026-11-02:** a session keeps only its newest
+finished start or stop operation; `origin.change` and `origin.publish` become
+operations in step 4; the session condition gains `stopping`.
+
 **What users notice:** in the TUI, a started or created session is attached
 as soon as it is ready instead of at the next 3-second refresh. A session
 being stopped reads `stopping`. A blocked project creation, session creation,
@@ -49,7 +53,7 @@ the daemon restarts; the user presses Retry, as for every other kind already.
 | `session.start` | The session as `starting`; a watcher holds the lock until the host is ready | An operation of kind `session.start`, or `changed: false` when there is nothing to start |
 | `session.stop` | The session, after stopping the runtime inside the request | An operation of kind `session.stop`, or `changed: false` when there is nothing to stop |
 | `project.delete.confirm` (`project.delete` after step 5) | An operation, after fresh loss inspections inside the request | The operation, at once; groundwork step 0e removes the inspections |
-| `origin.change`, `origin.publish` | The origin state or publication result, after contacting or pushing to the origin inside the request | Operations; see open question 2 |
+| `origin.change`, `origin.publish` | The origin state or publication result, after contacting or pushing to the origin inside the request | Operations ([below](#origin-change-and-publish-as-operations)) |
 | `session.attach` | A pending attachment, after starting the session and waiting for it inside the request | A pending attachment for a ready session; it no longer starts one |
 | `session.service.action` | The result after systemd's job finished | Returns once queued, not an operation |
 | `origin.refresh` | The refreshed observation | Unchanged: a read that refreshes P's cached view, not a change |
@@ -195,10 +199,20 @@ key column holds the operation's own ID.
 
 While a start or stop operation is unfinished, `session.inspect` and
 `session.list` report `starting` or `stopping` from the journal, whatever the
-runtime shows. `stopping` is a new condition value; `session.condition_changed`
-events and the file-log handler's allowed values (internal/plugin/filelog.go)
-gain it. Without it, a client that sees the runtime stopped could act while
-the stop operation is unfinished.
+runtime shows. `stopping` is a new condition value, decided by the
+maintainer on 2026-11-02; `session.condition_changed` events and the
+file-log handler's allowed values (internal/plugin/filelog.go) gain it.
+Without it, a client that sees the runtime stopped could act while the stop
+operation is unfinished.
+
+**Only the newest finished start or stop is kept** (maintainer, 2026-11-02).
+Recording a new start or stop deletes the session's older finished one, so
+each start and stop does not add a row that the TUI loads on every refresh
+until it reaches its 4096-record limit. Only real starts and stops count,
+since a repeat records nothing. The session view takes a failed start's
+diagnostic from that newest operation, replacing the
+`session.start.diag:<uuid>` metadata rows, which are never deleted today
+([state-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session)).
 
 `session.attach` no longer starts the session. It accepts a ready session,
 and answers `retry` naming an unfinished start, or `conflict` for a session
@@ -210,6 +224,20 @@ The journal's existing rule, one unfinished operation per session (the
 `active_session_operation` index in internal/control/store.go), now covers
 start and stop: a rename or removal of a session that is starting is
 refused through the same admission check.
+
+## Origin change and publish as operations
+
+Decided by the maintainer on 2026-11-02: `origin.change` and `origin.publish`
+become operations in step 4, as "every change returns an operation" reads.
+Both contact the origin inside the request today, with origin deadlines of 35
+seconds (internal/plugin/sourcegit.go and
+internal/gitservice/origin_publication.go, which become the
+[source driver](source-driver.md)'s) inside a 30-second request, and a push
+cut by the request deadline stays `attempted` and replays `outcome_unknown`
+for its key (`PublishPublication` in internal/control/publication_api.go). As
+operations, `outcome_unknown` becomes a `failed` operation with that reason,
+never retried, as today; their request tables (`origin_requests`,
+`publication_requests`) fold into the journal.
 
 ## One journal write path
 
@@ -271,8 +299,8 @@ sequence number: `next` is a string the client passes back as `after`
 unchanged. Today the cursor is the last operation's ID, compared with
 `id > ?` (`ListOperations` in internal/control/lifecycle_store.go); a
 sequence cannot be looked up from an ID whose row is gone, and rows do go:
-project deletion deletes its project's operations, and open question 1 would
-delete old start and stop operations.
+project deletion deletes its project's operations, and recording a start or
+stop deletes the session's older finished one.
 
 Why acceptance order:
 
@@ -301,9 +329,8 @@ observes the host on every `session.list`), so the daemon learns that a
 container stopped, or that a service changed state, only by looking.
 
 The TUI loads every operation on each refresh and refuses more than 4096
-records in all (`loadInventory` in internal/tui/client.go). Start and stop
-operations would add two rows per start and stop that changed something;
-open question 1 bounds them.
+records in all (`loadInventory` in internal/tui/client.go). Keeping only the
+newest finished start or stop per session bounds the rows they add.
 
 ## Departures from current docs
 
@@ -318,6 +345,11 @@ open question 1 bounds them.
 - [Session observability](../docs/session-observability.md#typed-p-events):
   the `stopping` condition, and which journal changes emit
   `operation.progress`.
+- [Control API](../docs/control-api.md): `origin.change` and `origin.publish`
+  return operations, and a publication's `outcome_unknown` is a failed
+  operation's reason.
+- [State-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session):
+  the start diagnostic rows go.
 
 ## Options set aside
 
@@ -328,35 +360,6 @@ open question 1 bounds them.
 | `operation.wait` with timeout 0 instead of `operation.inspect` | One method fewer, but a read that may block holds a request slot, and the TUI's lists read operations at once. |
 | Resume blocked work once at every restart, for every kind | Turns restarts into retries nobody asked for, including early creations that today deliberately stay blocked. |
 | Keep the kind-grouped recovery order | No kind depends on it, and it needs a table entry for every new kind. |
-
-## Open questions
-
-1. **How long are finished start and stop operations kept?** It concerns
-   only real starts and stops, since a repeat records nothing.
-   Recommendation: only the newest finished start or stop of each session;
-   recording a new one deletes the older. Otherwise every start and stop
-   adds a row that the TUI loads on every refresh, until it reaches its
-   4096-record limit. The
-   session view takes a failed start's diagnostic from that newest
-   operation, replacing the `session.start.diag:<uuid>` metadata rows, which
-   are never deleted today
-   ([state-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session)).
-2. **Do `origin.change` and `origin.publish` become operations in step 4?**
-   Recommendation: yes, as the "every change returns an operation" decision
-   reads. Both contact the origin inside the request today, with origin
-   deadlines of 35 seconds (internal/plugin/sourcegit.go and
-   internal/gitservice/origin_publication.go, which become the
-   [source driver](source-driver.md)'s) inside a 30-second request,
-   and a push cut by the request deadline stays `attempted` and replays
-   `outcome_unknown` for its key (`PublishPublication` in
-   internal/control/publication_api.go). As operations, `outcome_unknown`
-   becomes a `failed` operation with that reason, never retried, as today;
-   their request tables (`origin_requests`, `publication_requests`) fold into
-   the journal.
-3. **May the session condition gain `stopping`?** Recommendation: yes. It is
-   a new value users see for a few seconds, and without it a client that
-   sees the runtime stopped could act while the stop operation is
-   unfinished.
 
 ## How it will be checked
 
@@ -385,7 +388,13 @@ open question 1 bounds them.
   or stop during an unfinished one of the same kind returns that operation
   with `changed: false`; otherwise a new operation comes with
   `changed: true`; a host that fails gives `failed` with its diagnostic; stop with an attachment is
-  refused; `session.attach` refuses a session that is not ready.
+  refused; `session.attach` refuses a session that is not ready; recording a
+  start or stop deletes the session's older finished one, and a failed
+  start's diagnostic shows in the session view with no `session.start.diag`
+  row written.
+- Unit tests for origin operations: `origin.change` and `origin.publish`
+  return operations; a key replays its operation; a push whose outcome is
+  unknown ends `failed` with reason `outcome_unknown` and is never retried.
 - TUI tests: a wait that returns `running` keeps `attachOnComplete` and
   waits again; the TUI's wait timeout plus its connection fits its call
   budget.
