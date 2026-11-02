@@ -54,7 +54,7 @@ Each step lands as one commit, after its decision document is settled. The 0 ste
 | 0e | Deletions without inspection: no loss inspection or origin check before discard, delete or project deletion; P stops running sessions itself; no freezing, so rename and ref repair require a stopped session. | Decided; removes the loss-inspection path and about 45 Incus calls, so step 5 has less to convert. |
 | 0f | Collapse the 21 migrations into one schema file. | Follows from fresh installs only; later steps edit the schema directly. |
 | 0g | Give builders public internet access only, as designed in docs/environment-building.md. | Decided; makes real devShells buildable; the code moves into the driver later mostly unchanged. |
-| 1 | Images | Introduces the runtime driver's image operations (`BuildImage`, `Settle` for publishing), writes commit images against them, folds the Nix environment plugin into the image build, gives builders public internet access only (already designed, not yet built), and removes the cache API before later steps would have to convert it. Needs [runtime-driver.md](runtime-driver.md) settled first. |
+| 1 | Images | Introduces the runtime driver's image operations (`BuildImage`, `Settle` for publishing), writes commit images against them, folds the Nix environment plugin into the image build, and moves builder public access (from 0g) into it. Needs [runtime-driver.md](runtime-driver.md) settled first. |
 | 2 | Wire types | Every later step changes method shapes. With shared types, a changed shape fails to compile at each caller instead of failing in a VM run. |
 | 3 | Errors | Small, and steps 4 and 5 use the new retry and precondition kinds. |
 | 4 | Waiting | Makes project deletion an operation, which step 5 needs. |

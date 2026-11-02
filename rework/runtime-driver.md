@@ -74,7 +74,7 @@ internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 | Endpoints and grants | Sockets on the host; grants captured under trusted ceilings | Both, unchanged | Their delivery into the session |
 | Images | Core and the WASI environment plugin drive builder containers; `incus publish` | The index and release rule ([commit-images.md](commit-images.md)) | `BuildImage` with public egress, the image operations (builder*.go, environmentnix, nixenv) |
 | Uncertain effects | Positive outcomes only, never a reused identity | The guards | `Settle` (`workspaceResourceBusy`, `ReconcileBuilderPublication`) |
-| Freezing, loss inspection, `workspace.inspect`, helper containers | Pause, export, helper, Git analysis | **Go** | **Go** (workspace_loss_*.go, workspace_snapshot.go, workspace_sftp_*.go, workspace_git.go, workspace_helper.go) |
+| Freezing, loss inspection, `workspace.inspect`, helper containers | Pause, export, helper, Git analysis | **Go** in steps 0d and 0e, before the driver | **Go** (workspace_loss_*.go, workspace_snapshot.go, workspace_sftp_*.go, workspace_git.go, workspace_helper.go) |
 
 The driver is trusted code: it holds container authority. Only trusted host
 configuration selects it; repositories, requests and plugins never reach it.
@@ -289,9 +289,13 @@ one. An uncertain guest write is found identical and kept, or found
 different and refused, which leaves the creation for cleanup. Whether an
 interrupted Incus file write can leave a partial file was not verified.
 
-**Principal repair.** Core reads `InspectGitKey` to decide eligibility, to
-refuse an intact principal (P's record and the session's key both
-matching), and to bind the confirmation to the observed digest. Before it
+**Principal repair.** Core reads `InspectGitKey` to decide eligibility and to
+bind the confirmation to the observed digest. It keeps today's three-part
+intact check (principal_repair.go, `principalKeyStatus` in session_keys.go):
+repair is refused as `principal_intact` only when the registration is
+active, the host-side private key matches the registered fingerprint, and
+the guest key matches it too. A missing host key stays its own condition,
+`missing`, which repair fixes. Before it
 rotates authority, it reads the key again and requires the same digest.
 `SetGitKey` takes that observation as `replaces`, so the write itself
 refuses a key that changed meanwhile. An uncertain write is settled by
@@ -394,32 +398,34 @@ was found.
 **Builders get public internet access only**, as
 [environment building](../docs/environment-building.md) already designs in
 "Realize" and "Security boundary": public substituters and fetches, with a
-session's destination isolation. Today's builder has no NIC. Builds fetch
-from the public caches directly; a package cache may come later, as a
-plugin.
+session's destination isolation. Today's builder has no NIC; step 0g gives
+it that access before the driver exists, and the code later moves into
+`BuildImage`. Builds fetch from the public caches directly; a package cache
+may come later, as a plugin.
 
 **Step 1 comes first, as decided.** It creates `internal/runtimedriver` with
-`BuildImage`, the image operations and `Settle` for builds, implements the
-builder's public egress, folds the environment plugin in, and writes commit
-images against them. The rest of step 8 stays last.
+`BuildImage`, the image operations and `Settle` for builds, folds the
+environment plugin in, and writes commit images against them. The rest of
+step 8 stays last.
 
 ## Migration
 
 Each step is a commit that leaves `go vet`, the unit tests, the TUI tests,
 `nix flake check`, `nix build` and the VM scenarios green on a fresh install.
-Step 5 has already removed freezing and the loss inspection and made rename
-and ref repair stopped-only.
+The groundwork steps have already run: 0d removed `workspace.inspect`, the
+workspace helpers and their slot in admission; 0e removed the loss
+inspection and freezing and made rename and ref repair stopped-only; 0g gave
+builders public egress.
 
 | Step | What | Removed |
 |---|---|---|
 | M1 | The full interface, an in-memory driver and a conformance suite; the Incus driver in process over `runtimeincus`, with the guest file plan, the host readiness wait and services.go as driver code. Host configuration gets `driver: {name, config}`. | — |
-| M2 | The 16 `plugin.RunRuntime` calls go to the driver: inspect, create, start and stop to the session operations, `runtime.services` to the services operations. Attachment keeps today's spec until M6. | The WASI runtime plugin, its broker, capability and grant; `runtime_plugin_id`; the daemon's `serviceBroker` |
-| M3 | Remove `workspace.inspect`, the workspace helpers and the helper slot in admission. | daemon workspace_inspect.go, the helper files, VM scenario 28 |
-| M4 | `Check`, `Describe`, `Inventory`; core computes the proofs, with one inventory bound instead of today's per-caller 4 or 64. | The proof scans |
-| M5 | The remaining direct calls: `Delete`, `InspectGitKey`, `SetGitKey`, the workspace operations with the stopped-storage check, `Settle`, and `Create` at an incarnation for recovery. | The other `l.runtime` calls |
-| M6 | `OpenTerminal`; the daemon relays the terminal and the helper loses Incus access. | internal/attachment/incus.go, `ValidateAttachmentOperation`, the Incus fields of `AttachmentLaunch` |
-| M7 | The daemon holds only `runtimedriver.Driver`; `runtimeincus` moves to `internal/runtimedriver/incus`, and a test fails if another package imports it or runs `incus`. | `lifecycle.runtime` |
-| M8 | The protocol and the `p-runtime-incus` executable, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`. | `name` |
+| M2 | The 16 `plugin.RunRuntime` calls go to the driver: inspect, create, start and stop to the session operations, `runtime.services` to the services operations. Attachment keeps today's spec until M5. | The WASI runtime plugin, its broker, capability and grant; `runtime_plugin_id`; the daemon's `serviceBroker` |
+| M3 | `Check`, `Describe`, `Inventory`; core computes the proofs, with one inventory bound instead of today's per-caller 4 or 64. | The proof scans |
+| M4 | The remaining direct calls: `Delete`, `InspectGitKey`, `SetGitKey`, the workspace operations with the stopped-storage check, `Settle`, and `Create` at an incarnation for recovery. | The other `l.runtime` calls |
+| M5 | `OpenTerminal`; the daemon relays the terminal and the helper loses Incus access. | internal/attachment/incus.go, `ValidateAttachmentOperation`, the Incus fields of `AttachmentLaunch` |
+| M6 | The daemon holds only `runtimedriver.Driver`; `runtimeincus` moves to `internal/runtimedriver/incus`, and a test fails if another package imports it or runs `incus`. | `lifecycle.runtime` |
+| M7 | The protocol and the `p-runtime-incus` executable, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`. | `name` |
 
 ## Departures from agreements
 
@@ -507,8 +513,9 @@ None.
   repair, principal repair, repair and project deletion, each with an unknown
   outcome after the gate; rename and ref repair refused with
   `session_running`; discard and delete refused while a terminal is attached;
-  principal repair refused for an intact principal and blocked when the
-  digest changes before rotation.
+  principal repair refused only when registration, host key and guest key
+  all match, allowed for a missing host key, and blocked when the digest
+  changes before rotation.
 - **Attachment**, from helper_test.go: the lease is kept until proven
   completion; daemon loss closes the channel without re-registering; a failed
   launch never confirms. New: a driver failure ends terminals unproven and

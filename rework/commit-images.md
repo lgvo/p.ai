@@ -114,7 +114,7 @@ the runtime that built it. The builder gets
 public internet access only, with no host or local-network route, as
 [environment building](../docs/environment-building.md) already designs
 ("Realize" and "Security boundary"); today's builder is still offline, and
-implementing that access is part of step 1. Builds fetch from the public
+implementing that access is step 0g. Builds fetch from the public
 package caches directly. A commit that changes only code therefore costs a
 full build; with the Incus driver the published image is a full copy on disk,
 because Incus images are not layered. A P-run package cache to speed builds
