@@ -9,9 +9,8 @@ bare repository per project under `STATE/repositories`, serves them through a
 Wish SSH server, and runs `git` itself for reads, loss analysis, snapshots and
 the transport. Nine command kinds go through the WASI source-git module
 (plugins/bundled/source-git), which decides nothing: each broker call runs Git
-with arguments core chose, and core checks the outcome. The daemon makes 79
-direct calls to 16 methods of `*gitservice.Backend`, plus calls through a few
-narrow interfaces, and removes a project's repository itself (`os.RemoveAll`
+with arguments core chose, and core checks the outcome. The daemon calls
+gitservice directly and removes a project's repository itself (`os.RemoveAll`
 in project_delete_process.go). gitservice in turn reads operations and
 sessions from SQLite to authorize two kinds of head creation. Git authority
 (principals, leases, ref guards, unborn grants) lives in `control.Store`.
@@ -140,9 +139,12 @@ Three ideas carry it:
   and an origin URL; the driver decides where repositories live and how Git
   runs. Core never sees a repository path.
 - **Gates**, as in [runtime-driver.md](runtime-driver.md#the-driver-interface):
-  a mutation calls a core function once, after its checks and right before its
-  first effect, and core records its durable intent there. `ServeGit`'s gate is
-  `Approve`, called once per session push.
+  a lifecycle mutation calls a core function once, after its checks and right
+  before its first effect, and core records its durable intent there.
+  `ServeGit`'s `Approve` is the exception: core's authorization of a session
+  push, called once per push, which records no intent. Its one durable effect
+  is today's: a first push to an empty repository consumes the unborn `main`
+  grant.
 - **Exact identity.** Every change names the state it expects: a head is
   created only if absent and deleted only at its expected tip, a repository is
   deleted only at its incarnation, a push to the origin only creates or
@@ -157,7 +159,7 @@ package sourcedriver // internal/sourcedriver
 // and the only code that runs Git against them or against an origin.
 type Driver interface {
 	// Host
-	Describe() Description
+	Describe() Description           // the backend's identity and version (open question 4)
 	Check(ctx context.Context) error // prove the storage boundary and the Git tools
 
 	// Repositories, one per project
@@ -176,7 +178,7 @@ type Driver interface {
 	LosingCommits(ctx context.Context, project string, removed []string) (Loss, error) // nil removes every head
 	Export(ctx context.Context, project string, id OID, dir string) (Export, error)    // into a directory core made
 
-	// The Git service behind P's endpoint, on a stream core authenticated
+	// The Git service behind P's endpoint, on the SSH channel core authenticated
 	ServeGit(ctx context.Context, s Service, stream Stream, approve Approve) error
 
 	// Origin
@@ -185,16 +187,12 @@ type Driver interface {
 	ComparePublication(ctx context.Context, project, url string, source OID, dest *OriginRef) (Relation, error)
 	Publish(ctx context.Context, project string, p Publication, g Gate) (PublishStatus, error)
 
-	// What became of a call that returned ErrUnknownOutcome, or of a lost ServeGit
+	// What became of a call that returned ErrUnknownOutcome, or of a lost ServeGit:
+	// Applied, NotApplied or Unknown
 	Settle(ctx context.Context, e Effect) (Settlement, error)
 }
 
 type OID string // a full object ID: 40 hexadecimal digits, or 64
-
-type Description struct {
-	Backend string // the storage's identity, such as "git-files" (open question 4)
-	Version string
-}
 
 type Repository struct {
 	Project     string
@@ -202,25 +200,9 @@ type Repository struct {
 	Incarnation string // opaque; new when the repository is made again
 }
 
-type Head struct {
-	Name string // without refs/heads/
-	Tip  OID
-}
-
 type Commit struct {
 	Present   bool // a commit object in P's repository
 	Reachable bool // from some head
-}
-
-type Loss struct {
-	Heads   []Head // the observation the answer belongs to
-	Commits []OID  // reachable from the removed heads and from no other; at most 256
-}
-
-type Export struct {
-	Commit, Tree OID
-	Entries      int
-	Bytes        int64
 }
 
 type Service struct {
@@ -232,36 +214,15 @@ type Service struct {
 	Deadline time.Duration // core's ceiling, 10 minutes
 }
 
-type Stream interface { // the SSH channel
-	io.ReadWriter
-	CloseWrite() error
-	Stderr() io.Writer
-}
+// Approve is core's authorization of a session's one head update.
+// Old is empty when the push creates the branch.
+type Approve func(branch string, old, new OID) error
 
-type Update struct {
-	Branch   string
-	Old, New OID // Old empty: the push creates the branch
-}
-
-type Approve func(Update) error // core's gate for a session's one head update
-
-type OriginRef struct {
+type OriginRef struct { // as advertised; ObserveOrigin checks no object type
 	Ref    string // refs/heads/* or refs/tags/*
-	OID    OID    // what the ref names: a commit, or an annotated tag
-	Commit OID    // the commit it peels to
+	OID    OID    // the advertised object ID
+	Target OID    // a tag's advertised peeled target, otherwise OID; FetchOrigin checks it is a commit
 }
-
-type Relation int // absent, equal, destination-contains, fast-forward, divergent
-
-type Publication struct {
-	URL          string
-	SourceBranch string   // must still name Source when the push starts
-	Source       OID
-	Destination  string   // refs/heads/*
-	Relation     Relation // absent or fast-forward
-}
-
-type PublishStatus int // created, advanced, satisfied, refused
 
 type Effect struct {
 	Kind     EffectKind // create-branch, delete-branch, or service
@@ -271,18 +232,13 @@ type Effect struct {
 	Service  string // a service: its ID; Applied means it can no longer write
 }
 
-type Settlement int // Applied, NotApplied, Unknown
-
-type Gate func() error
-
-var (
-	ErrUnknownOutcome = errors.New("the effect may have happened; settle it")
-	ErrConflict       = errors.New("a head or object is not in the state the call expects")
-	ErrNotFound       = errors.New("no such repository")
-	ErrLimit          = errors.New("a bound was exceeded; nothing is claimed")
-	ErrUnavailable    = errors.New("the backend or the origin cannot be reached; nothing is claimed")
-)
+type Gate func() error // a lifecycle gate: core records its durable intent
 ```
+
+The errors are `ErrUnknownOutcome` (the effect may have happened; settle it),
+`ErrConflict` (a head or object is not in the expected state), `ErrNotFound`
+(no such repository), `ErrLimit` (a bound was exceeded) and `ErrUnavailable`
+(the backend or the origin cannot be reached).
 
 ### What each operation guarantees
 
@@ -300,10 +256,10 @@ var (
 | `LosingCommits` | Return the commits reachable from the removed heads and from no other, with the head observation used; `ErrLimit` above 256. |
 | `Export` | Write one commit's content into the given directory and nothing outside it. In today's tree form ([open question 3](#open-questions)): stay within today's bounds (20,000 entries, 256 MiB, 4 KiB paths and link targets); apply no filters or export rules; refuse submodules, unsafe names and links that leave the tree. |
 | `ServeGit` | Upload: advertise only heads and send only objects they reach. Receive: accept exactly one update, of `refs/heads/<Branch>`, to a commit, a fast-forward or, from an empty old value, a creation; refuse deletions; keep pushed objects apart until checked; call `approve` once, after the checks and before the update; move the head by compare-and-swap from the old value. Bound input and time by the ceilings. Return only when nothing the service started can still change a head. |
-| `ObserveOrigin` | Contact the origin afresh; return at most 1024 heads and tags, with annotated tags peeled; an empty list is a successful answer. |
-| `FetchOrigin` | Bring in the commit the observed ref names, creating no head; `ErrConflict` if the origin ref moved since the observation. Safe to repeat. |
-| `ComparePublication` | Fetch only the destination's objects, create no ref, and report the relation from Git ancestry. |
-| `Publish` | Push only for an absent or fast-forward relation, the exact commit to one head, with no force and no tags, and only while `SourceBranch` still names it. Call the gate before the push. Return `refused` only on the origin's definite rejection, and `ErrUnknownOutcome` when the answer is lost after the push started. |
+| `ObserveOrigin` | Contact the origin afresh; return at most 1024 heads and tags with their advertised IDs and peeled targets, unverified: it fetches nothing and checks no object type. An empty list is a successful answer. |
+| `FetchOrigin` | Bring in the observed ref's objects, creating no head; `ErrConflict` if the ref moved since the observation. Refuse unless `Target` is a commit and, for a tag, `OID` is an annotated tag that peels to it. Safe to repeat. |
+| `ComparePublication` | Fetch only the destination's objects, create no ref, and report the relation from Git ancestry: absent, equal, destination-contains, fast-forward or divergent. |
+| `Publish` | Push only for an absent or fast-forward relation, the exact commit to one head, with no force and no tags, and only while the publication's source branch still names it. Call the gate before the push. Return `created`, `advanced` or `satisfied` from the origin's answer, `refused` only on its definite rejection, and `ErrUnknownOutcome` when the answer is lost after the push started. |
 | `Settle` | For a head effect: `Applied` only when the intended state holds exactly and nothing the driver admitted can still change it; `NotApplied` only when the prior state holds and nothing can still change it; otherwise `Unknown`. For a service: `Applied` once nothing it started can still change a head, `Unknown` until then, never `NotApplied`. Answers hold after a restart. |
 
 ### What absent proves
@@ -494,15 +450,14 @@ Already aligned: [REWORK-PLAN.md](REWORK-PLAN.md) (the Source row, step 9),
 
 ## Options set aside
 
+Choices the maintainer has not made; the decisions in the Summary exclude the
+rest.
+
 | Option | Why not |
 |---|---|
-| By the maintainer's decisions | Folding source-git into core (no replaceable owner); keeping a WASI source plugin (it decides nothing, and a replacement could change only page sizes and limits); checking the origin before deletions. |
 | One driver for runtime and source | Replacing one backend would replace both, though a Kubernetes runtime and a forge are independent choices. The authorities differ: container control against repositories and origin credentials. One crash would make both kinds of calls unknown. |
 | An interface at Git's command level (`Run(args)`) | Core would depend on a bare repository on disk; fails the forge test. |
-| A Git library linked into core | Not replaceable without rebuilding P, against the maintainer's decision. |
-| A generic version-control provider | Git's model is P's interchange ([technology stack](../docs/technology-stack.md)). |
 | One driver calling the other, for the build's input or the session's stream | Core already holds the staging directory and the stream, so neither driver needs the other. |
-| The driver serves SSH | Open question 1. |
 
 ## Open questions
 
@@ -582,7 +537,9 @@ Already aligned: [REWORK-PLAN.md](REWORK-PLAN.md) (the Source row, step 9),
     before the update, and a refusal leaves the head; a first push to an empty
     repository needs approval; input and time ceilings hold;
   - origin, from origin_test.go and origin_publication_test.go: advertisement
-    parsing and bounds; a fetch creates no head and refuses a moved ref; the
+    parsing and bounds; a tag whose peeled target is not a commit is observed
+    as advertised, and `FetchOrigin` refuses it; a fetch creates no head and
+    refuses a moved ref; the
     five relations; `created`, `advanced`, `satisfied`, `refused`, and
     `ErrUnknownOutcome` for a lost answer;
   - settling: a driver killed after the gate of a head creation or deletion
