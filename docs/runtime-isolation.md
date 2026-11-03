@@ -595,13 +595,20 @@ Start, stop, exec, and delete outcomes come from Incus state and Incus
 operations. After connection loss P inspects Incus; it does not infer success
 from its own RPC failure or replay Incus operations blindly.
 
-Incus sends a graceful stop to the container's init once, and the image's init
-loses it until systemd is up: before then it is the NixOS stage-2 script or
-systemd's own start. So before a graceful stop of a running session or builder
-container, P waits, at most 30 seconds, until the guest's systemd has created
-`/run/systemd/private` on that boot's `/run`, read through the Incus file API.
-If the wait ends first, P sends the stop anyway and reports its outcome. A
-failed start, stop or delete keeps Incus's own bounded error text.
+P stops a running session or builder container in three steps:
+
+1. It waits, at most 30 seconds, until the guest's systemd has created
+   `/run/systemd/private` on that boot's `/run`, read through the Incus file
+   API. Incus sends a graceful stop to the container's init once, and the
+   image's init loses it until systemd is up: before then it is the NixOS
+   stage-2 script or systemd's own start. If the wait ends first, P goes on.
+2. It requests Incus's graceful stop (`incus stop --timeout 30`), which Incus
+   gives up after 30 seconds.
+3. If the container is still not stopped, it stops it by force
+   (`incus stop --force`).
+
+P then checks that the container is stopped. A failed start, stop or delete
+keeps Incus's own bounded error text.
 
 Discard removes the verified Incus instance, its private root, endpoint
 directory, and session credentials while retaining the P branch. After the

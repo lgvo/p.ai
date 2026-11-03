@@ -658,9 +658,10 @@ diagnostic; the pending token expires quickly, while an active user must detach
 first. This prevents one client from unexpectedly closing another client's
 terminal.
 
-Stop requests Incus's bounded graceful shutdown and uses its documented forced
-termination after the timeout. It first waits until the guest can take the
-request ([runtime isolation](runtime-isolation.md#reconciliation-and-cleanup)).
+Stop waits until the guest can take a graceful shutdown, requests one from
+Incus, and stops the instance by force if it is still running after Incus's
+30-second graceful timeout
+([runtime isolation](runtime-isolation.md#reconciliation-and-cleanup)).
 It never removes the instance. Already
 stopped succeeds idempotently. Missing or unreachable machinery is not reported
 as stopped. Unreachable Incus must be restored; a missing runtime is an

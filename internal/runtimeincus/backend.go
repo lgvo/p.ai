@@ -932,6 +932,12 @@ func (b *Backend) transition(ctx context.Context, s Session, action string) (Obs
 		err = errors.Join(bootErr, err)
 	}
 	after, inspectErr := b.Inspect(ctx, s)
+	if action == "stop" && inspectErr == nil && after.Exists && !strings.EqualFold(after.Status, want) {
+		// Still running after Incus's graceful timeout: stop it by force.
+		_, forceErr := b.lifecycleCommand(ctx, "stop", b.name(s), "--force")
+		err = errors.Join(err, forceErr)
+		after, inspectErr = b.Inspect(ctx, s)
+	}
 	if inspectErr != nil {
 		return Observation{}, errors.Join(err, inspectErr)
 	}

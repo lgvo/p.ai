@@ -17,11 +17,14 @@ import (
 // fakeGuest is a container of P's NixOS image as Incus shows it. Each start
 // begins its early boot: until its systemd is up, its init loses Incus's
 // graceful stop, and Incus gives up with exit status 1, leaving it running.
-// Its systemd comes up while P looks for it, unless its boot hangs.
+// Its systemd comes up while P looks for it, unless its boot hangs. A hung
+// guest ignores the graceful stop even with systemd up. A forced stop always
+// stops it.
 type fakeGuest struct {
 	t         *testing.T
 	instance  string
 	bootHangs bool
+	hung      bool
 	mu        sync.Mutex
 	systemdUp bool
 	events    []string
@@ -94,11 +97,11 @@ func (g *fakeGuest) wrap(run runner) runner {
 			g.mu.Unlock()
 			g.record("start")
 		case "stop":
-			g.record("stop")
+			g.record("stop " + strings.Join(argv[5:], " "))
 			g.mu.Lock()
 			up := g.systemdUp
 			g.mu.Unlock()
-			if !up {
+			if !slices.Contains(argv, "--force") && (!up || g.hung) {
 				return nil, errors.New("exit status 1")
 			}
 		}
@@ -106,17 +109,17 @@ func (g *fakeGuest) wrap(run runner) runner {
 	}
 }
 
-// stoppedOnceAfterSystemd says whether the guest got one stop, sent after P
-// saw its systemd up.
-func stoppedOnceAfterSystemd(events []string) bool {
+// stoppedGracefullyAfterSystemd says whether the guest got one graceful stop,
+// sent after P saw its systemd up, and no forced stop.
+func stoppedGracefullyAfterSystemd(events []string) bool {
 	stops := 0
 	for _, event := range events {
-		if event == "stop" {
+		if strings.HasPrefix(event, "stop") {
 			stops++
 		}
 	}
-	up := slices.Index(events, "systemd up")
-	return stops == 1 && up >= 0 && up < slices.Index(events, "stop")
+	up, stop := slices.Index(events, "systemd up"), slices.Index(events, "stop --timeout 30")
+	return stops == 1 && up >= 0 && up < stop
 }
 
 func TestStopRightAfterStartWaitsForGuestSystemd(t *testing.T) {
@@ -134,8 +137,8 @@ func TestStopRightAfterStartWaitsForGuestSystemd(t *testing.T) {
 	if err != nil || got.Status != "Stopped" {
 		t.Fatalf("stop sent during early boot: %+v %v (guest saw %v)", got, err, guest.seen())
 	}
-	if events := guest.seen(); !stoppedOnceAfterSystemd(events) {
-		t.Fatalf("stop not sent once, after the guest's systemd was up: %v", events)
+	if events := guest.seen(); !stoppedGracefullyAfterSystemd(events) {
+		t.Fatalf("not one graceful stop after the guest's systemd was up: %v", events)
 	}
 }
 
@@ -156,8 +159,8 @@ func TestBuilderDeleteRightAfterStartWaitsForGuestSystemd(t *testing.T) {
 	if err != nil || got.Exists {
 		t.Fatalf("delete sent its stop during early boot: %+v %v (guest saw %v)", got, err, guest.seen())
 	}
-	if events := guest.seen(); !stoppedOnceAfterSystemd(events) {
-		t.Fatalf("stop not sent once, after the guest's systemd was up: %v", events)
+	if events := guest.seen(); !stoppedGracefullyAfterSystemd(events) {
+		t.Fatalf("not one graceful stop after the guest's systemd was up: %v", events)
 	}
 }
 
@@ -192,14 +195,49 @@ func TestStopIsSentWhenGuestSystemdNeverComesUp(t *testing.T) {
 	}
 	began := time.Now()
 	got, err := b.Stop(ctx, testSession())
-	if err == nil || got.Status != "Running" || !strings.Contains(err.Error(), "guest systemd not up") {
-		t.Fatalf("lost stop not reported with the wait that ended first: %+v %v", got, err)
+	if err != nil || got.Status != "Stopped" {
+		t.Fatalf("stop after the wait: %+v %v", got, err)
 	}
 	if elapsed := time.Since(began); elapsed < 30*time.Second || elapsed > 35*time.Second {
 		t.Fatalf("stop not sent after a 30 s wait: %s", elapsed)
 	}
 	events := guest.seen()
-	if stop := slices.Index(events, "stop"); stop < 0 || slices.Index(events[stop+1:], "stop") >= 0 || slices.Index(events[:stop], "systemd not up") < 0 {
-		t.Fatalf("stop not sent once after the wait: %d events, last %v", len(events), events[max(0, len(events)-3):])
+	graceful := slices.Index(events, "stop --timeout 30")
+	if graceful < 1 || events[graceful-1] != "systemd not up" || !slices.Equal(events[graceful:], []string{"stop --timeout 30", "stop --force"}) {
+		t.Fatalf("graceful stop not sent after the wait, then forced: %d events, last %v", len(events), events[max(0, len(events)-3):])
+	}
+}
+
+func TestStopForcesAGuestThatIgnoresTheGracefulStop(t *testing.T) {
+	guest := &fakeGuest{t: t, instance: "p-" + testUUID, systemdUp: true, hung: true}
+	f := &fakeIncus{instance: true, status: "Running"}
+	f.socket = guest.serveFiles()
+	b := fakeBackend(f)
+	b.config.UserSocket = f.socket
+	b.run = guest.wrap(f.run)
+	got, err := b.Stop(context.Background(), testSession())
+	if err != nil || got.Status != "Stopped" {
+		t.Fatalf("hung guest not stopped: %+v %v", got, err)
+	}
+	if events := guest.seen(); !slices.Equal(events, []string{"systemd up", "stop --timeout 30", "stop --force"}) {
+		t.Fatalf("not graceful, then forced after the graceful timeout: %v", events)
+	}
+}
+
+func TestStopBuilderForcesAGuestThatIgnoresTheGracefulStop(t *testing.T) {
+	r := testBuilder()
+	guest := &fakeGuest{t: t, instance: builderName(r), systemdUp: true, hung: true}
+	f := &fakeBuilderIncus{request: r, exists: true, status: "Running", rootLimit: true}
+	f.socket = guest.serveFiles()
+	f.base.socket = f.socket
+	b := builderBackend(f)
+	b.config.UserSocket = f.socket
+	b.run = guest.wrap(f.run)
+	got, err := b.StopBuilder(context.Background(), r)
+	if err != nil || got.Status != "Stopped" {
+		t.Fatalf("hung builder not stopped: %+v %v", got, err)
+	}
+	if events := guest.seen(); !slices.Equal(events, []string{"systemd up", "stop --timeout 30", "stop --force"}) {
+		t.Fatalf("not graceful, then forced after the graceful timeout: %v", events)
 	}
 }

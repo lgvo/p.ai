@@ -470,6 +470,12 @@ func (b *Backend) builderTransition(ctx context.Context, r Builder, action strin
 		return after, nil
 	}
 	after, inspectErr := b.InspectBuilder(ctx, r)
+	if action == "stop" && inspectErr == nil && after.Exists && after.Status != want {
+		// Still running after Incus's graceful timeout: stop it by force.
+		_, forceErr := b.lifecycleCommand(ctx, "stop", builderName(r), "--force")
+		err = errors.Join(err, forceErr)
+		after, inspectErr = b.InspectBuilder(ctx, r)
+	}
 	if inspectErr != nil || !after.Exists || after.Status != want {
 		return after, errors.Join(err, inspectErr, errors.New("builder state postcondition failed"))
 	}
