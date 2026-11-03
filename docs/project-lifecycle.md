@@ -120,10 +120,11 @@ branch, or policy snapshot.
 
 Adding or replacing an origin uses prepare-then-commit semantics:
 
-1. validate and successfully contact the proposed SSH URL;
-2. obtain a fresh advertised-ref observation;
-3. under the project origin-operation lock, verify that the recorded old
-   origin is still the expected value; and
+1. have the source driver check the proposed URL when the change is
+   requested;
+2. under the project's origin lock, contact the URL and obtain a fresh
+   advertised-ref observation;
+3. verify that the recorded old origin is still the expected value; and
 4. commit the new URL and observation together.
 
 Failure leaves the previous origin and completed observation unchanged. A

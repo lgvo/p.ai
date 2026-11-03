@@ -212,9 +212,11 @@ The configured origin is a trusted host-side project setting, not a remote
 copied from a session workspace. Its identity is the recorded remote URL;
 `origin` is only P's presentation name.
 
-MVP accepts SSH Git URLs, including `ssh://` and conventional
-`user@host:path` forms. HTTPS credentials, embedded URL credentials, local
-filesystem remotes, and arbitrary transport helpers are not supported.
+The source driver decides which URLs are valid, before P records a request
+that names one. The bundled Git driver accepts SSH Git URLs, including
+`ssh://` and conventional `user@host:path` forms. HTTPS credentials, embedded
+URL credentials, local filesystem remotes, and arbitrary transport helpers are
+not supported.
 
 Changing or removing the origin is explicit. A URL change immediately marks
 the last origin observation inapplicable; P makes no source or publication
@@ -223,12 +225,20 @@ rewrites session remotes because sessions have only their P upstream.
 
 ### Host SSH and Git runner
 
-Every origin operation runs on the daemon host as the P user's account and uses
-that user's existing OpenSSH configuration, private-key files, known-hosts
-policy, and SSH agent when available. P stores no copy of those credentials and
-never mounts them into a runtime or build worker.
+Core decides and guards every origin operation: it holds the project's origin
+lock, keeps the URL and observations, checks what an observation shows, and
+records an operation's intent before its effect. The source driver performs
+it: it observes, fetches from and pushes to the origin ([source
+driver](technology-stack.md#git-server)). Core bounds each call to an origin:
+it ends 35 seconds after it is made, its wait included, and at most two run at
+once across the daemon, so a stalled origin holds no operation without end; a
+push cut off after it started ends `outcome_unknown`. The operation runs on
+the daemon host as the P user's account and uses that user's existing OpenSSH
+configuration, private-key files, known-hosts policy, and SSH agent when
+available. P stores no copy of those credentials and never mounts them into a
+runtime or build worker.
 
-The origin runner:
+The origin runner is the source driver's. The bundled Git driver's runner:
 
 - invokes real Git with structured argv and the recorded URL;
 - is non-interactive (`BatchMode`/no Git terminal prompt), so a missing key,
@@ -257,20 +267,21 @@ result status and bounded diagnostic
 ```
 
 P creates no persistent origin-generation or publication refs in the project
-bare repository. Fetched objects are cache, not durable evidence. P serializes
-origin operations and P-controlled Git garbage collection for a project so an
-active comparison cannot lose objects underneath it. When origin source
-selection succeeds, the newly created ordinary P branch retains the selected
-commit.
+bare repository. Fetched objects are cache, not durable evidence. Core
+serializes a project's origin operations under its origin lock, which a future
+P-controlled Git garbage collection must also take, so an active comparison
+cannot lose objects underneath it. When origin source selection succeeds, the
+newly created ordinary P branch retains the selected commit.
 
 An origin-source Create may be blocked after it records the captured commit
-but before it creates the ordinary P branch. P disables implicit Git garbage
-collection and maintenance in host Git operations that can trigger them,
-including `receive-pack`, so that commit remains available across daemon restart and
+but before it creates the ordinary P branch. The source driver never prunes an
+object: the bundled Git driver disables implicit Git garbage collection and
+maintenance in the Git operations that can trigger them, including
+`receive-pack`, so that commit remains available across daemon restart and
 exact Retry. MVP runs no explicit P-controlled garbage collection. A future
-explicit collector must hold the project origin/ref authority and preserve
-commits captured by pending creation operations until their ordinary branch
-exists or the intent is explicitly reconciled. It must not add protected or
+explicit collector must hold the project's origin lock and preserve commits
+captured by pending creation operations until their ordinary branch exists or
+the intent is explicitly reconciled. It must not add protected or
 origin-generation refs to do so.
 
 A failed or interrupted refresh leaves the last completed observation only as
@@ -412,11 +423,9 @@ Project-controlled evaluation and builds run through the isolation boundary in
 - P's Git service exports the source commit as a Git bundle: the commit and
   every commit it reaches, under one ref, `refs/p/source`. A temporary bare
   repository borrows P's objects through its alternates and holds that ref, so
-  P's repository is only read. The export holds the project's origin lock,
-  which a future P-controlled Git garbage collection must also take; P runs no
-  Git garbage collection today, so no object the export reads is pruned
-  underneath it. The bundle is written into a private directory under P's
-  state and removed after the build.
+  P's repository is only read. The export takes no lock: P prunes no object,
+  so none the export reads can disappear underneath it. The bundle is written
+  into a private directory under P's state and removed after the build.
 - The runtime driver copies the bundle through the confined Incus file API
   into the stopped builder, root-owned and read-only. The builder clones it
   into its own `/workspace` and evaluates the commit from that clone; no tree

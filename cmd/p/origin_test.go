@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
 )
 
 const (
@@ -18,7 +17,7 @@ const (
 // fresh, unknown after a failed contact, or local-only, with its cached
 // refs over two pages.
 func servedOrigin(d *fakeDaemon, status *string) {
-	refs := []plugin.GitOriginRef{{Ref: "refs/heads/main", OID: mainCommit, CommitOID: mainCommit}, {Ref: "refs/tags/v1", OID: tip, CommitOID: otherTip}}
+	refs := []api.OriginRef{{Ref: "refs/heads/main", OID: mainCommit, CommitOID: mainCommit}, {Ref: "refs/tags/v1", OID: tip, CommitOID: otherTip}}
 	state := func() api.OriginState {
 		if *status == "local-only" {
 			return api.OriginState{Project: "app", Status: *status}
@@ -76,7 +75,7 @@ func TestOriginRefsNeedTheRefreshAndEveryPageFresh(t *testing.T) {
 		})
 		handle(d, api.OriginSources, func(r api.OriginSourcesRequest) (api.OriginSourcesResult, error) {
 			page := api.OriginSourcesResult{Project: "app", OriginURL: originURL, Status: "fresh", ObservedAt: observedAt,
-				Refs: []plugin.GitOriginRef{{Ref: "refs/heads/main", OID: mainCommit, CommitOID: mainCommit}}, Next: "refs/heads/main"}
+				Refs: []api.OriginRef{{Ref: "refs/heads/main", OID: mainCommit, CommitOID: mainCommit}}, Next: "refs/heads/main"}
 			if r.After != "" {
 				page.Status, page.Next = test.lastPage, ""
 			}

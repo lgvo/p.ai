@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# Step 6c1 substrate: real host OpenSSH and selected WASI source-Git packages.
-# Public assignment, confirmation, and RPC publication belong to step 6c2.
+# Publication substrate: real host OpenSSH and the bundled source driver.
+# Public assignment, confirmation, and RPC publication are 20-public-publication.sh.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-18"
@@ -34,17 +34,6 @@ on_error() {
 }
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
-
-activate() {
-  local package="$1" target="$2" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$target"
-  p plugins activate "$target" | jq -e '.[0].capability == "source-git"' >/dev/null
-}
-activate "$P_TEST_GIT_PLUGIN" "$step_dir/bundled.json"
-activate "$P_TEST_GIT_ALTERNATE" "$step_dir/alternate.json"
 
 work="$step_dir/work"
 remote="$step_dir/full.git"
@@ -109,7 +98,8 @@ Host origin-fixture
 CONFIG
 url=pdev@origin-fixture:full.git
 project=publication
-source_ref=refs/heads/publish
+branch=publish
+source_ref=refs/heads/$branch
 p_repo=$(origin-fixture prepare-publish "$state" "$project")
 git -C "$work" push -q "$p_repo" "$source:$source_ref"
 test "$(git -C "$p_repo" rev-parse "$source_ref")" = "$source"
@@ -129,23 +119,20 @@ refs_except() {
 }
 receive_count() { grep -c '^receive-pack ' "$trace" || true; }
 call() { timeout 45 origin-fixture publish "$@" 2> "$step_dir/call.err"; }
+# A relation core answers itself (equal, destination_contains, divergent) is
+# pushed by no one: its expected status is none.
 case_publication() {
-  local activation="$1" destination="$2" relation="$3" status="$4" expected_oid="$5"
-  shift 5
+  local destination="$1" relation="$2" status="$3" expected_oid="$4"
+  shift 4
   local other_before observed_before receives_before receives_after expected_receives response
   other_before=$(refs_except "$destination")
   observed_before=$(git -C "$remote" rev-parse -q --verify "$destination" 2>/dev/null || true)
   receives_before=$(receive_count)
-  response=$(call run "$state" "$activation" "$project" "$url" "$source_ref" "$source" \
+  response=$(call run "$state" "$project" "$url" "$branch" "$source" \
     "$destination" "$relation" "$status" "$@")
-  jq -e --arg url "$url" --arg project "$project" --arg source_ref "$source_ref" \
-    --arg source "$source" --arg destination "$destination" --arg observed "$observed_before" \
-    --arg relation "$relation" --arg status "$status" \
-    '.preview.project == $project and .preview.url == $url and
-     .preview.source_ref == $source_ref and .preview.source_oid == $source and
-     .preview.destination_ref == $destination and (.preview.destination_oid // "") == $observed and
-     .preview.relation == $relation and
-     .result.status == $status and .result.preview == .preview' <<< "$response" >/dev/null
+  jq -e --arg observed "$observed_before" --arg relation "$relation" --arg status "$status" \
+    '.mode == "run" and .relation == $relation and (.destination_oid // "") == $observed and
+     .status == $status' <<< "$response" >/dev/null
   test "$(refs_except "$destination")" = "$other_before"
   test "$(git -C "$remote" rev-parse "$destination")" = "$expected_oid"
   receives_after=$(receive_count)
@@ -161,34 +148,33 @@ case_publication() {
   test -z "$(git -C "$p_repo" remote)"
 }
 
-# Invalid, foreign, and expired previews cannot reach receive-pack.
+# A relation no push follows, a commit the branch no longer names, and a
+# failing gate cannot reach receive-pack.
 receives_before=$(receive_count)
-call no-observe "$state" "$step_dir/bundled.json" "$project" "$url" "$source_ref" "$source" refs/heads/behind fast_forward none >/dev/null
-call wrong "$state" "$step_dir/bundled.json" "$project" "$url" "$source_ref" "$source" refs/heads/behind fast_forward none >/dev/null
-call expired "$state" "$step_dir/bundled.json" "$project" "$url" "$source_ref" "$source" refs/heads/behind fast_forward none >/dev/null
+call refuse-relation "$state" "$project" "$url" "$branch" "$source" refs/heads/divergent divergent >/dev/null
+call refuse-moved "$state" "$project" "$url" "$branch" "$base" refs/heads/behind fast_forward >/dev/null
+call refuse-gate "$state" "$project" "$url" "$branch" "$source" refs/heads/behind fast_forward >/dev/null
 test "$(receive_count)" -eq "$receives_before"
+test "$(git -C "$remote" rev-parse refs/heads/behind)" = "$base"
 
-case_publication "$step_dir/bundled.json" refs/heads/new absent created "$source"
-case_publication "$step_dir/bundled.json" refs/heads/equal equal satisfied "$source"
-case_publication "$step_dir/bundled.json" refs/heads/contains destination_contains satisfied "$child"
-case_publication "$step_dir/bundled.json" refs/heads/behind fast_forward advanced "$source"
-case_publication "$step_dir/bundled.json" refs/heads/divergent divergent refused "$divergent"
-case_publication "$step_dir/bundled.json" refs/heads/raced fast_forward refused "$divergent" "$remote" "$divergent"
-
-# The alternate selected WASI package follows the same closed publication ABI.
-case_publication "$step_dir/alternate.json" refs/heads/alternate absent created "$source"
+case_publication refs/heads/new absent created "$source"
+case_publication refs/heads/equal equal none "$source"
+case_publication refs/heads/contains destination_contains none "$child"
+case_publication refs/heads/behind fast_forward advanced "$source"
+case_publication refs/heads/divergent divergent none "$divergent"
+case_publication refs/heads/raced fast_forward refused "$divergent" "$remote" "$divergent"
 
 # The server accepts the update and then reports SSH failure. No retry or
 # refresh follows within this request; a later explicit request observes equal.
 : > "$lost_marker"
 uploads_before=$(grep -c '^upload-pack ' "$trace" || true)
 receives_before=$(receive_count)
-case_publication "$step_dir/bundled.json" refs/heads/uncertain absent outcome_unknown "$source"
+case_publication refs/heads/uncertain absent outcome_unknown "$source"
 test "$(grep -c '^upload-pack ' "$trace" || true)" -eq "$((uploads_before + 1))"
 test "$(receive_count)" -eq "$((receives_before + 1))"
 rm -f -- "$lost_marker"
 uploads_before=$(grep -c '^upload-pack ' "$trace" || true)
-case_publication "$step_dir/bundled.json" refs/heads/uncertain equal satisfied "$source"
+case_publication refs/heads/uncertain equal none "$source"
 test "$(receive_count)" -eq "$((receives_before + 1))"
 test "$(grep -c '^upload-pack ' "$trace" || true)" -eq "$((uploads_before + 1))"
 

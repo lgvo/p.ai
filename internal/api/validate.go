@@ -11,14 +11,15 @@ import (
 // Control applies the same checks to the records it stores.
 
 // The bounds of the values whose syntax the source driver decides: branch
-// and ref names, creation sources and commit IDs. Core only stores and
-// compares them; a handler has the driver check the rest (CheckNames) after
-// its replay lookup.
+// and ref names, creation sources, commit IDs and origin URLs. Core only
+// stores and compares them; a handler has the driver check the rest
+// (CheckNames) after its replay lookup.
 const (
-	MaxBranchBytes = 200 // a P branch's name
-	MaxRefBytes    = 523 // a full ref: an origin's, or a page cursor of refs
-	MaxSourceBytes = 255 // a creation source
-	MaxCommitBytes = 64  // a commit ID
+	MaxBranchBytes = 200  // a P branch's name
+	MaxRefBytes    = 523  // a full ref: an origin's, or a page cursor of refs
+	MaxSourceBytes = 255  // a creation source
+	MaxCommitBytes = 64   // a commit ID
+	MaxURLBytes    = 2048 // an origin's URL
 )
 
 // BoundedName reports whether value is within core's bounds for a name of
@@ -78,6 +79,10 @@ func lowerHex(s string) bool {
 	}
 	return true
 }
+
+// validURL accepts an empty URL, where a request may omit one, or one
+// within core's bounds.
+func validURL(url string) bool { return url == "" || BoundedName(url, MaxURLBytes) }
 
 // validKey accepts an idempotency key of 1 to 128 bytes.
 func validKey(key string) bool { return len(key) >= 1 && len(key) <= 128 }

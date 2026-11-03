@@ -15,7 +15,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 14 cases:
+- Added 2026-11-01, updated 2026-11-03, 15 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -84,6 +84,11 @@
     branch assignment and settling a lost head effect are unit-tested on the in-memory
     source driver, and `processRetainedDelete` is no longer at 0%. The origin, the image
     builder's bundle and P's SSH endpoint still use the concrete `*gitservice.Backend`.
+  - 2026-11-03: "step 9 S3: the origin through the source driver" moved origin project
+    creation, creation from an origin ref and the origin API's change, refresh and
+    publication workers onto `git.driver`, with the per-project origin lock in the store;
+    they are unit-tested on the in-memory source driver. The image builder's bundle and P's
+    SSH endpoint still use the concrete `*gitservice.Backend`.
 
 ## Long worker functions
 
@@ -95,7 +100,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 12 cases:
+- Added 2026-11-01, updated 2026-11-03, 13 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -134,6 +139,10 @@
     moved the repository's deletion into `deleteProjectRepository`, taking
     `processProjectDelete` from 305 lines to 282, and settling a resumed branch deletion
     took `processDiscard` from 252 to 258; `processCreation` stays at 199.
+  - 2026-11-03: "step 9 S3: the origin through the source driver" moved origin project
+    creation into `createOriginProject`, taking `processCreation` from 205 lines to 194
+    (counted from `func` to the closing brace, as awk counts them; the 199 above was
+    counted otherwise); it still exceeds 150 lines.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 

@@ -119,10 +119,10 @@ func TestRequestBounds(t *testing.T) {
 }
 
 // The names whose syntax the source driver decides (branch and ref names,
-// creation sources, commit IDs) are only bounded by Validate: 1 to the
-// field's bound of bytes of valid UTF-8 without ASCII control characters.
-// The driver's CheckNames refuses the rest, after the handler's replay
-// lookup.
+// creation sources, commit IDs, origin URLs) are only bounded by Validate: 1
+// to the field's bound of bytes of valid UTF-8 without ASCII control
+// characters. The driver's CheckNames refuses the rest, after the handler's
+// replay lookup.
 func TestNameFieldsAreBoundedNotParsed(t *testing.T) {
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	oid := strings.Repeat("a", 40)
@@ -167,6 +167,17 @@ func TestNameFieldsAreBoundedNotParsed(t *testing.T) {
 		}},
 		{"destination_ref", 523, func(v string) Request {
 			return OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "retained", Source: "saved", SourceOID: oid, DestinationRef: v}
+		}},
+		{"url", 2048, func(v string) Request { return OriginChangeRequest{Key: "k", Project: "team/app", Kind: "set", URL: v} }},
+		{"expected_url", 2048, func(v string) Request {
+			return OriginChangeRequest{Key: "k", Project: "team/app", Kind: "remove", ExpectedURL: v}
+		}},
+		{"url", 2048, func(v string) Request { return ProjectCreateRequest{Key: "k", Project: "team/app", URL: v} }},
+		{"expected_origin_url", 2048, func(v string) Request {
+			return OriginPublishRequest{ExpectedOriginURL: v, Project: "team/app", Kind: "retained", Source: "saved", SourceOID: oid, DestinationRef: "refs/heads/main"}
+		}},
+		{"expected_origin_url", 2048, func(v string) Request {
+			return SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: oid, ExpectedOriginURL: v}
 		}},
 		// A page's cursor is compared, never recorded.
 		{"after", 523, func(v string) Request { return ProjectBranchesRequest{Project: "team/app", Limit: 8, After: v} }},

@@ -9,38 +9,42 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
-type OriginObserver interface {
-	Observe(context.Context, string) ([]plugin.GitOriginRef, error)
-}
-type OriginRunner interface {
-	ValidateURL(string) error
-	WithOrigin(context.Context, string, func(OriginObserver) error) error
-}
-
+// OriginAPI serves a project's origin: its association, its observation
+// and publication to it, and the retained branches a publication may take.
+// Core decides and guards, under the project's origin lock (LockOrigin);
+// the source driver contacts the origin.
 type OriginAPI struct {
-	Store  *Store
-	Runner OriginRunner
-	Git    GitReader
-	// Driver is the source driver, which checks the names a publication
-	// takes.
+	Store *Store
+	// Driver is the source driver: it checks the URLs and names origin
+	// requests take, observes, fetches from and publishes to origins, and
+	// reads the heads of P's repositories.
 	Driver sourcedriver.Driver
 	// Queue hands a recorded origin operation to the daemon's workers.
 	Queue func(id string) error
 }
 
 // Change records origin change c as an operation of kind origin.change and
-// queues it: its worker contacts the proposed origin (RunOriginChange).
+// queues it: its worker contacts the proposed origin (RunOriginChange). A
+// recorded request is answered from SQLite alone; a new set has the source
+// driver check its URL first.
 func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.Operation, error) {
 	if !validOriginChange(c) {
 		return api.Operation{}, ErrInvalid
 	}
-	if c.Kind == "set" {
-		if err := a.Runner.ValidateURL(c.ProposedURL); err != nil {
-			return api.Operation{}, Invalid("url")
+	request, err := json.Marshal(c)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	_, replayed, err := a.Store.recorded(ctx, c.Key, KindOriginChange, request)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	if !replayed && c.Kind == "set" {
+		if _, err = CheckNames(ctx, a.Driver, NameField{"url", sourcedriver.Name{Kind: sourcedriver.NameOriginURL, Value: c.ProposedURL}}); err != nil {
+			return api.Operation{}, err
 		}
 	}
 	op, err := a.Store.BeginOriginChange(ctx, c)
@@ -50,29 +54,42 @@ func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.Operation, e
 	return op, a.Queue(op.ID)
 }
 
-// RunOriginChange is the work of origin change op: in the project's origin
-// scope it observes the proposed origin of a set, then records the change and
-// the operation's end together. A failure ends the operation failed with its
-// reason and diagnostic; it is never contacted again for op.
+// RunOriginChange is the work of origin change op: under the project's
+// origin lock it observes the proposed origin of a set, then records the
+// change and the operation's end together. A failure ends the operation
+// failed with its reason and diagnostic; it is never contacted again for op.
 func (a OriginAPI) RunOriginChange(ctx context.Context, op api.Operation) {
 	var c OriginChange
 	if json.Unmarshal(op.Request, &c) != nil {
 		a.fail(ctx, op, ErrInvalid)
 		return
 	}
-	err := a.Runner.WithOrigin(ctx, c.Project, func(observer OriginObserver) error {
-		var refs []plugin.GitOriginRef
-		if c.Kind == "set" {
-			var err error
-			if refs, err = observer.Observe(ctx, c.ProposedURL); err != nil {
-				return Failed(api.ReasonOrigin, err)
-			}
-		}
-		return a.Store.CompleteOriginChange(ctx, op, refs)
-	})
+	release, err := a.Store.LockOrigin(ctx, c.Project)
 	if err != nil {
 		a.fail(ctx, op, err)
+		return
 	}
+	defer release()
+	var refs []sourcedriver.OriginRef
+	if c.Kind == "set" {
+		if refs, err = a.observe(ctx, c.ProposedURL); err != nil {
+			a.fail(ctx, op, Failed(api.ReasonOrigin, err))
+			return
+		}
+	}
+	if err = a.Store.CompleteOriginChange(ctx, op, refs); err != nil {
+		a.fail(ctx, op, err)
+	}
+}
+
+// observe has the source driver observe the origin at url, within the
+// bounds of a call to an origin (CallOrigin).
+func (a OriginAPI) observe(ctx context.Context, url string) (refs []sourcedriver.OriginRef, err error) {
+	err = a.Store.CallOrigin(ctx, func(ctx context.Context) error {
+		refs, err = a.Driver.ObserveOrigin(ctx, url)
+		return err
+	})
+	return refs, err
 }
 
 // fail records origin operation op failed with err's reason and detail,
@@ -86,35 +103,36 @@ func (a OriginAPI) fail(ctx context.Context, op api.Operation, err error) {
 	}
 }
 
+// Refresh observes project's origin afresh under its origin lock and
+// records the observation, or marks the last one unknown when the origin
+// cannot be observed, and returns the origin's state.
 func (a OriginAPI) Refresh(ctx context.Context, project string) (api.OriginState, error) {
 	if !validProject(project) {
 		return api.OriginState{}, Invalid("project")
 	}
-	var state api.OriginState
-	err := a.Runner.WithOrigin(ctx, project, func(observer OriginObserver) error {
-		current, _, e := a.Store.Origin(ctx, project)
-		if e != nil {
-			return e
-		}
-		if current.Status == "local-only" {
-			state = current
-			return nil
-		}
-		refs, observeErr := observer.Observe(ctx, current.URL)
-		// Once contact has started, persist its outcome even if the requesting
-		// client disconnects. The origin lock still protects this write.
-		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if observeErr != nil {
-			if e = a.Store.StoreOriginRefresh(writeCtx, project, current.URL, nil, "origin refresh failed; check SSH identity, host key, URL and access"); e != nil {
-				return e
-			}
-		} else if e = a.Store.StoreOriginRefresh(writeCtx, project, current.URL, refs, ""); e != nil {
-			return e
-		}
-		state, _, e = a.Store.Origin(writeCtx, project)
-		return e
-	})
+	release, err := a.Store.LockOrigin(ctx, project)
+	if err != nil {
+		return api.OriginState{}, err
+	}
+	defer release()
+	current, _, err := a.Store.Origin(ctx, project)
+	if err != nil || current.Status == "local-only" {
+		return current, err
+	}
+	refs, observeErr := a.observe(ctx, current.URL)
+	// Once contact has started, persist its outcome even if the requesting
+	// client disconnects. The origin lock still protects this write.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if observeErr != nil {
+		err = a.Store.StoreOriginRefresh(writeCtx, project, current.URL, nil, "origin refresh failed; check SSH identity, host key, URL and access")
+	} else {
+		err = a.Store.StoreOriginRefresh(writeCtx, project, current.URL, refs, "")
+	}
+	if err != nil {
+		return api.OriginState{}, err
+	}
+	state, _, err := a.Store.Origin(writeCtx, project)
 	return state, err
 }
 
@@ -150,7 +168,7 @@ func addOriginMethods(t *MethodTable, origins OriginAPI) {
 			}
 			page := refs[start : start+count]
 			if page == nil {
-				page = []plugin.GitOriginRef{}
+				page = []api.OriginRef{}
 			}
 			next := ""
 			if start+count < len(refs) {
@@ -167,12 +185,8 @@ func addOriginMethods(t *MethodTable, origins OriginAPI) {
 		}
 		return api.OriginSourcesResult{}, Internal(api.ReasonEncoding, errors.New("single origin source exceeds frame limit"))
 	})
-	if _, ok := origins.Runner.(PublicationRunner); ok {
-		addPublicationMethods(t, origins)
-	}
-	if origins.Git != nil {
-		Register(t, api.ProjectRetainedBranches, func(ctx context.Context, r api.ProjectRetainedBranchesRequest) (api.RetainedBranchesResult, error) {
-			return retainedBranches(ctx, r, origins)
-		})
-	}
+	Register(t, api.OriginPublish, origins.Publish)
+	Register(t, api.ProjectRetainedBranches, func(ctx context.Context, r api.ProjectRetainedBranchesRequest) (api.RetainedBranchesResult, error) {
+		return retainedBranches(ctx, r, origins)
+	})
 }

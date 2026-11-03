@@ -314,10 +314,11 @@ addressed in P's terms rather than Git's layout.
   image builds, Git's syntax for the names P stores, the Git edits that rename
   a session's clone, the Git service behind P's endpoint, and the origin
   transport. Core keeps lifecycle state, Git authority (principals, leases,
-  guards and grants), the SSH server and its keys, and the origin URL and
-  observations; the driver never opens P's database or reaches a runtime.
-  Host configuration selects it as `git.driver`; its Git implementation runs
-  inside the P daemon. So far the daemon only starts and checks it.
+  guards and grants), the SSH server and its keys, the origin URL and
+  observations, and each project's origin lock; the driver never opens P's
+  database or reaches a runtime. Host configuration selects it as
+  `git.driver`; its Git implementation runs inside the P daemon. The Git
+  service and the commit export do not go through it yet.
 - **Rules:** It acts only on P's repositories in its configured storage,
   changes a head only at an exact expected state, and claims nothing after an
   error.

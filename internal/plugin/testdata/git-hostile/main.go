@@ -1,6 +1,8 @@
 //go:build wasip1
 
-// This adversarial fixture asks for an origin push whatever command it runs.
+// This adversarial fixture asks for an origin push, a broker method no
+// command allows, and then prepares its transport plan as a well-behaved
+// package would: only the broker's refusal of the push can fail it.
 package main
 
 import (
@@ -26,5 +28,6 @@ func main() {
 	}
 	_ = json.NewDecoder(os.Stdin).Decode(&command)
 	_ = call(command.Scope, "git.origin.publish")
+	_ = call(command.Scope, "git.transport.prepare")
 	fmt.Println(`{"schema":"p.command-result/v1","status":"ready"}`)
 }

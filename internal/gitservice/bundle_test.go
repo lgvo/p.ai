@@ -36,7 +36,7 @@ func directoryNames(t *testing.T, dir string) []string {
 }
 
 func TestExportBundleHoldsExactlyTheCommitAndItsHistory(t *testing.T) {
-	b, repo := selectedBackend(t)
+	b, repo := bareFixture(t)
 	flake := bareBlob(t, repo, "{ outputs = _: {}; }\n")
 	script := bareBlob(t, repo, "#!/bin/sh\nexit 0\n")
 	root := bareCommit(t, repo, bareTree(t, repo, "100644 blob "+flake+"\tflake.nix"), "")
@@ -89,7 +89,7 @@ func TestExportBundleHoldsExactlyTheCommitAndItsHistory(t *testing.T) {
 }
 
 func TestExportBundleRefusesWhatIsNotAnOrdinaryCommitAndLeavesNothing(t *testing.T) {
-	b, repo := selectedBackend(t)
+	b, repo := bareFixture(t)
 	blob := bareBlob(t, repo, "data\n")
 	tree := bareTree(t, repo, "100644 blob "+blob+"\tfile")
 	reachable := bareCommit(t, repo, tree, "")
@@ -130,7 +130,7 @@ func TestExportBundleRefusesWhatIsNotAnOrdinaryCommitAndLeavesNothing(t *testing
 }
 
 func TestExportBundleRequiresAPrivateStagingDirectory(t *testing.T) {
-	b, repo := selectedBackend(t)
+	b, repo := bareFixture(t)
 	commit := bareCommit(t, repo, bareTree(t, repo, "100644 blob "+bareBlob(t, repo, "data\n")+"\tfile"), "")
 	bareGit(t, repo, nil, "update-ref", "refs/heads/main", commit)
 	for _, tc := range []struct {
@@ -196,7 +196,7 @@ func TestExportBundleRequiresAPrivateStagingDirectory(t *testing.T) {
 }
 
 func TestExportBundleFailureAfterStagingLeavesNothing(t *testing.T) {
-	b, repo := selectedBackend(t)
+	b, repo := bareFixture(t)
 	// A commit whose tree P does not hold passes every check before Git packs
 	// the bundle, so the export fails with its temporary repository in place.
 	broken := bareGit(t, repo, []byte("tree "+strings.Repeat("1", 40)+"\nauthor P <p@example.test> 0 +0000\ncommitter P <p@example.test> 0 +0000\n\nbroken\n"), "hash-object", "-t", "commit", "-w", "--stdin")

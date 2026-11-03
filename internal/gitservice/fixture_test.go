@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/lgvo/p.ai/internal/plugin"
 )
 
 func bareGit(t *testing.T, repo string, input []byte, args ...string) string {
@@ -24,7 +22,7 @@ func bareGit(t *testing.T, repo string, input []byte, args ...string) string {
 }
 
 // bareFixture is P's bare repository for project "app", without a selected
-// source-Git package.
+// source-Git package, which only P's Git service needs.
 func bareFixture(t *testing.T) (*Backend, string) {
 	t.Helper()
 	gitPath, err := exec.LookPath("git")
@@ -41,41 +39,6 @@ func bareFixture(t *testing.T) (*Backend, string) {
 		t.Fatal(err)
 	}
 	bareGit(t, state, nil, "init", "--bare", "--initial-branch=main", repo)
-	return b, repo
-}
-
-// selectedBackend is bareFixture with the bundled source-Git package
-// selected, as the public methods that revalidate it require.
-func selectedBackend(t *testing.T) (*Backend, string) {
-	t.Helper()
-	b, repo := bareFixture(t)
-	goPath, err := exec.LookPath("go")
-	if err != nil {
-		t.Skip("Go compiler unavailable")
-	}
-	dir := filepath.Join(b.stateDir, "source-package")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"plugin.json", "p-git-ssh"} {
-		data, err := os.ReadFile(filepath.Join("../../plugins/bundled/source-git", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	build := exec.Command(goPath, "build", "-o", filepath.Join(dir, "git.wasm"), "./../../plugins/bundled/source-git")
-	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build selected Git module: %v %s", err, out)
-	}
-	pkg, err := plugin.Conformance(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.selection = plugin.Active{Package: pkg, Grants: []string{"git.project"}}
 	return b, repo
 }
 

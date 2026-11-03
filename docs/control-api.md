@@ -286,12 +286,13 @@ sent for each valid request, with the same ID, `jsonrpc:"2.0"`, and exactly one
 of `result` or `error`. Responses may arrive out of order. JSON object keys
 must be unique at every depth.
 
-Branch names, refs, creation sources and commit IDs have only bounds in
-`Validate`: valid UTF-8 without ASCII control characters, of at most 200
-bytes for a P branch, 523 for a ref, 255 for a creation source and 64 for a
-commit ID. Their syntax is the source driver's. A method that takes them asks
-the driver after it looks up the request's idempotency key, when it has one,
-so a recorded request is answered from P's records alone, and before it
+Branch names, refs, creation sources, commit IDs and origin URLs have only
+bounds in `Validate`: valid UTF-8 without ASCII control characters, of at most
+200 bytes for a P branch, 523 for a ref, 255 for a creation source, 64 for a
+commit ID and 2048 for a URL. Their syntax is the source driver's: the bundled
+Git driver accepts an origin URL in an SSH form only. A method that takes them
+asks the driver after it looks up the request's idempotency key, when it has
+one, so a recorded request is answered from P's records alone, and before it
 records anything; a value the driver refuses answers `invalid` with reason
 `param` and the field. A page's `after` cursor is only bounded: it is
 compared, never recorded.
@@ -502,20 +503,21 @@ Their result is a `ChangeResult`: `plan` and `change_tag` for a dry run,
 | `project.retained.delete` | `{"project":"team/app","branch":"saved"}`; the run adds `key` and `if_match` | Dry run: `plan` on target `project/<path>:branch/<name>`, whose `details` hold the `project`, `branch`, unassigned P `ref` and `tip`, and `branch_loss` (commits losing all P reachability and the complete P refs), and `change_tag`. It reads only P's Git repository and contacts no origin. A branch a session holds refuses the plan with `branch_assigned`, and one an unfinished operation guards with `branch_reserved`. Run: `operation` (`kind:"project.retained.delete"`). A completed exact run replays; the same key with other params or another tag answers `invalid` with reason `key_reused`. |
 | `project.delete` | `{"project":"team/app"}`; the run adds `key` and `if_match` | Dry run: one `plan` on target `project/<path>` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, and exact credential, repository and image identities and preserved external mounts in its `details`, and `change_tag`. It contacts no origin. Run: durable `operation` (`kind:"project.delete"`), returned at once. A completed exact run replays without deleting again. See [project deletion](#project-deletion). |
 
-An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
-or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
-`diagnostic`. `origin.sources` labels retained refs `stale` when current status
-is `unknown`; they cannot authorize source selection or publication. An
-`origin.change` key replays its operation without contacting the origin.
-Reusing a key with different inputs answers `invalid` with reason
-`key_reused`, and an `expected_url` that no longer holds answers
-`precondition_failed` with reason `changed` and records nothing. A failed
-contact ends the operation `failed` with reason `origin`; an origin changed
-between the request and its worker ends it `failed` with reason `changed`.
-A failed origin change is not retried: send a new request with a new key. A
-change interrupted by a daemon restart runs again at start, with the same
-contact and compare-and-swap. Origin URL and SSH credentials stay on the
-host.
+An origin state has `project`, optional `url`, `status` (`local-only`,
+`fresh`, or `unknown`), optional `observed_at`, `ref_count`, and optional
+bounded `diagnostic`. `origin.sources` labels retained refs `stale` when
+current status is `unknown`; they cannot authorize source selection or
+publication. An `origin.change` key replays its operation without contacting
+the origin. Reusing a key with different inputs answers `invalid` with reason
+`key_reused`; a new set whose URL the source driver refuses answers `invalid`
+naming `url` and records nothing; and an `expected_url` that no longer holds
+answers `precondition_failed` with reason `changed` and records nothing. A
+failed contact ends the operation `failed` with reason `origin`; an origin
+changed between the request and its worker ends it `failed` with reason
+`changed`. A failed origin change is not retried: send a new request with a
+new key. A change interrupted by a daemon restart runs again at start, with
+the same contact and compare-and-swap. Origin URL and SSH credentials stay on
+the host.
 
 Retained branch rename guards both P names while it creates the destination
 with an absent-ref compare-and-swap and deletes only the exact old source tip.

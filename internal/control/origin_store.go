@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/lgvo/p.ai/internal/api"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 type OriginChange struct {
@@ -22,9 +22,13 @@ type OriginChange struct {
 
 func validOriginChange(c OriginChange) bool {
 	return len(c.Key) > 0 && len(c.Key) <= 128 && validProject(c.Project) &&
-		len(c.ExpectedURL) <= 2048 && len(c.ProposedURL) <= 2048 &&
-		(c.Kind == "remove" && c.ProposedURL == "" || c.Kind == "set" && c.ProposedURL != "")
+		(c.ExpectedURL == "" || validURL(c.ExpectedURL)) &&
+		(c.Kind == "remove" && c.ProposedURL == "" || c.Kind == "set" && validURL(c.ProposedURL))
 }
+
+// validURL is core's bound for an origin's URL, whose syntax the source
+// driver decides (CheckNames).
+func validURL(url string) bool { return api.BoundedName(url, api.MaxURLBytes) }
 
 // BeginOriginChange records origin change c as an operation of kind
 // origin.change and returns it, after checking that c's project is active and
@@ -76,10 +80,11 @@ func (s *Store) expectOrigin(ctx context.Context, q queryRower, c OriginChange) 
 	return nil
 }
 
-// CompleteOriginChange records origin change op, with the refs its contact
-// observed for a set, and the operation's end, in one transaction. An origin
-// changed since the request answers precondition_failed and changes nothing.
-func (s *Store) CompleteOriginChange(ctx context.Context, op api.Operation, refs []plugin.GitOriginRef) error {
+// CompleteOriginChange records origin change op, with the refs the source
+// driver observed for a set, and the operation's end, in one transaction. An
+// origin changed since the request answers precondition_failed and changes
+// nothing.
+func (s *Store) CompleteOriginChange(ctx context.Context, op api.Operation, refs []sourcedriver.OriginRef) error {
 	var c OriginChange
 	if op.Kind != KindOriginChange || json.Unmarshal(op.Request, &c) != nil || !validOriginChange(c) || c.Kind == "remove" && len(refs) != 0 {
 		return ErrInvalid
@@ -114,21 +119,25 @@ func (s *Store) CompleteOriginChange(ctx context.Context, op api.Operation, refs
 	return j.commit(ctx)
 }
 
-func encodeOriginRefs(refs []plugin.GitOriginRef) ([]byte, error) {
-	if len(refs) > 1024 {
+// encodeOriginRefs encodes an observation the source driver made, in byte
+// order of ref, as the origin refs P records and shows.
+func encodeOriginRefs(refs []sourcedriver.OriginRef) ([]byte, error) {
+	if len(refs) > sourcedriver.MaxOriginRefs {
 		return nil, ErrInvalid
 	}
+	recorded := make([]api.OriginRef, len(refs))
 	previous := ""
-	for _, r := range refs {
-		if !api.BoundedName(r.Ref, api.MaxRefBytes) || r.Ref <= previous || !validOID(r.OID) || !validOID(r.CommitOID) {
+	for i, r := range refs {
+		if !api.BoundedName(r.Ref, api.MaxRefBytes) || r.Ref <= previous || !validOID(string(r.OID)) || !validOID(string(r.Target)) {
 			return nil, ErrInvalid
 		}
 		previous = r.Ref
+		recorded[i] = api.OriginRef{Ref: r.Ref, OID: string(r.OID), CommitOID: string(r.Target)}
 	}
-	return json.Marshal(refs)
+	return json.Marshal(recorded)
 }
 
-func (s *Store) Origin(ctx context.Context, project string) (api.OriginState, []plugin.GitOriginRef, error) {
+func (s *Store) Origin(ctx context.Context, project string) (api.OriginState, []api.OriginRef, error) {
 	if !validProject(project) {
 		return api.OriginState{}, nil, Invalid("project")
 	}
@@ -147,12 +156,12 @@ func (s *Store) Origin(ctx context.Context, project string) (api.OriginState, []
 	var raw string
 	err = s.db.QueryRowContext(ctx, `SELECT url,current_status,observed_at,refs_json,diagnostic FROM project_origins WHERE project_path=?`, project).Scan(&state.URL, &state.Status, &state.ObservedAt, &raw, &state.Diagnostic)
 	if errors.Is(err, sql.ErrNoRows) {
-		return state, []plugin.GitOriginRef{}, nil
+		return state, []api.OriginRef{}, nil
 	}
 	if err != nil {
 		return api.OriginState{}, nil, err
 	}
-	var refs []plugin.GitOriginRef
+	var refs []api.OriginRef
 	if err = json.Unmarshal([]byte(raw), &refs); err != nil {
 		return api.OriginState{}, nil, fmt.Errorf("stored origin observation: %w", err)
 	}
@@ -160,11 +169,11 @@ func (s *Store) Origin(ctx context.Context, project string) (api.OriginState, []
 	return state, refs, nil
 }
 
-// StoreOriginRefresh records a completed observation or marks the current one
-// unknown. Identity matching prevents an old failed refresh from staining a
-// newly configured origin.
-func (s *Store) StoreOriginRefresh(ctx context.Context, project, url string, refs []plugin.GitOriginRef, failure string) error {
-	if !validProject(project) || url == "" || len(url) > 2048 {
+// StoreOriginRefresh records an observation the source driver completed, or
+// marks the current one unknown. Identity matching prevents an old failed
+// refresh from staining a newly configured origin.
+func (s *Store) StoreOriginRefresh(ctx context.Context, project, url string, refs []sourcedriver.OriginRef, failure string) error {
+	if !validProject(project) || !validURL(url) {
 		return ErrInvalid
 	}
 	if len(failure) > 256 {

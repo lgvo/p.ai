@@ -121,9 +121,9 @@ func (r OriginChangeRequest) Validate() error {
 		return invalid("project")
 	case r.Kind != "remove" && r.Kind != "set":
 		return invalid("kind")
-	case len(r.ExpectedURL) > 2048:
+	case !validURL(r.ExpectedURL):
 		return invalid("expected_url")
-	case len(r.URL) > 2048 || (r.Kind == "remove") != (r.URL == ""):
+	case !validURL(r.URL) || (r.Kind == "remove") != (r.URL == ""):
 		return invalid("url")
 	}
 	return nil
@@ -188,7 +188,7 @@ func (r OriginPublishRequest) Validate() error {
 
 func validPublication(url, project, kind, source, oid, destination string) error {
 	switch {
-	case url == "" || len(url) > 2048:
+	case !BoundedName(url, MaxURLBytes):
 		return invalid("expected_origin_url")
 	case !ValidProject(project):
 		return invalid("project")
@@ -228,7 +228,7 @@ func (r ProjectCreateRequest) Validate() error {
 		return invalid("key")
 	case !ValidProject(r.Project):
 		return invalid("project")
-	case len(r.URL) > 2048:
+	case !validURL(r.URL):
 		return invalid("url")
 	}
 	return nil
@@ -259,7 +259,7 @@ func (r SessionCreateRequest) Validate() error {
 		return invalid("branch")
 	case r.Choice != "existing" && r.Choice != "new":
 		return invalid("choice")
-	case len(r.ExpectedOriginURL) > 2048 || r.ExpectedOriginURL != "" && r.OriginRef == "":
+	case !validURL(r.ExpectedOriginURL) || r.ExpectedOriginURL != "" && r.OriginRef == "":
 		return invalid("expected_origin_url")
 	case r.Choice == "existing" && r.Source != "", r.Choice == "new" && r.OriginRef == "" && !BoundedName(r.Source, MaxSourceBytes),
 		r.Choice == "new" && r.OriginRef != "" && r.Source != "":

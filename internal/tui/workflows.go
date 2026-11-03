@@ -19,7 +19,7 @@ import (
 type branchInventory struct {
 	Refs             []plugin.GitRef
 	Retained         []api.RetainedBranch
-	Origin           []plugin.GitOriginRef
+	Origin           []api.OriginRef
 	OriginURL        string
 	OriginDiagnostic string
 }
@@ -87,7 +87,7 @@ func creationBranches(ctx context.Context, c api.Caller, project string) (branch
 			func(after string) api.OriginSourcesRequest {
 				return api.OriginSourcesRequest{Project: project, Limit: 16, After: after}
 			},
-			func(r api.OriginSourcesResult) ([]plugin.GitOriginRef, string) {
+			func(r api.OriginSourcesResult) ([]api.OriginRef, string) {
 				if r.Status != "fresh" {
 					stale = true
 					return nil, ""

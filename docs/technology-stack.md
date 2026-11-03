@@ -345,14 +345,16 @@ daemon over the state directory; an in-memory driver
 (`internal/sourcedriver/conformance`) show that a driver keeps the contract,
 and the Git driver runs the suite on real Git. The daemon starts the driver
 and checks its storage and Git tools before serving. P's repositories, heads,
-commits, Git's syntax for names and the Git edits of a renamed session's clone
-go through it; the Git service, the origin and the commit export still go
-through the code below until the following steps move them onto the driver.
+commits, Git's syntax for names and origin URLs, the Git edits of a renamed
+session's clone, and the origin's observation, fetch, comparison and push go
+through it. Core holds each project's origin lock and decides what an origin
+operation may do; the driver performs it. The Git service and the commit
+export still go through the code below until the following steps move them
+onto the driver.
 
 The bundled `source-git` WASI package uses the versioned broker operations in
 [plugin contract](plugin-contract.md#wasi-source-git-abi) to sequence native
-transport plans and the origin's observation, fetch and publication. The
-broker alone chooses repository paths and Git argv. A per-stream private hook
+transport plans. The broker alone chooses repository paths and Git argv. A per-stream private hook
 callback checks the proposed ref update at Git's pre-receive boundary; the
 SQLite assignment/ref-guard lease remains held through `receive-pack`.
 The optional session helper is a digest-bound asset plan; live installation

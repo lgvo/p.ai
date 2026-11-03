@@ -11,66 +11,6 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 )
 
-// inspectBranchRef reads one exact head of a checked repository; its caller
-// validated the ref.
-func (b *Backend) inspectBranchRef(ctx context.Context, repo, ref string) (string, bool, error) {
-	exact := func(args ...string) (string, int, error) {
-		cmd := exec.CommandContext(ctx, b.gitPath, append([]string{"-C", repo}, args...)...)
-		cmd.Env = b.gitEnv()
-		var out, stderr sourceGitOutput
-		cmd.Stdout = &out
-		cmd.Stderr = &stderr
-		e := cmd.Run()
-		if ctx.Err() != nil {
-			return "", 0, ctx.Err()
-		}
-		if e == nil {
-			return strings.TrimSpace(string(out.text)), 0, nil
-		}
-		var exit *exec.ExitError
-		if errors.As(e, &exit) {
-			return "", exit.ExitCode(), nil
-		}
-		return "", 0, errors.New("exact Git ref inspection failed")
-	}
-	// A symbolic destination occupies the ref even when its target is unborn.
-	// Check it first: show-ref follows resolving symbolic refs and reports a
-	// dangling one as missing.
-	sym, symCode, err := exact("symbolic-ref", "--quiet", ref)
-	if err != nil {
-		return "", false, err
-	}
-	if symCode == 0 {
-		if sym == "" {
-			return "", false, errors.New("empty symbolic ref target")
-		}
-		return "", false, control.ErrConflict
-	}
-	if symCode != 1 {
-		return "", false, errors.New("symbolic ref inspection failed")
-	}
-	// Git 2.55 returns 128, not 1, for a missing ref with --hash. Its quiet
-	// verification has an unambiguous absence status and emits no native text.
-	_, code, err := exact("show-ref", "--verify", "--quiet", ref)
-	if err != nil {
-		return "", false, err
-	}
-	if code == 1 {
-		return "", false, nil
-	}
-	if code != 0 {
-		return "", false, errors.New("exact Git ref inspection failed")
-	}
-	oid, code, err := exact("show-ref", "--verify", "--hash", ref)
-	if err != nil {
-		return "", false, err
-	}
-	if code != 0 || !validOID(oid) || allZero(oid) {
-		return "", false, errors.New("invalid branch tip")
-	}
-	return oid, true, nil
-}
-
 // sourceGitOutput bounds both native stdout and stderr; source methods emit
 // only one OID, one type, or one ref. Git failures never expose native text.
 type sourceGitOutput struct{ text []byte }

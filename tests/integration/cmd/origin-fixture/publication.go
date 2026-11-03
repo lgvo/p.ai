@@ -8,119 +8,123 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 )
 
-// publish composes the production substrate only. It does not simulate a
-// lifecycle assignment, confirmation, or a public host RPC.
-// Usage: publish MODE STATE ACTIVATION PROJECT URL SOURCE-REF SOURCE-OID
+// publish runs the bundled source driver's publication operations only. It
+// does not simulate a lifecycle assignment, confirmation, core's answers or
+// a public host RPC: a relation core answers itself is pushed by no one.
+// Usage: publish MODE STATE PROJECT URL BRANCH COMMIT DESTINATION RELATION
 //
-//	DESTINATION EXPECT-RELATION EXPECT-STATUS [RACE-REPO RACE-OID]
+//	[STATUS [RACE-REPO RACE-OID]]
+//
+// MODE run observes the origin, compares, and publishes an absent or
+// fast-forward relation, expecting RELATION and STATUS ("none" when nothing
+// is pushed). The refuse modes expect the driver to refuse the publication
+// before its gate: refuse-relation publishes RELATION as given,
+// refuse-moved a COMMIT that BRANCH does not name, and refuse-gate fails the
+// gate after comparing.
 func publish(a []string) error {
-	if len(a) != 10 && len(a) != 12 {
-		return errors.New("publish MODE STATE ACTIVATION PROJECT URL SOURCE-REF SOURCE-OID DESTINATION EXPECT-RELATION EXPECT-STATUS [RACE-REPO RACE-OID]")
+	if len(a) < 8 {
+		return errors.New("publish MODE STATE PROJECT URL BRANCH COMMIT DESTINATION RELATION [STATUS [RACE-REPO RACE-OID]]")
 	}
-	mode, state, activation, project, url := a[0], a[1], a[2], a[3], a[4]
-	sourceRef, sourceOID, destination := a[5], a[6], a[7]
-	if mode != "run" && mode != "wrong" && mode != "expired" && mode != "no-observe" {
-		return fmt.Errorf("unknown publication mode %q", mode)
-	}
-	if len(a) == 12 && mode != "run" {
-		return errors.New("race is only valid in run mode")
-	}
-	store, err := control.OpenStore(state)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	active, err := plugin.LoadActivation(activation)
-	if err != nil {
-		return err
-	}
-	backend, err := gitservice.New(store, state, active)
-	if err != nil {
-		return err
+	mode, state, project, url := a[0], a[1], a[2], a[3]
+	branch, commit, destination, relation := a[4], sourcedriver.OID(a[5]), a[6], sourcedriver.Relation(a[7])
+	switch {
+	case mode == "run" && (len(a) == 9 || len(a) == 11):
+	case (mode == "refuse-relation" || mode == "refuse-moved" || mode == "refuse-gate") && len(a) == 8:
+	default:
+		return fmt.Errorf("unknown publication mode %q or wrong arguments", mode)
 	}
 	ctx := context.Background()
-	var preview gitservice.OriginPublicationPreview
-	var result gitservice.OriginPublicationResult
-	var expired *gitservice.OriginScope
-	err = backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
-		if mode == "no-observe" {
-			if _, err := scope.PreviewPublication(ctx, sourceRef, sourceOID, destination); !errors.Is(err, control.ErrInvalid) {
-				return fmt.Errorf("preview without observation: %v", err)
-			}
-			return nil
+	driver, err := bundledgit.Open(ctx, state)
+	if err != nil {
+		return err
+	}
+	// Core checks the destination with CheckNames and publishes to the
+	// branch name it returns.
+	checked, err := driver.CheckNames(ctx, []sourcedriver.Name{{Kind: sourcedriver.NameDestination, Value: destination}})
+	if err != nil {
+		return err
+	}
+	p := sourcedriver.Publication{URL: url, Branch: branch, Commit: commit, Destination: checked[0].Value, Relation: relation}
+	gateCalls := 0
+	gate := func() error { gateCalls++; return nil }
+	switch mode {
+	case "refuse-relation":
+		if _, err := driver.Publish(ctx, project, p, gate); !errors.Is(err, sourcedriver.ErrInvalid) || gateCalls != 0 {
+			return fmt.Errorf("publishing relation %q answered %v after %d gate calls, want ErrInvalid before the gate", relation, err, gateCalls)
 		}
-		refs, err := scope.Observe(ctx, url)
-		if err != nil {
-			return err
+		return printPublication(mode, "", "", "none")
+	case "refuse-moved":
+		if _, err := driver.Publish(ctx, project, p, gate); !errors.Is(err, sourcedriver.ErrConflict) || gateCalls != 0 {
+			return fmt.Errorf("publishing a commit the branch does not name answered %v after %d gate calls, want ErrConflict before the gate", err, gateCalls)
 		}
-		_ = refs // Observe must complete even when the destination is absent.
-		preview, err = scope.PreviewPublication(ctx, sourceRef, sourceOID, destination)
-		if err != nil {
-			return err
+		return printPublication(mode, "", "", "none")
+	}
+	refs, err := driver.ObserveOrigin(ctx, url)
+	if err != nil {
+		return err
+	}
+	var observed *sourcedriver.OriginRef
+	for i := range refs {
+		if refs[i].Ref == destination {
+			observed = &refs[i]
 		}
-		if preview.Project != project || preview.URL != url || preview.SourceRef != sourceRef || preview.SourceOID != sourceOID || preview.DestinationRef != destination || preview.Relation != a[8] {
-			return fmt.Errorf("unexpected publication preview: %+v", preview)
+	}
+	compared, err := driver.ComparePublication(ctx, project, url, commit, observed)
+	if err != nil {
+		return err
+	}
+	if compared != relation {
+		return fmt.Errorf("compared %q, want %q", compared, relation)
+	}
+	destinationOID := ""
+	if observed != nil {
+		destinationOID = string(observed.OID)
+	}
+	if mode == "refuse-gate" {
+		refused := errors.New("the fixture's gate refuses")
+		if _, err := driver.Publish(ctx, project, p, func() error { return refused }); !errors.Is(err, refused) {
+			return fmt.Errorf("publishing past a failing gate answered %v, want the gate's error", err)
 		}
-		if mode == "expired" {
-			expired = scope
-			return nil
-		}
-		if mode == "wrong" {
-			wrong := preview
-			wrong.DestinationRef = "refs/heads/fixture-wrong"
-			if _, err := scope.PublishPublication(ctx, wrong); !errors.Is(err, control.ErrInvalid) {
-				return fmt.Errorf("mismatched preview accepted: %v", err)
-			}
-			return nil
-		}
-		if len(a) == 12 {
-			cmd := exec.Command("git", "-C", a[10], "update-ref", destination, a[11])
+		return printPublication(mode, compared, destinationOID, "none")
+	}
+	status := "none"
+	if relation == sourcedriver.RelationAbsent || relation == sourcedriver.RelationFastForward {
+		if len(a) == 11 {
+			cmd := exec.Command("git", "-C", a[9], "update-ref", destination, a[10])
 			if output, err := cmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("race origin destination: %w: %s", err, output)
 			}
 		}
-		result, err = scope.PublishPublication(ctx, preview)
-		if err != nil {
+		published, err := driver.Publish(ctx, project, p, gate)
+		switch {
+		case errors.Is(err, sourcedriver.ErrUnknownOutcome):
+			status = "outcome_unknown"
+		case err != nil:
 			return err
+		default:
+			status = string(published)
 		}
-		if result.Preview != preview || result.Status != a[9] {
-			return fmt.Errorf("unexpected publication result: %+v", result)
-		}
-		if _, err := scope.PublishPublication(ctx, preview); !errors.Is(err, control.ErrInvalid) {
-			return fmt.Errorf("used preview accepted again: %v", err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if mode == "expired" {
-		if _, err := expired.PublishPublication(ctx, preview); !errors.Is(err, control.ErrInvalid) {
-			return fmt.Errorf("expired preview accepted: %v", err)
-		}
-		if err := backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
-			if _, err := scope.Observe(ctx, url); err != nil {
-				return err
-			}
-			if _, err := scope.PublishPublication(ctx, preview); !errors.Is(err, control.ErrInvalid) {
-				return fmt.Errorf("foreign scope accepted preview: %v", err)
-			}
-			return nil
-		}); err != nil {
-			return err
+		if gateCalls != 1 {
+			return fmt.Errorf("the publication called its gate %d times, want once", gateCalls)
 		}
 	}
+	if status != a[8] {
+		return fmt.Errorf("publication status %q, want %q", status, a[8])
+	}
+	return printPublication(mode, compared, destinationOID, status)
+}
+
+func printPublication(mode string, relation sourcedriver.Relation, destinationOID, status string) error {
 	return json.NewEncoder(os.Stdout).Encode(struct {
-		Mode    string                              `json:"mode"`
-		Preview gitservice.OriginPublicationPreview `json:"preview"`
-		Result  gitservice.OriginPublicationResult  `json:"result"`
-	}{mode, preview, result})
+		Mode           string `json:"mode"`
+		Relation       string `json:"relation,omitempty"`
+		DestinationOID string `json:"destination_oid,omitempty"`
+		Status         string `json:"status"`
+	}{mode, string(relation), destinationOID, status})
 }
 
 // preparePublish creates only the local bare P repository, with the bundled

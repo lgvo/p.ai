@@ -249,8 +249,6 @@ func newCreatedFixture(t *testing.T) *sessionFixture {
 	driver := newIncusShaped(world)
 	git := testGitCapability()
 	git.driver = source
-	// Project deletion still takes the origin's lock in gitservice.
-	git.backend = gitserviceFixture(t, store)
 	l := &lifecycle{ctx: ctx, store: store, driver: driver, git: git, endpoints: endpoints, working: map[string]bool{},
 		instanceID: "99999999-9999-4999-8999-999999999999", incus: runtimeincus.DriverConfig{Project: "user-1000"},
 		hostPlan:   plugin.AssetPlan{PackageID: "host", PackageSHA256: strings.Repeat("b", 64)},

@@ -34,17 +34,6 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
-activate() {
-  local package="$1" target="$2" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$target"
-  p plugins activate "$target" | jq -e '.[0].capability == "source-git"' >/dev/null
-}
-activate "$P_TEST_GIT_PLUGIN" "$step_dir/source.json"
-activate "$P_TEST_GIT_ALTERNATE" "$step_dir/alternate.json"
-
 empty="$step_dir/empty.git"
 full="$step_dir/full.git"
 flood="$step_dir/flood.git"
@@ -60,7 +49,7 @@ git -C "$full" update-ref refs/heads/main "$first"
 git -C "$full" tag -a -m release v1 "$first"
 tag_oid=$(git -C "$full" rev-parse refs/tags/v1)
 test "$tag_oid" != "$first"
-# A valid advertisement larger than the origin runner's 300 KiB output cap.
+# A valid advertisement larger than the source driver's 300 KiB output cap.
 # All names are valid refs, and the count stays below the 1024-ref limit.
 test "$(git -C "$flood" hash-object -t tree -w --stdin < /dev/null)" = "$tree"
 test "$(git -C "$flood" hash-object -t commit -w --stdin < <(git -C "$full" cat-file commit "$first"))" = "$first"
@@ -115,35 +104,34 @@ CONFIG
 write_config "$fixture_home/.ssh/id_origin"
 scp_url='pdev@origin-fixture:full.git'
 ssh_url='ssh://pdev@origin-fixture/empty.git'
-call() { timeout 15 origin-fixture "$1" "$state" "$2" "$3" "$4" "${@:5}"; }
-call observe-empty "$step_dir/source.json" empty "$ssh_url" | jq -e '.status == "observe-empty" and (.refs | length) == 0' >/dev/null
-call observe "$step_dir/source.json" app "$scp_url" > "$step_dir/observed.json"
+call() { timeout 15 origin-fixture "$1" "$state" "${@:2}"; }
+call observe-empty empty "$ssh_url" | jq -e '.status == "observe-empty" and (.refs | length) == 0' >/dev/null
+call observe app "$scp_url" > "$step_dir/observed.json"
 jq -e --arg first "$first" --arg tag "$tag_oid" \
   '.refs | length==2 and .[0].ref=="refs/heads/main" and .[0].commit_oid==$first and .[1].ref=="refs/tags/v1" and .[1].oid==$tag and .[1].commit_oid==$first' \
   "$step_dir/observed.json" >/dev/null
-call fetch "$step_dir/source.json" app "$scp_url" refs/heads/main "$first" | jq -e --arg first "$first" '.commit==$first' >/dev/null
-call fetch "$step_dir/source.json" app "$scp_url" refs/tags/v1 "$first" | jq -e --arg first "$first" '.commit==$first' >/dev/null
-call race "$step_dir/source.json" app "$scp_url" refs/heads/main "$first" "$full" "$second" | jq -e '.status=="race"' >/dev/null
-call fetch "$step_dir/source.json" app "$scp_url" refs/heads/main "$second" | jq -e --arg second "$second" '.commit==$second' >/dev/null
-call alternate "$step_dir/alternate.json" alternate "$scp_url" refs/heads/main "$second" | jq -e --arg second "$second" '.commit==$second and .status=="alternate"' >/dev/null
+call fetch app "$scp_url" refs/heads/main "$first" | jq -e --arg first "$first" '.commit==$first' >/dev/null
+call fetch app "$scp_url" refs/tags/v1 "$first" | jq -e --arg first "$first" '.commit==$first' >/dev/null
+call race app "$scp_url" refs/heads/main "$first" "$full" "$second" | jq -e '.status=="race"' >/dev/null
+call fetch app "$scp_url" refs/heads/main "$second" | jq -e --arg second "$second" '.commit==$second' >/dev/null
 
 # Every failed contact remains outside project association and repository creation.
 write_config "$step_dir/missing-key"
 trace_lines=$(wc -l < "$step_dir/server.trace")
-call refuse "$step_dir/source.json" missing-key "$scp_url" >/dev/null
+call refuse missing-key "$scp_url" >/dev/null
 test "$(wc -l < "$step_dir/server.trace")" -eq "$trace_lines"
 write_config "$fixture_home/.ssh/id_origin"
 mv "$fixture_home/.ssh/known_hosts" "$fixture_home/.ssh/known_hosts.saved"
 : > "$fixture_home/.ssh/known_hosts"
-call refuse "$step_dir/source.json" unknown-host "$scp_url" >/dev/null
+call refuse unknown-host "$scp_url" >/dev/null
 test "$(wc -l < "$step_dir/server.trace")" -eq "$trace_lines"
 mv "$fixture_home/.ssh/known_hosts.saved" "$fixture_home/.ssh/known_hosts"
-call refuse "$step_dir/source.json" unreachable 'pdev@origin-unreachable:full.git' >/dev/null
-call refuse "$step_dir/source.json" invalid 'file:///tmp/forbidden.git' >/dev/null
-call timeout "$step_dir/source.json" timed-out 'pdev@origin-fixture:hang.git' >/dev/null
+call refuse unreachable 'pdev@origin-unreachable:full.git' >/dev/null
+call refuse invalid 'file:///tmp/forbidden.git' >/dev/null
+call timeout timed-out 'pdev@origin-fixture:hang.git' >/dev/null
 grep -Fx '/hang.git' "$step_dir/server.trace" >/dev/null || grep -Fx 'hang.git' "$step_dir/server.trace" >/dev/null
-call cancel "$step_dir/source.json" cancelled "$scp_url" >/dev/null
-call refuse "$step_dir/source.json" excess-output 'pdev@origin-fixture:flood.git' >/dev/null
+call cancel cancelled "$scp_url" >/dev/null
+call refuse excess-output 'pdev@origin-fixture:flood.git' >/dev/null
 grep -Fx '/flood.git' "$step_dir/server.trace" >/dev/null || grep -Fx 'flood.git' "$step_dir/server.trace" >/dev/null
 
 # The scratch bare repository carries cached objects only: no origin URL,

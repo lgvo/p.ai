@@ -9,7 +9,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
@@ -125,12 +124,13 @@ func (l *lifecycle) DeleteProject(ctx context.Context, project string, req api.C
 		},
 		Begin: func(ctx context.Context, run control.Run[api.ProjectDeleteDetails]) (api.Operation, error) {
 			ev := l.projectDeleteEvidence(run.Plan.Details, claims)
-			var accepted api.Operation
-			err := l.git.backend.WithOrigin(ctx, project, func(*gitservice.OriginScope) error {
-				var e error
-				accepted, e = l.store.BeginProjectDelete(ctx, recorded, ev, run.Hash, run.Recheck)
-				return e
-			})
+			// No origin work of the project runs while its deletion begins.
+			release, err := l.store.LockOrigin(ctx, project)
+			if err != nil {
+				return api.Operation{}, err
+			}
+			accepted, err := l.store.BeginProjectDelete(ctx, recorded, ev, run.Hash, run.Recheck)
+			release()
 			if err != nil {
 				return api.Operation{}, err
 			}

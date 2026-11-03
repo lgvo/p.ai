@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
 )
 
 // branchName is a PROJECT:BRANCH argument: a P branch of a project. The
@@ -148,7 +147,7 @@ func originRef(ref string) string {
 // freshOrigin is the origin's refs from a fresh observation of it.
 type freshOrigin struct {
 	url  string
-	refs []plugin.GitOriginRef
+	refs []api.OriginRef
 }
 
 // observeOrigin refreshes the origin of project and returns its refs only
@@ -170,7 +169,7 @@ func (in *invocation) observeOrigin(project string) (freshOrigin, error) {
 	if !stale {
 		origin.refs, err = list(in, api.OriginSources, func(after string) api.OriginSourcesRequest {
 			return api.OriginSourcesRequest{Project: project, Limit: 16, After: after}
-		}, func(page api.OriginSourcesResult) ([]plugin.GitOriginRef, string) {
+		}, func(page api.OriginSourcesResult) ([]api.OriginRef, string) {
 			if page.Status != "fresh" {
 				stale, observedAt = true, page.ObservedAt
 				return nil, ""

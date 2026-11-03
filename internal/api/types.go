@@ -94,16 +94,26 @@ type OriginState struct {
 	Diagnostic string `json:"diagnostic,omitempty"`
 }
 
+// OriginRef is one branch or tag an origin advertised: its full ref, the
+// advertised object ID, and CommitOID, the advertised peeled target of an
+// annotated tag or OID otherwise. Fetching it checks that CommitOID is a
+// commit.
+type OriginRef struct {
+	Ref       string `json:"ref"`
+	OID       string `json:"oid"`
+	CommitOID string `json:"commit_oid"`
+}
+
 // OriginSourcesResult pages the refs of the last origin observation.
 // ObservationStatus is fresh, stale or none.
 type OriginSourcesResult struct {
-	Project           string                `json:"project"`
-	OriginURL         string                `json:"origin_url"`
-	Status            string                `json:"status"`
-	ObservationStatus string                `json:"observation_status"`
-	ObservedAt        string                `json:"observed_at"`
-	Refs              []plugin.GitOriginRef `json:"refs"`
-	Next              string                `json:"next"`
+	Project           string      `json:"project"`
+	OriginURL         string      `json:"origin_url"`
+	Status            string      `json:"status"`
+	ObservationStatus string      `json:"observation_status"`
+	ObservedAt        string      `json:"observed_at"`
+	Refs              []OriginRef `json:"refs"`
+	Next              string      `json:"next"`
 }
 
 // PublicationPreview is the plan of a publication: where it publishes, the

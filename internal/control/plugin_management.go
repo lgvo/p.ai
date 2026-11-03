@@ -87,15 +87,6 @@ func (s *Store) CheckPluginRemovalDependencies(ctx context.Context, digest strin
 			return errors.Join(e, rowErr)
 		}
 	}
-	// Origin operations do not pin a source module independently. Unfinished
-	// ones require the current selected capability for exact recovery.
-	var pending int
-	if e := s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE kind IN (?,?) AND status IN ('running','blocked')`, KindOriginChange, KindOriginPublish).Scan(&pending); e != nil {
-		return e
-	}
-	if pending != 0 {
-		return fmt.Errorf("%w: finish pending origin/publication recovery before package removal", ErrConflict)
-	}
 	return nil
 }
 func containsPluginDigest(v any, digest string) bool {

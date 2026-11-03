@@ -44,8 +44,8 @@ func (s *Store) IsRetainedBranch(ctx context.Context, project, branch string) (b
 	return false, err
 }
 
-// retainedBranches answers project.retained_branches; origins.Git is
-// configured.
+// retainedBranches answers project.retained_branches from the heads
+// origins.Driver reads.
 func retainedBranches(ctx context.Context, r api.ProjectRetainedBranchesRequest, origins OriginAPI) (api.RetainedBranchesResult, error) {
 	active, err := origins.Store.HasActiveProject(ctx, r.Project)
 	if err != nil {
@@ -54,7 +54,7 @@ func retainedBranches(ctx context.Context, r api.ProjectRetainedBranchesRequest,
 	if !active {
 		return api.RetainedBranchesResult{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
 	}
-	heads, next, err := branchesPage(ctx, origins.Git, r.Project, r.After, r.Limit)
+	heads, next, err := branchesPage(ctx, origins.Driver, r.Project, r.After, r.Limit)
 	if err != nil {
 		return api.RetainedBranchesResult{}, err
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 type lifecycle struct {
@@ -720,14 +721,17 @@ func (l *lifecycle) readSession(id string) (func(), error) {
 	}, nil
 }
 
+// CreateProject records creation req and queues it. A recorded request is
+// answered from SQLite alone; a new one with an origin has the source driver
+// check its URL first.
 func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectRequest) (api.Operation, error) {
 	_, priorErr := l.store.GetOperationByKey(ctx, req.Key)
 	if errors.Is(priorErr, control.ErrConflict) {
 		return api.Operation{}, priorErr
 	}
-	if req.URL != "" {
-		if err := gitservice.ValidateOriginURL(req.URL); err != nil {
-			return api.Operation{}, control.Invalid("url")
+	if priorErr != nil && req.URL != "" {
+		if _, err := control.CheckNames(ctx, l.git.driver, control.NameField{Field: "url", Name: sourcedriver.Name{Kind: sourcedriver.NameOriginURL, Value: req.URL}}); err != nil {
+			return api.Operation{}, err
 		}
 	}
 	var policy []byte
@@ -795,71 +799,87 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 			return l.captureLocalSource(ctx, r, source)
 		})
 	}
-	var op api.Operation
-	err = l.git.backend.WithOrigin(ctx, req.Project, func(scope *gitservice.OriginScope) error {
-		state, _, e := l.store.Origin(ctx, req.Project)
-		if e != nil {
-			return e
-		}
-		if state.URL == "" {
-			return control.Conflict(api.ReasonOriginNotSet, api.TargetProject(req.Project))
-		}
-		if req.ExpectedOriginURL != "" && state.URL != req.ExpectedOriginURL {
-			return control.Stale(api.ReasonChanged)
-		}
-		refs, e := scope.Observe(ctx, state.URL)
-		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if e != nil {
-			_ = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, nil, "origin refresh failed; check SSH identity, host key, URL and access")
-			return control.Failed(api.ReasonOrigin, e)
-		}
-		if e = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, refs, ""); e != nil {
-			return e
-		}
-		var selected *plugin.GitOriginRef
-		for i := range refs {
-			if refs[i].Ref == req.OriginRef {
-				selected = &refs[i]
-				break
-			}
-		}
-		if selected == nil || selected.CommitOID != req.ExpectedCommitOID {
-			// The origin no longer has the ref, or it moved from the
-			// commit the client observed.
-			return control.Stale(api.ReasonChanged)
-		}
-		fetchFailed := false
-		op, _, e = l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(ctx context.Context, r control.ReserveSessionRequest) (control.CapturedSource, error) {
-			branch := api.TargetBranch(r.Project, r.Branch)
-			_, exists, e := l.inspectBranch(ctx, r.Project, r.Branch)
-			if errors.Is(e, control.ErrConflict) {
-				return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
-			}
-			if e != nil {
-				return control.CapturedSource{}, control.Failed(api.ReasonGit, e)
-			}
-			if exists {
-				return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
-			}
-			oid, e := scope.Fetch(ctx, r.OriginRef, r.ExpectedCommitOID)
-			if e != nil {
-				fetchFailed = true
-				return control.CapturedSource{}, control.Failed(api.ReasonOrigin, e)
-			}
-			return control.CapturedSource{OID: oid, OriginURL: state.URL, OriginRef: r.OriginRef}, nil
-		}, l.observeSessionCapacity, l.environmentIntent())
-		if fetchFailed {
-			failedCtx, cancelFailed := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			_ = l.store.StoreOriginRefresh(failedCtx, req.Project, state.URL, nil, "origin fetch failed; check source ref and access")
-			cancelFailed()
-		}
-		return e
-	})
+	op, err := l.createFromOrigin(ctx, req)
 	if err != nil {
 		return op, err
 	}
 	return l.queueSessionCreate(op, req, newRequest)
+}
+
+// createFromOrigin records creation req, from an origin ref at the commit
+// the client observed, under the project's origin lock: it observes the
+// origin afresh, records the observation, and fetches the ref's objects as
+// it captures the source. A ref the origin no longer advertises at that
+// commit answers precondition_failed; an origin that cannot be observed or
+// fetched from answers failed with reason origin.
+func (l *lifecycle) createFromOrigin(ctx context.Context, req control.ReserveSessionRequest) (api.Operation, error) {
+	release, err := l.store.LockOrigin(ctx, req.Project)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	defer release()
+	state, _, err := l.store.Origin(ctx, req.Project)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	if state.URL == "" {
+		return api.Operation{}, control.Conflict(api.ReasonOriginNotSet, api.TargetProject(req.Project))
+	}
+	if req.ExpectedOriginURL != "" && state.URL != req.ExpectedOriginURL {
+		return api.Operation{}, control.Stale(api.ReasonChanged)
+	}
+	refs, err := l.observeOrigin(ctx, state.URL)
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err != nil {
+		_ = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, nil, "origin refresh failed; check SSH identity, host key, URL and access")
+		return api.Operation{}, control.Failed(api.ReasonOrigin, err)
+	}
+	if err = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, refs, ""); err != nil {
+		return api.Operation{}, err
+	}
+	var selected *sourcedriver.OriginRef
+	for i := range refs {
+		if refs[i].Ref == req.OriginRef {
+			selected = &refs[i]
+			break
+		}
+	}
+	if selected == nil || string(selected.Target) != req.ExpectedCommitOID {
+		// The origin no longer has the ref, or it moved from the commit the
+		// client observed.
+		return api.Operation{}, control.Stale(api.ReasonChanged)
+	}
+	fetchFailed := false
+	op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(ctx context.Context, r control.ReserveSessionRequest) (control.CapturedSource, error) {
+		branch := api.TargetBranch(r.Project, r.Branch)
+		_, exists, e := l.inspectBranch(ctx, r.Project, r.Branch)
+		if errors.Is(e, control.ErrConflict) {
+			return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
+		}
+		if e != nil {
+			return control.CapturedSource{}, control.Failed(api.ReasonGit, e)
+		}
+		if exists {
+			return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
+		}
+		var oid sourcedriver.OID
+		e = l.store.CallOrigin(ctx, func(ctx context.Context) (err error) {
+			oid, err = l.git.driver.FetchOrigin(ctx, r.Project, state.URL, *selected)
+			return err
+		})
+		if e != nil {
+			fetchFailed = true
+			return control.CapturedSource{}, control.Failed(api.ReasonOrigin, e)
+		}
+		return control.CapturedSource{OID: string(oid), OriginURL: state.URL, OriginRef: r.OriginRef}, nil
+	}, l.observeSessionCapacity, l.environmentIntent())
+	if fetchFailed {
+		failedCtx, cancelFailed := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		_ = l.store.StoreOriginRefresh(failedCtx, req.Project, state.URL, nil, "origin fetch failed; check source ref and access")
+		cancelFailed()
+	}
+	return op, err
 }
 
 // beginSessionCreate records creation req, with capture reading its source,
@@ -884,6 +904,36 @@ func (l *lifecycle) queueSessionCreate(op api.Operation, req control.ReserveSess
 		}
 	}
 	return op, nil
+}
+
+// observeOrigin has the source driver observe the origin at url, within the
+// bounds of a call to an origin (control.Store.CallOrigin).
+func (l *lifecycle) observeOrigin(ctx context.Context, url string) (refs []sourcedriver.OriginRef, err error) {
+	err = l.store.CallOrigin(ctx, func(ctx context.Context) error {
+		refs, err = l.git.driver.ObserveOrigin(ctx, url)
+		return err
+	})
+	return refs, err
+}
+
+// createOriginProject creates project creation op's repository once the
+// origin at url answers, and records the project with that observation,
+// under the project's origin lock. bootstrap says that the origin is empty
+// and created reserves the session that pushes its first main.
+func (l *lifecycle) createOriginProject(ctx context.Context, op api.Operation, url string) (created control.Session, bootstrap bool, err error) {
+	release, err := l.store.LockOrigin(ctx, op.Project)
+	if err != nil {
+		return control.Session{}, false, err
+	}
+	defer release()
+	refs, err := l.observeOrigin(ctx, url)
+	if err != nil {
+		return control.Session{}, false, control.Failed(api.ReasonOrigin, err)
+	}
+	if _, err = l.git.driver.CreateRepository(ctx, op.Project); err != nil {
+		return control.Session{}, false, control.Failed(api.ReasonGit, err)
+	}
+	return l.store.CommitOriginProject(ctx, op.ID, refs)
 }
 
 func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error) {
@@ -1008,18 +1058,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		if req.URL != "" {
 			var created control.Session
 			var bootstrap bool
-			err = l.git.backend.WithOrigin(ctx, op.Project, func(scope *gitservice.OriginScope) error {
-				refs, e := scope.Observe(ctx, req.URL)
-				if e != nil {
-					return e
-				}
-				if _, e = l.git.driver.CreateRepository(ctx, op.Project); e != nil {
-					return control.Failed(api.ReasonGit, e)
-				}
-				created, bootstrap, e = l.store.CommitOriginProject(ctx, op.ID, refs)
-				return e
-			})
-			if err != nil {
+			if created, bootstrap, err = l.createOriginProject(ctx, op, req.URL); err != nil {
 				fail(err)
 				return
 			}

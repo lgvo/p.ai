@@ -18,16 +18,12 @@ import (
 func broker(request, length, reply, capacity uint32) int32
 
 type command struct {
-	Schema         string `json:"schema"`
-	Kind           string `json:"kind"`
-	Scope          string `json:"scope"`
-	Project        string `json:"project"`
-	Service        string `json:"service,omitempty"`
-	OriginRef      string `json:"origin_ref,omitempty"`
-	SourceRef      string `json:"source_ref,omitempty"`
-	DestinationRef string `json:"destination_ref,omitempty"`
-	CommitOID      string `json:"commit_oid,omitempty"`
-	Ceilings       *struct {
+	Schema   string `json:"schema"`
+	Kind     string `json:"kind"`
+	Scope    string `json:"scope"`
+	Project  string `json:"project"`
+	Service  string `json:"service,omitempty"`
+	Ceilings *struct {
 		MaxInputBytes int64 `json:"max_input_bytes"`
 		MaxDurationMS int64 `json:"max_duration_ms"`
 	} `json:"ceilings,omitempty"`
@@ -75,24 +71,6 @@ func execute(request command) bool {
 			fields["max_input_bytes"] = min(request.Ceilings.MaxInputBytes, int64(64*1024))
 		}
 		_, ok := invoke(request.Scope, "git.transport.prepare", fields)
-		return ok
-	case "git.origin.observe":
-		if request.OriginRef != "" || request.CommitOID != "" || request.Service != "" || request.Ceilings != nil {
-			return false
-		}
-		_, ok := invoke(request.Scope, "git.origin.observe", map[string]any{})
-		return ok
-	case "git.origin.fetch":
-		if request.OriginRef == "" || request.CommitOID == "" || request.Service != "" || request.Ceilings != nil {
-			return false
-		}
-		_, ok := invoke(request.Scope, "git.origin.fetch", map[string]any{})
-		return ok
-	case "git.origin.publish":
-		if request.SourceRef == "" || request.DestinationRef == "" || request.CommitOID == "" || request.OriginRef != "" || request.Service != "" || request.Ceilings != nil {
-			return false
-		}
-		_, ok := invoke(request.Scope, "git.origin.publish", map[string]any{})
 		return ok
 	}
 	return false

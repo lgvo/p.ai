@@ -7,30 +7,105 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
+	sourcememory "github.com/lgvo/p.ai/internal/sourcedriver/memory"
 )
 
-type fakeOriginRunner struct {
-	refs  []plugin.GitOriginRef
-	err   error
-	calls int
+// originDriver is the in-memory source driver, counting its contacts with
+// origins and the pushes it starts. While failure is set, every origin fails
+// to answer an observation with it; while prestart is set, a push passes its
+// gate and then cannot start. While stall is set, every origin stops
+// answering observations, and while stallPush is set, pushes once they
+// started: the call waits until its context ends, as the bundled driver's Git
+// does, or until unstall is closed.
+type originDriver struct {
+	*sourcememory.Driver
+	world            *sourcememory.World
+	mu               sync.Mutex // guards observes, which concurrent calls count
+	observes, pushes int
+	failure          error
+	prestart         error
+	stall, stallPush bool
+	unstall          chan struct{}
+	// observeHook runs as each observation starts; gateHook runs after a
+	// push's gate passed, right before the push.
+	observeHook, gateHook func()
 }
 
-func (f *fakeOriginRunner) ValidateURL(url string) error {
-	if strings.HasPrefix(url, "ssh://") {
-		return nil
+func newOriginDriver() *originDriver {
+	w := sourcememory.NewWorld()
+	return &originDriver{Driver: sourcememory.NewDriver(w), world: w, unstall: make(chan struct{})}
+}
+
+func (d *originDriver) ObserveOrigin(ctx context.Context, url string) ([]sourcedriver.OriginRef, error) {
+	d.mu.Lock()
+	d.observes++
+	d.mu.Unlock()
+	if d.observeHook != nil {
+		d.observeHook()
 	}
-	return ErrInvalid
+	if d.stall {
+		return nil, d.stalled(ctx)
+	}
+	if d.failure != nil {
+		return nil, d.failure
+	}
+	return d.Driver.ObserveOrigin(ctx, url)
 }
-func (f *fakeOriginRunner) WithOrigin(_ context.Context, _ string, fn func(OriginObserver) error) error {
-	return fn(f)
+
+// stalled waits as an origin that stopped answering, and returns the
+// error the call ends with.
+func (d *originDriver) stalled(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-d.unstall:
+		return errors.New("the origin stopped answering")
+	}
 }
-func (f *fakeOriginRunner) Observe(_ context.Context, _ string) ([]plugin.GitOriginRef, error) {
-	f.calls++
-	return f.refs, f.err
+
+func (d *originDriver) Publish(ctx context.Context, project string, p sourcedriver.Publication, g sourcedriver.Gate) (sourcedriver.PublishStatus, error) {
+	if d.stallPush {
+		if err := g(); err != nil {
+			return "", err
+		}
+		d.pushes++
+		// A push cut off after it started may have landed.
+		return "", fmt.Errorf("%w: %w", d.stalled(ctx), sourcedriver.ErrUnknownOutcome)
+	}
+	return d.Driver.Publish(ctx, project, p, func() error {
+		if err := g(); err != nil {
+			return err
+		}
+		if d.gateHook != nil {
+			d.gateHook()
+		}
+		if d.prestart != nil {
+			return d.prestart
+		}
+		d.pushes++
+		return nil
+	})
+}
+
+// newOrigin makes an origin whose main branch is a commit, and returns its
+// URL.
+func (d *originDriver) newOrigin() string {
+	url := d.world.NewOrigin()
+	d.world.SetOriginRef(url, "refs/heads/main", d.world.OriginCommit(url))
+	return url
+}
+
+// originAPI is the origin API over store s and the in-memory source
+// driver.
+func originAPI(s *Store) (*OriginAPI, *originDriver) {
+	d := newOriginDriver()
+	return &OriginAPI{Store: s, Driver: d}, d
 }
 
 // runQueued makes a's Queue run each queued origin operation's work at once,
@@ -85,20 +160,18 @@ func TestOriginAssociationReplayFailureRefreshAndRestart(t *testing.T) {
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{"network":"none"}`)); err != nil {
 		t.Fatal(err)
 	}
-	ref := plugin.GitOriginRef{Ref: "refs/heads/main", OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
-	f := &fakeOriginRunner{refs: []plugin.GitOriginRef{ref}}
-	a := OriginAPI{Store: s, Runner: f}
-	runQueued(&a)
-	read := readBack(t, &a)
-	first := OriginChange{Key: "first", Project: "app", Kind: "set", ProposedURL: "ssh://host/a"}
+	a, f := originAPI(s)
+	runQueued(a)
+	read := readBack(t, a)
+	first := OriginChange{Key: "first", Project: "app", Kind: "set", ProposedURL: f.newOrigin()}
 	firstOp := read(a.Change(ctx, first))
 	wantEnded(t, "first", firstOp, "completed", "")
 	state, _, err := s.Origin(ctx, "app")
-	if err != nil || state.Status != "fresh" || state.RefCount != 1 || f.calls != 1 {
-		t.Fatalf("first: %+v %v %d", state, err, f.calls)
+	if err != nil || state.Status != "fresh" || state.RefCount != 1 || f.observes != 1 {
+		t.Fatalf("first: %+v %v %d", state, err, f.observes)
 	}
-	f.err = errors.New("offline")
-	second := OriginChange{Key: "second", Project: "app", Kind: "set", ExpectedURL: first.ProposedURL, ProposedURL: "ssh://host/b"}
+	f.failure = errors.New("offline")
+	second := OriginChange{Key: "second", Project: "app", Kind: "set", ExpectedURL: first.ProposedURL, ProposedURL: f.newOrigin()}
 	secondOp := read(a.Change(ctx, second))
 	wantEnded(t, "failed contact", secondOp, "failed", api.ReasonOrigin)
 	if secondOp.Diagnostic != "offline" {
@@ -108,8 +181,8 @@ func TestOriginAssociationReplayFailureRefreshAndRestart(t *testing.T) {
 	if err != nil || state.URL != first.ProposedURL || state.Status != "fresh" || len(refs) != 1 {
 		t.Fatalf("failed set: %+v %+v %v", state, refs, err)
 	}
-	if _, err = a.Change(ctx, OriginChange{Key: "first", Project: "app", Kind: "remove"}); !errors.Is(err, ErrConflict) || f.calls != 2 {
-		t.Fatalf("conflicting key: %v calls=%d", err, f.calls)
+	if _, err = a.Change(ctx, OriginChange{Key: "first", Project: "app", Kind: "remove"}); !errors.Is(err, ErrConflict) || f.observes != 2 {
+		t.Fatalf("conflicting key: %v observes=%d", err, f.observes)
 	}
 	if _, err = a.Refresh(ctx, "app"); err != nil {
 		t.Fatal(err)
@@ -128,15 +201,15 @@ func TestOriginAssociationReplayFailureRefreshAndRestart(t *testing.T) {
 	defer s.Close()
 	a.Store = s
 	replay := read(a.Change(ctx, first))
-	if replay.ID != firstOp.ID || replay.Status != "completed" || f.calls != 3 {
-		t.Fatalf("completed replay: %+v calls=%d", replay, f.calls)
+	if replay.ID != firstOp.ID || replay.Status != "completed" || f.observes != 3 {
+		t.Fatalf("completed replay: %+v observes=%d", replay, f.observes)
 	}
-	f.err = nil
+	f.failure = nil
 	// A failed change ends its key: the same key returns the failed
 	// operation and contacts nothing; a new key changes the origin.
 	replay = read(a.Change(ctx, second))
-	if replay.ID != secondOp.ID || replay.Status != "failed" || f.calls != 3 {
-		t.Fatalf("failed replay: %+v calls=%d", replay, f.calls)
+	if replay.ID != secondOp.ID || replay.Status != "failed" || f.observes != 3 {
+		t.Fatalf("failed replay: %+v observes=%d", replay, f.observes)
 	}
 	second.Key = "second-again"
 	wantEnded(t, "new key", read(a.Change(ctx, second)), "completed", "")
@@ -170,19 +243,18 @@ func TestOriginChangeReplayReturnsItsOperation(t *testing.T) {
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeOriginRunner{}
-	a := OriginAPI{Store: s, Runner: f}
+	a, f := originAPI(s)
 	var queued []string
 	a.Queue = func(id string) error { queued = append(queued, id); return nil }
-	read := readBack(t, &a)
-	set := OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: "ssh://host/a"}
+	read := readBack(t, a)
+	set := OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: f.newOrigin()}
 	running, err := a.Change(ctx, set)
-	if err != nil || running.Status != "running" || len(queued) != 1 || queued[0] != running.ID || f.calls != 0 {
-		t.Fatalf("accepted: %+v %v queued=%v calls=%d", running, err, queued, f.calls)
+	if err != nil || running.Status != "running" || len(queued) != 1 || queued[0] != running.ID || f.observes != 0 {
+		t.Fatalf("accepted: %+v %v queued=%v observes=%d", running, err, queued, f.observes)
 	}
 	again, err := a.Change(ctx, set)
-	if err != nil || again.ID != running.ID || len(queued) != 2 || queued[1] != running.ID || f.calls != 0 {
-		t.Fatalf("running replay: %+v %v queued=%v calls=%d", again, err, queued, f.calls)
+	if err != nil || again.ID != running.ID || len(queued) != 2 || queued[1] != running.ID || f.observes != 0 {
+		t.Fatalf("running replay: %+v %v queued=%v observes=%d", again, err, queued, f.observes)
 	}
 	_, _, before, err := s.Count(ctx)
 	if err != nil {
@@ -190,16 +262,16 @@ func TestOriginChangeReplayReturnsItsOperation(t *testing.T) {
 	}
 	a.RunOriginChange(ctx, running)
 	wantEnded(t, "set", read(running, nil), "completed", "")
-	f.err = errors.New("offline")
-	failing := OriginChange{Key: "failing", Project: "app", Kind: "set", ExpectedURL: set.ProposedURL, ProposedURL: "ssh://host/b"}
+	f.failure = errors.New("offline")
+	failing := OriginChange{Key: "failing", Project: "app", Kind: "set", ExpectedURL: set.ProposedURL, ProposedURL: f.newOrigin()}
 	failed, err := a.Change(ctx, failing)
 	if err != nil {
 		t.Fatal(err)
 	}
 	a.RunOriginChange(ctx, failed)
 	wantEnded(t, "unreachable set", read(failed, nil), "failed", api.ReasonOrigin)
-	f.err = nil
-	calls, queuedBefore := f.calls, len(queued)
+	f.failure = nil
+	observes, queuedBefore := f.observes, len(queued)
 	for _, replay := range []struct {
 		change OriginChange
 		want   api.Operation
@@ -209,8 +281,8 @@ func TestOriginChangeReplayReturnsItsOperation(t *testing.T) {
 			t.Fatalf("replay of %s: %+v %v", replay.change.Key, got, err)
 		}
 	}
-	if f.calls != calls || len(queued) != queuedBefore {
-		t.Fatalf("replays contacted the origin (calls %d, was %d) or queued work %v", f.calls, calls, queued)
+	if f.observes != observes || len(queued) != queuedBefore {
+		t.Fatalf("replays contacted the origin (observes %d, was %d) or queued work %v", f.observes, observes, queued)
 	}
 	if _, _, after, err := s.Count(ctx); err != nil || after != before+1 {
 		t.Fatalf("replays recorded operations: %d, want %d (%v)", after, before+1, err)
@@ -218,6 +290,163 @@ func TestOriginChangeReplayReturnsItsOperation(t *testing.T) {
 	state, _, err := s.Origin(ctx, "app")
 	if err != nil || state.URL != set.ProposedURL {
 		t.Fatalf("replayed failure changed the origin: %+v %v", state, err)
+	}
+}
+
+// TestOriginChangeRefusesAURLTheSourceDriverRefuses checks that setting an
+// origin URL the source driver refuses answers invalid naming url, before
+// anything is recorded or contacted.
+func TestOriginChangeRefusesAURLTheSourceDriverRefuses(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	a, f := originAPI(s)
+	runQueued(a)
+	_, err := a.Change(ctx, OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: "https://host/repo.git"})
+	if answer := answerError(ctx, err); !reflect.DeepEqual(answer, api.InvalidParam("url")) {
+		t.Fatalf("a URL the driver refuses answered %v, want %v", answer, api.InvalidParam("url"))
+	}
+	if _, err = s.GetOperationByKey(ctx, "set"); !errors.Is(err, ErrNotFound) || f.observes != 0 {
+		t.Fatalf("a refused URL recorded its key (%v) or contacted %d origins", err, f.observes)
+	}
+}
+
+// TestOriginChangeReplaysARecordedRequestWithoutTheSourceDriver checks that
+// a recorded change is answered from SQLite alone: its operation comes back
+// while the source driver is down.
+func TestOriginChangeReplaysARecordedRequestWithoutTheSourceDriver(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	a, f := originAPI(s)
+	runQueued(a)
+	read := readBack(t, a)
+	set := OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: f.newOrigin()}
+	first := read(a.Change(ctx, set))
+	f.Kill()
+	if replay := read(a.Change(ctx, set)); replay.ID != first.ID || replay.Status != "completed" {
+		t.Fatalf("replay with the source driver down: %+v, want %+v", replay, first)
+	}
+}
+
+// TestOriginWorkOfAProjectIsSerialized checks that a project's origin work
+// waits while other origin work of the project contacts the origin, and
+// that another project's does not.
+func TestOriginWorkOfAProjectIsSerialized(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	a, f := originAPI(s)
+	runQueued(a)
+	for _, project := range []string{"app", "other"} {
+		if err := s.CreateProject(ctx, project, json.RawMessage(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.Change(ctx, OriginChange{Key: project, Project: project, Kind: "set", ProposedURL: f.newOrigin()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	f.observeHook = func() { close(entered); <-release }
+	go func() { _, err := a.Refresh(ctx, "app"); done <- err }()
+	<-entered
+	f.observeHook = nil
+	waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	_, err := a.Refresh(waitCtx, "app")
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a second refresh of the project answered %v, want it to wait", err)
+	}
+	if _, err = a.Refresh(ctx, "other"); err != nil {
+		t.Errorf("another project's refresh answered %v while the first observed", err)
+	}
+	close(release)
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOriginCallsRunAtMostTwoAtOnce checks that at most two calls to
+// origins run at once, across projects: a third waits until one ends.
+func TestOriginCallsRunAtMostTwoAtOnce(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	a, f := originAPI(s)
+	runQueued(a)
+	projects := []string{"one", "two", "three"}
+	for _, project := range projects {
+		if err := s.CreateProject(ctx, project, json.RawMessage(`{}`)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.Change(ctx, OriginChange{Key: project, Project: project, Kind: "set", ProposedURL: f.newOrigin()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entered, release, done := make(chan struct{}, len(projects)), make(chan struct{}), make(chan error, len(projects))
+	f.observeHook = func() { entered <- struct{}{}; <-release }
+	refresh := func(project string) { _, err := a.Refresh(ctx, project); done <- err }
+	go refresh("one")
+	go refresh("two")
+	<-entered
+	<-entered
+	go refresh("three")
+	select {
+	case <-entered:
+		t.Error("a third call to an origin ran while two were running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	for range projects {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// endsWithin fails unless work returns soon after its origin calls'
+// deadline: past it, the stalled origin f answers again, so work ends
+// either way.
+func endsWithin(t *testing.T, f *originDriver, what string, work func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { work(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		close(f.unstall)
+		<-done
+		t.Fatalf("%s still waited on a stalled origin past its deadline", what)
+	}
+}
+
+// TestOriginWorkEndsAtItsDeadlineWhenTheOriginStalls checks that work whose
+// origin stops answering ends once its call's deadline passes: an origin
+// change and a publication end failed with reason origin, and a refresh
+// marks the observation unknown.
+func TestOriginWorkEndsAtItsDeadlineWhenTheOriginStalls(t *testing.T) {
+	s, f, a, r := publicationFixture(t)
+	ctx := context.Background()
+	s.originCallTimeout = 50 * time.Millisecond
+	read := readBack(t, a)
+	a.Queue = func(string) error { return nil }
+	plan, err := planPublication(a, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication := read(runPublication(a, r, plan.ChangeTag))
+	change := read(a.Change(ctx, OriginChange{Key: "set", Project: "app", Kind: "set", ExpectedURL: r.ExpectedOriginURL, ProposedURL: f.newOrigin()}))
+	f.stall = true
+	endsWithin(t, f, "an origin change", func() { a.RunOriginChange(ctx, change) })
+	wantEnded(t, "an origin change of a stalled origin", read(change, nil), "failed", api.ReasonOrigin)
+	endsWithin(t, f, "a publication", func() { a.RunPublication(ctx, publication) })
+	wantEnded(t, "a publication to a stalled origin", read(publication, nil), "failed", api.ReasonOrigin)
+	var state api.OriginState
+	endsWithin(t, f, "a refresh", func() { state, err = a.Refresh(ctx, "app") })
+	if err != nil || state.Status != "unknown" {
+		t.Fatalf("a refresh of a stalled origin answered %+v %v, want the observation unknown", state, err)
 	}
 }
 
@@ -230,16 +459,16 @@ func TestOriginChangeStaleExpectationRecordsNothing(t *testing.T) {
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeOriginRunner{}
-	a := OriginAPI{Store: s, Runner: f}
-	runQueued(&a)
-	read := readBack(t, &a)
-	wantEnded(t, "set", read(a.Change(ctx, OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: "ssh://host/a"})), "completed", "")
+	a, f := originAPI(s)
+	runQueued(a)
+	read := readBack(t, a)
+	url := f.newOrigin()
+	wantEnded(t, "set", read(a.Change(ctx, OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: url})), "completed", "")
 	_, _, before, err := s.Count(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls := f.calls
+	observes := f.observes
 	for _, stale := range []OriginChange{
 		{Key: "stale", Project: "app", Kind: "set", ExpectedURL: "ssh://host/old", ProposedURL: "ssh://host/b"},
 		{Key: "stale", Project: "app", Kind: "set", ProposedURL: "ssh://host/b"},
@@ -251,11 +480,11 @@ func TestOriginChangeStaleExpectationRecordsNothing(t *testing.T) {
 	if _, err = s.GetOperationByKey(ctx, "stale"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale request recorded its key: %v", err)
 	}
-	if _, _, after, err := s.Count(ctx); err != nil || after != before || f.calls != calls {
-		t.Fatalf("stale requests recorded %d operations or contacted the origin %d times (%v)", after-before, f.calls-calls, err)
+	if _, _, after, err := s.Count(ctx); err != nil || after != before || f.observes != observes {
+		t.Fatalf("stale requests recorded %d operations or contacted the origin %d times (%v)", after-before, f.observes-observes, err)
 	}
 	// The key stays free for a request that expects the current origin.
-	wantEnded(t, "current expectation", read(a.Change(ctx, OriginChange{Key: "stale", Project: "app", Kind: "remove", ExpectedURL: "ssh://host/a"})), "completed", "")
+	wantEnded(t, "current expectation", read(a.Change(ctx, OriginChange{Key: "stale", Project: "app", Kind: "remove", ExpectedURL: url})), "completed", "")
 }
 
 // TestOriginChangeEndsFailedWhenTheOriginChangedMeanwhile checks that an
@@ -267,9 +496,10 @@ func TestOriginChangeEndsFailedWhenTheOriginChangedMeanwhile(t *testing.T) {
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	a := OriginAPI{Store: s, Runner: &fakeOriginRunner{}, Queue: func(string) error { return nil }}
-	read := readBack(t, &a)
-	op, err := a.Change(ctx, OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: "ssh://host/a"})
+	a, f := originAPI(s)
+	a.Queue = func(string) error { return nil }
+	read := readBack(t, a)
+	op, err := a.Change(ctx, OriginChange{Key: "set", Project: "app", Kind: "set", ProposedURL: f.newOrigin()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,6 +538,7 @@ func TestOriginOperationsNameTheirIntent(t *testing.T) {
 	}
 	retained := r
 	retained.Key, retained.Kind, retained.Source, retained.DestinationRef = "retained", "retained", "kept", "refs/heads/release"
+	f.world.SetHead("app", "kept", sourcedriver.OID(r.SourceOID))
 	kept, _, err := publish(a, retained)
 	if err != nil {
 		t.Fatal(err)
@@ -325,33 +556,33 @@ func TestOriginSourcePagesAndStrictRPC(t *testing.T) {
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	refs := make([]plugin.GitOriginRef, 1024)
-	for i := range refs {
-		refs[i] = plugin.GitOriginRef{Ref: fmt.Sprintf("refs/heads/%04d-%s", i, strings.Repeat("x", 450)), OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
+	origins, f := originAPI(s)
+	url := f.world.NewOrigin()
+	commit := f.world.OriginCommit(url)
+	for i := range 1024 {
+		f.world.SetOriginRef(url, fmt.Sprintf("refs/heads/%04d-%s", i, strings.Repeat("x", 450)), commit)
 	}
-	f := &fakeOriginRunner{refs: refs}
-	origins := OriginAPI{Store: s, Runner: f}
-	runQueued(&origins)
-	handler := NewHandler(HandlerConfig{Store: s, Origins: &origins})
-	_, e := handler(ctx, "origin.change", json.RawMessage(`{"key":"a","project":"app","kind":"set","url":"ssh://host/a","extra":1}`))
+	runQueued(origins)
+	handler := NewHandler(HandlerConfig{Store: s, Origins: origins})
+	_, e := handler(ctx, "origin.change", json.RawMessage(`{"key":"a","project":"app","kind":"set","url":"`+url+`","extra":1}`))
 	if e == nil || e.Kind() != "invalid" {
 		t.Fatalf("unknown field: %+v", e)
 	}
-	_, e = handler(ctx, "origin.change", json.RawMessage(`{"key":"a","key":"a","project":"app","kind":"set","url":"ssh://host/a"}`))
+	_, e = handler(ctx, "origin.change", json.RawMessage(`{"key":"a","key":"a","project":"app","kind":"set","url":"`+url+`"}`))
 	if e == nil || e.Kind() != "invalid" {
 		t.Fatalf("duplicate field: %+v", e)
 	}
 	for _, bad := range []string{
-		`{"V":2,"key":"a","project":"app","kind":"set","url":"ssh://host/a"}`,
-		`{"Key":"a","project":"app","kind":"set","url":"ssh://host/a"}`,
-		`{"key":"a","Project":"app","kind":"set","url":"ssh://host/a"}`,
-		`{"key":"a","project":"app","kind":"set","URL":"ssh://host/a"}`,
+		`{"V":2,"key":"a","project":"app","kind":"set","url":"` + url + `"}`,
+		`{"Key":"a","project":"app","kind":"set","url":"` + url + `"}`,
+		`{"key":"a","Project":"app","kind":"set","url":"` + url + `"}`,
+		`{"key":"a","project":"app","kind":"set","URL":"` + url + `"}`,
 	} {
 		if _, e = handler(ctx, "origin.change", json.RawMessage(bad)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("inexact field accepted: %s %+v", bad, e)
 		}
 	}
-	if _, e = handler(ctx, "origin.change", json.RawMessage(`{"key":"a","project":"app","kind":"set","url":"ssh://host/a"}`)); e != nil {
+	if _, e = handler(ctx, "origin.change", json.RawMessage(`{"key":"a","project":"app","kind":"set","url":"`+url+`"}`)); e != nil {
 		t.Fatal(e)
 	}
 	after := ""
@@ -382,13 +613,13 @@ func TestOriginStoreRejectsInvalidUTF8Ref(t *testing.T) {
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	change := OriginChange{Key: "bad-utf8", Project: "app", Kind: "set", ProposedURL: "ssh://host/a"}
+	change := OriginChange{Key: "bad-utf8", Project: "app", Kind: "set", ProposedURL: "git@host:a.git"}
 	op, err := s.BeginOriginChange(ctx, change)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad := plugin.GitOriginRef{Ref: "refs/heads/" + string([]byte{0xff}), OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
-	if err := s.CompleteOriginChange(ctx, op, []plugin.GitOriginRef{bad}); !errors.Is(err, ErrInvalid) {
+	bad := sourcedriver.OriginRef{Ref: "refs/heads/" + string([]byte{0xff}), OID: sourcedriver.OID(strings.Repeat("a", 40)), Target: sourcedriver.OID(strings.Repeat("a", 40))}
+	if err := s.CompleteOriginChange(ctx, op, []sourcedriver.OriginRef{bad}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("invalid UTF-8 persisted: %v", err)
 	}
 	state, refs, err := s.Origin(ctx, "app")
@@ -398,8 +629,8 @@ func TestOriginStoreRejectsInvalidUTF8Ref(t *testing.T) {
 	if read, err := s.GetOperation(ctx, op.ID); err != nil || read.Status != "running" {
 		t.Fatalf("failed commit ended the operation: %+v %v", read, err)
 	}
-	valid := plugin.GitOriginRef{Ref: "refs/heads/café", OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
-	if err := s.CompleteOriginChange(ctx, op, []plugin.GitOriginRef{valid}); err != nil {
+	valid := sourcedriver.OriginRef{Ref: "refs/heads/café", OID: sourcedriver.OID(strings.Repeat("a", 40)), Target: sourcedriver.OID(strings.Repeat("a", 40))}
+	if err := s.CompleteOriginChange(ctx, op, []sourcedriver.OriginRef{valid}); err != nil {
 		t.Fatalf("valid UTF-8 ref refused: %v", err)
 	}
 	if read, err := s.GetOperation(ctx, op.ID); err != nil || read.Status != "completed" {
@@ -416,12 +647,11 @@ func TestOriginErrorsAnswerTheirKind(t *testing.T) {
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	ref := plugin.GitOriginRef{Ref: "refs/heads/main", OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
-	f := &fakeOriginRunner{refs: []plugin.GitOriginRef{ref}}
-	origins := OriginAPI{Store: s, Runner: f}
-	runQueued(&origins)
-	handler := NewHandler(HandlerConfig{Store: s, Origins: &origins})
-	if _, e := callMethod(t, ctx, handler, api.OriginChange, api.OriginChangeRequest{Key: "a", Project: "app", Kind: "set", URL: "ssh://host/a"}); e != nil {
+	origins, f := originAPI(s)
+	runQueued(origins)
+	handler := NewHandler(HandlerConfig{Store: s, Origins: origins})
+	url := f.newOrigin()
+	if _, e := callMethod(t, ctx, handler, api.OriginChange, api.OriginChangeRequest{Key: "a", Project: "app", Kind: "set", URL: url}); e != nil {
 		t.Fatal(e)
 	}
 	keyReused := &api.Error{Code: -32602, Message: "invalid", Data: &api.ErrorData{Reason: api.ReasonKeyReused, Field: "key"}}
@@ -434,10 +664,10 @@ func TestOriginErrorsAnswerTheirKind(t *testing.T) {
 		{"key recorded for another change", api.OriginChangeRequest{Key: "a", Project: "app", Kind: "set", URL: "ssh://host/b"}, nil, keyReused},
 		{"expected URL no longer holds", api.OriginChangeRequest{Key: "stale", Project: "app", Kind: "set", URL: "ssh://host/c"}, nil, wantError(api.KindPreconditionFailed, api.ReasonChanged, "")},
 		{"unknown project", api.OriginChangeRequest{Key: "missing", Project: "missing", Kind: "set", URL: "ssh://host/a"}, nil, wantError(api.KindNotFound, api.ReasonProject, "project/missing")},
-		{"URL syntax", api.OriginChangeRequest{Key: "syntax", Project: "app", Kind: "set", URL: "git@host:a"}, nil, api.InvalidParam("url")},
+		{"URL the source driver refuses", api.OriginChangeRequest{Key: "syntax", Project: "app", Kind: "set", URL: "https://host/a"}, nil, api.InvalidParam("url")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			f.err = test.failure
+			f.failure = test.failure
 			_, e := callMethod(t, ctx, handler, api.OriginChange, test.req)
 			if !reflect.DeepEqual(e, test.want) {
 				t.Fatalf("answer %v, want %v", e, test.want)
@@ -447,8 +677,8 @@ func TestOriginErrorsAnswerTheirKind(t *testing.T) {
 			}
 		})
 	}
-	f.err = errors.New("offline secret")
-	result, e := callMethod(t, ctx, handler, api.OriginChange, api.OriginChangeRequest{Key: "offline", Project: "app", Kind: "set", ExpectedURL: "ssh://host/a", URL: "ssh://host/b"})
+	f.failure = errors.New("offline secret")
+	result, e := callMethod(t, ctx, handler, api.OriginChange, api.OriginChangeRequest{Key: "offline", Project: "app", Kind: "set", ExpectedURL: url, URL: "ssh://host/b"})
 	if e != nil || result.Operation.Kind != KindOriginChange || result.Operation.Key != "offline" {
 		t.Fatalf("unreachable origin answered %+v %v, want its operation", result, e)
 	}
@@ -457,7 +687,7 @@ func TestOriginErrorsAnswerTheirKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantEnded(t, "unreachable origin", op, "failed", api.ReasonOrigin)
-	f.err = nil
+	f.failure = nil
 	for _, m := range []string{api.OriginInspect.Name, api.OriginRefresh.Name} {
 		_, e := handler(ctx, m, json.RawMessage(`{"project":"missing"}`))
 		if want := wantError(api.KindNotFound, api.ReasonProject, "project/missing"); !reflect.DeepEqual(e, want) {

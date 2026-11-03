@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -32,7 +31,6 @@ type Backend struct {
 	gitPath   string
 	selection plugin.Active
 	sessions  chan struct{}
-	originMu  sync.Map // project -> *originLock; also used by future P-controlled GC
 }
 
 type boundedInput struct {
@@ -393,7 +391,7 @@ func (b *Backend) handle(auth ssh.Context, channel gossh.Channel, service, proje
 	if err != nil {
 		return 1
 	}
-	planOutcome, err := plugin.RunSourceGit(auth, b.selection, plugin.GitCommand{Kind: "git.transport.plan", Project: project, Service: service, Ceilings: &plugin.GitTransportPlan{MaxInputBytes: plugin.GitCoreInputCeiling, MaxDurationMS: plugin.GitCoreDurationMS}}, nil)
+	planOutcome, err := plugin.RunSourceGit(auth, b.selection, plugin.GitCommand{Kind: "git.transport.plan", Project: project, Service: service, Ceilings: &plugin.GitTransportPlan{MaxInputBytes: plugin.GitCoreInputCeiling, MaxDurationMS: plugin.GitCoreDurationMS}})
 	if err != nil {
 		return 1
 	}

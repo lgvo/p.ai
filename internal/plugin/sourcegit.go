@@ -9,7 +9,6 @@ import (
 	"errors"
 	"slices"
 	"time"
-	"unicode/utf8"
 
 	"github.com/tetratelabs/wazero/api"
 )
@@ -23,41 +22,18 @@ type GitRef struct {
 	OID string `json:"oid"`
 }
 
-// GitOriginRef is one advertised branch or tag. CommitOID is the advertised
-// peeled target for an annotated tag, or OID otherwise. Fetch validates type.
-type GitOriginRef struct {
-	Ref       string `json:"ref"`
-	OID       string `json:"oid"`
-	CommitOID string `json:"commit_oid"`
-}
-
-// GitOriginBroker is implemented only by an origin-scoped host broker. A
-// package cannot supply a URL, repository path, expected OID, or Git argv.
-type GitOriginBroker interface {
-	ObserveOrigin(context.Context) ([]GitOriginRef, error)
-	FetchOrigin(context.Context) (string, error)
-}
-
-type GitOriginPublisher interface {
-	PublishOrigin(context.Context) (string, error)
-}
-
 type GitTransportPlan struct {
 	MaxInputBytes int64 `json:"max_input_bytes"`
 	MaxDurationMS int64 `json:"max_duration_ms"`
 }
 
 type GitCommand struct {
-	Schema         string            `json:"schema"`
-	Kind           string            `json:"kind"`
-	Scope          string            `json:"scope"`
-	Project        string            `json:"project"`
-	Service        string            `json:"service,omitempty"`
-	Ceilings       *GitTransportPlan `json:"ceilings,omitempty"`
-	CommitOID      string            `json:"commit_oid,omitempty"`
-	OriginRef      string            `json:"origin_ref,omitempty"`
-	SourceRef      string            `json:"source_ref,omitempty"`
-	DestinationRef string            `json:"destination_ref,omitempty"`
+	Schema   string            `json:"schema"`
+	Kind     string            `json:"kind"`
+	Scope    string            `json:"scope"`
+	Project  string            `json:"project"`
+	Service  string            `json:"service,omitempty"`
+	Ceilings *GitTransportPlan `json:"ceilings,omitempty"`
 }
 
 type GitResult struct {
@@ -80,40 +56,27 @@ type GitBrokerResponse struct {
 }
 
 type GitOutcome struct {
-	Plan              GitTransportPlan
-	CommitOID         string
-	OriginRefs        []GitOriginRef
-	PublicationStatus string
+	Plan GitTransportPlan
 }
 
 const GitCoreInputCeiling int64 = 1 << 30
 const GitCoreDurationMS int64 = 600000
 
-// RunSourceGit runs a package-authored operation sequence. The returned refs,
-// commit and plan come only from broker observations, never from module
-// output. broker holds the host's effects for the command, each operating
-// only on the invocation's core-selected project: a GitOriginBroker for
-// origin observation and fetch, a GitOriginPublisher for publication;
-// transport planning uses none.
-func RunSourceGit(parent context.Context, selected Active, command GitCommand, broker any) (GitOutcome, error) {
+// RunSourceGit runs a package-authored operation sequence. The returned plan
+// comes only from broker requests within core's ceilings, never from module
+// output.
+func RunSourceGit(parent context.Context, selected Active, command GitCommand) (GitOutcome, error) {
 	var outcome GitOutcome
 	release, leaseErr := LeasePackage(selected.Package.Path)
 	if leaseErr != nil {
 		return outcome, leaseErr
 	}
 	defer release()
-	originCommand := command.Kind == "git.origin.observe" || command.Kind == "git.origin.fetch" || command.Kind == "git.origin.publish"
-	deadline := 2 * time.Second
-	slots := wasiSlots
-	if originCommand {
-		deadline = 35 * time.Second
-		slots = originWASISlots
-	}
-	ctx, cancel := context.WithTimeout(parent, deadline)
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	select {
-	case slots <- struct{}{}:
-		defer func() { <-slots }()
+	case wasiSlots <- struct{}{}:
+		defer func() { <-wasiSlots }()
 	case <-ctx.Done():
 		return outcome, errors.New("source-git execution timed out")
 	}
@@ -127,31 +90,11 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	if command.Schema != "" || command.Scope != "" || command.Project == "" || len(command.Project) > 255 {
 		return outcome, errors.New("invalid source-git command")
 	}
-	if command.Kind != "git.origin.fetch" && command.OriginRef != "" {
-		return outcome, errors.New("unexpected origin ref")
-	}
-	if command.Kind != "git.origin.publish" && (command.SourceRef != "" || command.DestinationRef != "") {
-		return outcome, errors.New("unexpected publication ref")
-	}
-	switch command.Kind {
-	case "git.transport.plan":
-		if (command.Service != "upload" && command.Service != "receive") || command.Ceilings == nil || command.Ceilings.MaxInputBytes <= 0 || command.Ceilings.MaxInputBytes > GitCoreInputCeiling || command.Ceilings.MaxDurationMS <= 0 || command.Ceilings.MaxDurationMS > GitCoreDurationMS || command.CommitOID != "" {
-			return outcome, errors.New("invalid transport request")
-		}
-	case "git.origin.observe":
-		if command.Service != "" || command.Ceilings != nil || command.CommitOID != "" || command.OriginRef != "" {
-			return outcome, errors.New("invalid origin observation request")
-		}
-	case "git.origin.fetch":
-		if !ValidGitOriginRef(command.OriginRef) || !validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID) || command.Service != "" || command.Ceilings != nil {
-			return outcome, errors.New("invalid origin fetch request")
-		}
-	case "git.origin.publish":
-		if !validGitBranchRef(command.SourceRef) || !validGitBranchRef(command.DestinationRef) || !validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID) || command.Service != "" || command.Ceilings != nil {
-			return outcome, errors.New("invalid origin publication request")
-		}
-	default:
+	if command.Kind != "git.transport.plan" {
 		return outcome, errors.New("unknown source-git method")
+	}
+	if (command.Service != "upload" && command.Service != "receive") || command.Ceilings == nil || command.Ceilings.MaxInputBytes <= 0 || command.Ceilings.MaxInputBytes > GitCoreInputCeiling || command.Ceilings.MaxDurationMS <= 0 || command.Ceilings.MaxDurationMS > GitCoreDurationMS {
+		return outcome, errors.New("invalid transport request")
 	}
 	moduleBytes, unavailable := selectedModule(ctx, selected)
 	switch unavailable {
@@ -175,10 +118,7 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	}
 	defer runtime.Close(ctx)
 	var brokerFailure error
-	callCount, prepared, observedOID := 0, false, ""
-	originObserved, originFetched, originPublished := false, false, false
-	publicationStatus := ""
-	var originRefs []GitOriginRef
+	callCount, prepared := 0, false
 	plan := GitTransportPlan{MaxInputBytes: GitCoreInputCeiling, MaxDurationMS: GitCoreDurationMS}
 	mod := runtime.NewHostModuleBuilder("p_broker_v1")
 	mod.NewFunctionBuilder().WithFunc(func(callCtx context.Context, module api.Module, reqPtr, reqLen, replyPtr, replyCap uint32) int32 {
@@ -205,7 +145,7 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 		reply := GitBrokerResponse{Schema: GitBrokerSchema, Status: "ok"}
 		switch req.Method {
 		case "git.transport.prepare":
-			if command.Kind != "git.transport.plan" || prepared || req.MaxInputBytes != nil && (*req.MaxInputBytes <= 0 || *req.MaxInputBytes > command.Ceilings.MaxInputBytes) || req.MaxDurationMS != nil && (*req.MaxDurationMS <= 0 || *req.MaxDurationMS > command.Ceilings.MaxDurationMS) {
+			if prepared || req.MaxInputBytes != nil && (*req.MaxInputBytes <= 0 || *req.MaxInputBytes > command.Ceilings.MaxInputBytes) || req.MaxDurationMS != nil && (*req.MaxDurationMS <= 0 || *req.MaxDurationMS > command.Ceilings.MaxDurationMS) {
 				brokerFailure = errors.New("transport plan refused")
 				return -1
 			}
@@ -216,42 +156,6 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 				plan.MaxDurationMS = *req.MaxDurationMS
 			}
 			prepared = true
-		case "git.origin.observe":
-			origin, ok := broker.(GitOriginBroker)
-			if command.Kind != "git.origin.observe" || originObserved || !ok || !plainGitBrokerRequest(req) {
-				brokerFailure = errors.New("origin observation refused")
-				return -1
-			}
-			refs, e := origin.ObserveOrigin(callCtx)
-			if e != nil || len(refs) > 1024 {
-				brokerFailure = errors.New("origin observation failed")
-				return -1
-			}
-			originRefs, originObserved = refs, true
-		case "git.origin.fetch":
-			origin, ok := broker.(GitOriginBroker)
-			if command.Kind != "git.origin.fetch" || originFetched || !ok || !plainGitBrokerRequest(req) {
-				brokerFailure = errors.New("origin fetch refused")
-				return -1
-			}
-			oid, e := origin.FetchOrigin(callCtx)
-			if e != nil || oid != command.CommitOID {
-				brokerFailure = errors.New("origin fetch failed or changed")
-				return -1
-			}
-			observedOID, originFetched = oid, true
-		case "git.origin.publish":
-			origin, ok := broker.(GitOriginPublisher)
-			if command.Kind != "git.origin.publish" || originPublished || !ok || !plainGitBrokerRequest(req) {
-				brokerFailure = errors.New("origin publication refused")
-				return -1
-			}
-			status, e := origin.PublishOrigin(callCtx)
-			if e != nil || !validPublicationStatus(status) {
-				brokerFailure = errors.New("origin publication failed")
-				return -1
-			}
-			publicationStatus, originPublished = status, true
 		default:
 			brokerFailure = errors.New("unknown source-git broker method")
 			return -1
@@ -293,94 +197,9 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	if result.Status != "ready" {
 		return outcome, errors.New("invalid source-git status")
 	}
-	switch command.Kind {
-	case "git.transport.plan":
-		if !prepared {
-			return outcome, errors.New("source-git transport plan missing")
-		}
-		outcome.Plan = plan
-	case "git.origin.observe":
-		if !originObserved {
-			return outcome, errors.New("source-git skipped origin observation")
-		}
-		outcome.OriginRefs = originRefs
-	case "git.origin.fetch":
-		if !originFetched {
-			return outcome, errors.New("source-git skipped origin fetch")
-		}
-		outcome.CommitOID = observedOID
-	case "git.origin.publish":
-		if !originPublished {
-			return outcome, errors.New("source-git skipped origin publication")
-		}
-		outcome.PublicationStatus = publicationStatus
+	if !prepared {
+		return outcome, errors.New("source-git transport plan missing")
 	}
+	outcome.Plan = plan
 	return outcome, nil
-}
-
-var originWASISlots = make(chan struct{}, 2)
-
-func validGitBranchRef(ref string) bool {
-	return len(ref) > len("refs/heads/") && bytes.HasPrefix([]byte(ref), []byte("refs/heads/")) && ValidGitOriginRef(ref)
-}
-
-func validPublicationStatus(status string) bool {
-	switch status {
-	case "created", "advanced", "satisfied", "refused", "outcome_unknown":
-		return true
-	}
-	return false
-}
-
-// ValidGitOriginRef applies Git's branch/tag ref syntax without P's narrower
-// ordinary-branch naming rule to an external repository.
-func ValidGitOriginRef(ref string) bool {
-	if !utf8.ValidString(ref) {
-		return false
-	}
-	for _, prefix := range []string{"refs/heads/", "refs/tags/"} {
-		if bytes.HasPrefix([]byte(ref), []byte(prefix)) {
-			name := ref[len(prefix):]
-			if len(name) == 0 || len(name) > 512 || bytes.Contains([]byte(name), []byte("..")) || bytes.Contains([]byte(name), []byte("@{")) || name[len(name)-1] == '.' {
-				return false
-			}
-			for _, part := range bytes.Split([]byte(name), []byte{'/'}) {
-				if len(part) == 0 || part[0] == '.' || bytes.HasSuffix(part, []byte(".lock")) {
-					return false
-				}
-				for _, c := range part {
-					if c <= 0x20 || c == 0x7f || bytes.ContainsRune([]byte("~^:?*[\\"), rune(c)) {
-						return false
-					}
-				}
-			}
-			return true
-		}
-	}
-	return false
-}
-
-func plainGitBrokerRequest(req GitBrokerRequest) bool {
-	return req.MaxInputBytes == nil && req.MaxDurationMS == nil
-}
-
-func validGitOID(oid string) bool {
-	if len(oid) != 40 && len(oid) != 64 {
-		return false
-	}
-	for _, c := range oid {
-		if c < '0' || c > '9' && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-func allZeroGitOID(oid string) bool {
-	for _, c := range oid {
-		if c != '0' {
-			return false
-		}
-	}
-	return true
 }

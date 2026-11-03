@@ -28,12 +28,20 @@ type Store struct {
 	lock         *os.File
 	stateDir     string
 	gitAuthority sync.RWMutex
+	// originLocks holds each project's origin lock (LockOrigin): a channel
+	// with one slot, by project.
+	originLocks  sync.Map
 	statusMu     sync.Mutex
 	observer     JournalObserver
 	journalMu    sync.Mutex // orders the reports of the journal's commits
 	attachments  map[string]int
 	statusRates  map[string]statusRate
 	attemptRates map[string]statusRate
+
+	// originSlots and originCallTimeout bound the source driver's calls to
+	// origins (CallOrigin): how many run at once, and how long each runs.
+	originSlots       chan struct{}
+	originCallTimeout time.Duration
 }
 
 type Session struct {
@@ -150,7 +158,8 @@ func openStore(stateDir string, checkPath func(string) error) (_ *Store, err err
 	if err = db.QueryRowContext(ctx, "SELECT value FROM metadata WHERE key='instance_id'").Scan(&persistedID); err != nil || persistedID == "" {
 		return nil, fmt.Errorf("state identity is missing or unreadable: %w", err)
 	}
-	return &Store{db: db, lock: lock, stateDir: stateDir, attachments: map[string]int{}, statusRates: map[string]statusRate{}, attemptRates: map[string]statusRate{}}, nil
+	return &Store{db: db, lock: lock, stateDir: stateDir, originSlots: make(chan struct{}, maxOriginCalls), originCallTimeout: originCallTimeout,
+		attachments: map[string]int{}, statusRates: map[string]statusRate{}, attemptRates: map[string]statusRate{}}, nil
 }
 
 // createSchema builds a fresh database in one transaction: the schema, the

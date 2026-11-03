@@ -171,7 +171,7 @@ func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI, ops OperationA
 		return NewHandler(HandlerConfig{Store: store}), store
 	}
 	return NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &api.GitInfo{Endpoint: "127.0.0.1:2222"}, Lifecycle: life, Operations: ops,
-		Origins: &OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}}), store
+		Origins: &OriginAPI{Store: store, Driver: newOriginDriver()}}), store
 }
 
 func surfaceCall(t *testing.T, h Handler, ctx context.Context, method, params string) (map[string]any, *api.Error) {
@@ -259,7 +259,7 @@ func TestTheTableRegistersExactlyTheProtocol(t *testing.T) {
 	store, _ := openTestStore(t)
 	for _, life := range []LifecycleAPI{nil, coreLife{&surfaceCalls{}}, fullLife{coreLife{&surfaceCalls{}}}} {
 		c := HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &api.GitInfo{}, Lifecycle: life,
-			Origins: &OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}}
+			Origins: &OriginAPI{Store: store, Driver: newOriginDriver()}}
 		table := newMethodTable(c)
 		want := map[string]bool{}
 		for _, m := range api.Methods() {

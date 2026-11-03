@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 // CreationEvidence is immutable selection data made under the Git authority
@@ -280,7 +280,7 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	if e := s.checkRetiredKey(ctx, req.Key); e != nil {
 		return api.Operation{}, e
 	}
-	if len(req.Key) < 1 || len(req.Key) > 128 || !validProject(req.Project) || len(req.URL) > 2048 {
+	if len(req.Key) < 1 || len(req.Key) > 128 || !validProject(req.Project) || req.URL != "" && !validURL(req.URL) {
 		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
@@ -416,7 +416,7 @@ func (s *Store) CommitBlankProject(ctx context.Context, opID string) (Session, e
 // CommitOriginProject exposes the project only after successful contact and a
 // verified bare repository. The origin and its observation share that commit.
 // An empty origin also reserves the single unborn main bootstrap session.
-func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []plugin.GitOriginRef) (Session, bool, error) {
+func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []sourcedriver.OriginRef) (Session, bool, error) {
 	encoded, err := encodeOriginRefs(refs)
 	if err != nil {
 		return Session{}, false, err

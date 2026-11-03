@@ -66,7 +66,8 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e != nil {
 		t.Fatal("an indexed commit image blocked package removal", e)
 	}
-	// An unfinished origin change and a publication past its push boundary.
+	// An unfinished origin change and a publication past its push boundary
+	// use no package: the source driver does their origin work.
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, r := range []operationRecord{
 		{ID: "origin", Key: "origin", Kind: KindOriginChange, Project: "app", Request: []byte(`{}`), Phase: "accepted", Now: now},
@@ -76,19 +77,7 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 			t.Fatal(e)
 		}
 	}
-	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e == nil {
-		t.Fatal("pending external recovery permitted removal")
-	}
-	if e = s.AdvanceOperation(ctx, "origin", "completed", "completed", false, nil, "", ""); e != nil {
-		t.Fatal(e)
-	}
-	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e == nil {
-		t.Fatal("pending publication permitted removal")
-	}
-	if e = s.AdvanceOperation(ctx, "publication", "completed", "completed", true, nil, "", ""); e != nil {
-		t.Fatal(e)
-	}
 	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e != nil {
-		t.Fatal(e)
+		t.Fatal("pending origin work blocked package removal", e)
 	}
 }

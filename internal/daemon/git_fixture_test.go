@@ -45,7 +45,7 @@ func gitSource(t *testing.T, store *control.Store) (driver *sourcegit.Driver, re
 
 // gitserviceFixture is gitservice over store's state directory, serving the
 // source driver's repositories for what has not moved to the driver yet:
-// the origin's lock and the image builder's bundle.
+// the image builder's bundle.
 func gitserviceFixture(t *testing.T, store *control.Store) *gitservice.Backend {
 	t.Helper()
 	state := store.StateDir()

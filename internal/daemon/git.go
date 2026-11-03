@@ -25,7 +25,7 @@ import (
 
 type gitCapability struct {
 	// backend serves what has not moved to the source driver yet: the
-	// origin, the image builder's bundle and P's SSH endpoint.
+	// image builder's bundle and P's SSH endpoint.
 	backend *gitservice.Backend
 	// driver is the source driver: P's repositories, heads and commits.
 	driver   sourcedriver.Driver

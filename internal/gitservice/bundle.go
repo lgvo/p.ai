@@ -32,15 +32,9 @@ func (b *Backend) ExportBundle(ctx context.Context, project, commit, dir string)
 	}
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
-	var bundle Bundle
-	// The origin lock is also the future P-controlled GC lock: the export reads
-	// P's objects in place, so none may be pruned until the bundle is written.
-	err := b.WithOrigin(ctx, project, func(_ *OriginScope) error {
-		var e error
-		bundle, e = b.exportBundle(ctx, project, commit, dir)
-		return e
-	})
-	return bundle, err
+	// The export reads P's objects in place and takes no lock: P prunes no
+	// object, so none can disappear before the bundle is written.
+	return b.exportBundle(ctx, project, commit, dir)
 }
 
 func (b *Backend) exportBundle(ctx context.Context, project, commit, dir string) (Bundle, error) {

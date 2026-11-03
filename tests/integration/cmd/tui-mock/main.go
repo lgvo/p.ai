@@ -400,7 +400,7 @@ func (f *fixture) registerReads(t *control.MethodTable) {
 		if err != nil {
 			return api.OriginSourcesResult{}, err
 		}
-		out, next := page(refs, r.After, r.Limit, func(v plugin.GitOriginRef) string { return v.Ref })
+		out, next := page(refs, r.After, r.Limit, func(v api.OriginRef) string { return v.Ref })
 		return api.OriginSourcesResult{Project: r.Project, OriginURL: state.URL, Status: state.Status, ObservationStatus: state.Status, ObservedAt: state.ObservedAt, Refs: out, Next: next}, nil
 	})
 }
@@ -429,15 +429,15 @@ func (f *fixture) branches(project string, retained bool) ([]api.RetainedBranch,
 
 // origin is the observation of project's origin: fresh with its main branch
 // when the project has an origin, none otherwise.
-func (f *fixture) origin(project string) (api.OriginState, []plugin.GitOriginRef, error) {
+func (f *fixture) origin(project string) (api.OriginState, []api.OriginRef, error) {
 	if _, ok := f.projects[project]; !ok {
 		return api.OriginState{}, nil, mockError(api.KindNotFound, api.ReasonProject, api.TargetProject(project))
 	}
 	url := f.origins[project]
 	if url == "" {
-		return api.OriginState{Project: project, Status: "none"}, []plugin.GitOriginRef{}, nil
+		return api.OriginState{Project: project, Status: "none"}, []api.OriginRef{}, nil
 	}
-	refs := []plugin.GitOriginRef{{Ref: "refs/heads/main", OID: tip, CommitOID: tip}}
+	refs := []api.OriginRef{{Ref: "refs/heads/main", OID: tip, CommitOID: tip}}
 	return api.OriginState{Project: project, URL: url, Status: "fresh", ObservedAt: observedAt, RefCount: len(refs)}, refs, nil
 }
 

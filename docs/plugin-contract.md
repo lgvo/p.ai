@@ -141,9 +141,9 @@ example appends only ready-condition events.
 The `source-git` capability uses `hybrid` placement, the `git.project` grant,
 and a `wasi-command` entry. Trusted source-Git config is absent or `{}`; no
 other config fields are accepted. Its module implements source-operation sequencing
-through the closed broker methods below: the transport plan of P's Git service
-and the origin's observation, fetch and publication. P's repositories, heads
-and commits are the source driver's, not this module's
+through the closed broker method below: the transport plan of P's Git service.
+P's repositories, heads and commits, and the origin's observation, fetch and
+publication, are the source driver's, not this module's
 ([technology stack](technology-stack.md)). Core owns authorization, operation
 intent, repository locations, credentials, and ref guards. The broker invokes
 real Git; Git owns objects, refs, ancestry, and its wire protocol. SSH
@@ -161,9 +161,6 @@ never a filesystem path. The additional fields depend on `kind`:
 | Kind | Additional fields | Operation scope |
 |---|---|---|
 | `git.transport.plan` | `service`: `upload` or `receive`; `ceilings`: positive integer `max_input_bytes` and `max_duration_ms` | Prepare the already authenticated, authorized SSH Git stream |
-| `git.origin.observe` | None | Contact the core-selected SSH URL and capture one complete advertised branch/tag observation, including an empty one |
-| `git.origin.fetch` | `origin_ref`: one advertised `refs/heads/<name>` or `refs/tags/<name>`; `commit_oid`: its captured peeled commit ID | Fetch that exact core-selected observation into the P object cache, without writing a P ref |
-| `git.origin.publish` | `source_ref`: exact ordinary P head; `commit_oid`: captured source tip; `destination_ref`: one explicit origin head | Invoke one normal, non-force origin push only after core's same-scope observation and comparison authorize an absent destination or fast-forward |
 
 For example, a transport plan request is:
 
@@ -185,13 +182,9 @@ exactly `schema` `p.broker/v1` and `status` `ok`:
 | Broker method | Allowed command kind | Request fields beyond the envelope |
 |---|---|---|
 | `git.transport.prepare` | `git.transport.plan` | Optional positive integer `max_input_bytes` and `max_duration_ms`, each at most its core ceiling |
-| `git.origin.observe` | `git.origin.observe` | None |
-| `git.origin.fetch` | `git.origin.fetch` | None |
-| `git.origin.publish` | `git.origin.publish` | None |
 
-Refs and object IDs are supplied by core in the command, never in a broker
-request. The module may sequence an operation but cannot substitute a ref,
-OID, repository, or native Git argument.
+The module may sequence the operation but cannot substitute a repository,
+service, or native Git argument.
 
 Transport preparation reserves exactly one plan for the invocation's existing
 authorized stream. Omitted limits use core's ceilings; supplied limits can
@@ -210,45 +203,6 @@ output, diagnostic, broker request, and broker reply. They permit at most 16
 broker calls. Wrong-scope or wrong-command methods fail the invocation; no
 failure falls back to a native plugin. The separate Git stream lifetime starts
 after command completion and is bounded by the prepared plan.
-
-Origin commands use a separate two-command pool and a 35-second total deadline
-including queueing, package digest verification, WASI execution, and native
-Git/OpenSSH. They retain the same 16 MiB memory, 4 KiB JSON/diagnostic limits,
-and 16-call maximum. The broker's origin methods accept no guest-supplied URL,
-ref, OID, argv, environment, or filesystem path. `git.origin.observe` returns
-no refs through the guest reply; core returns its own captured array of at
-most 1,024 branch/tag entries. Each entry has `ref`, advertised `oid`, and
-`commit_oid` (the advertised peeled OID for an annotated tag). Native
-`ls-remote` stdout is limited to 300 KiB and stderr to 4 KiB. An empty
-advertisement is successful. Bad syntax, duplicates, mixed object formats,
-overflow, timeout, or SSH failure rejects the whole observation. Fetch must
-use an entry from a successful observation in the same held project origin
-scope; it rejects a moved ref or a target that does not validate as a commit.
-A failed fetch invalidates that scope's observation, requiring another
-successful observation before another fetch. Waiting to acquire the project's
-origin lock is controlled by the caller context and occurs before the
-35-second plugin invocation. Native command cancellation kills its process
-group and allows at most 250 ms to close pipes retained by escaped children.
-
-Publication preview is a native core comparison under that same origin/GC
-scope: it checks the exact P head tip and commit type, fetches an observed
-destination into the object cache without writing a ref, and returns only
-`absent`, `equal`, `destination_contains`, `fast_forward`, or `divergent` with
-the URL, refs, and object IDs. The scoped preview is consumed once. Equal,
-destination-contains, and divergent relations do not invoke the publication
-command. For absent and fast-forward relations, the package may call the
-closed `git.origin.publish` broker method once. Its request carries no URL,
-ref, OID, argv, or path; core pushes only the captured OID to the one selected
-full destination head. The typed result is `created`, `advanced`, `satisfied`,
-`refused`, or `outcome_unknown`. A transport or post-call failure that could
-have followed acceptance is `outcome_unknown` and is never retried here.
-Session assignment, confirmation, and idempotency remain host lifecycle work;
-this substrate alone does not expose a public publication action.
-The host uses a temporary bare transport repository without project-controlled
-Git configuration. Its temporary `FETCH_HEAD` verifies the exact fetched tip;
-the P repository receives only objects, with no ordinary or tracking ref.
-The per-project lock is the seam future P-controlled garbage collection must
-use; this method does not itself implement garbage collection.
 
 The hybrid package can additionally declare exactly the session asset role
 `p-git-ssh`, installed as `/usr/libexec/p/git-ssh` with mode `0555` and the same
@@ -398,8 +352,8 @@ package leases throughout its lifetime, including cached asset plans, and
 invocation snapshots also acquire leases and honor disable markers.
 
 Removal requires trusted deselection and no durable dependency. Existing
-session/operation evidence, unresolved provenance, pending
-origin/publication recovery or a live package lease refuse removal. Indexed
+session/operation evidence, unresolved provenance or a live package lease
+refuse removal; unfinished origin work uses no package. Indexed
 commit images do not refuse removal: no package builds them. Finish
 supported lifecycle cleanup or recovery first; unknown holders require
 investigation and preserve the package. The manager rechecks

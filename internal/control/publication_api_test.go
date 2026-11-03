@@ -11,42 +11,8 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
-	sourcememory "github.com/lgvo/p.ai/internal/sourcedriver/memory"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
-
-type fakePublication struct {
-	observeHook      func()
-	observes, pushes int
-	relation, status string
-	failure          error
-	publishError     error
-}
-
-func (f *fakePublication) ValidateURL(string) error { return nil }
-func (f *fakePublication) WithOrigin(ctx context.Context, project string, fn func(OriginObserver) error) error {
-	return fn(f)
-}
-func (f *fakePublication) WithPublication(ctx context.Context, project string, fn func(PublicationScope) error) error {
-	return fn(f)
-}
-func (f *fakePublication) Observe(context.Context, string) ([]plugin.GitOriginRef, error) {
-	f.observes++
-	if f.observeHook != nil {
-		f.observeHook()
-	}
-	return []plugin.GitOriginRef{}, f.failure
-}
-func (f *fakePublication) PreviewPublication(_ context.Context, ref, oid, dest string) (api.PublicationPreview, error) {
-	return api.PublicationPreview{Project: "app", URL: "ssh://host/repo", SourceRef: ref, SourceOID: oid, DestinationRef: dest, Relation: f.relation}, nil
-}
-func (f *fakePublication) PublishPublication(_ context.Context, p api.PublicationPreview) (api.Publication, error) {
-	if f.publishError != nil {
-		return api.Publication{}, f.publishError
-	}
-	f.pushes++
-	return api.Publication{Preview: p, Status: f.status}, nil
-}
 
 // publicationOf returns the publication publication operation op records as
 // its evidence.
@@ -100,7 +66,7 @@ func publish(a *OriginAPI, r PublicationRequest) (api.Operation, string, error) 
 func TestPublicationPrestartFailureNeedsANewKey(t *testing.T) {
 	_, f, a, r := publicationFixture(t)
 	read := readBack(t, a)
-	f.publishError = errors.New("source plugin unavailable before push")
+	f.prestart = errors.New("git push could not start")
 	op, tag, err := publish(a, r)
 	failed := read(op, err)
 	wantEnded(t, "prestart failure", failed, "failed", api.ReasonOrigin)
@@ -109,7 +75,7 @@ func TestPublicationPrestartFailureNeedsANewKey(t *testing.T) {
 	if failed.Committed || failed.Phase == "push-issued" || publicationOf(t, failed).Status != "" || f.pushes != 0 || f.observes != 3 {
 		t.Fatalf("prestart failure: pushes=%d observes=%d", f.pushes, f.observes)
 	}
-	f.publishError = nil
+	f.prestart = nil
 	if replay := read(runPublication(a, r, tag)); replay.ID != failed.ID || replay.Status != "failed" || f.pushes != 0 || f.observes != 3 {
 		t.Fatalf("replay: %+v pushes=%d observes=%d", replay, f.pushes, f.observes)
 	}
@@ -120,26 +86,43 @@ func TestPublicationPrestartFailureNeedsANewKey(t *testing.T) {
 	}
 }
 
-func publicationFixture(t *testing.T) (*Store, *fakePublication, *OriginAPI, PublicationRequest) {
+// publicationFixture is publication r of session work's tip, one commit
+// ahead of the origin's main, to main: a fast-forward. The project's origin
+// is the in-memory driver's origin at r.ExpectedOriginURL, and the origin API
+// runs each operation it queues at once.
+func publicationFixture(t *testing.T) (*Store, *originDriver, *OriginAPI, PublicationRequest) {
 	t.Helper()
 	s, _ := openTestStore(t)
 	ctx := context.Background()
 	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO project_origins(project_path,url,current_status,observed_at,refs_json) VALUES('app','ssh://host/repo','fresh','now','[]')`); err != nil {
+	a, f := originAPI(s)
+	if _, err := f.CreateRepository(ctx, "app"); err != nil {
+		t.Fatal(err)
+	}
+	url := f.newOrigin()
+	tip := f.world.Commit("app", f.world.OriginRef(url, "refs/heads/main"))
+	f.world.SetHead("app", "work", tip)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO project_origins(project_path,url,current_status,observed_at,refs_json) VALUES('app',?,'fresh','now','[]')`, url); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES('550e8400-e29b-41d4-a716-446655440000','app','work','established','{}','hash')`); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakePublication{relation: "fast_forward", status: "advanced"}
 	// The store's own tests record r with its tag; a client's run takes the
 	// tag from its dry run (publish).
-	r := PublicationRequest{ExpectedOriginURL: "ssh://host/repo", Key: "publish-once", Project: "app", Kind: "session", Source: "550e8400-e29b-41d4-a716-446655440000", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main", IfMatch: testTag(time.Hour)}
-	a := &OriginAPI{Store: s, Runner: f, Driver: sourcememory.NewDriver(sourcememory.NewWorld())}
+	r := PublicationRequest{ExpectedOriginURL: url, Key: "publish-once", Project: "app", Kind: "session", Source: "550e8400-e29b-41d4-a716-446655440000", SourceOID: string(tip), DestinationRef: "refs/heads/main", IfMatch: testTag(time.Hour)}
 	runQueued(a)
 	return s, f, a, r
+}
+
+// divergeOrigin moves the origin's main to a commit that is not the
+// source's ancestor, and returns a function that moves it back.
+func divergeOrigin(f *originDriver, r PublicationRequest) (restore func()) {
+	main := f.world.OriginRef(r.ExpectedOriginURL, "refs/heads/main")
+	f.world.SetOriginRef(r.ExpectedOriginURL, "refs/heads/main", f.world.OriginCommit(r.ExpectedOriginURL))
+	return func() { f.world.SetOriginRef(r.ExpectedOriginURL, "refs/heads/main", main) }
 }
 
 // TestPublicationRefusesNamesTheSourceDriverRefuses checks that the dry run
@@ -178,7 +161,7 @@ func TestPublicationReplaysARecordedRunWithoutTheSourceDriver(t *testing.T) {
 	read := readBack(t, a)
 	op, tag, err := publish(a, r)
 	first := read(op, err)
-	a.Driver.(*sourcememory.Driver).Kill()
+	f.Kill()
 	if replay := read(runPublication(a, r, tag)); replay.ID != first.ID || replay.Status != "completed" || f.pushes != 1 {
 		t.Fatalf("replay with the source driver down: %+v pushes=%d", replay, f.pushes)
 	}
@@ -281,18 +264,18 @@ func TestPublicationRefusesADivergentDestination(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
 	ctx := context.Background()
 	read := readBack(t, a)
-	f.relation = "divergent"
+	restore := divergeOrigin(f, r)
 	plan, err := planPublication(a, r)
 	if err != nil || plan.Plan.Allowed || plan.ChangeTag != "" || !reflect.DeepEqual(plan.Plan.Refusals, []api.Refusal{{Code: api.ReasonDestinationDivergent}}) ||
 		plan.Plan.Details.Relation != "divergent" || plan.Plan.Target != "project/app:origin-branch/main" {
 		t.Fatalf("divergent plan: %+v %v", plan, err)
 	}
-	f.relation = "fast_forward"
+	restore()
 	plan, err = planPublication(a, r)
 	if err != nil || plan.ChangeTag == "" {
 		t.Fatalf("fast-forward plan: %+v %v", plan, err)
 	}
-	f.relation = "divergent"
+	restore = divergeOrigin(f, r)
 	if _, err = runPublication(a, r, plan.ChangeTag); !answers(err, api.KindPreconditionFailed, api.ReasonChanged) {
 		t.Fatalf("run of a plan that diverged answered %v", err)
 	}
@@ -300,7 +283,7 @@ func TestPublicationRefusesADivergentDestination(t *testing.T) {
 		t.Fatalf("refused run recorded its key: %v", err)
 	}
 	// It diverges between the run's admission and its worker.
-	f.relation = "fast_forward"
+	restore()
 	plan, _ = planPublication(a, r)
 	run := a.Queue
 	a.Queue = func(string) error { return nil }
@@ -308,7 +291,7 @@ func TestPublicationRefusesADivergentDestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.relation = "divergent"
+	divergeOrigin(f, r)
 	if err = run(op.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -319,19 +302,157 @@ func TestPublicationRefusesADivergentDestination(t *testing.T) {
 	}
 }
 
-func TestPublicationUnknownResultNeverRepeatsPush(t *testing.T) {
+// TestPublicationLostAnswerEndsUnknownAndNeverPushesAgain checks that a push
+// whose answer is lost ends the operation failed with reason
+// outcome_unknown, though the push landed, and that its run returns that
+// operation again without pushing.
+func TestPublicationLostAnswerEndsUnknownAndNeverPushesAgain(t *testing.T) {
 	_, f, a, r := publicationFixture(t)
-	f.status = "outcome_unknown"
+	f.world.LoseNextOriginAnswer(r.ExpectedOriginURL)
 	read := readBack(t, a)
 	op, tag, err := publish(a, r)
 	first := read(op, err)
 	wantEnded(t, "uncertain push", first, "failed", api.ReasonOutcomeUnknown)
-	if publicationOf(t, first).Status != "outcome_unknown" || f.pushes != 1 {
+	if !first.Committed || first.Phase != "push-issued" || publicationOf(t, first).Status != "outcome_unknown" || f.pushes != 1 {
 		t.Fatalf("first uncertain: %+v pushes=%d", first, f.pushes)
+	}
+	if main := f.world.OriginRef(r.ExpectedOriginURL, "refs/heads/main"); main != sourcedriver.OID(r.SourceOID) {
+		t.Fatalf("the lost push left the origin's main at %s, want the source %s", main, r.SourceOID)
 	}
 	replay := read(runPublication(a, r, tag))
 	if replay.ID != first.ID || replay.Status != "failed" || replay.Reason != api.ReasonOutcomeUnknown || f.pushes != 1 {
 		t.Fatalf("uncertain replay: %+v pushes=%d", replay, f.pushes)
+	}
+}
+
+// TestPublicationPushCutOffAtItsDeadlineEndsUnknown checks that a push
+// that stops answering after it started ends once its call's deadline
+// passes, failed with reason outcome_unknown at push-issued, and that its
+// run returns that operation again without pushing.
+func TestPublicationPushCutOffAtItsDeadlineEndsUnknown(t *testing.T) {
+	s, f, a, r := publicationFixture(t)
+	ctx := context.Background()
+	s.originCallTimeout = 50 * time.Millisecond
+	read := readBack(t, a)
+	run := a.Queue
+	a.Queue = func(string) error { return nil }
+	op, tag, err := publish(a, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Queue = run
+	f.stallPush = true
+	endsWithin(t, f, "a push", func() { a.RunPublication(ctx, op) })
+	cut := read(op, nil)
+	wantEnded(t, "a push cut off", cut, "failed", api.ReasonOutcomeUnknown)
+	if !cut.Committed || cut.Phase != "push-issued" || publicationOf(t, cut).Status != "outcome_unknown" || f.pushes != 1 {
+		t.Fatalf("a push cut off: %+v pushes=%d", cut, f.pushes)
+	}
+	if replay := read(runPublication(a, r, tag)); replay.ID != op.ID || replay.Status != "failed" || f.pushes != 1 {
+		t.Fatalf("replay of a push cut off: %+v pushes=%d", replay, f.pushes)
+	}
+}
+
+// stalledSource is the origin driver whose reads of P's heads stop
+// answering, as a stalled repository's would.
+type stalledSource struct{ *originDriver }
+
+func (d stalledSource) InspectBranch(ctx context.Context, _, _ string) (sourcedriver.OID, bool, error) {
+	return "", false, d.stalled(ctx)
+}
+
+// TestPublicationWhoseSourceReadStallsEndsAtItsDeadline checks that a
+// publication whose read of its source branch stops answering ends once the
+// comparison's deadline passes, failed with reason git, and releases the
+// project's origin lock and the Git authority.
+func TestPublicationWhoseSourceReadStallsEndsAtItsDeadline(t *testing.T) {
+	s, f, a, r := publicationFixture(t)
+	ctx := context.Background()
+	s.originCallTimeout = 50 * time.Millisecond
+	read := readBack(t, a)
+	run := a.Queue
+	a.Queue = func(string) error { return nil }
+	op, _, err := publish(a, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Queue = run
+	a.Driver = stalledSource{f}
+	endsWithin(t, f, "a publication", func() { a.RunPublication(ctx, op) })
+	wantEnded(t, "a publication whose source read stalled", read(op, nil), "failed", api.ReasonGit)
+	free, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	release, err := s.LockOrigin(free, r.Project)
+	if err != nil {
+		t.Fatalf("the project's origin lock is still held: %v", err)
+	}
+	release()
+	if err = s.lockGitAuthority(free); err != nil {
+		t.Fatalf("the Git authority is still held: %v", err)
+	}
+	s.gitAuthority.Unlock()
+	if f.pushes != 0 {
+		t.Fatalf("a publication whose source read stalled pushed %d times", f.pushes)
+	}
+}
+
+// TestPublicationOfAMovedOrMissingSourceIsRefused checks that the dry run
+// and the run of a publication whose source branch moved from source_oid
+// answer precondition_failed with reason changed, and of one whose branch is
+// gone not_found naming it, recording nothing and pushing nothing.
+func TestPublicationOfAMovedOrMissingSourceIsRefused(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		change         func(f *originDriver, r PublicationRequest)
+		kind           api.ErrorKind
+		reason, target string
+	}{
+		{"a moved source", func(f *originDriver, r PublicationRequest) {
+			f.world.SetHead("app", "work", f.world.Commit("app", sourcedriver.OID(r.SourceOID)))
+		}, api.KindPreconditionFailed, api.ReasonChanged, ""},
+		{"a missing source", func(f *originDriver, _ PublicationRequest) { f.world.SetHead("app", "work", "") },
+			api.KindNotFound, api.ReasonBranch, "project/app:branch/work"},
+	} {
+		s, f, a, r := publicationFixture(t)
+		ctx := context.Background()
+		plan, err := planPublication(a, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		main := f.world.OriginRef(r.ExpectedOriginURL, "refs/heads/main")
+		test.change(f, r)
+		_, err = planPublication(a, r)
+		wantAnswer(t, test.name+"'s dry run", err, test.kind, test.reason, test.target)
+		_, err = runPublication(a, r, plan.ChangeTag)
+		wantAnswer(t, test.name+"'s run", err, test.kind, test.reason, test.target)
+		if _, err = s.GetOperationByKey(ctx, r.Key); !errors.Is(err, ErrNotFound) || f.pushes != 0 || f.world.OriginRef(r.ExpectedOriginURL, "refs/heads/main") != main {
+			t.Fatalf("%s recorded its key (%v), or pushed %d times", test.name, err, f.pushes)
+		}
+	}
+}
+
+// TestPublicationPushesOnlyAfterRecordingPushIssued checks that the push
+// starts only once the operation records push-issued, with its outcome
+// unknown, and that the origin's answer then completes it.
+func TestPublicationPushesOnlyAfterRecordingPushIssued(t *testing.T) {
+	s, f, a, r := publicationFixture(t)
+	ctx := context.Background()
+	main := f.world.OriginRef(r.ExpectedOriginURL, "refs/heads/main")
+	gated := false
+	f.gateHook = func() {
+		gated = true
+		op, err := s.GetOperationByKey(ctx, r.Key)
+		if err != nil || op.Status != "running" || op.Phase != "push-issued" || publicationOf(t, op).Status != "outcome_unknown" {
+			t.Errorf("at the push the operation is %+v (%v), want it running at push-issued with its outcome unknown", op, err)
+		}
+		if now := f.world.OriginRef(r.ExpectedOriginURL, "refs/heads/main"); now != main {
+			t.Errorf("the origin's main moved to %s before the push", now)
+		}
+	}
+	op, _, err := publish(a, r)
+	done := readBack(t, a)(op, err)
+	if !gated || done.Status != "completed" || !done.Committed || publicationOf(t, done).Status != "advanced" || f.pushes != 1 {
+		t.Fatalf("published %+v gated=%v pushes=%d", done, gated, f.pushes)
 	}
 }
 
@@ -394,13 +515,13 @@ func TestPublicationOwnershipAndRetainedSelection(t *testing.T) {
 func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
 	ctx := context.Background()
-	a.Git = fixtureGitReader{}
-	handler := NewHandler(HandlerConfig{Store: s, Git: a.Git, GitInfo: &api.GitInfo{}, Origins: a})
+	f.world.SetHead("app", "kept", sourcedriver.OID(r.SourceOID))
+	handler := NewHandler(HandlerConfig{Store: s, Git: f, GitInfo: &api.GitInfo{}, Origins: a})
 	request := func(method, body string) (any, *api.Error) {
 		t.Helper()
 		return handler(ctx, method, json.RawMessage(body))
 	}
-	body := `{"expected_origin_url":"ssh://host/repo","project":"app","kind":"session","source":"` + r.Source + `","source_oid":"` + r.SourceOID + `","destination_ref":"refs/heads/main"}`
+	body := `{"expected_origin_url":"` + r.ExpectedOriginURL + `","project":"app","kind":"session","source":"` + r.Source + `","source_oid":"` + r.SourceOID + `","destination_ref":"refs/heads/main"}`
 	result, e := request("origin.publish", body)
 	plan, _ := result.(api.ChangeResult[api.PublicationPreview])
 	if e != nil || plan.Plan == nil || plan.Plan.Details.SourceRef != "refs/heads/work" || plan.ChangeTag == "" || plan.Operation != nil || f.pushes != 0 {
@@ -419,16 +540,17 @@ func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 		t.Fatalf("case-variant field accepted: %v", e)
 	}
 	page, e := callMethod(t, ctx, handler, api.ProjectRetainedBranches, api.ProjectRetainedBranchesRequest{Project: "app", Limit: 8})
-	if e != nil || len(page.Branches) != 1 {
+	if e != nil || len(page.Branches) != 1 || page.Branches[0].Branch != "kept" {
 		t.Fatalf("retained page: %v %v", page, e)
 	}
 	_, e = callMethod(t, ctx, handler, api.ProjectRetainedBranches, api.ProjectRetainedBranchesRequest{Project: "missing", Limit: 8})
 	if want := wantError(api.KindNotFound, api.ReasonProject, "project/missing"); !reflect.DeepEqual(e, want) {
 		t.Fatalf("missing project's retained page answered %v, want %v", e, want)
 	}
-	// The fixture Git ref is main, which has no live owner. Assign it and
-	// confirm that only Git refs without a session remain in the page.
-	if _, err := s.db.ExecContext(ctx, `UPDATE sessions SET branch='main' WHERE uuid=?`, r.Source); err != nil {
+	// Of the heads work and kept, only kept has no session. Assign it to a
+	// session and confirm that only heads without a session remain in the
+	// page.
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES('550e8400-e29b-41d4-a716-446655440001','app','kept','established','{}','hash')`); err != nil {
 		t.Fatal(err)
 	}
 	page, e = callMethod(t, ctx, handler, api.ProjectRetainedBranches, api.ProjectRetainedBranchesRequest{Project: "app", Limit: 8})
@@ -449,10 +571,10 @@ func TestPublicationRejectsChangedOriginBeforeContact(t *testing.T) {
 			}
 			var failed api.Operation
 			if prepared {
-				f.publishError = errors.New("prestart failure")
+				f.prestart = errors.New("git push could not start")
 				failed = read(runPublication(a, r, plan.ChangeTag))
 				wantEnded(t, "prestart failure", failed, "failed", api.ReasonOrigin)
-				f.publishError = nil
+				f.prestart = nil
 			}
 			contacts := f.observes
 			if _, err = s.db.ExecContext(ctx, `UPDATE project_origins SET url='ssh://host/replacement' WHERE project_path='app'`); err != nil {
@@ -520,7 +642,7 @@ func TestPublicationCompletedReplayKeepsOriginalIdentity(t *testing.T) {
 func TestPublicationRPCRequiresOriginIdentity(t *testing.T) {
 	_, _, _, r := publicationFixture(t)
 	body, _ := json.Marshal(map[string]any{"project": r.Project, "kind": r.Kind, "source": r.Source, "source_oid": r.SourceOID, "destination_ref": r.DestinationRef})
-	h := NewHandler(HandlerConfig{Origins: &OriginAPI{Runner: &fakePublication{}}})
+	h := NewHandler(HandlerConfig{Origins: &OriginAPI{}})
 	if _, rpcErr := h(context.Background(), api.OriginPublish.Name, body); rpcErr == nil || rpcErr.Kind() != "invalid" {
 		t.Fatalf("missing origin identity accepted: %+v", rpcErr)
 	}
@@ -533,37 +655,37 @@ func TestPublicationRefusalsAndErrors(t *testing.T) {
 	session := "550e8400-e29b-41d4-a716-446655440000"
 	for _, test := range []struct {
 		name    string
-		prepare func(t *testing.T, s *Store, f *fakePublication, a *OriginAPI, r PublicationRequest)
+		prepare func(t *testing.T, s *Store, f *originDriver, a *OriginAPI, r PublicationRequest)
 		change  func(r *PublicationRequest)
 		refusal *api.Refusal
 		want    *api.Error
 	}{
-		{"local-only project", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		{"local-only project", func(t *testing.T, s *Store, _ *originDriver, _ *OriginAPI, _ PublicationRequest) {
 			mustExec(t, s, `DELETE FROM project_origins WHERE project_path='app'`)
 		}, nil, &api.Refusal{Code: api.ReasonOriginNotSet, Target: "project/app"}, nil},
-		{"origin changed since the client read it", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		{"origin changed since the client read it", func(t *testing.T, s *Store, _ *originDriver, _ *OriginAPI, _ PublicationRequest) {
 			mustExec(t, s, `UPDATE project_origins SET url='ssh://host/replacement' WHERE project_path='app'`)
 		}, nil, nil, wantError(api.KindPreconditionFailed, api.ReasonChanged, "")},
-		{"removed session", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		{"removed session", func(t *testing.T, s *Store, _ *originDriver, _ *OriginAPI, _ PublicationRequest) {
 			mustExec(t, s, `DELETE FROM sessions WHERE uuid='`+session+`'`)
 		}, nil, nil, wantError(api.KindNotFound, api.ReasonSession, "session/"+session)},
 		{"assigned branch as a retained source", nil, func(r *PublicationRequest) { r.Kind, r.Source = "retained", "work" },
 			&api.Refusal{Code: api.ReasonBranchAssigned, Target: "project/app:branch/work"}, nil},
-		{"session held by a running operation", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		{"session held by a running operation", func(t *testing.T, s *Store, _ *originDriver, _ *OriginAPI, _ PublicationRequest) {
 			holdSession(t, s, session, "running")
 		}, nil, nil, wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-holder")},
-		{"session held by a blocked operation", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		{"session held by a blocked operation", func(t *testing.T, s *Store, _ *originDriver, _ *OriginAPI, _ PublicationRequest) {
 			holdSession(t, s, session, "blocked")
 		}, nil, &api.Refusal{Code: api.ReasonOperationBlocked, Target: "operation/op-holder"}, nil},
 		// The journal's one admission check names a session's unfinished
 		// creation as it names any other holder.
-		{"session being created", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		{"session being created", func(t *testing.T, s *Store, _ *originDriver, _ *OriginAPI, _ PublicationRequest) {
 			holdSession(t, s, session, "running")
 			mustExec(t, s, `UPDATE sessions SET registry_state='creating' WHERE uuid='`+session+`'`)
 		}, nil, nil, wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-holder")},
 		{"unknown project", nil, func(r *PublicationRequest) { r.Project = "missing" }, nil, wantError(api.KindNotFound, api.ReasonProject, "project/missing")},
 		// An unreachable origin is no refusal: the dry run cannot plan.
-		{"origin unreachable", func(_ *testing.T, _ *Store, f *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		{"origin unreachable", func(_ *testing.T, _ *Store, f *originDriver, _ *OriginAPI, _ PublicationRequest) {
 			f.failure = errors.New("offline")
 		}, nil, nil, wantError(api.KindFailed, api.ReasonOrigin, "")},
 	} {

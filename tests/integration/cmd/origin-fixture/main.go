@@ -1,5 +1,7 @@
-// origin-fixture exercises the production source-Git origin scope inside the VM.
-// It is test-only composition; project association is a later lifecycle step.
+// origin-fixture exercises the bundled source driver's origin operations
+// inside the VM, through the host's real OpenSSH client. It is test-only
+// composition: core's origin lock, observations and decisions are not part of
+// it, and nothing here associates a project.
 package main
 
 import (
@@ -18,9 +20,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 )
 
@@ -43,22 +45,18 @@ func main() {
 	}
 }
 
-// Usage: origin-fixture MODE STATE ACTIVATION PROJECT URL [REF COMMIT [REMOTE-REPO NEW-OID]]
+// Usage: origin-fixture MODE STATE PROJECT URL [REF COMMIT [REMOTE-REPO NEW-OID]]
 func run(a []string) error {
-	if len(a) < 5 {
-		return errors.New("usage: origin-fixture mode state activation project URL [ref commit [remote-repo new-oid]]")
+	if len(a) < 4 {
+		return errors.New("usage: origin-fixture mode state project URL [ref commit [remote-repo new-oid]]")
 	}
-	mode, state, activation, project, remote := a[0], a[1], a[2], a[3], a[4]
+	mode, state, project, remote := a[0], a[1], a[2], a[3]
 	store, err := control.OpenStore(state)
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	active, err := plugin.LoadActivation(activation)
-	if err != nil {
-		return err
-	}
-	backend, err := gitservice.New(store, state, active)
+	driver, err := bundledgit.Open(context.Background(), state)
 	if err != nil {
 		return err
 	}
@@ -79,12 +77,12 @@ func run(a []string) error {
 		defer cancel()
 		ctx = c
 	}
-	var refs []plugin.GitOriginRef
-	var got string
+	var refs []sourcedriver.OriginRef
+	var got sourcedriver.OID
 	var configBefore []byte
 	started := time.Now()
-	err = backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
-		observed, e := scope.Observe(ctx, remote)
+	err = func() error {
+		observed, e := driver.ObserveOrigin(ctx, remote)
 		if e != nil {
 			return e
 		}
@@ -92,30 +90,26 @@ func run(a []string) error {
 		if mode == "observe" || mode == "observe-empty" || mode == "refuse" {
 			return nil
 		}
-		if mode != "fetch" && mode != "race" && mode != "alternate" {
+		if mode != "fetch" && mode != "race" {
 			return errors.New("unknown mode")
 		}
-		if len(a) < 7 {
+		if len(a) < 6 {
 			return errors.New("missing selected ref and commit")
 		}
-		ref, expected := a[5], a[6]
-		found := false
-		for _, v := range observed {
-			if v.Ref == ref {
-				if v.CommitOID != expected {
-					return fmt.Errorf("selected commit changed before fetch: %s", v.CommitOID)
-				}
-				found = true
+		ref, expected := a[4], sourcedriver.OID(a[5])
+		var selected *sourcedriver.OriginRef
+		for i := range observed {
+			if observed[i].Ref == ref {
+				selected = &observed[i]
 			}
 		}
-		if !found {
+		if selected == nil {
 			return errors.New("selected ref absent")
 		}
+		if selected.Target != expected {
+			return fmt.Errorf("selected commit changed before fetch: %s", selected.Target)
+		}
 		if !existed {
-			driver, e := bundledgit.Open(ctx, state)
-			if e != nil {
-				return e
-			}
 			if _, e := driver.CreateRepository(ctx, project); e != nil {
 				return e
 			}
@@ -128,24 +122,20 @@ func run(a []string) error {
 			return errors.New("P HEAD changed before fetch")
 		}
 		if mode == "race" {
-			if len(a) != 9 {
+			if len(a) != 8 {
 				return errors.New("race requires remote repository and new OID")
 			}
-			cmd := exec.Command("git", "-C", a[7], "update-ref", ref, a[8])
+			cmd := exec.Command("git", "-C", a[6], "update-ref", ref, a[7])
 			if output, e := cmd.CombinedOutput(); e != nil {
 				return fmt.Errorf("move fixture origin: %w: %s", e, output)
 			}
-		}
-		got, e = scope.Fetch(ctx, ref, expected)
-		if mode == "race" {
-			if e == nil {
-				return errors.New("moved origin ref was accepted")
-			}
-			if _, e = scope.Fetch(ctx, ref, expected); !errors.Is(e, control.ErrInvalid) {
-				return errors.New("failed fetch retained observation")
+			// Core answers a moved ref stale from this conflict.
+			if _, e := driver.FetchOrigin(ctx, project, remote, *selected); !errors.Is(e, sourcedriver.ErrConflict) {
+				return fmt.Errorf("a fetch of the moved origin ref answered %v, want ErrConflict", e)
 			}
 			return nil
 		}
+		got, e = driver.FetchOrigin(ctx, project, remote, *selected)
 		if e != nil {
 			return e
 		}
@@ -153,12 +143,12 @@ func run(a []string) error {
 			return fmt.Errorf("fetched %s, expected %s", got, expected)
 		}
 		return nil
-	})
+	}()
 	if mode == "cancel" || mode == "timeout" || mode == "refuse" {
 		if err == nil {
 			return errors.New("refused origin contact succeeded")
 		}
-		if mode == "refuse" && project == "invalid" && !errors.Is(err, control.ErrInvalid) {
+		if mode == "refuse" && project == "invalid" && !errors.Is(err, sourcedriver.ErrInvalid) {
 			return fmt.Errorf("invalid transport was rejected for another reason: %w", err)
 		}
 		if (mode == "cancel" || mode == "timeout") && time.Since(started) >= 5*time.Second {
@@ -187,7 +177,7 @@ func run(a []string) error {
 	if associated {
 		return errors.New("substrate contact created project association")
 	}
-	if mode == "fetch" || mode == "race" || mode == "alternate" {
+	if mode == "fetch" || mode == "race" {
 		// A selected fetch may add objects, but never creates refs, tracking refs,
 		// or an origin remote in the bare P repository.
 		cmd := exec.Command("git", "-C", repo, "for-each-ref", "--format=%(refname)")
@@ -213,11 +203,15 @@ func run(a []string) error {
 			return fmt.Errorf("fetch configured remote: %q %v", out, e)
 		}
 	}
+	printed := make([]api.OriginRef, 0, len(refs))
+	for _, r := range refs {
+		printed = append(printed, api.OriginRef{Ref: r.Ref, OID: string(r.OID), CommitOID: string(r.Target)})
+	}
 	result := struct {
-		Refs   []plugin.GitOriginRef `json:"refs,omitempty"`
-		Commit string                `json:"commit,omitempty"`
-		Status string                `json:"status"`
-	}{refs, got, mode}
+		Refs   []api.OriginRef `json:"refs,omitempty"`
+		Commit string          `json:"commit,omitempty"`
+		Status string          `json:"status"`
+	}{printed, string(got), mode}
 	return json.NewEncoder(os.Stdout).Encode(result)
 }
 

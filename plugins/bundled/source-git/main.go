@@ -19,16 +19,12 @@ import (
 func brokerCall(requestPtr, requestLen, replyPtr, replyCapacity uint32) int32
 
 type command struct {
-	Schema         string   `json:"schema"`
-	Kind           string   `json:"kind"`
-	Scope          string   `json:"scope"`
-	Project        string   `json:"project"`
-	Service        string   `json:"service,omitempty"`
-	Ceilings       *budgets `json:"ceilings,omitempty"`
-	CommitOID      string   `json:"commit_oid,omitempty"`
-	OriginRef      string   `json:"origin_ref,omitempty"`
-	SourceRef      string   `json:"source_ref,omitempty"`
-	DestinationRef string   `json:"destination_ref,omitempty"`
+	Schema   string   `json:"schema"`
+	Kind     string   `json:"kind"`
+	Scope    string   `json:"scope"`
+	Project  string   `json:"project"`
+	Service  string   `json:"service,omitempty"`
+	Ceilings *budgets `json:"ceilings,omitempty"`
 }
 
 type budgets struct {
@@ -88,25 +84,10 @@ func run() error {
 	}
 	switch request.Kind {
 	case "git.transport.plan":
-		if (request.Service != "upload" && request.Service != "receive") || request.Ceilings == nil || request.Ceilings.MaxInputBytes < 1 || request.Ceilings.MaxDurationMS < 1 || request.CommitOID != "" {
+		if (request.Service != "upload" && request.Service != "receive") || request.Ceilings == nil || request.Ceilings.MaxInputBytes < 1 || request.Ceilings.MaxDurationMS < 1 {
 			return errors.New("invalid transport request")
 		}
 		return call(request.Scope, "git.transport.prepare")
-	case "git.origin.observe":
-		if request.OriginRef != "" || request.CommitOID != "" || request.Service != "" || request.Ceilings != nil {
-			return errors.New("invalid origin observation request")
-		}
-		return call(request.Scope, "git.origin.observe")
-	case "git.origin.fetch":
-		if request.OriginRef == "" || request.CommitOID == "" || request.Service != "" || request.Ceilings != nil {
-			return errors.New("invalid origin fetch request")
-		}
-		return call(request.Scope, "git.origin.fetch")
-	case "git.origin.publish":
-		if request.SourceRef == "" || request.DestinationRef == "" || request.CommitOID == "" || request.OriginRef != "" || request.Service != "" || request.Ceilings != nil {
-			return errors.New("invalid origin publication request")
-		}
-		return call(request.Scope, "git.origin.publish")
 	default:
 		return errors.New("unsupported source command")
 	}

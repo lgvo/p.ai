@@ -24,7 +24,7 @@ type PublicationRequest struct {
 }
 
 func validPublicationRequest(r PublicationRequest) bool {
-	if r.ExpectedOriginURL == "" || len(r.ExpectedOriginURL) > 2048 || !validProject(r.Project) || !validOID(r.SourceOID) || !api.BoundedName(r.DestinationRef, api.MaxRefBytes) {
+	if !validURL(r.ExpectedOriginURL) || !validProject(r.Project) || !validOID(r.SourceOID) || !api.BoundedName(r.DestinationRef, api.MaxRefBytes) {
 		return false
 	}
 	if r.Kind == "session" {
@@ -34,8 +34,9 @@ func validPublicationRequest(r PublicationRequest) bool {
 }
 
 // PublicationSource checks registry assignment, including unfinished lifecycle
-// operations other than except, the publication's own. The caller holds the
-// project's origin scope while it checks Git.
+// operations other than except, the publication's own, and returns the P
+// branch publication r publishes. The caller holds the project's origin lock
+// while it checks Git.
 func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest, except string) (string, error) {
 	if !validPublicationRequest(r) {
 		return "", ErrInvalid
@@ -76,7 +77,7 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest, exc
 		if !errors.Is(err, sql.ErrNoRows) {
 			return "", err
 		}
-		return "refs/heads/" + branch, nil
+		return branch, nil
 	}
 	var assigned int
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=? LIMIT 1`, r.Project, r.Source).Scan(&assigned)
@@ -93,7 +94,7 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest, exc
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
-	return "refs/heads/" + r.Source, nil
+	return r.Source, nil
 }
 
 // BeginPublication records publication run r, whose plan has change hash

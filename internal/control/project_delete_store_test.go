@@ -263,12 +263,12 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 		t.Fatal("retired publication accepted", e)
 	}
 	noQueue := func(string) error { t.Fatal("retired request queued work"); return nil }
-	originRunner := &fakeOriginRunner{}
-	if _, e = (OriginAPI{Store: s, Runner: originRunner, Queue: noQueue}).Change(ctx, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"}); !errors.Is(e, ErrConflict) || originRunner.calls != 0 {
+	origins, driver := originAPI(s)
+	origins.Queue = noQueue
+	if _, e = origins.Change(ctx, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"}); !errors.Is(e, ErrConflict) || driver.observes != 0 {
 		t.Fatal("retired Origin contacted external authority", e)
 	}
-	publicationRunner := &fakePublication{}
-	if _, e = (OriginAPI{Store: s, Runner: publicationRunner, Queue: noQueue}).Publish(ctx, publishRequest(oldPublication, api.ChangeRequest{Key: oldPublication.Key, IfMatch: oldPublication.IfMatch})); !errors.Is(e, ErrConflict) || publicationRunner.observes != 0 || publicationRunner.pushes != 0 {
+	if _, e = origins.Publish(ctx, publishRequest(oldPublication, api.ChangeRequest{Key: oldPublication.Key, IfMatch: oldPublication.IfMatch})); !errors.Is(e, ErrConflict) || driver.observes != 0 || driver.pushes != 0 {
 		t.Fatal("retired publication contacted external authority", e)
 	}
 	for _, table := range []string{"project_origins", "sessions", "projects", "commit_images"} {

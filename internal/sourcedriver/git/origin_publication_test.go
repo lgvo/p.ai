@@ -23,6 +23,7 @@ func TestPushAnswer(t *testing.T) {
 		want      sourcedriver.PublishStatus // empty: ErrUnknownOutcome
 	}{
 		{"an up-to-date destination", line("=", "[up to date]"), sourcedriver.RelationFastForward, true, sourcedriver.PublishSatisfied},
+		{"a destination created at the commit since an absent one was compared", line("=", "[up to date]"), sourcedriver.RelationAbsent, true, sourcedriver.PublishSatisfied},
 		{"a new destination", line("*", "[new branch]"), sourcedriver.RelationAbsent, true, sourcedriver.PublishCreated},
 		{"a fast-forward", line(" ", oidB[:7]+".."+oidA[:7]), sourcedriver.RelationFastForward, true, sourcedriver.PublishAdvanced},
 		{"a rejection", line("!", "[rejected] (non-fast-forward)"), sourcedriver.RelationFastForward, false, sourcedriver.PublishRefused},

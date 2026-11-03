@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 func TestOriginProjectCommitNonemptyAndReplay(t *testing.T) {
@@ -27,13 +27,14 @@ func TestOriginProjectCommitNonemptyAndReplay(t *testing.T) {
 	if active, _ := s.HasActiveProject(ctx, req.Project); active {
 		t.Fatal("project visible before verified contact")
 	}
-	ref := plugin.GitOriginRef{Ref: "refs/heads/main", OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
-	_, bootstrap, err := s.CommitOriginProject(ctx, op.ID, []plugin.GitOriginRef{ref})
+	oid := strings.Repeat("a", 40)
+	observed := sourcedriver.OriginRef{Ref: "refs/heads/main", OID: sourcedriver.OID(oid), Target: sourcedriver.OID(oid)}
+	_, bootstrap, err := s.CommitOriginProject(ctx, op.ID, []sourcedriver.OriginRef{observed})
 	if err != nil || bootstrap {
 		t.Fatalf("commit: bootstrap=%v err=%v", bootstrap, err)
 	}
 	state, refs, err := s.Origin(ctx, req.Project)
-	if err != nil || state.URL != req.URL || state.Status != "fresh" || len(refs) != 1 || refs[0] != ref {
+	if err != nil || state.URL != req.URL || state.Status != "fresh" || len(refs) != 1 || refs[0] != (api.OriginRef{Ref: "refs/heads/main", OID: oid, CommitOID: oid}) {
 		t.Fatalf("origin state: %+v %+v %v", state, refs, err)
 	}
 	var sessions int
