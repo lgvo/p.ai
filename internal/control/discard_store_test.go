@@ -93,6 +93,7 @@ func TestDiscardStaleRollbackReleasesOnlyOwnGuard(t *testing.T) {
 func TestDiscardCommitAndExactForwardCompletion(t *testing.T) {
 	s, ev, op := setupDiscardStore(t)
 	ctx := context.Background()
+	holdStatusState(t, s, op.SessionUUID)
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -147,6 +148,7 @@ func TestDiscardCommitAndExactForwardCompletion(t *testing.T) {
 	if _, err := s.GetSession(ctx, op.SessionUUID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("assignment survived: %v", err)
 	}
+	requireStatusStateReleased(t, s, op.SessionUUID)
 	if err := s.CompleteDiscard(ctx, op.ID, func(context.Context, string, string, string) error {
 		t.Fatal("completed replay rechecked ref")
 		return nil
@@ -197,6 +199,7 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 	if err != nil || op.Kind != "session.delete" {
 		t.Fatalf("delete intent unavailable: %+v %v", op, err)
 	}
+	holdStatusState(t, s, op.SessionUUID)
 	if _, err := s.BeginDiscard(ctx, request, testDiscardEvidence(), testHash, noRecheck); !errors.Is(err, ErrConflict) {
 		t.Fatalf("cross-action key replay accepted: %v", err)
 	}
@@ -242,6 +245,7 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 	if _, err := s.GetSession(ctx, op.SessionUUID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted assignment remains: %v", err)
 	}
+	requireStatusStateReleased(t, s, op.SessionUUID)
 	got, err := s.GetOperation(ctx, op.ID)
 	if err != nil || got.Status != "completed" || got.Phase != "deleted" || !got.Committed {
 		t.Fatalf("delete completion unavailable: %+v %v", got, err)

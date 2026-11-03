@@ -33,6 +33,11 @@ func logStatusEventFailure() {
 // Delivery errors are diagnostic; the callback runs only after SQLite commits.
 func ServeSessionConn(ctx context.Context, conn net.Conn, store *Store, uuid string, onCommitted func(context.Context, api.UnattendedCondition) error) {
 	defer conn.Close()
+	if store != nil {
+		// A line read before the session was removed is budgeted after the
+		// removal released the session's state.
+		defer store.forgetIfGone(ctx, uuid)
+	}
 	reader := bufio.NewReaderSize(conn, api.MaxFrameBytes+1)
 	for {
 		conn.SetDeadline(time.Now().Add(2 * time.Minute))

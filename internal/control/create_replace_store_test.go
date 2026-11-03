@@ -66,6 +66,7 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 	if _, e := s.GetSession(ctx, session.UUID); e != nil {
 		t.Fatalf("failed admission removed old session: %v", e)
 	}
+	holdStatusState(t, s, session.UUID)
 	verified = false
 	fresh, e := s.ReplaceBlockedCreate(ctx, intent, strings.Repeat("d", 64), testSelection(), nil, observe, check)
 	if e != nil || !verified || fresh.ID == old.ID || fresh.SessionUUID == session.UUID || fresh.Phase != "source-ready" {
@@ -74,6 +75,7 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 	if _, e = s.GetSession(ctx, session.UUID); !errors.Is(e, ErrNotFound) {
 		t.Fatalf("old reservation retained: %v", e)
 	}
+	requireStatusStateReleased(t, s, session.UUID)
 	if got, e := s.GetOperation(ctx, old.ID); e != nil || got.Status != "superseded" {
 		t.Fatalf("old request not superseded: %+v %v", got, e)
 	}

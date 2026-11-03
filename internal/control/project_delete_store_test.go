@@ -217,11 +217,17 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 	if _, e = s.GetSession(ctx, ev.Sessions[0].Session.UUID); e != nil {
 		t.Fatal("uncertain completion lost session", e)
 	}
+	for _, ps := range ev.Sessions {
+		holdStatusState(t, s, ps.Session.UUID)
+	}
 	if e = s.CompleteProjectDelete(ctx, op, func(context.Context) error { return nil }); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = s.GetSession(ctx, ev.Sessions[0].Session.UUID); !errors.Is(e, ErrNotFound) {
 		t.Fatal("session remains", e)
+	}
+	for _, ps := range ev.Sessions {
+		requireStatusStateReleased(t, s, ps.Session.UUID)
 	}
 	if active, e := s.HasActiveProject(ctx, "unrelated"); e != nil || !active {
 		t.Fatal("unrelated project changed", e)

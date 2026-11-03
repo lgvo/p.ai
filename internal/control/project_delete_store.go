@@ -330,13 +330,9 @@ func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operatio
 	if err = j.commit(ctx); err != nil {
 		return err
 	}
-	s.statusMu.Lock()
 	for _, ps := range ev.Sessions {
-		delete(s.attachments, ps.Session.UUID)
-		delete(s.statusRates, ps.Session.UUID)
-		delete(s.attemptRates, ps.Session.UUID)
+		s.forgetSession(ps.Session.UUID)
 	}
-	s.statusMu.Unlock()
 	return nil
 }
 

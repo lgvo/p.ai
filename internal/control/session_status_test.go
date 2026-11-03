@@ -502,3 +502,71 @@ func TestSessionStreamAttemptBudgetAndOversizeFrame(t *testing.T) {
 		t.Fatalf("oversize frame: %s %v", line, err)
 	}
 }
+
+// TestALineReadBeforeRemovalLeavesNoStatusState: a line that a session's
+// connection read before the session was removed is budgeted after removal
+// released the session's state; the state goes again when the connection ends.
+func TestALineReadBeforeRemovalLeavesNoStatusState(t *testing.T) {
+	s, id := statusFixture(t)
+	ctx := context.Background()
+	server, client := net.Pipe()
+	client.SetDeadline(time.Now().Add(5 * time.Second))
+	served := make(chan struct{})
+	go func() {
+		ServeSessionConn(ctx, server, s, id, nil)
+		close(served)
+	}()
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE uuid=?`, id); err != nil {
+		t.Fatal(err)
+	}
+	s.forgetSession(id)
+	if _, err := client.Write([]byte("{\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bufio.NewReader(client).ReadBytes('\n'); err != nil {
+		t.Fatal(err)
+	}
+	client.Close()
+	<-served
+	requireStatusStateReleased(t, s, id)
+}
+
+// holdStatusState gives a session the in-memory status state a live session
+// collects: its attempt budget and, while it is established, its report budget
+// and attachment count.
+func holdStatusState(t *testing.T, s *Store, uuid string) {
+	t.Helper()
+	ctx := context.Background()
+	if !s.AllowSessionAttempt(uuid) {
+		t.Fatal("session attempt refused")
+	}
+	if session, err := s.GetSession(ctx, uuid); err == nil && session.Registry == "established" {
+		report := api.StatusReport{V: 1, Source: "codex/main", Condition: "idle", Adapter: "codex", AdapterVersion: "1"}
+		if _, _, err := s.RecordStatus(ctx, uuid, report); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, err := s.ConfirmAttachment(ctx, uuid); err != nil {
+			t.Fatal(err)
+		}
+		s.ReleaseAttachment(uuid)
+	}
+}
+
+// requireStatusStateReleased fails when a session that is gone still holds
+// in-memory status state: nothing outside the store can observe it, but it
+// would grow with every session P ever had.
+func requireStatusStateReleased(t *testing.T, s *Store, uuid string) {
+	t.Helper()
+	if statusStateHeld(s, uuid) {
+		t.Fatalf("session %s is gone but its status state remains", uuid)
+	}
+}
+
+func statusStateHeld(s *Store, uuid string) bool {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	_, attached := s.attachments[uuid]
+	_, reported := s.statusRates[uuid]
+	_, attempted := s.attemptRates[uuid]
+	return attached || reported || attempted
+}

@@ -329,5 +329,9 @@ func (s *Store) completeRemoval(ctx context.Context, opID, action string, verify
 	if _, err = j.update(ctx, opID, `UPDATE operations SET status='completed',phase=?,committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, terminal, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
-	return j.commit(ctx)
+	if err = j.commit(ctx); err != nil {
+		return err
+	}
+	s.forgetSession(sessionID)
+	return nil
 }

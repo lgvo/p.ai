@@ -202,7 +202,11 @@ func (s *Store) CompleteCreateCleanup(ctx context.Context, id string, verify fun
 	if _, err = j.update(ctx, id, `UPDATE operations SET status='completed',phase='cleaned',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		return err
 	}
-	return j.commit(ctx)
+	if err = j.commit(ctx); err != nil {
+		return err
+	}
+	s.forgetSession(observed.SessionUUID)
+	return nil
 }
 
 func operationByIDTx(ctx context.Context, tx *sql.Tx, id string) (api.Operation, error) {

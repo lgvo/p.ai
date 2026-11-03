@@ -108,6 +108,25 @@ func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report ap
 
 var ErrRateLimited = errors.New("session status rate limited")
 
+// forgetSession drops the in-memory status state of a session whose row is
+// gone, so that state does not outlive it.
+func (s *Store) forgetSession(id string) {
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	delete(s.attachments, id)
+	delete(s.statusRates, id)
+	delete(s.attemptRates, id)
+}
+
+// forgetIfGone drops the in-memory status state of session id once its row is
+// gone. A failed read leaves the state.
+func (s *Store) forgetIfGone(ctx context.Context, id string) {
+	var one int
+	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE uuid=?`, id).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		s.forgetSession(id)
+	}
+}
+
 func (s *Store) SessionStatus(ctx context.Context, id string) (int, *api.UnattendedCondition, error) {
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()

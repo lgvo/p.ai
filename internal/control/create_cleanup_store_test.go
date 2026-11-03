@@ -133,6 +133,7 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	if _, e = s.GetSession(ctx, old.SessionUUID); e != nil {
 		t.Fatal("refusal lost cleanup tombstone")
 	}
+	holdStatusState(t, s, old.SessionUUID)
 	if e = s.CompleteCreateCleanup(ctx, cleaned.ID, func(_ context.Context, got CreateCleanupEvidence) error {
 		if got.Review.AssignedBranch != ev.Review.AssignedBranch {
 			t.Fatal("reviewed ref lost")
@@ -144,6 +145,7 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	if _, e = s.GetSession(ctx, old.SessionUUID); !errors.Is(e, ErrNotFound) {
 		t.Fatal("cleanup did not release old assignment")
 	}
+	requireStatusStateReleased(t, s, old.SessionUUID)
 	if _, found, e := s.SessionGitPrincipal(ctx, old.SessionUUID); e != nil || found {
 		t.Fatal("retired credential retained")
 	}

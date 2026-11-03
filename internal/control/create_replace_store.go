@@ -220,6 +220,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
+	s.forgetSession(intent.OldUUID)
 	return rec.operation(), nil
 }
 

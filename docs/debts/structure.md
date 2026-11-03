@@ -239,7 +239,7 @@
   gitservice, plugin and runtimeincus), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 9 cases:
+- Added 2026-11-01, updated 2026-11-03, 10 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -266,6 +266,9 @@
   - 2026-11-03: "step 9 S2: repositories, heads and commits through the source driver"
     made rpc.go page `project.branches` and `project.retained_branches` over the source
     driver's `Branches` and map its errors (`HeadsFailure`); the server stayed in control.
+  - 2026-11-03: "per-session state outlives its session" made `ServeSessionConn`
+    (session_rpc.go) release a removed session's status state when its connection ends,
+    through the store; the server stayed in control.
 
 ## Operation status updates and kind lists are still written per site
 
