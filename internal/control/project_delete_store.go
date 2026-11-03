@@ -50,19 +50,13 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, "", err
 	}
-	var count int
-	for _, query := range []string{
-		`SELECT count(*) FROM origin_requests WHERE project_path=? AND status!='completed'`,
-		`SELECT count(*) FROM publication_requests WHERE project_path=? AND status!='completed'`,
-		`SELECT count(*) FROM git_ref_guards WHERE project_path=?`,
-	} {
-		if err := q.QueryRowContext(ctx, query, project).Scan(&count); err != nil {
-			return nil, "", err
-		}
-		if count != 0 {
-			return nil, "", &Refusal{Kind: api.KindConflict, Reason: api.ReasonOperationUnfinished, Target: target,
-				Cause: fmt.Errorf("%w: unfinished project authority; complete existing operation or investigate its exact identity", ErrConflict)}
-		}
+	var guards int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=?`, project).Scan(&guards); err != nil {
+		return nil, "", err
+	}
+	if guards != 0 {
+		return nil, "", &Refusal{Kind: api.KindConflict, Reason: api.ReasonOperationUnfinished, Target: target,
+			Cause: fmt.Errorf("%w: unfinished project authority; complete existing operation or investigate its exact identity", ErrConflict)}
 	}
 	rows, err := q.QueryContext(ctx, `SELECT uuid,project_path,branch,registry_state,policy_json,policy_sha256 FROM sessions WHERE project_path=? ORDER BY uuid`, project)
 	if err != nil {
@@ -319,8 +313,6 @@ func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operatio
 		`DELETE FROM git_principals WHERE project_path=?`,
 		`DELETE FROM commit_images WHERE project_path=?`,
 		`DELETE FROM sessions WHERE project_path=?`,
-		`DELETE FROM origin_requests WHERE project_path=?`,
-		`DELETE FROM publication_requests WHERE project_path=?`,
 		`DELETE FROM projects WHERE path=?`,
 	} {
 		if _, err = tx.ExecContext(ctx, query, op.Project); err != nil {
@@ -406,44 +398,6 @@ func retireProjectRequestsTx(ctx context.Context, tx *sql.Tx, project, keep stri
 		return errors.Join(e, rowErr)
 	}
 
-	for _, table := range []string{"origin_requests", "publication_requests"} {
-		query := `SELECT idempotency_key,kind,expected_url,proposed_url FROM origin_requests WHERE project_path=?`
-		if table == "publication_requests" {
-			query = `SELECT idempotency_key,source_kind,expected_origin_url,source,source_oid,destination_ref FROM publication_requests WHERE project_path=?`
-		}
-		rows, e = tx.QueryContext(ctx, query, project)
-		if e != nil {
-			return e
-		}
-		for rows.Next() {
-			var r receipt
-			var raw []byte
-			if table == "origin_requests" {
-				req := OriginChange{Project: project}
-				if e = rows.Scan(&req.Key, &req.Kind, &req.ExpectedURL, &req.ProposedURL); e != nil {
-					break
-				}
-				r.key = req.Key
-				r.kind = "project.origin." + req.Kind
-				raw, _ = json.Marshal(req)
-			} else {
-				req := PublicationRequest{Project: project}
-				if e = rows.Scan(&req.Key, &req.Kind, &req.ExpectedOriginURL, &req.Source, &req.SourceOID, &req.DestinationRef); e != nil {
-					break
-				}
-				r.key = req.Key
-				r.kind = "project.publication"
-				raw, _ = json.Marshal(req)
-			}
-			r.sha = digest(raw)
-			receipts = append(receipts, r)
-		}
-		rowErr = rows.Err()
-		rows.Close()
-		if e != nil || rowErr != nil {
-			return errors.Join(e, rowErr)
-		}
-	}
 	for _, r := range receipts {
 		if _, e = tx.ExecContext(ctx, `INSERT INTO retired_lifecycle_requests(idempotency_key,operation_id,kind,request_sha256) VALUES(?,?,?,?)`, r.key, r.id, r.kind, r.sha); e != nil {
 			return e

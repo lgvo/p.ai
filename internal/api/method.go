@@ -17,10 +17,10 @@ type Method[Req Request, Res any] struct{ Name string }
 type Capability string
 
 const (
-	// CapabilityGit serves project reads, origins, publication and retained
-	// branches.
+	// CapabilityGit serves project reads, origins, publication, retained
+	// branches and the operation journal's reads, waits and Retry.
 	CapabilityGit Capability = "git"
-	// CapabilityRuntime serves the lifecycle, operations and attachment.
+	// CapabilityRuntime serves the lifecycle and attachment.
 	CapabilityRuntime Capability = "runtime"
 	// CapabilityServices serves the project services methods.
 	CapabilityServices Capability = "services"
@@ -53,12 +53,12 @@ var (
 
 	ProjectList              = Method[ProjectListRequest, ProjectListResult]{"project.list"}
 	ProjectBranches          = Method[ProjectBranchesRequest, ProjectBranchesResult]{"project.branches"}
-	OriginChange             = Method[OriginChangeRequest, OriginResult]{"origin.change"}
+	OriginChange             = Method[OriginChangeRequest, OperationResult]{"origin.change"}
 	OriginRefresh            = Method[OriginRefreshRequest, OriginResult]{"origin.refresh"}
 	OriginInspect            = Method[OriginInspectRequest, OriginResult]{"origin.inspect"}
 	OriginSources            = Method[OriginSourcesRequest, OriginSourcesResult]{"origin.sources"}
 	OriginPublicationPreview = Method[OriginPublicationPreviewRequest, PublicationPreviewResult]{"origin.publication.preview"}
-	OriginPublish            = Method[OriginPublishRequest, OriginPublishResult]{"origin.publish"}
+	OriginPublish            = Method[OriginPublishRequest, OperationResult]{"origin.publish"}
 	ProjectRetainedBranches  = Method[ProjectRetainedBranchesRequest, RetainedBranchesResult]{"project.retained_branches"}
 
 	ProjectCreate                = Method[ProjectCreateRequest, OperationResult]{"project.create"}
@@ -119,10 +119,10 @@ func Methods() []MethodInfo {
 		info(SessionList, CapabilityRuntime),
 		info(SessionStart, CapabilityRuntime),
 		info(SessionStop, CapabilityRuntime),
-		info(OperationInspect, CapabilityRuntime),
-		info(OperationList, CapabilityRuntime),
-		info(OperationWait, CapabilityRuntime),
-		info(OperationRetry, CapabilityRuntime),
+		info(OperationInspect, CapabilityGit),
+		info(OperationList, CapabilityGit),
+		info(OperationWait, CapabilityGit),
+		info(OperationRetry, CapabilityGit),
 		info(SessionAttach, CapabilityRuntime),
 		info(SessionRemovalPreview, CapabilityRuntime),
 		info(SessionDiscard, CapabilityRuntime),

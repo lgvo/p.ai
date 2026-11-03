@@ -103,7 +103,8 @@ wait_operation() {
     result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
-    if { test "$status" = blocked || test "$status" = completed; } && test "$status" != "$expected"; then
+    if { test "$status" = blocked || test "$status" = completed || test "$status" = failed; } &&
+      test "$status" != "$expected"; then
       echo "unexpected operation state: $result" >&2
       return 1
     fi
@@ -287,6 +288,14 @@ change() {
   rpc origin.change "$(jq -nc --arg key "$1" --arg old "$2" --arg url "$3" \
     '{key:$key,project:"publication",kind:"set",expected_url:$old,url:$url}')"
 }
+# publish REQUEST STATUS: sends origin.publish REQUEST and prints the
+# operation.wait answer once its operation reaches STATUS.
+publish() {
+  local answer id
+  answer=$(rpc origin.publish "$1") || return 1
+  id=$(operation_id "$answer") || return 1
+  wait_operation "$id" "$2"
+}
 preview_request=$(request '' session "$uuid" refs/heads/main)
 trace_before=$(wc -l < "$trace")
 expect_error invalid param origin.publication.preview "$(jq 'del(.expected_origin_url)' <<< "$preview_request")" \
@@ -300,8 +309,13 @@ rpc origin.publication.preview "$preview_request" | jq -e --arg oid "$source" --
   .source_oid==$oid and .destination_oid==$first and .relation=="fast_forward" and .workspace_status=="unknown"' >/dev/null
 publish_request=$(request publish-session session "$uuid" refs/heads/main)
 receives_before=$(receive_count)
-published=$(rpc origin.publish "$publish_request")
-jq -e --arg oid "$source" '.result.publication | .status=="advanced" and .preview.source_oid==$oid' <<< "$published" >/dev/null
+accepted=$(rpc origin.publish "$publish_request")
+jq -e --arg uuid "$uuid" '.result.operation | .kind=="origin.publish" and .status=="running" and
+  .session_uuid==$uuid and
+  .intent=={project:"publication",session:$uuid,branch:"work",destination:"refs/heads/main"}' <<< "$accepted" >/dev/null
+published=$(wait_operation "$(operation_id "$accepted")" completed)
+jq -e --arg oid "$source" '.result.operation.evidence.publication | .status=="advanced" and .preview.source_oid==$oid' \
+  <<< "$published" >/dev/null
 test "$(git -C "$full" rev-parse refs/heads/main)" = "$source"
 test "$(receive_count)" -eq "$((receives_before+1))"
 stop_process "$daemon_pid"
@@ -311,19 +325,23 @@ trace_before=$(wc -l < "$trace")
 test "$(rpc origin.publish "$publish_request" | jq -c '.result')" = "$(jq -c '.result' <<< "$published")"
 test "$(wc -l < "$trace")" -eq "$trace_before"
 
-rpc origin.publish "$(request publish-retained retained a-retained refs/heads/new)" |
-  jq -e '.result.publication.status=="created" and .result.publication.preview.source_kind=="retained"' >/dev/null
+publish "$(request publish-retained retained a-retained refs/heads/new)" completed | jq -e '.result.operation |
+  .intent=={project:"publication",branch:"a-retained",destination:"refs/heads/new"} and
+  .evidence.publication.status=="created" and .evidence.publication.preview.source_kind=="retained"' >/dev/null
 test "$(git -C "$full" rev-parse refs/heads/new)" = "$source"
 receives_before=$(receive_count)
-rpc origin.publish "$(request refuse-divergent retained a-retained refs/heads/divergent)" |
-  jq -e '.result.publication.status=="refused" and .result.publication.preview.relation=="divergent"' >/dev/null
+publish "$(request refuse-divergent retained a-retained refs/heads/divergent)" completed | jq -e \
+  '.result.operation.evidence.publication | .status=="refused" and .preview.relation=="divergent"' >/dev/null
 test "$(receive_count)" -eq "$receives_before"
 test "$(git -C "$full" rev-parse refs/heads/divergent)" = "$divergent"
 
-# A server-accepted push with lost success remains unknown and never auto-replays.
+# A server-accepted push with lost success ends failed as unknown and never
+# auto-replays.
 : > "$lost_marker"
 uncertain_request=$(request uncertain retained a-retained refs/heads/uncertain)
-rpc origin.publish "$uncertain_request" | jq -e '.result.publication.status=="outcome_unknown"' >/dev/null
+uncertain=$(publish "$uncertain_request" failed)
+jq -e '.result.operation | .reason=="outcome_unknown" and .phase=="push-issued" and
+  .evidence.publication.status=="outcome_unknown"' <<< "$uncertain" >/dev/null
 test "$(git -C "$full" rev-parse refs/heads/uncertain)" = "$source"
 test "$(receive_count)" -eq "$((receives_before+1))"
 rm -f -- "$lost_marker"
@@ -331,26 +349,30 @@ stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
 trace_before=$(wc -l < "$trace")
-rpc origin.publish "$uncertain_request" | jq -e '.result.publication.status=="outcome_unknown"' >/dev/null
+test "$(rpc origin.publish "$uncertain_request" | jq -c '.result')" = "$(jq -c '.result' <<< "$uncertain")"
 test "$(wc -l < "$trace")" -eq "$trace_before"
-rpc origin.publish "$(request confirm-uncertain retained a-retained refs/heads/uncertain)" |
-  jq -e '.result.publication.status=="satisfied" and .result.publication.preview.relation=="equal"' >/dev/null
+publish "$(request confirm-uncertain retained a-retained refs/heads/uncertain)" completed | jq -e \
+  '.result.operation.evidence.publication | .status=="satisfied" and .preview.relation=="equal"' >/dev/null
 test "$(receive_count)" -eq "$((receives_before+1))"
 
 # Review one origin, replace it, then reject the stale action before any contact.
 stale_preview=$(request '' session "$uuid" refs/heads/reviewed)
 rpc origin.publication.preview "$stale_preview" | jq -e '.result.preview.relation=="absent"' >/dev/null
-change replace-origin "$full_url" "$empty_url" >/dev/null
+replaced=$(change replace-origin "$full_url" "$empty_url")
+wait_operation "$(operation_id "$replaced")" completed >/dev/null
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
 trace_before=$(wc -l < "$trace")
+operations_before=$(rpc system.inspect | jq -er '.result.operations')
 expect_error precondition_failed changed origin.publication.preview "$stale_preview"
 stale_publish=$(request stale-origin session "$uuid" refs/heads/reviewed)
 expect_error precondition_failed changed origin.publish "$stale_publish"
-# A prepared key cannot be retargeted to the replacement URL either.
-expect_error invalid key_reused origin.publish "$(request stale-origin session "$uuid" refs/heads/reviewed "$empty_url")" \
+# The refused publication records nothing, while a recorded key cannot be
+# retargeted to the replacement URL, even after the restart.
+expect_error invalid key_reused origin.publish "$(request publish-session session "$uuid" refs/heads/main "$empty_url")" \
   field=key
+test "$(rpc system.inspect | jq -er '.result.operations')" -eq "$operations_before"
 test "$(wc -l < "$trace")" -eq "$trace_before"
 test -z "$(git -C "$empty" for-each-ref --format='%(refname)')"
 test "$(rpc origin.publish "$publish_request" | jq -c '.result')" = "$(jq -c '.result' <<< "$published")"

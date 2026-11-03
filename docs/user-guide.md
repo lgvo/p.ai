@@ -444,9 +444,11 @@ api project.branches "$(jq -nc --arg project "$PROJECT" '{project:$project,limit
 ```
 
 A local-only project needs an explicit origin association before publication;
-use `origin.change` from the [origin API table](control-api.md). Setting or
-replacing an origin compares the exact prior URL and contacts the new origin.
-It does not retarget an already captured creation request.
+use `origin.change` from the [origin API table](control-api.md). It answers
+an operation; wait for it with `operation.wait` and read the result with
+`origin.inspect`. Setting or replacing an origin compares the exact prior URL
+and contacts the new origin. It does not retarget an already captured creation
+request.
 
 Copy the reviewed origin URL and assigned branch's P commit OID into the
 following variables. Use the UUID of the session being published:
@@ -465,14 +467,17 @@ Review the returned origin, source, destination, and commit relationship.
 Only proceed if they describe the action you intend:
 
 ```bash
-api origin.publish "$(jq -c '. + {key:"demo-publish-1"}' <<< "$PUBLICATION")"
+PUBLISH=$(api origin.publish "$(jq -c '. + {key:"demo-publish-1"}' <<< "$PUBLICATION")")
+api operation.wait "$(jq -nc --arg id "$(jq -er '.result.operation.id' <<< "$PUBLISH")" '{id:$id,timeout:20}')"
 ```
 
 Publication checks the same reviewed origin identity and exact source again.
 It creates an absent destination or advances it by an ordinary fast-forward;
-it does not force-push. Results distinguish `created`, `advanced`, `satisfied`,
-`refused`, and `outcome_unknown`. If the outcome is unknown, investigate and
-reconcile the recorded publication; do not blindly submit a new key.
+it does not force-push. The operation's `evidence.publication.status`
+distinguishes `created`, `advanced`, `satisfied`, `refused`, and
+`outcome_unknown`. An unknown outcome ends the operation `failed` with reason
+`outcome_unknown`: investigate and reconcile the recorded publication; do not
+blindly submit a new key.
 
 The preview's `workspace_status: "unknown"` matters: publication reviews P's
 retained commit, not dirty files or unpushed commits in the workspace.

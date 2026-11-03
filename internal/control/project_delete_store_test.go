@@ -53,16 +53,44 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 		ev.Resources = append(ev.Resources, ProjectDeleteResource{Kind: "runtime", ID: ps.Session.UUID, Status: "remaining"}, ProjectDeleteResource{Kind: "local", ID: ps.Session.UUID, Status: "remaining"})
 	}
 	ev.Resources = append(ev.Resources, ProjectDeleteResource{Kind: "image", ID: image.Ref, Status: "remaining"}, ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
-	if _, e := s.db.ExecContext(ctx, `INSERT INTO origin_requests VALUES('old-origin','bulk','remove','ssh://host/private-origin','','completed','now','now','{}')`); e != nil {
-		t.Fatal(e)
-	}
-	if _, e := s.db.ExecContext(ctx, `INSERT INTO publication_requests VALUES('old-publication','bulk','ssh://host/private-origin','retained','main',?,'refs/heads/main','completed','{}','now','now')`, strings.Repeat("a", 40)); e != nil {
-		t.Fatal(e)
-	}
+	// The project's completed origin operations: deletion retires their keys.
+	completedOperation(t, s, KindOriginChange, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"})
+	completedOperation(t, s, KindOriginPublish, oldPublication)
 	_, ev.StateSHA256, _ = s.ProjectDeleteSnapshot(ctx, "bulk")
 	req := ProjectDeleteRequest{Key: "delete-bulk", Project: "bulk", TokenSHA256: strings.Repeat("a", 64)}
 	return s, dir, req, ev
 }
+
+// oldPublication is the request of the publication projectDeleteFixture
+// records completed.
+var oldPublication = PublicationRequest{Key: "old-publication", Project: "bulk", ExpectedOriginURL: "ssh://host/private-origin", Kind: "retained", Source: "main", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main"}
+
+// completedOperation records request, an OriginChange or PublicationRequest,
+// as a completed operation of kind.
+func completedOperation(t *testing.T, s *Store, kind string, request any) {
+	t.Helper()
+	ctx := context.Background()
+	raw, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var named struct{ Key, Project string }
+	if err = json.Unmarshal(raw, &named); err != nil {
+		t.Fatal(err)
+	}
+	id, err := newUUID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = insertOperation(ctx, s, operationRecord{ID: id, Key: named.Key, Kind: kind, Project: named.Project, Request: raw,
+		Phase: "accepted", Now: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.AdvanceOperation(ctx, id, "completed", "completed", false, nil, "", ""); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func acceptProjectDelete(t *testing.T, s *Store, req ProjectDeleteRequest, ev ProjectDeleteEvidence) api.Operation {
 	t.Helper()
 	op, e := s.BeginProjectDelete(context.Background(), req, ev, time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), func(context.Context) error { return nil })
@@ -97,7 +125,8 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 		`UPDATE git_principals SET active=1 WHERE project_path='bulk'`,
 		`DELETE FROM sessions WHERE project_path='bulk'`,
 		`DELETE FROM projects WHERE path='bulk'`,
-		`INSERT INTO origin_requests VALUES('late','bulk','remove','','','prepared','now','','')`,
+		`INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,intent_json,status,phase,created_at,updated_at) VALUES('late-origin','late-origin','origin.change','bulk','{}','hash','{}','running','accepted','now','now')`,
+		`INSERT INTO project_origins(project_path,url,current_status,observed_at,refs_json) VALUES('bulk','ssh://host/late','fresh','now','[]')`,
 		`INSERT INTO git_ref_guards VALUES('bulk','late','` + op.ID + `')`,
 		`INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,intent_json,status,phase,created_at,updated_at) VALUES('late','late','session.create','bulk','{}','hash','{}','running','reserved','now','now')`,
 		`INSERT INTO commit_images(project_path,commit_oid,base_image,system,builder_version,image_ref,build_ref,labels_json,selection,logical_size,state,created_at) VALUES('bulk','late','base','x86_64-linux','v1','late','build','{}','no-flake',0,'ready','now')`,
@@ -223,21 +252,25 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 	if _, e = s.BeginBlankProject(ctx, BlankProjectRequest{Key: "create-main", Project: "bulk"}, json.RawMessage(`{}`), ev.BaseFingerprint, CreationSelection{}); !errors.Is(e, ErrConflict) {
 		t.Fatal("retired key acquired new project", e)
 	}
-	if _, _, e = s.CompletedOriginChange(ctx, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"}); !errors.Is(e, ErrConflict) {
+	if _, e = s.BeginOriginChange(ctx, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"}); !errors.Is(e, ErrConflict) {
 		t.Fatal("retired origin replay accepted", e)
 	}
-	if _, _, e = s.PublicationRecord(ctx, PublicationRequest{Key: "old-publication", Project: "bulk"}); !errors.Is(e, ErrConflict) {
+	if _, e = s.BeginPublication(ctx, oldPublication, func(context.Context) (string, error) {
+		t.Fatal("retired publication admitted")
+		return "", nil
+	}); !errors.Is(e, ErrConflict) {
 		t.Fatal("retired publication accepted", e)
 	}
+	noQueue := func(string) error { t.Fatal("retired request queued work"); return nil }
 	originRunner := &fakeOriginRunner{}
-	if _, e = (OriginAPI{Store: s, Runner: originRunner}).Change(ctx, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"}); !errors.Is(e, ErrConflict) || originRunner.calls != 0 {
+	if _, e = (OriginAPI{Store: s, Runner: originRunner, Queue: noQueue}).Change(ctx, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"}); !errors.Is(e, ErrConflict) || originRunner.calls != 0 {
 		t.Fatal("retired Origin contacted external authority", e)
 	}
 	publicationRunner := &fakePublication{}
-	if _, e = (OriginAPI{Store: s, Runner: publicationRunner}).PublishPublication(ctx, PublicationRequest{Key: "old-publication", Project: "bulk", ExpectedOriginURL: "ssh://host/private-origin", Kind: "retained", Source: "main", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main"}); !errors.Is(e, ErrConflict) || publicationRunner.observes != 0 || publicationRunner.pushes != 0 {
+	if _, e = (OriginAPI{Store: s, Runner: publicationRunner, Queue: noQueue}).Publish(ctx, oldPublication); !errors.Is(e, ErrConflict) || publicationRunner.observes != 0 || publicationRunner.pushes != 0 {
 		t.Fatal("retired publication contacted external authority", e)
 	}
-	for _, table := range []string{"origin_requests", "publication_requests", "sessions", "projects", "commit_images"} {
+	for _, table := range []string{"project_origins", "sessions", "projects", "commit_images"} {
 		var count int
 		if e = s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+func() string {
 			if table == "projects" {
@@ -255,7 +288,10 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 	if _, e = s.db.ExecContext(ctx, `DELETE FROM retired_lifecycle_requests WHERE idempotency_key='create-main'`); e == nil {
 		t.Fatal("retired replay restriction erased")
 	}
-	if _, e = s.db.ExecContext(ctx, `INSERT INTO origin_requests VALUES('old-origin','unrelated','remove','','','prepared','now','','')`); e == nil {
+	if e = s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE project_path='bulk' AND id!=?`, op.ID).Scan(&count); e != nil || count != 0 {
+		t.Fatal("full operation record remains", count, e)
+	}
+	if _, e = s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,intent_json,status,phase,created_at,updated_at) VALUES('reused','old-origin','origin.change','unrelated','{}','hash','{}','running','accepted','now','now')`); e == nil {
 		t.Fatal("raw old origin key reused")
 	}
 

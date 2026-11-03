@@ -74,7 +74,7 @@ func TestRenameReservesBothNamesAndReplaysOnlyExactRequest(t *testing.T) {
 		}
 	}
 	if _, err := s.PublicationSource(ctx, PublicationRequest{Project: "app", Kind: "retained", Source: "renamed",
-		SourceOID: r.ExpectedOldTip, DestinationRef: "refs/heads/renamed", ExpectedOriginURL: "ssh://host/repo"}); !errors.Is(err, ErrConflict) {
+		SourceOID: r.ExpectedOldTip, DestinationRef: "refs/heads/renamed", ExpectedOriginURL: "ssh://host/repo"}, ""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("unassigned but guarded new ref published as retained: %v", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256)

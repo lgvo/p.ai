@@ -58,13 +58,33 @@ control origin.change (git)
     expected_url string
     url string (optional)
   result
-    origin object
+    operation object
+      id string
+      idempotency_key string
+      kind string
       project string
-      url string (optional)
+      session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
+        destination string (optional)
+      request raw
       status string
-      observed_at string (optional)
-      ref_count integer
+      phase string
+      committed boolean
+      evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
+      created_at string
+      updated_at string
 control origin.refresh (git)
   request
     project string
@@ -133,19 +153,33 @@ control origin.publish (git)
     source_oid string
     destination_ref string
   result
-    publication object
-      preview object
+    operation object
+      id string
+      idempotency_key string
+      kind string
+      project string
+      session_uuid string (optional)
+      intent object
         project string
-        url string
-        source_kind string
-        source string
-        source_ref string
-        source_oid string
-        destination_ref string
-        destination_oid string (optional)
-        relation string
-        workspace_status string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
+        destination string (optional)
+      request raw
       status string
+      phase string
+      committed boolean
+      evidence raw (optional)
+      reason string (optional)
+      diagnostic string (optional)
+      created_at string
+      updated_at string
 control project.retained_branches (git)
   request
     project string
@@ -180,6 +214,7 @@ control project.create (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -217,6 +252,7 @@ control session.create (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -308,6 +344,7 @@ control session.start (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -364,6 +401,7 @@ control session.stop (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -398,7 +436,7 @@ control session.stop (runtime)
         state string
         base_image_fingerprint string
         image_fingerprint string
-control operation.inspect (runtime)
+control operation.inspect (git)
   request
     id string
   result
@@ -419,6 +457,7 @@ control operation.inspect (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -428,7 +467,7 @@ control operation.inspect (runtime)
       diagnostic string (optional)
       created_at string
       updated_at string
-control operation.list (runtime)
+control operation.list (git)
   request
     limit integer
     after string (optional)
@@ -450,6 +489,7 @@ control operation.list (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       status string
       phase string
       committed boolean
@@ -463,7 +503,7 @@ control operation.list (runtime)
         base_image_fingerprint string
         image_fingerprint string
     next string
-control operation.wait (runtime)
+control operation.wait (git)
   request
     id string
     timeout integer
@@ -485,6 +525,7 @@ control operation.wait (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -494,7 +535,7 @@ control operation.wait (runtime)
       diagnostic string (optional)
       created_at string
       updated_at string
-control operation.retry (runtime)
+control operation.retry (git)
   request
     id string
   result
@@ -515,6 +556,7 @@ control operation.retry (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -598,6 +640,7 @@ control session.discard (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -630,6 +673,7 @@ control session.delete (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -663,6 +707,7 @@ control session.rename (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -697,6 +742,7 @@ control project.retained.rename (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -861,6 +907,7 @@ control project.delete.confirm (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -920,6 +967,7 @@ control project.retained.delete.confirm (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -1072,6 +1120,7 @@ control session.create.replace.confirm (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string
@@ -1200,6 +1249,7 @@ control session.create.cleanup.confirm (runtime)
         replaces_session string (optional)
         replaces_branch string (optional)
         url string (optional)
+        destination string (optional)
       request raw
       status string
       phase string

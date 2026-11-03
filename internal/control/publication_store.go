@@ -35,8 +35,9 @@ func validPublicationRequest(r PublicationRequest) bool {
 }
 
 // PublicationSource checks registry assignment, including unfinished lifecycle
-// operations. The caller holds the project's origin scope while it checks Git.
-func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (string, error) {
+// operations other than except, the publication's own. The caller holds the
+// project's origin scope while it checks Git.
+func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest, except string) (string, error) {
 	if !validPublicationRequest(r) {
 		return "", ErrInvalid
 	}
@@ -62,7 +63,7 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (st
 		}
 		// The journal's admission check: an unfinished operation, its
 		// creation included, holds the session.
-		if err = sessionHolderTx(ctx, s.db, r.Source, ""); err != nil {
+		if err = sessionHolderTx(ctx, s.db, r.Source, except); err != nil {
 			return "", err
 		}
 		if registry != "established" {
@@ -96,117 +97,41 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (st
 	return "refs/heads/" + r.Source, nil
 }
 
-// PublicationRecord returns a stable answer for a repeated key. An attempted
-// push without a committed answer is unknown; it must never be sent again.
-func (s *Store) PublicationRecord(ctx context.Context, r PublicationRequest) (api.Publication, string, error) {
-	if e := s.checkRetiredKey(ctx, r.Key); e != nil {
-		return api.Publication{}, "", e
-	}
-	var project, originURL, kind, source, oid, dest, status, raw string
-	err := s.db.QueryRowContext(ctx, `SELECT project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,result_json FROM publication_requests WHERE idempotency_key=?`, r.Key).Scan(&project, &originURL, &kind, &source, &oid, &dest, &status, &raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return api.Publication{}, "", nil
-	}
-	if err != nil {
-		return api.Publication{}, "", err
-	}
-	if originURL != r.ExpectedOriginURL || project != r.Project || kind != r.Kind || source != r.Source || oid != r.SourceOID || dest != r.DestinationRef {
-		return api.Publication{}, "", KeyReused()
-	}
-	var result api.Publication
-	if raw != "" {
-		if err = json.Unmarshal([]byte(raw), &result); err != nil {
-			return api.Publication{}, "", err
-		}
-	}
-	if status == "attempted" {
-		result.Status = "outcome_unknown"
-	}
-	return result, status, nil
-}
-
-func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (api.Publication, string, error) {
+// BeginPublication records publication r as an operation of kind
+// origin.publish, after admit accepts it, and returns it. An identical earlier
+// request under r.Key returns its operation without admit. A session's
+// publication holds the session: the journal refuses competing work on it
+// while the operation is unfinished.
+func (s *Store) BeginPublication(ctx context.Context, r PublicationRequest, admit func(context.Context) (branch string, err error)) (api.Operation, error) {
 	if !validPublicationRequest(r) || r.Key == "" || len(r.Key) > 128 {
-		return api.Publication{}, "", ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	request, err := json.Marshal(r)
 	if err != nil {
-		return api.Publication{}, "", err
+		return api.Operation{}, err
 	}
-	defer tx.Rollback()
-	var existing int
-	for _, table := range []string{"operations", "origin_requests", "retired_lifecycle_requests"} {
-		column := "idempotency_key"
-		err = tx.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE `+column+`=?`, r.Key).Scan(&existing)
-		if err == nil {
-			return api.Publication{}, "", KeyReused()
+	if prior, replayed, err := s.recorded(ctx, r.Key, KindOriginPublish, request); err != nil || replayed {
+		return prior, err
+	}
+	branch, err := admit(ctx)
+	if err != nil {
+		// An identical request may have been recorded meanwhile, and now
+		// hold the session admit checked.
+		if prior, replayed, e := s.recorded(ctx, r.Key, KindOriginPublish, request); e != nil || replayed {
+			return prior, e
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return api.Publication{}, "", err
-		}
+		return api.Operation{}, err
 	}
-	var project, originURL, kind, source, oid, dest, status, raw string
-	err = tx.QueryRowContext(ctx, `SELECT project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,result_json FROM publication_requests WHERE idempotency_key=?`, r.Key).Scan(&project, &originURL, &kind, &source, &oid, &dest, &status, &raw)
-	if err == nil {
-		if originURL != r.ExpectedOriginURL || project != r.Project || kind != r.Kind || source != r.Source || oid != r.SourceOID || dest != r.DestinationRef {
-			return api.Publication{}, "", KeyReused()
-		}
-		var result api.Publication
-		if raw != "" {
-			if err = json.Unmarshal([]byte(raw), &result); err != nil {
-				return api.Publication{}, "", err
-			}
-		}
-		if status == "attempted" {
-			result.Status = "outcome_unknown"
-		}
-		return result, status, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return api.Publication{}, "", err
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO publication_requests(idempotency_key,project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,created_at) VALUES(?,?,?,?,?,?,?,'prepared',?)`, r.Key, r.Project, r.ExpectedOriginURL, r.Kind, r.Source, r.SourceOID, r.DestinationRef, time.Now().UTC().Format(time.RFC3339Nano))
+	id, err := newUUID()
 	if err != nil {
-		return api.Publication{}, "", classifyWrite(err)
+		return api.Operation{}, err
 	}
-	if err = tx.Commit(); err != nil {
-		return api.Publication{}, "", err
+	session := ""
+	if r.Kind == "session" {
+		session = r.Source
 	}
-	return api.Publication{}, "prepared", nil
-}
-
-func (s *Store) UpdatePublication(ctx context.Context, key, from, to string, result api.Publication) error {
-	raw, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-	updated, err := s.db.ExecContext(ctx, `UPDATE publication_requests SET status=?,result_json=?,completed_at=? WHERE idempotency_key=? AND status=?`, to, string(raw), time.Now().UTC().Format(time.RFC3339Nano), key, from)
-	if err != nil {
-		return err
-	}
-	n, err := updated.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return ErrConflict
-	}
-	return nil
-}
-
-// RearmPublication is called only when the source plugin/native broker proves
-// no push process started. A crash before this write remains conservative.
-func (s *Store) RearmPublication(ctx context.Context, key string) error {
-	updated, err := s.db.ExecContext(ctx, `UPDATE publication_requests SET status='prepared',result_json='',completed_at='' WHERE idempotency_key=? AND status='attempted'`, key)
-	if err != nil {
-		return err
-	}
-	n, err := updated.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n != 1 {
-		return ErrConflict
-	}
-	return nil
+	rec := operationRecord{ID: id, Key: r.Key, Kind: KindOriginPublish, Project: r.Project, Session: session, Request: request,
+		Intent: api.OperationIntent{Project: r.Project, Session: session, Branch: branch, Destination: r.DestinationRef},
+		Phase:  "accepted", Now: time.Now().UTC().Format(time.RFC3339Nano)}
+	return s.insertForProject(ctx, rec, nil)
 }

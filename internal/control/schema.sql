@@ -87,23 +87,6 @@ CREATE TABLE project_origins (
  observed_at TEXT NOT NULL, refs_json TEXT NOT NULL, diagnostic TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE origin_requests (
- idempotency_key TEXT PRIMARY KEY, project_path TEXT NOT NULL,
- kind TEXT NOT NULL CHECK(kind IN ('set','remove')),
- expected_url TEXT NOT NULL, proposed_url TEXT NOT NULL,
- status TEXT NOT NULL CHECK(status IN ('prepared','completed')),
- created_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT '', result_json TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE publication_requests (
- idempotency_key TEXT PRIMARY KEY, project_path TEXT NOT NULL,
- expected_origin_url TEXT NOT NULL,
- source_kind TEXT NOT NULL CHECK(source_kind IN ('session','retained')),
- source TEXT NOT NULL, source_oid TEXT NOT NULL, destination_ref TEXT NOT NULL,
- status TEXT NOT NULL CHECK(status IN ('prepared','attempted','completed')),
- result_json TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT ''
-);
-
 -- One image per source commit: the index P uses to find the image a session
 -- from a commit is created from. The runtime stores the same facts as the
 -- image's labels. A releasing row is never reused until its delete settles.
@@ -195,16 +178,10 @@ CREATE TRIGGER deleting_project_sessions_delete BEFORE DELETE ON sessions
  BEGIN SELECT RAISE(ABORT,'constraint failed: project resources incomplete'); END;
 
 -- operations
-CREATE TRIGGER lifecycle_request_key_conflict BEFORE INSERT ON operations
- WHEN EXISTS(SELECT 1 FROM origin_requests WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
 CREATE TRIGGER immutable_operation_request BEFORE UPDATE OF id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,created_at ON operations
  WHEN OLD.id != NEW.id OR OLD.idempotency_key != NEW.idempotency_key OR OLD.kind != NEW.kind OR OLD.project_path != NEW.project_path OR OLD.request_json != NEW.request_json OR OLD.request_sha256 != NEW.request_sha256 OR OLD.intent_json != NEW.intent_json OR OLD.created_at != NEW.created_at
  OR (OLD.session_uuid IS NOT NEW.session_uuid AND NOT (OLD.kind='project.create' AND OLD.phase='repo-pending' AND OLD.session_uuid IS NULL AND NEW.session_uuid IS NOT NULL))
  BEGIN SELECT RAISE(ABORT, 'immutable operation request'); END;
-CREATE TRIGGER operations_key_publication BEFORE INSERT ON operations
- WHEN EXISTS(SELECT 1 FROM publication_requests WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
 CREATE TRIGGER discard_requires_established BEFORE INSERT ON operations
  WHEN NEW.kind='session.discard' AND NOT EXISTS(
   SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
@@ -282,40 +259,6 @@ CREATE TRIGGER deleting_project_project_origins_insert BEFORE INSERT ON project_
 CREATE TRIGGER deleting_project_project_origins_update BEFORE UPDATE ON project_origins
  WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
  BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
-
--- origin_requests
-CREATE TRIGGER origin_request_key_conflict BEFORE INSERT ON origin_requests
- WHEN EXISTS(SELECT 1 FROM operations WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
-CREATE TRIGGER origins_key_publication BEFORE INSERT ON origin_requests
- WHEN EXISTS(SELECT 1 FROM publication_requests WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
-CREATE TRIGGER deleting_project_origin_requests_insert BEFORE INSERT ON origin_requests
- WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
- BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
-CREATE TRIGGER deleting_project_origin_requests_update BEFORE UPDATE ON origin_requests
- WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
- BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
-CREATE TRIGGER origin_requests_retired_key BEFORE INSERT ON origin_requests
- WHEN EXISTS(SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: project-deleted request retired'); END;
-
--- publication_requests
-CREATE TRIGGER publication_key_operations BEFORE INSERT ON publication_requests
- WHEN EXISTS(SELECT 1 FROM operations WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
-CREATE TRIGGER publication_key_origins BEFORE INSERT ON publication_requests
- WHEN EXISTS(SELECT 1 FROM origin_requests WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
-CREATE TRIGGER deleting_project_publication_requests_insert BEFORE INSERT ON publication_requests
- WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
- BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
-CREATE TRIGGER deleting_project_publication_requests_update BEFORE UPDATE ON publication_requests
- WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
- BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
-CREATE TRIGGER publication_requests_retired_key BEFORE INSERT ON publication_requests
- WHEN EXISTS(SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=NEW.idempotency_key)
- BEGIN SELECT RAISE(ABORT,'constraint failed: project-deleted request retired'); END;
 
 -- commit_images
 CREATE TRIGGER deleting_project_commit_images_insert BEFORE INSERT ON commit_images

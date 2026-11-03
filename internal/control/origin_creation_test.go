@@ -249,13 +249,13 @@ func TestCreationAndOriginJournalsRejectSharedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = s.PrepareOriginChange(ctx, OriginChange{Key: "shared", Project: "pending", Kind: "set", ProposedURL: "ssh://host/repo"}); !errors.Is(err, ErrConflict) {
+	if _, err = s.BeginOriginChange(ctx, OriginChange{Key: "shared", Project: "pending", Kind: "set", ProposedURL: "ssh://host/repo"}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("pending project key: %v", err)
 	}
 	if err = s.CreateProject(ctx, "existing", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = s.PrepareOriginChange(ctx, OriginChange{Key: "origin-key", Project: "existing", Kind: "remove"}); err != nil {
+	if _, err = s.BeginOriginChange(ctx, OriginChange{Key: "origin-key", Project: "existing", Kind: "remove"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.BeginBlankProject(ctx, BlankProjectRequest{Key: "origin-key", Project: "new"}, json.RawMessage(`{}`), strings.Repeat("d", 64), testSelection()); !errors.Is(err, ErrConflict) {

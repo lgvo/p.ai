@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"sort"
 	"time"
 
@@ -23,48 +24,62 @@ type OriginAPI struct {
 	Store  *Store
 	Runner OriginRunner
 	Git    GitReader
+	// Queue hands a recorded origin operation to the daemon's workers.
+	Queue func(id string) error
 }
 
-func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.OriginState, error) {
+// Change records origin change c as an operation of kind origin.change and
+// queues it: its worker contacts the proposed origin (RunOriginChange).
+func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.Operation, error) {
 	if !validOriginChange(c) {
-		return api.OriginState{}, ErrInvalid
-	}
-	if replay, completed, err := a.Store.CompletedOriginChange(ctx, c); err != nil {
-		return api.OriginState{}, err
-	} else if completed {
-		return replay, nil
+		return api.Operation{}, ErrInvalid
 	}
 	if c.Kind == "set" {
 		if err := a.Runner.ValidateURL(c.ProposedURL); err != nil {
-			return api.OriginState{}, Invalid("url")
+			return api.Operation{}, Invalid("url")
 		}
 	}
-	var state api.OriginState
+	op, err := a.Store.BeginOriginChange(ctx, c)
+	if err != nil || op.Status != "running" {
+		return op, err
+	}
+	return op, a.Queue(op.ID)
+}
+
+// RunOriginChange is the work of origin change op: in the project's origin
+// scope it observes the proposed origin of a set, then records the change and
+// the operation's end together. A failure ends the operation failed with its
+// reason and diagnostic; it is never contacted again for op.
+func (a OriginAPI) RunOriginChange(ctx context.Context, op api.Operation) {
+	var c OriginChange
+	if json.Unmarshal(op.Request, &c) != nil {
+		a.fail(ctx, op, ErrInvalid)
+		return
+	}
 	err := a.Runner.WithOrigin(ctx, c.Project, func(observer OriginObserver) error {
-		completed, replay, err := a.Store.PrepareOriginChange(ctx, c)
-		if err != nil {
-			return err
-		}
-		if completed {
-			state = replay
-			return nil
-		}
-		if !completed {
-			var refs []plugin.GitOriginRef
-			if c.Kind == "set" {
-				refs, err = observer.Observe(ctx, c.ProposedURL)
-				if err != nil {
-					return Failed(api.ReasonOrigin, err)
-				}
-			}
-			if err = a.Store.CommitOriginChange(ctx, c, refs); err != nil {
-				return err
+		var refs []plugin.GitOriginRef
+		if c.Kind == "set" {
+			var err error
+			if refs, err = observer.Observe(ctx, c.ProposedURL); err != nil {
+				return Failed(api.ReasonOrigin, err)
 			}
 		}
-		state, _, err = a.Store.Origin(ctx, c.Project)
-		return err
+		return a.Store.CompleteOriginChange(ctx, op, refs)
 	})
-	return state, err
+	if err != nil {
+		a.fail(ctx, op, err)
+	}
+}
+
+// fail records origin operation op failed with err's reason and detail,
+// unless the daemon is stopping: the next start resumes it.
+func (a OriginAPI) fail(ctx context.Context, op api.Operation, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	if e := a.Store.AdvanceOperation(ctx, op.ID, "failed", op.Phase, op.Committed, op.Evidence, OperationReason(err), err.Error()); e != nil {
+		log.Printf("recording the failure of %s %s: %v", op.Kind, op.ID, e)
+	}
 }
 
 func (a OriginAPI) Refresh(ctx context.Context, project string) (api.OriginState, error) {
@@ -101,9 +116,8 @@ func (a OriginAPI) Refresh(ctx context.Context, project string) (api.OriginState
 
 // addOriginMethods serves origin association, observation and publication.
 func addOriginMethods(t *MethodTable, origins OriginAPI) {
-	Register(t, api.OriginChange, func(ctx context.Context, r api.OriginChangeRequest) (api.OriginResult, error) {
-		state, e := origins.Change(ctx, OriginChange{Key: r.Key, Project: r.Project, Kind: r.Kind, ExpectedURL: r.ExpectedURL, ProposedURL: r.URL})
-		return api.OriginResult{Origin: state}, e
+	Register(t, api.OriginChange, func(ctx context.Context, r api.OriginChangeRequest) (api.OperationResult, error) {
+		return operationResult(origins.Change(ctx, OriginChange{Key: r.Key, Project: r.Project, Kind: r.Kind, ExpectedURL: r.ExpectedURL, ProposedURL: r.URL}))
 	})
 	Register(t, api.OriginRefresh, func(ctx context.Context, r api.OriginRefreshRequest) (api.OriginResult, error) {
 		state, e := origins.Refresh(ctx, r.Project)

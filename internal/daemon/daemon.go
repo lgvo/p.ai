@@ -45,8 +45,8 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 	if !sameLeasedSelection(leasedPackages, git.source) {
 		return errors.New("source selection changed while acquiring package leases")
 	}
-	surface := control.HandlerConfig{Store: store, Git: git.backend, GitInfo: git.info,
-		Origins: &control.OriginAPI{Store: store, Runner: originRunner{backend: git.backend}, Git: git.backend}}
+	origins := &control.OriginAPI{Store: store, Runner: originRunner{backend: git.backend}, Git: git.backend}
+	surface := control.HandlerConfig{Store: store, Git: git.backend, GitInfo: git.info, Origins: origins}
 	if cfg.Runtime != nil {
 		life, e := newLifecycle(scope, *cfg.Runtime, store, git)
 		if e != nil {
@@ -57,6 +57,7 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 			return errors.New("runtime/asset selection changed while acquiring package leases")
 		}
 		life.events = events
+		life.origins, origins.Queue = origins, life.enqueue
 		life.onAttachment = life.attachmentChanged
 		life.endpoints.onUnattended = func(_ context.Context, event plugin.Event) error {
 			events.enqueue(event)
@@ -64,6 +65,15 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 		}
 		surface.Lifecycle = life
 		if e = life.Recover(); e != nil {
+			return e
+		}
+	} else {
+		// Without a runtime the journal still runs origin operations.
+		life := newGitLifecycle(scope, store, git)
+		life.events = events
+		life.origins, origins.Queue = origins, life.enqueue
+		surface.Operations = life
+		if e := life.recoverJournal(); e != nil {
 			return e
 		}
 	}

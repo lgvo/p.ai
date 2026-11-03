@@ -67,10 +67,15 @@ func TestCreationRefusalsAnswerTheirKind(t *testing.T) {
 	_, _, err = s.BeginSessionCreate(ctx, work("s3", "team/existing"), image, testSelection(), capture)
 	wantAnswer(t, "assigned branch", err, api.KindConflict, api.ReasonBranchAssigned, "project/team/existing:branch/work")
 
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO origin_requests VALUES('origin-key','team/existing','remove','','','completed','now','now','{}')`); err != nil {
+	originOp, err := s.BeginOriginChange(ctx, OriginChange{Key: "origin-key", Project: "team/existing", Kind: "remove"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	wantAnswer(t, "origin key", s.CheckOriginKeyConflict(ctx, "origin-key"), api.KindInvalid, api.ReasonKeyReused, "")
+	if err = s.CompleteOriginChange(ctx, originOp, nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.BeginOriginChange(ctx, OriginChange{Key: "origin-key", Project: "team/existing", Kind: "set", ProposedURL: "ssh://host/other"})
+	wantAnswer(t, "origin key", err, api.KindInvalid, api.ReasonKeyReused, "")
 	_, _, err = s.BeginSessionCreate(ctx, work("origin-key", "team/existing"), image, testSelection(), capture)
 	wantAnswer(t, "creation with an origin request's key", err, api.KindInvalid, api.ReasonKeyReused, "")
 }

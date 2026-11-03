@@ -125,15 +125,18 @@ type PublicationPreview struct {
 	WorkspaceStatus string `json:"workspace_status"`
 }
 
-type OriginPublishResult struct {
+// PublicationEvidence is an origin.publish operation's evidence: the
+// publication it decided, once it compared the destination, and its outcome.
+type PublicationEvidence struct {
 	Publication Publication `json:"publication"`
 }
 
 // Publication is one publication's outcome: created, advanced, satisfied,
-// refused or outcome_unknown.
+// refused or outcome_unknown; no status when its push failed before it
+// started.
 type Publication struct {
 	Preview PublicationPreview `json:"preview"`
-	Status  string             `json:"status"`
+	Status  string             `json:"status,omitempty"`
 }
 
 type RetainedBranchesResult struct {
@@ -195,8 +198,10 @@ type OperationIntent struct {
 	// Branch.
 	ReplacesSession string `json:"replaces_session,omitempty"`
 	ReplacesBranch  string `json:"replaces_branch,omitempty"`
-	// URL is a new project's origin.
+	// URL is a new project's origin, or the origin an origin.change sets.
 	URL string `json:"url,omitempty"`
+	// Destination is the origin ref an origin.publish publishes to.
+	Destination string `json:"destination,omitempty"`
 }
 
 type OperationListResult struct {

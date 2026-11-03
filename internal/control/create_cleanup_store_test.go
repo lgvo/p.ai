@@ -373,7 +373,11 @@ func TestSupersededCreateReplayPrecedesContestedGitAuthority(t *testing.T) {
 					req.Key = cleanup.Key
 				case "origin-key":
 					req.Key = "origin-key"
-					if _, _, e = s.PrepareOriginChange(ctx, OriginChange{Key: req.Key, Project: req.Project, Kind: "remove"}); e != nil {
+					originOp, e := s.BeginOriginChange(ctx, OriginChange{Key: req.Key, Project: req.Project, Kind: "remove"})
+					if e != nil {
+						t.Fatal(e)
+					}
+					if e = s.CompleteOriginChange(ctx, originOp, nil); e != nil {
 						t.Fatal(e)
 					}
 				}

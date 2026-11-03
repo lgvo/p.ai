@@ -302,8 +302,8 @@ this daemon serves:
 
 | Capability | Present when | Methods it serves |
 |---|---|---|
-| `git` | The host configuration has a `git` object | `project.list`, `project.branches`, `project.retained_branches` and the six `origin.` methods |
-| `runtime` | The host configuration also has a `runtime` object, which requires `git` | Project and session creation; session inspection, listing, Start, Stop, attachment, removal and rename; operations; failed-creation replacement and cleanup; retained-branch rename and deletion; project deletion; the attachment helper's methods |
+| `git` | The host configuration has a `git` object | `project.list`, `project.branches`, `project.retained_branches`, the six `origin.` methods, and the operation methods `operation.inspect`, `operation.list`, `operation.wait` and `operation.retry` |
+| `runtime` | The host configuration also has a `runtime` object, which requires `git` | Project and session creation; session inspection, listing, Start, Stop, attachment, removal and rename; failed-creation replacement and cleanup; retained-branch rename and deletion; project deletion; the attachment helper's methods |
 | `services` | `runtime` is present; the daemon always serves project services with a runtime | `session.services`, `session.service.action` and `session.service.logs` |
 
 Every daemon serves `system.hello`, `system.health`, `system.inspect` and
@@ -407,20 +407,22 @@ target answers `cancelled` if it was still running, unless its handler had
 already returned a result, which is sent.
 
 With trusted Git configuration, active projects also support explicit origin
-association and observation. The origin methods and
-`project.retained_branches` need only the `git` capability, so they are
-available even when runtime configuration is absent. The retained-branch
+association and observation. The origin methods, `project.retained_branches`
+and the operation methods (`operation.inspect`, `operation.list`,
+`operation.wait`, `operation.retry`) need only the `git` capability, so they
+are available even when runtime configuration is absent: a daemon without a
+runtime runs the journal's origin operations. The retained-branch
 rename and deletion and the project deletion methods in this table need the
 `runtime` capability. Every request rejects unknown or duplicate fields.
 
 | Method | Params | Result |
 |---|---|---|
-| `origin.change` | `{"key":"idempotency-key","project":"team/app","kind":"set","expected_url":"","url":"ssh://host/repo"}`; use `kind:"remove"`, the current `expected_url`, and omit `url` to remove | `origin` state. A set contacts the proposed origin before commit; remove makes the project local-only. The old URL is an exact compare-and-swap precondition. |
+| `origin.change` | `{"key":"idempotency-key","project":"team/app","kind":"set","expected_url":"","url":"ssh://host/repo"}`; use `kind:"remove"`, the current `expected_url`, and omit `url` to remove | `operation` of kind `origin.change`, returned at once. Its worker contacts the proposed origin of a set before it commits; a remove makes the project local-only. The old URL is an exact compare-and-swap precondition. Read the resulting state with `origin.inspect` once the operation completes. |
 | `origin.refresh` | `{"project":"team/app"}` | current `origin` state after contact. Failed contact returns `status:"unknown"` and retains the prior completed observation as stale presentation data. |
 | `origin.inspect` | Same as refresh | current `origin` state without contact. |
 | `origin.sources` | `{"project":"team/app","after":"optional-ref","limit":1..16}` | `project`, `origin_url`, `status`, `observation_status`, `observed_at`, `refs` (`ref`, `oid`, `commit_oid`), `next`. Refs are bytewise ordered and paged; `next` is empty at the end. |
 | `origin.publication.preview` | `{"project":"team/app","expected_origin_url":"ssh://host/repo","kind":"session","source":"session-UUID","source_oid":"<exact P tip>","destination_ref":"refs/heads/main"}`; `kind:"retained"` uses a P branch name in `source` | `preview` with project, origin URL, source kind/identity/ref/OID, destination ref and observed OID or absence, relation, and `workspace_status:"unknown"`. This contacts the origin afresh. |
-| `origin.publish` | Same source fields as preview, plus `"key":"idempotency-key"` | `publication` with the preview and `status` (`created`, `advanced`, `satisfied`, `refused`, or `outcome_unknown`). This performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. |
+| `origin.publish` | Same source fields as preview, plus `"key":"idempotency-key"` | `operation` of kind `origin.publish`, returned at once. Its worker performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. The operation's evidence holds `publication`, the preview and `status` (`created`, `advanced`, `satisfied`, `refused`, or `outcome_unknown`). |
 | `project.retained_branches` | `{"project":"team/app","after":"optional-full-P-head-ref","limit":1..8}` | `branches` with `branch`, full `ref`, and tip `oid`, plus `next`. The cursor traverses P Git refs, so a page may be empty while `next` is nonempty if its refs are assigned to live sessions. |
 | `project.retained.rename` | `{"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key answer `invalid` with reason `key_reused`. |
 | `project.retained.delete.preview` | `{"project":"team/app","branch":"saved"}` | `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
@@ -431,13 +433,17 @@ rename and deletion and the project deletion methods in this table need the
 An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
 or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
 `diagnostic`. `origin.sources` labels retained refs `stale` when current status
-is `unknown`; they cannot authorize source selection or publication. A
-completed `origin.change` key replays its committed result without contacting
-the origin. Reusing a key with different inputs answers `invalid` with reason
+is `unknown`; they cannot authorize source selection or publication. An
+`origin.change` key replays its operation without contacting the origin.
+Reusing a key with different inputs answers `invalid` with reason
 `key_reused`, and an `expected_url` that no longer holds answers
-`precondition_failed` with reason `changed`. Interrupted
-preparations retry the same contact and compare-and-swap. Origin URL and SSH
-credentials stay on the host.
+`precondition_failed` with reason `changed` and records nothing. A failed
+contact ends the operation `failed` with reason `origin`; an origin changed
+between the request and its worker ends it `failed` with reason `changed`.
+A failed origin change is not retried: send a new request with a new key. A
+change interrupted by a daemon restart runs again at start, with the same
+contact and compare-and-swap. Origin URL and SSH credentials stay on the
+host.
 
 Retained branch rename guards both P names while it creates the destination
 with an absent-ref compare-and-swap and deletes only the exact old source tip.
@@ -457,20 +463,26 @@ that marker. An uncertain issued deletion remains guarded and is never
 reissued; exact ref absence permits completion. It does not delete origin
 refs, sibling refs, sessions, runtimes, images, or credentials.
 
-Publication requires an established session with no unfinished lifecycle
-operation or ref guard, or a retained branch with no live session assignment.
-The exact `source_oid` must still be that P branch's tip. The preview is
+Publication requires an established session with no unfinished operation or
+ref guard, or a retained branch with no live session assignment. The exact
+`source_oid` must still be that P branch's tip. The preview is
 informational; `origin.publish` requires the same `expected_origin_url` that
-the developer reviewed. The URL is persisted with the request key, and a changed
-origin answers `precondition_failed` with reason `changed` before any contact or
-push. Reusing a key with another URL answers `invalid` with reason
-`key_reused`, including after restart or a pre-start failure. The action
-rechecks facts under the project origin lock and excludes assignment/ref
-mutations through the shared Git authority lock. Publication keys share one namespace with creation and origin-change
-keys. A completed key replays its recorded outcome without contacting Git. If
-a push may have started but the daemon lost its result, the key replays
-`outcome_unknown` and never starts another push. A new explicit request and key
-can perform another fresh comparison. Runtime workspace divergence is currently
+the developer reviewed. The request checks these facts before it records the
+operation, so a changed origin answers `precondition_failed` with reason
+`changed` before any contact or push, and records nothing. The URL is
+persisted with the request key; reusing a key with another URL answers
+`invalid` with reason `key_reused`, including after restart. A session's
+publication holds the session while it runs. Its worker rechecks the facts
+under the project origin lock and excludes assignment/ref mutations through
+the shared Git authority lock; one that no longer holds ends the operation
+`failed` with its reason. Publication keys share one namespace with every
+other operation's key. A key replays its operation without contacting Git.
+Before the push, the operation records phase `push-issued`. A push whose
+outcome is unknown, or a daemon that stopped after `push-issued`, ends the
+operation `failed` with reason `outcome_unknown`, and it never starts another
+push; a push that failed before starting ends it `failed` with reason
+`origin`, its evidence holding the preview and no status. Neither is retried: a new explicit request and key can perform
+another fresh comparison. Runtime workspace divergence is currently
 unobservable at this API boundary, so the preview reports `unknown`; only the
 committed P tip is eligible for publication.
 
@@ -519,9 +531,10 @@ confirmation token. Its fields, each present only when the kind has it, are
 `branch`, the P branch named or held by the session at acceptance;
 `new_branch` for a rename; `choice`, `source` and `origin_ref` for a session
 creation; `replaces_session` and `replaces_branch` for a replacement, naming
-the retired creation and the branch it held; and `url` for a project created
-with an origin. A client that repeats a change with the same key can compare
-it without reading live state.
+the retired creation and the branch it held; `url` for a project created
+with an origin and for an origin change's set; and `destination` for a
+publication, beside the `session` or the `branch` it publishes. A client that
+repeats a change with the same key can compare it without reading live state.
 
 ### Start and stop
 
@@ -1162,7 +1175,7 @@ it.
 | `conflict` | `operation_blocked` | A blocked operation holds the target and waits for `operation.retry`; `target` names it. |
 | `conflict` | `operation_superseded` | `operation.retry` of an operation that a replacement or cleanup superseded. |
 | `conflict` | `operation_not_retryable` | `operation.retry` of an operation that cannot run again, such as a cleanup that found its review stale. |
-| `conflict` | `operation_unfinished` | An unfinished origin change, publication or branch guard holds the project. |
+| `conflict` | `operation_unfinished` | A branch guard holds the project. |
 | `conflict` | `policy_invalid` | The project's policy no longer holds on this host: its stored snapshot changed, a filesystem grant changed, or the public egress configuration changed. |
 | `conflict` | `principal_missing` | The session's Git identity or key is missing, revoked or changed; discard the session and create a new one. |
 | `conflict` | `public_egress_unassigned` | A session on the public network holds no address slot. |

@@ -2,6 +2,10 @@ package control
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -33,7 +37,7 @@ func (a OriginAPI) PreviewPublication(ctx context.Context, r PublicationRequest)
 			return err
 		}
 		defer a.Store.gitAuthority.Unlock()
-		url, ref, err := a.publicationContext(ctx, r)
+		url, ref, err := a.publicationContext(ctx, r, "")
 		if err != nil {
 			return err
 		}
@@ -53,7 +57,8 @@ func (a OriginAPI) PreviewPublication(ctx context.Context, r PublicationRequest)
 // publicationContext returns the origin URL and the source's P ref. A
 // local-only project has no origin to publish to, whatever URL the request
 // expected; an origin other than the expected one was changed since review.
-func (a OriginAPI) publicationContext(ctx context.Context, r PublicationRequest) (string, string, error) {
+// except is the publication's own operation, which holds a session source.
+func (a OriginAPI) publicationContext(ctx context.Context, r PublicationRequest, except string) (string, string, error) {
 	state, _, err := a.Store.Origin(ctx, r.Project)
 	if err != nil {
 		return "", "", err
@@ -64,7 +69,7 @@ func (a OriginAPI) publicationContext(ctx context.Context, r PublicationRequest)
 	if state.URL != r.ExpectedOriginURL {
 		return "", "", Stale(api.ReasonChanged)
 	}
-	ref, err := a.Store.PublicationSource(ctx, r)
+	ref, err := a.Store.PublicationSource(ctx, r, except)
 	if err != nil {
 		return "", "", err
 	}
@@ -84,85 +89,116 @@ func (a OriginAPI) observeForPublication(ctx context.Context, scope PublicationS
 	return a.Store.StoreOriginRefresh(writeCtx, project, url, refs, "")
 }
 
-// PublishPublication marks the key attempted before invoking the external push.
-// A crash after that boundary replays outcome_unknown without another contact.
-func (a OriginAPI) PublishPublication(ctx context.Context, r PublicationRequest) (api.Publication, error) {
+// Publish records publication r as an operation of kind origin.publish and
+// queues it, once the project has the expected origin and the source can be
+// published: its worker publishes (RunPublication).
+func (a OriginAPI) Publish(ctx context.Context, r PublicationRequest) (api.Operation, error) {
 	if !validPublicationRequest(r) || r.Key == "" || len(r.Key) > 128 {
-		return api.Publication{}, ErrInvalid
+		return api.Operation{}, ErrInvalid
 	}
-	if result, status, err := a.Store.PublicationRecord(ctx, r); err != nil || status == "completed" || status == "attempted" {
-		return result, err
+	if _, ok := a.Runner.(PublicationRunner); !ok {
+		return api.Operation{}, NotConfigured(api.ReasonGit)
 	}
+	op, err := a.Store.BeginPublication(ctx, r, func(ctx context.Context) (string, error) {
+		_, ref, err := a.publicationContext(ctx, r, "")
+		return strings.TrimPrefix(ref, "refs/heads/"), err
+	})
+	if err != nil || op.Status != "running" {
+		return op, err
+	}
+	return op, a.Queue(op.ID)
+}
+
+// RunPublication is the work of publication op. In the project's origin
+// scope and under the Git authority it checks the source and origin again,
+// observes the origin and compares the destination: a destination that
+// diverged is refused, one that has the commit is satisfied, and otherwise
+// it records push-issued before the one ordinary push. The operation
+// completes with the publication in its evidence. A push whose outcome is
+// unknown, or a resumed operation already at push-issued, ends failed with
+// reason outcome_unknown and is never pushed again.
+func (a OriginAPI) RunPublication(ctx context.Context, op api.Operation) {
+	var r PublicationRequest
 	runner, ok := a.Runner.(PublicationRunner)
-	if !ok {
-		return api.Publication{}, NotConfigured(api.ReasonGit)
+	if json.Unmarshal(op.Request, &r) != nil || !ok {
+		a.fail(ctx, op, ErrInvalid)
+		return
 	}
-	var result api.Publication
+	if op.Phase == "push-issued" {
+		a.fail(ctx, op, OutcomeUnknown(errors.New("the daemon stopped after issuing the push")))
+		return
+	}
 	err := runner.WithPublication(ctx, r.Project, func(scope PublicationScope) error {
 		if err := a.Store.lockGitAuthority(ctx); err != nil {
 			return err
 		}
 		defer a.Store.gitAuthority.Unlock()
-		replay, status, e := a.Store.PreparePublication(ctx, r)
-		if e != nil {
-			return e
+		url, ref, err := a.publicationContext(ctx, r, op.ID)
+		if err != nil {
+			return err
 		}
-		if status == "completed" || status == "attempted" {
-			result = replay
-			return nil
+		if err = a.observeForPublication(ctx, scope, r.Project, url); err != nil {
+			return err
 		}
-		url, ref, e := a.publicationContext(ctx, r)
-		if e != nil {
-			return e
-		}
-		if e = a.observeForPublication(ctx, scope, r.Project, url); e != nil {
-			return e
-		}
-		preview, e := scope.PreviewPublication(ctx, ref, r.SourceOID, r.DestinationRef)
-		if e != nil {
-			return e
+		preview, err := scope.PreviewPublication(ctx, ref, r.SourceOID, r.DestinationRef)
+		if err != nil {
+			return err
 		}
 		preview.SourceKind, preview.Source, preview.WorkspaceStatus = r.Kind, r.Source, "unknown"
-		result.Preview = preview
-		if preview.Relation == "divergent" {
+		result := api.Publication{Preview: preview}
+		switch preview.Relation {
+		case "divergent":
 			result.Status = "refused"
-		} else if preview.Relation == "equal" || preview.Relation == "destination_contains" {
+		case "equal", "destination_contains":
 			result.Status = "satisfied"
 		}
 		if result.Status != "" {
-			return a.Store.UpdatePublication(ctx, r.Key, "prepared", "completed", result)
+			return a.endPublication(ctx, &op, "completed", "", result, nil)
 		}
-		// Persist the uncertainty boundary before any possible network side effect.
+		// Record the uncertainty boundary before any possible network effect.
 		result.Status = "outcome_unknown"
-		durableCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		e = a.Store.UpdatePublication(durableCtx, r.Key, "prepared", "attempted", result)
-		cancel()
-		if e != nil {
-			return e
+		evidence, err := json.Marshal(api.PublicationEvidence{Publication: result})
+		if err != nil {
+			return err
 		}
-		result, e = scope.PublishPublication(ctx, preview)
-		if e != nil {
-			e = Failed(api.ReasonOrigin, e)
-			// The closed Git broker returns an error only when no native push
-			// started. Its started-process failures are outcome_unknown values.
-			durableCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			rearmErr := a.Store.RearmPublication(durableCtx, r.Key)
-			cancel()
-			if rearmErr != nil {
-				return rearmErr
-			}
-			return e
+		if err = a.Store.AdvanceOperation(ctx, op.ID, "running", "push-issued", false, evidence, "", ""); err != nil {
+			return err
 		}
-		result.Preview.SourceKind, result.Preview.Source, result.Preview.WorkspaceStatus = r.Kind, r.Source, "unknown"
-		durableCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		saveErr := a.Store.UpdatePublication(durableCtx, r.Key, "attempted", "completed", result)
-		cancel()
-		if saveErr != nil {
-			return saveErr
+		op.Phase, op.Evidence = "push-issued", evidence
+		pushed, err := scope.PublishPublication(ctx, preview)
+		if err != nil {
+			// The source broker returns an error only when no native push
+			// started; a started push that failed is an outcome_unknown result.
+			op.Phase = "compared"
+			return a.endPublication(ctx, &op, "failed", api.ReasonOrigin, api.Publication{Preview: preview}, err)
 		}
-		return nil
+		op.Committed = true
+		pushed.Preview.SourceKind, pushed.Preview.Source, pushed.Preview.WorkspaceStatus = r.Kind, r.Source, "unknown"
+		if pushed.Status == "outcome_unknown" {
+			return a.endPublication(ctx, &op, "failed", api.ReasonOutcomeUnknown, pushed, errors.New("push outcome unknown"))
+		}
+		return a.endPublication(ctx, &op, "completed", "", pushed, nil)
 	})
-	return result, err
+	if err != nil {
+		a.fail(ctx, op, err)
+	}
+}
+
+// endPublication records publication op's end, status with reason, and
+// result as its evidence; cause is the failure's detail.
+func (a OriginAPI) endPublication(ctx context.Context, op *api.Operation, status, reason string, result api.Publication, cause error) error {
+	evidence, err := json.Marshal(api.PublicationEvidence{Publication: result})
+	if err != nil {
+		return err
+	}
+	phase, diagnostic := "completed", ""
+	if status == "failed" {
+		phase, diagnostic = op.Phase, cause.Error()
+	}
+	if err = a.Store.AdvanceOperation(ctx, op.ID, status, phase, op.Committed, evidence, reason, diagnostic); err != nil {
+		log.Printf("recording the end of publication %s: %v", op.ID, err)
+	}
+	return nil
 }
 
 // addPublicationMethods serves origin.publication.preview and origin.publish.
@@ -171,8 +207,7 @@ func addPublicationMethods(t *MethodTable, origins OriginAPI) {
 		preview, e := origins.PreviewPublication(ctx, PublicationRequest{ExpectedOriginURL: r.ExpectedOriginURL, Project: r.Project, Kind: r.Kind, Source: r.Source, SourceOID: r.SourceOID, DestinationRef: r.DestinationRef})
 		return api.PublicationPreviewResult{Preview: preview}, e
 	})
-	Register(t, api.OriginPublish, func(ctx context.Context, r api.OriginPublishRequest) (api.OriginPublishResult, error) {
-		publication, e := origins.PublishPublication(ctx, PublicationRequest(r))
-		return api.OriginPublishResult{Publication: publication}, e
+	Register(t, api.OriginPublish, func(ctx context.Context, r api.OriginPublishRequest) (api.OperationResult, error) {
+		return operationResult(origins.Publish(ctx, PublicationRequest(r)))
 	})
 }

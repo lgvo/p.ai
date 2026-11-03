@@ -99,7 +99,7 @@ const (
 	ReasonRuntimePresent         = "runtime_present"          // a container of the session exists where the request expected none
 	ReasonOperationBlocked       = "operation_blocked"        // a blocked operation holds the target and waits for Retry
 	ReasonOperationSuperseded    = "operation_superseded"     // the operation was replaced and cannot run again
-	ReasonOperationUnfinished    = "operation_unfinished"     // an unfinished origin change, publication or branch guard holds the project
+	ReasonOperationUnfinished    = "operation_unfinished"     // a branch guard holds the project
 	ReasonOperationNotRetryable  = "operation_not_retryable"  // the operation's kind cannot be retried from its state
 	ReasonPolicyInvalid          = "policy_invalid"           // the project's policy is not configured or no longer holds
 	ReasonPrincipalMissing       = "principal_missing"        // the session's Git identity is missing or revoked

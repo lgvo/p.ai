@@ -23,6 +23,8 @@ const (
 	KindRetainedDelete = "project.retained.delete"
 	KindSessionStart   = "session.start"
 	KindSessionStop    = "session.stop"
+	KindOriginChange   = "origin.change"
+	KindOriginPublish  = "origin.publish"
 )
 
 // UnfinishedOperations lists every running or blocked operation in the order
@@ -80,6 +82,62 @@ func keyRecordsRequest(ctx context.Context, q queryRower, key, kind string, requ
 		return false, KeyReused()
 	}
 	return true, nil
+}
+
+// recorded returns the operation that an identical earlier request of kind
+// recorded under key; replayed is false when key is unused. A key recorded
+// for another request, or retired with its project, is reused.
+func (s *Store) recorded(ctx context.Context, key, kind string, request []byte) (op api.Operation, replayed bool, err error) {
+	if err = s.checkRetiredKey(ctx, key); err != nil {
+		return api.Operation{}, false, err
+	}
+	same, err := keyRecordsRequest(ctx, s.db, key, kind, request)
+	if err != nil || !same {
+		return api.Operation{}, false, err
+	}
+	op, err = s.GetOperationByKey(ctx, key)
+	return op, err == nil, err
+}
+
+// insertForProject records new operation r of r.Project in a journal
+// transaction of its own, which also checks that the project is active and
+// that check, if any, holds. An identical request recorded meanwhile under
+// r.Key is returned instead.
+func (s *Store) insertForProject(ctx context.Context, r operationRecord, check func(queryRower) error) (api.Operation, error) {
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	defer j.Rollback()
+	if same, err := keyRecordsRequest(ctx, j, r.Key, r.Kind, r.Request); err != nil || same {
+		if err != nil {
+			return api.Operation{}, err
+		}
+		return getOperationTx(ctx, j.Tx, r.Key)
+	}
+	var registry string
+	err = j.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, r.Project).Scan(&registry)
+	if errors.Is(err, sql.ErrNoRows) {
+		return api.Operation{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
+	}
+	if err != nil {
+		return api.Operation{}, err
+	}
+	if registry != "active" {
+		return api.Operation{}, Conflict(api.ReasonProjectDeleting, api.TargetProject(r.Project))
+	}
+	if check != nil {
+		if err = check(j); err != nil {
+			return api.Operation{}, err
+		}
+	}
+	if err = j.insert(ctx, r); err != nil {
+		return api.Operation{}, classifyWrite(err)
+	}
+	if err = j.commit(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	return r.operation(), nil
 }
 
 // operationRecord is a new journal row; every operation starts running.

@@ -38,6 +38,8 @@ type lifecycle struct {
 	ctx                    context.Context
 	mu                     sync.Mutex
 	working                map[string]bool
+	gitOnly                bool // no runtime: only kinds marked withoutRuntime run
+	origins                *control.OriginAPI
 	onlyRunning            map[string]bool // queued resumptions: run only while still running
 	pending                []string
 	queueSlots             chan struct{}
@@ -308,10 +310,9 @@ func (l *lifecycle) Recover() error {
 		}
 		after = next
 	}
-	if err := l.resumeRunning(); err != nil {
+	if err := l.recoverJournal(); err != nil {
 		return err
 	}
-	go l.schedule()
 	// Images left unused while the daemon was down go once recovery is under way.
 	after = ""
 	for {
@@ -327,6 +328,16 @@ func (l *lifecycle) Recover() error {
 		}
 		after = next
 	}
+}
+
+// recoverJournal resumes the journal's running work and schedules it every
+// second from then on.
+func (l *lifecycle) recoverJournal() error {
+	if err := l.resumeRunning(); err != nil {
+		return err
+	}
+	go l.schedule()
+	return nil
 }
 
 // schedule resumes running work every second: an operation whose worker
@@ -382,7 +393,7 @@ func (l *lifecycle) queue(id string, onlyRunning bool) error {
 	}
 	if l.store != nil {
 		op, err := l.store.GetOperation(l.ctx, id)
-		if err == nil && onlyRunning && op.Status != "running" {
+		if err == nil && (onlyRunning && op.Status != "running" || !l.runs(op.Kind)) {
 			return nil
 		}
 		if err == nil {
@@ -421,6 +432,12 @@ func (l *lifecycle) queue(id string, onlyRunning bool) error {
 	l.pending = append(l.pending, id)
 	l.dispatchLocked()
 	return nil
+}
+
+// runs reports whether this daemon runs operations of kind: without a
+// runtime, only the kinds marked withoutRuntime.
+func (l *lifecycle) runs(kind string) bool {
+	return !l.gitOnly || operationKinds[kind].withoutRuntime
 }
 
 // dispatchLocked starts only as many workers as the execution limit allows.
@@ -760,9 +777,6 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 		}
 	}
 	if req.OriginRef != "" {
-		if err := l.store.CheckOriginKeyConflict(ctx, req.Key); err != nil {
-			return api.Operation{}, err
-		}
 		if priorErr == nil {
 			op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error) {
 				return control.CapturedSource{}, control.ErrConflict
@@ -875,6 +889,9 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 	kind, known := operationKinds[op.Kind]
 	if !known {
 		return op, control.Conflict(api.ReasonOperationNotRetryable, api.TargetOperation(op.ID))
+	}
+	if !l.runs(op.Kind) {
+		return op, control.NotConfigured(api.ReasonRuntime)
 	}
 	if op.Status == "superseded" {
 		return op, control.Conflict(api.ReasonOperationSuperseded, api.TargetOperation(op.ID))

@@ -94,9 +94,6 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if !time.Now().Before(expiry) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
-	if err = s.CheckOriginKeyConflict(ctx, intent.New.Key); err != nil {
-		return api.Operation{}, err
-	}
 	if err = s.checkReplacementCapacity(ctx, observe); err != nil {
 		return api.Operation{}, err
 	}

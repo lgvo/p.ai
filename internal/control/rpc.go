@@ -57,7 +57,10 @@ type HandlerConfig struct {
 	Git       GitReader
 	GitInfo   *api.GitInfo
 	Lifecycle LifecycleAPI
-	Origins   *OriginAPI
+	// Operations runs the journal's work; the Lifecycle runs it when there is
+	// one.
+	Operations OperationAPI
+	Origins    *OriginAPI
 }
 
 // MethodTable maps each method of the protocol to its handler.
@@ -194,6 +197,12 @@ func newMethodTable(c HandlerConfig) *MethodTable {
 	}
 	if c.Lifecycle != nil {
 		addLifecycleMethods(t, c.Store, c.Lifecycle)
+	}
+	if ops := c.Operations; ops != nil || c.Lifecycle != nil {
+		if ops == nil {
+			ops = c.Lifecycle
+		}
+		addOperationMethods(t, c.Store, ops)
 	}
 	if c.Origins != nil {
 		addOriginMethods(t, *c.Origins)

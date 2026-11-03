@@ -175,7 +175,7 @@ func TestRetrySchedulesUnfinishedKnownOperations(t *testing.T) {
 	}
 	n++
 	rows = append(rows,
-		row{"unknown kind", f.operation(t, "origin.change", "blocked", "", "", false), outcome{control.ErrConflict, "blocked", false, api.ReasonOperationNotRetryable}},
+		row{"unknown kind", f.operation(t, "project.archive", "blocked", "", "", false), outcome{control.ErrConflict, "blocked", false, api.ReasonOperationNotRetryable}},
 		row{"stale failed-create cleanup", f.operation(t, "session.create.cleanup", "failed", "stale", sessionUUID(n+1), false), outcome{control.ErrConflict, "failed", false, api.ReasonOperationNotRetryable}},
 	)
 	cleaned := sessionUUID(n + 2)

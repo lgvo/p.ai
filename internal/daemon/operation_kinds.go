@@ -21,6 +21,8 @@ type operationKind struct {
 	// removal is the condition of a session this kind is removing; empty when
 	// the kind removes no session.
 	removal string
+	// withoutRuntime marks a kind a daemon with Git and no runtime runs.
+	withoutRuntime bool
 }
 
 // operationKinds is filled by init: its workers schedule work through enqueue,
@@ -41,6 +43,8 @@ func init() {
 		control.KindRetainedDelete: {process: (*lifecycle).processRetainedDelete},
 		control.KindSessionStart:   {process: (*lifecycle).processSessionChange},
 		control.KindSessionStop:    {process: (*lifecycle).processSessionChange},
+		control.KindOriginChange:   {process: (*lifecycle).processOriginChange, withoutRuntime: true},
+		control.KindOriginPublish:  {process: (*lifecycle).processPublication, withoutRuntime: true},
 	}
 }
 

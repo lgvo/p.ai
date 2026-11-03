@@ -87,10 +87,10 @@ func (s *Store) CheckPluginRemovalDependencies(ctx context.Context, digest strin
 			return errors.Join(e, rowErr)
 		}
 	}
-	// Origin/publication rows do not pin a source module independently. Pending
-	// requests require the current selected capability for exact recovery.
+	// Origin operations do not pin a source module independently. Unfinished
+	// ones require the current selected capability for exact recovery.
 	var pending int
-	if e := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM origin_requests WHERE status='prepared')+(SELECT count(*) FROM publication_requests WHERE status IN ('prepared','attempted'))`).Scan(&pending); e != nil {
+	if e := s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE kind IN (?,?) AND status IN ('running','blocked')`, KindOriginChange, KindOriginPublish).Scan(&pending); e != nil {
 		return e
 	}
 	if pending != 0 {

@@ -138,19 +138,25 @@ func surfaceHandler(t *testing.T, config surfaceConfig) (Handler, *surfaceCalls)
 	t.Helper()
 	calls := &surfaceCalls{}
 	var life LifecycleAPI
+	var ops OperationAPI
 	switch config {
+	case surfaceGit:
+		// Without a runtime the daemon runs the journal's work itself;
+		// only its OperationAPI methods are reachable.
+		ops = coreLife{calls}
 	case surfaceCoreLifecycle:
 		life = coreLife{calls}
 	case surfaceFullLifecycle:
 		life = fullLife{coreLife{calls}}
 	}
-	h, _ := surfaceHandlerFor(t, config != surfaceStateOnly, life)
+	h, _ := surfaceHandlerFor(t, config != surfaceStateOnly, life, ops)
 	return h, calls
 }
 
 // surfaceHandlerFor builds the handler around life, or without runtime when
-// life is nil, and returns its store.
-func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI) (Handler, *Store) {
+// life is nil, with ops running the journal's work then, and returns its
+// store.
+func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI, ops OperationAPI) (Handler, *Store) {
 	t.Helper()
 	store, _ := openTestStore(t)
 	if err := store.CreateProject(context.Background(), "team/app", json.RawMessage(`{}`)); err != nil {
@@ -159,7 +165,7 @@ func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI) (Handler, *Sto
 	if !git {
 		return NewHandler(HandlerConfig{Store: store}), store
 	}
-	return NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &api.GitInfo{Endpoint: "127.0.0.1:2222"}, Lifecycle: life,
+	return NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &api.GitInfo{Endpoint: "127.0.0.1:2222"}, Lifecycle: life, Operations: ops,
 		Origins: &OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}}), store
 }
 
@@ -332,6 +338,24 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 	}
 }
 
+// TestGitOnlyHandlerRoutesOperationWork checks that without a runtime the
+// journal's Retry and waits route to the handler's OperationAPI.
+func TestGitOnlyHandlerRoutesOperationWork(t *testing.T) {
+	for _, test := range []struct{ method, params, call string }{
+		{"operation.retry", `{"id":"op-1"}`, "Retry op-1"},
+		{"operation.wait", `{"id":"op-1","timeout":5}`, "WaitOperation op-1 5s"},
+	} {
+		h, calls := surfaceHandler(t, surfaceGit)
+		result, rpcErr := surfaceCall(t, h, context.Background(), test.method, test.params)
+		if rpcErr != nil || !reflect.DeepEqual(calls.calls, []string{test.call}) {
+			t.Fatalf("%s answered %v %v, calls %q", test.method, result, rpcErr, calls.calls)
+		}
+		if operation, ok := result["operation"].(map[string]any); !ok || operation["id"] != "op-1" {
+			t.Errorf("%s answered %v, want operation op-1", test.method, result)
+		}
+	}
+}
+
 func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 	uuid, token := surfaceUUID, surfaceToken
 	for _, test := range []struct{ method, params string }{
@@ -440,7 +464,7 @@ func TestStoreBackedLifecycleReads(t *testing.T) {
 }
 
 func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
-	h, store := surfaceHandlerFor(t, true, fullLife{coreLife{&surfaceCalls{}}})
+	h, store := surfaceHandlerFor(t, true, fullLife{coreLife{&surfaceCalls{}}}, nil)
 	dropOperationInsertTriggers(t, store)
 	long := strings.Repeat("d", 600)
 	// Accepted out of their IDs' order: the journal lists them as accepted.

@@ -130,7 +130,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		}
 		defer tx.Rollback()
 		var journal int
-		e = tx.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM origin_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=? LIMIT 1`, req.Key, req.Key, req.Key).Scan(&journal)
+		e = tx.QueryRowContext(ctx, `SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=?`, req.Key).Scan(&journal)
 		if e == nil {
 			return api.Operation{}, Session{}, true, KeyReused()
 		}
@@ -241,28 +241,6 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		return api.Operation{}, Session{}, err
 	}
 	return rec.operation(), Session{UUID: sid, Project: req.Project, Branch: req.Branch, Registry: "creating", Policy: json.RawMessage(policy), PolicySHA256: policyHash}, nil
-}
-
-func (s *Store) CheckOriginKeyConflict(ctx context.Context, key string) error {
-	if e := s.checkRetiredKey(ctx, key); e != nil {
-		return e
-	}
-	var exists int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=?`, key).Scan(&exists)
-	if err == nil {
-		return KeyReused()
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM origin_requests WHERE idempotency_key=?`, key).Scan(&exists)
-	if err == nil {
-		return KeyReused()
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	return err
 }
 
 func validFingerprint(s string) bool { return api.ValidFingerprint(s) }

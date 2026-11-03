@@ -129,7 +129,8 @@ wait_operation() {
     result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
-    if { test "$status" = blocked || test "$status" = completed; } && test "$status" != "$expected"; then
+    if { test "$status" = blocked || test "$status" = completed || test "$status" = failed; } &&
+      test "$status" != "$expected"; then
       echo "unexpected operation state: $result" >&2
       return 1
     fi
@@ -433,8 +434,9 @@ fi
 # disappear, an exact replay and Retry still use the same operation and OID.
 replacement=$(rpc origin.change "$(jq -nc --arg old "$full_url" --arg url "$empty_url" \
   '{key:"replace-after-capture",project:"origin-full",kind:"set",expected_url:$old,url:$url}')")
-jq -e --arg url "$empty_url" '.result.origin | .url==$url and .status=="fresh" and .ref_count==0' \
-  <<< "$replacement" >/dev/null
+wait_operation "$(operation_id "$replacement")" completed >/dev/null
+rpc origin.inspect '{"project":"origin-full"}' | jq -e --arg url "$empty_url" \
+  '.result.origin | .url==$url and .status=="fresh" and .ref_count==0' >/dev/null
 expect_error precondition_failed changed session.create "$(jq -nc --arg oid "$first" \
   '{key:"after-replacement",project:"origin-full",branch:"new-after",choice:"new",
     origin_ref:"refs/tags/v1",expected_commit_oid:$oid}')"
@@ -445,7 +447,8 @@ daemon_pid=
 start_daemon
 test "$(rpc session.create "$branch_request" | jq -er '.result.operation.id')" = "$branch_id"
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
-rpc system.inspect | jq -e '.result.sessions==3 and .result.operations==4' >/dev/null
+# The tag creation and the origin change are the fourth and fifth operations.
+rpc system.inspect | jq -e '.result.sessions==3 and .result.operations==5' >/dev/null
 retry=$(rpc operation.retry "$(jq -nc --arg id "$branch_id" '{id:$id}')")
 test "$(operation_id "$retry")" = "$branch_id"
 release_on_running "$branch_uuid" "$branch_id"

@@ -60,7 +60,6 @@ expect_error() {
   case "$kind" in
     invalid) code=-32602 ;;
     precondition_failed) code=-32013 ;;
-    failed) code=-32017 ;;
     *) echo "unknown expected RPC error kind: $kind" >&2; return 1 ;;
   esac
   if response=$(rpc "$method" "$params" 2> "$step_dir/api.err"); then
@@ -79,6 +78,23 @@ change() {
     --arg expected "$expected" --arg url "$url" \
     '{key:$key,project:$project,kind:$kind,expected_url:$expected} +
      (if $kind == "set" then {url:$url} else {} end)')"
+}
+# wait_change ANSWER STATUS: waits until the origin.change operation that
+# ANSWER returned stops running, with STATUS, and prints the operation.wait
+# answer.
+wait_change() {
+  local expected="$2" id result status deadline=$((SECONDS+60))
+  id=$(jq -er '.result.operation | select(.kind == "origin.change") | .id' <<< "$1") || return 1
+  while ((SECONDS < deadline)); do
+    result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')") || return 1
+    status=$(jq -er '.result.operation.status' <<< "$result") || return 1
+    if test "$status" = running; then continue; fi
+    if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
+    echo "unexpected origin change state: $result" >&2
+    return 1
+  done
+  echo "origin change $id is still running" >&2
+  return 1
 }
 inspect() { rpc origin.inspect "$(jq -nc --arg project "$1" '{project:$project}')"; }
 refresh() { rpc origin.refresh "$(jq -nc --arg project "$1" '{project:$project}')"; }
@@ -184,16 +200,27 @@ bad_url=pdev@origin-unreachable:full.git
 jq -n --arg state "$state" --arg activation "$activation" --arg id "$plugin_id" \
   '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$activation,source_plugin_id:$id,listen:"127.0.0.1:0"}}' > "$config"
 start_daemon
-rpc system.hello | jq -e '.result.capabilities | index("git") != null' >/dev/null
+# A Git-only daemon advertises only git, yet serves the operation methods that
+# origin changes are waited on with.
+rpc system.hello | jq -e '.result.capabilities == ["git"]' >/dev/null
 inspect app | jq -e '.result.origin | .status == "local-only" and .ref_count == 0 and (has("url") | not)' >/dev/null
 trace_before=$(wc -l < "$step_dir/origin.trace")
 refresh app | jq -e '.result.origin.status == "local-only"' >/dev/null
 test "$(wc -l < "$step_dir/origin.trace")" = "$trace_before"
-expect_error failed origin origin.change "$(jq -nc --arg url "$bad_url" '{key:"initial-failure",project:"app",kind:"set",expected_url:"",url:$url}')"
+# A change that cannot contact its origin is accepted, then ends failed.
+initial_failure=$(change initial-failure app set '' "$bad_url")
+failure=$(wait_change "$initial_failure" failed)
+jq -e '.result.operation | .reason == "origin" and (.diagnostic | length > 0)' <<< "$failure" >/dev/null
 inspect app | jq -e '.result.origin.status == "local-only"' >/dev/null
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
+# A failed change is not retried: its key replays the failed operation.
+test "$(change initial-failure app set '' "$bad_url" | jq -c '.result')" = "$(jq -c '.result' <<< "$failure")"
 
-set_result=$(change initial-full app set '' "$full_url")
+initial_full=$(change initial-full app set '' "$full_url")
+jq -e --arg url "$full_url" '.result.operation | .kind == "origin.change" and .status == "running" and
+  .project == "app" and .intent == {project:"app",url:$url}' <<< "$initial_full" >/dev/null
+wait_change "$initial_full" completed >/dev/null
+set_result=$(inspect app)
 jq -e --arg url "$full_url" '.result.origin | .url == $url and .status == "fresh" and .ref_count == 3 and (.observed_at | length > 0)' <<< "$set_result" >/dev/null
 inspect other | jq -e '.result.origin.status == "local-only"' >/dev/null
 first_page=$(sources app '' 1)
@@ -207,8 +234,9 @@ sources app refs/heads/zzz 1 | jq -e --arg oid "$first" --arg tag "$tag_oid" \
   '.result | .refs == [{ref:"refs/tags/v1",oid:$tag,commit_oid:$oid}] and .next == ""' >/dev/null
 full_sources=$(sources app '' 16 | jq -c '.result.refs')
 expect_error precondition_failed changed origin.change "$(jq -nc --arg url "$empty_url" '{key:"stale-cas",project:"app",kind:"set",expected_url:"",url:$url}')"
-expect_error failed origin origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
-  '{key:"failed-replacement",project:"app",kind:"set",expected_url:$old,url:$url}')"
+failed_replacement=$(change failed-replacement app set "$full_url" "$bad_url")
+wait_change "$failed_replacement" failed |
+  jq -e '.result.operation | .reason == "origin" and (.diagnostic | length > 0)' >/dev/null
 test "$(inspect app | jq -c '.result.origin')" = "$(jq -c '.result.origin' <<< "$set_result")"
 test "$(sources app '' 16 | jq -c '.result.refs')" = "$full_sources"
 
@@ -221,13 +249,15 @@ test "$(sources app '' 16 | jq -c '.result.refs')" = "$full_sources"
 write_ssh_config "$fixture_ssh/id_origin"
 refresh app | jq -e '.result.origin.status == "fresh" and .result.origin.ref_count == 3' >/dev/null
 replacement=$(change replace-empty app set "$full_url" "$empty_url")
-jq -e --arg url "$empty_url" '.result.origin | .url == $url and .status == "fresh" and .ref_count == 0' <<< "$replacement" >/dev/null
+replacement=$(wait_change "$replacement" completed)
+inspect app | jq -e --arg url "$empty_url" '.result.origin | .url == $url and .status == "fresh" and .ref_count == 0' >/dev/null
 sources app '' 1 | jq -e '.result | .refs == [] and .next == "" and .observation_status == "fresh"' >/dev/null
 
-# The completed key replays its recorded response even when contact is lost.
+# The completed key replays its operation, without contact, even once contact
+# is lost.
 write_ssh_config "$step_dir/missing-key"
 trace_before=$(wc -l < "$step_dir/origin.trace")
-test "$(change replace-empty app set "$full_url" "$empty_url" | jq -c '.result.origin')" = "$(jq -c '.result.origin' <<< "$replacement")"
+test "$(change replace-empty app set "$full_url" "$empty_url" | jq -c '.result')" = "$(jq -c '.result' <<< "$replacement")"
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 expect_error invalid key_reused origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
   '{key:"replace-empty",project:"app",kind:"set",expected_url:$old,url:$url}')" field=key
@@ -236,11 +266,12 @@ daemon_pid=
 start_daemon
 inspect app | jq -e --arg url "$empty_url" '.result.origin | .url == $url and .status == "fresh" and .ref_count == 0' >/dev/null
 sources app '' 1 | jq -e '.result | .refs == [] and .next == "" and .observation_status == "fresh"' >/dev/null
-test "$(change replace-empty app set "$full_url" "$empty_url" | jq -c '.result.origin')" = "$(jq -c '.result.origin' <<< "$replacement")"
+test "$(change replace-empty app set "$full_url" "$empty_url" | jq -c '.result')" = "$(jq -c '.result' <<< "$replacement")"
 
 # Removal and refresh of a local-only project never contact SSH.
 removed=$(change remove-empty app remove "$empty_url")
-jq -e '.result.origin | .status == "local-only" and .ref_count == 0 and (has("url") | not)' <<< "$removed" >/dev/null
+wait_change "$removed" completed | jq -e '.result.operation.intent == {project:"app"}' >/dev/null
+inspect app | jq -e '.result.origin | .status == "local-only" and .ref_count == 0 and (has("url") | not)' >/dev/null
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 refresh app | jq -e '.result.origin.status == "local-only"' >/dev/null
 sources app '' 1 | jq -e '.result | .origin_url == "" and .observation_status == "none" and .refs == []' >/dev/null

@@ -86,13 +86,20 @@ func SummarizeOperation(o api.Operation) api.OperationSummary {
 	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Intent: o.Intent, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Reason: o.Reason, Diagnostic: o.Diagnostic, Image: CreationImageView(o)}
 }
 
-type LifecycleAPI interface {
-	CreateProject(context.Context, BlankProjectRequest) (api.Operation, error)
-	CreateSession(context.Context, ReserveSessionRequest) (api.Operation, error)
+// OperationAPI runs the operation journal's work: it waits for and retries
+// operations. With Git configured the daemon serves it, with a runtime too
+// as part of the lifecycle.
+type OperationAPI interface {
 	Retry(context.Context, string) (api.Operation, error)
 	// WaitOperation returns the operation as soon as it is not running, or
 	// when the timeout passes with it still running.
 	WaitOperation(context.Context, string, time.Duration) (api.Operation, error)
+}
+
+type LifecycleAPI interface {
+	OperationAPI
+	CreateProject(context.Context, BlankProjectRequest) (api.Operation, error)
+	CreateSession(context.Context, ReserveSessionRequest) (api.Operation, error)
 	InspectSession(context.Context, string) (api.SessionView, error)
 	// StartSession and StopSession record an operation that starts or stops
 	// the session, or record nothing when it is already as asked.
@@ -181,29 +188,6 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 				return api.SessionListResult{Sessions: views, Next: next}
 			})
 	})
-	Register(t, api.OperationInspect, func(ctx context.Context, r api.OperationInspectRequest) (api.OperationResult, error) {
-		return operationResult(store.GetOperation(ctx, r.ID))
-	})
-	Register(t, api.OperationList, func(ctx context.Context, r api.OperationListRequest) (api.OperationListResult, error) {
-		ops, next, e := store.ListOperations(ctx, r.After, r.Limit)
-		if e != nil {
-			return api.OperationListResult{}, e
-		}
-		return boundedPage(ops, next, func(o ListedOperation) string { return o.Cursor },
-			func(ops []ListedOperation, next string) api.OperationListResult {
-				summaries := make([]api.OperationSummary, 0, len(ops))
-				for _, o := range ops {
-					summaries = append(summaries, SummarizeOperation(o.Operation))
-				}
-				return api.OperationListResult{Operations: summaries, Next: next}
-			})
-	})
-	Register(t, api.OperationWait, func(ctx context.Context, r api.OperationWaitRequest) (api.OperationResult, error) {
-		return operationResult(life.WaitOperation(ctx, r.ID, time.Duration(r.Timeout)*time.Second))
-	})
-	Register(t, api.OperationRetry, func(ctx context.Context, r api.OperationRetryRequest) (api.OperationResult, error) {
-		return operationResult(life.Retry(ctx, r.ID))
-	})
 	if service, ok := life.(ServiceAPI); ok {
 		addServiceMethods(t, service)
 	}
@@ -272,6 +256,34 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 			return operationResult(cleanup.ConfirmCreateCleanup(ctx, r.UUID, r.Key, r.ConfirmationToken))
 		})
 	}
+}
+
+// addOperationMethods serves the operation journal: its reads, waits and
+// Retry.
+func addOperationMethods(t *MethodTable, store *Store, ops OperationAPI) {
+	Register(t, api.OperationInspect, func(ctx context.Context, r api.OperationInspectRequest) (api.OperationResult, error) {
+		return operationResult(store.GetOperation(ctx, r.ID))
+	})
+	Register(t, api.OperationList, func(ctx context.Context, r api.OperationListRequest) (api.OperationListResult, error) {
+		ops, next, e := store.ListOperations(ctx, r.After, r.Limit)
+		if e != nil {
+			return api.OperationListResult{}, e
+		}
+		return boundedPage(ops, next, func(o ListedOperation) string { return o.Cursor },
+			func(ops []ListedOperation, next string) api.OperationListResult {
+				summaries := make([]api.OperationSummary, 0, len(ops))
+				for _, o := range ops {
+					summaries = append(summaries, SummarizeOperation(o.Operation))
+				}
+				return api.OperationListResult{Operations: summaries, Next: next}
+			})
+	})
+	Register(t, api.OperationWait, func(ctx context.Context, r api.OperationWaitRequest) (api.OperationResult, error) {
+		return operationResult(ops.WaitOperation(ctx, r.ID, time.Duration(r.Timeout)*time.Second))
+	})
+	Register(t, api.OperationRetry, func(ctx context.Context, r api.OperationRetryRequest) (api.OperationResult, error) {
+		return operationResult(ops.Retry(ctx, r.ID))
+	})
 }
 
 // operationResult wraps the operation a lifecycle change returns.

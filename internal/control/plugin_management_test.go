@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T) {
@@ -65,18 +66,26 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e != nil {
 		t.Fatal("an indexed commit image blocked package removal", e)
 	}
-	for _, q := range []string{`INSERT INTO origin_requests(idempotency_key,project_path,kind,expected_url,proposed_url,status,created_at) VALUES('origin','app','set','','ssh://example/repo','prepared','now')`, `INSERT INTO publication_requests(idempotency_key,project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,created_at) VALUES('publication','app','ssh://example/repo','retained','refs/heads/main','oid','refs/heads/main','attempted','now')`} {
-		if _, e = s.db.Exec(q); e != nil {
+	// An unfinished origin change and a publication past its push boundary.
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, r := range []operationRecord{
+		{ID: "origin", Key: "origin", Kind: KindOriginChange, Project: "app", Request: []byte(`{}`), Phase: "accepted", Now: now},
+		{ID: "publication", Key: "publication", Kind: KindOriginPublish, Project: "app", Request: []byte(`{}`), Phase: "push-issued", Committed: true, Now: now},
+	} {
+		if e = insertOperation(ctx, s, r); e != nil {
 			t.Fatal(e)
 		}
 	}
 	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e == nil {
 		t.Fatal("pending external recovery permitted removal")
 	}
-	if _, e = s.db.Exec(`UPDATE origin_requests SET status='completed'`); e != nil {
+	if e = s.AdvanceOperation(ctx, "origin", "completed", "completed", false, nil, "", ""); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.db.Exec(`UPDATE publication_requests SET status='completed'`); e != nil {
+	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e == nil {
+		t.Fatal("pending publication permitted removal")
+	}
+	if e = s.AdvanceOperation(ctx, "publication", "completed", "completed", true, nil, "", ""); e != nil {
 		t.Fatal(e)
 	}
 	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e != nil {
