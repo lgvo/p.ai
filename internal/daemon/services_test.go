@@ -65,7 +65,7 @@ func servicesRequestInFlight(t *testing.T, l *lifecycle, session, unit, action s
 	}
 	go func() {
 		defer close(done)
-		_, _ = l.SessionServices(context.Background(), session, unit, action)
+		_, _ = l.observeServices(context.Background(), session, unit, action)
 	}()
 	<-paused
 	ended := false
@@ -84,12 +84,12 @@ func TestStopWaitsForAServicesReadInsteadOfBeingRefused(t *testing.T) {
 	ctx := context.Background()
 	for _, c := range []struct{ action, unit string }{
 		{"list", ""},
-		{"journal", "p-project-notes-db.service"},
+		{"logs", "p-project-notes-db.service"},
 	} {
 		t.Run(c.action, func(t *testing.T) {
 			l, session := servicesLifecycle(t)
 			end := servicesRequestInFlight(t, l, session.UUID, c.unit, c.action)
-			if _, err := l.SessionServices(ctx, session.UUID, "", "list"); errors.Is(err, control.ErrConflict) {
+			if _, err := l.observeServices(ctx, session.UUID, "", "list"); errors.Is(err, control.ErrConflict) {
 				t.Fatalf("a services %s in flight refused another read", c.action)
 			}
 			answer := make(chan error, 1)
@@ -101,7 +101,7 @@ func TestStopWaitsForAServicesReadInsteadOfBeingRefused(t *testing.T) {
 			// read is refused.
 			deadline := time.Now().Add(10 * time.Second)
 			for {
-				if _, err := l.SessionServices(ctx, session.UUID, "", "list"); errors.Is(err, control.ErrConflict) {
+				if _, err := l.observeServices(ctx, session.UUID, "", "list"); errors.Is(err, control.ErrConflict) {
 					break
 				}
 				if time.Now().After(deadline) {
@@ -150,7 +150,7 @@ func TestStopIsRefusedDuringAServiceAction(t *testing.T) {
 func TestServicesReadIsRefusedWhileAServiceActionHoldsTheSession(t *testing.T) {
 	l, session := servicesLifecycle(t)
 	servicesRequestInFlight(t, l, session.UUID, "p-project-notes-db.service", "restart")
-	if _, err := l.SessionServices(context.Background(), session.UUID, "", "list"); !errors.Is(err, control.ErrConflict) {
+	if _, err := l.observeServices(context.Background(), session.UUID, "", "list"); !errors.Is(err, control.ErrConflict) {
 		t.Fatalf("services read admitted while a service action held the session: %v", err)
 	}
 }

@@ -52,7 +52,7 @@ def sql(query):
 
 def action(unit, verb):
     return rpc("session.service.action", uuid=session,
-               unit=f"p-project-notes-{unit}.service", action=verb)
+               name=f"p-project-notes-{unit}.service", action=verb)
 
 
 def wait_jobs():

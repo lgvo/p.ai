@@ -20,7 +20,7 @@ def run_notes(driver):
     owned_file = uuid_file.with_name("owned-uuids")
     project = "notes58"
     observation_depth = 0
-    read_methods = {"session.list", "session.inspect", "session.services", "session.service.journal",
+    read_methods = {"session.list", "session.inspect", "session.services", "session.service.logs",
                     "project.branches", "project.retained_branches"}
 
     def await_state(test, label):
@@ -111,8 +111,11 @@ def run_notes(driver):
                     "notes attachment lease ended")
         expect("All project sessions")
 
+    # The API reports P's service states; the TUI rows show systemd's words.
+    api_states = {"active": "running", "inactive": "stopped", "failed": "failed"}
+
     def service_state(uuid, unit, state):
-        return any(item["unit"] == "p-project-notes-" + unit + ".service" and item["active_state"] == state
+        return any(item["name"] == "p-project-notes-" + unit + ".service" and item["state"] == api_states[state]
                    for item in rpc("session.services", uuid=uuid)["services"])
 
     service_states = {"active": ("active (running)",), "failed": ("failed (failed)",),
@@ -167,8 +170,8 @@ def run_notes(driver):
         await_state(loaded, "selected " + unit + " journal UI loaded visible rows")
         # The visible row can be clipped, and the read-only API observation
         # may briefly share authority with the UI's journal request.
-        await_state(lambda: content in rpc("session.service.journal", uuid=uuid,
-                                         unit=name).get("journal", ""),
+        await_state(lambda: content in rpc("session.service.logs", uuid=uuid,
+                                         name=name).get("logs", ""),
                     "native " + unit + " journal contains " + content)
 
     # Actual blank project creation and Back editing precede first source.

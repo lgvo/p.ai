@@ -960,45 +960,30 @@ control session.services (services)
     uuid string
   result
     uuid string
-    services array of object (optional)
-      unit string
+    services array of object
+      name string
       description string
-      active_state string
-      sub_state string
-    unit string (optional)
-    journal string (optional)
-    journal_truncated boolean (optional)
+      state string
+      detail string
     observed_at string
 control session.service.action (services)
   request
     uuid string
-    unit string
+    name string
     action string
   result
     uuid string
-    services array of object (optional)
-      unit string
-      description string
-      active_state string
-      sub_state string
-    unit string (optional)
-    journal string (optional)
-    journal_truncated boolean (optional)
+    name string
     observed_at string
-control session.service.journal (services)
+control session.service.logs (services)
   request
     uuid string
-    unit string
+    name string
   result
     uuid string
-    services array of object (optional)
-      unit string
-      description string
-      active_state string
-      sub_state string
-    unit string (optional)
-    journal string (optional)
-    journal_truncated boolean (optional)
+    name string
+    logs string (optional)
+    logs_truncated boolean (optional)
     observed_at string
 session session.identity
   request

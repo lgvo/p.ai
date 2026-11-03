@@ -61,8 +61,14 @@ func (l coreLife) StopSession(_ context.Context, id string) (api.SessionView, er
 // fullLife implements every optional lifecycle API as well.
 type fullLife struct{ coreLife }
 
-func (l fullLife) SessionServices(_ context.Context, id, unit, action string) (api.ServiceResult, error) {
-	return api.ServiceResult{UUID: id, Unit: unit, ObservedAt: "now"}, l.record("SessionServices %s %s %s", id, unit, action)
+func (l fullLife) SessionServices(_ context.Context, id string) (api.SessionServicesResult, error) {
+	return api.SessionServicesResult{UUID: id, Services: []api.ProjectService{}, ObservedAt: "now"}, l.record("SessionServices %s", id)
+}
+func (l fullLife) SessionServiceAction(_ context.Context, id, name, action string) (api.SessionServiceActionResult, error) {
+	return api.SessionServiceActionResult{UUID: id, Name: name, ObservedAt: "now"}, l.record("SessionServiceAction %s %s %s", id, name, action)
+}
+func (l fullLife) SessionServiceLogs(_ context.Context, id, name string) (api.SessionServiceLogsResult, error) {
+	return api.SessionServiceLogsResult{UUID: id, Name: name, ObservedAt: "now"}, l.record("SessionServiceLogs %s %s", id, name)
 }
 func (l fullLife) AttachSession(_ context.Context, id string) (api.PendingAttachment, error) {
 	return api.PendingAttachment{Token: "pending"}, l.record("AttachSession %s", id)
@@ -284,9 +290,9 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		{"session.inspect", `{"uuid":"` + uuid + `"}`, "InspectSession " + uuid, []string{"session"}, uuid},
 		{"session.start", `{"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"session"}, uuid},
 		{"session.stop", `{"uuid":"` + uuid + `"}`, "StopSession " + uuid, []string{"session"}, uuid},
-		{"session.services", `{"uuid":"` + uuid + `"}`, "SessionServices " + uuid + "  list", []string{"observed_at", "uuid"}, ""},
-		{"session.service.journal", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`, "SessionServices " + uuid + " " + surfaceUnit + " journal", []string{"observed_at", "unit", "uuid"}, ""},
-		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"restart"}`, "SessionServices " + uuid + " " + surfaceUnit + " restart", []string{"observed_at", "unit", "uuid"}, ""},
+		{"session.services", `{"uuid":"` + uuid + `"}`, "SessionServices " + uuid, []string{"observed_at", "services", "uuid"}, ""},
+		{"session.service.logs", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `"}`, "SessionServiceLogs " + uuid + " " + surfaceUnit, []string{"name", "observed_at", "uuid"}, ""},
+		{"session.service.action", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `","action":"restart"}`, "SessionServiceAction " + uuid + " " + surfaceUnit + " restart", []string{"name", "observed_at", "uuid"}, ""},
 		{"session.attach", `{"uuid":"` + uuid + `"}`, "AttachSession " + uuid, []string{"expires_at", "spec", "token"}, ""},
 		{"attachment.confirm", `{"operation":"/1.0/operations/` + uuid + `"}`, "ConfirmAttachment /1.0/operations/" + uuid, nil, ""},
 		{"attachment.ping", `{}`, "", nil, ""},
@@ -354,11 +360,12 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		{"session.inspect", `{"uuid":"bad"}`},
 		{"session.start", `{}`},
 		{"session.stop", `{"uuid":"` + uuid + `","extra":1}`},
-		{"session.services", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`},
-		{"session.service.journal", `{"uuid":"` + uuid + `","unit":"sshd.service"}`},
-		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"reload"}`},
+		{"session.services", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `"}`},
+		{"session.service.logs", `{"uuid":"` + uuid + `","name":"sshd.service"}`},
+		{"session.service.action", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `","action":"reload"}`},
+		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"restart"}`},
 		{"session.service.action", `{"uuid":"` + uuid + `","action":"list"}`},
-		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"journal"}`},
+		{"session.service.action", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `","action":"logs"}`},
 		{"system.health", `null`},
 		{"system.inspect", `[]`},
 		{"attachment.ping", `null`},
@@ -501,7 +508,7 @@ func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
 		{"project confirm cancelled", "project.delete.confirm", projectConfirm, context.Canceled, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
 		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review"}},
 		{"services conflict", "session.services", services, ErrConflict, api.RPCError{Code: -32003, Kind: "busy", Message: "lifecycle request conflicts with current authority"}},
-		{"services other", "session.services", services, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project services unavailable; require a ready owned runtime, session user manager, and compatible selected runtime package"}},
+		{"services other", "session.services", services, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project services unavailable; require a ready owned runtime and session user manager"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
@@ -546,6 +553,7 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		{"removed cache preview", surfaceFullLifecycle, "environment.cache.preview", `{}`, unknown},
 		{"removed cache collection", surfaceFullLifecycle, "environment.cache.collect", `{}`, unknown},
 		{"removed workspace inspection", surfaceFullLifecycle, "workspace.inspect", `{}`, unknown},
+		{"renamed service journal", surfaceFullLifecycle, "session.service.journal", `{}`, unknown},
 		{"cleanup without its API", surfaceCoreLifecycle, "session.create.cleanup.preview", `{"uuid":"` + surfaceUUID + `"}`, notConfigured("runtime")},
 		{"removed session.repair.preview", surfaceFullLifecycle, "session.repair.preview", `{}`, unknown},
 		{"removed session.repair.confirm", surfaceFullLifecycle, "session.repair.confirm", `{}`, unknown},

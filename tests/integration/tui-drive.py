@@ -205,7 +205,7 @@ try:
         expect("p-project-demo.service")
         send("s")
         service_ui_ready("active (running)")
-        await_state(lambda: any(s["unit"] == "p-project-demo.service" and s["active_state"] == "active"
+        await_state(lambda: any(s["name"] == "p-project-demo.service" and s["state"] == "running"
                                for s in rpc("session.services", uuid=uuid)["services"]), "native user service start")
         # Wait for the TUI's own post-action inventory before navigating.
         expect("active (running)")
@@ -217,12 +217,12 @@ try:
         time.sleep(0.2)
         send("q"); expect("Project services")
         expect("p-project-demo.service")
-        previous = await_state(lambda: rpc("session.service.journal", uuid=uuid, unit="p-project-demo.service")["journal"].count("P_TUI_PROJECT_JOURNAL"),
+        previous = await_state(lambda: rpc("session.service.logs", uuid=uuid, name="p-project-demo.service")["logs"].count("P_TUI_PROJECT_JOURNAL"),
                                "available baseline journal observation")
         read(0.2)
         service_ui_ready("active (running)")
         send("r")
-        await_state(lambda: rpc("session.service.journal", uuid=uuid, unit="p-project-demo.service")["journal"].count("P_TUI_PROJECT_JOURNAL") > previous,
+        await_state(lambda: rpc("session.service.logs", uuid=uuid, name="p-project-demo.service")["logs"].count("P_TUI_PROJECT_JOURNAL") > previous,
                     "native user service restart emitted a new journal entry")
         read(0.2)
         service_ui_ready("active (running)")

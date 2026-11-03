@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestServicesUseFixedUserCommandsAndDenyInfrastructure(t *testing.T) {
@@ -47,10 +49,14 @@ func TestServicesUseFixedUserCommandsAndDenyInfrastructure(t *testing.T) {
 		t.Fatal("invalid request crossed native boundary")
 	}
 	r, err := b.Services(context.Background(), testSession(), "", "list")
-	if err != nil || len(r.Services) != 2 || r.Services[1].ActiveState != "unknown" {
+	want := []api.ProjectService{
+		{Name: "p-project-api.service", Description: "API", State: api.ServiceRunning, Detail: "active (running)"},
+		{Name: "p-project-idle.service", Description: "Installed user unit; not loaded", State: api.ServiceStopped, Detail: "installed"},
+	}
+	if err != nil || !slices.Equal(r.Services, want) {
 		t.Fatalf("inventory: %+v %v", r, err)
 	}
-	for _, action := range []string{"start", "stop", "restart", "journal"} {
+	for _, action := range []string{"start", "stop", "restart", "logs"} {
 		if _, err = b.Services(context.Background(), testSession(), "p-project-api.service", action); err != nil {
 			t.Fatal(err)
 		}
@@ -181,14 +187,31 @@ func TestServiceOutputBoundsAndFailures(t *testing.T) {
 	if _, err := b.Services(context.Background(), testSession(), "", "list"); err == nil {
 		t.Fatal("oversized inventory accepted")
 	}
-	r, err := b.Services(context.Background(), testSession(), "p-project-api.service", "journal")
-	if err != nil || len(r.Journal) > 16000 {
-		t.Fatalf("journal bound: %d %v", len(r.Journal), err)
+	r, err := b.Services(context.Background(), testSession(), "p-project-api.service", "logs")
+	if err != nil || len(r.Logs) > 16000 {
+		t.Fatalf("log bound: %d %v", len(r.Logs), err)
 	}
 	b.run = func(context.Context, string, []string, []string) ([]byte, error) {
 		return nil, errors.New("unavailable")
 	}
 	if _, err = b.Services(context.Background(), testSession(), "p-project-api.service", "stop"); err == nil {
 		t.Fatal("unavailable authority claimed success")
+	}
+}
+
+// P's states for systemd's: an unloaded unit is stopped, and a state systemd
+// does not document is refused rather than guessed.
+func TestServiceStatesMapSystemdActiveStates(t *testing.T) {
+	for active, want := range map[string]api.ServiceState{
+		"inactive": api.ServiceStopped, "activating": api.ServiceStarting, "active": api.ServiceRunning,
+		"reloading": api.ServiceRunning, "refreshing": api.ServiceRunning, "deactivating": api.ServiceStopping,
+		"maintenance": api.ServiceStopping, "failed": api.ServiceFailed,
+	} {
+		if got, known := serviceState(active); !known || got != want {
+			t.Errorf("%s: %q %v, want %q", active, got, known, want)
+		}
+	}
+	if _, known := serviceState("unknown"); known {
+		t.Error("an undocumented state was mapped")
 	}
 }

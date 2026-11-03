@@ -348,13 +348,13 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		}
 		selected := ""
 		if m.cursor < len(m.services) {
-			selected = m.services[m.cursor].Unit
+			selected = m.services[m.cursor].Name
 		}
 		m.services = r.Services
 		m.servicesFresh = true
 		m.observeSelectedServices(r)
 		for i, s := range m.services {
-			if s.Unit == selected {
+			if s.Name == selected {
 				m.cursor = i
 			}
 		}
@@ -364,7 +364,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.queuedService = nil
 			if m.page == "services" && m.contextSession.UUID == intent.UUID {
 				for _, service := range m.services {
-					if service.Unit == intent.Unit {
+					if service.Name == intent.Unit {
 						return m.dispatchService(*intent)
 					}
 				}
@@ -373,9 +373,9 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		}
 	case api.SessionServiceAction.Name:
 		return m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID}))
-	case api.SessionServiceJournal.Name:
-		r := resultOf(v, api.SessionServiceJournal)
-		m.journal = strings.Split(strings.TrimSuffix(r.Journal, "\n"), "\n")
+	case api.SessionServiceLogs.Name:
+		r := resultOf(v, api.SessionServiceLogs)
+		m.journal = strings.Split(strings.TrimSuffix(r.Logs, "\n"), "\n")
 		if m.follow {
 			m.journalOffset = max(0, len(m.journal)-m.capacity())
 		}
@@ -470,7 +470,7 @@ func (m *Model) dispatchService(intent serviceIntent) tea.Cmd {
 		m.journalOffset, m.pan = 0, 0
 		m.follow = true
 		m.find = ""
-		return m.begin(callOf(api.SessionServiceJournal, api.SessionServiceJournalRequest{UUID: intent.UUID, Unit: intent.Unit}))
+		return m.begin(callOf(api.SessionServiceLogs, api.SessionServiceLogsRequest{UUID: intent.UUID, Name: intent.Unit}))
 	}
-	return m.begin(callOf(api.SessionServiceAction, api.SessionServiceActionRequest{UUID: intent.UUID, Unit: intent.Unit, Action: intent.Action}))
+	return m.begin(callOf(api.SessionServiceAction, api.SessionServiceActionRequest{UUID: intent.UUID, Name: intent.Unit, Action: intent.Action}))
 }

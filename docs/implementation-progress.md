@@ -926,16 +926,16 @@ P_SOURCE=refs/heads/main
 RUN=codex-acceptance-$(date +%s)
 CREATE_A=$(p api "$P_SOCKET" session.create "$(jq -nc --arg key "$RUN-a" \
   --arg project "$P_PROJECT" --arg branch "$RUN-a" --arg source "$P_SOURCE" \
-  '{v:1,key:$key,project:$project,branch:$branch,choice:"new",source:$source}')")
+  '{key:$key,project:$project,branch:$branch,choice:"new",source:$source}')")
 CREATE_B=$(p api "$P_SOCKET" session.create "$(jq -nc --arg key "$RUN-b" \
   --arg project "$P_PROJECT" --arg branch "$RUN-b" --arg source "$P_SOURCE" \
-  '{v:1,key:$key,project:$project,branch:$branch,choice:"new",source:$source}')")
+  '{key:$key,project:$project,branch:$branch,choice:"new",source:$source}')")
 SESSION_A=$(jq -er '.result.operation.session_uuid' <<< "$CREATE_A")
 SESSION_B=$(jq -er '.result.operation.session_uuid' <<< "$CREATE_B")
 ```
 
 For each returned `.result.operation.id`, call
-`p api "$P_SOCKET" operation.inspect "$(jq -nc --arg id "$OPERATION_ID" '{v:1,id:$id}')"`
+`p api "$P_SOCKET" operation.inspect "$(jq -nc --arg id "$OPERATION_ID" '{id:$id}')"`
 until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
 `failed`. Then check each `session.inspect` for `session_condition:"ready"`.
 
@@ -959,7 +959,7 @@ until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
 2. Ask Codex to make a small disposable workspace change and verify its result.
    Exercise activity, permission/input, and normal completion. Detach while it
    runs, then use `p api "$P_SOCKET" session.inspect
-   "{\"v\":1,\"uuid\":\"$SESSION_A\"}"` to check unattended status. Reattach
+   "{\"uuid\":\"$SESSION_A\"}"` to check unattended status. Reattach
    and verify that confirmed entry clears the unattended value and attached
    reports do not repopulate it. Reports identify the available Codex session
    scope or concrete thread; a child's completion does not mean its parent has
@@ -970,9 +970,9 @@ until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
    `codex login status` and a new real Codex task without another login.
 
    ```sh
-   p api "$P_SOCKET" session.stop "$(jq -nc --arg uuid "$SESSION_A" '{v:1,uuid:$uuid}')"
-   p api "$P_SOCKET" session.start "$(jq -nc --arg uuid "$SESSION_A" '{v:1,uuid:$uuid}')"
-   p api "$P_SOCKET" session.inspect "$(jq -nc --arg uuid "$SESSION_A" '{v:1,uuid:$uuid}')"
+   p api "$P_SOCKET" session.stop "$(jq -nc --arg uuid "$SESSION_A" '{uuid:$uuid}')"
+   p api "$P_SOCKET" session.start "$(jq -nc --arg uuid "$SESSION_A" '{uuid:$uuid}')"
+   p api "$P_SOCKET" session.inspect "$(jq -nc --arg uuid "$SESSION_A" '{uuid:$uuid}')"
    ```
 4. Enter B and confirm it has no authentication from A. Do not copy A's
    credential file into B. Then repeat initialization, hook trust and a separate
@@ -992,18 +992,18 @@ until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
    TARGET=$SESSION_A
    ACTION=discard
    LOSS=$(p api "$P_SOCKET" workspace.loss.inspect "$(jq -nc \
-     --arg key "$RUN-$ACTION-loss" --arg uuid "$TARGET" '{v:1,key:$key,uuid:$uuid}')")
+     --arg key "$RUN-$ACTION-loss" --arg uuid "$TARGET" '{key:$key,uuid:$uuid}')")
    LOSS_ID=$(jq -er '.result.operation.id' <<< "$LOSS")
    # Poll operation.inspect for LOSS_ID until completed before continuing.
    PREVIEW=$(p api "$P_SOCKET" session.removal.preview "$(jq -nc \
      --arg uuid "$TARGET" --arg kind "$ACTION" --arg loss "$LOSS_ID" \
-     '{v:1,uuid:$uuid,kind:$kind,loss_operation_id:$loss}')")
+     '{uuid:$uuid,kind:$kind,loss_operation_id:$loss}')")
    jq '.result.preview' <<< "$PREVIEW"
    # Only after reviewing and accepting the named losses:
    TOKEN=$(jq -er '.result.preview.confirmation_token' <<< "$PREVIEW")
    REMOVE=$(p api "$P_SOCKET" "session.$ACTION" "$(jq -nc \
      --arg key "$RUN-$ACTION" --arg uuid "$TARGET" --arg token "$TOKEN" \
-     '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')")
+     '{key:$key,uuid:$uuid,confirmation_token:$token}')")
    # Poll the returned operation ID until completed; old session.inspect and
    # p attach must then fail; verify the unrelated session described below.
    ```
@@ -1013,7 +1013,7 @@ until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
    ```sh
    RECREATE=$(p api "$P_SOCKET" session.create "$(jq -nc --arg key "$RUN-replacement" \
      --arg project "$P_PROJECT" --arg branch "$RUN-a" \
-     '{v:1,key:$key,project:$project,branch:$branch,choice:"existing"}')")
+     '{key:$key,project:$project,branch:$branch,choice:"existing"}')")
    REPLACEMENT=$(jq -er '.result.operation.session_uuid' <<< "$RECREATE")
    # Poll its operation to completed and session.inspect to ready, then:
    p attach "$P_SOCKET" "$REPLACEMENT"

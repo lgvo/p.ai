@@ -14,8 +14,8 @@ guest() {
     --env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus -- "$@"
 }
 action() {
-  rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg unit "p-project-notes-$1.service" --arg action "$2" \
-    '{uuid:$uuid,unit:$unit,action:$action}')" >/dev/null
+  rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$1.service" --arg action "$2" \
+    '{uuid:$uuid,name:$name,action:$action}')" >/dev/null
 }
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 wait_ready() {

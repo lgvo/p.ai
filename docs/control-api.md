@@ -295,7 +295,7 @@ this daemon serves:
 |---|---|---|
 | `git` | The host configuration has a `git` object | `project.list`, `project.branches`, `project.retained_branches` and the six `origin.` methods |
 | `runtime` | The host configuration also has a `runtime` object, which requires `git` | Project and session creation; session inspection, listing, Start, Stop, attachment, removal and rename; operations; failed-creation replacement and cleanup; retained-branch rename and deletion; project deletion; the attachment helper's methods |
-| `services` | `runtime` is present; the daemon always serves project services with a runtime | `session.services`, `session.service.action` and `session.service.journal` |
+| `services` | `runtime` is present; the daemon always serves project services with a runtime | `session.services`, `session.service.action` and `session.service.logs` |
 
 Every daemon serves `system.hello`, `system.health`, `system.inspect` and
 `rpc.cancel`. The protocol, not the configuration, fixes which methods exist:
@@ -703,29 +703,36 @@ does not expose them.
 
 | Method | Additional params | Result |
 |---|---|---|
-| `session.services` | None | `uuid`, `observed_at`, optional `services` array with `unit`, `description`, `active_state`, `sub_state`; an omitted array means no units observed. |
-| `session.service.action` | `unit`, `action:"start"`, `"stop"` or `"restart"` | `uuid`, `unit`, `observed_at`; inspect inventory for subsequent state. |
-| `session.service.journal` | `unit` | `uuid`, `unit`, optional `journal` (omitted when empty), optional `journal_truncated`, `observed_at`. |
+| `session.services` | None | `uuid`, `observed_at`, and `services`, each with `name`, `description`, `state` and `detail`; an empty array means no units observed. |
+| `session.service.action` | `name`, `action:"start"`, `"stop"` or `"restart"` | `uuid`, `name`, `observed_at`; inspect inventory for subsequent state. |
+| `session.service.logs` | `name` | `uuid`, `name`, optional `logs` (omitted when empty), optional `logs_truncated`, `observed_at`. |
+
+`state` is P's: `stopped` (no process: never started, stopped or exited),
+`starting` (started, not ready yet), `running`, `stopping`, or `failed` (the
+last run failed; it stays until the next start). `detail` is the runtime's own
+words for the state, for display only; on Incus it is systemd's active and sub
+state, such as `active (running)`, or `installed` for an installed unit that
+the user manager has not loaded.
 
 Only session-user `p-project-*.service` names are admitted. No host/system unit,
 P infrastructure unit, arbitrary command, credential path, journal path, native
 Incus target, or free-form systemctl action can be supplied. An established,
-ready owned runtime and compatible selected runtime package are required.
+ready owned runtime is required.
 The daemon holds its session/workspace guards, uses selected WASI
 `runtime.services`, executes fixed commands under guest UID/GID 1000, and checks
 native identity/generation before accepting results. An action holds the
 session's lifecycle lock and answers `busy` while another lifecycle request
-holds it. The inventory and journal reads answer `busy` while a lifecycle
+holds it. The inventory and logs reads answer `busy` while a lifecycle
 request holds the lock, but never cause a `busy` answer: a request that takes
 the lock waits for running reads to end. See the
 [runtime service boundary](runtime-isolation.md#project-user-services).
 
 Inventory combines loaded user units with installed user unit files, at most
-64 distinct project units. An installed unit with no loaded observation has
-`active_state:"unknown"`, `sub_state:"not-loaded"`. Unavailable or oversized
-inventory fails rather than returning a misleading clean subset. Journal reads
-request at most 100 recent entries and bound the encoded result; they may return
-a truncated tail. Actions are synchronous and not durable operation receipts;
+64 distinct project units. An installed unit with no loaded observation is
+`stopped` with detail `installed`: the user manager unloads only inactive
+units. Unavailable or oversized inventory fails rather than returning a
+misleading clean subset. Logs reads request at most 100 recent journal entries
+and bound the encoded result; they may return a truncated tail. Actions are synchronous and not durable operation receipts;
 after an uncertain transport outcome inspect the unit before repeating.
 
 Origin-backed `session.create` additionally accepts optional

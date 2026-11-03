@@ -180,7 +180,11 @@ func (f *fixture) addSession(id, project, branch string) api.SessionView {
 	s := api.SessionView{UUID: id, Project: project, Branch: branch, Registry: "established", Condition: "stopped", PolicyCondition: "current", PolicySHA256: strings.Repeat("a", 64)}
 	f.sessions[id] = s
 	f.refs[project][branch] = tip
-	f.services[id] = []api.ProjectService{{Unit: "p-project-api.service", Description: "Mock notes API", ActiveState: "active", SubState: "running"}, {Unit: "p-project-database.service", Description: "Mock database", ActiveState: "active", SubState: "running"}, {Unit: "p-project-worker.service", Description: "Mock worker", ActiveState: "inactive", SubState: "dead"}}
+	f.services[id] = []api.ProjectService{
+		{Name: "p-project-api.service", Description: "Mock notes API", State: api.ServiceRunning, Detail: "active (running)"},
+		{Name: "p-project-database.service", Description: "Mock database", State: api.ServiceRunning, Detail: "active (running)"},
+		{Name: "p-project-worker.service", Description: "Mock worker", State: api.ServiceStopped, Detail: "inactive (dead)"},
+	}
 	return s
 }
 
@@ -601,37 +605,37 @@ func (f *fixture) remove(kind, id, token string) (api.SessionView, error) {
 }
 
 func (f *fixture) registerServices(t *control.MethodTable) {
-	control.Register(t, api.SessionServices, func(ctx context.Context, r api.SessionServicesRequest) (api.ServiceResult, error) {
+	control.Register(t, api.SessionServices, func(ctx context.Context, r api.SessionServicesRequest) (api.SessionServicesResult, error) {
 		services, _, err := f.units(r.UUID, "")
 		if err != nil {
-			return api.ServiceResult{}, err
+			return api.SessionServicesResult{}, err
 		}
 		if injected, _ := ctx.Value(faultKey{}).(fault); injected.ServicesEmpty {
 			services = []api.ProjectService{}
 		}
-		return api.ServiceResult{UUID: r.UUID, Services: services, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+		return api.SessionServicesResult{UUID: r.UUID, Services: services, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 	})
-	control.Register(t, api.SessionServiceAction, func(_ context.Context, r api.SessionServiceActionRequest) (api.ServiceResult, error) {
-		services, index, err := f.units(r.UUID, r.Unit)
+	control.Register(t, api.SessionServiceAction, func(_ context.Context, r api.SessionServiceActionRequest) (api.SessionServiceActionResult, error) {
+		services, index, err := f.units(r.UUID, r.Name)
 		if err != nil {
-			return api.ServiceResult{}, err
+			return api.SessionServiceActionResult{}, err
 		}
 		if r.Action == "stop" {
-			services[index].ActiveState, services[index].SubState = "inactive", "dead"
+			services[index].State, services[index].Detail = api.ServiceStopped, "inactive (dead)"
 		} else {
-			services[index].ActiveState, services[index].SubState = "active", "running"
+			services[index].State, services[index].Detail = api.ServiceRunning, "active (running)"
 		}
-		return api.ServiceResult{UUID: r.UUID, Unit: r.Unit, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+		return api.SessionServiceActionResult{UUID: r.UUID, Name: r.Name, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 	})
-	control.Register(t, api.SessionServiceJournal, func(_ context.Context, r api.SessionServiceJournalRequest) (api.ServiceResult, error) {
-		if _, _, err := f.units(r.UUID, r.Unit); err != nil {
-			return api.ServiceResult{}, err
+	control.Register(t, api.SessionServiceLogs, func(_ context.Context, r api.SessionServiceLogsRequest) (api.SessionServiceLogsResult, error) {
+		if _, _, err := f.units(r.UUID, r.Name); err != nil {
+			return api.SessionServiceLogsResult{}, err
 		}
-		journal := ""
+		logs := ""
 		for i := 1; i <= 90; i++ {
-			journal += fmt.Sprintf("mock %03d %s request=%d status=ok %s\n", i, r.Unit, i, strings.Repeat("wide-journal ", 14))
+			logs += fmt.Sprintf("mock %03d %s request=%d status=ok %s\n", i, r.Name, i, strings.Repeat("wide-journal ", 14))
 		}
-		return api.ServiceResult{UUID: r.UUID, Unit: r.Unit, Journal: journal, JournalTruncated: true, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+		return api.SessionServiceLogsResult{UUID: r.UUID, Name: r.Name, Logs: logs, LogsTruncated: true, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 	})
 }
 
@@ -647,7 +651,7 @@ func (f *fixture) units(id, unit string) ([]api.ProjectService, int, error) {
 	}
 	services := f.services[id]
 	for i, v := range services {
-		if v.Unit == unit {
+		if v.Name == unit {
 			return services, i, nil
 		}
 	}

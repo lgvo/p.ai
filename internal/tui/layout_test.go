@@ -17,7 +17,7 @@ func TestBrowserLayoutBoundsInformationAndPaging(t *testing.T) {
 		for i := 0; i < 120; i++ {
 			m.data.sessions = append(m.data.sessions, api.SessionView{UUID: fmt.Sprint(i), Project: "project-with-a-long-name", Branch: strings.Repeat("long-branch-", 9), Condition: "stopped"})
 		}
-		m.selectedServices = selectedServiceObservation{uuid: m.selected, state: "observed", units: []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "active", SubState: "running"}}}
+		m.selectedServices = selectedServiceObservation{uuid: m.selected, state: "observed", units: []api.ProjectService{{Name: "p-project-api.service", State: api.ServiceRunning, Detail: "active (running)"}}}
 		frame := ansi.Strip(m.View().Content)
 		if lines := strings.Split(frame, "\n"); len(lines) > m.height {
 			t.Fatalf("%v overflowed height", size)
@@ -96,7 +96,7 @@ func TestSessionDetailFactsUseInjectedSemanticStyles(t *testing.T) {
 	m.theme.Dark.Positive = "#112233"
 	m.theme.Dark.Warning = "#445566"
 	m.styles = m.theme.styles(true)
-	m.selectedServices = selectedServiceObservation{state: "observed", units: []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "active", SubState: "running"}}}
+	m.selectedServices = selectedServiceObservation{state: "observed", units: []api.ProjectService{{Name: "p-project-api.service", State: api.ServiceRunning, Detail: "active (running)"}}}
 	for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}} {
 		m.width, m.height = size[0], size[1]
 		frame := m.View().Content

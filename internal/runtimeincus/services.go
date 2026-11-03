@@ -16,11 +16,20 @@ import (
 
 func ValidProjectService(unit string) bool { return api.ValidProjectServiceUnit(unit) }
 
+// ServiceObservation is what one services call observed: the inventory for
+// list, the log tail for logs, and only the time for an action.
+type ServiceObservation struct {
+	Services      []api.ProjectService
+	Logs          string
+	LogsTruncated bool
+	ObservedAt    string
+}
+
 // Services executes only fixed user-manager commands, under the workspace UID.
 // A repository-controlled unit has no more authority than ordinary session work.
-func (b *Backend) Services(ctx context.Context, s Session, unit, action string) (api.ServiceResult, error) {
-	var result api.ServiceResult
-	if action != "list" && action != "journal" && action != "start" && action != "stop" && action != "restart" {
+func (b *Backend) Services(ctx context.Context, s Session, unit, action string) (ServiceObservation, error) {
+	var result ServiceObservation
+	if action != "list" && action != "logs" && action != "start" && action != "stop" && action != "restart" {
 		return result, errors.New("unsupported service action")
 	}
 	if action == "list" && unit != "" || action != "list" && !ValidProjectService(unit) {
@@ -38,7 +47,7 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 	switch action {
 	case "list":
 		args = append(args, "/usr/libexec/p/systemctl", "--user", "list-units", "--all", "--type=service", "--no-pager", "--plain", "--output=json", "p-project-*.service")
-	case "journal":
+	case "logs":
 		args = append(args, "/usr/libexec/p/journalctl", "--user-unit="+unit, "--no-pager", "--output=short-iso", "-n", "100")
 	default:
 		args = append(args, "/usr/libexec/p/systemctl", "--user", "--no-pager", action, unit)
@@ -62,24 +71,24 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 	if err != nil || !after.Exists || after.IncusUUID != before.IncusUUID || after.Generation != before.Generation || after.Status != "Running" {
 		return result, errors.New("runtime identity changed during service observation/action")
 	}
-	result = api.ServiceResult{UUID: s.SessionUUID, Unit: unit, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if action == "journal" {
-		// Keep the RPC bounded even for long journal messages. This is a tail.
+	result = ServiceObservation{ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	if action == "logs" {
+		// Keep the RPC bounded even for long log messages. This is a tail.
 		if len(raw) > 16000 {
-			result.JournalTruncated = true
+			result.LogsTruncated = true
 			raw = raw[len(raw)-16000:]
 		}
-		result.Journal = strings.ToValidUTF8(string(raw), "�")
+		result.Logs = strings.ToValidUTF8(string(raw), "�")
 		for {
-			encoded, e := json.Marshal(result)
+			encoded, e := json.Marshal(api.SessionServiceLogsResult{UUID: s.SessionUUID, Name: unit, Logs: result.Logs, LogsTruncated: result.LogsTruncated, ObservedAt: result.ObservedAt})
 			if e != nil {
-				return api.ServiceResult{}, e
+				return ServiceObservation{}, e
 			}
 			if len(encoded) <= 48000 {
 				break
 			}
-			result.JournalTruncated = true
-			result.Journal = strings.ToValidUTF8(result.Journal[len(result.Journal)/4:], "�")
+			result.LogsTruncated = true
+			result.Logs = strings.ToValidUTF8(result.Logs[len(result.Logs)/4:], "�")
 		}
 	} else if action == "list" {
 		var rows []struct {
@@ -89,37 +98,57 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 			Sub         string `json:"sub"`
 		}
 		if len(raw) > 32000 || json.Unmarshal(raw, &rows) != nil || len(rows) > 64 {
-			return api.ServiceResult{}, errors.New("service inventory exceeds bounds or is invalid")
+			return ServiceObservation{}, errors.New("service inventory exceeds bounds or is invalid")
 		}
 		result.Services = make([]api.ProjectService, 0, len(rows))
 		for _, r := range rows {
-			if !ValidProjectService(r.Unit) || len(r.Description) > 256 || len(r.Active) > 32 || len(r.Sub) > 32 || strings.IndexFunc(r.Description+r.Active+r.Sub, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
-				return api.ServiceResult{}, errors.New("invalid project service inventory")
+			state, known := serviceState(r.Active)
+			if !known || !ValidProjectService(r.Unit) || len(r.Description) > 256 || len(r.Sub) > 32 || strings.IndexFunc(r.Description+r.Sub, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+				return ServiceObservation{}, errors.New("invalid project service inventory")
 			}
-			result.Services = append(result.Services, api.ProjectService{Unit: r.Unit, Description: r.Description, ActiveState: r.Active, SubState: r.Sub})
+			result.Services = append(result.Services, api.ProjectService{Name: r.Unit, Description: r.Description, State: state, Detail: r.Active + " (" + r.Sub + ")"})
 		}
 		for _, f := range files {
 			unit := path.Base(f.UnitFile)
 			if !ValidProjectService(unit) {
-				return api.ServiceResult{}, errors.New("invalid installed project service")
+				return ServiceObservation{}, errors.New("invalid installed project service")
 			}
 			found := false
 			for _, s := range result.Services {
-				if s.Unit == unit {
+				if s.Name == unit {
 					found = true
 					break
 				}
 			}
 			if !found {
-				result.Services = append(result.Services, api.ProjectService{Unit: unit, Description: "Installed user unit; not loaded", ActiveState: "unknown", SubState: "not-loaded"})
+				// The manager unloads only inactive units.
+				result.Services = append(result.Services, api.ProjectService{Name: unit, Description: "Installed user unit; not loaded", State: api.ServiceStopped, Detail: "installed"})
 			}
 		}
 		if len(result.Services) > 64 {
-			return api.ServiceResult{}, errors.New("combined service inventory exceeds bounds")
+			return ServiceObservation{}, errors.New("combined service inventory exceeds bounds")
 		}
-		sort.Slice(result.Services, func(i, j int) bool { return result.Services[i].Unit < result.Services[j].Unit })
+		sort.Slice(result.Services, func(i, j int) bool { return result.Services[i].Name < result.Services[j].Name })
 	}
 	return result, nil
+}
+
+// serviceState is P's state for systemd's active state; known is false for a
+// state systemd does not document.
+func serviceState(active string) (state api.ServiceState, known bool) {
+	switch active {
+	case "inactive":
+		return api.ServiceStopped, true
+	case "activating":
+		return api.ServiceStarting, true
+	case "active", "reloading", "refreshing":
+		return api.ServiceRunning, true
+	case "deactivating", "maintenance":
+		return api.ServiceStopping, true
+	case "failed":
+		return api.ServiceFailed, true
+	}
+	return "", false
 }
 
 // systemctl list-unit-files exits 1 when the glob matches no installed units,

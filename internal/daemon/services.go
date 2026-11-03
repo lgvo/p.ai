@@ -12,7 +12,7 @@ import (
 type serviceBroker struct {
 	runtimeincus.Scoped
 	unit, action string
-	result       api.ServiceResult
+	result       runtimeincus.ServiceObservation
 }
 
 func (b *serviceBroker) Services(ctx context.Context) (plugin.RuntimeState, error) {
@@ -24,16 +24,33 @@ func (b *serviceBroker) Services(ctx context.Context) (plugin.RuntimeState, erro
 	return plugin.RuntimeState{Exists: true, Status: "Running"}, nil
 }
 
-func (l *lifecycle) SessionServices(ctx context.Context, id, unit, action string) (api.ServiceResult, error) {
-	var zero api.ServiceResult
+func (l *lifecycle) SessionServices(ctx context.Context, id string) (api.SessionServicesResult, error) {
+	o, err := l.observeServices(ctx, id, "", "list")
+	return api.SessionServicesResult{UUID: id, Services: o.Services, ObservedAt: o.ObservedAt}, err
+}
+
+func (l *lifecycle) SessionServiceAction(ctx context.Context, id, name, action string) (api.SessionServiceActionResult, error) {
+	o, err := l.observeServices(ctx, id, name, action)
+	return api.SessionServiceActionResult{UUID: id, Name: name, ObservedAt: o.ObservedAt}, err
+}
+
+func (l *lifecycle) SessionServiceLogs(ctx context.Context, id, name string) (api.SessionServiceLogsResult, error) {
+	o, err := l.observeServices(ctx, id, name, "logs")
+	return api.SessionServiceLogsResult{UUID: id, Name: name, Logs: o.Logs, LogsTruncated: o.LogsTruncated, ObservedAt: o.ObservedAt}, err
+}
+
+// observeServices runs one services call in the session's runtime: list,
+// logs, or an action.
+func (l *lifecycle) observeServices(ctx context.Context, id, unit, action string) (runtimeincus.ServiceObservation, error) {
+	var zero runtimeincus.ServiceObservation
 	if action != "list" && !runtimeincus.ValidProjectService(unit) {
 		return zero, control.ErrInvalid
 	}
-	// The inventory and the journal are reads: a change that arrives while one
+	// The inventory and the logs are reads: a change that arrives while one
 	// runs waits for it instead of being refused. An action is a change.
 	var release func()
 	var err error
-	if action == "list" || action == "journal" {
+	if action == "list" || action == "logs" {
 		release, err = l.readSession(id)
 	} else {
 		release, err = l.lockSession(ctx, id)

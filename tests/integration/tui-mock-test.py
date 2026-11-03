@@ -29,7 +29,7 @@ REQUIRED_METHODS = {
     "project.create", "session.create", "session.inspect", "session.start", "session.stop",
     "session.rename", "session.removal.preview",
     "session.discard", "session.delete", "operation.inspect", "operation.retry",
-    "session.services", "session.service.action", "session.service.journal",
+    "session.services", "session.service.action", "session.service.logs",
     "session.attach", "attachment.claim", "attachment.confirm",
 }
 
@@ -243,10 +243,10 @@ class MockTUITests(unittest.TestCase):
         sid = self.session()["uuid"]
         self.key("S", "p-project-api.service")
         self.key("s")
-        self.effect(lambda st: st["services"][sid][0]["active_state"] == "inactive")
+        self.effect(lambda st: st["services"][sid][0]["state"] == "stopped")
         self.wait("inactive (dead)")
         self.key("s")
-        self.effect(lambda st: st["services"][sid][0]["active_state"] == "active")
+        self.effect(lambda st: st["services"][sid][0]["state"] == "running")
         self.wait("active (running)")
         self.key("r")
         self.effect(lambda st: any(c["method"] == "session.service.action" and c["params"].get("action") == "restart" for c in st["calls"]))
@@ -293,8 +293,8 @@ class MockTUITests(unittest.TestCase):
         self.key("r", "Waiting for daemon")
         self.key("s", "Queued stop for p-project-api.service")
         self.key("j")  # selection changes while the captured action waits
-        self.effect(lambda st: st["services"][sid][0]["active_state"] == "inactive")
-        self.assertEqual(self.rpc("mock.inspect")["services"][sid][1]["active_state"], "active")
+        self.effect(lambda st: st["services"][sid][0]["state"] == "stopped")
+        self.assertEqual(self.rpc("mock.inspect")["services"][sid][1]["state"], "running")
         self.wait("Mock database")
         before = self.count("session.service.action")
         self.rpc("mock.configure", method="session.services", delay_ms=300)
@@ -303,7 +303,7 @@ class MockTUITests(unittest.TestCase):
         self.key("q", "All project sessions")
         self.ui.pump(.4)
         self.assertEqual(self.count("session.service.action"), before + 1)  # accepted restart only
-        self.assertEqual(self.rpc("mock.inspect")["services"][sid][1]["active_state"], "active")
+        self.assertEqual(self.rpc("mock.inspect")["services"][sid][1]["state"], "running")
 
     def test_03_attachment_stop_start_rename_and_cancel(self):
         sid = self.session()["uuid"]

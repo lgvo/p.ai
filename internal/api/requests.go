@@ -523,7 +523,7 @@ func (r SessionServicesRequest) Validate() error { return validServiceSession(r.
 
 type SessionServiceActionRequest struct {
 	UUID   string `json:"uuid"`
-	Unit   string `json:"unit"`
+	Name   string `json:"name"`
 	Action string `json:"action"`
 }
 
@@ -531,15 +531,15 @@ func (r SessionServiceActionRequest) Validate() error {
 	if r.Action != "start" && r.Action != "stop" && r.Action != "restart" {
 		return invalid("service action must be start, stop or restart")
 	}
-	return validServiceUnit(r.UUID, r.Unit)
+	return validServiceName(r.UUID, r.Name)
 }
 
-type SessionServiceJournalRequest struct {
+type SessionServiceLogsRequest struct {
 	UUID string `json:"uuid"`
-	Unit string `json:"unit"`
+	Name string `json:"name"`
 }
 
-func (r SessionServiceJournalRequest) Validate() error { return validServiceUnit(r.UUID, r.Unit) }
+func (r SessionServiceLogsRequest) Validate() error { return validServiceName(r.UUID, r.Name) }
 
 func validServiceSession(uuid string) error {
 	if !ValidUUID(uuid) {
@@ -548,10 +548,10 @@ func validServiceSession(uuid string) error {
 	return nil
 }
 
-// validServiceUnit admits only a session-user p-project-*.service unit.
-func validServiceUnit(uuid, unit string) error {
-	if !ValidProjectServiceUnit(unit) {
-		return invalid("a project service unit is required")
+// validServiceName admits only a session-user p-project-*.service unit.
+func validServiceName(uuid, name string) error {
+	if !ValidProjectServiceUnit(name) {
+		return invalid("a project service name is required")
 	}
 	return validServiceSession(uuid)
 }

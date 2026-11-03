@@ -99,20 +99,17 @@ func (m Model) styledRuntime(s api.SessionView) string {
 func (m Model) rowLabel(r row, width int) string {
 	if m.page == "services" {
 		for _, service := range m.services {
-			if service.Unit != r.id {
+			if service.Name != r.id {
 				continue
 			}
-			state, style := service.ActiveState+" ("+service.SubState+")", m.styles.muted
-			if service.ActiveState == "unknown" && service.SubState == "not-loaded" {
-				state = "installed"
-			}
-			if service.ActiveState == "active" {
+			state, style := service.Detail, m.styles.muted
+			if service.State == api.ServiceRunning {
 				style = m.styles.running
-			} else if service.ActiveState == "failed" {
+			} else if service.State == api.ServiceFailed {
 				style = m.styles.danger
 			}
 			space := max(3, width-ansi.StringWidth(state)-2)
-			name := clipped(safe(service.Unit), space)
+			name := clipped(safe(service.Name), space)
 			return m.styles.text.Render(name+strings.Repeat(" ", max(2, width-ansi.StringWidth(name)-ansi.StringWidth(state)))) + style.Render(state)
 		}
 	}
@@ -214,13 +211,10 @@ func (m Model) View() tea.View {
 		commands := "q/Esc back"
 		if m.servicesFresh && len(m.services) > 0 {
 			action := "start"
-			if m.services[m.cursor].ActiveState == "active" {
+			if m.services[m.cursor].State == api.ServiceRunning {
 				action = "stop"
 			}
 			commands = "Enter/J journal · s " + action + " · r restart · q/Esc back"
-			if m.services[m.cursor].ActiveState == "unknown" && m.services[m.cursor].SubState == "not-loaded" {
-				details = append(details, "Start is available; the manager has no loaded active state.")
-			}
 		}
 		content = m.listPage("Project services", m.rows(), width, commands, details)
 
@@ -573,7 +567,7 @@ func (m Model) browserDetails(s api.SessionView, wide bool) []string {
 		lines := []string{s.Project + " / " + s.Branch, "UUID: " + s.UUID, "Runtime: " + runtimeLabel(s) + " · Policy: " + s.PolicyCondition + " · Terminals: " + compactPresence(s), "├─ Agents [A] · latest: " + reportSummary(s), "└─ Project services [S]: " + m.serviceSummary()}
 		if len(m.selectedServices.units) > 0 {
 			u := m.selectedServices.units[0]
-			lines = append(lines, "   "+u.Unit, "   "+u.ActiveState+" ("+u.SubState+")")
+			lines = append(lines, "   "+u.Name, "   "+u.Detail)
 		}
 		lines = append(lines, "D complete details · A report provenance · S all units")
 		return lines
@@ -586,7 +580,7 @@ func (m Model) browserDetails(s api.SessionView, wide bool) []string {
 	}
 	lines = append(lines, "│", "└─ Project services [S] · "+m.serviceSummary())
 	for _, u := range m.selectedServices.units {
-		lines = append(lines, "   "+u.Unit, "   "+u.ActiveState+" ("+u.SubState+")")
+		lines = append(lines, "   "+u.Name, "   "+u.Detail)
 	}
 	if s.Diagnostic != "" {
 		lines = append(lines, "Diagnostic: "+s.Diagnostic)
@@ -615,7 +609,7 @@ func (m Model) fullSessionDetails(s api.SessionView) []string {
 		lines = append(lines, m.selectedServices.diagnostic)
 	}
 	for _, u := range m.selectedServices.units {
-		lines = append(lines, u.Unit+" · "+u.ActiveState+" ("+u.SubState+")", u.Description)
+		lines = append(lines, u.Name+" · "+u.Detail, u.Description)
 	}
 	lines = append(lines, "", "Policy digest: "+s.PolicySHA256)
 	if e := s.Environment; e != nil {

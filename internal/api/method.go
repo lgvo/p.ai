@@ -88,9 +88,9 @@ var (
 	AttachmentConfirm            = Method[AttachmentConfirmRequest, AttachmentResult]{"attachment.confirm"}
 	AttachmentPing               = Method[AttachmentPingRequest, AttachmentResult]{"attachment.ping"}
 
-	SessionServices       = Method[SessionServicesRequest, ServiceResult]{"session.services"}
-	SessionServiceAction  = Method[SessionServiceActionRequest, ServiceResult]{"session.service.action"}
-	SessionServiceJournal = Method[SessionServiceJournalRequest, ServiceResult]{"session.service.journal"}
+	SessionServices      = Method[SessionServicesRequest, SessionServicesResult]{"session.services"}
+	SessionServiceAction = Method[SessionServiceActionRequest, SessionServiceActionResult]{"session.service.action"}
+	SessionServiceLogs   = Method[SessionServiceLogsRequest, SessionServiceLogsResult]{"session.service.logs"}
 )
 
 // Methods lists every method of the control protocol: the system methods,
@@ -140,7 +140,7 @@ func Methods() []MethodInfo {
 		info(AttachmentPing, CapabilityRuntime),
 		info(SessionServices, CapabilityServices),
 		info(SessionServiceAction, CapabilityServices),
-		info(SessionServiceJournal, CapabilityServices),
+		info(SessionServiceLogs, CapabilityServices),
 	}
 }
 

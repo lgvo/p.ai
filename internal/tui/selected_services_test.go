@@ -12,7 +12,7 @@ import (
 type observedServicesClient struct {
 	calls    int
 	contexts []context.Context
-	result   api.ServiceResult
+	result   api.SessionServicesResult
 	err      error
 }
 
@@ -25,8 +25,8 @@ func (c *observedServicesClient) Call(ctx context.Context, method string, p, res
 	if c.err != nil {
 		return c.err
 	}
-	*result.(*api.ServiceResult) = c.result
-	result.(*api.ServiceResult).UUID = p.(api.SessionServicesRequest).UUID
+	*result.(*api.SessionServicesResult) = c.result
+	result.(*api.SessionServicesResult).UUID = p.(api.SessionServicesRequest).UUID
 	return nil
 }
 func serviceModel() Model {
@@ -118,14 +118,14 @@ func TestServicePageObservationUpdatesBrowserAndMalformedReplyIsRejected(t *test
 	m := serviceModel()
 	m.contextSession, _ = m.selectedSession()
 	m.navigate("services")
-	m.observeSelectedServices(api.ServiceResult{UUID: m.contextSession.UUID, Services: []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "inactive", SubState: "dead"}}})
+	m.observeSelectedServices(api.SessionServicesResult{UUID: m.contextSession.UUID, Services: []api.ProjectService{{Name: "p-project-api.service", State: api.ServiceStopped, Detail: "inactive (dead)"}}})
 	m.back()
 	m.syncSelectedServices(nil)
-	if m.selectedServices.state != "observed" || m.selectedServices.units[0].ActiveState != "inactive" {
+	if m.selectedServices.state != "observed" || m.selectedServices.units[0].State != api.ServiceStopped {
 		t.Fatal("Back discarded successful page observation")
 	}
 	// Reject a transport returning another session's body.
-	bad := &fakeClient{fn: func(string, any) (any, error) { return api.ServiceResult{UUID: "wrong"}, nil }}
+	bad := &fakeClient{fn: func(string, any) (any, error) { return api.SessionServicesResult{UUID: "wrong"}, nil }}
 	m.client = bad
 	m.selectedServices.state = "loading"
 	cmd := m.readSelectedServices(selectedServiceDue{m.selectedServices.generation})

@@ -359,12 +359,12 @@ func TestServiceStatesKeepActionsTruthfulInCompactView(t *testing.T) {
 	m.width, m.height = 48, 16
 	m.navigate("services")
 	m.servicesFresh = true
-	m.services = []api.ProjectService{{Unit: "p-project-notes-worker.service", ActiveState: "unknown", SubState: "not-loaded"}}
+	m.services = []api.ProjectService{{Name: "p-project-notes-worker.service", State: api.ServiceStopped, Detail: "installed"}}
 	frame := ansi.Strip(m.View().Content)
 	if !strings.Contains(frame, "installed") || !strings.Contains(frame, "s start") || strings.Contains(frame, "s start/stop") {
 		t.Fatalf("unloaded installed service is ambiguous: %s", frame)
 	}
-	m.services[0].ActiveState, m.services[0].SubState = "active", "running"
+	m.services[0].State, m.services[0].Detail = api.ServiceRunning, "active (running)"
 	if frame = ansi.Strip(m.View().Content); !strings.Contains(frame, "s stop") {
 		t.Fatal("active service does not offer Stop")
 	}
@@ -405,9 +405,9 @@ func TestConfirmationAndUUIDRemainReadable(t *testing.T) {
 
 func TestJournalBackRetainsReviewedService(t *testing.T) {
 	m := fixture()
-	m.services = []api.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
+	m.services = []api.ProjectService{{Name: "p-project-notes-db.service"}, {Name: "p-project-notes-worker.service"}}
 	m.servicesFresh = true
-	m.serviceUnit = m.services[1].Unit
+	m.serviceUnit = m.services[1].Name
 	m.navigate("journal")
 	m, cmd := press(m, "q")
 	if cmd == nil || m.page != "services" || m.cursor != 1 {
@@ -421,14 +421,14 @@ func TestJournalBackRetainsReviewedService(t *testing.T) {
 
 func TestServiceHelpBackRetainsUnitAfterInventoryReorder(t *testing.T) {
 	m := fixture()
-	m.services = []api.ProjectService{{Unit: "p-project-notes-db.service"}, {Unit: "p-project-notes-worker.service"}}
+	m.services = []api.ProjectService{{Name: "p-project-notes-db.service"}, {Name: "p-project-notes-worker.service"}}
 	m.servicesFresh = true
 	m.navigate("services")
 	m.cursor = 1
 	m, _ = press(m, "?")
 	m.services[0], m.services[1] = m.services[1], m.services[0]
 	m, _ = press(m, "q")
-	if m.page != "services" || m.services[m.cursor].Unit != "p-project-notes-worker.service" {
+	if m.page != "services" || m.services[m.cursor].Name != "p-project-notes-worker.service" {
 		t.Fatal("Help Back selected a different service")
 	}
 }

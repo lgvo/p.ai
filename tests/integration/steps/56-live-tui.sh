@@ -62,12 +62,12 @@ UNIT
  systemctl --user daemon-reload
 '
 rpc session.services "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
- jq -e '.result.services|any(.unit=="p-project-demo.service")' >/dev/null
+ jq -e '.result.services|any(.name=="p-project-demo.service")' >/dev/null
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" services "$socket" "$step_dir/uuid"
 
 # Infrastructure names and free-form native actions never reach the manager.
 for unit in p-interactive.service p-session.target sshd.service ../p-project-demo.service; do
- if output=$(rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg unit "$unit" '{uuid:$uuid,unit:$unit,action:"stop"}')"); then
+ if output=$(rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "$unit" '{uuid:$uuid,name:$name,action:"stop"}')"); then
   echo "accepted infrastructure unit $unit" >&2; exit 1
  fi
  jq -e '.error.kind=="invalid_params" and (has("result")|not)' <<< "$output" >/dev/null

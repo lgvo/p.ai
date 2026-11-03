@@ -38,7 +38,7 @@ until guest python3 examples/notes/client.py health >/dev/null 2>&1; do
   test "$SECONDS" -lt "$deadline"; sleep .2
 done
 rpc session.services "$params" | jq -e \
-  '[.result.services[] | select(.unit|startswith("p-project-notes-"))] | length==3 and all(.active_state=="active")' >/dev/null
+  '[.result.services[] | select(.name|startswith("p-project-notes-"))] | length==3 and all(.state=="running")' >/dev/null
 source=$(guest git rev-parse HEAD)
 p_uuid=$(jq -er '.session_uuid' /var/lib/p-demo/lab-repository.json)
 if test "$1" = prepare; then

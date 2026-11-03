@@ -144,8 +144,8 @@ systemctl --user daemon-reload
 Detach and press `S` to select and start it. The updated base image supplies
 the session-user manager endpoint in the interactive shell. Older images
 without a usable manager report services unavailable. An installed unit that
-has not been loaded is shown as `installed`; its explanation retains the actual
-API state, `unknown (not-loaded)`, until a loaded observation is available. A stopped or unreachable session cannot be controlled
+systemd has not loaded is shown as `installed`; P reports it as `stopped`, and
+`s` starts it. A stopped or unreachable session cannot be controlled
 through this page. Service ports remain inside the session; starting a unit does
 not add host port publication or network grants.
 
@@ -153,7 +153,7 @@ If an inventory read is underway, one explicit service key can wait for it,
 bound to the selected session, unit and action. Back cancels an unissued request;
 a failed read or missing unit refuses it. Failed or uncertain actions are never
 automatically retried. A stopped unit may be unloaded by systemd and shown as
-`unknown (not-loaded)` until a new loaded observation is available.
+`installed` until a new loaded observation is available.
 
 The unit file and other private files survive Stop/Start. Processes end on Stop;
 this example has no enablement rule, so start it again when needed. Project units

@@ -250,7 +250,7 @@ func TestUntrustedTerminalTextIsInert(t *testing.T) {
 func TestStaleServiceObservationDisablesActions(t *testing.T) {
 	m := fixture()
 	m.page = "services"
-	m.services = []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "active"}}
+	m.services = []api.ProjectService{{Name: "p-project-api.service", State: api.ServiceRunning}}
 	m.servicesFresh = true
 	updated, _ := m.Update(actionDone{epoch: m.epoch, method: "session.services", err: errors.New("unavailable")})
 	m = updated.(Model)
@@ -434,7 +434,7 @@ func TestServiceKeyDuringRefreshCapturesExactlyOneIntent(t *testing.T) {
 	m := fixture()
 	m.page = "services"
 	m.contextSession.UUID = runningID
-	m.services = []api.ProjectService{{Unit: "p-project-a.service", ActiveState: "active"}, {Unit: "p-project-b.service", ActiveState: "active"}}
+	m.services = []api.ProjectService{{Name: "p-project-a.service", State: api.ServiceRunning}, {Name: "p-project-b.service", State: api.ServiceRunning}}
 	m.servicesFresh, m.working = true, true
 	m.pendingMethod = "session.services"
 	m, cmd := press(m, "s")
@@ -459,20 +459,20 @@ func TestServiceKeyDuringRefreshCapturesExactlyOneIntent(t *testing.T) {
 	if missingCmd != nil || missing.(Model).queuedService != nil {
 		t.Fatal("absent unit dispatched an action")
 	}
-	wrong, wrongCmd := m.Update(reply(t, m.epoch, "session.services", `{"uuid":"other","services":[{"unit":"p-project-a.service"}]}`))
+	wrong, wrongCmd := m.Update(reply(t, m.epoch, "session.services", `{"uuid":"other","services":[{"name":"p-project-a.service"}]}`))
 	if wrongCmd != nil || wrong.(Model).queuedService != nil || wrong.(Model).servicesFresh {
 		t.Fatal("wrong-session observation authorized a queued action")
 	}
 	calls := 0
 	m.client = &fakeClient{fn: func(method string, p any) (any, error) {
 		calls++
-		if method != "session.service.action" || p != (api.SessionServiceActionRequest{UUID: runningID, Unit: "p-project-a.service", Action: "stop"}) {
+		if method != "session.service.action" || p != (api.SessionServiceActionRequest{UUID: runningID, Name: "p-project-a.service", Action: "stop"}) {
 			t.Fatalf("refresh/selection retargeted or re-toggled intent: %s %+v", method, p)
 		}
 		return map[string]any{}, nil
 	}}
 	m.cursor = 1 // Selection moves while the read is running.
-	updated, cmd = m.Update(reply(t, m.epoch, "session.services", `{"uuid":"`+runningID+`","services":[{"unit":"p-project-b.service","active_state":"active"},{"unit":"p-project-a.service","active_state":"inactive"}]}`))
+	updated, cmd = m.Update(reply(t, m.epoch, "session.services", `{"uuid":"`+runningID+`","services":[{"name":"p-project-b.service","state":"running"},{"name":"p-project-a.service","state":"stopped"}]}`))
 	if cmd == nil || updated.(Model).queuedService != nil {
 		t.Fatal("fresh observation failed to dispatch and consume exactly one intent")
 	}

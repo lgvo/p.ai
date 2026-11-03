@@ -23,7 +23,7 @@ type selectedServiceDue struct{ generation int }
 type selectedServiceDone struct {
 	generation int
 	uuid       string
-	result     api.ServiceResult
+	result     api.SessionServicesResult
 	err        error
 }
 
@@ -118,7 +118,7 @@ func (m *Model) acceptSelectedServices(v selectedServiceDone) {
 	o.state, o.units = "observed", v.result.Services
 }
 
-func (m *Model) observeSelectedServices(r api.ServiceResult) {
+func (m *Model) observeSelectedServices(r api.SessionServicesResult) {
 	o := &m.selectedServices
 	if o.cancel != nil {
 		o.cancel()

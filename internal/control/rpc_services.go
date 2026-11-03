@@ -7,27 +7,35 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
+// ServiceAPI observes and acts on a session's project services.
 type ServiceAPI interface {
-	SessionServices(context.Context, string, string, string) (api.ServiceResult, error)
+	SessionServices(ctx context.Context, uuid string) (api.SessionServicesResult, error)
+	SessionServiceAction(ctx context.Context, uuid, name, action string) (api.SessionServiceActionResult, error)
+	SessionServiceLogs(ctx context.Context, uuid, name string) (api.SessionServiceLogsResult, error)
 }
 
 // addServiceMethods serves the project services methods. A failure other than
 // a lifecycle refusal answers unavailable with what the methods require.
 func addServiceMethods(t *MethodTable, service ServiceAPI) {
-	call := func(ctx context.Context, uuid, unit, action string) (api.ServiceResult, error) {
-		result, err := service.SessionServices(ctx, uuid, unit, action)
-		if err != nil && !errors.Is(err, ErrInvalid) && !errors.Is(err, ErrConflict) && !errors.Is(err, ErrNotFound) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			return api.ServiceResult{}, errorRPC(-32004, "unavailable", "project services unavailable; require a ready owned runtime, session user manager, and compatible selected runtime package")
-		}
-		return result, err
+	Register(t, api.SessionServices, func(ctx context.Context, r api.SessionServicesRequest) (api.SessionServicesResult, error) {
+		result, err := service.SessionServices(ctx, r.UUID)
+		return result, servicesError(err)
+	})
+	Register(t, api.SessionServiceLogs, func(ctx context.Context, r api.SessionServiceLogsRequest) (api.SessionServiceLogsResult, error) {
+		result, err := service.SessionServiceLogs(ctx, r.UUID, r.Name)
+		return result, servicesError(err)
+	})
+	Register(t, api.SessionServiceAction, func(ctx context.Context, r api.SessionServiceActionRequest) (api.SessionServiceActionResult, error) {
+		result, err := service.SessionServiceAction(ctx, r.UUID, r.Name, r.Action)
+		return result, servicesError(err)
+	})
+}
+
+// servicesError keeps a lifecycle refusal and answers any other failure as
+// unavailable, naming what the services methods require.
+func servicesError(err error) error {
+	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
 	}
-	Register(t, api.SessionServices, func(ctx context.Context, r api.SessionServicesRequest) (api.ServiceResult, error) {
-		return call(ctx, r.UUID, "", "list")
-	})
-	Register(t, api.SessionServiceJournal, func(ctx context.Context, r api.SessionServiceJournalRequest) (api.ServiceResult, error) {
-		return call(ctx, r.UUID, r.Unit, "journal")
-	})
-	Register(t, api.SessionServiceAction, func(ctx context.Context, r api.SessionServiceActionRequest) (api.ServiceResult, error) {
-		return call(ctx, r.UUID, r.Unit, r.Action)
-	})
+	return errorRPC(-32004, "unavailable", "project services unavailable; require a ready owned runtime and session user manager")
 }

@@ -15,7 +15,7 @@ inc() { timeout 60 incus --force-local --project user-1000 "$@"; }
 service_control() { /run/wrappers/bin/sudo -n "$P_TEST_SERVICE_CONTROL_BINARY" "$1"; }
 rpc() {
  local response status deadline=$((SECONDS+40)) read_only=false
- case "$1" in system.health|session.inspect|session.services|session.service.journal|operation.inspect) read_only=true ;; esac
+ case "$1" in system.health|session.inspect|session.services|session.service.logs|operation.inspect) read_only=true ;; esac
  while true; do
   if response=$(timeout 150 p api "$socket" "$@"); then
    printf '%s\n' "$response"; return
@@ -42,8 +42,8 @@ guest() {
 }
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 action() {
- rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg unit "p-project-notes-$1.service" --arg action "$2" \
-  '{uuid:$uuid,unit:$unit,action:$action}')" >/dev/null
+ rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$1.service" --arg action "$2" \
+  '{uuid:$uuid,name:$name,action:$action}')" >/dev/null
 }
 wait_health() {
  local deadline=$((SECONDS+45))
@@ -82,22 +82,12 @@ wait_sql() {
  done
 }
 wait_unit() {
- local unit=$1 expected=$2 deadline=$((SECONDS+30)) observed native
+ local unit=$1 expected=$2 deadline=$((SECONDS+30)) observed
  while ((SECONDS<deadline)); do
   observed=$(rpc session.services "$(params)")
-  if jq -e --arg unit "p-project-notes-$unit.service" --arg state "$expected" \
-   '.result.services|any(.unit==$unit and .active_state==$state)' <<< "$observed" >/dev/null; then return; fi
-  # Inactive units can be garbage-collected by the user manager. The API
-  # honestly exposes installed-but-not-loaded units as unknown/not-loaded.
-  # Native observation establishes inactivity without inventing an API state.
-  if test "$expected" = inactive && jq -e --arg unit "p-project-notes-$unit.service" \
-   '.result.services|any(.unit==$unit and .active_state=="unknown" and .sub_state=="not-loaded")' <<< "$observed" >/dev/null; then
-   native=$(guest systemctl --user show "p-project-notes-$unit.service" -p ActiveState --value)
-   if test "$native" = inactive; then
-    printf 'P_NOTES_SERVICE_OBSERVED unit=%s API=unknown/not-loaded native=inactive\n' "$unit"
-    return
-   fi
-  fi
+  # An installed unit the user manager unloaded reports stopped.
+  if jq -e --arg name "p-project-notes-$unit.service" --arg state "$expected" \
+   '.result.services|any(.name==$name and .state==$state)' <<< "$observed" >/dev/null; then return; fi
   sleep 0.1
  done
  printf '%s\n' "$observed" >&2
@@ -190,29 +180,29 @@ guest postgres --version
 guest python3 -c 'import sys, psycopg; print(sys.version); print("Psycopg", psycopg.__version__)'
 guest python3 examples/notes/tests.py
 setup
-rpc session.services "$(params)" | jq -e '.result.services|[.[]|select(.unit|startswith("p-project-notes-"))]|length==3' >/dev/null
+rpc session.services "$(params)" | jq -e '.result.services|[.[]|select(.name|startswith("p-project-notes-"))]|length==3' >/dev/null
 # Session-local socket has SQL access and no TCP listener.
 test "$(sql 'SHOW listen_addresses')" = ''
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and ([.[0].expanded_devices[]|select(.type=="nic")]|length)==0' >/dev/null
 
 # Mix active web/database and inactive worker, then resume a durable job.
 action worker stop
-wait_unit worker inactive
+wait_unit worker stopped
 guest python3 examples/notes/client.py add 'pending before worker resume' | jq -e '.status=="pending"' >/dev/null
 test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 1
 action worker start
 wait_sql 'SELECT word_count FROM notes WHERE id=1' 4
-# Real unit-specific journals via the public interface.
+# Real unit-specific logs via the public interface.
 for unit in db web worker; do
- rpc session.service.journal "$(jq -nc --arg uuid "$uuid" --arg unit "p-project-notes-$unit.service" '{uuid:$uuid,unit:$unit}')" \
-  | jq -e '.result.journal|length>0' >/dev/null
+ rpc session.service.logs "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$unit.service" '{uuid:$uuid,name:$name}')" \
+  | jq -e '.result.logs|length>0' >/dev/null
 done
-rpc session.service.journal "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,unit:"p-project-notes-worker.service"}')" \
- | jq -e '.result.journal|contains("processed job=")' >/dev/null
+rpc session.service.logs "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,name:"p-project-notes-worker.service"}')" \
+ | jq -e '.result.logs|contains("processed job=")' >/dev/null
 # Kill the actual worker service and inspect its failed state alongside active web.
 guest systemctl --user kill --signal=KILL --kill-whom=main p-project-notes-worker.service
 wait_unit worker failed
-wait_unit web active
+wait_unit web running
 guest systemctl --user reset-failed p-project-notes-worker.service
 action worker start
 worker_pid=$(guest systemctl --user show p-project-notes-worker.service -p MainPID --value)
@@ -233,8 +223,8 @@ test "$(sql "SELECT count(*) FROM notes WHERE status='processed'")" = 2
 
 # Dependency stop and failure both stop web/worker. Explicit recovery retains rows.
 action db stop
-wait_unit web inactive
-wait_unit worker inactive
+wait_unit web stopped
+wait_unit worker stopped
 if guest python3 examples/notes/client.py add 'cannot be accepted'; then exit 1; fi
 action db start
 guest python3 examples/notes/manage.py ready
@@ -243,8 +233,8 @@ action worker start
 test "$(sql 'SELECT count(*) FROM notes')" = 2
 guest systemctl --user kill --signal=KILL --kill-whom=all p-project-notes-db.service
 wait_unit db failed
-wait_unit web inactive
-wait_unit worker inactive
+wait_unit web stopped
+wait_unit worker stopped
 guest systemctl --user reset-failed p-project-notes-db.service
 setup
 test "$(sql 'SELECT count(*) FROM notes')" = 2
@@ -316,7 +306,7 @@ wait_ready
 test "$(guest git rev-parse HEAD)" = "$local_oid"
 test "$(guest cat notes-dirty)" = dirty-A
 test "$(guest cat /home/p/notes-private)" = private-A
-wait_unit db inactive
+wait_unit db stopped
 setup
 wait_sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL' 0
 test "$(sql 'SELECT count(*) FROM notes')" = 3
@@ -348,7 +338,7 @@ rpc session.start "$(params)" >/dev/null
 wait_ready
 test "$(guest git branch --show-current)" = retained-notes
 test "$(guest git config branch.retained-notes.merge)" = refs/heads/retained-notes
-wait_unit db inactive
+wait_unit db stopped
 setup
 test "$(sql 'SELECT count(*) FROM notes')" = 1
 

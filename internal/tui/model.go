@@ -291,7 +291,7 @@ func (m Model) rows() []row {
 	case "services":
 		rows := []row{}
 		for _, s := range m.services {
-			rows = append(rows, row{id: s.Unit, label: s.Unit + " · " + s.ActiveState + " (" + s.SubState + ")", detail: s.Description})
+			rows = append(rows, row{id: s.Name, label: s.Name + " · " + s.Detail, detail: s.Description})
 		}
 		return rows
 	case "operations":
@@ -448,7 +448,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 				cmds = append(cmds, m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID})))
 			case "journal":
 				if m.follow {
-					cmds = append(cmds, m.begin(callOf(api.SessionServiceJournal, api.SessionServiceJournalRequest{UUID: m.contextSession.UUID, Unit: m.serviceUnit})))
+					cmds = append(cmds, m.begin(callOf(api.SessionServiceLogs, api.SessionServiceLogsRequest{UUID: m.contextSession.UUID, Name: m.serviceUnit})))
 				}
 			}
 		}
@@ -657,7 +657,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.returnPage = m.page
 		m.helpServiceUnit = ""
 		if m.page == "services" && m.cursor < len(m.services) {
-			m.helpServiceUnit = m.services[m.cursor].Unit
+			m.helpServiceUnit = m.services[m.cursor].Name
 		}
 		m.helpBranchProject = ""
 		if m.working && m.pendingMethod == "creation.branches" {
@@ -850,7 +850,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			action = "restart"
 		case "s":
 			action = "start"
-			if m.services[m.cursor].ActiveState == "active" {
+			if m.services[m.cursor].State == api.ServiceRunning {
 				action = "stop"
 			}
 		}
@@ -1042,7 +1042,7 @@ func (m *Model) back() tea.Cmd {
 		}
 		m.navigate("services")
 		for i, service := range m.services {
-			if service.Unit == m.serviceUnit {
+			if service.Name == m.serviceUnit {
 				m.cursor = i
 				break
 			}
@@ -1069,7 +1069,7 @@ func (m *Model) back() tea.Cmd {
 		m.navigate(page)
 		if page == "services" {
 			for i, service := range m.services {
-				if service.Unit == serviceUnit {
+				if service.Name == serviceUnit {
 					m.cursor = i
 					break
 				}

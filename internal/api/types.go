@@ -261,23 +261,53 @@ var projectServicePattern = regexp.MustCompile(`^p-project-[A-Za-z0-9][A-Za-z0-9
 
 func ValidProjectServiceUnit(unit string) bool { return projectServicePattern.MatchString(unit) }
 
-// ProjectService belongs to the session user manager, never host/system units.
+// ProjectService is one project service of a session. Name is the runtime's
+// name for it; Detail is the runtime's own words for its state, for display.
 type ProjectService struct {
-	Unit        string `json:"unit"`
-	Description string `json:"description"`
-	ActiveState string `json:"active_state"`
-	SubState    string `json:"sub_state"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	State       ServiceState `json:"state"`
+	Detail      string       `json:"detail"`
 }
 
-// ServiceResult is the result of the three services methods: the inventory
-// sets Services, an action and the journal set Unit.
-type ServiceResult struct {
-	UUID             string           `json:"uuid"`
-	Services         []ProjectService `json:"services,omitempty"`
-	Unit             string           `json:"unit,omitempty"`
-	Journal          string           `json:"journal,omitempty"`
-	JournalTruncated bool             `json:"journal_truncated,omitempty"`
-	ObservedAt       string           `json:"observed_at"`
+// ServiceState is P's closed set of project service states.
+type ServiceState string
+
+const (
+	// ServiceStopped has no process: never started, stopped, or exited.
+	ServiceStopped ServiceState = "stopped"
+	// ServiceStarting was started and is not ready yet.
+	ServiceStarting ServiceState = "starting"
+	// ServiceRunning runs and is ready.
+	ServiceRunning ServiceState = "running"
+	// ServiceStopping is being stopped.
+	ServiceStopping ServiceState = "stopping"
+	// ServiceFailed failed its last run; it stays failed until it starts again.
+	ServiceFailed ServiceState = "failed"
+)
+
+// SessionServicesResult is a session's complete project service inventory.
+type SessionServicesResult struct {
+	UUID       string           `json:"uuid"`
+	Services   []ProjectService `json:"services"`
+	ObservedAt string           `json:"observed_at"`
+}
+
+// SessionServiceActionResult acknowledges a service action; the inventory
+// shows its effect.
+type SessionServiceActionResult struct {
+	UUID       string `json:"uuid"`
+	Name       string `json:"name"`
+	ObservedAt string `json:"observed_at"`
+}
+
+// SessionServiceLogsResult is a service's recent log tail, newest last.
+type SessionServiceLogsResult struct {
+	UUID          string `json:"uuid"`
+	Name          string `json:"name"`
+	Logs          string `json:"logs,omitempty"`
+	LogsTruncated bool   `json:"logs_truncated,omitempty"`
+	ObservedAt    string `json:"observed_at"`
 }
 
 // The private session RPC.
