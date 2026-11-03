@@ -4,15 +4,15 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 
 ## Summary
 
-**Today** a project service is a systemd user unit,
-`p-project-<name>.service`. The user, the agent or a project script writes it
-into `~/.config/systemd/user` inside the running session and loads it with
-`systemctl --user daemon-reload`. P lists those units, starts, stops or
-restarts one, and reads a bounded journal tail (`session.services`,
-`session.service.action`, `session.service.journal`). It does that through the
-WASI runtime plugin's `runtime.services` broker, which runs fixed
-`systemctl` and `journalctl` commands as the session user
-(internal/runtimeincus/services.go). Core and the API carry systemd's unit
+**Before step 8** a project service was a systemd user unit,
+`p-project-<name>.service`, as it still is on Incus. The user, the agent or
+a project script writes it into `~/.config/systemd/user` inside the running
+session and loads it with `systemctl --user daemon-reload`. P listed those
+units, started, stopped or restarted one, and read a bounded journal tail
+(`session.services`, `session.service.action`, `session.service.journal`).
+It did that through the WASI runtime plugin's `runtime.services` broker,
+which ran fixed `systemctl` and `journalctl` commands as the session user
+(internal/runtimeincus/services.go). Core and the API carried systemd's unit
 names and state pairs.
 
 **Asked by the maintainer on 2026-11-02:** a way to change the services
@@ -46,7 +46,7 @@ defines services is that driver's documented convention.
 
 ## Before and after
 
-| | Today | After |
+| | Before step 8 | After |
 |---|---|---|
 | Who runs project services | The session's systemd user manager | The runtime, through the driver; on Incus the same user manager |
 | How P reaches them | `plugin.RunRuntime` kind `runtime.services`, the WASI module, then the broker, then `runtimeincus.Backend.Services` | `Driver.Services`, `Driver.ServiceAction`, `Driver.ServiceLogs` |
@@ -137,15 +137,15 @@ as today.
 
 ### Guarantees
 
-| The driver must | Today in the Incus code |
+| The driver must | Before step 8, in the Incus code |
 |---|---|
 | Act only on the project services of the target session, at the target's incarnation, while it runs. Never reach the runtime's own units (the interactive host, P's base units) or anything outside the session. | Only `p-project-*.service` names; fixed argv; UUID and generation checked before and after |
 | Run every service command with the session user's authority and nothing more | `incus exec --user 1000 --group 1000` with the user-manager endpoint |
 | Refuse unless the session's host is ready | `ObserveHost` before the call |
 | Return a complete inventory or an error, never a subset: at most 64 services, names, descriptions and details bounded and printable, sorted by name | 32,000-byte reads, 64 units, printable checks |
-| Queue an action and return as soon as the runtime accepts it; do not wait for it to finish. Progress shows in the inventory: `starting` or `stopping`, then `running`, `stopped` or `failed`, with the logs explaining a failure. Starting a running service or stopping a stopped one does nothing. Refuse at once what cannot be queued, such as an unknown service. | Today `systemctl start`, `stop`, `restart` wait for the job (up to the unit's `TimeoutStartSec`, 45 seconds for the notes database); the Incus driver uses `systemctl --no-block` instead |
+| Queue an action and return as soon as the runtime accepts it; do not wait for it to finish. Progress shows in the inventory: `starting` or `stopping`, then `running`, `stopped` or `failed`, with the logs explaining a failure. Starting a running service or stopping a stopped one does nothing. Refuse at once what cannot be queued, such as an unknown service. | `systemctl start`, `stop`, `restart` waited for the job (up to the unit's `TimeoutStartSec`, 45 seconds for the notes database); the Incus driver uses `systemctl --no-block` instead |
 | Return at most 100 entries and 16,000 bytes of log, valid UTF-8, with truncation reported | `journalctl -n 100`, the tail cut |
-| Return `ErrNoService` for a name the session does not have, `ErrUnavailable` when its service manager cannot be reached | Today both are one `unavailable` message |
+| Return `ErrNoService` for a name the session does not have, `ErrUnavailable` when its service manager cannot be reached | Both were one `unavailable` message |
 
 **Decided by the maintainer on 2026-11-02:**
 
@@ -163,19 +163,34 @@ and a change that arrives while reads run waits for them; a service action
 takes the session lock. Core also keeps the check that the session is
 established and ready, a generic name check (printable, at most 128 bytes), the mapping to
 API errors, and the 48,000-byte bound on the encoded result. The mapping
-follows [errors.md](errors.md): `ErrNoService` answers `not_found`, reason
-`service`, and `ErrUnavailable` answers `failed`, reason `runtime`.
+follows [errors.md](errors.md), as step 8 landed it (`servicesRefusal` and
+`readyTarget` in internal/daemon/services.go):
+
+| What core meets | Answer |
+|---|---|
+| `ErrNoService` | `not_found`, reason `service` |
+| `ErrNotReady`, or a runtime that is not running with a ready host when core checks it | `conflict`, reason `session_not_running` |
+| `ErrUnsupported` | `not_configured`, reason `services` |
+| `ErrUnavailable`: the session's service manager cannot be reached or refused the command | `failed`, reason `services` |
+| A host core cannot read, an incomplete runtime, or any other driver error | `failed`, reason `runtime` |
+
+This design had `ErrUnavailable` answer `failed`, reason `runtime`; step 8
+kept `services`, the answer the
+[control API](../docs/control-api.md#project-services) already documented. The Incus driver also reports a host it cannot read
+during the call as `ErrUnavailable`, so that case answers `services`.
 
 ## The Incus driver
 
-The Incus driver implements the group with internal/runtimeincus/services.go,
-moved into the driver with two changes: the state mapping, and `--no-block`
-on the action command so that it returns once systemd has queued the job.
+The Incus driver implements the group with the services code from before
+step 8 (internal/runtimeincus/services.go), moved into the driver as
+internal/runtimedriver/incus/driver_services.go with two changes: the state
+mapping, and `--no-block` on the action command so that it returns once
+systemd has queued the job.
 
 | Operation | Native effect |
 |---|---|
 | `Services` | As today: `systemctl --user list-units --all --type=service --output=json 'p-project-*.service'`, merged with `list-unit-files` for installed units not loaded; `emptyUnitFileInventory` still accepts the exit status 1 that comes with an empty list |
-| `ServiceAction` | `systemctl --user --no-pager --no-block <start|stop|restart> <unit>`; today's command has no `--no-block` and waits for the job |
+| `ServiceAction` | `systemctl --user --no-pager --no-block <start|stop|restart> <unit>`; the command before step 8 had no `--no-block` and waited for the job |
 | `ServiceLogs` | As today: `journalctl --user-unit=<unit> --no-pager --output=short-iso -n 100`, cut to a 16,000-byte tail |
 
 All three run through `/usr/libexec/p/systemctl` or `/usr/libexec/p/journalctl`
@@ -221,17 +236,17 @@ runtime package" goes.
 
 ## What leaves the runtime-plugin path
 
-| Today | After |
+| Before step 8 | After |
 |---|---|
 | internal/daemon/services.go: `serviceBroker` and `plugin.RunRuntime(..., "runtime.services", ...)` | The daemon calls the driver's three operations |
 | `RuntimeServicesBroker` and the `runtime.services` kind (internal/plugin/runtime.go), and its case in plugins/bundled/runtime-incus/main.go | Gone with the WASI runtime plugin |
-| internal/runtimeincus/services.go | The Incus driver, with the state mapping added and `--no-block` on actions |
+| internal/runtimeincus/services.go | The Incus driver's driver_services.go, with the state mapping added and `--no-block` on actions |
 | `api.ValidProjectServiceUnit` and its pattern, used by internal/control and internal/daemon | The Incus driver; core keeps only the generic name check |
 | The UUID and generation recheck after each call | The target's incarnation |
 | `checkNoWorkspaceInspect` in the services call | Gone with `workspace.inspect` ([runtime driver](runtime-driver.md#summary)) |
 
-This lands with the runtime driver's migration (step 8), where the
-`plugin.RunRuntime` calls move to the driver.
+This landed with the runtime driver's migration, in step 8's M2 (ef7eb3b),
+where the `plugin.RunRuntime` calls moved to the driver.
 
 ## Departures from current docs
 
@@ -265,8 +280,9 @@ This lands with the runtime driver's migration (step 8), where the
   service manager; a call at another incarnation refused; an action returns
   once queued, and the inventory then shows `starting` and later `running`
   or `failed`; a driver without services returns `ErrUnsupported`.
-- **Incus driver unit tests:** today's internal/runtimeincus/services_test.go,
-  moved, plus the state mapping, including an installed unit not loaded as
+- **Incus driver unit tests:** internal/runtimeincus/services_test.go, moved
+  to internal/runtimedriver/incus/driver_services_test.go, plus the state
+  mapping, including an installed unit not loaded as
   `stopped` with detail `installed`.
 - **Core tests** on the in-memory driver: reads take the read admission and
   actions the session lock, a session

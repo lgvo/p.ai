@@ -293,7 +293,7 @@ tag, only when a second call cannot act twice:
 |---|---|---|
 | `session_held`, `project_held` | Refused before dispatch: an operation or another request holds the session or project | When it names an operation: says so, waits for it with `operation.wait`, then repeats. Otherwise as for `too_many_requests`. Any call. |
 | `too_many_requests` | Refused at admission | Repeats after a short pause, for up to 10 seconds. Any call. |
-| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change with the identical request it sent (the key replays it), or a start or stop (a repeat converges), at most twice. Never `operation.retry`, which has no key. Never a service action, which has no key and may already be queued (`Driver.ServiceAction` in internal/runtimeincus/driver_services.go runs `systemctl --no-block` before it answers); it answers as for a lost reply ([Changes without an operation](#changes-without-an-operation)). |
+| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change with the identical request it sent (the key replays it), or a start or stop (a repeat converges), at most twice. Never `operation.retry`, which has no key. Never a service action, which has no key and may already be queued (`Driver.ServiceAction` in internal/runtimedriver/incus/driver_services.go runs `systemctl --no-block` before it answers); it answers as for a lost reply ([Changes without an operation](#changes-without-an-operation)). |
 
 If the operation a `session_held` names ends `blocked`, the repeat answers
 `conflict`, `operation_blocked`, and the CLI stops. A risky run repeated
@@ -343,9 +343,9 @@ decide what to print and whether to warn ([plan-shape.md](plan-shape.md)).
 The API carries no message text, so the CLI owns one sentence per refusal
 code, error reason and kind, and loss kind. The sentences live in one table
 that the TUI and the CLI share, so both say the same thing: `internal/errtext`.
-The TUI takes its error, operation and refusal sentences from it, but not yet
-its loss sentences: its removal review writes its own, recorded as the debt
-["The TUI writes its own loss sentences"](../docs/debts/structure.md#the-tui-writes-its-own-loss-sentences).
+The TUI takes its error, operation and refusal sentences from it, and since
+step 0p (aa28dfa) its removal review's loss and gone sentences too
+(`errtext.Loss` and `errtext.Gone`).
 
 1. **A heading** from the command's arguments and a few facts of its own
    `details` type:

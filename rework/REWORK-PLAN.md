@@ -29,7 +29,7 @@ means the document does not exist yet.
 
 | Area | Before | After | Decision |
 |---|---|---|---|
-| Risky changes | A preview method and a confirm method per change, 23 in all. The daemon keeps each preview in memory under a random token. | HTTP-style conditional requests, one method per change, called twice: the first call is a dry run that returns a change tag (expiry plus a hash of the change), and the second runs it with `if_match` set to that tag. 7 methods in all, once groundwork removes the cache and repair methods, and nothing is stored. Every plan shares one envelope: allowed, refusals, loss, details. | [state-hash-confirmation.md](state-hash-confirmation.md), [plan-shape.md](plan-shape.md) |
+| Risky changes | A preview method and a confirm method per change, 23 in all, and 13 once groundwork steps 0d and 0h removed the cache and repair methods. The daemon keeps each preview in memory under a random token. | HTTP-style conditional requests, one method per change, called twice: the first call is a dry run that returns a change tag (expiry plus a hash of the change), and the second runs it with `if_match` set to that tag. 7 methods in all, and nothing is stored. Every plan shares one envelope: allowed, refusals, loss, details. | [state-hash-confirmation.md](state-hash-confirmation.md), [plan-shape.md](plan-shape.md) |
 | Errors | Nine JSON-RPC error kinds. `busy` and `unavailable` each cover several situations, so clients read the message text. | Each kind names the next step: retry, conflict, precondition failed, precondition required, capacity, not found, not configured, invalid, failed. A panic in a request handler answers `internal` and is logged instead of stopping the daemon. Blocked and failed operations carry a `reason` code beside their diagnostic, and a panic in operation work leaves the operation `blocked` with reason `internal`. One diagnostic size limit for every operation kind (today 512, 900 or 1024 bytes). | [errors.md](errors.md) |
 | Wire types | The daemon builds about 40 results as loose maps, and the TUI writes its own struct shapes. Every request carries `"v":1`. | One request type and one result type per method in `internal/api`, shared by the daemon, TUI, CLI and tests. The version is agreed once, at `system.hello`; the in-session socket keeps `"v":1` until step 9 decides. | [wire-types.md](wire-types.md) |
 | Waiting | Start and stop return a session view and tell clients to poll. Project deletion blocks inside the request, and the server cuts every request at 30 seconds. | Every change returns an operation. `operation.wait` returns when the operation finishes. Every operation kind emits the same progress events and follows one rule for resuming blocked work after a restart; unfinished operations list in one order. Service actions are the exception: they return once queued, and the service list shows their progress. Origin change and publish become operations; a session keeps only its newest finished start or stop; the session condition gains `stopping`. | [waiting.md](waiting.md) |
@@ -44,7 +44,7 @@ means the document does not exist yet.
 
 ## Steps
 
-Each step lands as one commit, or a few where it splits cleanly (steps 1 to 4 and 7 took two or three each), after its decision document is settled. The 0 steps need no decision document: each rests only on a decision already made, and each lands as its own commit. Steps 8 and 9 are the exceptions: step 8 lands as the runtime driver's migration steps and step 9 as the source driver's (S1–S7) and then the plugin changes, one commit each.
+Each step lands as one commit, or a few where it splits cleanly (steps 1 to 4 and 7 took two or three each), after its decision document is settled. The 0 steps need no decision document: each rests only on a decision already made, and each lands as its own commit. Steps 8 and 9 are the exceptions: step 8 landed as the runtime driver's seven migration steps (M1–M7) and step 9 lands as the source driver's (S1–S7) and then the plugin changes, one commit each.
 
 | Step | What | Why in this order |
 |---|---|---|
@@ -57,6 +57,10 @@ Each step lands as one commit, or a few where it splits cleanly (steps 1 to 4 an
 | 0j | **Done** (756b401, 4e221ba). A graceful stop waits for the guest's systemd and forces after the timeout. | A bug fix traced from VM flakes in scenarios 06 and 49; makes later gates reliable. |
 | 0k | **Done** (e073c75, 7cfe56a). A removal waits out the Incus execs that a cancelled read leaves behind, and inspection waits out the placeholder Incus answers while it cleans up after a guest powers off. | Bug fixes traced from VM flakes in scenarios 58 and 51; make later gates reliable. |
 | 0l | **Done** (3e695d5). Fix the eleven findings that the TUI reviews of steps 3 to 5 left open, such as Retry offered for an operation that is not blocked, and a removal run answered `changed` or `expired` that did not show the current plan. | Left open by earlier TUI reviews; fixed after step 5, the last step those reviews covered. |
+| 0m | **Done** (42f2052). Serve VM scenario 37's HTTPS redirect from the test VM instead of httpbin.org, which now refuses redirects to internal addresses. | Scenario 37 was the last known VM failure; since 0m the gate expects every scenario to pass. |
+| 0n | **Done** (e0c5b1f). The observer's PTY expansion test waits, with a deadline, for the redraw instead of reading the frame a fixed tenth of a second after the resize. | A TUI test that failed on a loaded machine, recorded as debt; makes later checks reliable. |
+| 0o | **Done** (16a4e84). Release a session's in-memory status state, its attachment counts and its status and attempt budgets, when its row is deleted, not only at project deletion. | Recorded as debt: the state grew with every discarded, deleted, cleaned-up or replaced session. |
+| 0p | **Done** (aa28dfa, 9c46d03). Two more TUI fix passes. The first fixes the four smaller findings 0l left, such as no cue that a long page continues, and makes the removal review state losses in errtext's words, as the CLI does. The second names a created session by its Create before entering it, and makes every review that scrolls end each screen with how many lines are below, so a Discard at 48x16 shows its loss, or a cue to it, on its first screen. | Left open by the pass before each, and the loss sentences by step 7b. |
 | 0e | **Done** (f7dca2e). Deletions without inspection: no loss inspection or origin check before discard, delete or project deletion; P stops running sessions itself; no freezing, so rename requires a stopped session. With the loss inspection, the workspace helpers lose their last consumers, so they go too, with their Git analysis and their capacity reservation. Removal accepts a missing branch ref: delete then has nothing in P's repository to remove, and discard acts as a delete ([repairs.md](repairs.md)). | Decided; removes the loss-inspection path and its Incus calls, so step 5 has less to convert. |
 | 0f | **Done** (8ae2d6d). Collapse the 21 migrations into one schema file. | Follows from fresh installs only; later steps edit the schema directly. |
 | 0g | **Done** (8fe88c8). Give builders public internet access only, as designed in docs/environment-building.md. | Decided; makes real devShells buildable; the code moves into the driver later mostly unchanged. |
@@ -67,7 +71,7 @@ Each step lands as one commit, or a few where it splits cleanly (steps 1 to 4 an
 | 5 | **Done** (b6785bb). Risky changes | Needs the shared types (2), the precondition errors (3) and `operation.wait` (4), with which clients follow the operation each run returns. |
 | 6 | Dropped | Session repair is removed in 0h ([repairs.md](repairs.md)). |
 | 7 | **Done** (7a 6f3162f, 7b 2b14a2b). CLI | Builds on steps 4 and 5. |
-| 8 | **In progress**: M1 to M4 done (cbf5383, ef7eb3b, ca73691, 52d02e4), M5 to M7 under way ([runtime-driver.md](runtime-driver.md#migration)). Runtime | The largest step, and independent of the API. Last of the API-independent work, so it blocks nothing else. Lands as the driver's migration steps, one commit each. |
+| 8 | **Done** (M1 cbf5383, M2 ef7eb3b, M3 ca73691, M4 52d02e4, M5 758a654, M6 484a083, M7 4208028; [runtime-driver.md](runtime-driver.md#migration)). Runtime | The largest step, and independent of the API. Last of the API-independent work, so it blocks nothing else. Landed as the driver's migration steps, one commit each. |
 | 9 | Source driver, then plugins | The source driver lands first, as its migration steps S1 to S7, one commit each ([source-driver.md](source-driver.md#migration)); then the plugin changes replace the remaining WASI plugins with JSON-RPC executables where that makes sense. Both reuse the runtime driver's protocol from step 8. |
 
 Every step:
@@ -84,10 +88,13 @@ Every step:
 
 ## Known VM failures
 
+None remain since step 0m: every VM scenario is expected to pass. The table
+keeps the failures earlier gates met and what resolved each.
+
 | Scenario | Cause | Resolved by |
 |---|---|---|
 | 34, `34-missing-runtime-removal` | Start reported `ready` while its watcher still held the session lock. | Fixed in step 0b (804680e); renamed from the missing-runtime repair scenario in 0h |
-| 37, public egress | Depends on an external redirect service that now refuses the probe. | Stays a known failure |
+| 37, public egress | Depended on an external redirect service that now refuses the probe. | Fixed in step 0m (42f2052): the test VM serves the redirect |
 | 51, `51-assembled-failed-create-cleanup`, flaky | Inspection read the placeholder Incus lists while it cleans up after a guest's poweroff as an identity mismatch, so a failed startup's stop gave up and the creation was blocked before its container stopped. | Fixed in step 0k (7cfe56a) |
 | 58, notes TUI | The driver expected the session-row format from before 0dfc4ad. | Fixed in step 0a (51d7ac3) |
 | 58, notes TUI, flaky | Stop was refused while the TUI's services poll held the session lock. | Fixed in step 0i (2406b5a) |

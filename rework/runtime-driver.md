@@ -4,14 +4,14 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 
 ## Summary
 
-**Today** P reaches Incus along three routes. A WASI runtime plugin
-(`plugins/bundled/runtime-incus/main.go`) receives one of nine command kinds
-and asks a native broker for the matching effect; core re-reads Incus
-afterwards, so the module decides nothing. Core uses it from 16 places and
-never for `runtime.delete`. Everything else, deletion included, is 195 direct
-daemon calls to 43 methods of `*runtimeincus.Backend`. The attachment helper
-opens its own Incus exec channel. All three speak Incus, and P logic that has
-nothing to do with Incus lives in the Incus adapter too.
+**Before step 8** P reached Incus along three routes. A WASI runtime plugin
+(`plugins/bundled/runtime-incus/main.go`) received one of nine command kinds
+and asked a native broker for the matching effect; core re-read Incus
+afterwards, so the module decided nothing. Core used it from 16 places and
+never for `runtime.delete`. Everything else, deletion included, was 195
+direct daemon calls to 43 methods of `*runtimeincus.Backend`. The attachment
+helper opened its own Incus exec channel. All three spoke Incus, and P logic
+that has nothing to do with Incus lived in the Incus adapter too.
 
 **Decided by the maintainer on 2026-11-02:**
 
@@ -43,10 +43,18 @@ the workspace operations. The WASI environment plugin folds into the driver's
 image build.
 
 **What users notice:** no workflow changes from the driver. Host
-configuration has a `runtime.driver` block instead of `runtime_plugin_id` and the
-Incus settings, and `p plugins defaults` lists four packages instead of six.
-With no helper slot kept free (`checkSessionCapacity`), one more session fits
-under the Incus project's container limit.
+configuration has a `runtime.driver` block instead of `runtime_plugin_id`,
+`incus_binary`, `incus_user_socket` and `incus_project`, and
+`p plugins defaults` lists four packages instead of six. With no helper slot
+kept free (`checkSessionCapacity`), one more session fits under the Incus
+project's container limit. Attaching shows the first output sooner (the
+times are in [How it will be checked](#how-it-will-be-checked)).
+
+**Landed** in step 8, in the seven migration steps M1 to M7 (cbf5383 to
+4208028): the interface with 21 operations, one more than proposed; the Incus
+driver in internal/runtimedriver/incus, run as the executable
+`p-runtime-incus`; and the protocol and its supervision. Each section below
+says where the code departs from the design.
 
 ```text
 Before
@@ -56,19 +64,19 @@ internal/daemon ─┬─ plugin.RunRuntime ─► runtime.wasm ─► broker �
 internal/attachment (helper) ─► Incus exec websocket
 
 After
-internal/daemon ─► runtimedriver.Driver ─► p-runtime-incus ─► Incus
+internal/daemon ─► runtimedriver.Driver (supervise, protocol) ─► p-runtime-incus ─► Incus
 internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 ```
 
 ## Who does what
 
-| Area | Today | Core after | Driver after, from today's code |
+| Area | Before step 8 | Core after | Driver after, and the code it came from |
 |---|---|---|---|
 | Boundary | `CheckConfinement` and the egress proofs, before every mutation | — | `Check`, `Describe` (backend.go, egress.go, egress_firewall.go) |
 | Capacity and absence | Seven `incus list` scans; one slot kept for a helper | Admission and the proofs, from `Inspect` and `Inventory`; no helper slot | `Inventory`, one reader |
 | Session runtimes | `incus init`, devices, start, stop | Lifecycle, gates, locks | `Inspect`, `Create`, `Start`, `Stop`, `Delete` (backend.go, discard.go) |
 | Guest and Git key | Core's guest file plan over the file API | The session spec | Inside `Create` (assembly.go) |
-| Session host | Core reads `systemctl show` and the journal | — | Inside `Start` and `Inspect` (host_observe.go, the daemon's readiness wait) |
+| Session host | Core reads `systemctl show` and the journal | — | Inside `Start` and `Inspect`; `HostLog` for a stopped host's last words (host_observe.go, the daemon's readiness wait) |
 | Project services | `systemctl --user` through the WASI plugin | The API methods, the lock, the ready check | `Services`, `ServiceAction`, `ServiceLogs` (services.go) |
 | Terminals | The helper's own Incus exec channel | Token, lease, relay to the helper | `OpenTerminal` (attach.go, internal/attachment/incus.go) |
 | Workspace | Rename edits Git files in a stopped or frozen runtime | Reading and writing those files, stopped sessions only; the source driver computes the edits | Workspace operations and the stopped-storage check |
@@ -80,7 +88,8 @@ internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 
 The driver is trusted code: it holds container authority. Only trusted host
 configuration selects it; repositories, requests and plugins never reach it.
-The Incus driver ships as the executable `p-runtime-incus`. Its Nix steps
+The Incus driver ships as the executable `p-runtime-incus`
+(cmd/p-runtime-incus), built from internal/runtimedriver/incus. Its Nix steps
 become a Go package that another driver can reuse. Rename's Git edits
 (workspace_rename.go with `safeGitConfig`) leave the Incus code: from M4 core
 runs them over the workspace operations, and in step 9 the source driver
@@ -103,11 +112,9 @@ Three ideas carry it:
   that are idempotent by reference, never by sending a non-idempotent effect
   again.
 
-The sketch is illustrative. Step 1 landed its image part as
-`runtimedriver.Images` (internal/runtimedriver/driver.go): `Describe`, the
-four image operations, `Settle` for a build or an image delete, and `Delete`
-for a build's leftovers. A build has no incarnation, so step 1's `Delete`
-takes none: `Delete(ctx, r Ref, g Gate)`.
+The interface as step 8 landed it, abbreviated from
+internal/runtimedriver/driver.go. Step 1 landed the image part as `Images`,
+which `Driver` embeds.
 
 ```go
 package runtimedriver // internal/runtimedriver
@@ -115,17 +122,18 @@ package runtimedriver // internal/runtimedriver
 // Driver is the only code that creates, changes, reads or deletes runtime
 // machinery.
 type Driver interface {
+	Images // Describe, the image operations, Settle and Delete
+
 	// Host
-	Describe() Capabilities
 	Check(ctx context.Context) error                 // prove the boundary and the egress substrate
 	Inventory(ctx context.Context) (Inventory, error) // every object in scope, or an error
 
 	// Sessions
 	Inspect(ctx context.Context, s Session) (Observation, error)
 	Create(ctx context.Context, s Session, at Incarnation, g Gate) (Observation, error) // at empty: initialize; set: only complete that runtime
-	Start(ctx context.Context, s Session) (Observation, error)                          // returns with the host ready, or stopped with a diagnostic
+	Start(ctx context.Context, s Session) (Observation, error)                          // returns with the host ready, or a *HostError
 	Stop(ctx context.Context, s Session) (Observation, error)
-	Delete(ctx context.Context, r Ref, at Incarnation, g Gate) error // a session at its incarnation, or a build's leftovers, which have none
+	HostLog(ctx context.Context, t Target) (string, error) // the host's recent words, a stopped host's last ones; for display
 	OpenTerminal(ctx context.Context, t Target, size Size) (Terminal, error)
 
 	// The workspace of a stopped session; paths relative to its root
@@ -133,7 +141,15 @@ type Driver interface {
 	WriteWorkspace(ctx context.Context, t Target, path string, f File, g Gate) error
 	RemoveWorkspace(ctx context.Context, t Target, path string, g Gate) error
 
-	// Images
+	// Project services in a running session (services-plugin.md)
+	Services(ctx context.Context, t Target) ([]Service, error)
+	ServiceAction(ctx context.Context, t Target, name string, a Action) error // start, stop, restart
+	ServiceLogs(ctx context.Context, t Target, name string) (Logs, error)
+}
+
+// Images is the part of the driver that commit images use.
+type Images interface {
+	Describe() Capabilities
 	BuildImage(ctx context.Context, b Build, g Gate) (Image, error)
 	Images(ctx context.Context) ([]Image, error)
 	InspectImage(ctx context.Context, ref ImageRef) (Image, bool, error)
@@ -141,11 +157,8 @@ type Driver interface {
 
 	// What became of a call that returned ErrUnknownOutcome
 	Settle(ctx context.Context, e Effect) (Settlement, error)
-
-	// Project services in a running session (services-plugin.md)
-	Services(ctx context.Context, t Target) ([]Service, error)
-	ServiceAction(ctx context.Context, t Target, name string, a Action) error // start, stop, restart
-	ServiceLogs(ctx context.Context, t Target, name string) (Logs, error)
+	// A session at its incarnation, or a build's leftovers, with at empty
+	Delete(ctx context.Context, r Ref, at Incarnation, g Gate) error
 }
 
 type Ref struct {
@@ -154,16 +167,17 @@ type Ref struct {
 }
 
 type Session struct {
-	Ref       Ref
-	Labels    Labels    // P's identity facts, stored with the runtime, returned verbatim
-	Image     ImageRef  // the commit image; empty for a blank project's base image
-	Command   []string  // the interactive command the session host runs
-	Workspace Workspace // branch and commit to check out from P's Git endpoint
-	GitKey    []byte    // the session's P Git key
-	Endpoints string    // host directory holding session.sock and git.sock
-	Grants    []Grant
-	Network   Network // none, or public-egress with the address P reserved
-	Assets    []Asset // session assets core selected, such as the agent adapter
+	Ref        Ref
+	Labels     Labels    // P's identity facts, stored with the runtime, returned verbatim
+	Image      ImageRef  // the commit image, or the base image when there is none
+	Command    []string  // the interactive command the session host runs
+	Workspace  Workspace // repository, branch and commit to check out from P's Git endpoint
+	GitKey     []byte    // the session's P Git key; core gives it to Create only
+	GitHostKey string    // the host key of P's Git endpoint, which the session pins
+	Endpoints  string    // host directory holding session.sock and git.sock
+	Grants     []Grant
+	Network    Network // no address, or the public-egress address P reserved
+	Assets     []Asset // session assets core selected, such as the agent adapter
 }
 
 type Build struct {
@@ -192,10 +206,22 @@ type Target struct {
 
 type Observation struct {
 	State       State       // absent, stopped, running, other
+	Name        string      // the backend's own name for a present runtime, for display only
 	Incarnation Incarnation // opaque; same across start and stop; new on re-create or restore
 	Complete    bool        // false only after an interrupted Create
-	Host        HostState   // ready or not, with a bounded diagnostic
+	Host        HostState   // a running runtime's host: ready, unreadable, a bounded diagnostic
 }
+
+// HostError is Start's error when the session host did not become ready.
+// The runtime has been stopped, unless stopping it failed too.
+type HostError struct{ Diagnostic string }
+
+type Inventory struct {
+	Capacity int      // runtimes and builders the scope admits, at most MaxObjects; 0 for no limit
+	Objects  []Object // name, P reference, labels, incarnation and state of each
+}
+
+const MaxObjects = 64
 
 type Effect struct {
 	Kind     EffectKind // create, start, stop, delete, write, remove, build, delete-image, terminal
@@ -207,13 +233,21 @@ type Effect struct {
 	Terminal string
 }
 
-type Settlement int // Applied, NotApplied, Unknown
+type Settlement int // Unknown, Applied, NotApplied
 
 type Terminal interface {
 	io.ReadWriteCloser
 	ID() string
 	Resize(Size) error
 	Ended() <-chan Completion // Proven is false when only the channel closed
+}
+
+// UnendedTerminal is OpenTerminal's error when the attach began but the
+// terminal did not open and its end is unproven: an ErrUnknownOutcome that
+// names the terminal to settle.
+type UnendedTerminal struct {
+	ID  string
+	Err error
 }
 
 type Service struct {
@@ -224,7 +258,7 @@ type Service struct {
 
 type Capabilities struct {
 	ImageBuilder    string   // the image builder's version; part of every image's identity
-	System          string   // for example x86_64-linux
+	BuilderPolicy   string   // how builds run beyond ImageBuilder, such as the builder's network
 	Networks        []string // none, public-egress
 	EgressAddresses int      // 4 for Incus; 0 when the backend assigns addresses
 	Services        bool     // false: the services operations return ErrUnsupported
@@ -233,26 +267,65 @@ type Capabilities struct {
 type Gate func() error
 
 var (
-	ErrUnknownOutcome = errors.New("the effect may have happened; settle it")
+	ErrUnknownOutcome = errors.New("the effect may or may not have happened")
 	ErrMismatch       = errors.New("an object differs from the spec; it is never adopted")
 	ErrUnavailable    = errors.New("the backend cannot be reached; nothing is claimed")
 	ErrUnsupported    = errors.New("the driver does not offer this operation")
 	ErrNoService      = errors.New("no such project service in this session")
+	ErrNotReady       = errors.New("the session host is not ready")
 )
 ```
+
+Where the landed interface departs from the proposal:
+
+- **`HostLog`, a 21st operation.** `Inspect` reports the session host only
+  for a running runtime; a stopped host's last words come from `HostLog`,
+  bounded and for display, which a backend may give up on quickly (Incus
+  after 5 seconds).
+- **`Delete` takes an incarnation** for every reference; a build passes an
+  empty one. Step 1's `Delete` had none.
+- **Three more errors.** `ErrNotReady` refuses services and terminals while
+  the session host is not ready. `*HostError` carries Start's diagnostic
+  when the host did not become ready; the runtime has been stopped, unless
+  stopping it failed too.
+  `*UnendedTerminal` names a terminal whose attach began but whose end is
+  unproven, so core keeps its lease until `Settle` answers.
+- **`Observation.Name`**, the backend's own name for the runtime, for
+  display only. Removal plans show it beside the opaque `incarnation`, which
+  plans and evidence carry instead of the Incus project, instance name, UUID
+  and generation; change hashes leave the name out (M6).
+- **`Capabilities.BuilderPolicy`**, an opaque string for how the driver runs
+  a build, such as the builder's network. A creation pins its SHA-256
+  (`builder_policy_sha256`), and a change refuses to continue that creation;
+  unlike `ImageBuilder`, it builds no new images. `Capabilities` has no
+  `System`.
+- **`MaxObjects` = 64** bounds an inventory, and so the capacity a scope may
+  state: the largest per-caller bound before step 8, and the largest
+  `limits.containers` P accepts.
+- **The session spec.** `Session` gains `GitHostKey`, the pinned host key of
+  P's Git endpoint, and `Workspace.Repository`, the project whose repository
+  the workspace clones. `Session.Image` is always set: the commit image, or
+  the base image when there is none. Core gives `GitKey` to `Create` only.
+- **`Observation.Complete` on Incus covers only devices**: the endpoint
+  directory, the grants and the public-egress NIC. A `Create` interrupted
+  between two guest-file writes still reports complete; core completes a
+  stopped runtime of a creation with `Create` at its incarnation before
+  every start, which finishes the guest files either way.
+- **The Incus incarnation** is `<volatile.uuid>/<volatile.uuid.generation>`.
 
 ### What each operation guarantees
 
 | Operation | The driver must |
 |---|---|
 | All | Act only in its configured scope, on objects that carry this P instance's labels; never adopt, change or delete anything else. Read native state fresh on every call. After an error, claim nothing. Check its boundary before every mutation and refuse rather than widen. |
-| `Inspect` | Report `absent` only when its direct address for the reference finds nothing; report `ErrMismatch` for an object that carries the reference but differs from the spec. |
+| `Inspect` | Report `absent` only when its direct address for the reference finds nothing; report `ErrMismatch` for an object that carries the reference but differs from the spec. Report the session host only for a running runtime. |
+| `HostLog` | Return the session host's recent account of itself, bounded and printable, newest last: for a stopped runtime, its last words. Change nothing; give up quickly rather than hold the caller. |
 | `Create` | With no incarnation: look through the whole scope first, so a natively renamed runtime blocks creation; call the gate; initialize; then install everything the spec names and leave the runtime stopped. With an incarnation: never initialize; complete that stopped runtime, keeping identical guest files, installing missing ones and refusing different ones. |
-| `Start`, `Stop` | Converge on the state and do nothing when it holds. `Start` re-checks grants, endpoints and the egress substrate and returns once the session host is ready; if the host fails, the runtime ends stopped and `Start` returns the bounded diagnostic. When the host exits, the runtime stops and is never restarted. `Stop` is graceful and bounded. |
+| `Start`, `Stop` | Converge on the state and do nothing when it holds. `Start` re-checks grants, endpoints and the egress substrate and returns once the session host is ready; if the host fails, the runtime ends stopped, unless stopping it fails too, and `Start` returns the bounded diagnostic. When the host exits, the runtime stops and is never restarted. `Stop` is graceful and bounded. |
 | `Delete` | Act only on the given incarnation; stop a running runtime first. After success the reference is absent and its private storage gone. For a build, which has no incarnation: remove what it left behind, such as its builder, and never an image. |
 | `Inventory` | List every object in scope, P's or not, including ones being deleted, with labels as stored, within a stated bound; an error rather than a partial list. |
 | Workspace operations | Act only on a stopped session of the given incarnation. Never run code the session or its repository can change; never follow symlinks; report a path absent, or its type, owner and mode, and read and write exact owner, mode and bytes, within bounds; reach only the session's private storage. |
-| `OpenTerminal` | Attach the session user to the session host with a PTY. Arm a completion witness before the attach starts, or fail; report `Proven` completion only from it. |
+| `OpenTerminal` | Attach the session user to the session host with a PTY. Arm a completion witness before the attach starts, or fail; report `Proven` completion only from it. If the attach began and the terminal did not open, return `*UnendedTerminal` unless its end is proven. |
 | `BuildImage` | Call the gate once, after every check and right before the builder is initialized; core records the build attempted there, so a failed gate leaves no builder. Build an image of the commit for this runtime, label it, and leave no builder behind on success or definite failure. The builder gets the commit's Git bundle, which it clones into `/workspace`, the build's network and nothing else. |
 | Images | Store labels immutably and return them verbatim. `DeleteImage` acts on the exact reference and labels and never affects runtimes created from the image. |
 | `Settle` | `Applied` only when the intended outcome is present exactly and nothing admitted on the target is still running; `NotApplied` only when the backend proves the effect can never be admitted later; otherwise `Unknown`. For `create`, the intended outcome is the initialized runtime at the reference, complete or not. Use native state only, so the answer holds after a restart. |
@@ -279,57 +352,92 @@ external rename can move a runtime away from its address.
 
 Incus can admit a request that was queued before it registered an operation,
 after the client gave up, so state alone does not settle an effect. The
-contract keeps today's rules:
+contract keeps the rules P had before step 8:
 
 1. **A guard until settled.** The gate's record stays until the effect
    settles: the creation's init state, the build's cycle state, rename's
    write marker, the delete mark. Step 1 keeps no publication claim for a
    build: the Incus driver settles a build by whether its builder still
    exists, since a build removes its builder only after publication accepted
-   the image (`observeBuild` in internal/runtimeincus/driver.go).
+   the image (`observeBuild` in internal/runtimedriver/incus/driver.go).
 2. **Only a positive outcome settles**: the intended object or state, seen
    exactly on two observations 250 ms apart with no Incus operation active
-   on it. The Incus driver never returns `NotApplied` for a create or a build.
+   on it. The Incus driver never returns `NotApplied`, for any effect, since
+   Incus may still admit a request it queued. Core treats `NotApplied` for a
+   create or a delete as `Unknown`: only `Applied` lets the work go on.
 3. **A non-idempotent effect is never sent again.** A fresh `Create`, a
    build, a delete and a workspace write are settled, never resent; a new
    build gets a new reference, and a delayed admission on the old one shows
    up in `Inventory` or `Images`, where core accepts or deletes
    it exactly. Operations that are idempotent by reference may be called
-   again: `Create` at an exact incarnation, `Start`, `Stop`.
+   again: `Create` at an exact incarnation, `Start`, `Stop`. A removal that
+   finds its stop recorded sends `Stop` again.
+
+**Removal**, as step 8 landed it: discard, delete, project deletion and the
+cleanup of an assembled creation record that they issue a stop, then stop a
+running runtime with `Stop`, gracefully for up to 30 seconds and then
+forced, where P had force-stopped at once. The delete goes through `Delete`
+at the reviewed incarnation, whose gate records the delete. A delete that
+fails after its gate, a lost reply included, is an unknown outcome
+(`ErrUnknownOutcome`), and so is a recovery that finds the delete recorded:
+core settles it, and only `Applied` lets the removal go on to prove the
+runtime absent (internal/daemon/runtime_removal.go).
 
 **Recovering a partial `Create`.** `Create` initializes and then assembles.
 If the driver dies in between, or between two guest writes, core settles the
-`create` effect. `Unknown` keeps the creation blocked, as today. `Applied`
-means the runtime exists; core reads its incarnation and calls `Create` again
-at that incarnation, which completes it and can never initialize a second
-one. An uncertain guest write is found identical and kept, or found
+`create` effect: after a `Create` that returned `ErrUnknownOutcome`, and when
+a recorded init attempt finds no runtime. `Unknown`, and `NotApplied` with
+it, keeps the creation blocked, as before step 8. `Applied` means the
+runtime exists; core reads its incarnation and calls `Create` again at that
+incarnation, which completes it and can never initialize a second one. VM
+scenario 59 kills the driver while a creation runs against real Incus: the
+creation completes, after `p operation retry` when it blocked, with one
+runtime. An uncertain guest write is found identical and kept, or found
 different and refused, which leaves the creation for cleanup. Whether an
 interrupted Incus file write can leave a partial file was not verified.
 
 ### Terminals
 
-Today the helper process owns the channel and its completion witness, and
-keeps the daemon lease until the witness proves the guest process ended. After:
+Before step 8 the helper process owned the channel and its completion
+witness, and kept the daemon lease until the witness proved the guest process
+ended. Since M5:
 
 - The driver owns the native channel and the witness. The daemon owns the
-  token and the lease and relays the terminal to the helper, which keeps
-  only the client side and has no Incus access.
-- If the driver fails while the daemon stays up, its terminals end unproven.
-  The helper tears down; input and resize stop and are not replayed; the
-  lease stays, so discard and delete stay refused. The lease ends when the
-  restarted driver settles the terminal as ended, or when the session stops
-  or is deleted.
-- A daemon restart ends attachments, as today.
+  token and the lease. The helper's lease connection carries the terminal:
+  `attachment.claim`, which now carries the terminal's size, opens it through
+  `OpenTerminal` at the session's current incarnation and counts the
+  attachment in the session's presence, and the connection then relays the
+  terminal. The relay lives in internal/control, so the TUI mock runs the
+  production relay. The helper keeps only the client side and has no Incus
+  access; `attachment.confirm` and `attachment.ping` are gone.
+- Presence and lease end together, once the driver proves the terminal
+  ended. A terminal that ends unproven, as when the driver fails while the
+  daemon stays up, keeps both, so the session counts as attached and discard
+  and delete stay refused; the client is told, and input and resize stop
+  and are not replayed. The daemon asks `Settle` of the terminal every
+  3 seconds and ends the lease and presence once it answers `Applied`. An
+  open that began and failed with its end unproven (`*UnendedTerminal`)
+  keeps a lease without presence, settled the same way. An open whose
+  outcome is unknown and that names no terminal, as when the driver's
+  connection is lost while it opens one, keeps a lease without presence
+  until the session stops.
+- A terminal that ended unproven does not refuse Stop, and a Stop that
+  leaves the runtime stopped ends its lease; otherwise a lease the driver
+  never settles would block Stop, discard and delete forever.
+- A daemon restart ends attachments, as before.
+
+VM scenario 59 kills the driver while a terminal is attached: removal stays
+refused until the restarted driver settles the terminal as ended.
 
 ### Project services
 
 The three operations, their five states and their guarantees are designed in
 [services-plugin.md](services-plugin.md). How a runtime defines and runs
 services is its own business; the Incus driver keeps systemd user units and
-today's services.go, with a mapping to P's states. Service actions are fire
-and observe, by the maintainer's decision: they return once the runtime has
-queued them (`systemctl --no-block` on Incus), and the inventory shows their
-progress.
+the services code from before step 8, now driver_services.go, with a mapping
+to P's states. Service actions are fire and observe, by the maintainer's
+decision: they return once the runtime has queued them
+(`systemctl --no-block` on Incus), and the inventory shows their progress.
 
 ### Public-egress addresses
 
@@ -379,14 +487,40 @@ The maintainer chose a separate executable over a driver compiled into P:
 replacing it needs no rebuild of P, as PROJECT.md's extension goal asks. A
 driver crash turns calls in flight into unknown outcomes, which the
 restarted driver settles. Core always talks to `runtimedriver.Driver`; the
-protocol client is one implementation of it.
+daemon holds the supervisor, which reaches the driver through the protocol
+client, another implementation of it.
 
-The protocol: JSON-RPC 2.0 over a Unix socket pair with P's strict JSON
-framing, both directions so the driver can call a gate; one long-lived
-driver process started by the daemon; a hello that agrees on the version,
-refusing startup on a mismatch; each terminal on its own connection; host
-configuration `runtime.driver: {path, sha256, config}`, beside the source
-driver's `git.driver`.
+**The protocol**, as M7 landed it in internal/runtimedriver/protocol:
+
+- JSON-RPC 2.0 over a Unix socket pair, one newline-terminated JSON frame per
+  message, decoded strictly, at most 16 MiB a frame, since a session's
+  assets, up to 1 MiB each, travel in requests. Requests go both ways: core
+  calls the driver's operations, and the driver calls back core's gates.
+- One long-lived driver process, started by the daemon. The connection
+  starts with a hello: core sends the version, `p.runtime-driver/v1`, the
+  driver's own configuration and the settings core owns that the driver
+  needs, namely the P instance UUID, the endpoint prefix, the disk-source
+  ceilings, the builder storage pool and the public-egress substrate. The
+  driver answers with its capabilities, or refuses a version it does not
+  speak.
+- A call never returns while a gate it started runs. A call whose
+  connection is lost ends by what its gate did: an effect returns
+  `ErrUnknownOutcome` when its gate admitted it or it takes none, the
+  refusal when its gate refused, and `ErrUnavailable` when its gate never
+  ran, since nothing happened; a read returns `ErrUnavailable`. Errors keep
+  their kinds across the connection, the context errors included.
+- Each terminal has its own socket pair, whose far end goes to the driver
+  with `open_terminal`; it carries only the terminal's bytes. A resize is a
+  synchronous call on the main connection, and the terminal's end comes as
+  the answer to a long `wait_terminal` call.
+- Host configuration is `runtime.driver: {path, sha256, config}`, beside the
+  source driver's `git.driver`. The Incus driver's `config` holds `binary`,
+  `user_socket`, `project` and an optional absolute `journalctl`, with which
+  it reads a stopped host's journal; every configuration that runs the
+  driver names it, since the driver runs with an empty environment. Public
+  egress, the disk-source ceilings and the builder storage pool stay in
+  core's configuration, because core uses them too, and reach the driver in
+  the hello.
 
 **Launch checks.** The path and digest alone do not prove that only root or
 P's account can change the file between the check and the start:
@@ -394,11 +528,28 @@ P's account can change the file between the check and the start:
 parent, and nothing checks the file's owner, mode or link count. Before every
 start, and before hashing, the daemon applies the launch checks of
 [plugins.md](plugins.md#trust): the executable's directory and its ancestors
-owned by root or P's account and not group- or world-writable, with today's
-exception for a root-owned sticky ancestor; the executable a regular file
-owned by root or P's account, not group- or world-writable, with one link
-unless root owns it and no one may write it; and its owner's execute bit
-set. It then hashes the file and starts the file it checked.
+owned by root or P's account and not group- or world-writable, with the
+existing exception for a root-owned sticky ancestor; the executable a regular
+file owned by root or P's account, not group- or world-writable, with one
+link unless root owns it and no one may write it; and its owner's execute bit
+set. It then hashes the file and starts the file it checked. M7 landed them
+in internal/runtimedriver/supervise (check.go): the checks open the
+directory and then the file without following a symbolic link, check and hash
+the open file, and the supervisor starts that open file through its
+descriptor, so a file put at the path after the check never runs.
+
+**Supervision** (internal/runtimedriver/supervise). The daemon starts the
+driver with an empty environment and refuses to start itself when the first
+launch fails its checks, its hash, the exec or the hello. When the driver
+exits or its connection is lost, calls in flight end as the protocol says,
+calls made while it is down return `ErrUnavailable`, and the supervisor
+restarts it, after a wait that starts at 100 ms and doubles up to 30 seconds
+(back to 100 ms after a driver that ran for a minute). A restarted driver
+that describes other capabilities than at its first start is refused, and
+the supervisor tries again. A driver that hangs with its connection open is
+not detected: nothing checks that it still answers, so its calls wait until
+their contexts end
+([debt](../docs/debts/state-safety.md#a-hung-runtime-driver-is-never-restarted)).
 
 ## Images and step 1
 
@@ -416,10 +567,10 @@ was found.
 **Builders get public internet access only**, as
 [environment building](../docs/environment-building.md) already designs in
 "Realize" and "Security boundary": public substituters and fetches, with a
-session's destination isolation. Today's builder has no NIC; step 0g gives
-it that access before the driver exists, and the code later moves into
-`BuildImage`. Builds fetch from the public caches directly; a package cache
-may come later, as a plugin.
+session's destination isolation. Before step 0g the builder had no NIC; 0g
+gave it that access before the driver existed, and step 1 moved the code
+into `BuildImage`. Builds fetch from the public caches directly; a package
+cache may come later, as a plugin.
 
 **Step 1 comes first, as decided.** It creates `internal/runtimedriver` with
 `BuildImage`, the image operations and `Settle` for builds, folds the
@@ -437,15 +588,18 @@ their Git analysis and their slot in admission, removed freezing, and made
 rename stopped-only and let removal accept a missing branch ref; 0h removed
 session repair; 0g gave builders public egress.
 
+All seven steps landed, one commit each. Where a step did more or less than
+planned, its row says so.
+
 | Step | What | Removed |
 |---|---|---|
-| M1 | The full interface, an in-memory driver and a conformance suite; the Incus driver in process over `runtimeincus`, with the guest file plan, the host readiness wait and services.go as driver code. Host configuration gets `runtime.driver: {name, config}`. | — |
-| M2 | The 16 `plugin.RunRuntime` calls go to the driver: inspect, create, start and stop to the session operations, `runtime.services` to the services operations. Attachment keeps today's spec until M5. | The WASI runtime plugin, its broker, capability and grant; `runtime_plugin_id`; the daemon's `serviceBroker` |
-| M3 | `Check`, `Describe`, `Inventory`; core computes the proofs, with one inventory bound instead of today's per-caller 4 or 64. | The proof scans |
-| M4 | The remaining direct calls: `Delete`, the workspace operations with the stopped-storage check, which rename's Git edits use from core, `Settle`, and `Create` at an incarnation for recovering a partial create. | The other `l.runtime` calls |
-| M5 | `OpenTerminal`; the daemon relays the terminal and the helper loses Incus access. | internal/attachment/incus.go, `ValidateAttachmentOperation`, the Incus fields of `AttachmentLaunch` |
-| M6 | The daemon holds only `runtimedriver.Driver`; `runtimeincus` moves to `internal/runtimedriver/incus`, and a test fails if another package imports it or runs `incus`. | `lifecycle.runtime` |
-| M7 | The protocol and the `p-runtime-incus` executable, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`. | `name` |
+| M1 | **Done** (cbf5383). The full interface, an in-memory driver and a conformance suite; the Incus driver in process over `runtimeincus`, with the guest file plan, the host readiness wait and services.go as driver code. Host configuration gets `runtime.driver: {name, config}`. | — |
+| M2 | **Done** (ef7eb3b). The 16 `plugin.RunRuntime` calls go to the driver: inspect, create, start and stop to the session operations, `runtime.services` to the services operations. Attachment keeps its spec until M5. `HostLog` joins the interface for a stopped host's last words. | The WASI runtime plugin, its broker, capability and grant; `runtime_plugin_id`; the daemon's `serviceBroker` |
+| M3 | **Done** (ca73691). `Check`, `Describe`, `Inventory`; core computes the proofs, with one inventory bound, `MaxObjects` = 64, instead of the earlier per-caller 4 or 64. | The proof scans |
+| M4 | **Done** (52d02e4). The remaining direct calls: `Delete`, the workspace operations with the stopped-storage check, which rename's Git edits use from core, `Settle`, and `Create` at an incarnation for recovering a partial create. Removal stops a running runtime with `Stop` before `Delete`. | The other `l.runtime` calls, except attachment's |
+| M5 | **Done** (758a654). `OpenTerminal`; the helper's lease connection carries the terminal, the daemon relays it through control, and the helper loses Incus access. | internal/attachment/incus.go, `ValidateAttachmentOperation`, the Incus fields of `AttachmentLaunch`, `attachment.confirm` and `attachment.ping`; `lifecycle.runtime`, planned for M6 |
+| M6 | **Done** (484a083). The daemon holds only `runtimedriver.Driver`; `runtimeincus` moves to `internal/runtimedriver/incus`, and a test fails if another package imports it or runs `incus`. Plans and evidence carry `Observation.Name` and the opaque incarnation; `Capabilities.BuilderPolicy` replaces core's digest of the Incus builder policy. | The Incus project, instance name, UUID and generation in plans and evidence |
+| M7 | **Done** (4208028). The protocol and the `p-runtime-incus` executable, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`. VM scenario 59 kills the driver during a creation and during an attachment. | `name`; the daemon's import of the Incus driver |
 
 ## Departures from agreements
 
@@ -500,7 +654,8 @@ session repair; 0g gave builders public egress.
 ## How it will be checked
 
 - **Conformance suite** (`internal/runtimedriver/conformance`), against the
-  in-memory driver and the Incus driver with its stubbed runner:
+  in-memory driver, the Incus driver with its stubbed runner, and from M7
+  the in-memory driver over the protocol:
   - `Create`: no effect before the gate or after a failing one; a renamed
     runtime found by `Inventory` blocks it; `ErrMismatch` for drift; driver
     death after initialization, and between two guest writes including an
@@ -530,14 +685,32 @@ session repair; 0g gave builders public egress.
   completion; daemon loss closes the channel without re-registering; a failed
   launch never confirms. New: a driver failure ends terminals unproven and
   keeps the lease until settled or stopped.
-- **Boundaries**: only the Incus driver imports `runtimeincus` or runs
-  `incus`; internal/attachment has no Incus code; the daemon refuses to start
-  a driver whose file or directory is owned by another account or is group-
-  or world-writable, whose file has a second link while writable or lacks
-  the owner's execute bit, or whose SHA-256 or protocol version differs; a
-  driver killed in a call yields `ErrUnknownOutcome` and a settlement.
+- **Boundaries**: only the Incus driver, its executable and the VM fixtures
+  import internal/runtimedriver/incus or name the `incus` binary
+  (boundary_test.go); internal/attachment has no Incus code; the daemon
+  refuses to start a driver whose file or directory is owned by another
+  account or is group- or world-writable, whose file has a second link
+  while writable or lacks the owner's execute bit, or whose SHA-256 or
+  protocol version differs; a driver killed in a call yields
+  `ErrUnknownOutcome` and a settlement.
 - **VM scenarios** pass or match the plan's known failures, except those the
-  decisions change (freezing, inspection, scenario 28). Scenario 06 runs the
-  conformance suite against real Incus. New scenarios kill the driver during
-  creation and during an attachment. Create, start and attach times are
-  reported before and after.
+  decisions change (freezing, inspection, scenario 28). Step 8's last gate,
+  on 4208028, passed with scenario 37 and the new scenario 59 included.
+  Scenario 06 was to run the conformance suite against real Incus; it does
+  not, and still drives the Incus driver through its own fixture commands,
+  since the suite's controls exist only for the in-memory driver and the
+  stubbed Incus
+  ([debt](../docs/debts/checks.md#the-conformance-suite-never-runs-against-real-incus)).
+  Scenario 59 (59-runtime-driver-restart.sh) kills the driver with SIGKILL
+  during a creation and during an attachment, against real Incus. The plan
+  asked for create, start and attach times before and after; they follow.
+
+The times, measured with a scratch scenario that is not committed:
+`p session create`, `p session start` of the stopped session, and `p attach`
+until the terminal shows output, three runs in one test VM for each tree.
+
+| | Before step 8 (3e695d5) | After M7 |
+|---|---|---|
+| Create | 7.3, 9.9, 10.5 s | 7.0, 7.3, 9.3 s |
+| Start | 1.6 to 1.7 s | 1.4 s |
+| Attach, to first output | 2.4 to 2.6 s | 0.75 to 0.79 s |

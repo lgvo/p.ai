@@ -181,7 +181,7 @@ by three rules, applied in this order:
    | `ErrConflict`: a token, change tag or expected value (`expected_old_tip`, `expected_url`, `expected_commit_oid`, `source_oid`) that no longer holds | `precondition_failed`, reason `expired` or `changed` |
    | `*sessionCapacityError`, and other full tables (attachments, public egress addresses) | `capacity`, with the table as reason |
    | `ErrNotFound` | `not_found` with the target; `not_configured` where it stands for a missing capability |
-   | A failure from an adapter of an outside authority: the runtime plugin and `runtimeincus`, the [source driver](source-driver.md) (`gitservice` and the source-Git plugin until step 9), except a `CheckNames` refusal | `failed`, with the authority as reason |
+   | A failure from an adapter of an outside authority: the [runtime driver](runtime-driver.md) (the runtime plugin and `runtimeincus` until step 8), the [source driver](source-driver.md) (`gitservice` and the source-Git plugin until step 9), except a `CheckNames` refusal | `failed`, with the authority as reason |
 
 3. **Anything untyped answers `internal`, reason `unexpected`,** and is
    logged with its cause:

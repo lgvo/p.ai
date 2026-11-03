@@ -115,8 +115,8 @@ happens in the isolated builder. The builder makes the clone without
 `git clone`: it initializes an empty repository, fetches the bundle's one
 ref, checks the commit out detached and deletes the fetched ref, then proves
 that HEAD is the commit with no branch, ref or remote and a clean tree
-(`CloneBuilderSource` in internal/runtimeincus/builder.go). An image only has
-to work with the runtime that built it. The builder gets
+(`CloneBuilderSource` in internal/runtimedriver/incus/builder.go). An image
+only has to work with the runtime that built it. The builder gets
 public internet access only, with no host or local-network route, as
 [environment building](../docs/environment-building.md) already designs
 ("Realize" and "Security boundary"); step 0g implemented that access. A host

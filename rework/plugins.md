@@ -93,8 +93,8 @@ source-driver.md places it.
 The two units and `p-attach` define how the session host runs: they call
 runtime-kit and tmux, and attachment compares the guest's files with the
 selected package's bytes (`verifyAttachAssets` in
-internal/runtimeincus/attach.go). A replacement package can therefore change
-unit settings or attach options today. By the maintainer's decision, how a
+internal/runtimedriver/incus/attach.go). A replacement package can therefore
+change unit settings or attach options today. By the maintainer's decision, how a
 runtime runs the session host is the runtime's own business
 ([runtime-driver.md](runtime-driver.md)); a Kubernetes driver would not run
 systemd units at all. So the three files join the Incus driver, and

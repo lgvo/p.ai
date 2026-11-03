@@ -86,9 +86,16 @@ session.delete {uuid, key, if_match: change_tag}
   lock the session
   read the state again, plan again, compute change_hash and the tag again
   tag differs? refuse: precondition_failed, changed
-  write the operation with its change_hash; inside the transaction, check the
-    change hash and the expiry again
+  take the Git authority; plan again and refuse if the change hash differs
+  write the operation with its change_hash; inside that transaction, check
+    the expiry again
 ```
+
+The last plan runs under the Git authority, just before the transaction,
+and only the expiry is checked inside it: each kind records its operation
+with a store method in internal/control, such as `BeginDiscard`, which calls
+`Run.Recheck` from change.go. Publication plans under the origin lock and
+the Git authority from the start, so its run plans only once.
 
 A change tag comes only from a dry run of a change that is allowed. A dry run
 of a change that is not allowed still returns its plan, with the refusals that
