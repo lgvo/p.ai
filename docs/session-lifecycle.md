@@ -610,6 +610,8 @@ pending state. None of those failures increments attachment presence,
 suppresses agent events, or clears unattended status. A terminal the claim
 opened, or whose failed open the runtime driver cannot prove ended, keeps the
 attachment's lease until its end is proven or settled, or the session stops.
+An open lost with the runtime driver's connection names no terminal to
+settle, so its lease waits for the session to stop.
 Multiple attachments are allowed when the interactive host supports them.
 
 The runtime driver owns the native channel and its witness; the daemon owns

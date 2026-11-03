@@ -289,24 +289,30 @@ The replaceable execution machinery associated with a session.
 
 ### Runtime driver
 
-The trusted code that owns runtime machinery for P core, addressed in P's
-terms rather than its backend's.
+The trusted executable that owns runtime machinery for P core, which the daemon
+starts, supervises and addresses in P's terms rather than its backend's over
+the driver protocol.
 
 - **Related:** [Runtime](#runtime), [commit image](#commit-image).
 - **Boundaries:** It is part of trusted P, not a plugin; repositories,
   requests, and plugins never reach it. Its contract covers images and their
   builds, session runtimes, the workspace of a stopped session, terminals and
-  project services; host configuration selects it as `runtime.driver`. Its
-  Incus implementation, `internal/runtimedriver/incus`, runs inside the P
-  daemon, which holds nothing of it but the driver interface. Every runtime
-  effect goes through it: images, sessions, their removal, the workspace edits
-  of a rename, terminals, project services, the boundary check and the
-  inventory that admission and the proofs of absence read.
+  project services; host configuration pins its executable by path and
+  SHA-256 as `runtime.driver`. Its Incus implementation,
+  `internal/runtimedriver/incus`, runs as the `p-runtime-incus` executable
+  shipped with P; the daemon holds nothing of it but the driver interface.
+  Every runtime effect goes through it: images, sessions, their removal, the
+  workspace edits of a rename, terminals, project services, the boundary check
+  and the inventory that admission and the proofs of absence read.
 - **Rules:** It acts only on objects carrying its P instance's labels, stores
   those labels immutably, and claims nothing after an error. Core identifies a
   runtime by the driver's opaque incarnation, which stays the same across stop
   and start and changes when the runtime is re-created or restored, and shows
-  the driver's own name for a runtime only for display.
+  the driver's own name for a runtime only for display. The daemon starts the
+  driver only after its launch checks and pinned digest pass, agrees the
+  protocol version with it, and restarts it when it dies; an effect whose call
+  was lost with the driver's connection is settled through the restarted
+  driver, never sent again.
 
 ### Source driver
 

@@ -3,26 +3,36 @@ package daemon
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/control"
 )
 
-func TestOnlyTheIncusDriverIsSelectedAndItGetsCoresSettings(t *testing.T) {
+func TestTheDriverStartsFromItsPinnedExecutableWithItsConfigAndCoresSettings(t *testing.T) {
 	config := json.RawMessage(`{"binary":"/run/current-system/sw/bin/incus","user_socket":"/var/lib/incus/unix.socket.user","project":"user-1000"}`)
-	cfg := control.RuntimeConfig{Driver: control.RuntimeDriverConfig{Name: "incus", Config: config}, EndpointPrefix: "/var/lib/p/endpoints",
-		DiskSourceCeilings: []string{"/srv/p"}, Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"},
-		PublicEgress: &control.PublicEgressConfig{Network: "p-public", ACL: "p-public-acl", DNS: []string{"1.1.1.1"}}}
-	got, err := incusConfig(cfg, "11111111-1111-4111-8111-111111111111")
-	if err != nil || got.Binary != "/run/current-system/sw/bin/incus" || got.UserSocket != "/var/lib/incus/unix.socket.user" || got.Project != "user-1000" {
-		t.Fatalf("Incus driver settings %+v %v", got, err)
+	digest := strings.Repeat("0f", 32)
+	cfg := control.RuntimeConfig{Driver: control.RuntimeDriverConfig{Path: "/opt/p/bin/p-runtime-incus", SHA256: digest, Config: config},
+		EndpointPrefix: "/var/lib/p/endpoints", DiskSourceCeilings: []string{"/srv/p"},
+		Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"},
+		PublicEgress: &control.PublicEgressConfig{Network: "p-public", ACL: "p-public-acl", BridgeIPv4: "10.233.0.1/24", DNS: []string{"1.1.1.1"},
+			SudoBinary: "/run/wrappers/bin/sudo", NftBinary: "/run/current-system/sw/bin/nft", BridgeProofBinary: "/run/current-system/sw/bin/p-public-network-proof"}}
+	got := driverLaunch(cfg, "11111111-1111-4111-8111-111111111111")
+	if got.Path != "/opt/p/bin/p-runtime-incus" || got.SHA256 != digest || string(got.Hello.Config) != string(config) {
+		t.Fatalf("the driver's executable and own config: %+v", got)
 	}
-	if got.PInstanceID != "11111111-1111-4111-8111-111111111111" || got.EndpointPrefix != cfg.EndpointPrefix || !slices.Equal(got.DiskSourceCeilings, cfg.DiskSourceCeilings) ||
-		got.BuilderStoragePool != "builders" || got.PublicEgress == nil || got.PublicEgress.Network != "p-public" || got.PublicEgress.ACL != "p-public-acl" {
-		t.Fatalf("the Incus driver lacks core's settings: %+v", got)
+	core := got.Hello.Core
+	if core.InstanceID != "11111111-1111-4111-8111-111111111111" || core.EndpointPrefix != "/var/lib/p/endpoints" ||
+		!slices.Equal(core.DiskSourceCeilings, []string{"/srv/p"}) || core.BuilderStoragePool != "builders" {
+		t.Fatalf("core's settings: %+v", core)
 	}
-	cfg.Driver.Name = "kubernetes"
-	if got, err := incusConfig(cfg, "11111111-1111-4111-8111-111111111111"); err == nil {
-		t.Fatalf("unknown runtime driver selected with settings %+v", got)
+	e := core.PublicEgress
+	if e == nil || e.Network != "p-public" || e.ACL != "p-public-acl" || e.BridgeIPv4 != "10.233.0.1/24" || !slices.Equal(e.DNS, []string{"1.1.1.1"}) ||
+		e.SudoBinary != "/run/wrappers/bin/sudo" || e.NftBinary != "/run/current-system/sw/bin/nft" || e.BridgeProofBinary != "/run/current-system/sw/bin/p-public-network-proof" {
+		t.Fatalf("the public egress substrate: %+v", e)
+	}
+	cfg.Environment, cfg.PublicEgress = nil, nil
+	if core := driverLaunch(cfg, "11111111-1111-4111-8111-111111111111").Hello.Core; core.BuilderStoragePool != "" || core.PublicEgress != nil {
+		t.Fatalf("without an environment or a substrate: %+v", core)
 	}
 }

@@ -81,17 +81,17 @@ activate "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
 activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/runtime.json" session.asset.install
 base_image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base_image}" -eq 64
+driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_real")
 jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
   --arg git_id "$(jq -er '.plugins[0].id' "$step_dir/git.json")" \
   --arg runtime_activation "$step_dir/runtime.json" \
   --arg host_id "$(jq -er '.plugins[0].id' "$step_dir/runtime.json")" \
-  --arg incus_binary "$incus_real" --arg prefix "$endpoint_prefix" --arg image "$base_image" \
+  --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$base_image" \
   --arg ro "$grant_root/ro" --arg rw "$grant_root/rw" --arg file "$grant_root/notice" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
     runtime:{activation_path:$runtime_activation,
-      host_plugin_id:$host_id,driver:{name:"incus",config:{binary:$incus_binary,
-      user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},
+      host_plugin_id:$host_id,driver:$driver,
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
       base_image_fingerprint:$image,
       project_policies:{

@@ -51,20 +51,22 @@ type RuntimeConfig struct {
 	AgentAdapter         *AgentAdapterConfig      `json:"agent_adapter,omitempty"`
 }
 
-// IncusDriver names the Incus runtime driver, compiled into P and the only
-// runtime driver P knows.
-const IncusDriver = "incus"
-
-// RuntimeDriverConfig selects the runtime driver P uses, by name, and carries
-// that driver's own settings. Only the driver interprets Config.
+// RuntimeDriverConfig is the runtime driver executable P runs, pinned by its
+// path and SHA-256, and that driver's own settings. Only the driver
+// interprets Config; the daemon's launch checks examine the executable each
+// time it starts the driver.
 type RuntimeDriverConfig struct {
-	Name   string          `json:"name"`
+	Path   string          `json:"path"`
+	SHA256 string          `json:"sha256"`
 	Config json.RawMessage `json:"config"`
 }
 
 func (d RuntimeDriverConfig) validate() error {
-	if d.Name != IncusDriver {
-		return fmt.Errorf("runtime.driver.name must be %q", IncusDriver)
+	if !filepath.IsAbs(d.Path) || filepath.Clean(d.Path) != d.Path {
+		return errors.New("runtime.driver.path must be an absolute clean path")
+	}
+	if !validFingerprint(d.SHA256) {
+		return errors.New("runtime.driver.sha256 must be 64 lowercase hex digits")
 	}
 	if config := bytes.TrimSpace(d.Config); len(config) == 0 || config[0] != '{' {
 		return errors.New("runtime.driver.config must be a JSON object")

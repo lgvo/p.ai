@@ -20,6 +20,7 @@ channels.
 - [Branch rename](#branch-rename)
 - [Origin communication](#origin-communication)
 - [Destructive operations](#destructive-operations)
+- [Daemon and runtime driver](#daemon-and-runtime-driver)
 - [Image-build communication](#image-build-communication)
 - [Future attempts and Git-triggered checks](#future-attempts-and-git-triggered-checks)
 - [Attachment](#attachment)
@@ -38,6 +39,7 @@ channels.
 | Host RPC | lifecycle, configuration, status, subscriptions | source trees or arbitrary command execution |
 | Session RPC | identity, capabilities, latest agent condition, narrow act-on-self calls | other sessions, publication, host control |
 | Attachment | one fixed attach entrypoint's terminal byte stream, relayed by the daemon | lifecycle API, source transfer, or runtime authority |
+| Runtime driver | the daemon's calls of driver operations in P's terms, the driver's gate calls back, and each terminal's bytes on that terminal's own connection | client or session connections; lifecycle and policy decisions, which stay in core |
 | Bifrost HTTP (post-MVP) | approved model discovery and inference under a mandatory virtual key | P lifecycle; not an MVP session channel |
 | Incus builder | a Git bundle of one source commit, bounded Nix capabilities, commit-image publication | ambient host authority or session identity |
 | Event handler | typed, versioned reduced P events | source contents, credentials, or source-of-truth state |
@@ -417,6 +419,46 @@ outside MVP.
 Whole-project deletion is defined in
 [project lifecycle](project-lifecycle.md#project-deletion).
 
+## Daemon and runtime driver
+
+The daemon reaches every runtime effect through the runtime driver, an
+executable it starts and supervises
+([runtime isolation](runtime-isolation.md#driver-executable)). They talk over
+one Unix socket pair the daemon creates for each start of the driver, not over
+a listener:
+
+- Each message is a JSON-RPC 2.0 request, notification or response in one
+  newline-terminated frame of at most 16 MiB, decoded strictly: no duplicate,
+  unknown or inexact keys.
+- The daemon calls the driver's operations in P's terms. The driver calls one
+  method back, the gate of the call it serves, right before that call's first
+  effect; the daemon answers by running core's gate, which records its durable
+  intent. A notification cancels a call the daemon no longer waits for.
+- The connection begins with a hello. The daemon sends the protocol version,
+  `p.runtime-driver/v1`, the driver's `config` from host configuration and the
+  settings core owns that the driver needs: the P instance ID, the endpoint
+  prefix, the disk-source ceilings, the builder storage pool and the
+  public-egress substrate. The driver answers with the version it agreed and
+  its capabilities, or refuses; nothing else is sent before it. The driver
+  takes no configuration from its environment or arguments.
+- Each terminal has a connection of its own: a socket pair whose far end the
+  daemon passes with the open request (`SCM_RIGHTS`). It carries the
+  terminal's bytes only, input one way and output the other; resizes and the
+  terminal's end travel as calls on the main connection.
+- Errors keep their kinds across the connection: unknown outcome, mismatch,
+  unavailable, unsupported, no service, not ready, a host failure with its
+  diagnostic, a terminal whose end is unproven, with its ID, cancellation and
+  an expired deadline. A call whose own context ended also carries that end,
+  whichever came first.
+
+When the connection is lost, a read in flight ends as unavailable, and so does
+an effect that took a gate that never ran; any other effect in flight ends
+with an unknown outcome, which core settles through the restarted driver and
+never sends again. A call never returns while its gate runs: a gate that runs
+when the connection is lost or the call is cancelled is waited for, and the
+call then ends by what the gate decided. The daemon restarts the driver when
+it exits or its connection is lost.
+
 ## Image-build communication
 
 Project-controlled evaluation and builds run through the isolation boundary in
@@ -477,10 +519,13 @@ Attachment is an RPC decision followed by a terminal that the daemon relays:
    client terminal's size;
 7. the daemon checks the session again, has the runtime driver open a terminal
    (`OpenTerminal`) on the fixed in-container `/usr/libexec/p/attach`
-   entrypoint, counts the attachment in the session's presence, and answers
-   the claim;
-8. the claim's connection then carries the terminal: the daemon relays its
-   output to the helper and the helper's input and resizes to it; and
+   entrypoint, passing the driver one end of a new socket pair that becomes
+   the terminal's connection, counts the attachment in the session's
+   presence, and answers the claim;
+8. the claim's connection then carries the terminal: the daemon relays
+   between it and the terminal's connection to the driver, the terminal's
+   output to the helper and the helper's input to the terminal, and passes the
+   helper's resizes to the driver as calls on its main connection; and
 9. the daemon keeps the attachment's lease until the runtime driver proves
    that the attached process ended.
 
@@ -495,8 +540,11 @@ its connection; the daemon then closes the terminal. If the runtime driver
 fails while the daemon stays up, its terminals end without that proof: the
 helper tears down, input and resizes stop and are not replayed, and the lease
 stays, so discard and delete stay refused until the driver settles the
-terminal as ended (`Settle`) or the session stops. A daemon restart ends
-attachments. No MVP RPC re-registers an existing terminal.
+terminal as ended (`Settle`) or the session stops. If the driver's connection
+is lost while the terminal opens, the claim fails without counting presence;
+the open's outcome is unknown and names no terminal to settle, so the lease
+stays, refusing discard and delete but not Stop, until the session stops. A
+daemon restart ends attachments. No MVP RPC re-registers an existing terminal.
 
 The fixed attach program connects the terminal to the persistent host selected
 by trusted image/project configuration; tmux is the default. Attachment loss,
@@ -557,7 +605,8 @@ interface is owned by
 | Bifrost administration (post-MVP) | authenticated with a host-only credential; session keys rejected | native Bifrost configuration |
 
 No Incus socket, host SSH agent, host control socket, or general LAN
-route is mounted into a session.
+route is mounted into a session. The runtime driver has no listener: the
+daemon gives it its connection and each terminal's as socket pairs.
 
 ## Failures, retries, and versioning
 
@@ -566,6 +615,7 @@ route is mounted into a session.
 | Read-only RPC | client may retry after reconnect |
 | Cross-authority mutating RPC | operation/idempotency key plus persisted P phase |
 | Runtime mutation | the runtime driver settles an unknown outcome from native state (on Incus, its operations and current state); core never resends a non-idempotent effect or duplicates the backend's phases |
+| Runtime driver connection | a lost connection ends an effect in flight with an unknown outcome, unless its gate never ran, and a read as unavailable; the daemon restarts the driver with a bounded backoff, and calls fail as unavailable until it is back; the first start's failed launch check, digest or protocol version refuses daemon start |
 | Agent status report | latest valid receive wins while unattended |
 | Git push | normal Git atomic/ref semantics; explicit retry |
 | Origin refresh | interrupted refresh leaves current state unknown; the next explicit operation refreshes again |
@@ -575,9 +625,10 @@ route is mounted into a session.
 
 RPC and status payloads carry explicit version fields. Git protocol behavior is
 Git's; P versions its ref-policy implementation and stored operation schema.
-P supports fresh installs only: it creates its state schema in a new state
-directory, never migrates it, and startup fails clearly when the stored schema
-version is not the binary's.
+The daemon and the runtime driver agree the driver protocol's version in the
+hello and refuse any other. P supports fresh installs only: it creates its
+state schema in a new state directory, never migrates it, and startup fails
+clearly when the stored schema version is not the binary's.
 
 ## MVP boundary
 

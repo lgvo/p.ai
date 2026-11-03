@@ -52,7 +52,12 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 		if e != nil {
 			return e
 		}
-		defer life.Close()
+		defer func() {
+			// The workers stop waiting before the driver they call stops, so a
+			// call cut short resumes at the next start instead of failing.
+			cancel()
+			life.Close()
+		}()
 		if !sameLeasedAsset(leasedPackages, life.hostPlan) || !sameLeasedAsset(leasedPackages, life.sourcePlan) || life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
 			return errors.New("asset selection changed while acquiring package leases")
 		}

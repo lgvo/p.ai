@@ -260,8 +260,12 @@ safety.
 and reports valid packages and rejections. It does not activate anything.
 The NixOS distribution ships all four first-party packages under
 `share/p/plugins` beside its `bin/p`: tmux host, Git source, file-log handler
-and Codex adapter. Incus support is P's built-in runtime driver, not a
-package. Executable packages
+and Codex adapter. Incus support is P's first-party runtime driver, the
+`p-runtime-incus` executable beside `bin/p`, not a package: host
+configuration pins it by path and SHA-256 as `runtime.driver`
+([control API](control-api.md)), and the daemon checks the file's ownership,
+mode and links before it starts it
+([runtime isolation](runtime-isolation.md#driver-executable)). Executable packages
 include their compiled WASI modules and only declared package files.
 `p version` reports the P and Go versions, the control protocol
 (`control_protocol`, such as `p.control/v2`), the plugin API version and the

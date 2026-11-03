@@ -19,6 +19,7 @@ import (
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
+	"github.com/lgvo/p.ai/internal/runtimedriver/supervise"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
@@ -27,6 +28,7 @@ type lifecycle struct {
 	cfg                    control.RuntimeConfig
 	git                    *gitCapability
 	driver                 runtimedriver.Driver
+	supervisor             *supervise.Supervisor // runs the driver executable; Close stops it
 	hostPlan               plugin.AssetPlan
 	sourcePlan             plugin.AssetPlan
 	agentPlan              *plugin.AssetPlan
@@ -76,7 +78,9 @@ var (
 	_ control.CreateCleanupAPI  = (*lifecycle)(nil)
 )
 
-func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
+// newLifecycle starts the runtime driver and supervises it until Close; a
+// first start that fails refuses the daemon's start.
+func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (_ *lifecycle, err error) {
 	if err := privateTrustedFile(cfg.ActivationPath); err != nil {
 		return nil, fmt.Errorf("runtime activation: %w", err)
 	}
@@ -133,10 +137,15 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	driver, err := newRuntimeDriver(cfg, id)
+	driver, err := supervise.Start(ctx, driverLaunch(cfg, id))
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err != nil {
+			driver.Close()
+		}
+	}()
 	if err = driver.Check(ctx); err != nil {
 		return nil, err
 	}
@@ -144,7 +153,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, supervisor: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -255,7 +264,11 @@ func policyNotConfigured(project string) error {
 	return &control.Refusal{Kind: api.KindNotConfigured, Reason: api.ReasonProjectPolicy, Target: api.TargetProject(project), Cause: control.ErrNotFound}
 }
 
-func (l *lifecycle) Close() { l.endpoints.Close() }
+// Close stops the session endpoints and the runtime driver.
+func (l *lifecycle) Close() {
+	l.endpoints.Close()
+	l.supervisor.Close()
+}
 
 // Recover resumes the journal's work at start: every running operation, in
 // the order the journal accepted them. A blocked operation waits for Retry,

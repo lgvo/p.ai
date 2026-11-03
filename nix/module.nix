@@ -5,8 +5,22 @@ let
   policies = lib.optional (runtime ? project_policy) runtime.project_policy
     ++ lib.attrValues (runtime.project_policies or {});
   state = "/var/lib/${cfg.stateDirectory}";
-  host = pkgs.writeText "p-host.json" (builtins.toJSON
-    (cfg.settings // { schema = "p.host/v1"; state_dir = state; }));
+  driver = runtime.driver or {};
+  hostSettings = cfg.settings // { schema = "p.host/v1"; state_dir = state; };
+  # A runtime driver without a path is the package's own p-runtime-incus,
+  # pinned by the SHA-256 computed when host.json is built.
+  host = if cfg.settings ? runtime && !(driver ? path)
+    then pkgs.runCommand "p-host.json" {
+      nativeBuildInputs = [ pkgs.jq ];
+      settings = builtins.toJSON hostSettings;
+      passAsFile = [ "settings" ];
+    } ''
+      executable=${cfg.package}/bin/p-runtime-incus
+      digest=$(sha256sum "$executable" | cut -d' ' -f1)
+      jq -c --arg path "$executable" --arg sha256 "$digest" \
+        '.runtime.driver += {path: $path, sha256: $sha256}' "$settingsPath" > "$out"
+    ''
+    else pkgs.writeText "p-host.json" (builtins.toJSON hostSettings);
   prepare = pkgs.writeShellScript "p-prepare-config" ''
     set -euo pipefail
     umask 077
@@ -46,7 +60,7 @@ in {
     };
     settings = lib.mkOption {
       type = lib.types.attrs; default = {};
-      description = "Trusted p.host/v1 settings, excluding forced schema/state_dir. Never put credentials in Nix settings.";
+      description = "Trusted p.host/v1 settings, excluding forced schema/state_dir. A runtime.driver without path and sha256 runs the package's p-runtime-incus, pinned by its digest. Never put credentials in Nix settings.";
     };
     bundledActivation = lib.mkOption {
       type = lib.types.bool; default = false;
@@ -68,6 +82,8 @@ in {
         message = "P stateDirectory must be a single safe directory name."; }
       { assertion = cfg.settings ? git && cfg.settings ? runtime;
         message = "P installation requires explicit trusted Git and confined runtime settings."; }
+      { assertion = (driver ? path) == (driver ? sha256);
+        message = "P's runtime.driver names path and sha256 together, or neither to run the package's p-runtime-incus."; }
       { assertion = (runtime.public_egress or null) == null
           && lib.all (policy: (policy.network or "none") == "none") policies;
         message = "P's hardened service supports network:none only; public-egress requires the owner-run daemon and its scoped privileged proofs."; }

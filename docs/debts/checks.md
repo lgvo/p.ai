@@ -58,3 +58,26 @@
 - Left by: the agent, by rule (a problem outside the change).
 - Added 2026-11-03, 1 case:
   - 2026-11-03: "TUI T5 and T6" saw it fail once while building the VM for scenarios 56 and 58.
+
+## The conformance suite never runs against real Incus
+
+- Where: internal/runtimedriver/conformance (its `Fixture` controls);
+  tests/integration/steps/06-runtime-incus.sh; internal/runtimedriver/incus conformance_test.go
+- Problem: rework/runtime-driver.md ("How it will be checked") expects scenario 06 to run
+  the runtime driver conformance suite against real Incus. The suite runs only against the
+  in-memory driver, the Incus driver over a stubbed Incus, and the in-memory driver over
+  the driver protocol. Scenario 06 still drives the Incus driver through its own fixture
+  commands.
+- Evidence: 2026-11-03, `grep -rln runtimedriver/conformance tests dev` finds nothing; the
+  suite's controls (`Restart`, held and delayed effects, renamed runtimes, foreign mounts)
+  exist only for the in-memory world and the stubbed Incus.
+- Risk: a difference between real Incus and the stub, in creation, settlement after a
+  driver restart, stopped storage or terminals, passes the suite and shows only in the
+  scenarios that happen to cover it.
+- Fix: a real-Incus fixture for the conformance controls, run from scenario 06 in the VM
+  (the controls that real Incus cannot provide skip their cases there).
+- Fix when: the next change to the conformance suite or the Incus driver's effects.
+- Left by: the agent, by rule (a check the plan expected and the step did not add).
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) finished the
+    runtime driver without it.

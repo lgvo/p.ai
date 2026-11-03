@@ -185,6 +185,16 @@ or Stop between the dry run and the run does not make the plan stale.
 Remove a session whose assigned ref was deleted outside P, then create a new
 session on a branch. Rename must refuse a running session.
 
+Kill the runtime driver with SIGKILL while the daemon runs. The selection
+`59-runtime-driver-restart.sh` kills `p-runtime-incus` once while a creation's
+runtime exists in Incus and its Create has not answered, and once while a
+terminal is attached. The supervisor must start a new driver. The creation
+must complete, after `p operation retry` when it blocked, with exactly one
+Incus instance and one init. The attachment client must end, and the lease
+must keep Discard and Delete refused with `attachment_active`, also while
+restarts fail their launch checks, until the restarted driver settles the
+terminal ended. A new attachment must then work and Discard must complete.
+
 When Incus is unavailable, verify cleanup remains incomplete, session/project
 identity and durable confirmed operation state survive restart, and existing
 authorization restrictions remain intact. Restore Incus and resume that same

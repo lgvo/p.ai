@@ -189,7 +189,9 @@ func (l *lifecycle) attachTarget(ctx context.Context, id string) (runtimedriver.
 // ends when the terminal's end is proven; see watchTerminal. A token that
 // expired, was used or never existed is refused as expired; a host that is
 // not ready, as not running; a terminal the driver could not open failed in
-// the runtime.
+// the runtime. An open whose outcome is unknown keeps the lease, without
+// presence: until the terminal it names settles, or, naming none, until the
+// session stops.
 func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, size runtimedriver.Size) (control.Terminal, error) {
 	var a *attachment
 	l.withLock(func() { a = l.attachments[token] })
@@ -227,6 +229,14 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, size runt
 		log.Printf("attachment refused: the runtime driver did not open the terminal and could not prove it ended: %v", err)
 		l.withLock(func() { a.target, a.unproven = target, true })
 		go l.settleTerminal(token, a, unended.ID)
+		return nil, openFailure(ctx, err)
+	}
+	if errors.Is(err, runtimedriver.ErrUnknownOutcome) {
+		// The attach may have begun, as when the driver's connection was
+		// lost while it opened the terminal, and no terminal is named to
+		// settle: the lease stays, without presence, until the session stops.
+		log.Printf("attachment refused: the runtime driver may have begun the attach and named no terminal; the session stays attached until it stops: %v", err)
+		l.withLock(func() { a.target, a.unproven = target, true })
 		return nil, openFailure(ctx, err)
 	}
 	if err != nil {

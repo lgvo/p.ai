@@ -465,12 +465,12 @@ implementations.
 
 MVP must prove that model through secure first-party defaults, including a tmux
 persistent host, Git source and session access, the structured file-log
-handler, and the Codex adapter. Incus runtime support is P's built-in runtime
-driver, not a plugin, and Nix environment preparation is part of its image
-build. Ordinary setup selects and connects those defaults automatically.
-Developers and agents can author and test alternatives, but registration does
-not activate a plugin or grant it authority; trusted developer configuration
-controls both. The usable public interfaces and their basic first-party
+handler, and the Codex adapter. Incus runtime support is P's first-party
+runtime driver, the `p-runtime-incus` executable shipped with P, not a plugin,
+and Nix environment preparation is part of its image build. Ordinary setup
+selects and connects those defaults automatically. Developers and agents can
+author and test alternatives, but registration does not activate a plugin or
+grant it authority; trusted developer configuration controls both. The usable public interfaces and their basic first-party
 composition are sufficient for MVP; a separate agent-authored plugin is not a
 release gate.
 
@@ -564,7 +564,10 @@ services.p = {
 ```
 
 The owner-supplied `p-host.json` contains trusted non-secret Git/runtime settings,
-the confined socket/project and imported image fingerprint. For the bundled
+the confined socket/project and imported image fingerprint. Its
+`runtime.driver` needs only `config`: when it gives no `path`, the module pins
+the package's `bin/p-runtime-incus` and that file's SHA-256, computed when the
+configuration is built ([host configuration](docs/control-api.md)). For the bundled
 selection, role activation paths point to `/var/lib/p/activation.json`. The
 service module supports `network: none` policies only. Public egress uses the
 existing owner-run daemon configuration and its scoped privileged network proofs;

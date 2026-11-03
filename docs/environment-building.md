@@ -109,8 +109,9 @@ verbatim: `project`, `source_commit`, `base_image`, `system`,
 `builder_version` and `build`. Each image also records its devShell outcome,
 the selection and the activation-material digest, beside those labels.
 
-The Incus implementation (`internal/runtimedriver/incus`) runs inside the
-daemon process. It owns the whole build: the disposable builder, the Nix steps
+The Incus implementation (`internal/runtimedriver/incus`) runs in its own
+executable, `p-runtime-incus`, which the daemon starts and supervises. It owns
+the whole build: the disposable builder, the Nix steps
 and the published image. No plugin takes part in resolving, realizing or
 publishing. An image only has to work with the runtime that built it; no
 Dockerfile or OCI contract is specified in MVP. The same driver runs sessions,

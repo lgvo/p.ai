@@ -18,12 +18,12 @@ runner and typed session asset plans are now available.
 
 | Component | MVP choice | Boundary |
 |---|---|---|
-| Language | Go, latest pinned stable toolchain | one daemon/client binary |
+| Language | Go, latest pinned stable toolchain | one daemon/client binary, `p`, and the runtime driver executable, `p-runtime-incus` |
 | State | SQLite through `database/sql` and `modernc.org/sqlite` | P identity, policy snapshots, operations, and indexes only |
 | API | NDJSON-RPC 2.0 over Unix streams | direct local Unix for MVP; SSH-to-Unix later |
 | TUI | Bubble Tea v2 and Lip Gloss v2 | Live API client; built-in subsequence filtering |
 | Git server | Wish SSH middleware around real `git-upload-pack` and `git-receive-pack` | P refs remain Git authority |
-| Runtime | local Incus, one confined user project | Incus owns instances, images, storage, state, and operations |
+| Runtime | local Incus, one confined user project, reached through the supervised `p-runtime-incus` driver | Incus owns instances, images, storage, state, and operations |
 | Session type | unprivileged Incus system container | one instance per session UUID |
 | Environment | one private Incus image per source commit: its default Nix devShell and a clone of the commit | Nix owns realization; Incus owns image bytes; SQLite indexes images by commit |
 | Interactive host | systemd unit plus fixed attach command; tmux by default | systemd owns readiness/lifetime |
@@ -95,22 +95,41 @@ its durable intent. An effect whose outcome is unknown is settled from native
 state, never sent again. An incarnation names one runtime at a reference: the
 same across stop and start, new when the runtime is re-created.
 
-Host configuration selects the driver by name in `runtime.driver`, with that
-driver's own settings ([control API](control-api.md)). The only driver is
-`incus` (`internal/runtimedriver/incus`), which runs inside the daemon
-process. One daemon file builds it from those settings and the ones core owns;
-the daemon then holds only `runtimedriver.Driver`. An
-in-memory driver (`internal/runtimedriver/memory`) and a conformance suite
+The driver is a separate executable. Host configuration pins it by path and
+SHA-256 in `runtime.driver`, with that driver's own settings
+([control API](control-api.md)). The only driver is the Incus driver
+(`internal/runtimedriver/incus`), which the `p-runtime-incus` executable
+shipped with P serves. The daemon starts the executable after its launch
+checks, supervises it, and restarts it when it dies
+([driver executable](runtime-isolation.md#driver-executable)); it holds only
+`runtimedriver.Driver`, which the protocol client implements.
+
+The driver protocol (`internal/runtimedriver/protocol`) is JSON-RPC 2.0 over a
+Unix socket pair the daemon creates, one newline-terminated JSON frame of at
+most 16 MiB per message, decoded with P's strict JSON rules. Requests go both
+ways: core calls the driver's operations, and the driver calls core's gates.
+It begins with a hello, in which core sends the protocol version
+(`p.runtime-driver/v1`), the driver's `config` and the settings core owns that
+the driver needs, and the driver answers with its agreed version and
+capabilities or refuses; a version mismatch on the first start refuses daemon
+start. Each terminal has its own connection, a socket pair whose far end core
+passes with the open request; it carries the terminal's bytes only. A call
+whose connection is lost ends with an unknown outcome if it is an effect that
+may have happened, which the restarted driver settles, and as unavailable
+otherwise. Errors keep their kinds across the connection.
+
+An in-memory driver (`internal/runtimedriver/memory`) and a conformance suite
 (`internal/runtimedriver/conformance`) show that a driver keeps the contract;
-the Incus driver runs the suite over a stubbed Incus. Every runtime effect goes
+the Incus driver runs the suite over a stubbed Incus, and the memory driver
+runs it again behind the protocol. Every runtime effect goes
 through the driver: core reaches images, sessions, terminals, removal,
 rename's workspace edits, project services, the boundary check and the
 inventory through it, and computes admission and the proofs of absence from
 `Inspect` and `Inventory`. Core records runtimes by the driver's opaque
 incarnation and shows the driver's own name for a runtime only for display.
-A boundary test fails if code other than the driver, that daemon file and the
-Incus VM test fixtures imports the Incus package, or if other non-test code
-names the `incus` client or the Incus sockets.
+A boundary test fails if code other than `cmd/p-runtime-incus` and the Incus
+VM test fixtures imports the Incus package, or if other non-test code outside
+the driver names the `incus` client or the Incus sockets.
 
 The Incus driver is always bound to the configured local confined user
 project. It uses deterministic instance names and P metadata, passes structured
@@ -147,14 +166,16 @@ Each image records its devShell outcome beside its labels. Core keeps the
 commit-image index and the rule for deleting images
 ([environment building](environment-building.md)).
 
-MVP has one implementation, the Incus driver, which runs in the daemon
-process. It clones the commit in a disposable restricted Incus builder,
-resolves and realizes the conventional default Nix devShell natively, and
-publishes a verified private Incus system image. The image contains a coherent
-initial Nix store/database, activation material and the clone. Each session
-receives a private writable Incus root derived from it. No plugin takes part.
-The runtime driver is an internal Go interface for now, not a public plugin
-contract.
+MVP has one implementation, the Incus driver, which runs in the
+`p-runtime-incus` executable. It clones the commit in a disposable restricted
+Incus builder, resolves and realizes the conventional default Nix devShell
+natively, and publishes a verified private Incus system image. The image
+contains a coherent initial Nix store/database, activation material and the
+clone. Each session receives a private writable Incus root derived from it. No
+plugin takes part.
+The runtime driver is not a plugin contract: trusted host configuration pins
+its executable, and core reaches it through the Go interface carried over the
+versioned driver protocol.
 
 An image only has to work with the runtime that built it. MVP does not specify
 Dockerfile, OCI, or a format-negotiation framework.
@@ -401,12 +422,13 @@ host/private-network access.
 P is licensed under **Apache-2.0**.
 Compiled dependencies must use permissive licenses such as MIT, Apache-2.0,
 BSD, or ISC. Nix package builds run pinned `go-licenses` checks over the
-transitive native CLI/runtime and bundled WASI target graphs, using offline
-vendored sources where dependencies are required. The allowed identifiers are
-`Apache-2.0`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, and `ISC`; scanner warnings
-remain visible. Host CLI and runtime kit use `CGO_ENABLED=0` so their ELF
-binaries do not introduce a dynamically linked libc boundary. Installed native
-packages include dependency notices under `share/p/licenses/modules` and Go
+transitive native CLI/runtime, runtime driver and bundled WASI target graphs,
+using offline vendored sources where dependencies are required. The allowed
+identifiers are `Apache-2.0`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, and
+`ISC`; scanner warnings remain visible. Host CLI, runtime driver and runtime
+kit use `CGO_ENABLED=0` so their ELF binaries do not introduce a dynamically
+linked libc boundary. Installed native packages include dependency notices
+under `share/p/licenses/modules` and Go
 standard-library notices, including its vendored dependencies and patent grant,
 from the pinned compiler source under `share/p/licenses/go`. The CLI also
 retains the vendor tree's license, notice, author and patent files, with original

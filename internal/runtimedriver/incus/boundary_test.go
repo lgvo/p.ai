@@ -16,12 +16,11 @@ import (
 const incusPackage = "github.com/lgvo/p.ai/internal/runtimedriver/incus"
 
 // incusCode is the code that may reach Incus, relative to the module root: this
-// package, the daemon file that constructs the driver (until the driver runs
-// as its own executable), and the VM fixtures that exercise Incus directly. A
-// directory covers every file below it.
+// package, the executable that serves it, and the VM fixtures that exercise
+// Incus directly. A directory covers every file below it.
 var incusCode = []string{
 	"internal/runtimedriver/incus",
-	"internal/daemon/driver_setup.go",
+	"cmd/p-runtime-incus",
 	"tests/integration/cmd/attachment-fixture",
 	"tests/integration/cmd/builder-fixture",
 	"tests/integration/cmd/runtime-fixture",
@@ -31,8 +30,7 @@ var incusCode = []string{
 // incusCode. No file, test or not, may import this package. No non-test file
 // may hold a string literal that names the Incus binary ("incus", or a path
 // ending in "/bin/incus") or its sockets and client environment (a literal
-// containing "unix.socket" or "INCUS_"). The one "incus" allowed is the value of
-// control.IncusDriver, the driver's name in host configuration.
+// containing "unix.socket" or "INCUS_").
 func TestOnlyTheIncusDriverReachesIncus(t *testing.T) {
 	root := moduleRoot(t)
 	daemonFiles := 0
@@ -123,14 +121,9 @@ func reachesIncus(t *testing.T, path, rel string) []string {
 		return findings
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.ValueSpec:
-			if rel == "internal/control/config.go" && len(n.Names) == 1 && n.Names[0].Name == "IncusDriver" {
-				return false
-			}
-		case *ast.BasicLit:
-			if s, err := strconv.Unquote(n.Value); n.Kind == token.STRING && err == nil && namesIncus(s) {
-				findings = append(findings, "names Incus in "+n.Value)
+		if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			if s, err := strconv.Unquote(lit.Value); err == nil && namesIncus(s) {
+				findings = append(findings, "names Incus in "+lit.Value)
 			}
 		}
 		return true

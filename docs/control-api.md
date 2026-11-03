@@ -77,11 +77,13 @@ cannot add networking, mounts, commands, or other grants.
     "activation_path": "/absolute/private/runtime-activation.json",
     "host_plugin_id": "org.p.tmux-host",
     "driver": {
-      "name": "incus",
+      "path": "/nix/store/<pinned-p>/bin/p-runtime-incus",
+      "sha256": "<64 lowercase hex digits>",
       "config": {
         "binary": "/absolute/trusted/incus",
         "user_socket": "/absolute/confined/unix.socket.user",
-        "project": "p-confined"
+        "project": "p-confined",
+        "journalctl": "/absolute/trusted/journalctl"
       }
     },
     "endpoint_prefix": "/absolute/private/p-endpoints",
@@ -92,20 +94,35 @@ cannot add networking, mounts, commands, or other grants.
 }
 ```
 
-`runtime.driver` names the runtime driver P uses and carries that driver's own
-settings in `config`, which only the driver reads. P has one driver, `incus`,
-built into P. Its `config` holds exactly three settings: `binary`, the absolute
-path of the trusted Incus client; `user_socket`, the absolute path of the
-confined `unix.socket.user` that P connects through; and `project`, the
-confined Incus project that holds P's containers. Loading the host
-configuration checks only that the driver is `incus` and that `config` is an
-object. At daemon start the Incus driver refuses unknown or missing settings
+`runtime.driver` pins the runtime driver P uses, an executable of its own, and
+carries that driver's own settings in `config`, which only the driver reads.
+`path` is the absolute, clean path of the executable and `sha256` its SHA-256
+in 64 lowercase hex digits. P ships one driver, the Incus driver, as
+`bin/p-runtime-incus` in its package; the [NixOS module](../README.md#nixos-installation)
+fills in that path and digest when `runtime.driver` gives no `path`. Loading
+the host configuration checks only the shape: `path` absolute and clean,
+`sha256` 64 lowercase hex digits, and `config` an object. The daemon starts
+the driver as it starts, and refuses to start when that first start fails the
+launch checks of the file and its directories
+([runtime isolation](runtime-isolation.md#driver-executable)), the digest, or
+the hello, in which the driver agrees the protocol version and checks its
+`config`.
+
+The Incus driver's `config` holds three required settings and one optional
+one: `binary`, the absolute path of the trusted Incus client; `user_socket`,
+the absolute path of the confined `unix.socket.user` that P connects through;
+`project`, the confined Incus project that holds P's containers; and
+`journalctl`, the absolute, clean path of the host's trusted `journalctl`,
+with which the driver reads a stopped session host's journal for its
+diagnostic. The driver runs with an empty environment and never looks
+`journalctl` up on a `PATH`; without the setting, a stopped host has no journal
+diagnostic. In the hello the Incus driver refuses unknown or missing settings
 and paths that are not absolute and clean, checks the client, socket and
 project on the live host, and refuses a disk-source ceiling at, above or below
-the user socket, so no grant can reach it. The daemon builds the driver from
-`config` and the settings P owns that the driver needs (the P instance ID,
+the user socket, so no grant can reach it. The hello gives the driver `config`
+and the settings P owns that the driver needs (the P instance ID,
 `endpoint_prefix`, `disk_source_ceilings`, the builder storage pool and
-`public_egress`), and then reaches the runtime only through the driver.
+`public_egress`); the daemon then reaches the runtime only through the driver.
 
 The exact-path form replaces the single `project_policy` field with, for
 example:

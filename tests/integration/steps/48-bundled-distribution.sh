@@ -93,14 +93,14 @@ p plugins plan-assets "$step_dir/activation.json" org.p.tmux-host > "$step_dir/h
 p plugins plan-assets "$step_dir/activation.json" org.p.codex-adapter > "$step_dir/agent-plan.json"
 test ! -e "$log_file"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
+driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(command -v incus)")
 jq -n --arg state "$state" --arg activation "$step_dir/activation.json" \
-  --arg incus_binary "$(command -v incus)" --arg prefix "$endpoint_prefix" --arg image "$image" \
+  --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$image" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{activation_path:$activation,source_plugin_id:"org.p.git",listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
     runtime:{activation_path:$activation,
       host_plugin_id:"org.p.tmux-host",agent_adapter:{activation_path:$activation,plugin_id:"org.p.codex-adapter"},
-      driver:{name:"incus",config:{binary:$incus_binary,user_socket:"/var/lib/incus/unix.socket.user",
-      project:"user-1000"}},endpoint_prefix:$prefix,
+      driver:$driver,endpoint_prefix:$prefix,
       disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,
       environment:{system:"x86_64-linux",builder_storage_pool:"builders"},
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}},

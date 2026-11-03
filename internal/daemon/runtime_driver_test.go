@@ -474,8 +474,10 @@ func startFixture(t *testing.T) *driverFixture {
 	return f
 }
 
-// awaitChange waits for the start or stop result recorded to end and returns
-// the session then.
+// awaitChange waits for the start or stop result recorded to end, and for its
+// worker to let go of the session, and returns the session then. The worker
+// records the end before it releases the session, so a request in between is
+// refused as held.
 func (f *driverFixture) awaitChange(result api.SessionChangeResult) api.SessionView {
 	f.t.Helper()
 	if result.Operation == nil {
@@ -486,7 +488,9 @@ func (f *driverFixture) awaitChange(result api.SessionChangeResult) api.SessionV
 		if err != nil {
 			f.t.Fatal(err)
 		}
-		if op.Status != "running" {
+		var working bool
+		f.l.withLock(func() { working = f.l.working[result.Operation.ID] })
+		if op.Status != "running" && !working {
 			break
 		}
 		if time.Now().After(deadline) {

@@ -257,12 +257,19 @@ in
         runtime = {
           activation_path = "${pState}/activation.json";
           host_plugin_id = "org.p.tmux-host";
-          driver = {
-            name = "incus";
+          # Pinned here, not left to the module, since demo.nix also writes
+          # a host configuration from these settings.
+          driver = rec {
+            path = "${pPackage}/bin/p-runtime-incus";
+            sha256 = lib.removeSuffix "\n" (builtins.readFile
+              (pkgs.runCommand "p-runtime-driver-sha256" {} ''
+                sha256sum ${path} | cut -d' ' -f1 > "$out"
+              ''));
             config = {
               binary = "${pkgs.incus}/bin/incus";
               user_socket = "/var/lib/incus/unix.socket.user";
               project = "user-1000";
+              journalctl = "${pkgs.systemd}/bin/journalctl";
             };
           };
           endpoint_prefix = "/var/lib/p-vm/endpoints/pdev";

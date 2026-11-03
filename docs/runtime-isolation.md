@@ -57,15 +57,18 @@ or gain the Incus socket.
 
 Runtime effects belong to one runtime driver, `internal/runtimedriver`: trusted
 code that owns runtime machinery and that core addresses in P's terms
-([technology stack](technology-stack.md#runtime-and-incus-access)). Host
-configuration selects it as `runtime.driver`. The only driver is the Incus
-driver (`internal/runtimedriver/incus`), which this document describes. It
-runs inside the daemon process; the daemon builds it in one place and holds
-nothing of it but `runtimedriver.Driver`. A boundary test fails if any other
-Go code, the Incus VM test fixtures aside, imports it, or if other non-test
-code names the `incus` client or the Incus sockets. Every driver
-proves these properties; the conformance suite
-(`internal/runtimedriver/conformance`) checks those a stubbed backend can show.
+([technology stack](technology-stack.md#runtime-and-incus-access)). The
+driver is an executable of its own, which host configuration pins by path and
+SHA-256 as `runtime.driver`; the daemon starts it and reaches it over the
+driver protocol ([driver executable](#driver-executable)), holding nothing of
+it but `runtimedriver.Driver`. The only driver is the Incus driver
+(`internal/runtimedriver/incus`), which this document describes; the
+`p-runtime-incus` executable shipped with P serves it. A boundary test fails if
+any Go code but `cmd/p-runtime-incus` and the Incus VM test fixtures imports
+it, or if other non-test code names the `incus` client or the Incus sockets.
+Every driver proves these properties; the conformance suite
+(`internal/runtimedriver/conformance`) checks those a stubbed backend can show,
+and also runs over the protocol.
 
 | Property | The contract | How the Incus driver meets it |
 |---|---|---|
@@ -91,6 +94,48 @@ address. The Incus driver's inventory is one read of the whole Incus project,
 at most 64 instances, P's or not. More instances, an instance that is not a
 container, or P labels that its expanded configuration does not repeat
 exactly make it an error, never a shorter list.
+
+### Driver executable
+
+The daemon starts the driver executable that `runtime.driver` names and
+supervises it while the daemon runs. Before every start, and before hashing,
+it applies the launch checks, so that only root or P's account can change the
+file between the check and the start:
+
+- the executable's directory and each of its ancestors: a directory, not a
+  symbolic link, owned by root or P's account and writable by neither group
+  nor others, except that a root-owned sticky directory such as `/nix/store`
+  may be;
+- the executable: a regular file, not a symbolic link, owned by root or P's
+  account, writable by neither group nor others, with one link unless root
+  owns it and no one may write it (the Nix store hard-links identical
+  read-only files), and with its owner's execute bit.
+
+The daemon then hashes the open file it checked against `sha256` and starts
+that same file through its descriptor, so a file put at the path after the
+check never runs. The driver gets no argument but its path, an empty
+environment, `/dev/null` as input, the daemon's standard error for its output,
+and its protocol connection, one end of a Unix socket pair, on descriptor 3.
+Only the hello configures it: the daemon sends the protocol version, the
+driver's `config` and the settings core owns that a driver needs (the P
+instance ID, the endpoint prefix, the disk-source ceilings, the builder
+storage pool and the public-egress substrate), and the driver answers with the
+version it agreed and its capabilities, or refuses. If the first start fails
+its launch checks, its digest, its exec or its hello, including a protocol
+version the driver does not speak, the daemon does not start.
+
+When the driver exits or its connection is lost, the daemon kills it if it
+still runs and starts it again, with the same checks. It waits 100 ms before
+the first restart and twice as long before each next one, up to 30 seconds; a
+driver that ran for a minute starts the waits over. A restarted driver must
+describe the same capabilities as at the first start. While the driver is
+down, every call fails as unavailable. A call in flight when the connection is
+lost ends as unavailable if it is a read, or if it is an effect that took a
+gate that never ran, which proves nothing happened; any other effect
+ends with an unknown outcome, which core settles through the restarted driver
+and never sends again. Terminals end unproven ([attachment](#attachment)). The
+daemon does not detect a driver that hangs with its connection open
+([debt](debts/state-safety.md#a-hung-runtime-driver-is-never-restarted)).
 
 ## Incus boundary
 
@@ -175,9 +220,10 @@ Trusted configuration may select:
 - named filesystem grants within the Incus project's pre-authorized path
   ceiling.
 
-Instance configuration selects the runtime driver, whose Incus settings name
-the confined Incus socket and project, and the P base-image identity. A project
-cannot select a different Incus authority.
+Instance configuration pins the runtime driver executable by path and SHA-256,
+gives it settings that for Incus name the confined Incus socket and project,
+and selects the P base-image identity. A project cannot select a different
+driver or Incus authority.
 
 Creation normalizes and validates policy, records the effective snapshot and
 digest, and uses it for the lifetime of the session. A later configuration
@@ -595,8 +641,11 @@ still does not connect to Incus directly.
 A pending token is not attachment presence. Lifecycle first checks through the
 driver that the host is ready and issues a pending token. When the trusted host
 helper claims it, the daemon checks again, opens the terminal, counts the
-attachment, and relays the terminal. The driver owns the native channel and its
-witness; the daemon owns the token and the lease.
+attachment, and relays the terminal. The terminal's bytes travel between the
+daemon and the driver on a connection of their own, a Unix socket pair whose
+far end the daemon passes to the driver with the open request; resizes and the
+terminal's end travel as calls on the driver's main connection. The driver owns
+the native channel and its witness; the daemon owns the token and the lease.
 
 The daemon binds the terminal's lifetime to the helper's connection without
 depending on client cleanup: client crash, SIGKILL, helper or carrier loss, or
@@ -607,10 +656,13 @@ unproven: the helper tears down, input and resizes stop and are not replayed,
 and the lease stays, so discard and delete stay refused. It ends when the
 driver settles the terminal as ended, which the daemon asks every few seconds,
 or when the session stops; such a lease does not refuse Stop, and a Stop that
-leaves the runtime stopped ends it. A daemon restart ends attachments; MVP does
-not re-register an already-running terminal. Teardown ends only the temporary
-attach client; the systemd-owned persistent host and configured interactive
-command continue.
+leaves the runtime stopped ends it. If the driver's connection is lost while a
+terminal opens, the claim fails and its outcome is unknown with no terminal to
+settle: the attachment never counts presence, and its lease stays, refusing
+discard and delete but not Stop, until the session stops. A daemon restart
+ends attachments; MVP does not re-register an already-running terminal.
+Teardown ends only the temporary attach client; the systemd-owned persistent
+host and configured interactive command continue.
 
 ## Non-activating workspace access
 
@@ -645,8 +697,10 @@ modules and dynamic account providers are outside this substrate contract.
 This image configuration does not change the host's name services.
 
 The Incus driver reads the fixed P-owned systemd journal and diagnostic paths
-of a stopped instance through the same file API (`HostLog`). It does not start
-the instance or treat logs as lifecycle authority.
+of a stopped instance through the same file API (`HostLog`) and formats the
+journal with the host's `journalctl`, which its `config` names; without that
+setting a stopped host's diagnostic is unavailable. It does not start the
+instance or treat logs as lifecycle authority.
 
 Rename's reads and edits cover only the clone's HEAD, branch ref, reflog,
 upstream configuration and its own backup file. P never runs arbitrary argv,

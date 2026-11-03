@@ -16,9 +16,13 @@ type DriverConfig struct {
 	Binary     string `json:"binary"`
 	UserSocket string `json:"user_socket"`
 	Project    string `json:"project"`
+	Journalctl string `json:"journalctl"` // optional
 }
 
-// ParseDriverConfig reads exactly the three Incus settings and nothing else.
+// ParseDriverConfig reads exactly the three Incus settings and the optional
+// journalctl, and nothing else. The driver runs with an empty environment, so
+// it finds the host journal, for a host's diagnostic, only where journalctl
+// says.
 func ParseDriverConfig(raw json.RawMessage) (DriverConfig, error) {
 	var c DriverConfig
 	if err := strictjson.Decode(raw, &c); err != nil {
@@ -26,6 +30,9 @@ func ParseDriverConfig(raw json.RawMessage) (DriverConfig, error) {
 	}
 	if !absoluteClean(c.Binary) || !absoluteClean(c.UserSocket) || c.Project == "" {
 		return DriverConfig{}, errors.New("Incus driver config requires an absolute clean binary and user_socket and a project")
+	}
+	if c.Journalctl != "" && !absoluteClean(c.Journalctl) {
+		return DriverConfig{}, errors.New("Incus driver config's journalctl must be an absolute clean path")
 	}
 	return c, nil
 }

@@ -2,12 +2,16 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -15,6 +19,7 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/memory"
+	"github.com/lgvo/p.ai/internal/runtimedriver/protocol"
 )
 
 func TestAttachmentPendingClaimExpiryAndStopExclusion(t *testing.T) {
@@ -608,6 +613,77 @@ func TestAnUnendedFailedOpenKeepsTheLeaseWithoutPresenceUntilSettled(t *testing.
 	f.awaitReleased()
 	if f.presence() != 0 || len(f.reported()) != 0 {
 		t.Fatalf("presence %d, transitions %v after the terminal settled", f.presence(), f.reported())
+	}
+}
+
+// terminalsOverProtocol is driver with its terminals opened through a
+// protocol client, as the daemon reaches a driver executable, from a server
+// that serves driver on the other end of a socket pair.
+type terminalsOverProtocol struct {
+	runtimedriver.Driver
+	client *protocol.Client
+}
+
+func (d terminalsOverProtocol) OpenTerminal(ctx context.Context, t runtimedriver.Target, size runtimedriver.Size) (runtimedriver.Terminal, error) {
+	return d.client.OpenTerminal(ctx, t, size)
+}
+
+// overProtocol serves driver on one end of a socket pair and returns the
+// driver whose terminals open through a client on the other end, with the
+// server's end, whose closing loses the connection.
+func overProtocol(t *testing.T, driver runtimedriver.Driver) (terminalsOverProtocol, *net.UnixConn) {
+	t.Helper()
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ends [2]*net.UnixConn
+	for i, fd := range fds {
+		f := os.NewFile(uintptr(fd), "driver connection")
+		c, err := net.FileConn(f)
+		f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		ends[i] = c.(*net.UnixConn)
+	}
+	go protocol.Serve(t.Context(), ends[1], func(context.Context, protocol.Hello) (runtimedriver.Driver, error) { return driver, nil })
+	client, err := protocol.Connect(t.Context(), ends[0], protocol.Hello{Config: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { client.Close() })
+	return terminalsOverProtocol{Driver: driver, client: client}, ends[1]
+}
+
+// When the driver's connection is lost while it opens a terminal, the attach
+// may have begun and no terminal is named to settle: the claim fails, the
+// attachment counts no presence, and its lease refuses the session's
+// removals, though not Stop, until the session stops.
+func TestAnOpenWhoseDriverConnectionIsLostKeepsTheLeaseUntilTheSessionStops(t *testing.T) {
+	f := newAttachFixture(t)
+	driver, driverEnd := overProtocol(t, f.driver)
+	f.l.driver = driver
+	f.driver.beforeOpen = func() { driverEnd.Close() }
+	_, err := f.l.ClaimAttachment(f.ctx, f.pending(), runtimedriver.Size{Width: 80, Height: 24})
+	requireRefusal(t, err, api.KindFailed, api.ReasonRuntime, "")
+	f.leasedWithoutPresence(50 * time.Millisecond)
+	if plan, err := f.l.DiscardSession(f.ctx, f.session.UUID, api.ChangeRequest{}); err != nil || plan.Plan.Allowed ||
+		len(plan.Plan.Refusals) != 1 || plan.Plan.Refusals[0].Code != api.ReasonAttachmentActive {
+		t.Fatalf("discard plan while the lease held: %+v %v", plan.Plan, err)
+	}
+	if f.l.hasLiveAttachment(f.session.UUID) {
+		t.Fatal("the lease refuses Stop")
+	}
+	stopped, err := f.l.StopSession(f.ctx, f.session.UUID)
+	if err != nil {
+		t.Fatalf("Stop with the lease of a lost open: %v", err)
+	}
+	if v := f.awaitChange(stopped); v.Condition != "stopped" {
+		t.Fatalf("after Stop: %+v", v)
+	}
+	if f.l.hasAttachment(f.session.UUID) || f.presence() != 0 || len(f.reported()) != 0 {
+		t.Fatal("the lease of a lost open outlived the stopped runtime, or counted presence")
 	}
 }
 

@@ -14,7 +14,7 @@
   recovery branches.
 - Fix when: a worker's recovery logic changes.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 18 cases:
+- Added 2026-11-01, updated 2026-11-03, 19 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -98,6 +98,10 @@
     field and moved building the driver into one daemon file, so `lifecycle` holds only
     `runtimedriver.Driver` and the runtime half of this entry is gone; the title, "Fix" and
     "Fix when" now name only the store and Git.
+  - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) made `newLifecycle`
+    start the driver executable through `supervise.Start` instead of building the Incus
+    driver, and changed the claim's recovery from a connection lost while a terminal opens;
+    the store and Git fields are unchanged.
 
 ## Long worker functions
 
@@ -209,7 +213,7 @@
 - Fix when: the next change to how P reaches Incus.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
   step 8 consolidates only the instance inventory).
-- Added 2026-11-01, updated 2026-11-03, 8 cases:
+- Added 2026-11-01, updated 2026-11-03, 9 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
   - 2026-11-02: "deletions without inspection" deleted workspace_git.go and
     workspace_helper.go with the workspace helpers, and their exec and file-API clients.
@@ -234,6 +238,10 @@
     hand-built; internal/attachment no longer reaches Incus.
   - 2026-11-03: "core holds only the runtime driver" moved the package to
     internal/runtimedriver/incus; no client changed.
+  - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) moved the Incus
+    driver into its own executable, `p-runtime-incus`, which the daemon starts with an empty
+    environment, so host_observe.go `trustedJournalctl` now needs the driver config's
+    optional `journalctl`; no client changed, and consolidation stays outside the step.
 
 ## Trusted configuration and the RPC server live in the store package
 
@@ -257,7 +265,7 @@
   gitservice, plugin and the Incus driver), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 11 cases:
+- Added 2026-11-01, updated 2026-11-03, 12 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -291,6 +299,12 @@
     instance Incus cannot render with its own `ErrUnavailable` instead of control's
     `Failed` refusal; the driver still imports control for the public-egress configuration
     (`PublicEgressConfig.Validate`, `PublicEgressDeniedCIDRs`).
+  - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) replaced
+    `runtime.driver.name` with the driver executable's `path` and `sha256`, a change to
+    host configuration that meets "Fix when"; the move was outside that step. The Incus
+    driver now takes core's settings from the hello but still imports control for the
+    public-egress checks, so `p-runtime-incus` links the store package and its SQLite
+    driver.
 
 ## Operation status updates and kind lists are still written per site
 

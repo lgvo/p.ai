@@ -1,5 +1,36 @@
 # MVP implementation progress
 
+## The runtime driver runs as its own executable — 2026-11-03
+
+Migration step M7 of the runtime driver: the Incus driver is the executable
+`p-runtime-incus`, shipped with P, which the daemon starts after its launch
+checks and its SHA-256 check and supervises over a JSON-RPC protocol on a Unix
+socket pair. Host configuration names it as
+`runtime.driver: {path, sha256, config}` instead of `{name, config}`; the NixOS
+module fills `path` and `sha256` from its package. A driver that dies is
+restarted: a read in flight fails, an effect whose gate never ran is
+unavailable, and any other effect ends with an unknown outcome that core
+settles through the restarted driver and never sends again. Its terminals end
+unproven, and their sessions stay attached until the restarted driver settles
+the end or the session stops. A driver that hangs with its connection open is
+not detected (debt).
+
+**Checks.** The conformance suite runs over the protocol against the
+in-memory driver. Subprocess tests kill a driver with state kept outside the
+process during a create and during an attachment, and see both settled after
+the restart, the create never sent again. VM scenario 59 kills
+`p-runtime-incus` during a creation and while a terminal is attached, and
+passes: the creation blocks with an unknown outcome and `p operation retry`
+completes it with one Incus init; the attach client ends without proof, the
+lease refuses removal while the driver is down, and the restarted driver
+settles it.
+
+**Times.** One VM each, three repetitions of `p session create`,
+`p session start` and `p attach` until the terminal's first output, before
+step 8 (3e695d5) and with M7: create 7.3, 9.9 and 10.5 s before, 7.0, 7.3 and
+9.3 s after; start 1.6–1.7 s before, 1.4 s after; attach 2.4–2.6 s before,
+0.75–0.79 s after.
+
 ## Removal reviews name the runtime without its backend — 2026-11-03
 
 Migration step M6 of the runtime driver: core holds only the runtime driver,
