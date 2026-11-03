@@ -622,10 +622,8 @@ control session.discard (runtime)
         policy_sha256 string
         runtime object
           condition string
-          incus_project string
-          instance_name string
-          incus_uuid string (optional)
-          generation string (optional)
+          name string (optional)
+          incarnation string (optional)
           image_fingerprint string (optional)
           original_status string (optional)
         branch_loss object (optional)
@@ -699,10 +697,8 @@ control session.delete (runtime)
         policy_sha256 string
         runtime object
           condition string
-          incus_project string
-          instance_name string
-          incus_uuid string (optional)
-          generation string (optional)
+          name string (optional)
+          incarnation string (optional)
           image_fingerprint string (optional)
           original_status string (optional)
         branch_loss object (optional)
@@ -863,10 +859,8 @@ control project.delete (runtime)
           condition string
           runtime object
             condition string
-            incus_project string
-            instance_name string
-            incus_uuid string (optional)
-            generation string (optional)
+            name string (optional)
+            incarnation string (optional)
             image_fingerprint string (optional)
             original_status string (optional)
           credentials object
@@ -1302,10 +1296,8 @@ control session.create.cleanup (runtime)
         shared_images string
         runtime object (optional)
           condition string
-          incus_project string
-          instance_name string
-          incus_uuid string (optional)
-          generation string (optional)
+          name string (optional)
+          incarnation string (optional)
           image_fingerprint string (optional)
           original_status string (optional)
     change_tag string (optional)

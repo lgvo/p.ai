@@ -55,16 +55,54 @@ func TestLossItems(t *testing.T) {
 // run does not refuse the run. A replaced container still does.
 func TestRemovalHashLeavesOutTheRuntimeStatus(t *testing.T) {
 	c := (&lifecycle{}).removal("discard", "550e8400-e29b-41d4-a716-446655440000", api.ChangeRequest{})
-	running := api.RemovalDetails{Project: "app", Branch: "work", Runtime: api.RemovalRuntime{Condition: "present", IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333", OriginalStatus: "Running"}}
+	running := api.RemovalDetails{Project: "app", Branch: "work", Runtime: api.RemovalRuntime{Condition: "present", Name: "p-550e8400-e29b-41d4-a716-446655440000", Incarnation: "incarnation-1", OriginalStatus: "Running"}}
 	stopped := running
 	stopped.Runtime.OriginalStatus = "Stopped"
 	if !reflect.DeepEqual(c.Shown(running), c.Shown(stopped)) || running.Runtime.OriginalStatus != "Running" {
 		t.Fatal("a removal's change hash covers its container's status")
 	}
 	replaced := stopped
-	replaced.Runtime.Generation = "44444444-4444-4444-8444-444444444444"
+	replaced.Runtime.Incarnation = "incarnation-2"
 	if reflect.DeepEqual(c.Shown(replaced), c.Shown(stopped)) {
-		t.Fatal("a removal's change hash leaves out its container's generation")
+		t.Fatal("a removal's change hash leaves out its container's incarnation")
+	}
+}
+
+// The driver's name for a runtime is for display only: a removal, a project
+// deletion and a failed creation's cleanup act on its incarnation, so a name
+// that changes between the dry run and the run keeps the change tag, and a
+// replaced runtime still refuses it. Leaving the name out does not change the
+// plan the caller is shown.
+func TestChangeHashesLeaveOutTheRuntimeName(t *testing.T) {
+	planned := api.RemovalRuntime{Condition: "present", Name: "p-one", Incarnation: "incarnation-1", ImageFingerprint: "image"}
+	renamed, replaced := planned, planned
+	renamed.Name = "p-two"
+	replaced.Incarnation = "incarnation-2"
+	removal := (&lifecycle{}).removal("delete", "550e8400-e29b-41d4-a716-446655440000", api.ChangeRequest{})
+	project := func(r api.RemovalRuntime) api.ProjectDeleteDetails {
+		return api.ProjectDeleteDetails{Project: "app", Sessions: []api.ProjectDeleteSession{{Condition: "stopped", Runtime: r}}}
+	}
+	cleanup := func(r api.RemovalRuntime) api.CreateCleanupDetails { return api.CreateCleanupDetails{Runtime: &r} }
+	shown := map[string]func(api.RemovalRuntime) any{
+		"removal":          func(r api.RemovalRuntime) any { return removal.Shown(api.RemovalDetails{Project: "app", Runtime: r}) },
+		"project deletion": func(r api.RemovalRuntime) any { return projectDeleteShown(project(r)) },
+		"cleanup":          func(r api.RemovalRuntime) any { return createCleanupShown(cleanup(r)) },
+	}
+	for change, hashed := range shown {
+		if !reflect.DeepEqual(hashed(planned), hashed(renamed)) {
+			t.Errorf("%s: the change hash covers the runtime's name", change)
+		}
+		if reflect.DeepEqual(hashed(planned), hashed(replaced)) {
+			t.Errorf("%s: the change hash leaves out the runtime's incarnation", change)
+		}
+	}
+	d := project(planned)
+	if projectDeleteShown(d); d.Sessions[0].Runtime.Name != "p-one" {
+		t.Error("project deletion: leaving the name out of the hash changed the plan")
+	}
+	c := cleanup(planned)
+	if createCleanupShown(c); c.Runtime.Name != "p-one" {
+		t.Error("cleanup: leaving the name out of the hash changed the plan")
 	}
 }
 

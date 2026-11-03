@@ -20,6 +20,22 @@ var inventoryCases = []testCase{
 			t.Fatalf("Inventory lists %+v, want labels %v and the instance's at %s, running", o, s.Labels, r.Incarnation)
 		}
 	}},
+	{"create, inspect, start and stop name a present runtime as the inventory lists it", func(t *testing.T, f Fixture) {
+		s := f.Session(SessionOptions{})
+		c := created(t, f, s)
+		o, found := inventoried(t, f, func(o runtimedriver.Object) bool { return o.Ref == s.Ref })
+		if got := inspect(t, f, s); c.Name == "" || !found || got.Name != c.Name || o.Name != c.Name {
+			t.Fatalf("Create named the runtime %q, Inspect %q and Inventory %q (found %t); want one name", c.Name, got.Name, o.Name, found)
+		}
+		started, err := f.Driver().Start(t.Context(), s)
+		if err != nil || started.Name != c.Name {
+			t.Fatalf("Start named the runtime %q (%v), want %q", started.Name, err, c.Name)
+		}
+		stopped, err := f.Driver().Stop(t.Context(), s)
+		if err != nil || stopped.Name != c.Name {
+			t.Fatalf("Stop named the runtime %q (%v), want %q", stopped.Name, err, c.Name)
+		}
+	}},
 	{"inventory states the scope's capacity", func(t *testing.T, f Fixture) {
 		inv, err := f.Driver().Inventory(t.Context())
 		if err != nil {

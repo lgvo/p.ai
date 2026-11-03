@@ -592,12 +592,12 @@ func removalReview(kind, uuid string, p api.Plan[api.RemovalDetails], tag string
 	}
 	lines = append(lines, "")
 	if d.Runtime.Condition == "present" {
-		lines = append(lines, "Container: "+d.Runtime.InstanceName+" in Incus project "+d.Runtime.IncusProject+" · "+d.Runtime.OriginalStatus)
+		lines = append(lines, "Runtime: "+d.Runtime.Name+" · "+d.Runtime.OriginalStatus)
 		if d.Runtime.OriginalStatus == "Running" {
 			lines = append(lines, "P stops the running container before deleting it.")
 		}
 	} else {
-		lines = append(lines, "Container: "+d.Runtime.InstanceName+" is missing from Incus project "+d.Runtime.IncusProject+".")
+		lines = append(lines, "Runtime: missing")
 	}
 	lines = append(lines, "")
 	switch {

@@ -402,9 +402,11 @@ user Git.
 Destructive plans and lifecycle intent travel over host RPC, as the dry run
 and the run of a [risky change](control-api.md#risky-changes). Runtime loss is
 stated by category from the runtime's presence and identity; P does not read
-the workspace. Branch loss comes from Git reachability in P's repository; no
-deletion contacts the origin. Runtime files and Git objects never travel
-inside the RPC request.
+the workspace. The plan and the durable evidence identify the runtime only by
+the runtime driver's opaque incarnation, and show the driver's own name for it
+for display; they carry no Incus project or instance name. Branch loss comes
+from Git reachability in P's repository; no deletion contacts the origin.
+Runtime files and Git objects never travel inside the RPC request.
 
 Session discard/delete, missing/unreachable behavior, change tags and
 credential cleanup are defined in
@@ -563,7 +565,7 @@ route is mounted into a session.
 |---|---|
 | Read-only RPC | client may retry after reconnect |
 | Cross-authority mutating RPC | operation/idempotency key plus persisted P phase |
-| Incus-owned mutation | query the Incus operation and current state; do not duplicate its phases |
+| Runtime mutation | the runtime driver settles an unknown outcome from native state (on Incus, its operations and current state); core never resends a non-idempotent effect or duplicates the backend's phases |
 | Agent status report | latest valid receive wins while unattended |
 | Git push | normal Git atomic/ref semantics; explicit retry |
 | Origin refresh | interrupted refresh leaves current state unknown; the next explicit operation refreshes again |

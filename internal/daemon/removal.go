@@ -33,11 +33,12 @@ func (l *lifecycle) removal(action, uuid string, req api.ChangeRequest) control.
 		Plan: func(ctx context.Context, p *api.Plan[api.RemovalDetails]) error {
 			return l.planRemoval(ctx, action, uuid, p)
 		},
-		// Whether the container was running is information only: P stops a
-		// running one itself, so a Start or Stop before the run changes nothing
-		// the removal does.
+		// Whether the container was running and the driver's name for it are
+		// information only: P stops a running one itself, so a Start or Stop
+		// before the run changes nothing the removal does, and the removal
+		// acts on the container's incarnation, not its name.
 		Shown: func(d api.RemovalDetails) api.RemovalDetails {
-			d.Runtime.OriginalStatus = ""
+			d.Runtime.OriginalStatus, d.Runtime.Name = "", ""
 			return d
 		},
 		Replay: func(ctx context.Context) (api.Operation, bool, error) {
@@ -46,9 +47,8 @@ func (l *lifecycle) removal(action, uuid string, req api.ChangeRequest) control.
 		Begin: func(ctx context.Context, run control.Run[api.RemovalDetails]) (api.Operation, error) {
 			d := run.Plan.Details
 			ev := control.DiscardEvidence{Action: action, Project: d.Project, Branch: d.Branch, AssignedTip: d.AssignedTip,
-				PolicySHA256: d.PolicySHA256, IncusProject: d.Runtime.IncusProject, InstanceName: d.Runtime.InstanceName,
-				InstanceUUID: l.instanceID, ImageFingerprint: d.Runtime.ImageFingerprint, BaseFingerprint: l.cfg.BaseImageFingerprint,
-				IncusUUID: d.Runtime.IncusUUID, Generation: d.Runtime.Generation, MissingRuntime: d.Runtime.Condition == "missing"}
+				PolicySHA256: d.PolicySHA256, InstanceUUID: l.instanceID, ImageFingerprint: d.Runtime.ImageFingerprint,
+				BaseFingerprint: l.cfg.BaseImageFingerprint, Incarnation: d.Runtime.Incarnation, MissingRuntime: d.Runtime.Condition == "missing"}
 			var op api.Operation
 			var err error
 			if action == "delete" {
@@ -82,7 +82,7 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 	}
 	d := &p.Details
 	*d = api.RemovalDetails{Project: session.Project, Branch: session.Branch, AssignedRef: "refs/heads/" + session.Branch,
-		PolicySHA256: session.PolicySHA256, Runtime: api.RemovalRuntime{IncusProject: l.incus.Project, InstanceName: "p-" + session.UUID}}
+		PolicySHA256: session.PolicySHA256}
 	if session.Registry != "established" {
 		return control.Conflict(api.ReasonSessionNotEstablished, target)
 	}
@@ -101,14 +101,13 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 		d.Runtime.Condition = "missing"
 		p.Gone = append(p.Gone, missingRuntimeGone(uuid))
 	} else {
-		incusUUID, generation := incarnationRecord(observed.Incarnation)
 		switch {
-		case incusUUID == "":
+		case observed.Incarnation == "":
 			return control.Failed(api.ReasonRuntime, errors.New("session runtime identity incomplete"))
 		case !removableState(observed.State):
 			return control.Conflict(api.ReasonRuntimeUnsettled, target)
 		}
-		d.Runtime.Condition, d.Runtime.IncusUUID, d.Runtime.Generation = "present", incusUUID, generation
+		d.Runtime.Condition, d.Runtime.Name, d.Runtime.Incarnation = "present", observed.Name, string(observed.Incarnation)
 		d.Runtime.ImageFingerprint, d.Runtime.OriginalStatus = string(spec.Image), originalStatus(observed.State)
 		p.Loss = append(p.Loss, containerLoss(uuid))
 	}

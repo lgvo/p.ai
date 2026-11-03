@@ -70,7 +70,7 @@ func TestRemovalRefusalsNameTheirNextStep(t *testing.T) {
 			t.Fatal(err)
 		}
 		ev := control.DiscardEvidence{Action: "discard", Project: s.Project, Branch: s.Branch, AssignedTip: strings.Repeat("e", 40), PolicySHA256: s.PolicySHA256,
-			IncusProject: "user-1000", InstanceName: "p-" + uuid, InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true}
+			InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true}
 		return control.DiscardRequest{Key: key, UUID: uuid, IfMatch: futureTag(time.Minute)}, ev
 	}
 	req, ev := removal("blocked-discard", blocked)

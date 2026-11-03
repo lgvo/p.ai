@@ -324,8 +324,8 @@ jq -e --arg creator "$creator" --arg native "$native_uuid" --arg generation "$ge
  .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and (.details |
  .old_operation_id==$creator and .old_phase=="assembly-ready" and
  (.old_request_sha256|test("^[0-9a-f]{64}$")) and
- .runtime.condition=="present" and .runtime.original_status=="Stopped" and .runtime.incus_uuid==$native and
- .runtime.generation==$generation and .runtime.incus_project=="user-1000" and .runtime.instance_name==("p-"+$uuid) and
+ .runtime.condition=="present" and .runtime.original_status=="Stopped" and
+ .runtime.incarnation==($native+"/"+$generation) and .runtime.name==("p-"+$uuid) and
  .runtime.image_fingerprint==$image and
  (.runtime | has("runtime_data_lost") or has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at") | not) and
  .provisional.runtime=="present" and .provisional.runtime_local=="will_be_removed" and

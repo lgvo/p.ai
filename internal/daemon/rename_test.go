@@ -19,8 +19,8 @@ import (
 )
 
 func TestRenameRequiresAStoppedSession(t *testing.T) {
-	ev := control.RenameEvidence{IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333"}
-	stopped := runtimedriver.Observation{State: runtimedriver.StateStopped, Incarnation: recordedIncarnation(ev.IncusUUID, ev.Generation)}
+	ev := control.RenameEvidence{Incarnation: "incarnation-1"}
+	stopped := runtimedriver.Observation{State: runtimedriver.StateStopped, Incarnation: runtimedriver.Incarnation(ev.Incarnation)}
 	if !renameSourceStopped(stopped) {
 		t.Fatal("a stopped session was refused")
 	}
@@ -37,7 +37,7 @@ func TestRenameRequiresAStoppedSession(t *testing.T) {
 	started := stopped
 	started.State = runtimedriver.StateRunning
 	replaced := stopped
-	replaced.Incarnation = recordedIncarnation("44444444-4444-4444-8444-444444444444", ev.Generation)
+	replaced.Incarnation = "incarnation-2"
 	for name, o := range map[string]runtimedriver.Observation{"started": started, "replaced": replaced} {
 		if renameSourceExact(o, ev) {
 			t.Fatalf("a %s runtime was taken for the recorded one", name)
@@ -48,7 +48,7 @@ func TestRenameRequiresAStoppedSession(t *testing.T) {
 // wantRefusal fails unless err is a refusal of kind with reason and target.
 func TestRenameOfASessionThatIsNotStoppedIsAConflict(t *testing.T) {
 	const session = "11111111-1111-4111-8111-111111111111"
-	stopped := runtimedriver.Observation{State: runtimedriver.StateStopped, Incarnation: recordedIncarnation("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333")}
+	stopped := runtimedriver.Observation{State: runtimedriver.StateStopped, Incarnation: "incarnation-1"}
 	if err := renameSourceRefusal(stopped, session); err != nil {
 		t.Fatalf("a stopped session was refused: %v", err)
 	}

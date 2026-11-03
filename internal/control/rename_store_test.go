@@ -35,7 +35,7 @@ func renameStoreFixture(t *testing.T) (*Store, string, RenameRequest, RenameEvid
 	e := RenameEvidence{Project: "app", OldBranch: "main", NewBranch: "renamed", OldTip: r.ExpectedOldTip,
 		PolicySHA256: policy, InstanceUUID: "11111111-1111-4111-8111-111111111111",
 		ImageFingerprint: strings.Repeat("b", 64), BaseFingerprint: strings.Repeat("c", 64),
-		IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333"}
+		Incarnation: "incarnation-1"}
 	return s, dir, r, e
 }
 

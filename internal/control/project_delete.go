@@ -67,7 +67,6 @@ type ProjectDeleteResource struct {
 type ProjectDeleteEvidence struct {
 	InstanceUUID    string                     `json:"instance_uuid"`
 	BaseFingerprint string                     `json:"base_fingerprint"`
-	IncusProject    string                     `json:"incus_project"`
 	StateSHA256     string                     `json:"state_sha256"`
 	ReviewSHA256    string                     `json:"review_sha256"`
 	Sessions        []api.ProjectDeleteSession `json:"sessions"`
@@ -133,7 +132,7 @@ func projectDeleteResourceAbsent(r ProjectDeleteResource) bool {
 	return r.Status == "deleted" || r.Status == "already_absent"
 }
 func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
-	if !validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) || ev.IncusProject == "" || !validFingerprint(ev.StateSHA256) || !validFingerprint(ev.ReviewSHA256) || len(ev.Sessions) > 4 || len(ev.Images) > MaxProjectDeleteImages || len(ev.Resources) != 2*len(ev.Sessions)+len(ev.Images)+1 ||
+	if !validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) || !validFingerprint(ev.StateSHA256) || !validFingerprint(ev.ReviewSHA256) || len(ev.Sessions) > 4 || len(ev.Images) > MaxProjectDeleteImages || len(ev.Resources) != 2*len(ev.Sessions)+len(ev.Images)+1 ||
 		!ValidRepositoryIncarnation(ev.RepositoryIncarnation) {
 		return false
 	}
@@ -144,11 +143,8 @@ func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
 		}
 		seen[s.Session.UUID] = true
 		r := s.Runtime
-		if r.IncusProject != ev.IncusProject || r.InstanceName != "p-"+s.Session.UUID {
-			return false
-		}
 		if r.Condition == "present" {
-			if !validUUID(r.IncusUUID) || !validUUID(r.Generation) || !validFingerprint(r.ImageFingerprint) || r.OriginalStatus != "Running" && r.OriginalStatus != "Stopped" {
+			if !validIncarnation(r.Incarnation) || !validFingerprint(r.ImageFingerprint) || r.OriginalStatus != "Running" && r.OriginalStatus != "Stopped" {
 				return false
 			}
 		} else if r.Condition != "missing" {

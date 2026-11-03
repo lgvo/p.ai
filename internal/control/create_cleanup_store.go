@@ -22,7 +22,7 @@ func (s *Store) BeginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 // BeginAssembledCreateCleanup is BeginCreateCleanup for an assembled
 // creator's cleanup, which deletes its stopped container.
 func (s *Store) BeginAssembledCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
-	if !validAssembledCleanupReview(req.UUID, ev) {
+	if !validAssembledCleanupReview(ev) {
 		return api.Operation{}, ErrInvalid
 	}
 	return s.beginCreateCleanup(ctx, req, ev, hash, verify)

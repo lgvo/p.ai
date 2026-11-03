@@ -134,8 +134,8 @@ the assigned branch's current tip remain the source authority.
 |---|---|---|
 | Session UUID, branch assignment, intended operation | SQLite | authoritative |
 | Commits, branch existence, branch tip | The source driver's backend: P's repository of the project, which core reads and changes only through the source driver | indexes expected ref and observed tip |
-| Workspace files and local refs | Incus instance root | records no duplicate file state |
-| Instance existence, state, root storage, and runtime operation | Incus | records project and deterministic instance name |
+| Workspace files and local refs | The runtime's private root: the Incus instance root | records no duplicate file state |
+| Runtime existence, state, root storage, and runtime operation | The runtime driver's backend: the Incus instance | records the runtime's incarnation where a removal or rename reviewed it; no instance name or Incus project |
 | Commit image bytes, reference and labels | The runtime driver's backend: the Incus image store | indexes (project, commit, base image, system, builder version) to the image reference |
 | P Git write permission | P Git authorization using current SQLite assignment | records principal and revocation state |
 | Post-MVP external-service principal validity | Configured service | records only the protected binding and cleanup state required by its plugin contract |
@@ -195,7 +195,7 @@ project path
 operation kind and requested outcome
 current P workflow phase and commit-point status, when applicable
 expected Git ref names and object IDs
-expected Incus project, instance name, image fingerprint, and P metadata
+expected runtime incarnation, image fingerprint, and P metadata
 change hash, for a risky change
 bounded diagnostic and last error
 created and updated times
@@ -416,7 +416,7 @@ Cleanup covers an assembled failed runtime only on a narrow path. The
 original local committed-source Create must be blocked at `assembly-ready`,
 with the captured base image and immutable plugin/policy selection unchanged
 and a standalone policy: network `none` and no filesystem grants. Its
-container must already be stopped, have its exact native UUID/generation, and
+container must already be stopped, have an incarnation the driver reports, and
 be the only object in the driver's complete inventory carrying the session
 UUID, with none carrying the creation's build reference.
 Origin/bootstrap, environment-builder/publication, replacement history and
@@ -494,8 +494,8 @@ approved losses or restores the superseded Create.
 
 An accepted assembled run first installs a reversible precommit guard while
 the original creator stays blocked/creating, then rechecks the planned facts
-before source deletion. A changed container identity (Incus UUID, generation
-or image) or a changed branch fails the cleanup at `stale`: P releases the
+before source deletion. A changed container identity (another incarnation or
+image) or a changed branch fails the cleanup at `stale`: P releases the
 cleanup guards and preserves the container, the branch and the original
 creator. Make a new dry run and run it with a fresh key. The guard keeps
 the creator's Retry, replay, reconciliation or stale worker from advancing,
@@ -758,9 +758,9 @@ refuses the plan with `attachment_active`, so there is no change tag to run.
 ### Runtime-local loss
 
 P states runtime-local loss by category. When the session's runtime exists,
-the plan names its exact identity (Incus UUID, generation and image) and lists
-one `runtime_data` loss item: the container and everything in it will be
-lost:
+the plan names its exact identity, the runtime driver's incarnation and the
+image, with the driver's name for it for display, and lists one `runtime_data`
+loss item: the container and everything in it will be lost:
 
 - uncommitted changes and files outside Git;
 - local refs and commits not pushed to P;
@@ -774,9 +774,10 @@ remain external state. Commits already in P's repository are reported as
 
 P does not enumerate files, count commits or hash workspace contents, so
 changes made inside a running session after the dry run do not make its plan
-stale. The plan records whether the runtime was running or stopped for
-information only: a Start or Stop between the dry run and the run does not make
-it stale either. A replaced runtime (changed Incus UUID or generation) does.
+stale. The plan records whether the runtime was running or stopped, and the
+runtime driver's name for it, for information only: a Start or Stop between the
+dry run and the run does not make it stale either, nor does a runtime the driver
+now names differently. A replaced runtime (another incarnation) does.
 
 If Incus authoritatively reports the runtime missing, the plan states that
 runtime-local state is already lost: it lists the runtime's contents in
@@ -822,7 +823,7 @@ planned from:
 session UUID and operation kind
 project and assigned ref
 P ref object ID, or the missing assigned ref
-runtime identity (Incus UUID, generation, image) or the missing runtime
+runtime identity (incarnation, image) or the missing runtime
 delete's branch loss
 ```
 

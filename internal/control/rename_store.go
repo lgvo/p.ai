@@ -33,8 +33,7 @@ type RenameEvidence struct {
 	InstanceUUID     string `json:"instance_uuid"`
 	ImageFingerprint string `json:"image_fingerprint"`
 	BaseFingerprint  string `json:"base_fingerprint"`
-	IncusUUID        string `json:"incus_uuid"`
-	Generation       string `json:"generation"`
+	Incarnation      string `json:"incarnation"` // the stopped runtime rename edits
 	// Edit is the clone edit last sent, which its gate records: an attempt
 	// that finds it settles it, and never sends it again.
 	Edit RenameEdit `json:"edit,omitzero"`
@@ -55,7 +54,7 @@ func validRenameEvidence(e RenameEvidence) bool {
 	return validProject(e.Project) && validBranch(e.OldBranch) && validBranch(e.NewBranch) && e.OldBranch != e.NewBranch &&
 		validOID(e.OldTip) && (e.Plan == "" || api.BoundedName(e.Plan, sourcedriver.MaxPlan)) && validRenameEdit(e.Edit) &&
 		validFingerprint(e.PolicySHA256) && validUUID(e.InstanceUUID) && validFingerprint(e.ImageFingerprint) &&
-		validFingerprint(e.BaseFingerprint) && validUUID(e.IncusUUID) && validUUID(e.Generation)
+		validFingerprint(e.BaseFingerprint) && validIncarnation(e.Incarnation)
 }
 
 // maxRenameEditPath bounds a recorded edit's path, so that the evidence's

@@ -28,7 +28,7 @@ func renameHolding(t *testing.T, l *lifecycle, session control.Session) api.Oper
 	tip := strings.Repeat("e", 40)
 	evidence := control.RenameEvidence{Project: session.Project, OldBranch: session.Branch, NewBranch: "renamed", OldTip: tip,
 		PolicySHA256: session.PolicySHA256, InstanceUUID: "11111111-1111-1111-1111-111111111111", ImageFingerprint: strings.Repeat("d", 64),
-		BaseFingerprint: strings.Repeat("d", 64), IncusUUID: "22222222-2222-2222-2222-222222222222", Generation: "33333333-3333-3333-3333-333333333333"}
+		BaseFingerprint: strings.Repeat("d", 64), Incarnation: "incarnation-1"}
 	op, err := l.store.BeginRename(context.Background(), control.RenameRequest{Key: "rename", UUID: session.UUID, NewBranch: "renamed", ExpectedOldTip: tip},
 		evidence, func(context.Context) error { return nil })
 	if err != nil {

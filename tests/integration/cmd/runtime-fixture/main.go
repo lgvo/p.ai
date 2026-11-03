@@ -15,7 +15,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/runtimedriver/incus"
 )
 
 const usage = "usage: runtime-fixture inspect|create|start|stop|delete|hostlog <session.json> [incarnation]\n" +
@@ -91,7 +91,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	backend, err := runtimeincus.New(runtimeincus.Config{
+	backend, err := incus.New(incus.Config{
 		Binary: binary, UserSocket: in.Socket, Project: "user-1000", PInstanceID: in.Instance,
 		EndpointPrefix:     "/var/lib/p-vm/endpoints/pdev",
 		DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"},
@@ -103,7 +103,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	driver := runtimeincus.NewDriver(backend)
+	driver := incus.NewDriver(backend)
 	// Start waits up to 100 s for the session host and up to 45 s more to
 	// stop a runtime whose host failed.
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
@@ -227,7 +227,7 @@ func assets(activation, capability string) ([]runtimedriver.Asset, error) {
 
 // deleteSession deletes the session's runtime at incarnation at through the
 // driver. An absent runtime needs no delete.
-func deleteSession(ctx context.Context, driver *runtimeincus.Driver, spec runtimedriver.Session, at runtimedriver.Incarnation) (runtimedriver.Observation, error) {
+func deleteSession(ctx context.Context, driver *incus.Driver, spec runtimedriver.Session, at runtimedriver.Incarnation) (runtimedriver.Observation, error) {
 	if err := driver.Delete(ctx, spec.Ref, at, func() error { return nil }); err != nil {
 		return runtimedriver.Observation{}, err
 	}

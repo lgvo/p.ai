@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,20 +13,7 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
-
-func TestOnlyTheIncusRuntimeDriverIsSelected(t *testing.T) {
-	config := json.RawMessage(`{"binary":"/run/current-system/sw/bin/incus","user_socket":"/var/lib/incus/unix.socket.user","project":"user-1000"}`)
-	got, err := incusDriverConfig(control.RuntimeDriverConfig{Name: "incus", Config: config})
-	want := runtimeincus.DriverConfig{Binary: "/run/current-system/sw/bin/incus", UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000"}
-	if err != nil || got != want {
-		t.Fatalf("Incus driver settings %+v %v, want %+v", got, err, want)
-	}
-	if got, err := incusDriverConfig(control.RuntimeDriverConfig{Name: "kubernetes", Config: config}); err == nil {
-		t.Fatalf("unknown runtime driver selected with settings %+v", got)
-	}
-}
 
 func TestRegisteredSessionKeyCannotRotateOnRetry(t *testing.T) {
 	ctx := context.Background()

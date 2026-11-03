@@ -134,6 +134,10 @@ type Capabilities struct {
 	// image's identity: a change builds new images even for a commit that
 	// has one.
 	ImageBuilder string
+	// BuilderPolicy names how the driver runs a build beyond ImageBuilder,
+	// such as the builder's network. A creation pins it, so a change refuses
+	// to continue that creation's build, but it builds no new images.
+	BuilderPolicy string
 	// Networks are the session networks the driver offers: NetworkNone and,
 	// when its egress substrate is configured, NetworkPublicEgress.
 	Networks []string
@@ -274,7 +278,10 @@ const (
 
 // Observation is the runtime as Inspect, Create, Start or Stop saw it.
 type Observation struct {
-	State       State
+	State State
+	// Name is the backend's own name for a present runtime, the one its
+	// inventory reports, for display only; empty when absent.
+	Name        string
 	Incarnation Incarnation
 	// Complete is false only for a runtime whose Create was interrupted;
 	// Create at its incarnation completes it.

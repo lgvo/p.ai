@@ -1,5 +1,42 @@
 # MVP implementation progress
 
+## Removal reviews name the runtime without its backend — 2026-11-03
+
+Migration step M6 of the runtime driver: core holds only the runtime driver,
+and the removal plans and their durable evidence carry driver-neutral facts. A
+present runtime's `details.runtime` has the driver's `name` for it, for
+display only, and its `incarnation`, which removal acts on; `incus_project`,
+`instance_name`, `incus_uuid` and `generation` are gone. The TUI's Discard and
+Delete reviews show `Runtime: <name> · <status>` instead of
+`Container: <name> in Incus project <project> · <status>`, and a missing
+runtime's line is `Runtime: missing` instead of
+`Container: <name> is missing from Incus project <project>.`; the rest of the
+review is unchanged.
+
+**LLM experience review (mock socket).** Tested on base revision e028aed and
+the uncommitted change, each with a fresh small fixture, `--theme dark`. The
+prototype has no removal review; its vocabulary, like the production details
+panel, calls the session's state its runtime. The LLM opened Discard and Delete
+on a running session, stopped it with `s`/`y`, and opened both again on the
+stopped session, on both builds. At 120×35 the four reviews differ between the
+builds only in the identity line and the review expiry. On the changed build
+the LLM also read the review at 80×24 and 48×16 (the name wraps at a hyphen
+like the UUID line; PgDn reaches the branch outcome), resized with the review
+open, cancelled with `n`, `q` and Esc, and authorized a Discard. "Runtime:"
+reads on into "P stops the running container before deleting it." No defect
+was found. The mock cannot make a runtime missing, so the `Runtime: missing`
+line was not reviewed live; a component test covers it. Evidence:
+[runtime-name checkpoint](llm-interactive-review/tui/runtime-name/checkpoint.json).
+
+**Component and integration checks.** `go test ./internal/tui/
+./tests/integration/cmd/tui-mock/` passed, including
+`TestRemovalReviewStatesRuntimeLossByCategory`, which asserts the new line and
+that the review names no backend, and
+`TestRemovalReviewOfAMissingRuntimeStatesWhatIsGone`, which asserts
+`Runtime: missing`. `just tui-tests` passed all 29 cases (8 terminal, 9
+observer, 12 mock). The daemon's plan from the Incus driver is checked by VM
+scenarios 30, 31, 34, 51 and 52 in the integration gate, not by this review.
+
 ## Terminals relayed by the daemon — 2026-11-03
 
 Migration step M5 of the runtime driver: the runtime driver opens the

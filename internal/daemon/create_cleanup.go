@@ -88,6 +88,7 @@ func (l *lifecycle) CleanupCreation(ctx context.Context, uuid string, req api.Ch
 		Plan: func(ctx context.Context, p *api.Plan[api.CreateCleanupDetails]) error {
 			return l.planCreateCleanup(ctx, uuid, p)
 		},
+		Shown: createCleanupShown,
 		Replay: func(ctx context.Context) (api.Operation, bool, error) {
 			return replayRequest(l, ctx, req.Key, control.KindCreateCleanup, recorded)
 		},
@@ -105,6 +106,18 @@ func (l *lifecycle) CleanupCreation(ctx context.Context, uuid string, req api.Ch
 		},
 	}
 	return change.Do(ctx, req)
+}
+
+// createCleanupShown leaves the driver's name for the runtime out of a failed
+// creation's cleanup's change hash: it is for display only, and the cleanup
+// acts on the runtime's incarnation.
+func createCleanupShown(d api.CreateCleanupDetails) api.CreateCleanupDetails {
+	if d.Runtime != nil {
+		runtime := *d.Runtime
+		runtime.Name = ""
+		d.Runtime = &runtime
+	}
+	return d
 }
 
 // planCreateCleanup plans the cleanup of session uuid's failed creation into

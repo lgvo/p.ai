@@ -35,6 +35,8 @@ type fakeImages struct {
 	deletes    []string // build references whose leftovers Delete was asked to remove
 	stopAfter  error    // returned once Delete removed a builder, as if P stopped there
 	next       int
+	// builderPolicy is the builder policy Describe reports.
+	builderPolicy string
 }
 
 func newFakeImages() *fakeImages {
@@ -43,7 +45,7 @@ func newFakeImages() *fakeImages {
 }
 
 func (f *fakeImages) Describe() runtimedriver.Capabilities {
-	return runtimedriver.Capabilities{ImageBuilder: "fake-builder/1"}
+	return runtimedriver.Capabilities{ImageBuilder: "fake-builder/1", BuilderPolicy: f.builderPolicy}
 }
 
 func (f *fakeImages) BuildImage(_ context.Context, b runtimedriver.Build, g runtimedriver.Gate) (runtimedriver.Image, error) {

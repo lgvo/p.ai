@@ -56,7 +56,7 @@ plan_missing() {
       .gone==[{kind:"runtime_data",target:$target,certain:true}] and
       all(.loss[]; .kind!="runtime_data") and
       (.details.runtime | .condition=="missing" and
-        ((has("incus_uuid") or has("original_status") or has("runtime_data_lost") or
+        ((has("name") or has("incarnation") or has("original_status") or has("runtime_data_lost") or
           has("runtime_loss_unknown")) | not)))' <<< "$result" >/dev/null || return
   printf '%s\n' "$result"
 }

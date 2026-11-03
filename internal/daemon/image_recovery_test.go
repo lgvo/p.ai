@@ -195,6 +195,8 @@ func TestBuilderAddressSlotIsHeldOnlyUntilTheImageIsReady(t *testing.T) {
 		t.Fatalf("builder got a NIC without host public egress: %q %v", address, err)
 	}
 	l.cfg.PublicEgress = &control.PublicEgressConfig{Network: "p-public-v1", ACL: "p-public-v1-acl", BridgeIPv4: "10.233.0.1/24", DNS: []string{"1.1.1.1", "9.9.9.9"}, SudoBinary: "/run/wrappers/bin/sudo", NftBinary: "/nix/store/example/bin/nft", BridgeProofBinary: "/nix/store/example/bin/p-public-network-proof"}
+	// The host's driver now builds with public egress, under another policy.
+	l.driver.(*fakeImages).builderPolicy = "public-egress"
 	if _, err := ensureWith(l, &op, ev, &retainedRuntime{spec: spec, exists: true}); err == nil {
 		t.Fatal("creation recorded without public egress resumed with public builders")
 	}

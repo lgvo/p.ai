@@ -66,7 +66,7 @@
 
 ## A builder admitted after its creation's reply was lost is never collected
 
-- Where: internal/runtimeincus driver.go `BuildImage` and `Delete`; internal/daemon image.go
+- Where: internal/runtimedriver/incus driver.go `BuildImage` and `Delete`; internal/daemon image.go
   `buildImage` and `settleBuild`
 - Problem: When `incus init` of a builder loses its reply, the build's leftover removal
   finds no builder and the cycle ends `absent`; the next attempt uses a new build reference.
@@ -84,7 +84,7 @@
 - Fix when: step 8's M3 (`Inventory`), or the first time such an orphan is seen.
 - Left by: the agent, by rule (behavior left untested: needs the driver's inventory, which
   the plan places in a later step).
-- Added 2026-11-02, updated 2026-11-03, 3 cases:
+- Added 2026-11-02, updated 2026-11-03, 4 cases:
   - 2026-11-02: "one image per source commit" gave each build attempt its own reference
     and review found the late-admission case.
   - 2026-11-03: "core computes the proofs from the driver's inventory" (step 8, M3) made
@@ -93,3 +93,5 @@
   - 2026-11-03: "step 9 S4: the commit export through the source driver" moved `buildImage`'s
     export onto the source driver and left its builders as they were: an orphan builder is
     still never collected.
+  - 2026-11-03: "core holds only the runtime driver" moved the driver to
+    internal/runtimedriver/incus unchanged; orphaned builders are still not collected.

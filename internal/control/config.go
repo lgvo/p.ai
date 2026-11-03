@@ -381,7 +381,7 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 				return cfg, err
 			}
 			// The NixOS sudo wrapper has one fixed, root-owned generation link.
-			// runtimeincus.New validates that resolved chain and the immutable
+			// The Incus driver's New validates that resolved chain and the immutable
 			// nft store path before any native operation; the general host-path
 			// check deliberately rejects all symbolic-link ancestors.
 		}

@@ -232,7 +232,7 @@ jq -e --arg uuid "$uuid" --arg oid "$main_oid" '
     .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
     (has("assigned_ref_missing")|not) and (has("branch_loss")|not) and
     .runtime.condition=="present" and .runtime.original_status=="Running" and
-    .runtime.instance_name==("p-"+$uuid) and
+    .runtime.name==("p-"+$uuid) and
     (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
       has("observed_at") or has("runtime_data_lost") or has("runtime_loss_unknown")) | not))
 ' <<< "$discard_plan" >/dev/null

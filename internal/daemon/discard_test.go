@@ -10,17 +10,15 @@ import (
 )
 
 func TestDiscardAcceptsTheReviewedRuntimeWhateverItsRunState(t *testing.T) {
-	reviewed := recordedIncarnation("22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333")
+	const reviewed runtimedriver.Incarnation = "incarnation-1"
 	for _, state := range []runtimedriver.State{runtimedriver.StateRunning, runtimedriver.StateStopped} {
 		if !discardSourceMatches(runtimedriver.Observation{State: state, Incarnation: reviewed}, reviewed) {
 			t.Fatalf("a %s runtime started or stopped after its preview was refused", state)
 		}
 	}
 	for name, o := range map[string]runtimedriver.Observation{
-		"replaced": {State: runtimedriver.StateRunning,
-			Incarnation: recordedIncarnation("44444444-4444-4444-8444-444444444444", "33333333-3333-4333-8333-333333333333")},
-		"restored": {State: runtimedriver.StateRunning,
-			Incarnation: recordedIncarnation("22222222-2222-4222-8222-222222222222", "44444444-4444-4444-8444-444444444444")},
+		"replaced":       {State: runtimedriver.StateRunning, Incarnation: "incarnation-2"},
+		"restored":       {State: runtimedriver.StateRunning, Incarnation: "incarnation-3"},
 		"gone":           {State: runtimedriver.StateAbsent},
 		"frozen outside": {State: runtimedriver.StateOther, Incarnation: reviewed},
 	} {

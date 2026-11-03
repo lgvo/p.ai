@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
@@ -73,7 +74,7 @@ func projectDeleteReviewed(sessions []api.ProjectDeleteSession, images []control
 	runtimes, refs := map[runtimedriver.Ref]runtimedriver.Incarnation{}, map[runtimedriver.ImageRef]bool{}
 	for _, s := range sessions {
 		if s.Runtime.Condition == "present" {
-			runtimes[runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: s.Session.UUID}] = recordedIncarnation(s.Runtime.IncusUUID, s.Runtime.Generation)
+			runtimes[runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: s.Session.UUID}] = runtimedriver.Incarnation(s.Runtime.Incarnation)
 		}
 	}
 	for _, c := range images {
@@ -119,6 +120,7 @@ func (l *lifecycle) DeleteProject(ctx context.Context, project string, req api.C
 			claims, err = l.planProjectDelete(ctx, project, p)
 			return err
 		},
+		Shown: projectDeleteShown,
 		Replay: func(ctx context.Context) (api.Operation, bool, error) {
 			return replayRequest(l, ctx, req.Key, control.KindProjectDelete, recorded)
 		},
@@ -138,6 +140,17 @@ func (l *lifecycle) DeleteProject(ctx context.Context, project string, req api.C
 		},
 	}
 	return change.Do(ctx, req)
+}
+
+// projectDeleteShown leaves the driver's names for the sessions' runtimes out
+// of a project deletion's change hash: they are for display only, and the
+// deletion acts on each runtime's incarnation.
+func projectDeleteShown(d api.ProjectDeleteDetails) api.ProjectDeleteDetails {
+	d.Sessions = slices.Clone(d.Sessions)
+	for i := range d.Sessions {
+		d.Sessions[i].Runtime.Name = ""
+	}
+	return d
 }
 
 // planProjectDelete plans deleting project into p, and returns the image
@@ -178,7 +191,7 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		if e != nil {
 			return nil, control.Failed(api.ReasonRuntime, e)
 		}
-		ps := api.ProjectDeleteSession{Session: api.SessionRecord(s), Runtime: api.RemovalRuntime{IncusProject: l.incus.Project, InstanceName: "p-" + s.UUID}}
+		ps := api.ProjectDeleteSession{Session: api.SessionRecord(s)}
 		creator, e := l.store.CreationForSession(ctx, s.UUID)
 		if e != nil {
 			return nil, e
@@ -189,17 +202,16 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		}
 		ps.Local = *local
 		if observed.State != runtimedriver.StateAbsent {
-			incusUUID, generation := incarnationRecord(observed.Incarnation)
 			switch {
 			case !removableState(observed.State):
 				return nil, control.Conflict(api.ReasonRuntimeUnsettled, target)
-			case incusUUID == "":
+			case observed.Incarnation == "":
 				return nil, control.Failed(api.ReasonRuntime, fmt.Errorf("session runtime %s identity incomplete", s.UUID))
 			}
 			ps.Condition = string(observed.State)
 			ps.Runtime.Condition = "present"
-			ps.Runtime.IncusUUID = incusUUID
-			ps.Runtime.Generation = generation
+			ps.Runtime.Name = observed.Name
+			ps.Runtime.Incarnation = string(observed.Incarnation)
 			ps.Runtime.ImageFingerprint = string(spec.Image)
 			ps.Runtime.OriginalStatus = originalStatus(observed.State)
 			p.Loss = append(p.Loss, containerLoss(s.UUID))
@@ -265,7 +277,7 @@ func (l *lifecycle) boundProjectDeleteEvidence(d api.ProjectDeleteDetails, claim
 // projectDeleteEvidence is the evidence that deletes the plan d, with its
 // image claims: every planned resource, remaining.
 func (l *lifecycle) projectDeleteEvidence(d api.ProjectDeleteDetails, images []control.CommitImageClaim) control.ProjectDeleteEvidence {
-	ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.incus.Project, StateSHA256: d.StateSHA256, Sessions: append([]api.ProjectDeleteSession(nil), d.Sessions...), Images: images, RepositoryIncarnation: d.RepositoryIncarnation}
+	ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, StateSHA256: d.StateSHA256, Sessions: append([]api.ProjectDeleteSession(nil), d.Sessions...), Images: images, RepositoryIncarnation: d.RepositoryIncarnation}
 	reviewed, _ := json.Marshal(d)
 	ev.ReviewSHA256 = hexDigest(reviewed)
 	for i := range ev.Sessions {

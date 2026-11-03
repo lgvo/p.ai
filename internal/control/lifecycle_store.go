@@ -253,6 +253,20 @@ func validFingerprint(s string) bool { return api.ValidFingerprint(s) }
 // decides (CheckNames).
 func validOID(s string) bool { return api.BoundedName(s, api.MaxCommitBytes) }
 
+// validIncarnation bounds a runtime driver's incarnation, which is opaque to
+// core and recorded by the removals and renames that act on it.
+func validIncarnation(at string) bool {
+	if at == "" || len(at) > 128 {
+		return false
+	}
+	for i := 0; i < len(at); i++ {
+		if at[i] < 0x21 || at[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 type BlankProjectRequest struct {
 	Key     string `json:"key"`
 	Project string `json:"project"`

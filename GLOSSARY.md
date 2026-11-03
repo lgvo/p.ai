@@ -43,7 +43,8 @@ action, target and inputs, the P instance, and its plan.
   as the exact change that ran.
 - **Rules:** The same state gives the same change hash; any changed fact in
   the plan changes it, except the facts a plan shows for information only,
-  such as whether a removal's container was running.
+  such as whether a removal's container was running and the runtime driver's
+  name for it.
 
 ### Change tag
 
@@ -296,13 +297,16 @@ terms rather than its backend's.
   requests, and plugins never reach it. Its contract covers images and their
   builds, session runtimes, the workspace of a stopped session, terminals and
   project services; host configuration selects it as `runtime.driver`. Its
-  Incus implementation runs inside the P daemon. So far everything but
-  terminals goes through it: images, sessions, their removal, the workspace
-  edits of a rename, project services, the boundary check and the inventory
-  that admission and the proofs of absence read. Terminals still reach Incus
-  directly.
+  Incus implementation, `internal/runtimedriver/incus`, runs inside the P
+  daemon, which holds nothing of it but the driver interface. Every runtime
+  effect goes through it: images, sessions, their removal, the workspace edits
+  of a rename, terminals, project services, the boundary check and the
+  inventory that admission and the proofs of absence read.
 - **Rules:** It acts only on objects carrying its P instance's labels, stores
-  those labels immutably, and claims nothing after an error.
+  those labels immutably, and claims nothing after an error. Core identifies a
+  runtime by the driver's opaque incarnation, which stays the same across stop
+  and start and changes when the runtime is re-created or restored, and shows
+  the driver's own name for a runtime only for display.
 
 ### Source driver
 

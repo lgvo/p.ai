@@ -19,8 +19,7 @@ func (f *fixture) planRemoval(action, id string, p *api.Plan[api.RemovalDetails]
 		return err
 	}
 	assignedTip := f.refs[s.Project][s.Branch]
-	p.Details = api.RemovalDetails{Project: s.Project, Branch: s.Branch, AssignedRef: "refs/heads/" + s.Branch, AssignedTip: assignedTip, AssignedRefMissing: assignedTip == "", PolicySHA256: s.PolicySHA256,
-		Runtime: api.RemovalRuntime{IncusProject: "p-mock", InstanceName: "p-" + s.UUID}}
+	p.Details = api.RemovalDetails{Project: s.Project, Branch: s.Branch, AssignedRef: "refs/heads/" + s.Branch, AssignedTip: assignedTip, AssignedRefMissing: assignedTip == "", PolicySHA256: s.PolicySHA256}
 	if s.AttachedCount != 0 {
 		return control.Conflict(api.ReasonAttachmentActive, api.TargetSession(id))
 	}
@@ -32,7 +31,7 @@ func (f *fixture) planRemoval(action, id string, p *api.Plan[api.RemovalDetails]
 		if status == "" {
 			return control.Conflict(api.ReasonRuntimeUnsettled, api.TargetSession(id))
 		}
-		p.Details.Runtime = api.RemovalRuntime{Condition: "present", IncusProject: "p-mock", InstanceName: "p-" + s.UUID, IncusUUID: s.UUID, Generation: "1", ImageFingerprint: strings.Repeat("b", 64), OriginalStatus: status}
+		p.Details.Runtime = api.RemovalRuntime{Condition: "present", Name: "p-" + s.UUID, Incarnation: s.UUID + "/1", ImageFingerprint: strings.Repeat("b", 64), OriginalStatus: status}
 		p.Loss = append(p.Loss, api.Loss{Kind: api.LossRuntimeData, Target: api.TargetSession(id), Certain: true})
 	}
 	if action != "delete" {

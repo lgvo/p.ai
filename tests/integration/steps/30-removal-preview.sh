@@ -252,8 +252,8 @@ for result in "$discard_plan" "$delete_plan"; do
       .branch=="main" and .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
       (has("assigned_ref_missing")|not) and (.policy_sha256|length)==64 and
       .runtime.condition=="present" and .runtime.original_status=="Running" and
-      .runtime.incus_project=="user-1000" and .runtime.instance_name==("p-"+$uuid) and
-      (.runtime.incus_uuid|length)==36 and (.runtime.generation|length)==36 and
+      .runtime.name==("p-"+$uuid) and
+      (.runtime.incarnation|test("^[0-9a-f-]{36}/[0-9a-f-]{36}$")) and
       .runtime.image_fingerprint==$image and
       (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
         has("observed_at") or has("runtime_data_lost") or has("runtime_loss_unknown")) | not)))
@@ -321,7 +321,7 @@ jq -e --arg uuid "$uuid_third" --arg oid "$retained_oid" --arg tag "$tag_pattern
   .action=="session.delete" and .target==("session/"+$uuid) and .allowed==true and .refusals==[] and
   .gone==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and .loss==[] and
   (.details | .runtime.condition=="missing" and
-    (.runtime | (has("incus_uuid") or has("original_status") or has("runtime_data_lost") or
+    (.runtime | (has("name") or has("incarnation") or has("original_status") or has("runtime_data_lost") or
       has("runtime_loss_unknown") or has("loss")) | not) and
     .assigned_ref=="refs/heads/third" and .assigned_tip==$oid and
     .branch_loss.commits_losing_p_reachability==[] and (.branch_loss|has("origin")|not)))

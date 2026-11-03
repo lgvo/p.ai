@@ -254,18 +254,6 @@ func TestAnotherInstancesImageDoesNotBlockAProjectDeletion(t *testing.T) {
 	}
 }
 
-func TestARecordedIncarnationNeedsBothParts(t *testing.T) {
-	if got := recordedIncarnation("u", ""); got != "" {
-		t.Fatalf("an incarnation without a generation = %q, want none", got)
-	}
-	if got := recordedIncarnation("", "g"); got != "" {
-		t.Fatalf("an incarnation without a UUID = %q, want none", got)
-	}
-	if got := recordedIncarnation("u", "g"); got != "u/g" {
-		t.Fatalf("recordedIncarnation = %q, want u/g", got)
-	}
-}
-
 // renameDuringInventory renames the runtime of ref away from its address
 // just before it lists the scope.
 type renameDuringInventory struct {

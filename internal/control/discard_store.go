@@ -27,13 +27,10 @@ type DiscardEvidence struct {
 	Branch             string `json:"branch"`
 	AssignedTip        string `json:"assigned_tip,omitempty"`
 	PolicySHA256       string `json:"policy_sha256"`
-	IncusProject       string `json:"incus_project"`
-	InstanceName       string `json:"instance_name"`
-	InstanceUUID       string `json:"instance_uuid"` // P instance, distinct from Incus generation
+	InstanceUUID       string `json:"instance_uuid"` // the P instance
 	ImageFingerprint   string `json:"image_fingerprint,omitempty"`
 	BaseFingerprint    string `json:"base_fingerprint"`
-	IncusUUID          string `json:"incus_uuid,omitempty"`
-	Generation         string `json:"generation,omitempty"`
+	Incarnation        string `json:"incarnation,omitempty"` // the reviewed runtime's; empty when it was missing
 	PRefsDigest        string `json:"p_refs_digest,omitempty"`
 	DeleteReviewSHA256 string `json:"delete_review_sha256,omitempty"`
 	MissingRuntime     bool   `json:"missing_runtime,omitempty"`
@@ -42,14 +39,14 @@ type DiscardEvidence struct {
 func validDiscardEvidence(ev DiscardEvidence) bool {
 	if (ev.Action != "discard" && ev.Action != "delete") || ev.Action == "delete" && !validFingerprint(ev.DeleteReviewSHA256) || ev.Action == "discard" && ev.DeleteReviewSHA256 != "" ||
 		!validProject(ev.Project) || !validBranch(ev.Branch) || !validFingerprint(ev.PolicySHA256) ||
-		ev.IncusProject == "" || ev.InstanceName == "" || !validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) ||
+		!validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) ||
 		(ev.AssignedTip != "" && !validOID(ev.AssignedTip)) {
 		return false
 	}
 	if ev.MissingRuntime {
-		return ev.IncusUUID == "" && ev.Generation == ""
+		return ev.Incarnation == ""
 	}
-	return validUUID(ev.IncusUUID) && validUUID(ev.Generation) && validFingerprint(ev.ImageFingerprint)
+	return validIncarnation(ev.Incarnation) && validFingerprint(ev.ImageFingerprint)
 }
 
 // BeginDiscard records the Discard run req, whose plan has change hash hash,
@@ -142,7 +139,7 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 
 // CommitDiscard is the irreversible local authority boundary. The guarded
 // branch already prevented receive-pack; this transaction disables both Git
-// and session RPC authority before any Incus delete request is issued.
+// and session RPC authority before the runtime driver is asked to delete.
 func (s *Store) CommitDiscard(ctx context.Context, opID string, verifyRefs func(context.Context, DiscardEvidence) error) error {
 	return s.commitRemoval(ctx, opID, "discard", verifyRefs)
 }

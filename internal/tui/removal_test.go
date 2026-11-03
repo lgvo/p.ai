@@ -138,16 +138,19 @@ func reviewOf(t *testing.T, kind, raw string) string {
 
 func TestRemovalReviewStatesRuntimeLossByCategory(t *testing.T) {
 	for _, kind := range []string{"discard", "delete"} {
-		review := reviewOf(t, kind, removalPlan(kind, stoppedID, `{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"1111111111111111111111111111111111111111","runtime":{"condition":"present","incus_project":"p-a","instance_name":"p-stopped","original_status":"Stopped"},"branch_loss":{"assigned_ref":"refs/heads/main","commits_losing_p_reachability":[],"p_refs":[]}}`))
+		review := reviewOf(t, kind, removalPlan(kind, stoppedID, `{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"1111111111111111111111111111111111111111","runtime":{"condition":"present","name":"p-stopped","incarnation":"incarnation-1","original_status":"Stopped"},"branch_loss":{"assigned_ref":"refs/heads/main","commits_losing_p_reachability":[],"p_refs":[]}}`))
 		for _, category := range []string{"uncommitted changes", "files outside Git", "commits not pushed to P", "P does not look inside"} {
 			if !strings.Contains(review, category) {
 				t.Errorf("%s review omits %q:\n%s", kind, category, review)
 			}
 		}
-		for _, identity := range []string{"a / main", stoppedID, "p-stopped", "refs/heads/main", "2026-11-02T12:02:00Z"} {
+		for _, identity := range []string{"a / main", stoppedID, "Runtime: p-stopped · Stopped", "refs/heads/main", "2026-11-02T12:02:00Z"} {
 			if !strings.Contains(review, identity) {
 				t.Errorf("%s review omits %q:\n%s", kind, identity, review)
 			}
+		}
+		if strings.Contains(review, "Incus") {
+			t.Errorf("%s review names a runtime backend:\n%s", kind, review)
 		}
 		if strings.Contains(review, "stops the running container") || strings.Contains(review, "Already gone") {
 			t.Errorf("%s review of a stopped container says P stops it or something is gone:\n%s", kind, review)
@@ -156,7 +159,7 @@ func TestRemovalReviewStatesRuntimeLossByCategory(t *testing.T) {
 }
 
 func TestRemovalReviewSaysPStopsARunningContainer(t *testing.T) {
-	review := reviewOf(t, "discard", removalPlan("discard", stoppedID, `{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"1111111111111111111111111111111111111111","runtime":{"condition":"present","instance_name":"p-stopped","original_status":"Running"}}`))
+	review := reviewOf(t, "discard", removalPlan("discard", stoppedID, `{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"1111111111111111111111111111111111111111","runtime":{"condition":"present","name":"p-stopped","incarnation":"incarnation-1","original_status":"Running"}}`))
 	if !strings.Contains(review, "stops the running container") {
 		t.Fatalf("review of a running container does not say P stops it:\n%s", review)
 	}
@@ -167,9 +170,10 @@ func TestRemovalReviewSaysPStopsARunningContainer(t *testing.T) {
 func TestRemovalReviewOfAMissingRuntimeStatesWhatIsGone(t *testing.T) {
 	raw := `{"plan":{"action":"session.discard","target":"session/` + stoppedID + `","allowed":true,"refusals":[],"loss":[],` +
 		`"gone":[{"kind":"runtime_data","target":"session/` + stoppedID + `","certain":true}],` +
-		`"details":{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"1111111111111111111111111111111111111111","runtime":{"condition":"missing","incus_project":"p-a","instance_name":"p-stopped"}}},"change_tag":"` + reviewTag + `"}`
+		`"details":{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"1111111111111111111111111111111111111111","runtime":{"condition":"missing"}}},"change_tag":"` + reviewTag + `"}`
 	review := reviewOf(t, "discard", raw)
-	if !strings.Contains(review, "already missing") || !strings.Contains(review, "Already gone") || strings.Contains(review, "This will lose work") {
+	if !strings.Contains(review, "Runtime: missing") || !strings.Contains(review, "already missing") || !strings.Contains(review, "Already gone") ||
+		strings.Contains(review, "This will lose work") || strings.Contains(review, "Incus") {
 		t.Fatalf("review of a missing runtime:\n%s", review)
 	}
 }
@@ -241,7 +245,7 @@ func TestRemovalReviewSaysWhatTheCLISays(t *testing.T) {
 		t.Run(item.kind, func(t *testing.T) {
 			raw, err := json.Marshal(api.ChangeResult[api.RemovalDetails]{ChangeTag: reviewTag, Plan: &api.Plan[api.RemovalDetails]{
 				Action: "session." + item.kind, Target: api.TargetSession(stoppedID), Allowed: true, Refusals: []api.Refusal{}, Loss: item.loss, Gone: item.gone,
-				Details: api.RemovalDetails{Project: "a", Branch: "main", AssignedRef: "refs/heads/main", AssignedTip: tip, Runtime: api.RemovalRuntime{Condition: item.runtime, InstanceName: "p-stopped"}, BranchLoss: branchLoss}}})
+				Details: api.RemovalDetails{Project: "a", Branch: "main", AssignedRef: "refs/heads/main", AssignedTip: tip, Runtime: api.RemovalRuntime{Condition: item.runtime, Name: "p-stopped"}, BranchLoss: branchLoss}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -267,7 +271,7 @@ func TestRemovalReviewKeepsEachLossItemTogetherWhenItWraps(t *testing.T) {
 	m.page = "progress"
 	raw := `{"plan":{"action":"session.delete","target":"session/` + stoppedID + `","allowed":true,"refusals":[],` +
 		`"loss":[{"kind":"runtime_data","target":"session/` + stoppedID + `","certain":true},{"kind":"p_commits","target":"project/a:branch/main","count":1,"sample":["` + lost + `"],"certain":true}],"gone":[],` +
-		`"details":{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","runtime":{"condition":"present","incus_project":"p-a","instance_name":"p-stopped","original_status":"Stopped"},` +
+		`"details":{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","runtime":{"condition":"present","name":"p-stopped","incarnation":"incarnation-1","original_status":"Stopped"},` +
 		`"branch_loss":{"assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","commits_losing_p_reachability":["` + lost + `"],"p_refs":[]}}},"change_tag":"` + reviewTag + `"}`
 	updated, _ := m.Update(reply(t, m.epoch, "session.delete", raw))
 	m = updated.(Model)
@@ -506,7 +510,7 @@ func TestRemovalReviewShowsWhatIsLostOnItsFirstScreen(t *testing.T) {
 					m.page = "progress"
 					raw := `{"plan":{"action":"session.` + kind + `","target":"session/` + stoppedID + `","allowed":true,"refusals":[],` +
 						`"loss":[{"kind":"runtime_data","target":"session/` + stoppedID + `","certain":true},{"kind":"p_commits","target":"project/` + project + `:branch/main","count":1,"sample":["` + lost + `"],"certain":true}],"gone":[],` +
-						`"details":{"project":"` + project + `","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","runtime":{"condition":"present","incus_project":"p-a","instance_name":"p-` + stoppedID + `","original_status":"Running"},` +
+						`"details":{"project":"` + project + `","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","runtime":{"condition":"present","name":"p-` + stoppedID + `","incarnation":"incarnation-1","original_status":"Running"},` +
 						`"branch_loss":{"assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","commits_losing_p_reachability":["` + lost + `"],"p_refs":[]}}},"change_tag":"` + reviewTag + `"}`
 					updated, _ := m.Update(reply(t, m.epoch, "session."+kind, raw))
 					m = updated.(Model)

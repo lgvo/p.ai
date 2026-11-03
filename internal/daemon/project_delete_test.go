@@ -17,9 +17,9 @@ func TestProjectDeleteCompletionForgetsOnlyItsProject(t *testing.T) {
 }
 
 func TestProjectDeleteIssuedCrashRequiresPositiveAbsenceAndNeverRedispatches(t *testing.T) {
-	planned := api.RemovalRuntime{Condition: "present", InstanceName: "p-reviewed", IncusUUID: "original", Generation: "generation", ImageFingerprint: "image", OriginalStatus: "Stopped"}
+	planned := api.RemovalRuntime{Condition: "present", Name: "p-reviewed", Incarnation: "original", ImageFingerprint: "image", OriginalStatus: "Stopped"}
 	spec := runtimedriver.Session{Image: "image"}
-	actual := runtimedriver.Observation{State: runtimedriver.StateStopped, Incarnation: recordedIncarnation(planned.IncusUUID, planned.Generation), Complete: true}
+	actual := runtimedriver.Observation{State: runtimedriver.StateStopped, Incarnation: runtimedriver.Incarnation(planned.Incarnation), Complete: true}
 	resource := control.ProjectDeleteResource{Kind: "runtime", ID: "reviewed", Status: "remaining"}
 	if decision := projectDeleteRuntimeDecision(resource, planned, spec, actual); decision != "delete-exact" {
 		t.Fatal("fresh exact source rejected", decision)
@@ -35,10 +35,10 @@ func TestProjectDeleteIssuedCrashRequiresPositiveAbsenceAndNeverRedispatches(t *
 	}
 	for name, mutate := range map[string]func(*runtimedriver.Session, *runtimedriver.Observation){
 		"competing": func(_ *runtimedriver.Session, o *runtimedriver.Observation) {
-			o.Incarnation = recordedIncarnation("competing", planned.Generation)
+			o.Incarnation = "competing"
 		},
 		"restored": func(_ *runtimedriver.Session, o *runtimedriver.Observation) {
-			o.Incarnation = recordedIncarnation(planned.IncusUUID, "changed")
+			o.Incarnation = "restored"
 		},
 		"neither running nor stopped": func(_ *runtimedriver.Session, o *runtimedriver.Observation) { o.State = runtimedriver.StateOther },
 		"rebuilt":                     func(s *runtimedriver.Session, _ *runtimedriver.Observation) { s.Image = "different" },
@@ -61,9 +61,9 @@ func TestProjectDeleteIssuedCrashRequiresPositiveAbsenceAndNeverRedispatches(t *
 // recorded: stopping is idempotent.
 func TestProjectDeleteStopsARunningSession(t *testing.T) {
 	for _, status := range []string{"Running", "Stopped"} {
-		planned := api.RemovalRuntime{Condition: "present", InstanceName: "p-reviewed", IncusUUID: "original", Generation: "generation", ImageFingerprint: "image", OriginalStatus: status}
+		planned := api.RemovalRuntime{Condition: "present", Name: "p-reviewed", Incarnation: "original", ImageFingerprint: "image", OriginalStatus: status}
 		spec := runtimedriver.Session{Image: "image"}
-		running := runtimedriver.Observation{State: runtimedriver.StateRunning, Incarnation: recordedIncarnation(planned.IncusUUID, planned.Generation), Complete: true}
+		running := runtimedriver.Observation{State: runtimedriver.StateRunning, Incarnation: runtimedriver.Incarnation(planned.Incarnation), Complete: true}
 		resource := control.ProjectDeleteResource{Kind: "runtime", ID: "reviewed", Status: "remaining"}
 		if decision := projectDeleteRuntimeDecision(resource, planned, spec, running); decision != "stop-exact" {
 			t.Fatalf("planned %s, running: %s", status, decision)

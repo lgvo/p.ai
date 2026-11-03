@@ -21,15 +21,14 @@ func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session c
 		return nil, err
 	}
 	observed, err := l.driver.Inspect(ctx, spec)
-	incusUUID, generation := incarnationRecord(observed.Incarnation)
-	if err != nil || observed.State != runtimedriver.StateStopped || incusUUID == "" {
+	if err != nil || observed.State != runtimedriver.StateStopped || observed.Incarnation == "" {
 		return nil, errors.Join(err, errors.New("failed creation stopped runtime unavailable"))
 	}
 	if err = proveAssembledSource(ctx, l.driver, spec, creator.ID, observed.Incarnation); err != nil {
 		return nil, err
 	}
-	return &api.RemovalRuntime{Condition: "present", IncusProject: l.incus.Project, InstanceName: "p-" + session.UUID,
-		IncusUUID: incusUUID, Generation: generation, ImageFingerprint: string(spec.Image), OriginalStatus: "Stopped"}, nil
+	return &api.RemovalRuntime{Condition: "present", Name: observed.Name, Incarnation: string(observed.Incarnation),
+		ImageFingerprint: string(spec.Image), OriginalStatus: "Stopped"}, nil
 }
 
 // The caller owns the session lock and reloads the durable operation before
@@ -44,7 +43,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		message := fmt.Sprintf("assembled failed creation cleanup blocked: %v", cause)
 		_ = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), message)
 	}
-	if r == nil || ev.InstanceUUID != l.instanceID || r.IncusProject != l.incus.Project || ev.Review.ImageFingerprint != l.cfg.BaseImageFingerprint || r.OriginalStatus != "Stopped" ||
+	if r == nil || ev.InstanceUUID != l.instanceID || ev.Review.ImageFingerprint != l.cfg.BaseImageFingerprint || r.OriginalStatus != "Stopped" ||
 		l.store.ValidateAssembledCleanupAuthority(ctx, op) != nil {
 		block(errors.New("durable creator/session/ref authority changed"))
 		return
@@ -65,7 +64,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		block(err)
 		return
 	}
-	at := recordedIncarnation(r.IncusUUID, r.Generation)
+	at := runtimedriver.Incarnation(r.Incarnation)
 	advance := func(phase string) error {
 		raw, e := json.Marshal(ev)
 		if e != nil || len(raw) > 16384 {
@@ -121,7 +120,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 	switch op.Phase {
 	case "validated", "delete-issued":
 		if op.Phase == "delete-issued" {
-			err = l.settleRuntimeDelete(ctx, spec, at, fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", r.InstanceName, r.IncusUUID, r.Generation))
+			err = l.settleRuntimeDelete(ctx, spec, at, fmt.Errorf("native delete outcome unresolved for %s at incarnation %s", r.Name, at))
 			if err != nil {
 				block(err)
 				return

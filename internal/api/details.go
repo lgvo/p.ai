@@ -19,15 +19,14 @@ type RemovalDetails struct {
 	BranchLoss         *RemovalBranchLoss `json:"branch_loss,omitempty"`
 }
 
-// RemovalRuntime is a session's container as a removal found it: present,
-// with its exact identity and its Incus status, or missing. P does not look
-// inside a present container.
+// RemovalRuntime is a session's runtime as a removal found it: present, with
+// the runtime driver's name for it, for display only, its incarnation, the
+// driver's opaque identity that the removal acts on, and its status, or
+// missing. P does not look inside a present container.
 type RemovalRuntime struct {
 	Condition        string `json:"condition"`
-	IncusProject     string `json:"incus_project"`
-	InstanceName     string `json:"instance_name"`
-	IncusUUID        string `json:"incus_uuid,omitempty"`
-	Generation       string `json:"generation,omitempty"`
+	Name             string `json:"name,omitempty"`
+	Incarnation      string `json:"incarnation,omitempty"`
 	ImageFingerprint string `json:"image_fingerprint,omitempty"`
 	OriginalStatus   string `json:"original_status,omitempty"`
 }

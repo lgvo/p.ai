@@ -242,7 +242,7 @@ func TestFixtureRemovalPlanMatchesPublicShapeAndSeparatesBranchLoss(t *testing.T
 			plan = do(t, h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id})
 		}
 		p := plan.Plan.Details
-		if plan.Plan.Action != "session."+kind || plan.Plan.Target != "session/"+id || p.Runtime.Condition != "present" || p.Runtime.InstanceName != "p-"+id ||
+		if plan.Plan.Action != "session."+kind || plan.Plan.Target != "session/"+id || p.Runtime.Condition != "present" || p.Runtime.Name != "p-"+id || p.Runtime.Incarnation == "" ||
 			p.Runtime.OriginalStatus != "Stopped" || p.AssignedTip != tip || p.AssignedRefMissing || !reflect.DeepEqual(plan.Plan.Loss[0], api.Loss{Kind: api.LossRuntimeData, Target: "session/" + id, Certain: true}) {
 			t.Fatalf("runtime plan shape differs from public contract: %+v", plan)
 		}

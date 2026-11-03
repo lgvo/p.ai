@@ -3,8 +3,8 @@
 ## No committed VM check builds through a public-egress builder
 
 - Where: tests/integration/steps (the builder scenarios 21, 22, 24–26 and 53 build offline;
-  scenario 37, the only VM with the public bridge, creates no builder); internal/runtimeincus
-  builder.go `prepareBuilderNetwork`, builder_image.go `scrubBuilderResolver`;
+  scenario 37, the only VM with the public bridge, creates no builder);
+  internal/runtimedriver/incus builder.go `prepareBuilderNetwork`, builder_image.go `scrubBuilderResolver`;
   runtime/image.nix `trusted-substituters`
 - Problem: A public builder's NIC, guest network, online Nix with the public cache and the
   image's restored resolver link are checked only by unit tests against a fake Incus. A VM
@@ -23,7 +23,7 @@
 - Fix when: before the next public-egress acceptance claim.
 - Left by: the agent, by rule (behavior left untested: the step's brief forbids new checks
   that depend on external services).
-- Added 2026-11-02, updated 2026-11-02, 3 cases:
+- Added 2026-11-02, updated 2026-11-03, 4 cases:
   - 2026-11-02: "give builders public internet access only" gave builders public egress
     with unit tests only.
   - 2026-11-02: "fold the environment plugin into the image build" deleted scenario 23 and
@@ -33,10 +33,13 @@
     the check: it still needs VM-local fixtures for the flake input, the binary cache and
     the DNS-over-HTTPS upstreams, so "Fix when" now names only the next public-egress
     acceptance claim.
+  - 2026-11-03: "core holds only the runtime driver" moved the driver to
+    internal/runtimedriver/incus and made its builder policy, the builder's network
+    included, part of `Describe`; the check is still missing.
 
 ## A runtime driver test records a systemd poll its client abandoned
 
-- Where: internal/runtimeincus graceful_stop_test.go, `TestStopIsSentWhenGuestSystemdNeverComesUp`
+- Where: internal/runtimedriver/incus graceful_stop_test.go, `TestStopIsSentWhenGuestSystemdNeverComesUp`
   and its `fakeGuest`
 - Problem: The test asserts that the fake guest saw "systemd not up", then the graceful stop,
   then the forced stop, in that order. When `awaitGuestSystemd`'s 30-second wait ends during

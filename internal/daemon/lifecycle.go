@@ -19,14 +19,12 @@ import (
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 type lifecycle struct {
 	store                  *control.Store
 	cfg                    control.RuntimeConfig
-	incus                  runtimeincus.DriverConfig // the Incus driver's own settings from cfg.Driver
 	git                    *gitCapability
 	driver                 runtimedriver.Driver
 	hostPlan               plugin.AssetPlan
@@ -79,10 +77,6 @@ var (
 )
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
-	incus, err := incusDriverConfig(cfg.Driver)
-	if err != nil {
-		return nil, err
-	}
 	if err := privateTrustedFile(cfg.ActivationPath); err != nil {
 		return nil, fmt.Errorf("runtime activation: %w", err)
 	}
@@ -139,19 +133,10 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	pool := ""
-	if cfg.Environment != nil {
-		pool = cfg.Environment.BuilderStoragePool
-	}
-	var egress *runtimeincus.PublicEgressConfig
-	if p := cfg.PublicEgress; p != nil {
-		egress = &runtimeincus.PublicEgressConfig{Network: p.Network, ACL: p.ACL, BridgeIPv4: p.BridgeIPv4, DNS: p.DNS, SudoBinary: p.SudoBinary, NftBinary: p.NftBinary, BridgeProofBinary: p.BridgeProofBinary}
-	}
-	runtime, err := runtimeincus.New(runtimeincus.Config{Binary: incus.Binary, UserSocket: incus.UserSocket, Project: incus.Project, EndpointPrefix: cfg.EndpointPrefix, DiskSourceCeilings: cfg.DiskSourceCeilings, BuilderStoragePool: pool, PInstanceID: id, PublicEgress: egress})
+	driver, err := newRuntimeDriver(cfg, id)
 	if err != nil {
 		return nil, err
 	}
-	driver := runtimeincus.NewDriver(runtime)
 	if err = driver.Check(ctx); err != nil {
 		return nil, err
 	}
@@ -159,7 +144,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, driver: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -210,15 +195,6 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	}
 	store.ObserveJournal(l)
 	return l, nil
-}
-
-// incusDriverConfig reads the settings of the Incus driver, the only runtime
-// driver compiled into P.
-func incusDriverConfig(driver control.RuntimeDriverConfig) (runtimeincus.DriverConfig, error) {
-	if driver.Name != control.IncusDriver {
-		return runtimeincus.DriverConfig{}, fmt.Errorf("runtime driver %q unavailable", driver.Name)
-	}
-	return runtimeincus.ParseDriverConfig(driver.Config)
 }
 
 func projectPolicyRecordChanged(raw json.RawMessage, storedSHA, selectedSHA string) bool {
@@ -480,16 +456,15 @@ func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
 	if l.cfg.Environment == nil {
 		return nil
 	}
-	publicEgress := ""
-	if l.cfg.PublicEgress != nil {
-		publicEgress = l.cfg.PublicEgress.SHA256()
-	}
+	// Core pins the driver's builder policy by its digest; it never reads it.
+	caps := l.driver.Describe()
+	policy := sha256.Sum256([]byte(caps.BuilderPolicy))
 	return &control.EnvironmentIntent{
 		System:              l.cfg.Environment.System,
 		BaseFingerprint:     l.cfg.BaseImageFingerprint,
 		BuilderStoragePool:  l.cfg.Environment.BuilderStoragePool,
-		BuilderPolicySHA256: runtimeincus.BuilderPolicyDigest(publicEgress),
-		ImageBuilder:        l.driver.Describe().ImageBuilder,
+		BuilderPolicySHA256: hex.EncodeToString(policy[:]),
+		ImageBuilder:        caps.ImageBuilder,
 	}
 }
 

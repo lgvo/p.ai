@@ -2,14 +2,11 @@ package daemon
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -19,17 +16,12 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/memory"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-// incusShaped is the in-memory driver with incarnations shaped as the Incus
-// driver writes them, an Incus UUID and its generation, since removals and
-// renames still record those two. Its hooks let a test act as calls reach
-// the backend.
-type incusShaped struct {
+// hookedDriver is the in-memory driver with hooks that let a test act as
+// calls reach the backend.
+type hookedDriver struct {
 	*memory.Driver
-	mu     sync.Mutex
-	native map[runtimedriver.Incarnation]runtimedriver.Incarnation // by shaped incarnation
 	// beforeStop runs when Stop is called; a non-nil error fails the call
 	// before it reaches the backend.
 	beforeStop func() error
@@ -40,121 +32,33 @@ type incusShaped struct {
 	beforeEdit func(kind runtimedriver.EffectKind, path string)
 }
 
-func newIncusShaped(w *memory.World) *incusShaped {
-	return &incusShaped{Driver: memory.NewDriver(w), native: map[runtimedriver.Incarnation]runtimedriver.Incarnation{}}
-}
-
-func (d *incusShaped) shaped(at runtimedriver.Incarnation) runtimedriver.Incarnation {
-	if at == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(at))
-	h := hex.EncodeToString(sum[:])
-	uuid := func(s string) string {
-		return s[0:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:32]
-	}
-	out := runtimedriver.Incarnation(uuid(h[:32]) + "/" + uuid(h[32:]))
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.native[out] = at
-	return out
-}
-
-func (d *incusShaped) memoryOf(at runtimedriver.Incarnation) runtimedriver.Incarnation {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if native, ok := d.native[at]; ok {
-		return native
-	}
-	return at
-}
-
-func (d *incusShaped) target(t runtimedriver.Target) runtimedriver.Target {
-	t.At = d.memoryOf(t.At)
-	return t
-}
-
-func (d *incusShaped) observation(o runtimedriver.Observation, err error) (runtimedriver.Observation, error) {
-	o.Incarnation = d.shaped(o.Incarnation)
-	return o, err
-}
-
-func (d *incusShaped) Inventory(ctx context.Context) (runtimedriver.Inventory, error) {
-	inv, err := d.Driver.Inventory(ctx)
-	for i := range inv.Objects {
-		inv.Objects[i].Incarnation = d.shaped(inv.Objects[i].Incarnation)
-	}
-	return inv, err
-}
-
-func (d *incusShaped) Inspect(ctx context.Context, s runtimedriver.Session) (runtimedriver.Observation, error) {
-	return d.observation(d.Driver.Inspect(ctx, s))
-}
-
-func (d *incusShaped) Create(ctx context.Context, s runtimedriver.Session, at runtimedriver.Incarnation, g runtimedriver.Gate) (runtimedriver.Observation, error) {
-	return d.observation(d.Driver.Create(ctx, s, d.memoryOf(at), g))
-}
-
-func (d *incusShaped) Start(ctx context.Context, s runtimedriver.Session) (runtimedriver.Observation, error) {
-	return d.observation(d.Driver.Start(ctx, s))
-}
-
-func (d *incusShaped) Stop(ctx context.Context, s runtimedriver.Session) (runtimedriver.Observation, error) {
+func (d *hookedDriver) Stop(ctx context.Context, s runtimedriver.Session) (runtimedriver.Observation, error) {
 	if d.beforeStop != nil {
 		if err := d.beforeStop(); err != nil {
 			return runtimedriver.Observation{}, err
 		}
 	}
-	return d.observation(d.Driver.Stop(ctx, s))
+	return d.Driver.Stop(ctx, s)
 }
 
-func (d *incusShaped) Delete(ctx context.Context, r runtimedriver.Ref, at runtimedriver.Incarnation, g runtimedriver.Gate) error {
-	return d.Driver.Delete(ctx, r, d.memoryOf(at), g)
-}
-
-func (d *incusShaped) HostLog(ctx context.Context, t runtimedriver.Target) (string, error) {
-	return d.Driver.HostLog(ctx, d.target(t))
-}
-
-func (d *incusShaped) OpenTerminal(ctx context.Context, t runtimedriver.Target, size runtimedriver.Size) (runtimedriver.Terminal, error) {
-	return d.Driver.OpenTerminal(ctx, d.target(t), size)
-}
-
-func (d *incusShaped) ReadWorkspace(ctx context.Context, t runtimedriver.Target, path string, limit int64) (runtimedriver.File, error) {
-	return d.Driver.ReadWorkspace(ctx, d.target(t), path, limit)
-}
-
-func (d *incusShaped) WriteWorkspace(ctx context.Context, t runtimedriver.Target, path string, f runtimedriver.File, g runtimedriver.Gate) error {
+func (d *hookedDriver) WriteWorkspace(ctx context.Context, t runtimedriver.Target, path string, f runtimedriver.File, g runtimedriver.Gate) error {
 	if d.beforeEdit != nil {
 		d.beforeEdit(runtimedriver.EffectWrite, path)
 	}
-	return d.Driver.WriteWorkspace(ctx, d.target(t), path, f, g)
+	return d.Driver.WriteWorkspace(ctx, t, path, f, g)
 }
 
-func (d *incusShaped) RemoveWorkspace(ctx context.Context, t runtimedriver.Target, path string, g runtimedriver.Gate) error {
+func (d *hookedDriver) RemoveWorkspace(ctx context.Context, t runtimedriver.Target, path string, g runtimedriver.Gate) error {
 	if d.beforeEdit != nil {
 		d.beforeEdit(runtimedriver.EffectRemove, path)
 	}
-	return d.Driver.RemoveWorkspace(ctx, d.target(t), path, g)
+	return d.Driver.RemoveWorkspace(ctx, t, path, g)
 }
 
-func (d *incusShaped) Services(ctx context.Context, t runtimedriver.Target) ([]runtimedriver.Service, error) {
-	return d.Driver.Services(ctx, d.target(t))
-}
-
-func (d *incusShaped) ServiceAction(ctx context.Context, t runtimedriver.Target, name string, a runtimedriver.Action) error {
-	return d.Driver.ServiceAction(ctx, d.target(t), name, a)
-}
-
-func (d *incusShaped) ServiceLogs(ctx context.Context, t runtimedriver.Target, name string) (runtimedriver.Logs, error) {
-	return d.Driver.ServiceLogs(ctx, d.target(t), name)
-}
-
-func (d *incusShaped) Settle(ctx context.Context, e runtimedriver.Effect) (runtimedriver.Settlement, error) {
+func (d *hookedDriver) Settle(ctx context.Context, e runtimedriver.Effect) (runtimedriver.Settlement, error) {
 	if d.beforeSettle != nil {
 		d.beforeSettle()
 	}
-	e.Target = d.target(e.Target)
 	return d.Driver.Settle(ctx, e)
 }
 
@@ -166,7 +70,7 @@ type sessionFixture struct {
 	ctx     context.Context
 	l       *lifecycle
 	world   *memory.World
-	driver  *incusShaped
+	driver  *hookedDriver
 	repo    string
 	tip     string
 	session control.Session
@@ -246,11 +150,11 @@ func newCreatedFixture(t *testing.T) *sessionFixture {
 		t.Fatal(err)
 	}
 	world := memory.NewWorld(memory.Config{})
-	driver := newIncusShaped(world)
+	driver := &hookedDriver{Driver: memory.NewDriver(world)}
 	git := testGitCapability()
 	git.driver = source
 	l := &lifecycle{ctx: ctx, store: store, driver: driver, git: git, endpoints: endpoints, working: map[string]bool{},
-		instanceID: "99999999-9999-4999-8999-999999999999", incus: runtimeincus.DriverConfig{Project: "user-1000"},
+		instanceID: "99999999-9999-4999-8999-999999999999",
 		hostPlan:   plugin.AssetPlan{PackageID: "host", PackageSHA256: strings.Repeat("b", 64)},
 		sourcePlan: plugin.AssetPlan{PackageID: "source", PackageSHA256: strings.Repeat("c", 64)},
 		cfg: control.RuntimeConfig{EndpointPrefix: prefix, BaseImageFingerprint: string(world.BaseImage()),

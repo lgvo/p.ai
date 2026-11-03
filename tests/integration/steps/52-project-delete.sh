@@ -308,7 +308,7 @@ jq -e --arg main "$main" --arg work "$work" --arg live "$live" --arg tip "$tip" 
   ([.sessions[].session.uuid]|sort)==([$main,$work,$live]|sort) and .attachments==[] and
   (.branch_loss.p_refs|length)==4 and .branch_loss.commits_losing_p_reachability==[$tip] and
   (.branch_loss|has("origin")|not) and (has("warnings")|not) and
-  (.sessions|all(.runtime|.condition=="present" and .incus_project=="user-1000" and (.incus_uuid|length)>0 and (.generation|length)>0 and (.image_fingerprint|length)==64 and (has("runtime_data_lost") or has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at")|not))) and
+  (.sessions|all(.session.uuid as $uuid|.runtime|.condition=="present" and .name==("p-"+$uuid) and (.incarnation|test("^[0-9a-f-]{36}/[0-9a-f-]{36}$")) and (.image_fingerprint|length)==64 and (has("runtime_data_lost") or has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at")|not))) and
   ([.sessions[] | select(.session.uuid==$live) | .condition=="running" and .runtime.original_status=="Running"]==[true]) and
   ([.sessions[] | select(.session.uuid!=$live) | .condition=="stopped" and .runtime.original_status=="Stopped"]==[true,true]))' <<< "$plan" >/dev/null
 # A new retained ref changes the plan: the run is stale, records no

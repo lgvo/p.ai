@@ -86,10 +86,10 @@ func discardSourceMatches(o runtimedriver.Observation, at runtimedriver.Incarnat
 // recording stop-issued first. Stop is idempotent by reference, so a removal
 // that finds its stop issued sends it again.
 func (l *lifecycle) stopRemovalSource(ctx context.Context, op *api.Operation, ev control.DiscardEvidence, spec runtimedriver.Session) error {
-	at := recordedIncarnation(ev.IncusUUID, ev.Generation)
+	at := runtimedriver.Incarnation(ev.Incarnation)
 	observed, err := l.driver.Inspect(ctx, spec)
 	if err != nil || !discardSourceMatches(observed, at) {
-		return errors.Join(err, errors.New("discard source generation or state changed before stop"))
+		return errors.Join(err, errors.New("discard source incarnation or state changed before stop"))
 	}
 	if observed.State == runtimedriver.StateStopped {
 		return nil
@@ -185,7 +185,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		return
 	}
 	if (ev.Action != "discard" && ev.Action != "delete") || op.Kind != "session."+ev.Action || ev.Project != op.Project || ev.InstanceUUID != l.instanceID || ev.BaseFingerprint != l.cfg.BaseImageFingerprint ||
-		ev.IncusProject != l.incus.Project || ev.InstanceName != "p-"+op.SessionUUID || ev.Branch == "" {
+		ev.Branch == "" {
 		l.blockDiscard(op, errors.New("discard durable identity unavailable"))
 		return
 	}
@@ -201,7 +201,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard runtime selection changed")))
 		return
 	}
-	at := recordedIncarnation(ev.IncusUUID, ev.Generation)
+	at := runtimedriver.Incarnation(ev.Incarnation)
 	entry := op.Phase
 	switch op.Phase {
 	case "guard-pending":
@@ -234,7 +234,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 				return
 			}
 		} else if !discardSourceMatches(observed, at) {
-			l.rollbackStaleDiscard(op, ev, errors.New("runtime generation or state changed"))
+			l.rollbackStaleDiscard(op, ev, errors.New("runtime incarnation or state changed"))
 			return
 		}
 		refs, e := l.branchRemovalReview(ctx, ev.Project, ev.Branch, false)

@@ -96,7 +96,7 @@ Core reaches images only through the image part of the runtime driver,
 
 | Operation | What the driver does |
 |---|---|
-| `Describe` | Names the driver's builder version. |
+| `Describe` | Names the driver's builder version, which is part of every image's identity, and its builder policy: how it runs a build beyond that version, the builder's network included. A creation records the policy's digest and does not continue under another; the policy is not part of an image's identity. |
 | `BuildImage` | Builds an image of one commit from a Git bundle and labels it. It calls core's gate once, right before its first effect. On success, and on any failure other than an unknown outcome, it leaves no builder behind. |
 | `Images` | Lists every image carrying this P instance's labels, or fails; never a partial list. |
 | `InspectImage` | Reads one image by its reference; reports absence, or a mismatch for an image that is not this instance's. |
@@ -109,13 +109,13 @@ verbatim: `project`, `source_commit`, `base_image`, `system`,
 `builder_version` and `build`. Each image also records its devShell outcome,
 the selection and the activation-material digest, beside those labels.
 
-The Incus implementation, `runtimeincus.Driver`, runs inside the daemon
-process. It owns the whole build: the disposable builder, the Nix steps and
-the published image. No plugin takes part in resolving, realizing or
+The Incus implementation (`internal/runtimedriver/incus`) runs inside the
+daemon process. It owns the whole build: the disposable builder, the Nix steps
+and the published image. No plugin takes part in resolving, realizing or
 publishing. An image only has to work with the runtime that built it; no
-Dockerfile or OCI contract is specified in MVP. The rest of the runtime
-driver, for sessions, workspaces, terminals and project services, is not yet
-implemented.
+Dockerfile or OCI contract is specified in MVP. The same driver runs sessions,
+their workspaces, terminals and project services
+([runtime isolation](runtime-isolation.md#runtime-driver)).
 
 ## Environment selection
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
@@ -145,27 +144,4 @@ func carrying(inv runtimedriver.Inventory, r runtimedriver.Ref) []runtimedriver.
 		}
 	}
 	return found
-}
-
-// recordedIncarnation is the driver's incarnation of a runtime whose Incus
-// identity a review or a rename recorded, or empty when the record has none.
-// With incarnationRecord it is the one place core knows how the Incus driver
-// writes an incarnation, until the records hold the driver's incarnation
-// itself.
-func recordedIncarnation(incusUUID, generation string) runtimedriver.Incarnation {
-	if incusUUID == "" || generation == "" {
-		return ""
-	}
-	return runtimedriver.Incarnation(incusUUID + "/" + generation)
-}
-
-// incarnationRecord is the Incus identity a review records for the driver's
-// incarnation at, the inverse of recordedIncarnation: both empty for an
-// incarnation the Incus driver did not write.
-func incarnationRecord(at runtimedriver.Incarnation) (incusUUID, generation string) {
-	incusUUID, generation, found := strings.Cut(string(at), "/")
-	if !found || incusUUID == "" || generation == "" || strings.Contains(generation, "/") {
-		return "", ""
-	}
-	return incusUUID, generation
 }

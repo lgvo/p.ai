@@ -11,7 +11,6 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
 // unreadableImages is an image driver that cannot read its images.
@@ -124,7 +123,7 @@ func TestAProjectDeletionPlanIsRefusedWhenItsEvidenceCannotBeRecorded(t *testing
 		}
 		return all
 	}
-	l := &lifecycle{instanceID: "11111111-1111-4111-8111-111111111111", cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64)}, incus: runtimeincus.DriverConfig{Project: "p"}}
+	l := &lifecycle{instanceID: "11111111-1111-4111-8111-111111111111", cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64)}}
 	review := func(images []control.CommitImageClaim) error {
 		return l.boundProjectDeleteEvidence(api.ProjectDeleteDetails{Project: project, Images: control.CommitImageClaimViews(images)}, images)
 	}

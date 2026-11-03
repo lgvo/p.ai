@@ -1,6 +1,6 @@
 # Structure
 
-## Lifecycle workers depend on concrete runtime, store and Git types
+## Lifecycle workers depend on concrete store and Git types
 
 - Where: internal/daemon `lifecycle` (fields `store`, `git`)
 - Problem: Workers call the concrete `*control.Store` and `*gitCapability`, so no worker
@@ -10,11 +10,11 @@
   `processRetainedDelete` is at 0%.
 - Risk: a store or Git failure in a recovery branch is checked only where a real store or
   repository can be made to fail, and otherwise only by the serial VM suite.
-- Fix: give the workers narrow interfaces grouped by native sub-protocol (builder,
-  discard), then unit-test each worker's recovery branches.
-- Fix when: a worker's recovery logic changes, or before a second runtime backend.
+- Fix: give the workers narrow store and Git interfaces, then unit-test each worker's
+  recovery branches.
+- Fix when: a worker's recovery logic changes.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 17 cases:
+- Added 2026-11-01, updated 2026-11-03, 18 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -94,6 +94,10 @@
   - 2026-11-03: "the daemon relays terminals" moved attachment to the driver's
     `OpenTerminal`, so no worker calls the Incus backend any more and the `runtime` field
     is gone; the store and Git half of this entry remains.
+  - 2026-11-03: "core holds only the runtime driver" removed the daemon's Incus settings
+    field and moved building the driver into one daemon file, so `lifecycle` holds only
+    `runtimedriver.Driver` and the runtime half of this entry is gone; the title, "Fix" and
+    "Fix when" now name only the store and Git.
 
 ## Long worker functions
 
@@ -105,7 +109,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 13 cases:
+- Added 2026-11-01, updated 2026-11-03, 14 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -148,6 +152,9 @@
     creation into `createOriginProject`, taking `processCreation` from 205 lines to 194
     (counted from `func` to the closing brace, as awk counts them; the 199 above was
     counted otherwise); it still exceeds 150 lines.
+  - 2026-11-03: "core holds only the runtime driver" replaced the recorded Incus identity
+    with the driver's incarnation in `processDiscard`, `processProjectDelete` and
+    `processAssembledCreateCleanup` line for line; their lengths are unchanged.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
@@ -164,7 +171,7 @@
 - Fix: a test that breaks each JSON-keyed trigger when its field is renamed.
 - Fix when: any change to an evidence struct those triggers read.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 5 cases:
+- Added 2026-11-01, updated 2026-11-03, 6 cases:
   - 2026-11-01: "complete rework of P's implementation" kept migrations unchanged.
   - 2026-11-02: "collapse the 21 migrations into one schema file" replaced the migrations
     with schema.sql, which ends the half of this entry about seeing the effective schema;
@@ -184,21 +191,25 @@
     `eligible`, `unsafe_reasons`, `loss_warnings` and the token fields. The fields the
     triggers read keep their JSON names (`review.runtime`, `review.old_operation_id`,
     `review.old_request_sha256`).
+  - 2026-11-03: "core holds only the runtime driver" replaced the Incus fields of
+    `api.RemovalRuntime`, the object at `$.review.runtime`, with `name` and `incarnation`,
+    which meets "Fix when", without adding the test; the triggers read only that the object
+    is there, so they still hold.
 
 ## Incus exec and HTTP access is hand-built in many places
 
-- Where: internal/runtimeincus (driver_services.go, driver_workspace.go, builder.go,
+- Where: internal/runtimedriver/incus (driver_services.go, driver_workspace.go, builder.go,
   builder_nix.go, host_observe.go, attach.go, builder_architecture.go, assembly.go,
   sftp_stat.go, graceful_stop.go, driver_terminal.go)
 - Problem: The `incus exec` argument lists and the HTTP-over-socket clients are written
   separately, each with its own environment and limits.
 - Evidence: listed while mapping the adapters on 2026-11-01.
 - Risk: a confinement fix to exec or socket access misses a copy.
-- Fix: one exec builder and one socket client in runtimeincus.
+- Fix: one exec builder and one socket client in the Incus driver.
 - Fix when: the next change to how P reaches Incus.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
   step 8 consolidates only the instance inventory).
-- Added 2026-11-01, updated 2026-11-03, 7 cases:
+- Added 2026-11-01, updated 2026-11-03, 8 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
   - 2026-11-02: "deletions without inspection" deleted workspace_git.go and
     workspace_helper.go with the workspace helpers, and their exec and file-API clients.
@@ -221,6 +232,8 @@
   - 2026-11-03: "the daemon relays terminals" moved the attach exec's HTTP-over-socket and
     websocket client from internal/attachment into runtimeincus driver_terminal.go, still
     hand-built; internal/attachment no longer reaches Incus.
+  - 2026-11-03: "core holds only the runtime driver" moved the package to
+    internal/runtimedriver/incus; no client changed.
 
 ## Trusted configuration and the RPC server live in the store package
 
@@ -228,23 +241,23 @@
   rpc_services.go, attachment.go, session_rpc.go
 - Problem: Host configuration, project policy, filesystem grants, public-egress configuration
   and the control-API server share control with the SQLite store and its sentinel errors, so
-  adapters such as runtimeincus import control to read public-egress configuration, and the
+  adapters such as the Incus driver import control to read public-egress configuration, and the
   server cannot be read or tested apart from persistence.
 - Evidence: config.go calls the store's `validProject`, `validFingerprint`, `digest` and
   `normalizedObject`; `ProjectPolicySnapshot` errors wrap `control.ErrInvalid`, which the
   server answers as `invalid`. The request bounds moved to `internal/api`, but control's
   `validProject`, `validUUID` and siblings only delegate to them, and the server's error
-  mapping (errors.go) and the `Refusal` type that adapters such as runtimeincus and
-  gitservice return live in control.
+  mapping (errors.go) and the `Refusal` type that adapters such as gitservice return live
+  in control.
 - Risk: configuration and persistence change together; an adapter that needs one trusted
   setting depends on the whole store package.
 - Fix: give P's identifier formats, digest and sentinel errors a package below control, then
   move configuration and the server to their own packages on top of it.
 - Fix when: identifier validation is consolidated (the same formats are also copied in
-  gitservice, plugin and runtimeincus), or the next change to host configuration.
+  gitservice, plugin and the Incus driver), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 10 cases:
+- Added 2026-11-01, updated 2026-11-03, 11 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -274,6 +287,10 @@
   - 2026-11-03: "per-session state outlives its session" made `ServeSessionConn`
     (session_rpc.go) release a removed session's status state when its connection ends,
     through the store; the server stayed in control.
+  - 2026-11-03: "core holds only the runtime driver" made the Incus driver answer an
+    instance Incus cannot render with its own `ErrUnavailable` instead of control's
+    `Failed` refusal; the driver still imports control for the public-egress configuration
+    (`PublicEgressConfig.Validate`, `PublicEgressDeniedCIDRs`).
 
 ## Operation status updates and kind lists are still written per site
 
@@ -317,7 +334,7 @@
 
 ## Incus metadata keys are written per caller, and the inventory refuses an unrendered instance
 
-- Where: internal/runtimeincus backend.go `initSession` and `validIdentity`, builder.go
+- Where: internal/runtimedriver/incus backend.go `initSession` and `validIdentity`, builder.go
   `createBuilder` and `validBuilderIdentity`, driver.go `builderLeftover` and
   `carriesBuild`, inventory.go `sessionLabelKeys`, `builderLabelKeys` and
   `instanceInventory`, driver_delete.go `sessionRuntime`
@@ -336,7 +353,7 @@
 - Fix when: the next change to P's Incus metadata or to the inventory reader.
 - Left by: the agent, by rule (a restructuring not pursued: step 8 of REWORK-PLAN.md was
   dropped after measurement).
-- Added 2026-11-01, updated 2026-11-03, 6 cases:
+- Added 2026-11-01, updated 2026-11-03, 8 cases:
   - 2026-11-01: "complete rework of P's implementation" dropped step 8.
   - 2026-11-02: "remove session repair" moved `ConfirmSessionRuntimeAbsent`, which removal
     keeps using, from record_repair.go to runtime_absence.go unchanged.
@@ -361,6 +378,8 @@
   - 2026-11-03: "removal, rename and creation recovery through the driver" gave the driver
     a session `Delete` whose `sessionRuntime` reads `user.p.instance_uuid` as one more
     literal.
+  - 2026-11-03: "core holds only the runtime driver" moved the package to
+    internal/runtimedriver/incus; the keys are unchanged.
 
 ## The CLI parses branch names and commit IDs by the bundled driver's rules
 

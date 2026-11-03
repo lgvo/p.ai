@@ -94,6 +94,30 @@ changed removal run shows the current review
 [action record](tui-fixes/actions.ndjson) keeps the LLM's choices apart from
 the passing TUI gate. This is mock/socket evidence only.
 
+## Removal review names the runtime without its backend — 2026-11-03
+
+The [runtime-name checkpoint](runtime-name/checkpoint.json) records the review
+of the Discard and Delete reviews after core stopped holding Incus facts
+(migration step M6, on the change-tag plans). The identity line
+"Container: <name> in Incus project <project> · <status>" of the
+[unchanged product](runtime-name/before-0002-discard-running-120x35.png) is now
+"Runtime: <name> · <status>" in the
+[changed review](runtime-name/after-0002-discard-running-120x35.png). The LLM
+ran the same actions on both builds, each against a fresh small mock: `d` and
+`X` on a running session, Stop through `s`/`y`, then `d` and `X` on the stopped
+session. At 120×35 the four reviews differ only in that line and the expiry
+time. The changed review was also read at
+[80×24](runtime-name/after-0010-delete-running-80x24.png) and
+[48×16](runtime-name/after-0004-discard-running-48x16.png), where the name wraps
+at a hyphen like the UUID, with resizing, scrolling, cancel by `n`, `q` and Esc,
+and an authorized Discard. "Runtime:" matches the details panel's label, and
+"P stops the running container" reads on from it. No defect was found. A
+missing runtime's line becomes "Runtime: missing"; the mock cannot make a
+runtime missing, so only a component test covers that line. The
+[action record](runtime-name/actions.ndjson) keeps the LLM's choices apart
+from the passing 29-test TUI gate. This is mock/socket evidence; the daemon's
+plan from the Incus driver is checked by the VM scenarios.
+
 ## Terminal relayed by the daemon — 2026-11-03
 
 The [attach-relay checkpoint](attach-relay/checkpoint.json) records the review

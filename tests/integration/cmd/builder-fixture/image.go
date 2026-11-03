@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
+	runtimeincus "github.com/lgvo/p.ai/internal/runtimedriver/incus"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 

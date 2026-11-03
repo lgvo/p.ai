@@ -59,7 +59,11 @@ Runtime effects belong to one runtime driver, `internal/runtimedriver`: trusted
 code that owns runtime machinery and that core addresses in P's terms
 ([technology stack](technology-stack.md#runtime-and-incus-access)). Host
 configuration selects it as `runtime.driver`. The only driver is the Incus
-driver, `runtimeincus.Driver`, which this document describes. Every driver
+driver (`internal/runtimedriver/incus`), which this document describes. It
+runs inside the daemon process; the daemon builds it in one place and holds
+nothing of it but `runtimedriver.Driver`. A boundary test fails if any other
+Go code, the Incus VM test fixtures aside, imports it, or if other non-test
+code names the `incus` client or the Incus sockets. Every driver
 proves these properties; the conformance suite
 (`internal/runtimedriver/conformance`) checks those a stubbed backend can show.
 
@@ -217,9 +221,7 @@ driver's image operations returned for the session's commit image
 Lifecycle code does not interpret the reference; the Incus driver's reference
 is an image fingerprint. SQLite indexes each commit image by project, commit,
 base image, system and builder version, and creation records the reference its
-runtime was created from. Only the image part of the runtime driver exists so
-far; its Incus implementation runs inside the daemon process, and runtime
-creation itself still goes to Incus directly.
+runtime was created from.
 
 ## Runtime identity and authority
 
@@ -686,8 +688,10 @@ keeps Incus's own bounded error text.
 While Incus cannot render an instance, as during its cleanup after a poweroff
 the guest started, it lists a placeholder with status `Error` and no
 configuration. P lists the instance again every 100 milliseconds, for at most
-5 seconds, before it checks the instance's identity; a placeholder that
-persists answers `failed` with reason `runtime`, never an identity mismatch.
+5 seconds, before it checks the instance's identity. The driver reports a
+placeholder that persists as the instance's state unavailable, never as an
+identity mismatch, and the daemon answers the request `failed` with reason
+`runtime`.
 
 Discard removes the verified Incus instance, its private root, endpoint
 directory, and session credentials while retaining the P branch. After the
@@ -705,7 +709,8 @@ remains, the daemon's release step deletes that commit's image
 
 Confirmed failed-creation cleanup of an assembled runtime deletes only the
 exact stopped instance it reviewed: native deletion targets the reviewed
-UUID/generation and owned inventory after atomic authority retirement. Unknown
+incarnation (on Incus, the instance's UUID and generation) and owned inventory
+after atomic authority retirement. Unknown
 delete admission or effects retain the source identity and cleanup guard
 until the driver settles the delete as applied; nothing authorizes another
 deletion. The supported creation/policy

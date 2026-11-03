@@ -31,7 +31,7 @@ func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, planne
 		}
 		return "prove-absence"
 	}
-	at := recordedIncarnation(planned.IncusUUID, planned.Generation)
+	at := runtimedriver.Incarnation(planned.Incarnation)
 	if projectDeleteAbsent(resource) || planned.Condition != "present" || !removableState(actual.State) || at == "" || actual.Incarnation != at ||
 		string(spec.Image) != planned.ImageFingerprint {
 		return "identity-conflict"
@@ -61,7 +61,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		return
 	}
 	var ev control.ProjectDeleteEvidence
-	if json.Unmarshal(op.Evidence, &ev) != nil || ev.InstanceUUID != l.instanceID || ev.IncusProject != l.incus.Project || ev.BaseFingerprint != l.cfg.BaseImageFingerprint || l.store.ValidateProjectDeleteAuthority(l.ctx, op, ev) != nil {
+	if json.Unmarshal(op.Evidence, &ev) != nil || ev.InstanceUUID != l.instanceID || ev.BaseFingerprint != l.cfg.BaseImageFingerprint || l.store.ValidateProjectDeleteAuthority(l.ctx, op, ev) != nil {
 		_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, true, op.Evidence, api.ReasonChanged, "confirmed project deletion exact identity/authority unavailable")
 		return
 	}
@@ -149,14 +149,14 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		} else {
 			r := &ev.Resources[ri]
 			if decision == "identity-conflict" {
-				if !fail(ri, &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonRuntimePresent, Cause: fmt.Errorf("runtime identity changed at %s", ps.Runtime.InstanceName)}) {
+				if !fail(ri, &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonRuntimePresent, Cause: fmt.Errorf("runtime identity of session %s changed", ps.Session.UUID)}) {
 					return
 				}
 				continue
 			}
-			at := recordedIncarnation(ps.Runtime.IncusUUID, ps.Runtime.Generation)
+			at := runtimedriver.Incarnation(ps.Runtime.Incarnation)
 			if decision == "issued-unresolved" {
-				err = l.settleRuntimeDelete(ctx, spec, at, fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", ps.Runtime.InstanceName, ps.Runtime.IncusUUID, ps.Runtime.Generation))
+				err = l.settleRuntimeDelete(ctx, spec, at, fmt.Errorf("native delete outcome unresolved for %s at incarnation %s", ps.Runtime.Name, at))
 			} else {
 				if decision == "stop-exact" {
 					err = l.stopReviewedRuntime(ctx, spec, at, func() error {

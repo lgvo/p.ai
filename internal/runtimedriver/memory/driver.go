@@ -166,7 +166,7 @@ func (w *World) observe(s runtimedriver.Session) (*object, error) {
 }
 
 func (o *object) observation(s runtimedriver.Session) runtimedriver.Observation {
-	obs := runtimedriver.Observation{State: o.observedState(), Incarnation: o.incarnation, Complete: o.complete(s)}
+	obs := runtimedriver.Observation{State: o.observedState(), Name: o.name, Incarnation: o.incarnation, Complete: o.complete(s)}
 	if o.state == runtimedriver.StateRunning {
 		obs.Host = runtimedriver.HostState{Ready: o.host.ready, Diagnostic: o.host.diagnostic}
 	}

@@ -22,7 +22,7 @@ func TestCompletedCreateReplayDoesNotQueueRemovedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev := control.DiscardEvidence{Action: "discard", Project: s.Project, Branch: s.Branch, AssignedTip: strings.Repeat("e", 40), PolicySHA256: s.PolicySHA256, IncusProject: "user-1000", InstanceName: "p-" + s.UUID, InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true, PRefsDigest: strings.Repeat("1", 64)}
+	ev := control.DiscardEvidence{Action: "discard", Project: s.Project, Branch: s.Branch, AssignedTip: strings.Repeat("e", 40), PolicySHA256: s.PolicySHA256, InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true, PRefsDigest: strings.Repeat("1", 64)}
 	removal, err := f.m.store.BeginDiscard(f.ctx, control.DiscardRequest{Key: "discard-replayed", UUID: s.UUID, IfMatch: futureTag(time.Minute)}, ev, strings.Repeat("c", 64), noRecheck)
 	if err != nil {
 		t.Fatal(err)

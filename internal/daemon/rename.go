@@ -55,11 +55,10 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	if err := renameSourceRefusal(observed, req.UUID); err != nil {
 		return api.Operation{}, err
 	}
-	incusUUID, generation := incarnationRecord(observed.Incarnation)
 	ev := control.RenameEvidence{Project: s.Project, OldBranch: s.Branch, NewBranch: req.NewBranch,
 		OldTip: req.ExpectedOldTip, PolicySHA256: s.PolicySHA256, InstanceUUID: l.instanceID,
 		ImageFingerprint: string(spec.Image), BaseFingerprint: l.cfg.BaseImageFingerprint,
-		IncusUUID: incusUUID, Generation: generation}
+		Incarnation: string(observed.Incarnation)}
 	verify := func(ctx context.Context) error {
 		return control.Failed(api.ReasonGit, l.verifyRenamePRefs(ctx, ev, false))
 	}
@@ -88,14 +87,13 @@ func renameSourceRefusal(o runtimedriver.Observation, session string) error {
 // renameSourceStopped reports whether rename may change the workspace of the
 // observed runtime: P changes a workspace only while its session is stopped.
 func renameSourceStopped(o runtimedriver.Observation) bool {
-	incusUUID, _ := incarnationRecord(o.Incarnation)
-	return o.State == runtimedriver.StateStopped && incusUUID != ""
+	return o.State == runtimedriver.StateStopped && o.Incarnation != ""
 }
 
 // renameSourceExact reports whether o is the stopped runtime the rename
 // recorded.
 func renameSourceExact(o runtimedriver.Observation, ev control.RenameEvidence) bool {
-	return renameSourceStopped(o) && o.Incarnation == recordedIncarnation(ev.IncusUUID, ev.Generation)
+	return renameSourceStopped(o) && string(o.Incarnation) == ev.Incarnation
 }
 
 // renameUID is the session user, who owns the clone.
@@ -123,7 +121,7 @@ type renameClone struct {
 // renameClone is the clone that rename op changes.
 func (l *lifecycle) renameClone(spec runtimedriver.Session, ev control.RenameEvidence, op string) renameClone {
 	return renameClone{runtime: l.driver, source: l.git.driver,
-		target: runtimedriver.Target{Session: spec, At: recordedIncarnation(ev.IncusUUID, ev.Generation)},
+		target: runtimedriver.Target{Session: spec, At: runtimedriver.Incarnation(ev.Incarnation)},
 		rename: sourcedriver.WorkspaceRename{ID: op, Old: ev.OldBranch, New: ev.NewBranch, User: renameUID}}
 }
 

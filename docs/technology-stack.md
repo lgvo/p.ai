@@ -97,13 +97,20 @@ same across stop and start, new when the runtime is re-created.
 
 Host configuration selects the driver by name in `runtime.driver`, with that
 driver's own settings ([control API](control-api.md)). The only driver is
-`incus`, `runtimeincus.Driver`, which runs inside the daemon process. An
+`incus` (`internal/runtimedriver/incus`), which runs inside the daemon
+process. One daemon file builds it from those settings and the ones core owns;
+the daemon then holds only `runtimedriver.Driver`. An
 in-memory driver (`internal/runtimedriver/memory`) and a conformance suite
 (`internal/runtimedriver/conformance`) show that a driver keeps the contract;
-the Incus driver runs the suite over a stubbed Incus. Core reaches images,
-sessions, terminals, removal, rename's workspace edits, project services, the
-boundary check and the inventory through the driver, and computes admission
-and the proofs of absence from `Inspect` and `Inventory`.
+the Incus driver runs the suite over a stubbed Incus. Every runtime effect goes
+through the driver: core reaches images, sessions, terminals, removal,
+rename's workspace edits, project services, the boundary check and the
+inventory through it, and computes admission and the proofs of absence from
+`Inspect` and `Inventory`. Core records runtimes by the driver's opaque
+incarnation and shows the driver's own name for a runtime only for display.
+A boundary test fails if code other than the driver, that daemon file and the
+Incus VM test fixtures imports the Incus package, or if other non-test code
+names the `incus` client or the Incus sockets.
 
 The Incus driver is always bound to the configured local confined user
 project. It uses deterministic instance names and P metadata, passes structured
@@ -140,7 +147,7 @@ Each image records its devShell outcome beside its labels. Core keeps the
 commit-image index and the rule for deleting images
 ([environment building](environment-building.md)).
 
-MVP has one implementation, `runtimeincus.Driver`, which runs in the daemon
+MVP has one implementation, the Incus driver, which runs in the daemon
 process. It clones the commit in a disposable restricted Incus builder,
 resolves and realizes the conventional default Nix devShell natively, and
 publishes a verified private Incus system image. The image contains a coherent

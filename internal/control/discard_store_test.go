@@ -14,12 +14,32 @@ func testDiscardEvidence() DiscardEvidence {
 	return DiscardEvidence{
 		Action:  "discard",
 		Project: "app", Branch: "main", AssignedTip: strings.Repeat("a", 40),
-		PolicySHA256: strings.Repeat("b", 64), IncusProject: "user-1000",
-		InstanceName:     "p-550e8400-e29b-41d4-a716-446655440000",
+		PolicySHA256:     strings.Repeat("b", 64),
 		InstanceUUID:     "11111111-1111-4111-8111-111111111111",
 		ImageFingerprint: strings.Repeat("c", 64), BaseFingerprint: strings.Repeat("d", 64),
-		IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333",
+		Incarnation: "incarnation-1",
 		PRefsDigest: strings.Repeat("1", 64),
+	}
+}
+
+// A removal records the reviewed runtime's incarnation, opaque but bounded,
+// exactly when the runtime was present.
+func TestRemovalEvidenceRecordsTheIncarnationOfAPresentRuntime(t *testing.T) {
+	missing := testDiscardEvidence()
+	missing.MissingRuntime, missing.Incarnation = true, ""
+	if !validDiscardEvidence(testDiscardEvidence()) || !validDiscardEvidence(missing) {
+		t.Fatal("removal evidence of a present or missing runtime refused")
+	}
+	missing.Incarnation = "incarnation-1"
+	if validDiscardEvidence(missing) {
+		t.Fatal("a missing runtime's removal records an incarnation")
+	}
+	for name, at := range map[string]string{"no": "", "a spaced": "incarnation 1", "an unbounded": strings.Repeat("i", 129)} {
+		ev := testDiscardEvidence()
+		ev.Incarnation = at
+		if validDiscardEvidence(ev) {
+			t.Fatalf("a present runtime's removal accepted %s incarnation", name)
+		}
 	}
 }
 

@@ -33,7 +33,7 @@ func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				ev := control.DiscardEvidence{Action: action, Project: s.Project, Branch: s.Branch, AssignedTip: strings.Repeat("e", 40), PolicySHA256: s.PolicySHA256, IncusProject: "user-1000", InstanceName: "p-" + s.UUID, InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true, PRefsDigest: strings.Repeat("1", 64)}
+				ev := control.DiscardEvidence{Action: action, Project: s.Project, Branch: s.Branch, AssignedTip: strings.Repeat("e", 40), PolicySHA256: s.PolicySHA256, InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true, PRefsDigest: strings.Repeat("1", 64)}
 				if action == "delete" {
 					ev.DeleteReviewSHA256 = strings.Repeat("b", 64)
 				}

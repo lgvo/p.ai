@@ -45,7 +45,6 @@ func TestCompletedCreationReplayAfterSessionRemoval(t *testing.T) {
 			ev.Action = action
 			ev.Branch = session.Branch
 			ev.PolicySHA256 = session.PolicySHA256
-			ev.InstanceName = "p-" + session.UUID
 			ev.ImageFingerprint = strings.Repeat("d", 64)
 			removeReq := DiscardRequest{Key: "remove", UUID: session.UUID, IfMatch: testTag(time.Minute)}
 			var remove api.Operation

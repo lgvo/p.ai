@@ -68,14 +68,15 @@ func TestPlanDetailsKeepEveryPreviewField(t *testing.T) {
 		}
 	}
 	// A removal's runtime keeps the preview's fields but its loss flags, now
-	// loss and gone items; a retained branch's branch loss keeps all but the
-	// origin, which deletions no longer read.
+	// loss and gone items, and names the runtime by the driver's name and
+	// incarnation; a retained branch's branch loss keeps all but the origin,
+	// which deletions no longer read.
 	for _, nested := range []struct {
 		name string
 		typ  reflect.Type
 		want string
 	}{
-		{"runtime", reflect.TypeFor[RemovalRuntime](), "condition generation image_fingerprint incus_project incus_uuid instance_name original_status"},
+		{"runtime", reflect.TypeFor[RemovalRuntime](), "condition image_fingerprint incarnation name original_status"},
 		{"branch_loss", reflect.TypeFor[RemovalBranchLoss](), "assigned_ref assigned_tip commits_losing_p_reachability p_refs"},
 	} {
 		var got []string

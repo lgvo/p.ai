@@ -59,8 +59,9 @@ an SSH URL template, and the local path to the client key; private key bytes
 never enter RPC.
 
 An optional trusted `runtime` object activates the lifecycle subset. It
-requires Git configuration. The daemon verifies the confined Incus project
-and selected package digests before serving RPC. `runtime.project_policies`
+requires Git configuration. Before serving RPC the daemon has the runtime
+driver prove its boundary (for Incus, the confined project) and verifies the
+selected package digests. `runtime.project_policies`
 selects a policy only by the exact complete P project path. An absent path has
 no fallback and cannot admit new project or session creation. The older
 `runtime.project_policy` remains a singleton compatibility mode only when the
@@ -101,7 +102,10 @@ configuration checks only that the driver is `incus` and that `config` is an
 object. At daemon start the Incus driver refuses unknown or missing settings
 and paths that are not absolute and clean, checks the client, socket and
 project on the live host, and refuses a disk-source ceiling at, above or below
-the user socket, so no grant can reach it.
+the user socket, so no grant can reach it. The daemon builds the driver from
+`config` and the settings P owns that the driver needs (the P instance ID,
+`endpoint_prefix`, `disk_source_ceilings`, the builder storage pool and
+`public_egress`), and then reaches the runtime only through the driver.
 
 The exact-path form replaces the single `project_policy` field with, for
 example:
@@ -861,17 +865,20 @@ exactly refuses the plan with `exact_stopped_runtime_unavailable`; the
 daemon's log has the cause.
 
 P does not look inside the container. The assembled plan's `details.runtime`
-has `condition:"present"`, `incus_project`, `instance_name`, `incus_uuid`,
-`generation`, `image_fingerprint` and `original_status:"Stopped"`, and its
-`loss` lists one `runtime_data` item: the container and everything in it are
-lost, including private home and credential files, whose contents P neither
-enumerates nor hashes. The plan also binds `old_request_sha256` and preserves
-the assigned P ref. Its run takes the same `uuid`, `key` and `if_match`. A
-durable precommit cleanup guard keeps the original creator blocked while the
-worker rechecks the planned facts. A changed container identity (Incus UUID,
-generation or image) or a changed branch fails the cleanup at `stale` and
-releases its guards; the container, the branch and the original creator
-remain. A new dry run and a run with a new key are then needed.
+has `condition:"present"`, `name`, `incarnation`, `image_fingerprint` and
+`original_status:"Stopped"`. `name` is the runtime driver's own name for the
+container, for display only (the Incus driver's instance name). `incarnation`
+is the driver's opaque identity for the container: it stays the same across
+Start and Stop and changes when the container is re-created or restored. The
+plan's `loss` lists one `runtime_data` item: the container and everything in
+it are lost, including private home and credential files, whose contents P
+neither enumerates nor hashes. The plan also binds `old_request_sha256` and
+preserves the assigned P ref. Its run takes the same `uuid`, `key` and
+`if_match`. A durable precommit cleanup guard keeps the original creator
+blocked while the worker rechecks the planned facts. A changed container
+identity (another incarnation or image) or a changed branch fails the cleanup
+at `stale` and releases its guards; the container, the branch and the original
+creator remain. A new dry run and a run with a new key are then needed.
 
 Only after those facts match does cleanup atomically retire the original
 creator/session authority and admit deletion of the exact native source.
@@ -1067,9 +1074,11 @@ The hex digits are the SHA-256 of the expiry and the change's **change hash**.
 The change hash is the SHA-256 of one JSON object: the recipe name
 `p.plan/v1`, the daemon's `instance_id`, the action, the target, the caller's
 other params, and the plan, less the facts it shows for information only (a
-removal's `original_status`). The same state gives the same change hash, and
-any other changed fact in the plan changes it. Because the action, the target and the
-instance are hashed, a tag for one change cannot run another. Editing the
+removal's `original_status`, and the runtime driver's `name` for a runtime in
+a removal, a project deletion or a failed creation's cleanup). The same state
+gives the same change hash, and any other changed fact in the plan changes
+it. Because the action, the target and the instance are hashed, a tag for one
+change cannot run another. Editing the
 expiry breaks the tag, because rebuilding it needs the change hash, which the
 daemon never returns. The tag is not a secret; it keeps every run close to a
 recent dry run.
@@ -1184,19 +1193,21 @@ The plan's `details`:
 | `project`, `branch` | The session's project and assigned branch. |
 | `assigned_ref`, `assigned_tip` | The full assigned ref and its tip. When the ref is missing, because it was deleted outside P or is a blank project's unborn first branch, `assigned_tip` is omitted and `assigned_ref_missing` is `true`. |
 | `policy_sha256` | The digest of the session's captured policy. |
-| `runtime` | `condition` (`present` or `missing`), `incus_project` and `instance_name`. A present runtime adds `incus_uuid`, `generation`, `image_fingerprint` and `original_status` (`Running` or `Stopped`). |
+| `runtime` | `condition` (`present` or `missing`). A present runtime adds `name`, the runtime driver's own name for the container, for display only (the Incus driver's instance name); `incarnation`, the driver's opaque identity for the container, which Start and Stop keep and re-creating or restoring the container changes; `image_fingerprint`; and `original_status` (`Running` or `Stopped`). |
 | `branch_loss` | Delete only: the `assigned_ref`, its `assigned_tip` when present, the `commits_losing_p_reachability` (empty for a missing ref) and `p_refs`, every P ref with its `name` and `oid`. |
 
 `loss` lists a present runtime as one `runtime_data` item. Delete adds one
 `p_commits` item on `project/<path>:branch/<branch>` when commits leave P's
 repository. Discard and delete contact and compare no origin.
-`original_status` is shown for information only and is not in the change
-hash: a Start or Stop between the dry run and the run keeps the change tag.
+`original_status` and `name` are shown for information only and are not in
+the change hash: a Start or Stop between the dry run and the run keeps the
+change tag, and so does a runtime the driver now names differently; another
+`incarnation` does not.
 
 The run, `{"uuid":"session-UUID","key":"idempotency-key","if_match":"<change tag>"}`,
 returns `{"operation":{...}}` of kind `session.discard` or `session.delete`.
 Before the removal commit point, a changed assigned tip, a replaced container
-(changed Incus UUID or generation) or a reappearing missing runtime
+(another incarnation) or a reappearing missing runtime
 fails the operation at `stale`, releases its guard, and leaves the branch and
 session intact. An accepted run commits removal, disables session authority,
 stops a running container, removes the exact owned runtime and P-owned

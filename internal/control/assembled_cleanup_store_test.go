@@ -100,8 +100,8 @@ func assembledCleanupFixture(t *testing.T) (*Store, string, api.Operation, Creat
 	if err := s.RegisterGitPrincipal(ctx, local.KeyFingerprint, "session", creator.Project, creator.SessionUUID); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &api.RemovalRuntime{Condition: "present", IncusProject: "user-1000", InstanceName: "p-" + creator.SessionUUID, IncusUUID: "44444444-4444-4444-8444-444444444444",
-		Generation: "55555555-5555-4555-8555-555555555555", ImageFingerprint: creation.ImageFingerprint, OriginalStatus: "Stopped"}
+	runtime := &api.RemovalRuntime{Condition: "present", Name: "runtime-1", Incarnation: "incarnation-1",
+		ImageFingerprint: creation.ImageFingerprint, OriginalStatus: "Stopped"}
 	ev := CreateCleanupEvidence{InstanceUUID: "33333333-3333-4333-8333-333333333333", Review: api.CreateCleanupDetails{OldOperationID: creator.ID, OldRequest: request,
 		OldPhase: creator.Phase, OldEvidenceSHA256: digest(creator.Evidence), OldRequestSHA256: digest(creator.Request), PolicySHA256: session.PolicySHA256,
 		AssignedBranch: api.CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: creation.CapturedOID}, ImageFingerprint: creation.ImageFingerprint,
