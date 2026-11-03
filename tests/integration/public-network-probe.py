@@ -10,7 +10,6 @@ import struct
 import subprocess
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 
 
@@ -160,10 +159,10 @@ class VerifiedRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def opener(redirect=None):
+def opener(redirect=None, cadata=None):
     # No proxy discovery, netrc, cookies, authorization or ambient credentials.
     handlers = [urllib.request.ProxyHandler({}),
-                urllib.request.HTTPSHandler(context=ssl.create_default_context())]
+                urllib.request.HTTPSHandler(context=ssl.create_default_context(cadata=cadata))]
     if redirect is not None:
         handlers.append(redirect)
     return urllib.request.build_opener(*handlers)
@@ -280,18 +279,20 @@ def main():
         raise SystemExit("publicly resolved hostname reached gateway")
 
     # Verify an actual HTTPS redirect response, then follow its exact target.
-    # Service failure is not isolation evidence and must fail this gate.
+    # The test VM serves it on a public, routed address, with the certificate
+    # passed as this probe's second argument. Fixture failure is not isolation
+    # evidence and must fail this gate.
     target = "http://10.233.0.1:443/"
-    url = "https://httpbin.org/redirect-to?" + urllib.parse.urlencode({"url": target})
+    url = "https://8.8.4.10/redirect"
     redirect = VerifiedRedirect(url, target)
     try:
-        with opener(redirect).open(url, timeout=8):
+        with opener(redirect, cadata=sys.argv[2]).open(url, timeout=8):
             raise SystemExit("HTTPS redirect reached gateway listener")
     except urllib.error.HTTPError as error:
         body = error.read(2049)
-        record("redirect-service", status=error.code, bytes=len(body),
+        record("redirect-fixture", status=error.code, bytes=len(body),
                body=body[:2048].decode(errors="replace"), tls_verified=True)
-        raise SystemExit("redirect service failure is not denial evidence")
+        raise SystemExit("redirect fixture failure is not denial evidence")
     except urllib.error.URLError as error:
         if not verified_redirect_denial(redirect, error):
             raise SystemExit("unexpected redirect follow failure")

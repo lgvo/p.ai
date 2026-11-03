@@ -69,6 +69,45 @@ let
       }) [ "udp" "tcp" ]) [ "1.1.1.1" "9.9.9.9" ]
       ++ [{ action = "allow"; state = "enabled"; protocol = "tcp"; destination_port = "80,443"; }];
   });
+  # The public-egress redirect-denial probe's HTTPS redirect comes from this
+  # VM, on a public, routed address, so no outside service decides the check.
+  # The self-signed certificate is the probe's only trust anchor for it.
+  redirectCertificate = pkgs.runCommand "p-vm-redirect-certificate" {
+    nativeBuildInputs = [ pkgs.openssl ];
+  } ''
+    mkdir "$out"
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+      -subj /CN=8.8.4.10 -addext subjectAltName=IP:8.8.4.10 \
+      -keyout "$out/key.pem" -out "$out/cert.pem"
+  '';
+  redirectFixture = pkgs.writeText "p-vm-redirect-fixture.py" ''
+    import http.server
+    import ssl
+    import sys
+
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", "http://10.233.0.1:443/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+
+    class Server(http.server.ThreadingHTTPServer):
+        def finish_request(self, request, client_address):
+            with context.wrap_socket(request, server_side=True) as connection:
+                super().finish_request(connection, client_address)
+
+        def handle_error(self, request, client_address):
+            # Listener checks connect and close without a TLS handshake.
+            print(f"{client_address[0]}: {sys.exception()}", file=sys.stderr, flush=True)
+
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain("${redirectCertificate}/cert.pem", "${redirectCertificate}/key.pem")
+    Server(("8.8.4.10", 443), Redirect).serve_forever()
+  '';
   publicNetworkProof = pkgs.writeShellScriptBin "p-public-network-proof" ''
     set -euo pipefail
     test "$#" -eq 0
@@ -559,7 +598,8 @@ in
         # A disposable public-looking host address tests the INPUT boundary.
         ip address add 8.8.8.8/32 dev lo
         # A separately routed public-looking listener lets the DNAT test
-        # reach FORWARD without making private/sibling traffic ACL-eligible.
+        # reach FORWARD without making private/sibling traffic ACL-eligible,
+        # and serves the redirect-denial probe's HTTPS redirect.
         ip netns add p-vm-dnat-target
         ip link add p-vm-dnat-host type veth peer name p-vm-dnat-peer
         ip link set p-vm-dnat-peer netns p-vm-dnat-target
@@ -636,13 +676,16 @@ in
       StandardError = "journal+console";
     };
   };
+  environment.etc."p-vm-redirect-ca.pem" = lib.mkIf publicEgressFixture {
+    source = "${redirectCertificate}/cert.pem";
+  };
   systemd.services.p-vm-dnat-target-probe = lib.mkIf publicEgressFixture {
-    description = "Disposable routed public DNAT target for egress denial tests";
+    description = "Disposable routed public DNAT target and HTTPS redirect for egress denial tests";
     wantedBy = [ "multi-user.target" ];
     requires = [ "p-vm-prepare.service" ];
     after = [ "p-vm-prepare.service" ];
     serviceConfig = {
-      ExecStart = "${pkgs.iproute2}/bin/ip netns exec p-vm-dnat-target ${pkgs.python3}/bin/python3 -m http.server 443 --bind 8.8.4.10";
+      ExecStart = "${pkgs.iproute2}/bin/ip netns exec p-vm-dnat-target ${pkgs.python3}/bin/python3 -I ${redirectFixture}";
       StandardOutput = "journal+console";
       StandardError = "journal+console";
     };

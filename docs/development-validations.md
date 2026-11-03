@@ -54,6 +54,8 @@ allowances at the VM boundary; prove from the resolver configuration and
 bounded network evidence that hostname HTTPS and a fresh Nix fetch use DoH
 without plaintext bootstrap or fallback. Require actual public-to-private hostname
 resolution and HTTPS redirect denial evidence; synthetic fixtures are separate.
+The test VM serves that HTTPS redirect from a public, routed address, so no
+outside service decides the check.
 
 Incus network/ACL defaults are not sufficient evidence; capture the actual
 configured routing and packet-level test results.

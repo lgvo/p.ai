@@ -402,6 +402,7 @@ fi
 if timeout 110 "$incus_real" --force-local --project user-1000 \
   exec "p-$uuid_a" --user 1000 --group 1000 --cwd /workspace \
   --env HOME=/home/p -- /run/current-system/sw/bin/python3 -I -c "$probe" session \
+  "$(cat /etc/p-vm-redirect-ca.pem)" \
   > "$step_dir/session-network.out" 2>&1; then
   cat "$step_dir/session-network.out"
 else
