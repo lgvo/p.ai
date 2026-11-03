@@ -52,7 +52,7 @@ func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.
 		old.Evidence = raw
 	}
 	old.Status, old.Phase, old.Committed = "blocked", "branch-assigned", true
-	review := api.CreateCleanupPreview{UUID: old.SessionUUID, OldOperationID: old.ID, OldRequest: req, OldPhase: old.Phase, OldEvidenceSHA256: digest(old.Evidence), PolicySHA256: session.PolicySHA256, AssignedBranch: api.CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: ev.CapturedOID}, ImageFingerprint: image, EnvironmentBuilder: (*api.CreationBuilderState)(ev.EnvironmentBuilder), Eligible: true, UnsafeReasons: []string{}, ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}
+	review := api.CreateCleanupDetails{OldOperationID: old.ID, OldRequest: req, OldPhase: old.Phase, OldEvidenceSHA256: digest(old.Evidence), PolicySHA256: session.PolicySHA256, AssignedBranch: api.CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: ev.CapturedOID}, ImageFingerprint: image, EnvironmentBuilder: (*api.CreationBuilderState)(ev.EnvironmentBuilder)}
 	return s, dir, old, CreateCleanupEvidence{Review: review, InstanceUUID: "11111111-1111-4111-8111-111111111111"}
 }
 func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *testing.T) {
@@ -63,10 +63,10 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	if e := s.RegisterGitPrincipal(ctx, local.KeyFingerprint, "session", "app", old.SessionUUID); e != nil {
 		t.Fatal(e)
 	}
-	req := DiscardRequest{Key: "cleanup", UUID: old.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}
+	req := DiscardRequest{Key: "cleanup", UUID: old.SessionUUID, IfMatch: testTag(time.Minute)}
 	n := 0
 	verify := func(context.Context) error { n++; return nil }
-	cleaned, e := s.BeginCreateCleanup(ctx, req, ev, verify)
+	cleaned, e := s.BeginCreateCleanup(ctx, req, ev, testHash, verify)
 	if e != nil || n != 1 || cleaned.SessionUUID != old.SessionUUID || cleaned.Kind != "session.create.cleanup" || !cleaned.Committed {
 		t.Fatalf("cleanup admission: %+v %v", cleaned, e)
 	}
@@ -96,13 +96,13 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 		t.Fatal(e)
 	}
 	defer s.Close()
-	replay, e := s.BeginCreateCleanup(ctx, req, ev, func(context.Context) error { t.Fatal("replay re-observed old mutable resources"); return nil })
+	replay, e := s.BeginCreateCleanup(ctx, req, ev, testHash, func(context.Context) error { t.Fatal("replay re-observed old mutable resources"); return nil })
 	if e != nil || replay.ID != cleaned.ID || replay.SessionUUID != old.SessionUUID {
 		t.Fatal("cleanup replay changed identity")
 	}
 	reused := req
-	reused.TokenSHA256 = strings.Repeat("e", 64)
-	if _, e = s.BeginCreateCleanup(ctx, reused, ev, verify); !answers(e, api.KindInvalid, api.ReasonKeyReused) {
+	reused.IfMatch = testTag(2 * time.Minute)
+	if _, e = s.BeginCreateCleanup(ctx, reused, ev, testHash, verify); !answers(e, api.KindInvalid, api.ReasonKeyReused) {
 		t.Fatalf("cleanup key reused for another review answered %v", e)
 	}
 	var count int
@@ -155,7 +155,7 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	if e != nil || next.SessionUUID == old.SessionUUID {
 		t.Fatal("separate corrected Create failed")
 	}
-	if prior, e := s.BeginCreateCleanup(ctx, req, ev, verify); e != nil || prior.ID != cleaned.ID || prior.Status != "completed" {
+	if prior, e := s.BeginCreateCleanup(ctx, req, ev, testHash, verify); e != nil || prior.ID != cleaned.ID || prior.Status != "completed" {
 		t.Fatal("completed replay forgot operation")
 	}
 }
@@ -164,13 +164,13 @@ func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, _, old, ev := failedNixCleanupFixture(t)
 			ctx := context.Background()
-			req := DiscardRequest{Key: "cleanup", UUID: old.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}
+			req := DiscardRequest{Key: "cleanup", UUID: old.SessionUUID, IfMatch: testTag(time.Minute)}
 			creation, _ := Evidence(old)
 			switch name {
 			case "evidence":
 				ev.Review.OldEvidenceSHA256 = strings.Repeat("0", 64)
 			case "expired":
-				ev.Review.ExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
+				req.IfMatch = testTag(-time.Second)
 			case "builder-attempted":
 				creation.EnvironmentBuilder.State = "attempted"
 			case "builder-abandoned":
@@ -200,7 +200,7 @@ func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
 					t.Fatal(e)
 				}
 			}
-			_, e := s.BeginCreateCleanup(ctx, req, ev, func(context.Context) error {
+			_, e := s.BeginCreateCleanup(ctx, req, ev, testHash, func(context.Context) error {
 				if name == "native-unavailable" {
 					return ErrConflict
 				}
@@ -240,8 +240,8 @@ func TestFailedCreateCleanupUnavailableAfterConfirmationPreservesDisabledAuthori
 	if e := s.RegisterGitPrincipal(ctx, local.KeyFingerprint, "session", "app", old.SessionUUID); e != nil {
 		t.Fatal(e)
 	}
-	req := DiscardRequest{Key: "cleanup-unavailable", UUID: old.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}
-	op, e := s.BeginCreateCleanup(ctx, req, ev, func(context.Context) error { return nil })
+	req := DiscardRequest{Key: "cleanup-unavailable", UUID: old.SessionUUID, IfMatch: testTag(time.Minute)}
+	op, e := s.BeginCreateCleanup(ctx, req, ev, testHash, func(context.Context) error { return nil })
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -287,7 +287,7 @@ func TestFailedCreateCleanupUnavailableAfterConfirmationPreservesDisabledAuthori
 	}); !errors.Is(e, ErrConflict) {
 		t.Fatal("uncertain cleanup admitted replacement")
 	}
-	replay, e := s.BeginCreateCleanup(ctx, req, ev, func(context.Context) error { t.Fatal("accepted replay retried authority inspection"); return nil })
+	replay, e := s.BeginCreateCleanup(ctx, req, ev, testHash, func(context.Context) error { t.Fatal("accepted replay retried authority inspection"); return nil })
 	if e != nil || replay.ID != op.ID {
 		t.Fatal("accepted replay changed intent")
 	}
@@ -324,8 +324,8 @@ func TestFailedCreateCleanupBuilderPreflightRetainsExactSQLiteRetryAndCleanup(t 
 			if e != nil || blocked.Key != old.Key || blocked.SessionUUID != old.SessionUUID || digest(blocked.Evidence) != ev.Review.OldEvidenceSHA256 {
 				t.Fatal("preflight failure changed immutable intent")
 			}
-			request := DiscardRequest{Key: "cleanup-preflight", UUID: old.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}
-			cleanup, e := s.BeginCreateCleanup(ctx, request, ev, func(context.Context) error { return nil })
+			request := DiscardRequest{Key: "cleanup-preflight", UUID: old.SessionUUID, IfMatch: testTag(time.Minute)}
+			cleanup, e := s.BeginCreateCleanup(ctx, request, ev, testHash, func(context.Context) error { return nil })
 			if e != nil || cleanup.SessionUUID != old.SessionUUID {
 				t.Fatal("preflight failure permanently stranded cleanup", e)
 			}
@@ -343,7 +343,7 @@ func TestSupersededCreateReplayPrecedesContestedGitAuthority(t *testing.T) {
 			t.Run(state+"/"+name, func(t *testing.T) {
 				s, _, old, ev := failedNixCleanupFixture(t)
 				ctx := context.Background()
-				cleanup, e := s.BeginCreateCleanup(ctx, DiscardRequest{Key: "cleanup-replay", UUID: old.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}, ev, func(context.Context) error { return nil })
+				cleanup, e := s.BeginCreateCleanup(ctx, DiscardRequest{Key: "cleanup-replay", UUID: old.SessionUUID, IfMatch: testTag(time.Minute)}, ev, testHash, func(context.Context) error { return nil })
 				if e != nil {
 					t.Fatal(e)
 				}

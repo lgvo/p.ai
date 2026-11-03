@@ -34,7 +34,7 @@ type actionDone struct {
 type attached struct{ err error }
 type removalIntent struct{ UUID, Kind string }
 
-// Help suspends this captured preview read without replaying it.
+// Help suspends this captured removal plan read without replaying it.
 // The original epoch stays bound until its one reply is consumed or abandoned.
 type suspendedRemovalRead struct {
 	epoch   int
@@ -695,7 +695,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		suspended := m.helpRemovalRead
 		if m.page == "progress" && m.removal != nil && suspended == nil {
 			switch m.pendingMethod {
-			case "", "session.removal.preview":
+			case "", api.SessionDiscard.Name, api.SessionDelete.Name:
 				suspended = &suspendedRemovalRead{epoch: m.epoch, method: m.pendingMethod, intent: *m.removal, working: m.working}
 			}
 		}
@@ -822,12 +822,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				m.notice = "Detach every terminal before reviewing removal."
 				return nil
 			}
-			// P stops a running container itself as part of removal.
+			// P stops a running container itself as part of removal; a
+			// missing one's plan says its contents are already gone.
 			switch s.Condition {
-			case "stopped", "ready", "starting":
-			case "missing":
-				m.notice = "The runtime is missing; review its removal with the CLI preview and acknowledge_missing_runtime."
-				return nil
+			case "stopped", "ready", "starting", "missing":
 			default:
 				m.notice = "Removal is unavailable while the session is " + s.Condition + "."
 				return nil
@@ -836,7 +834,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.attachOnComplete = false
 			m.navigate("progress")
 			m.removal = &removalIntent{UUID: s.UUID, Kind: kind}
-			return m.begin(callOf(api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: s.UUID, Kind: kind}))
+			return m.begin(removalPlanCall(kind, s.UUID))
 		case "r":
 			if !m.refreshing {
 				m.refreshing = true

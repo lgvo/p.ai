@@ -123,37 +123,51 @@ control origin.sources (git)
       oid string
       commit_oid string
     next string
-control origin.publication.preview (git)
-  request
-    expected_origin_url string
-    project string
-    kind string
-    source string
-    source_oid string
-    destination_ref string
-  result
-    preview object
-      project string
-      url string
-      source_kind string
-      source string
-      source_ref string
-      source_oid string
-      destination_ref string
-      destination_oid string (optional)
-      relation string
-      workspace_status string
 control origin.publish (git)
   request
     expected_origin_url string
-    key string
     project string
     kind string
     source string
     source_oid string
     destination_ref string
+    key string (optional)
+    if_match string (optional)
   result
-    operation object
+    plan object (optional)
+      action string
+      target string
+      allowed boolean
+      refusals array of object
+        code string
+        target string (optional)
+      loss array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      gone array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      details object
+        project string
+        url string
+        source_kind string
+        source string
+        source_ref string
+        source_oid string
+        destination_ref string
+        destination_oid string (optional)
+        relation string
+        workspace_status string
+    change_tag string (optional)
+    operation object (optional)
       id string
       idempotency_key string
       kind string
@@ -576,54 +590,57 @@ control session.attach (runtime)
       project string
       instance string
       argv array of string
-control session.removal.preview (runtime)
-  request
-    uuid string
-    kind string
-    acknowledge_missing_runtime boolean (optional)
-  result
-    preview object
-      kind string
-      session_uuid string
-      project string
-      branch string
-      assigned_ref string
-      assigned_tip string (optional)
-      assigned_ref_missing boolean (optional)
-      policy_sha256 string
-      runtime object
-        condition string
-        incus_project string
-        instance_name string
-        incus_uuid string (optional)
-        generation string (optional)
-        image_fingerprint string (optional)
-        original_status string (optional)
-        runtime_data_lost boolean (optional)
-        runtime_loss_unknown boolean (optional)
-      branch_loss object (optional)
-        assigned_ref string
-        assigned_tip string (optional)
-        commits_losing_p_reachability array of string
-        p_refs array of object
-          name string
-          oid string
-        origin object (optional)
-          url string (optional)
-          status string
-          reason string (optional)
-          containing_branches array of string
-          observed_refs_digest string (optional)
-          unresolved_refs array of string
-      confirmation_token string
-      expires_at string
 control session.discard (runtime)
   request
-    key string
     uuid string
-    confirmation_token string
+    key string (optional)
+    if_match string (optional)
   result
-    operation object
+    plan object (optional)
+      action string
+      target string
+      allowed boolean
+      refusals array of object
+        code string
+        target string (optional)
+      loss array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      gone array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      details object
+        project string
+        branch string
+        assigned_ref string
+        assigned_tip string (optional)
+        assigned_ref_missing boolean (optional)
+        policy_sha256 string
+        runtime object
+          condition string
+          incus_project string
+          instance_name string
+          incus_uuid string (optional)
+          generation string (optional)
+          image_fingerprint string (optional)
+          original_status string (optional)
+        branch_loss object (optional)
+          assigned_ref string
+          assigned_tip string (optional)
+          commits_losing_p_reachability array of string
+          p_refs array of object
+            name string
+            oid string
+    change_tag string (optional)
+    operation object (optional)
       id string
       idempotency_key string
       kind string
@@ -652,11 +669,55 @@ control session.discard (runtime)
       updated_at string
 control session.delete (runtime)
   request
-    key string
     uuid string
-    confirmation_token string
+    key string (optional)
+    if_match string (optional)
   result
-    operation object
+    plan object (optional)
+      action string
+      target string
+      allowed boolean
+      refusals array of object
+        code string
+        target string (optional)
+      loss array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      gone array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      details object
+        project string
+        branch string
+        assigned_ref string
+        assigned_tip string (optional)
+        assigned_ref_missing boolean (optional)
+        policy_sha256 string
+        runtime object
+          condition string
+          incus_project string
+          instance_name string
+          incus_uuid string (optional)
+          generation string (optional)
+          image_fingerprint string (optional)
+          original_status string (optional)
+        branch_loss object (optional)
+          assigned_ref string
+          assigned_tip string (optional)
+          commits_losing_p_reachability array of string
+          p_refs array of object
+            name string
+            oid string
+    change_tag string (optional)
+    operation object (optional)
       id string
       idempotency_key string
       kind string
@@ -752,37 +813,511 @@ control project.retained.rename (runtime)
       diagnostic string (optional)
       created_at string
       updated_at string
-control project.delete.preview (runtime)
+control project.delete (runtime)
   request
     project string
-    acknowledge_missing array of string (optional)
+    key string (optional)
+    if_match string (optional)
   result
-    preview object
-      project string
-      outcome string
-      state_sha256 string
-      project_policy_sha256 string
-      external_mounts_preserved array of object
-        name string
-        source string
-        type string
-        access string
-        executable boolean
-        source_identity object (optional)
+    plan object (optional)
+      action string
+      target string
+      allowed boolean
+      refusals array of object
+        code string
+        target string (optional)
+      loss array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      gone array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      details object
+        project string
+        outcome string
+        state_sha256 string
+        project_policy_sha256 string
+        external_mounts_preserved array of object
+          name string
+          source string
+          type string
+          access string
+          executable boolean
+          source_identity object (optional)
+            device integer
+            inode integer
+            owner_uid integer
+            owner_gid integer
+        sessions array of object
+          session object
+            uuid string
+            project string
+            branch string
+            registry_state string
+            policy raw
+            policy_sha256 string
+          condition string
+          runtime object
+            condition string
+            incus_project string
+            instance_name string
+            incus_uuid string (optional)
+            generation string (optional)
+            image_fingerprint string (optional)
+            original_status string (optional)
+          credentials object
+            old_uuid string
+            old_operation_id string
+            old_image_fingerprint string
+            key_fingerprint string
+            key_directory object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            key object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            endpoint_prefix object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            endpoint_directory object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            git_socket object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            session_socket object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            completed boolean (optional)
+        attachments array of string
+        branch_loss object (nullable)
+          assigned_ref string
+          assigned_tip string (optional)
+          commits_losing_p_reachability array of string
+          p_refs array of object
+            name string
+            oid string
+        images array of object
+          image object
+            key object
+              project string
+              commit_oid string
+              base_image string
+              system string
+              builder_version string
+            ref string
+            build string
+            labels array of object
+              name string
+              value string
+            selection string
+            material_sha256 string (optional)
+            size integer
+            state string
+          image_present boolean
+          observed_size integer
+          related_digest string
+        repository_identity object
           device integer
           inode integer
-          owner_uid integer
-          owner_gid integer
-      sessions array of object
-        session object
-          uuid string
+          uid integer
+          mode integer
+          links integer
+        repository_parent_identity object
+          device integer
+          inode integer
+          uid integer
+          mode integer
+          links integer
+    change_tag string (optional)
+    operation object (optional)
+      id string
+      idempotency_key string
+      kind string
+      project string
+      session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
+        destination string (optional)
+      request raw
+      status string
+      phase string
+      committed boolean
+      evidence raw (optional)
+      reason string (optional)
+      diagnostic string (optional)
+      created_at string
+      updated_at string
+control project.retained.delete (runtime)
+  request
+    project string
+    branch string
+    key string (optional)
+    if_match string (optional)
+  result
+    plan object (optional)
+      action string
+      target string
+      allowed boolean
+      refusals array of object
+        code string
+        target string (optional)
+      loss array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      gone array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      details object
+        project string
+        branch string
+        ref string
+        tip string
+        branch_loss object (nullable)
+          assigned_ref string
+          assigned_tip string (optional)
+          commits_losing_p_reachability array of string
+          p_refs array of object
+            name string
+            oid string
+    change_tag string (optional)
+    operation object (optional)
+      id string
+      idempotency_key string
+      kind string
+      project string
+      session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
+        destination string (optional)
+      request raw
+      status string
+      phase string
+      committed boolean
+      evidence raw (optional)
+      reason string (optional)
+      diagnostic string (optional)
+      created_at string
+      updated_at string
+control session.create.replace (runtime)
+  request
+    old_uuid string
+    project string
+    branch string
+    choice string
+    source string (optional)
+    origin_ref string (optional)
+    expected_commit_oid string (optional)
+    key string (optional)
+    if_match string (optional)
+  result
+    plan object (optional)
+      action string
+      target string
+      allowed boolean
+      refusals array of object
+        code string
+        target string (optional)
+      loss array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      gone array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      details object
+        old_operation_id string
+        old_status string
+        old_phase string
+        old_request object
+          key string
           project string
           branch string
-          registry_state string
-          policy raw
-          policy_sha256 string
-        condition string
-        runtime object
+          choice string
+          source string (optional)
+          origin_ref string (optional)
+          expected_commit_oid string (optional)
+          expected_origin_url string (optional)
+        old_branch object
+          ref string
+          observed boolean
+          exists boolean
+          oid string (optional)
+        new_branch object
+          ref string
+          observed boolean
+          exists boolean
+          oid string (optional)
+        old_captured_oid string
+        old_evidence_sha256 string
+        old_policy_sha256 string
+        old_image_fingerprint string
+        new_request object
+          project string
+          branch string
+          choice string
+          source string (optional)
+          origin_ref string (optional)
+          expected_commit_oid string (optional)
+        new_captured_oid string (optional)
+        new_image_fingerprint string
+        new_selection object
+          runtime_id string
+          runtime_sha256 string
+          host_id string
+          host_sha256 string
+          source_id string
+          source_sha256 string
+          agent_id string (optional)
+          agent_sha256 string (optional)
+        new_environment object (optional)
+          system string
+          base_fingerprint string
+          builder_storage_pool string
+          builder_policy_sha256 string
+          image_builder string
+        new_policy_sha256 string (optional)
+        provisional object
+          assigned_ref string
+          runtime string (optional)
+          builder string (optional)
+          session_key string (optional)
+          endpoint string (optional)
+          principal string (optional)
+          runtime_local string
+          cleanup object (optional)
+            old_uuid string
+            old_operation_id string
+            old_image_fingerprint string
+            key_fingerprint string
+            key_directory object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            key object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            endpoint_prefix object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            endpoint_directory object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            git_socket object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            session_socket object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            completed boolean (optional)
+    change_tag string (optional)
+    operation object (optional)
+      id string
+      idempotency_key string
+      kind string
+      project string
+      session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
+        destination string (optional)
+      request raw
+      status string
+      phase string
+      committed boolean
+      evidence raw (optional)
+      reason string (optional)
+      diagnostic string (optional)
+      created_at string
+      updated_at string
+control session.create.cleanup (runtime)
+  request
+    uuid string
+    key string (optional)
+    if_match string (optional)
+  result
+    plan object (optional)
+      action string
+      target string
+      allowed boolean
+      refusals array of object
+        code string
+        target string (optional)
+      loss array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      gone array of object
+        kind string
+        target string
+        count integer (optional)
+        sample array of string (optional)
+        certain boolean
+        reason string (optional)
+      details object
+        old_operation_id string
+        old_request object
+          key string
+          project string
+          branch string
+          choice string
+          source string (optional)
+          origin_ref string (optional)
+          expected_commit_oid string (optional)
+          expected_origin_url string (optional)
+        old_phase string
+        old_evidence_sha256 string
+        old_request_sha256 string (optional)
+        policy_sha256 string
+        assigned_branch object
+          ref string
+          observed boolean
+          exists boolean
+          oid string (optional)
+        image_fingerprint string
+        environment_builder object (optional)
+          cycle integer
+          state string
+        provisional object
+          assigned_ref string
+          runtime string (optional)
+          builder string (optional)
+          session_key string (optional)
+          endpoint string (optional)
+          principal string (optional)
+          runtime_local string
+          cleanup object (optional)
+            old_uuid string
+            old_operation_id string
+            old_image_fingerprint string
+            key_fingerprint string
+            key_directory object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            key object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            endpoint_prefix object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            endpoint_directory object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            git_socket object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            session_socket object
+              device integer
+              inode integer
+              uid integer
+              mode integer
+              links integer
+            completed boolean (optional)
+        external_mounts string
+        shared_images string
+        runtime object (optional)
           condition string
           incus_project string
           instance_name string
@@ -790,449 +1325,8 @@ control project.delete.preview (runtime)
           generation string (optional)
           image_fingerprint string (optional)
           original_status string (optional)
-          runtime_data_lost boolean (optional)
-          runtime_loss_unknown boolean (optional)
-        credentials object
-          old_uuid string
-          old_operation_id string
-          old_image_fingerprint string
-          key_fingerprint string
-          key_directory object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          key object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          endpoint_prefix object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          endpoint_directory object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          git_socket object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          session_socket object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          completed boolean (optional)
-      attachments array of string
-      branch_loss object (nullable)
-        assigned_ref string
-        assigned_tip string (optional)
-        commits_losing_p_reachability array of string
-        p_refs array of object
-          name string
-          oid string
-        origin object (optional)
-          url string (optional)
-          status string
-          reason string (optional)
-          containing_branches array of string
-          observed_refs_digest string (optional)
-          unresolved_refs array of string
-      images array of object
-        image object
-          key object
-            project string
-            commit_oid string
-            base_image string
-            system string
-            builder_version string
-          ref string
-          build string
-          labels array of object
-            name string
-            value string
-          selection string
-          material_sha256 string (optional)
-          size integer
-          state string
-        image_present boolean
-        observed_size integer
-        related_digest string
-      repository_identity object
-        device integer
-        inode integer
-        uid integer
-        mode integer
-        links integer
-      repository_parent_identity object
-        device integer
-        inode integer
-        uid integer
-        mode integer
-        links integer
-      warnings array of string
-      confirmation_token string
-      expires_at string
-control project.delete.confirm (runtime)
-  request
-    key string
-    project string
-    confirmation_token string
-  result
-    operation object
-      id string
-      idempotency_key string
-      kind string
-      project string
-      session_uuid string (optional)
-      intent object
-        project string
-        session string (optional)
-        branch string (optional)
-        new_branch string (optional)
-        choice string (optional)
-        source string (optional)
-        origin_ref string (optional)
-        replaces_session string (optional)
-        replaces_branch string (optional)
-        url string (optional)
-        destination string (optional)
-      request raw
-      status string
-      phase string
-      committed boolean
-      evidence raw (optional)
-      reason string (optional)
-      diagnostic string (optional)
-      created_at string
-      updated_at string
-control project.retained.delete.preview (runtime)
-  request
-    project string
-    branch string
-  result
-    preview object
-      project string
-      branch string
-      ref string
-      tip string
-      branch_loss object (nullable)
-        assigned_ref string
-        assigned_tip string (optional)
-        commits_losing_p_reachability array of string
-        p_refs array of object
-          name string
-          oid string
-        origin object (optional)
-          url string (optional)
-          status string
-          reason string (optional)
-          containing_branches array of string
-          observed_refs_digest string (optional)
-          unresolved_refs array of string
-      confirmation_token string
-      expires_at string
-control project.retained.delete.confirm (runtime)
-  request
-    key string
-    project string
-    branch string
-    confirmation_token string
-  result
-    operation object
-      id string
-      idempotency_key string
-      kind string
-      project string
-      session_uuid string (optional)
-      intent object
-        project string
-        session string (optional)
-        branch string (optional)
-        new_branch string (optional)
-        choice string (optional)
-        source string (optional)
-        origin_ref string (optional)
-        replaces_session string (optional)
-        replaces_branch string (optional)
-        url string (optional)
-        destination string (optional)
-      request raw
-      status string
-      phase string
-      committed boolean
-      evidence raw (optional)
-      reason string (optional)
-      diagnostic string (optional)
-      created_at string
-      updated_at string
-control session.create.replace.preview (runtime)
-  request
-    old_uuid string
-    key string
-    project string
-    branch string
-    choice string
-    source string (optional)
-    origin_ref string (optional)
-    expected_commit_oid string (optional)
-  result
-    preview object
-      old_uuid string
-      old_operation_id string
-      old_status string
-      old_phase string
-      old_request object
-        key string
-        project string
-        branch string
-        choice string
-        source string (optional)
-        origin_ref string (optional)
-        expected_commit_oid string (optional)
-        expected_origin_url string (optional)
-      old_branch object
-        ref string
-        observed boolean
-        exists boolean
-        oid string (optional)
-      new_branch object
-        ref string
-        observed boolean
-        exists boolean
-        oid string (optional)
-      old_captured_oid string
-      old_evidence_sha256 string
-      old_policy_sha256 string
-      old_image_fingerprint string
-      new_request object
-        key string
-        project string
-        branch string
-        choice string
-        source string (optional)
-        origin_ref string (optional)
-        expected_commit_oid string (optional)
-        expected_origin_url string (optional)
-      new_captured_oid string (optional)
-      new_image_fingerprint string
-      new_selection object
-        runtime_id string
-        runtime_sha256 string
-        host_id string
-        host_sha256 string
-        source_id string
-        source_sha256 string
-        agent_id string (optional)
-        agent_sha256 string (optional)
-      new_environment object (optional)
-        system string
-        base_fingerprint string
-        builder_storage_pool string
-        builder_policy_sha256 string
-        image_builder string
-      new_policy_sha256 string (optional)
-      provisional object
-        assigned_ref string
-        runtime string (optional)
-        builder string (optional)
-        session_key string (optional)
-        endpoint string (optional)
-        principal string (optional)
-        runtime_local string
-        cleanup object (optional)
-          old_uuid string
-          old_operation_id string
-          old_image_fingerprint string
-          key_fingerprint string
-          key_directory object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          key object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          endpoint_prefix object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          endpoint_directory object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          git_socket object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          session_socket object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          completed boolean (optional)
-      unsafe_reasons array of string
-      eligible boolean
-      confirmation_token string (optional)
-      expires_at string (optional)
-control session.create.replace.confirm (runtime)
-  request
-    old_uuid string
-    key string
-    confirmation_token string
-  result
-    operation object
-      id string
-      idempotency_key string
-      kind string
-      project string
-      session_uuid string (optional)
-      intent object
-        project string
-        session string (optional)
-        branch string (optional)
-        new_branch string (optional)
-        choice string (optional)
-        source string (optional)
-        origin_ref string (optional)
-        replaces_session string (optional)
-        replaces_branch string (optional)
-        url string (optional)
-        destination string (optional)
-      request raw
-      status string
-      phase string
-      committed boolean
-      evidence raw (optional)
-      reason string (optional)
-      diagnostic string (optional)
-      created_at string
-      updated_at string
-control session.create.cleanup.preview (runtime)
-  request
-    uuid string
-  result
-    preview object
-      uuid string
-      old_operation_id string
-      old_request object
-        key string
-        project string
-        branch string
-        choice string
-        source string (optional)
-        origin_ref string (optional)
-        expected_commit_oid string (optional)
-        expected_origin_url string (optional)
-      old_phase string
-      old_evidence_sha256 string
-      old_request_sha256 string (optional)
-      policy_sha256 string
-      assigned_branch object
-        ref string
-        observed boolean
-        exists boolean
-        oid string (optional)
-      image_fingerprint string
-      environment_builder object (optional)
-        cycle integer
-        state string
-      provisional object
-        assigned_ref string
-        runtime string (optional)
-        builder string (optional)
-        session_key string (optional)
-        endpoint string (optional)
-        principal string (optional)
-        runtime_local string
-        cleanup object (optional)
-          old_uuid string
-          old_operation_id string
-          old_image_fingerprint string
-          key_fingerprint string
-          key_directory object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          key object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          endpoint_prefix object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          endpoint_directory object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          git_socket object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          session_socket object
-            device integer
-            inode integer
-            uid integer
-            mode integer
-            links integer
-          completed boolean (optional)
-      external_mounts string
-      shared_images string
-      runtime object (optional)
-        condition string
-        incus_project string
-        instance_name string
-        incus_uuid string (optional)
-        generation string (optional)
-        image_fingerprint string (optional)
-        original_status string (optional)
-        runtime_data_lost boolean (optional)
-        runtime_loss_unknown boolean (optional)
-      loss_warnings array of string (optional)
-      eligible boolean
-      unsafe_reasons array of string
-      confirmation_token string (optional)
-      expires_at string (optional)
-control session.create.cleanup.confirm (runtime)
-  request
-    uuid string
-    key string
-    confirmation_token string
-  result
-    operation object
+    change_tag string (optional)
+    operation object (optional)
       id string
       idempotency_key string
       kind string

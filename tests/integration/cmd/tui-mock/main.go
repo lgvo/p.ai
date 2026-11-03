@@ -78,10 +78,6 @@ var (
 	mockConfigure = api.Method[fault, mockConfigureResult]{Name: "mock.configure"}
 )
 
-type preview struct {
-	UUID, Kind string
-	Expires    time.Time
-}
 type pending struct {
 	UUID    string
 	Expires time.Time
@@ -110,7 +106,6 @@ type fixture struct {
 	refs     map[string]map[string]string
 	origins  map[string]string
 	services map[string][]api.ProjectService
-	previews map[string]preview
 	tokens   map[string]pending
 	keys     map[string]string
 	calls    []call
@@ -128,7 +123,7 @@ const (
 var instanceID = uuid.NewSHA1(uuid.NameSpaceURL, []byte("tui-mock")).String()
 
 func newFixture(dir, dataset string) *fixture {
-	f := &fixture{dir: dir, projects: map[string]api.ProjectSummary{}, sessions: map[string]api.SessionView{}, ops: map[string]api.Operation{}, refs: map[string]map[string]string{}, origins: map[string]string{}, services: map[string][]api.ProjectService{}, previews: map[string]preview{}, tokens: map[string]pending{}, keys: map[string]string{}, calls: []call{}, faults: map[string]fault{}}
+	f := &fixture{dir: dir, projects: map[string]api.ProjectSummary{}, sessions: map[string]api.SessionView{}, ops: map[string]api.Operation{}, refs: map[string]map[string]string{}, origins: map[string]string{}, services: map[string][]api.ProjectService{}, tokens: map[string]pending{}, keys: map[string]string{}, calls: []call{}, faults: map[string]fault{}}
 	if dataset == "empty" {
 		return f
 	}
@@ -593,56 +588,64 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 		f.sessions[s.UUID] = s
 		return s, nil
 	})
-	control.Register(t, api.SessionRemovalPreview, func(_ context.Context, r api.SessionRemovalPreviewRequest) (api.RemovalPreviewResult, error) {
-		s, err := f.session(r.UUID)
-		if err != nil {
-			return api.RemovalPreviewResult{}, err
-		}
-		if s.AttachedCount != 0 {
-			return api.RemovalPreviewResult{}, mockError(api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(r.UUID))
-		}
-		status := map[string]string{"ready": "Running", "stopped": "Stopped"}[s.Condition]
-		if status == "" {
-			return api.RemovalPreviewResult{}, mockError(api.KindConflict, api.ReasonRuntimeUnsettled, api.TargetSession(r.UUID))
-		}
-		token := strings.ReplaceAll(uuid.NewString(), "-", "")
-		expires := time.Now().Add(time.Minute)
-		f.previews[token] = preview{UUID: s.UUID, Kind: r.Kind, Expires: expires}
-		return api.RemovalPreviewResult{Preview: f.removalReview(s, r.Kind, status, token, expires)}, nil
+	control.Register(t, api.SessionDiscard, func(ctx context.Context, r api.SessionDiscardRequest) (api.ChangeResult[api.RemovalDetails], error) {
+		return f.removal("discard", r.UUID, r.ChangeRequest).Do(ctx, r.ChangeRequest)
 	})
-	registerChange(t, f, api.SessionDiscard, func(r api.SessionDiscardRequest) string { return r.Key }, func(r api.SessionDiscardRequest) (api.SessionView, error) {
-		return f.remove("discard", r.UUID, r.ConfirmationToken)
-	})
-	registerChange(t, f, api.SessionDelete, func(r api.SessionDeleteRequest) string { return r.Key }, func(r api.SessionDeleteRequest) (api.SessionView, error) {
-		return f.remove("delete", r.UUID, r.ConfirmationToken)
+	control.Register(t, api.SessionDelete, func(ctx context.Context, r api.SessionDeleteRequest) (api.ChangeResult[api.RemovalDetails], error) {
+		return f.removal("delete", r.UUID, r.ChangeRequest).Do(ctx, r.ChangeRequest)
 	})
 }
 
-// remove discards or deletes session id after the review that token names.
-// Like P, it stops a running container itself before removing it.
-func (f *fixture) remove(kind, id, token string) (api.SessionView, error) {
-	s, err := f.session(id)
-	if err != nil {
-		return s, err
+// removal is the discard or delete (action) of session id, a risky change
+// that P's own change protocol answers: a dry run returns its plan and change
+// tag, and a run with the tag removes the session. Like P, it stops a running
+// container itself before removing it.
+func (f *fixture) removal(action, id string, req api.ChangeRequest) control.Change[api.RemovalDetails] {
+	kind := "session." + action
+	request, _ := json.Marshal(struct {
+		Key     string `json:"key"`
+		UUID    string `json:"uuid"`
+		IfMatch string `json:"if_match"`
+	}{req.Key, id, req.IfMatch})
+	return control.Change[api.RemovalDetails]{
+		Action: kind, Target: api.TargetSession(id), Instance: instanceID,
+		Hold: func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+		Plan: func(_ context.Context, p *api.Plan[api.RemovalDetails]) error {
+			return f.planRemoval(action, id, p)
+		},
+		// As P's: whether the container was running is information only.
+		Shown: func(d api.RemovalDetails) api.RemovalDetails {
+			d.Runtime.OriginalStatus = ""
+			return d
+		},
+		Replay: func(context.Context) (api.Operation, bool, error) {
+			opID := f.keys[req.Key]
+			if opID == "" {
+				return api.Operation{}, false, nil
+			}
+			if op := f.ops[opID]; op.Kind == kind && string(op.Request) == string(request) {
+				return op, true, nil
+			}
+			return api.Operation{}, false, mockError(api.KindInvalid, api.ReasonKeyReused, "")
+		},
+		Begin: func(_ context.Context, run control.Run[api.RemovalDetails]) (api.Operation, error) {
+			s, err := f.session(id)
+			if err != nil {
+				return api.Operation{}, err
+			}
+			f.native.stopSession(id)
+			delete(f.sessions, id)
+			delete(f.services, id)
+			if action == "delete" {
+				delete(f.refs[s.Project], s.Branch)
+			}
+			now := time.Now().UTC().Format(time.RFC3339Nano)
+			op := api.Operation{ID: uuid.NewString(), Key: req.Key, Kind: kind, Project: s.Project, SessionUUID: s.UUID, Status: "completed", Phase: "complete", Committed: true, Request: request, CreatedAt: now, UpdatedAt: now}
+			f.ops[op.ID] = op
+			f.keys[op.Key] = op.ID
+			return op, nil
+		},
 	}
-	if s.AttachedCount != 0 {
-		return s, mockError(api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(id))
-	}
-	review, ok := f.previews[token]
-	if !ok || time.Now().After(review.Expires) {
-		return s, mockError(api.KindPreconditionFailed, api.ReasonExpired, "")
-	}
-	if review.UUID != id || review.Kind != kind {
-		return s, mockError(api.KindPreconditionFailed, api.ReasonChanged, "")
-	}
-	delete(f.previews, token)
-	f.native.stopSession(id)
-	delete(f.sessions, id)
-	delete(f.services, id)
-	if kind == "delete" {
-		delete(f.refs[s.Project], s.Branch)
-	}
-	return s, nil
 }
 
 func (f *fixture) registerServices(t *control.MethodTable) {

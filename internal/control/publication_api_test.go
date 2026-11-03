@@ -58,27 +58,63 @@ func publicationOf(t *testing.T, op api.Operation) api.Publication {
 	return evidence.Publication
 }
 
+// publishRequest is publication r as an origin.publish call with change.
+func publishRequest(r PublicationRequest, change api.ChangeRequest) api.OriginPublishRequest {
+	return api.OriginPublishRequest{ExpectedOriginURL: r.ExpectedOriginURL, Project: r.Project, Kind: r.Kind, Source: r.Source,
+		SourceOID: r.SourceOID, DestinationRef: r.DestinationRef, ChangeRequest: change}
+}
+
+// planPublication is the dry run of publication r.
+func planPublication(a *OriginAPI, r PublicationRequest) (api.ChangeResult[api.PublicationPreview], error) {
+	return a.Publish(context.Background(), publishRequest(r, api.ChangeRequest{}))
+}
+
+// runPublication runs publication r under r.Key with change tag tag.
+func runPublication(a *OriginAPI, r PublicationRequest, tag string) (api.Operation, error) {
+	result, err := a.Publish(context.Background(), publishRequest(r, api.ChangeRequest{Key: r.Key, IfMatch: tag}))
+	if err != nil {
+		return api.Operation{}, err
+	}
+	return *result.Operation, nil
+}
+
+// publish publishes r as a client does: a dry run, then a run under r.Key
+// with the dry run's change tag. It returns the operation and the tag, which
+// replays the run.
+func publish(a *OriginAPI, r PublicationRequest) (api.Operation, string, error) {
+	plan, err := planPublication(a, r)
+	if err != nil {
+		return api.Operation{}, "", err
+	}
+	if plan.ChangeTag == "" {
+		return api.Operation{}, "", fmt.Errorf("publication not allowed: %+v", plan.Plan.Refusals)
+	}
+	op, err := runPublication(a, r, plan.ChangeTag)
+	return op, plan.ChangeTag, err
+}
+
 // TestPublicationPrestartFailureNeedsANewKey checks that a push that failed
 // before any native push started ends the operation failed with reason
-// origin: its key returns that operation, and a new key publishes.
+// origin: its run returns that operation again, and a new key publishes.
 func TestPublicationPrestartFailureNeedsANewKey(t *testing.T) {
 	_, f, a, r := publicationFixture(t)
-	ctx := context.Background()
 	read := readBack(t, a)
 	f.publishError = errors.New("source plugin unavailable before push")
-	failed := read(a.Publish(ctx, r))
+	op, tag, err := publish(a, r)
+	failed := read(op, err)
 	wantEnded(t, "prestart failure", failed, "failed", api.ReasonOrigin)
 	// Nothing was pushed: no commitment, and the evidence decides no outcome.
-	if failed.Committed || failed.Phase == "push-issued" || publicationOf(t, failed).Status != "" || f.pushes != 0 || f.observes != 1 {
+	// The dry run, the run and the worker each read the origin.
+	if failed.Committed || failed.Phase == "push-issued" || publicationOf(t, failed).Status != "" || f.pushes != 0 || f.observes != 3 {
 		t.Fatalf("prestart failure: pushes=%d observes=%d", f.pushes, f.observes)
 	}
 	f.publishError = nil
-	if replay := read(a.Publish(ctx, r)); replay.ID != failed.ID || replay.Status != "failed" || f.pushes != 0 || f.observes != 1 {
+	if replay := read(runPublication(a, r, tag)); replay.ID != failed.ID || replay.Status != "failed" || f.pushes != 0 || f.observes != 3 {
 		t.Fatalf("replay: %+v pushes=%d observes=%d", replay, f.pushes, f.observes)
 	}
 	r.Key = "publish-again"
-	again := read(a.Publish(ctx, r))
-	if again.Status != "completed" || publicationOf(t, again).Status != "advanced" || f.pushes != 1 {
+	op, _, err = publish(a, r)
+	if again := read(op, err); again.Status != "completed" || publicationOf(t, again).Status != "advanced" || f.pushes != 1 {
 		t.Fatalf("new key: %+v pushes=%d", again, f.pushes)
 	}
 }
@@ -97,7 +133,9 @@ func publicationFixture(t *testing.T) (*Store, *fakePublication, *OriginAPI, Pub
 		t.Fatal(err)
 	}
 	f := &fakePublication{relation: "fast_forward", status: "advanced"}
-	r := PublicationRequest{ExpectedOriginURL: "ssh://host/repo", Key: "publish-once", Project: "app", Kind: "session", Source: "550e8400-e29b-41d4-a716-446655440000", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main"}
+	// The store's own tests record r with its tag; a client's run takes the
+	// tag from its dry run (publish).
+	r := PublicationRequest{ExpectedOriginURL: "ssh://host/repo", Key: "publish-once", Project: "app", Kind: "session", Source: "550e8400-e29b-41d4-a716-446655440000", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main", IfMatch: testTag(time.Hour)}
 	a := &OriginAPI{Store: s, Runner: f}
 	runQueued(a)
 	return s, f, a, r
@@ -106,18 +144,23 @@ func TestPublicationDurableReplayAndCrossJournalKeys(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
 	ctx := context.Background()
 	read := readBack(t, a)
-	first := read(a.Publish(ctx, r))
-	if p := publicationOf(t, first); first.Status != "completed" || p.Status != "advanced" || p.Preview.SourceRef != "refs/heads/work" || f.pushes != 1 || f.observes != 1 {
+	op, tag, err := publish(a, r)
+	first := read(op, err)
+	if p := publicationOf(t, first); first.Status != "completed" || p.Status != "advanced" || p.Preview.SourceRef != "refs/heads/work" || f.pushes != 1 || f.observes != 3 {
 		t.Fatalf("first: %+v pushes=%d observes=%d", first, f.pushes, f.observes)
 	}
-	again := read(a.Publish(ctx, r))
-	if again.ID != first.ID || publicationOf(t, again).Status != "advanced" || f.pushes != 1 || f.observes != 1 {
+	again := read(runPublication(a, r, tag))
+	if again.ID != first.ID || publicationOf(t, again).Status != "advanced" || f.pushes != 1 || f.observes != 3 {
 		t.Fatalf("replay: %+v pushes=%d observes=%d", again, f.pushes, f.observes)
 	}
 	different := r
 	different.DestinationRef = "refs/heads/other"
-	if _, err := a.Publish(ctx, different); !errors.Is(err, ErrConflict) {
+	if _, err := runPublication(a, different, tag); !errors.Is(err, ErrConflict) {
 		t.Fatalf("changed key: %v", err)
+	}
+	var recorded string
+	if err := s.db.QueryRowContext(ctx, `SELECT change_hash FROM operations WHERE id=?`, first.ID).Scan(&recorded); err != nil || !validFingerprint(recorded) || strings.Contains(string(first.Request)+string(first.Evidence), recorded) {
+		t.Fatalf("publication recorded change hash %q, or shows it: %v", recorded, err)
 	}
 	// Keys share the journal's one namespace.
 	if _, err := a.Change(ctx, OriginChange{Key: r.Key, Project: "app", Kind: "remove", ExpectedURL: r.ExpectedOriginURL}); !errors.Is(err, ErrConflict) {
@@ -130,9 +173,9 @@ func TestPublicationDurableReplayAndCrossJournalKeys(t *testing.T) {
 
 func TestPublicationReplayAcrossStoreRestart(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
-	ctx := context.Background()
 	read := readBack(t, a)
-	first := read(a.Publish(ctx, r))
+	op, tag, err := publish(a, r)
+	first := read(op, err)
 	if first.Status != "completed" || publicationOf(t, first).Status != "advanced" {
 		t.Fatalf("first: %+v", first)
 	}
@@ -146,23 +189,23 @@ func TestPublicationReplayAcrossStoreRestart(t *testing.T) {
 	}
 	defer reopened.Close()
 	a.Store = reopened
-	result := read(a.Publish(ctx, r))
-	if result.ID != first.ID || publicationOf(t, result).Status != "advanced" || f.pushes != 1 || f.observes != 1 {
+	result := read(runPublication(a, r, tag))
+	if result.ID != first.ID || publicationOf(t, result).Status != "advanced" || f.pushes != 1 || f.observes != 3 {
 		t.Fatalf("restart replay: %+v pushes=%d observes=%d", result, f.pushes, f.observes)
 	}
 }
 
 // TestPublicationResumedAfterPushIssuedNeverPushes checks that a publication
 // the daemon resumes once it recorded push-issued ends failed with reason
-// outcome_unknown, without contacting the origin; its key returns that
-// operation. A divergent destination is refused without a push.
+// outcome_unknown, without contacting the origin; its run returns that
+// operation again.
 func TestPublicationResumedAfterPushIssuedNeverPushes(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
 	ctx := context.Background()
 	read := readBack(t, a)
 	run := a.Queue
 	a.Queue = func(string) error { return nil }
-	op, err := a.Publish(ctx, r)
+	op, tag, err := publish(a, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,36 +216,77 @@ func TestPublicationResumedAfterPushIssuedNeverPushes(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.Queue = run
+	observed := f.observes
 	if err = a.Queue(op.ID); err != nil {
 		t.Fatal(err)
 	}
 	resumed := read(op, nil)
 	wantEnded(t, "resumed publication", resumed, "failed", api.ReasonOutcomeUnknown)
-	if resumed.Phase != "push-issued" || publicationOf(t, resumed).Status != "outcome_unknown" || f.observes != 0 || f.pushes != 0 {
+	if resumed.Phase != "push-issued" || publicationOf(t, resumed).Status != "outcome_unknown" || f.observes != observed || f.pushes != 0 {
 		t.Fatalf("resumed: %+v observes=%d pushes=%d", resumed, f.observes, f.pushes)
 	}
-	if replay := read(a.Publish(ctx, r)); replay.ID != op.ID || replay.Status != "failed" || f.observes != 0 || f.pushes != 0 {
+	if replay := read(runPublication(a, r, tag)); replay.ID != op.ID || replay.Status != "failed" || f.observes != observed || f.pushes != 0 {
 		t.Fatalf("uncertain replay: %+v observes=%d pushes=%d", replay, f.observes, f.pushes)
 	}
-	r.Key = "refused"
+}
+
+// TestPublicationRefusesADivergentDestination checks that the dry run of a
+// publication to a divergent destination is not allowed and has no tag, and
+// that a destination that diverges after its run was admitted fails the
+// operation with reason changed; neither pushes.
+func TestPublicationRefusesADivergentDestination(t *testing.T) {
+	s, f, a, r := publicationFixture(t)
+	ctx := context.Background()
+	read := readBack(t, a)
 	f.relation = "divergent"
-	refused := read(a.Publish(ctx, r))
-	if refused.Status != "completed" || publicationOf(t, refused).Status != "refused" || f.pushes != 0 {
-		t.Fatalf("divergent: %+v pushes=%d", refused, f.pushes)
+	plan, err := planPublication(a, r)
+	if err != nil || plan.Plan.Allowed || plan.ChangeTag != "" || !reflect.DeepEqual(plan.Plan.Refusals, []api.Refusal{{Code: api.ReasonDestinationDivergent}}) ||
+		plan.Plan.Details.Relation != "divergent" || plan.Plan.Target != "project/app:origin-branch/main" {
+		t.Fatalf("divergent plan: %+v %v", plan, err)
+	}
+	f.relation = "fast_forward"
+	plan, err = planPublication(a, r)
+	if err != nil || plan.ChangeTag == "" {
+		t.Fatalf("fast-forward plan: %+v %v", plan, err)
+	}
+	f.relation = "divergent"
+	if _, err = runPublication(a, r, plan.ChangeTag); !answers(err, api.KindPreconditionFailed, api.ReasonChanged) {
+		t.Fatalf("run of a plan that diverged answered %v", err)
+	}
+	if _, err = s.GetOperationByKey(ctx, r.Key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("refused run recorded its key: %v", err)
+	}
+	// It diverges between the run's admission and its worker.
+	f.relation = "fast_forward"
+	plan, _ = planPublication(a, r)
+	run := a.Queue
+	a.Queue = func(string) error { return nil }
+	op, err := runPublication(a, r, plan.ChangeTag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.relation = "divergent"
+	if err = run(op.ID); err != nil {
+		t.Fatal(err)
+	}
+	failed := read(op, nil)
+	wantEnded(t, "a publication that diverged after admission", failed, "failed", api.ReasonChanged)
+	if failed.Committed || publicationOf(t, failed).Status != "" || publicationOf(t, failed).Preview.Relation != "divergent" || f.pushes != 0 {
+		t.Fatalf("diverged publication: %+v pushes=%d", failed, f.pushes)
 	}
 }
 
 func TestPublicationUnknownResultNeverRepeatsPush(t *testing.T) {
 	_, f, a, r := publicationFixture(t)
 	f.status = "outcome_unknown"
-	ctx := context.Background()
 	read := readBack(t, a)
-	first := read(a.Publish(ctx, r))
+	op, tag, err := publish(a, r)
+	first := read(op, err)
 	wantEnded(t, "uncertain push", first, "failed", api.ReasonOutcomeUnknown)
 	if publicationOf(t, first).Status != "outcome_unknown" || f.pushes != 1 {
 		t.Fatalf("first uncertain: %+v pushes=%d", first, f.pushes)
 	}
-	replay := read(a.Publish(ctx, r))
+	replay := read(runPublication(a, r, tag))
 	if replay.ID != first.ID || replay.Status != "failed" || replay.Reason != api.ReasonOutcomeUnknown || f.pushes != 1 {
 		t.Fatalf("uncertain replay: %+v pushes=%d", replay, f.pushes)
 	}
@@ -216,13 +300,13 @@ func TestPublicationHoldsItsSession(t *testing.T) {
 	read := readBack(t, a)
 	run := a.Queue
 	a.Queue = func(string) error { return nil }
-	op, err := a.Publish(ctx, r)
+	op, _, err := publish(a, r)
 	if err != nil {
 		t.Fatal(err)
 	}
 	other := r
 	other.Key, other.DestinationRef = "other", "refs/heads/other"
-	_, err = a.Publish(ctx, other)
+	_, err = planPublication(a, other)
 	wantAnswer(t, "publication of a held session", err, api.KindRetry, api.ReasonSessionHeld, api.TargetOperation(op.ID))
 	a.Queue = run
 	if err = a.Queue(op.ID); err != nil {
@@ -234,7 +318,8 @@ func TestPublicationHoldsItsSession(t *testing.T) {
 	if _, err = s.GetOperationByKey(ctx, other.Key); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("refused publication recorded its key: %v", err)
 	}
-	if done := read(a.Publish(ctx, other)); done.Status != "completed" {
+	op, _, err = publish(a, other)
+	if done := read(op, err); done.Status != "completed" {
 		t.Fatalf("publication once the session is free: %+v", done)
 	}
 }
@@ -245,19 +330,21 @@ func TestPublicationOwnershipAndRetainedSelection(t *testing.T) {
 	retained.Kind = "retained"
 	retained.Source = "work"
 	retained.Key = "retained"
-	if _, err := a.PreviewPublication(ctx, retained); !errors.Is(err, ErrConflict) {
-		t.Fatalf("assigned branch used as retained: %v", err)
+	plan, err := planPublication(a, retained)
+	if err != nil || plan.Plan.Allowed || plan.ChangeTag != "" ||
+		!reflect.DeepEqual(plan.Plan.Refusals, []api.Refusal{{Code: api.ReasonBranchAssigned, Target: "project/app:branch/work"}}) {
+		t.Fatalf("assigned branch used as retained: %+v %v", plan, err)
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE uuid=?`, r.Source); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.PreviewPublication(ctx, r); !errors.Is(err, ErrNotFound) {
+	if _, err := planPublication(a, r); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("removed session: %v", err)
 	}
-	retained.Key = ""
-	p, err := a.PreviewPublication(ctx, retained)
-	if err != nil || p.SourceKind != "retained" || p.SourceRef != "refs/heads/work" || f.observes != 1 {
-		t.Fatalf("retained preview: %+v %v", p, err)
+	plan, err = planPublication(a, retained)
+	p := plan.Plan
+	if err != nil || !p.Allowed || plan.ChangeTag == "" || p.Details.SourceKind != "retained" || p.Details.SourceRef != "refs/heads/work" || len(p.Loss) != 0 || f.observes != 1 {
+		t.Fatalf("retained plan: %+v %v", plan, err)
 	}
 }
 
@@ -271,19 +358,21 @@ func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 		return handler(ctx, method, json.RawMessage(body))
 	}
 	body := `{"expected_origin_url":"ssh://host/repo","project":"app","kind":"session","source":"` + r.Source + `","source_oid":"` + r.SourceOID + `","destination_ref":"refs/heads/main"}`
-	result, e := request("origin.publication.preview", body)
-	if e != nil || result.(api.PublicationPreviewResult).Preview.SourceRef != "refs/heads/work" {
-		t.Fatalf("preview: %v %v", result, e)
+	result, e := request("origin.publish", body)
+	plan, _ := result.(api.ChangeResult[api.PublicationPreview])
+	if e != nil || plan.Plan == nil || plan.Plan.Details.SourceRef != "refs/heads/work" || plan.ChangeTag == "" || plan.Operation != nil || f.pushes != 0 {
+		t.Fatalf("dry run: %v %v", result, e)
 	}
-	published, e := request("origin.publish", strings.TrimSuffix(body, "}")+`,"key":"once"}`)
-	if e != nil || f.pushes != 1 {
+	run := strings.TrimSuffix(body, "}") + `,"key":"once","if_match":"` + plan.ChangeTag + `"}`
+	published, e := request("origin.publish", run)
+	if e != nil || f.pushes != 1 || published.(api.ChangeResult[api.PublicationPreview]).Plan != nil {
 		t.Fatalf("publish: %v pushes=%d", e, f.pushes)
 	}
-	replayed, e := request("origin.publish", strings.TrimSuffix(body, "}")+`,"key":"once"}`)
-	if e != nil || f.pushes != 1 || replayed.(api.OperationResult).Operation.ID != published.(api.OperationResult).Operation.ID {
+	replayed, e := request("origin.publish", run)
+	if e != nil || f.pushes != 1 || replayed.(api.ChangeResult[api.PublicationPreview]).Operation.ID != published.(api.ChangeResult[api.PublicationPreview]).Operation.ID {
 		t.Fatalf("replay: %v %v pushes=%d", replayed, e, f.pushes)
 	}
-	if _, e = request("origin.publish", strings.TrimSuffix(body, "}")+`,"key":"once","SOURCE":"wrong"}`); e == nil || e.Kind() != "invalid" {
+	if _, e = request("origin.publish", strings.TrimSuffix(run, "}")+`,"SOURCE":"wrong"}`); e == nil || e.Kind() != "invalid" {
 		t.Fatalf("case-variant field accepted: %v", e)
 	}
 	page, e := callMethod(t, ctx, handler, api.ProjectRetainedBranches, api.ProjectRetainedBranchesRequest{Project: "app", Limit: 8})
@@ -311,14 +400,14 @@ func TestPublicationRejectsChangedOriginBeforeContact(t *testing.T) {
 			s, f, a, r := publicationFixture(t)
 			ctx := context.Background()
 			read := readBack(t, a)
-			preview, err := a.PreviewPublication(ctx, r)
-			if err != nil || preview.URL != r.ExpectedOriginURL {
-				t.Fatalf("preview: %+v %v", preview, err)
+			plan, err := planPublication(a, r)
+			if err != nil || plan.Plan.Details.URL != r.ExpectedOriginURL {
+				t.Fatalf("dry run: %+v %v", plan, err)
 			}
 			var failed api.Operation
 			if prepared {
 				f.publishError = errors.New("prestart failure")
-				failed = read(a.Publish(ctx, r))
+				failed = read(runPublication(a, r, plan.ChangeTag))
 				wantEnded(t, "prestart failure", failed, "failed", api.ReasonOrigin)
 				f.publishError = nil
 			}
@@ -336,13 +425,13 @@ func TestPublicationRejectsChangedOriginBeforeContact(t *testing.T) {
 			}
 			defer reopened.Close()
 			a.Store = reopened
-			op, err := a.Publish(ctx, r)
+			op, err := runPublication(a, r, plan.ChangeTag)
 			if prepared {
 				// The key's failed operation answers; it never runs again.
 				if err != nil || op.ID != failed.ID || op.Status != "failed" {
 					t.Fatalf("failed key replayed %+v %v", op, err)
 				}
-			} else if !errors.Is(err, ErrConflict) {
+			} else if !answers(err, api.KindPreconditionFailed, api.ReasonChanged) {
 				t.Fatalf("changed origin accepted: %v", err)
 			}
 			if f.observes != contacts || f.pushes != 0 {
@@ -351,15 +440,15 @@ func TestPublicationRejectsChangedOriginBeforeContact(t *testing.T) {
 			changed := r
 			changed.ExpectedOriginURL = "ssh://host/replacement"
 			if prepared {
-				if _, err = a.Publish(ctx, changed); !errors.Is(err, ErrConflict) {
+				if _, err = runPublication(a, changed, plan.ChangeTag); !errors.Is(err, ErrConflict) {
 					t.Fatalf("retargeted durable key: %v", err)
 				}
 			} else if _, err = reopened.GetOperationByKey(ctx, r.Key); !errors.Is(err, ErrNotFound) {
 				// A refused request records nothing under its key.
 				t.Fatalf("refused publication recorded its key: %v", err)
 			}
-			if _, err = a.PreviewPublication(ctx, r); !errors.Is(err, ErrConflict) {
-				t.Fatalf("stale preview target accepted: %v", err)
+			if _, err = planPublication(a, r); !answers(err, api.KindPreconditionFailed, api.ReasonChanged) {
+				t.Fatalf("stale publication target accepted: %v", err)
 			}
 		})
 	}
@@ -369,70 +458,71 @@ func TestPublicationCompletedReplayKeepsOriginalIdentity(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
 	ctx := context.Background()
 	read := readBack(t, a)
-	first := read(a.Publish(ctx, r))
+	op, tag, err := publish(a, r)
+	first := read(op, err)
 	if _, err := s.db.ExecContext(ctx, `UPDATE project_origins SET url='ssh://host/replacement' WHERE project_path='app'`); err != nil {
 		t.Fatal(err)
 	}
-	again := read(a.Publish(ctx, r))
-	if again.ID != first.ID || publicationOf(t, again).Preview.URL != publicationOf(t, first).Preview.URL || f.pushes != 1 || f.observes != 1 {
+	again := read(runPublication(a, r, tag))
+	if again.ID != first.ID || publicationOf(t, again).Preview.URL != publicationOf(t, first).Preview.URL || f.pushes != 1 || f.observes != 3 {
 		t.Fatalf("replay retargeted or contacted: %+v", again)
 	}
 	changed := r
 	changed.ExpectedOriginURL = "ssh://host/replacement"
-	if _, err := a.Publish(ctx, changed); !errors.Is(err, ErrConflict) {
+	if _, err := runPublication(a, changed, tag); !errors.Is(err, ErrConflict) {
 		t.Fatalf("completed key retargeted: %v", err)
 	}
 }
 
 func TestPublicationRPCRequiresOriginIdentity(t *testing.T) {
 	_, _, _, r := publicationFixture(t)
-	body, _ := json.Marshal(map[string]any{"key": r.Key, "project": r.Project, "kind": r.Kind, "source": r.Source, "source_oid": r.SourceOID, "destination_ref": r.DestinationRef})
+	body, _ := json.Marshal(map[string]any{"project": r.Project, "kind": r.Kind, "source": r.Source, "source_oid": r.SourceOID, "destination_ref": r.DestinationRef})
 	h := NewHandler(HandlerConfig{Origins: &OriginAPI{Runner: &fakePublication{}}})
 	if _, rpcErr := h(context.Background(), api.OriginPublish.Name, body); rpcErr == nil || rpcErr.Kind() != "invalid" {
 		t.Fatalf("missing origin identity accepted: %+v", rpcErr)
 	}
 }
 
-// TestPublicationErrorsAnswerTheirKind checks each publication refusal's
-// answer through the handler.
-func TestPublicationErrorsAnswerTheirKind(t *testing.T) {
+// TestPublicationRefusalsAndErrors checks, through the handler, each state
+// that refuses a publication's plan and each error its dry run answers.
+func TestPublicationRefusalsAndErrors(t *testing.T) {
 	keyReused := &api.Error{Code: -32602, Message: "invalid", Data: &api.ErrorData{Reason: api.ReasonKeyReused, Field: "key"}}
 	session := "550e8400-e29b-41d4-a716-446655440000"
 	for _, test := range []struct {
 		name    string
 		prepare func(t *testing.T, s *Store, f *fakePublication, a *OriginAPI, r PublicationRequest)
 		change  func(r *PublicationRequest)
+		refusal *api.Refusal
 		want    *api.Error
 	}{
 		{"local-only project", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
 			mustExec(t, s, `DELETE FROM project_origins WHERE project_path='app'`)
-		}, nil, wantError(api.KindConflict, api.ReasonOriginNotSet, "project/app")},
-		{"origin changed since review", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+		}, nil, &api.Refusal{Code: api.ReasonOriginNotSet, Target: "project/app"}, nil},
+		{"origin changed since the client read it", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
 			mustExec(t, s, `UPDATE project_origins SET url='ssh://host/replacement' WHERE project_path='app'`)
-		}, nil, wantError(api.KindPreconditionFailed, api.ReasonChanged, "")},
-		{"key recorded for another publication", func(t *testing.T, _ *Store, _ *fakePublication, a *OriginAPI, r PublicationRequest) {
-			if _, err := a.Publish(context.Background(), r); err != nil {
-				t.Fatal(err)
-			}
-		}, func(r *PublicationRequest) { r.DestinationRef = "refs/heads/other" }, keyReused},
+		}, nil, nil, wantError(api.KindPreconditionFailed, api.ReasonChanged, "")},
 		{"removed session", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
 			mustExec(t, s, `DELETE FROM sessions WHERE uuid='`+session+`'`)
-		}, nil, wantError(api.KindNotFound, api.ReasonSession, "session/"+session)},
+		}, nil, nil, wantError(api.KindNotFound, api.ReasonSession, "session/"+session)},
 		{"assigned branch as a retained source", nil, func(r *PublicationRequest) { r.Kind, r.Source = "retained", "work" },
-			wantError(api.KindConflict, api.ReasonBranchAssigned, "project/app:branch/work")},
+			&api.Refusal{Code: api.ReasonBranchAssigned, Target: "project/app:branch/work"}, nil},
 		{"session held by a running operation", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
 			holdSession(t, s, session, "running")
-		}, nil, wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-holder")},
+		}, nil, nil, wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-holder")},
 		{"session held by a blocked operation", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
 			holdSession(t, s, session, "blocked")
-		}, nil, wantError(api.KindConflict, api.ReasonOperationBlocked, "operation/op-holder")},
+		}, nil, &api.Refusal{Code: api.ReasonOperationBlocked, Target: "operation/op-holder"}, nil},
 		// The journal's one admission check names a session's unfinished
 		// creation as it names any other holder.
 		{"session being created", func(t *testing.T, s *Store, _ *fakePublication, _ *OriginAPI, _ PublicationRequest) {
 			holdSession(t, s, session, "running")
 			mustExec(t, s, `UPDATE sessions SET registry_state='creating' WHERE uuid='`+session+`'`)
-		}, nil, wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-holder")},
-		{"unknown project", nil, func(r *PublicationRequest) { r.Project = "missing" }, wantError(api.KindNotFound, api.ReasonProject, "project/missing")},
+		}, nil, nil, wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-holder")},
+		{"unknown project", nil, func(r *PublicationRequest) { r.Project = "missing" }, nil, wantError(api.KindNotFound, api.ReasonProject, "project/missing")},
+		// An unreachable origin is no refusal: the dry run cannot plan.
+		{"origin unreachable", func(_ *testing.T, _ *Store, f *fakePublication, _ *OriginAPI, _ PublicationRequest) {
+			f.failure = errors.New("offline")
+		}, nil, nil, wantError(api.KindFailed, api.ReasonOrigin, "")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s, f, a, r := publicationFixture(t)
@@ -443,25 +533,28 @@ func TestPublicationErrorsAnswerTheirKind(t *testing.T) {
 				test.change(&r)
 			}
 			handler := NewHandler(HandlerConfig{Store: s, Origins: a})
-			_, e := callMethod(t, context.Background(), handler, api.OriginPublish, api.OriginPublishRequest(r))
+			result, e := callMethod(t, context.Background(), handler, api.OriginPublish, publishRequest(r, api.ChangeRequest{}))
 			if !reflect.DeepEqual(e, test.want) {
-				t.Fatalf("publish answered %v, want %v", e, test.want)
+				t.Fatalf("dry run answered %v, want %v", e, test.want)
+			}
+			if test.refusal != nil && (result.Plan == nil || result.Plan.Allowed || result.ChangeTag != "" || !reflect.DeepEqual(result.Plan.Refusals, []api.Refusal{*test.refusal})) {
+				t.Fatalf("dry run planned %+v, want refusal %+v", result, test.refusal)
+			}
+			if f.pushes != 0 {
+				t.Fatalf("pushed: %d", f.pushes)
 			}
 		})
 	}
-	// An unreachable origin is no refusal: the publication's operation ends
-	// failed with reason origin, before any push.
-	t.Run("origin unreachable", func(t *testing.T) {
-		s, f, a, r := publicationFixture(t)
-		f.failure = errors.New("offline")
-		handler := NewHandler(HandlerConfig{Store: s, Origins: a})
-		result, e := callMethod(t, context.Background(), handler, api.OriginPublish, api.OriginPublishRequest(r))
-		if e != nil || result.Operation.Kind != KindOriginPublish {
-			t.Fatalf("publish answered %+v %v, want its operation", result, e)
+	t.Run("key recorded for another publication", func(t *testing.T) {
+		s, _, a, r := publicationFixture(t)
+		_, tag, err := publish(a, r)
+		if err != nil {
+			t.Fatal(err)
 		}
-		wantEnded(t, "publication to an unreachable origin", readBack(t, a)(result.Operation, nil), "failed", api.ReasonOrigin)
-		if f.pushes != 0 {
-			t.Fatalf("pushed to an unreachable origin: %d", f.pushes)
+		r.DestinationRef = "refs/heads/other"
+		handler := NewHandler(HandlerConfig{Store: s, Origins: a})
+		if _, e := callMethod(t, context.Background(), handler, api.OriginPublish, publishRequest(r, api.ChangeRequest{Key: r.Key, IfMatch: tag})); !reflect.DeepEqual(e, keyReused) {
+			t.Fatalf("run answered %v, want %v", e, keyReused)
 		}
 	})
 }
@@ -489,7 +582,7 @@ func TestPublicationHoldsSourceAssignmentAuthority(t *testing.T) {
 	ctx := context.Background()
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
 	f.observeHook = func() { close(entered); <-release }
-	go func() { _, err := a.Publish(ctx, r); done <- err }()
+	go func() { _, err := planPublication(a, r); done <- err }()
 	<-entered
 	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
 	_, _, err := s.ReserveSession(lockCtx, ReserveSessionRequest{Key: "competing", Project: "app", Branch: "retained", Choice: "existing"})
@@ -500,5 +593,29 @@ func TestPublicationHoldsSourceAssignmentAuthority(t *testing.T) {
 	}
 	if err = <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A publication whose tag expires while it waits for the store's connection
+// is refused as expired inside its transaction, and records nothing.
+func TestPublicationTagExpiringBeforeItsTransactionIsRefused(t *testing.T) {
+	s, _, _, r := publicationFixture(t)
+	ctx := context.Background()
+	expiry := time.Now().Add(2 * time.Second).Truncate(time.Second)
+	r.IfMatch = changeTag(expiry, testHash)
+	_, err := s.BeginPublication(ctx, r, testHash, func(ctx context.Context) (string, error) {
+		// Another transaction holds the connection past the tag's expiry.
+		held, err := s.beginJournal(ctx)
+		if err != nil {
+			return "", err
+		}
+		go func() { time.Sleep(time.Until(expiry) + 50*time.Millisecond); held.Rollback() }()
+		return "work", nil
+	})
+	if !answers(err, api.KindPreconditionFailed, api.ReasonExpired) {
+		t.Fatalf("a tag that expired before the transaction answered %v", err)
+	}
+	if _, err = s.GetOperationByKey(ctx, r.Key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("an expired run recorded its operation: %v", err)
 	}
 }

@@ -16,8 +16,8 @@ func retainedDeleteFixture(t *testing.T) (*Store, string, RetainedDeleteRequest,
 	if err := s.CreateProject(ctx, "app", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	r := RetainedDeleteRequest{Key: "delete-retained", Project: "app", Branch: "saved", TokenSHA256: strings.Repeat("a", 64)}
-	e := RetainedDeleteEvidence{Project: "app", Branch: "saved", Tip: strings.Repeat("b", 40), ReviewSHA256: strings.Repeat("c", 64), InstanceUUID: "11111111-1111-4111-8111-111111111111", PreviewExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}
+	r := RetainedDeleteRequest{Key: "delete-retained", Project: "app", Branch: "saved", IfMatch: testTag(time.Minute)}
+	e := RetainedDeleteEvidence{Project: "app", Branch: "saved", Tip: strings.Repeat("b", 40), ReviewSHA256: strings.Repeat("c", 64), InstanceUUID: "11111111-1111-4111-8111-111111111111"}
 	return s, dir, r, e
 }
 
@@ -32,8 +32,10 @@ func TestRetainedDeleteGuardedEffectAndRestart(t *testing.T) {
 		}
 		return nil
 	}
-	op, err := s.BeginRetainedDelete(ctx, r, e, verify)
-	if err != nil || op.Phase != "guarded" || verified != 1 {
+	planned := 0
+	recheck := func(context.Context) error { planned++; return nil }
+	op, err := s.BeginRetainedDelete(ctx, r, e, testHash, recheck)
+	if err != nil || op.Phase != "guarded" || planned != 1 {
 		t.Fatalf("begin: %+v %v", op, err)
 	}
 	checkIntent(t, s, op, api.OperationIntent{Project: r.Project, Branch: r.Branch})
@@ -44,7 +46,7 @@ func TestRetainedDeleteGuardedEffectAndRestart(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES('550e8400-e29b-41d4-a716-446655440000','app','saved','established','{}',?)`, strings.Repeat("d", 64)); err == nil {
 		t.Fatal("guarded branch assigned")
 	}
-	if replay, err := s.BeginRetainedDelete(ctx, r, e, verify); err != nil || replay.ID != op.ID || verified != 1 {
+	if replay, err := s.BeginRetainedDelete(ctx, r, e, testHash, recheck); err != nil || replay.ID != op.ID || planned != 1 {
 		t.Fatalf("replay: %+v %v", replay, err)
 	}
 	effectCalls := 0
@@ -85,13 +87,13 @@ func TestRetainedDeleteGuardedEffectAndRestart(t *testing.T) {
 func TestRetainedDeleteStaleAndExpiredReviewNeverIssue(t *testing.T) {
 	s, _, r, e := retainedDeleteFixture(t)
 	ctx := context.Background()
-	e.PreviewExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
-	_, err := s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil })
+	expired := r
+	expired.IfMatch = testTag(-time.Second)
+	_, err := s.BeginRetainedDelete(ctx, expired, e, testHash, func(context.Context) error { return nil })
 	if answer := answerError(ctx, err); !errors.Is(err, ErrConflict) || answer.Kind() != api.KindPreconditionFailed || answer.Reason() != api.ReasonExpired {
-		t.Fatalf("expired review answered %v", answer)
+		t.Fatalf("expired tag answered %v", answer)
 	}
-	e.PreviewExpiresAt = time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
-	op, err := s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil })
+	op, err := s.BeginRetainedDelete(ctx, r, e, testHash, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestRetainedDeleteStaleAndExpiredReviewNeverIssue(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES('550e8400-e29b-41d4-a716-446655440000','app','saved','established','{}',?)`, strings.Repeat("d", 64)); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil })
+	_, err = s.BeginRetainedDelete(ctx, r, e, testHash, func(context.Context) error { return nil })
 	if answer := answerError(ctx, err); !errors.Is(err, ErrConflict) || answer.Kind() != api.KindConflict || answer.Reason() != api.ReasonBranchAssigned || answer.Target() != "project/app:branch/saved" {
 		t.Fatalf("assigned branch answered %v", answer)
 	}

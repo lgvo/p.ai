@@ -127,12 +127,12 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	return sessions, digest(raw), nil
 }
 
-func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest, ev ProjectDeleteEvidence, expires string, verify func(context.Context) error) (api.Operation, error) {
-	if !validProject(req.Project) || req.Key == "" || len(req.Key) > 128 || !validFingerprint(req.TokenSHA256) || !validProjectDeleteEvidence(ev) || verify == nil {
-		return api.Operation{}, ErrInvalid
-	}
-	expiry, e := time.Parse(time.RFC3339Nano, expires)
-	if e != nil {
+// BeginProjectDelete retires project req.Project and records the deletion
+// run req, whose plan has change hash hash, after verify planned it again
+// under the Git authority.
+func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest, ev ProjectDeleteEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	expiry, ok := api.ParseChangeTag(req.IfMatch)
+	if !validProject(req.Project) || req.Key == "" || len(req.Key) > 128 || !ok || !validFingerprint(hash) || !validProjectDeleteEvidence(ev) || verify == nil {
 		return api.Operation{}, ErrInvalid
 	}
 	raw, _ := json.Marshal(req)
@@ -173,8 +173,8 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	if !errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, err
 	}
-	// The reviewed facts are checked again inside the transaction that
-	// retires the project; any difference makes the review stale.
+	// The planned facts are checked again inside the transaction that
+	// retires the project; any difference makes the change tag stale.
 	if !time.Now().Before(expiry) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
@@ -206,7 +206,7 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	}
 
 	for _, r := range ev.Resources {
-		if r.Status != "remaining" || r.DeleteIssued {
+		if r.Status != "remaining" || r.StopIssued || r.DeleteIssued {
 			return api.Operation{}, ErrInvalid
 		}
 	}
@@ -227,7 +227,7 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 		return api.Operation{}, err
 	}
 	rec := operationRecord{ID: id, Key: req.Key, Kind: KindProjectDelete, Project: req.Project, Request: raw,
-		Intent: api.OperationIntent{Project: req.Project}, Phase: "ensure-absent", Committed: true, Evidence: proof, Now: now}
+		Intent: api.OperationIntent{Project: req.Project}, Phase: "ensure-absent", Committed: true, Evidence: proof, ChangeHash: hash, Now: now}
 	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -257,7 +257,7 @@ func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation,
 	}
 	for i, r := range prev.Resources {
 		n := next.Resources[i]
-		if r.Kind != n.Kind || r.ID != n.ID || r.DeleteIssued && !n.DeleteIssued || projectDeleteResourceAbsent(r) && r.Status != n.Status {
+		if r.Kind != n.Kind || r.ID != n.ID || r.StopIssued && !n.StopIssued || r.DeleteIssued && !n.DeleteIssued || projectDeleteResourceAbsent(r) && r.Status != n.Status {
 			return ErrConflict
 		}
 	}

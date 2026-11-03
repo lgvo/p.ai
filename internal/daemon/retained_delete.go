@@ -2,27 +2,79 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 )
 
-type retainedDeletePreviewState struct {
-	Preview api.RetainedDeletePreview
-	Expiry  time.Time
+// DeleteRetainedBranch answers a deletion of retained branch branch of
+// project: its plan, or the operation of a run. It does not contact the
+// origin: whether the origin keeps the branch's commits is the user's
+// concern.
+func (l *lifecycle) DeleteRetainedBranch(ctx context.Context, project, branch string, req api.ChangeRequest) (api.ChangeResult[api.RetainedDeleteDetails], error) {
+	recorded := control.RetainedDeleteRequest{Key: req.Key, Project: project, Branch: branch, IfMatch: req.IfMatch}
+	change := control.Change[api.RetainedDeleteDetails]{
+		Action: api.ProjectRetainedDelete.Name, Target: api.TargetBranch(project, branch), Instance: l.instanceID,
+		// BeginRetainedDelete plans again under the Git authority, and the
+		// worker checks the branch again before it deletes it.
+		Hold: func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+		Plan: func(ctx context.Context, p *api.Plan[api.RetainedDeleteDetails]) error {
+			return l.planRetainedDelete(ctx, project, branch, p)
+		},
+		Replay: func(ctx context.Context) (api.Operation, bool, error) {
+			return replayRequest(l, ctx, req.Key, control.KindRetainedDelete, recorded)
+		},
+		Begin: func(ctx context.Context, run control.Run[api.RetainedDeleteDetails]) (api.Operation, error) {
+			d := run.Plan.Details
+			digest, err := deleteReviewDigest(d.BranchLoss)
+			if err != nil {
+				return api.Operation{}, err
+			}
+			ev := control.RetainedDeleteEvidence{Project: project, Branch: branch, Tip: d.Tip, ReviewSHA256: digest, InstanceUUID: l.instanceID}
+			op, err := l.store.BeginRetainedDelete(ctx, recorded, ev, run.Hash, run.Recheck)
+			if err != nil {
+				return api.Operation{}, err
+			}
+			return op, l.enqueue(op.ID)
+		},
+	}
+	return change.Do(ctx, req)
+}
+
+// planRetainedDelete plans deleting retained branch branch of project into p.
+func (l *lifecycle) planRetainedDelete(ctx context.Context, project, branch string, p *api.Plan[api.RetainedDeleteDetails]) error {
+	if err := l.checkBranchName(ctx, "branch", branch); err != nil {
+		return err
+	}
+	p.Details = api.RetainedDeleteDetails{Project: project, Branch: branch, Ref: "refs/heads/" + branch}
+	retained, err := l.store.IsRetainedBranch(ctx, project, branch)
+	if errors.Is(err, control.ErrNotFound) {
+		return control.NotFound(api.ReasonProject, api.TargetProject(project))
+	}
+	if err != nil {
+		return err
+	}
+	if !retained {
+		return control.Conflict(api.ReasonBranchAssigned, api.TargetBranch(project, branch))
+	}
+	if err = l.store.CheckBranchUnreserved(ctx, project, branch); err != nil {
+		return err
+	}
+	review, err := l.freshRetainedDeleteReview(ctx, project, branch)
+	if err != nil {
+		return err
+	}
+	p.Details.Ref, p.Details.Tip, p.Details.BranchLoss = review.AssignedRef, review.AssignedTip, review
+	p.Loss = branchLoss(api.TargetBranch(project, branch), review)
+	return nil
 }
 
 // freshRetainedDeleteReview reviews deleting branch afresh. A branch that is
 // gone answers not_found; a failure to review it is returned as it is.
-func (l *lifecycle) freshRetainedDeleteReview(ctx context.Context, project, branch string, scope *gitservice.OriginScope) (*api.RemovalBranchLoss, error) {
+func (l *lifecycle) freshRetainedDeleteReview(ctx context.Context, project, branch string) (*api.RemovalBranchLoss, error) {
 	loss, err := l.git.backend.BranchRemovalLoss(ctx, project, branch, true)
 	if err != nil {
 		return nil, gitFailure(err)
@@ -30,130 +82,14 @@ func (l *lifecycle) freshRetainedDeleteReview(ctx context.Context, project, bran
 	if loss.AssignedTip == "" {
 		return nil, control.NotFound(api.ReasonBranch, api.TargetBranch(project, branch))
 	}
-	return l.makeDeleteReviewInScope(ctx, project, loss, scope)
-}
-
-func (l *lifecycle) PreviewRetainedDelete(ctx context.Context, project, branch string) (api.RetainedDeletePreview, error) {
-	if project == "" || branch == "" {
-		return api.RetainedDeletePreview{}, control.ErrInvalid
-	}
-	if err := l.checkBranchName(ctx, "branch", branch); err != nil {
-		return api.RetainedDeletePreview{}, err
-	}
-	retained, err := l.store.IsRetainedBranch(ctx, project, branch)
-	if errors.Is(err, control.ErrNotFound) {
-		return api.RetainedDeletePreview{}, control.NotFound(api.ReasonProject, api.TargetProject(project))
-	}
-	if err != nil {
-		return api.RetainedDeletePreview{}, err
-	}
-	if !retained {
-		return api.RetainedDeletePreview{}, control.Conflict(api.ReasonBranchAssigned, api.TargetBranch(project, branch))
-	}
-	var review *api.RemovalBranchLoss
-	err = withOriginScope(ctx, l.git.backend, project, func(scope *gitservice.OriginScope) error {
-		var e error
-		review, e = l.freshRetainedDeleteReview(ctx, project, branch, scope)
-		return e
-	})
-	if err != nil {
-		return api.RetainedDeletePreview{}, err
-	}
-	var token [16]byte
-	if _, err = rand.Read(token[:]); err != nil {
-		return api.RetainedDeletePreview{}, err
-	}
-	now := time.Now().UTC()
-	expiry := now.Add(removalPreviewTTL)
-	preview := api.RetainedDeletePreview{Project: project, Branch: branch, Ref: review.AssignedRef, Tip: review.AssignedTip, BranchLoss: review,
-		ConfirmationToken: hex.EncodeToString(token[:]), ExpiresAt: expiry.Format(time.RFC3339Nano)}
-	raw, err := json.Marshal(api.RetainedDeletePreviewResult{Preview: preview})
-	if err != nil {
-		return api.RetainedDeletePreview{}, control.Internal(api.ReasonEncoding, err)
-	}
-	if len(raw) > api.MaxFrameBytes-1024 {
-		return api.RetainedDeletePreview{}, control.Conflict(api.ReasonBoundExceeded, api.TargetBranch(project, branch))
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.retainedDeletePreviews == nil {
-		l.retainedDeletePreviews = map[string]retainedDeletePreviewState{}
-	}
-	for k, v := range l.retainedDeletePreviews {
-		if !now.Before(v.Expiry) {
-			delete(l.retainedDeletePreviews, k)
-		}
-	}
-	if len(l.retainedDeletePreviews) >= 128 {
-		return api.RetainedDeletePreview{}, control.Retry(api.ReasonTooManyPreviews, "")
-	}
-	l.retainedDeletePreviews[preview.ConfirmationToken] = retainedDeletePreviewState{Preview: preview, Expiry: expiry}
-	return preview, nil
-}
-
-func (l *lifecycle) ConfirmRetainedDelete(ctx context.Context, key, project, branch, token string) (api.Operation, error) {
-	if len(key) == 0 || len(key) > 128 || project == "" || branch == "" || !validRetainedDeleteToken(token) {
-		return api.Operation{}, control.ErrInvalid
-	}
-	sum := sha256.Sum256([]byte(token))
-	req := control.RetainedDeleteRequest{Key: key, Project: project, Branch: branch, TokenSHA256: hex.EncodeToString(sum[:])}
-	if prior, replayed, err := replayRequest(l, ctx, key, control.KindRetainedDelete, req); err != nil || replayed {
-		return prior, err
-	}
-	var state retainedDeletePreviewState
-	var found bool
-	l.withLock(func() { state, found = l.retainedDeletePreviews[token] })
-	// A token this daemon does not hold, used or never issued, expired as far
-	// as the client can tell; one issued for another branch reviewed other
-	// facts. Either needs a new review.
-	if !found || !time.Now().Before(state.Expiry) {
-		return api.Operation{}, control.Stale(api.ReasonExpired)
-	}
-	if state.Preview.Project != project || state.Preview.Branch != branch {
-		return api.Operation{}, control.Stale(api.ReasonChanged)
-	}
-	preview := state.Preview
-	digest, err := deleteReviewDigest(preview.BranchLoss)
-	if err != nil {
-		return api.Operation{}, err
-	}
-	ev := control.RetainedDeleteEvidence{Project: project, Branch: branch, Tip: preview.Tip, ReviewSHA256: digest,
-		InstanceUUID: l.instanceID, PreviewExpiresAt: preview.ExpiresAt}
-	var op api.Operation
-	err = withOriginScope(ctx, l.git.backend, project, func(scope *gitservice.OriginScope) error {
-		var e error
-		op, e = l.store.BeginRetainedDelete(ctx, req, ev, func(ctx context.Context, evidence control.RetainedDeleteEvidence) error {
-			return l.verifyRetainedDeleteReview(ctx, evidence, scope)
-		})
-		return e
-	})
-	if err != nil {
-		return api.Operation{}, err
-	}
-	l.withLock(func() { delete(l.retainedDeletePreviews, token) })
-	if err = l.enqueue(op.ID); err != nil {
-		return op, err
-	}
-	return op, nil
-}
-
-func validRetainedDeleteToken(token string) bool {
-	if len(token) != 32 {
-		return false
-	}
-	for _, c := range token {
-		if c < '0' || c > '9' && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
+	return deleteReview(loss), nil
 }
 
 // verifyRetainedDeleteReview checks that a fresh review of the deletion still
-// matches the reviewed one. A changed review answers precondition_failed and
+// matches the planned one. A changed review answers precondition_failed and
 // a failure to review answers failed with reason git; both keep ErrConflict,
 // so a deletion whose review fails before its effect fails as stale.
-func (l *lifecycle) verifyRetainedDeleteReview(ctx context.Context, e control.RetainedDeleteEvidence, scope *gitservice.OriginScope) error {
+func (l *lifecycle) verifyRetainedDeleteReview(ctx context.Context, e control.RetainedDeleteEvidence) error {
 	if e.InstanceUUID != l.instanceID {
 		return control.ErrConflict
 	}
@@ -164,7 +100,7 @@ func (l *lifecycle) verifyRetainedDeleteReview(ctx context.Context, e control.Re
 	if !exists || current != e.Tip {
 		return control.Stale(api.ReasonChanged)
 	}
-	fresh, err := l.freshRetainedDeleteReview(ctx, e.Project, e.Branch, scope)
+	fresh, err := l.freshRetainedDeleteReview(ctx, e.Project, e.Branch)
 	if errors.Is(err, control.ErrNotFound) {
 		return control.Stale(api.ReasonChanged)
 	}
@@ -211,13 +147,9 @@ func (l *lifecycle) processRetainedDelete(op api.Operation) {
 	switch op.Phase {
 	case "guarded":
 		var issued bool
-		err := l.git.backend.WithOrigin(ctx, e.Project, func(scope *gitservice.OriginScope) error {
-			return l.store.IssueRetainedDelete(ctx, op.ID, func(ctx context.Context, saved control.RetainedDeleteEvidence) error {
-				return l.verifyRetainedDeleteReview(ctx, saved, scope)
-			}, func() error {
-				issued = true
-				return l.git.backend.DeleteAssignedBranchExact(ctx, e.Project, e.Branch, e.Tip, func() error { return nil })
-			})
+		err := l.store.IssueRetainedDelete(ctx, op.ID, l.verifyRetainedDeleteReview, func() error {
+			issued = true
+			return l.git.backend.DeleteAssignedBranchExact(ctx, e.Project, e.Branch, e.Tip, func() error { return nil })
 		})
 		if err != nil {
 			if !issued && (errors.Is(err, control.ErrConflict) || errors.Is(err, errDeleteReviewChanged)) {

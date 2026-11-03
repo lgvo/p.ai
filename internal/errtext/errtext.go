@@ -1,7 +1,8 @@
 // Package errtext holds the sentences P's clients show for control-API
-// errors. The daemon answers with a kind and a reason code and no text
-// (docs/control-api.md#errors); the TUI and the CLI write their sentence
-// from those codes here, one per kind and one per reason.
+// errors and plan refusals. The daemon answers with a kind and a reason code,
+// or a plan's refusal codes, and no text (docs/control-api.md#errors); the
+// TUI and the CLI write their sentence from those codes here, one per kind
+// and one per reason or refusal code.
 package errtext
 
 import (
@@ -43,7 +44,7 @@ var kindSentences = map[api.ErrorKind]string{
 	api.KindConflict:             "The current state does not allow this.",
 	api.KindCapacity:             "No room is left for this; discard or delete a session first.",
 	api.KindPreconditionFailed:   "What you reviewed has changed; review it again.",
-	api.KindPreconditionRequired: "This change needs a reviewed plan; review it first.",
+	api.KindPreconditionRequired: "This change needs the tag of its reviewed plan; review it first.",
 	api.KindNotFound:             "It no longer exists.",
 	api.KindNotConfigured:        "This P instance is not configured for that.",
 	api.KindFailed:               "A system P depends on failed; check it and try again.",
@@ -58,7 +59,6 @@ var reasonSentences = map[api.ErrorKind]map[string]string{
 		api.ReasonSessionHeld:     "Another action is using this session; try again when it finishes.",
 		api.ReasonTooManyRequests: "Too many requests at once; try again.",
 		api.ReasonDeadline:        "The daemon took too long to answer; try again.",
-		api.ReasonTooManyPreviews: "Too many reviews are open; try again in a minute.",
 		api.ReasonProjectHeld:     "Another action is using this project; try again when it finishes.",
 		api.ReasonRefsMoved:       "P's branches moved while P read them; try again.",
 	},
@@ -91,8 +91,11 @@ var reasonSentences = map[api.ErrorKind]map[string]string{
 		api.ReasonAttachmentCapacity: "Too many terminals are waiting to attach; try again shortly.",
 		api.ReasonPublicAddresses:    "Every public network address is in use; discard or delete a session on the public network.",
 	},
+	api.KindPreconditionRequired: {
+		api.ReasonIfMatchMissing: "This change runs only with the tag of its plan; review its plan first.",
+	},
 	api.KindPreconditionFailed: {
-		api.ReasonExpired: "The review or attachment expired or was already used; request it again.",
+		api.ReasonExpired: "The review or the pending attachment expired, or the attachment was already used; request it again.",
 		api.ReasonChanged: "Something changed since you looked; review again.",
 	},
 	api.KindNotFound: {
@@ -116,6 +119,43 @@ var reasonSentences = map[api.ErrorKind]map[string]string{
 		api.ReasonOrigin:   "The origin could not be reached; check its URL, the SSH identity and access, then try again.",
 		api.ReasonPlugin:   "A plugin failed; check it and try again.",
 	},
+}
+
+// Refusal is the sentence a client shows for refusal code, why a risky
+// change's plan is not allowed. Refusal codes share one namespace with error
+// reasons: a code that is also a conflict reason has that sentence.
+func Refusal(code string) string {
+	if s, ok := refusalSentences[code]; ok {
+		return s
+	}
+	if s, ok := reasonSentences[api.KindConflict][code]; ok {
+		return s
+	}
+	return "It cannot run now (" + code + ")."
+}
+
+// refusalSentences says what each refusal that is not a conflict reason
+// means.
+var refusalSentences = map[string]string{
+	api.ReasonDestinationDivergent:             "The origin branch has commits the source lacks; P only creates or fast-forwards a branch.",
+	api.ReasonUnsupportedReplacementChoice:     "The new request is not a replacement this creation allows; keep its project and, for an existing branch, its branch.",
+	api.ReasonOldCreationNotBlocked:            "The creation is not blocked.",
+	api.ReasonOldEffectNotProvenAbsent:         "The creation went further than a replacement can undo; clean it up instead.",
+	api.ReasonCurrentPolicyUnavailable:         "The project's current policy is unavailable; fix the host configuration.",
+	api.ReasonNewSourceOrBranchUnavailable:     "The new source or branch could not be read, or changed while P read it.",
+	api.ReasonTargetAssignmentUnavailable:      "Another session or an unfinished operation holds a branch the replacement needs.",
+	api.ReasonRequestUnchanged:                 "The new request would create the same session again; change the source, branch or policy.",
+	api.ReasonProvisionalResourceUnavailable:   "The creation's provisional resources are not as P left them, or are in use.",
+	api.ReasonBlockedLocalCreationRequired:     "This is not a blocked creation of this session.",
+	api.ReasonAssemblyReadyCreatorRequired:     "The creation is not the stopped base-image creation a cleanup removes.",
+	api.ReasonActiveWorkspaceOrCleanupGuard:    "Other work holds this session; wait for it to finish.",
+	api.ReasonDispatchUnsettled:                "A container or image build of the creation may have started, or it is from the origin; P cannot clean it up.",
+	api.ReasonCreationWorkerOrAttachmentActive: "The creation is running or a terminal is attached; wait or detach first.",
+	api.ReasonAssignedRefUnavailable:           "The session's branch is missing or could not be read.",
+	api.ReasonAssignmentOrGuardUnavailable:     "Another session or an unfinished operation holds the session's branch.",
+	api.ReasonLocalCredentialsUnverified:       "The session's key, Git identity or endpoints are not exactly as P made them; investigate them first.",
+	api.ReasonExactStoppedRuntimeUnavailable:   "The creation's container is not the exact stopped one P made; the daemon's log has the detail.",
+	api.ReasonNativeEffectsUnsettled:           "A container or image builder of the creation exists, is ambiguous or could not be checked.",
 }
 
 // Operation is the sentence a client shows for an operation that stopped

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -46,13 +47,13 @@ func TestCompletedCreationReplayAfterSessionRemoval(t *testing.T) {
 			ev.PolicySHA256 = session.PolicySHA256
 			ev.InstanceName = "p-" + session.UUID
 			ev.ImageFingerprint = strings.Repeat("d", 64)
-			removeReq := DiscardRequest{Key: "remove", UUID: session.UUID, TokenSHA256: strings.Repeat("5", 64)}
+			removeReq := DiscardRequest{Key: "remove", UUID: session.UUID, IfMatch: testTag(time.Minute)}
 			var remove api.Operation
 			if action == "delete" {
 				ev.DeleteReviewSHA256 = strings.Repeat("6", 64)
-				remove, err = s.BeginDelete(ctx, removeReq, ev)
+				remove, err = s.BeginDelete(ctx, removeReq, ev, testHash, noRecheck)
 			} else {
-				remove, err = s.BeginDiscard(ctx, removeReq, ev)
+				remove, err = s.BeginDiscard(ctx, removeReq, ev, testHash, noRecheck)
 			}
 			if err != nil {
 				t.Fatal(err)

@@ -12,9 +12,9 @@ import (
 )
 
 // reviewAssembledCleanupRuntime binds the creator's exact stopped container.
-// P does not look inside it: the review states that it and everything in it
-// is lost.
-func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session control.Session, creator api.Operation) (*api.RemovalRuntimePreview, error) {
+// P does not look inside it: the plan states that it and everything in it is
+// lost.
+func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session control.Session, creator api.Operation) (*api.RemovalRuntime, error) {
 	source, err := l.runtimeSession(ctx, session)
 	if err != nil {
 		return nil, err
@@ -26,9 +26,8 @@ func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session c
 	if err = l.runtime.CheckAssembledCreationSource(ctx, source, creator.ID, observed.IncusUUID, observed.Generation); err != nil {
 		return nil, err
 	}
-	return &api.RemovalRuntimePreview{Condition: "present", IncusProject: l.cfg.IncusProject, InstanceName: "p-" + session.UUID,
-		IncusUUID: observed.IncusUUID, Generation: observed.Generation, ImageFingerprint: source.ImageFingerprint, OriginalStatus: "Stopped",
-		RuntimeDataLost: true}, nil
+	return &api.RemovalRuntime{Condition: "present", IncusProject: l.cfg.IncusProject, InstanceName: "p-" + session.UUID,
+		IncusUUID: observed.IncusUUID, Generation: observed.Generation, ImageFingerprint: source.ImageFingerprint, OriginalStatus: "Stopped"}, nil
 }
 
 // The caller owns the session lock and reloads the durable operation before
@@ -78,7 +77,9 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 	proveSource := func(call context.Context) error {
 		return l.runtime.CheckAssembledCreationSource(call, source, ev.Review.OldOperationID, r.IncusUUID, r.Generation)
 	}
-	proveAbsent := func(call context.Context) error { return l.createCleanupNativeAbsent(call, ev.Review, ev.InstanceUUID) }
+	proveAbsent := func(call context.Context) error {
+		return l.createCleanupNativeAbsent(call, op.SessionUUID, ev.Review, ev.InstanceUUID)
+	}
 	verifyRefs := func(call context.Context) error {
 		tip, exists, e := l.git.backend.InspectBranchRef(call, op.Project, session.Branch)
 		if e != nil || !exists || tip != ev.Review.AssignedBranch.OID {

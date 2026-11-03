@@ -100,19 +100,18 @@ func assembledCleanupFixture(t *testing.T) (*Store, string, api.Operation, Creat
 	if err := s.RegisterGitPrincipal(ctx, local.KeyFingerprint, "session", creator.Project, creator.SessionUUID); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &api.RemovalRuntimePreview{Condition: "present", IncusProject: "user-1000", InstanceName: "p-" + creator.SessionUUID, IncusUUID: "44444444-4444-4444-8444-444444444444",
-		Generation: "55555555-5555-4555-8555-555555555555", ImageFingerprint: creation.ImageFingerprint, OriginalStatus: "Stopped", RuntimeDataLost: true}
-	ev := CreateCleanupEvidence{InstanceUUID: "33333333-3333-4333-8333-333333333333", Review: api.CreateCleanupPreview{UUID: creator.SessionUUID, OldOperationID: creator.ID, OldRequest: request,
+	runtime := &api.RemovalRuntime{Condition: "present", IncusProject: "user-1000", InstanceName: "p-" + creator.SessionUUID, IncusUUID: "44444444-4444-4444-8444-444444444444",
+		Generation: "55555555-5555-4555-8555-555555555555", ImageFingerprint: creation.ImageFingerprint, OriginalStatus: "Stopped"}
+	ev := CreateCleanupEvidence{InstanceUUID: "33333333-3333-4333-8333-333333333333", Review: api.CreateCleanupDetails{OldOperationID: creator.ID, OldRequest: request,
 		OldPhase: creator.Phase, OldEvidenceSHA256: digest(creator.Evidence), OldRequestSHA256: digest(creator.Request), PolicySHA256: session.PolicySHA256,
 		AssignedBranch: api.CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: creation.CapturedOID}, ImageFingerprint: creation.ImageFingerprint,
-		Runtime: runtime, Provisional: api.CreateReplaceResources{Cleanup: local}, LossWarnings: []string{"workspace", "private files and credentials", "host credentials"}, Eligible: true,
-		ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}}
+		Runtime: runtime, Provisional: api.CreateReplaceResources{Cleanup: local}}}
 	return s, dir, creator, ev
 }
 
-func beginAssembledCleanup(t *testing.T, s *Store, ev CreateCleanupEvidence) api.Operation {
+func beginAssembledCleanup(t *testing.T, s *Store, creator api.Operation, ev CreateCleanupEvidence) api.Operation {
 	t.Helper()
-	op, err := s.BeginAssembledCreateCleanup(context.Background(), DiscardRequest{Key: "cleanup", UUID: ev.Review.UUID, TokenSHA256: strings.Repeat("d", 64)}, ev, func(context.Context) error { return nil })
+	op, err := s.BeginAssembledCreateCleanup(context.Background(), DiscardRequest{Key: "cleanup", UUID: creator.SessionUUID, IfMatch: testTag(time.Minute)}, ev, testHash, func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +121,7 @@ func beginAssembledCleanup(t *testing.T, s *Store, ev CreateCleanupEvidence) api
 func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *testing.T) {
 	s, dir, creator, ev := assembledCleanupFixture(t)
 	ctx := context.Background()
-	op := beginAssembledCleanup(t, s, ev)
+	op := beginAssembledCleanup(t, s, creator, ev)
 	if op.Committed || op.Phase != "validated" {
 		t.Fatal("cleanup crossed authority boundary before its final checks")
 	}
@@ -137,7 +136,7 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 			t.Fatalf("pending cleanup assignment guard bypassed: %s", query)
 		}
 	}
-	if _, err := s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "overlap", UUID: creator.SessionUUID, TokenSHA256: strings.Repeat("e", 64)}, ev, func(context.Context) error { return nil }); !errors.Is(err, ErrConflict) {
+	if _, err := s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "overlap", UUID: creator.SessionUUID, IfMatch: testTag(time.Minute)}, ev, testHash, func(context.Context) error { return nil }); !errors.Is(err, ErrConflict) {
 		t.Fatal("second cleanup overlapped the pending one", err)
 	}
 	if err := s.Close(); err != nil {
@@ -243,7 +242,7 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *testing.T) {
 	s, dir, creator, ev := assembledCleanupFixture(t)
 	ctx := context.Background()
-	op := beginAssembledCleanup(t, s, ev)
+	op := beginAssembledCleanup(t, s, creator, ev)
 	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "stale-cleanup", false, op.Evidence, "internal", "assembled source changed"); err != nil {
 		t.Fatal(err)
 	}
@@ -274,8 +273,7 @@ func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *t
 	if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale confirmation restarted", err)
 	}
-	ev.Review.ExpiresAt = time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
-	if _, err = s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "fresh-cleanup", UUID: creator.SessionUUID, TokenSHA256: strings.Repeat("e", 64)}, ev, func(context.Context) error { return nil }); err != nil {
+	if _, err = s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "fresh-cleanup", UUID: creator.SessionUUID, IfMatch: testTag(time.Minute)}, ev, testHash, func(context.Context) error { return nil }); err != nil {
 		t.Fatal("fresh cleanup was stranded", err)
 	}
 }
@@ -285,15 +283,16 @@ func TestAssembledCleanupRefusesUnboundReviewAndRacesOriginalRetry(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			s, _, creator, ev := assembledCleanupFixture(t)
 			ctx := context.Background()
+			tag := testTag(time.Minute)
 			switch name {
 			case "creator-request":
 				ev.Review.OldRequestSHA256 = strings.Repeat("0", 64)
 			case "creator-evidence":
 				ev.Review.OldEvidenceSHA256 = strings.Repeat("0", 64)
 			case "expiry":
-				ev.Review.ExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
+				tag = testTag(-time.Second)
 			}
-			_, err := s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "cleanup", UUID: creator.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}, ev, func(context.Context) error {
+			_, err := s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "cleanup", UUID: creator.SessionUUID, IfMatch: tag}, ev, testHash, func(context.Context) error {
 				if name == "verify-race" {
 					return s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, "", "")
 				}
@@ -316,7 +315,7 @@ func TestAssembledCleanupRefusesUnboundReviewAndRacesOriginalRetry(t *testing.T)
 	go func() {
 		defer wg.Done()
 		<-start
-		_, admitErr = s.BeginAssembledCreateCleanup(context.Background(), DiscardRequest{Key: "cleanup", UUID: creator.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}, ev, func(context.Context) error { return nil })
+		_, admitErr = s.BeginAssembledCreateCleanup(context.Background(), DiscardRequest{Key: "cleanup", UUID: creator.SessionUUID, IfMatch: testTag(time.Minute)}, ev, testHash, func(context.Context) error { return nil })
 	}()
 	go func() {
 		defer wg.Done()

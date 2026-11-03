@@ -27,7 +27,7 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 	}
 	newReq := ReserveSessionRequest{Key: "changed-create", Project: "team/app", Branch: "work", Choice: "existing"}
 	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256,
-		NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: newReq}
+		NewPolicySHA256: session.PolicySHA256, IfMatch: testTag(time.Minute), ChangeHash: testHash, New: newReq}
 	observe := func(context.Context, []CapacityReservation) (CapacityObservation, error) {
 		return CapacityObservation{Limit: 4, PhysicalCount: 0, Occupied: map[string]bool{}}, nil
 	}
@@ -44,9 +44,24 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 		t.Fatalf("changed current policy admitted: %v", e)
 	}
 	bad = intent
-	bad.ExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
+	bad.IfMatch = testTag(-time.Second)
 	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) || !answers(e, api.KindPreconditionFailed, api.ReasonExpired) {
-		t.Fatalf("expired token admitted: %v", e)
+		t.Fatalf("expired tag admitted: %v", e)
+	}
+	// A tag that expires while the replacement waits for the store's
+	// connection is refused inside its transaction.
+	bad = intent
+	expiry := time.Now().Add(2 * time.Second).Truncate(time.Second)
+	bad.IfMatch = changeTag(expiry, testHash)
+	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, func(ctx context.Context) (string, error) {
+		held, e := s.beginJournal(ctx)
+		if e != nil {
+			return "", e
+		}
+		go func() { time.Sleep(time.Until(expiry) + 50*time.Millisecond); held.Rollback() }()
+		return newTip, nil
+	}); !answers(e, api.KindPreconditionFailed, api.ReasonExpired) {
+		t.Fatalf("a tag that expired before the transaction answered %v", e)
 	}
 	if _, e := s.GetSession(ctx, session.UUID); e != nil {
 		t.Fatalf("failed admission removed old session: %v", e)
@@ -77,12 +92,16 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 		t.Fatalf("restart replay: %+v %v", replay, e)
 	}
 	bad = intent
-	bad.TokenSHA256 = strings.Repeat("e", 64)
+	bad.IfMatch = testTag(2 * time.Minute)
 	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) || !answers(e, api.KindInvalid, api.ReasonKeyReused) {
-		t.Fatalf("wrong token replay: %v", e)
+		t.Fatalf("wrong tag replay: %v", e)
 	}
-	if _, found, e := s.ReplayCreateReplacement(ctx, intent.New.Key, session.UUID, strings.Repeat("e", 64)); found || !answers(e, api.KindInvalid, api.ReasonKeyReused) {
-		t.Fatalf("replay with another token: %v %v", found, e)
+	if _, found, e := s.ReplayCreateReplacement(ctx, session.UUID, bad.IfMatch, intent.New); found || !answers(e, api.KindInvalid, api.ReasonKeyReused) {
+		t.Fatalf("replay with another tag: %v %v", found, e)
+	}
+	var recorded string
+	if e = s.db.QueryRowContext(ctx, `SELECT change_hash FROM operations WHERE id=?`, fresh.ID).Scan(&recorded); e != nil || recorded != testHash {
+		t.Fatalf("the replacement's creation recorded change hash %q: %v", recorded, e)
 	}
 }
 
@@ -128,7 +147,7 @@ func TestReplaceBlockedCreateRefusesProvisionalBuilderAndPrincipal(t *testing.T)
 				}
 			}
 			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256,
-				TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "builder-new", Project: "team/app", Branch: "work", Choice: "existing"}}
+				IfMatch: testTag(time.Minute), ChangeHash: testHash, New: ReserveSessionRequest{Key: "builder-new", Project: "team/app", Branch: "work", Choice: "existing"}}
 			observe := func(context.Context, []CapacityReservation) (CapacityObservation, error) {
 				return CapacityObservation{Limit: 4, Occupied: map[string]bool{}}, nil
 			}
@@ -181,7 +200,7 @@ func TestReplaceBlockedCreateSQLiteRefusalsPreserveReservation(t *testing.T) {
 			if e = s.AdvanceOperation(ctx, old.ID, status, phase, committed, raw, testReason(status), ""); e != nil {
 				t.Fatal(e)
 			}
-			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
+			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, IfMatch: testTag(time.Minute), ChangeHash: testHash, New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
 			switch name {
 			case "foreign-assignment":
 				if _, e = s.db.ExecContext(ctx, `UPDATE sessions SET branch='foreign' WHERE uuid=?`, session.UUID); e != nil {
@@ -255,7 +274,7 @@ func TestReplaceBranchAssignedCreateTransfersPublicSlotAndRetiresOldKey(t *testi
 	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, old.Evidence, "internal", ""); e != nil {
 		t.Fatal(e)
 	}
-	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
+	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, IfMatch: testTag(time.Minute), ChangeHash: testHash, New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
 	// Exactly the old reservation and helper fit. Ordinary admission would need a third slot.
 	observe := func(context.Context, []CapacityReservation) (CapacityObservation, error) {
 		return CapacityObservation{Limit: 2, Occupied: map[string]bool{}}, nil
@@ -306,7 +325,7 @@ func TestReplaceBlockedCreateCapturesChangedPolicyWithoutMovingRef(t *testing.T)
 	if e != nil || hash == session.PolicySHA256 {
 		t.Fatalf("policy change: %s %v", hash, e)
 	}
-	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: hash, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
+	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: hash, IfMatch: testTag(time.Minute), ChangeHash: testHash, New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
 	fresh, e := s.ReplaceBlockedCreate(ctx, intent, strings.Repeat("d", 64), testSelection(), nil, func(context.Context, []CapacityReservation) (CapacityObservation, error) {
 		return CapacityObservation{Limit: 4, Occupied: map[string]bool{}}, nil
 	}, func(context.Context) (string, error) { return tip, nil })
@@ -349,7 +368,7 @@ func TestReplaceBlockedLocalNewCreateChoicesAndRestartReplay(t *testing.T) {
 				t.Fatal(e)
 			}
 			req := ReserveSessionRequest{Key: "replacement", Project: session.Project, Branch: tc.branch, Choice: tc.choice, Source: tc.source}
-			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: req}
+			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, IfMatch: testTag(time.Minute), ChangeHash: testHash, New: req}
 			tip := strings.Repeat("a", 40)
 			if tc.tipChanged {
 				tip = strings.Repeat("b", 40)
@@ -441,7 +460,7 @@ func TestReplaceBlockedNewCreateRefusesOccupiedGuardedOrUnchangedTarget(t *testi
 					t.Fatal(e)
 				}
 			}
-			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: req}
+			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, IfMatch: testTag(time.Minute), ChangeHash: testHash, New: req}
 			verify := func(context.Context) (string, error) {
 				if name == "stale-source" {
 					return "", ErrConflict

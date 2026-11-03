@@ -51,43 +51,37 @@ var (
 	SystemInspect = Method[SystemInspectRequest, SystemInspectResult]{"system.inspect"}
 	RPCCancel     = Method[CancelRequest, CancelResult]{"rpc.cancel"}
 
-	ProjectList              = Method[ProjectListRequest, ProjectListResult]{"project.list"}
-	ProjectBranches          = Method[ProjectBranchesRequest, ProjectBranchesResult]{"project.branches"}
-	OriginChange             = Method[OriginChangeRequest, OperationResult]{"origin.change"}
-	OriginRefresh            = Method[OriginRefreshRequest, OriginResult]{"origin.refresh"}
-	OriginInspect            = Method[OriginInspectRequest, OriginResult]{"origin.inspect"}
-	OriginSources            = Method[OriginSourcesRequest, OriginSourcesResult]{"origin.sources"}
-	OriginPublicationPreview = Method[OriginPublicationPreviewRequest, PublicationPreviewResult]{"origin.publication.preview"}
-	OriginPublish            = Method[OriginPublishRequest, OperationResult]{"origin.publish"}
-	ProjectRetainedBranches  = Method[ProjectRetainedBranchesRequest, RetainedBranchesResult]{"project.retained_branches"}
+	ProjectList             = Method[ProjectListRequest, ProjectListResult]{"project.list"}
+	ProjectBranches         = Method[ProjectBranchesRequest, ProjectBranchesResult]{"project.branches"}
+	OriginChange            = Method[OriginChangeRequest, OperationResult]{"origin.change"}
+	OriginRefresh           = Method[OriginRefreshRequest, OriginResult]{"origin.refresh"}
+	OriginInspect           = Method[OriginInspectRequest, OriginResult]{"origin.inspect"}
+	OriginSources           = Method[OriginSourcesRequest, OriginSourcesResult]{"origin.sources"}
+	OriginPublish           = Method[OriginPublishRequest, ChangeResult[PublicationPreview]]{"origin.publish"}
+	ProjectRetainedBranches = Method[ProjectRetainedBranchesRequest, RetainedBranchesResult]{"project.retained_branches"}
 
-	ProjectCreate                = Method[ProjectCreateRequest, OperationResult]{"project.create"}
-	SessionCreate                = Method[SessionCreateRequest, OperationResult]{"session.create"}
-	SessionInspect               = Method[SessionInspectRequest, SessionResult]{"session.inspect"}
-	SessionList                  = Method[SessionListRequest, SessionListResult]{"session.list"}
-	SessionStart                 = Method[SessionStartRequest, SessionChangeResult]{"session.start"}
-	SessionStop                  = Method[SessionStopRequest, SessionChangeResult]{"session.stop"}
-	OperationInspect             = Method[OperationInspectRequest, OperationResult]{"operation.inspect"}
-	OperationList                = Method[OperationListRequest, OperationListResult]{"operation.list"}
-	OperationWait                = Method[OperationWaitRequest, OperationResult]{"operation.wait"}
-	OperationRetry               = Method[OperationRetryRequest, OperationResult]{"operation.retry"}
-	SessionAttach                = Method[SessionAttachRequest, PendingAttachment]{"session.attach"}
-	SessionRemovalPreview        = Method[SessionRemovalPreviewRequest, RemovalPreviewResult]{"session.removal.preview"}
-	SessionDiscard               = Method[SessionDiscardRequest, OperationResult]{"session.discard"}
-	SessionDelete                = Method[SessionDeleteRequest, OperationResult]{"session.delete"}
-	SessionRename                = Method[SessionRenameRequest, OperationResult]{"session.rename"}
-	ProjectRetainedRename        = Method[ProjectRetainedRenameRequest, OperationResult]{"project.retained.rename"}
-	ProjectDeletePreview         = Method[ProjectDeletePreviewRequest, ProjectDeletePreviewResult]{"project.delete.preview"}
-	ProjectDeleteConfirm         = Method[ProjectDeleteConfirmRequest, OperationResult]{"project.delete.confirm"}
-	ProjectRetainedDeletePreview = Method[ProjectRetainedDeletePreviewRequest, RetainedDeletePreviewResult]{"project.retained.delete.preview"}
-	ProjectRetainedDeleteConfirm = Method[ProjectRetainedDeleteConfirmRequest, OperationResult]{"project.retained.delete.confirm"}
-	SessionCreateReplacePreview  = Method[SessionCreateReplacePreviewRequest, CreateReplacePreviewResult]{"session.create.replace.preview"}
-	SessionCreateReplaceConfirm  = Method[SessionCreateReplaceConfirmRequest, OperationResult]{"session.create.replace.confirm"}
-	SessionCreateCleanupPreview  = Method[SessionCreateCleanupPreviewRequest, CreateCleanupPreviewResult]{"session.create.cleanup.preview"}
-	SessionCreateCleanupConfirm  = Method[SessionCreateCleanupConfirmRequest, OperationResult]{"session.create.cleanup.confirm"}
-	AttachmentClaim              = Method[AttachmentClaimRequest, AttachmentLaunch]{"attachment.claim"}
-	AttachmentConfirm            = Method[AttachmentConfirmRequest, AttachmentResult]{"attachment.confirm"}
-	AttachmentPing               = Method[AttachmentPingRequest, AttachmentResult]{"attachment.ping"}
+	ProjectCreate         = Method[ProjectCreateRequest, OperationResult]{"project.create"}
+	SessionCreate         = Method[SessionCreateRequest, OperationResult]{"session.create"}
+	SessionInspect        = Method[SessionInspectRequest, SessionResult]{"session.inspect"}
+	SessionList           = Method[SessionListRequest, SessionListResult]{"session.list"}
+	SessionStart          = Method[SessionStartRequest, SessionChangeResult]{"session.start"}
+	SessionStop           = Method[SessionStopRequest, SessionChangeResult]{"session.stop"}
+	OperationInspect      = Method[OperationInspectRequest, OperationResult]{"operation.inspect"}
+	OperationList         = Method[OperationListRequest, OperationListResult]{"operation.list"}
+	OperationWait         = Method[OperationWaitRequest, OperationResult]{"operation.wait"}
+	OperationRetry        = Method[OperationRetryRequest, OperationResult]{"operation.retry"}
+	SessionAttach         = Method[SessionAttachRequest, PendingAttachment]{"session.attach"}
+	SessionDiscard        = Method[SessionDiscardRequest, ChangeResult[RemovalDetails]]{"session.discard"}
+	SessionDelete         = Method[SessionDeleteRequest, ChangeResult[RemovalDetails]]{"session.delete"}
+	SessionRename         = Method[SessionRenameRequest, OperationResult]{"session.rename"}
+	ProjectRetainedRename = Method[ProjectRetainedRenameRequest, OperationResult]{"project.retained.rename"}
+	ProjectDelete         = Method[ProjectDeleteRequest, ChangeResult[ProjectDeleteDetails]]{"project.delete"}
+	ProjectRetainedDelete = Method[ProjectRetainedDeleteRequest, ChangeResult[RetainedDeleteDetails]]{"project.retained.delete"}
+	SessionCreateReplace  = Method[SessionCreateReplaceRequest, ChangeResult[CreateReplaceDetails]]{"session.create.replace"}
+	SessionCreateCleanup  = Method[SessionCreateCleanupRequest, ChangeResult[CreateCleanupDetails]]{"session.create.cleanup"}
+	AttachmentClaim       = Method[AttachmentClaimRequest, AttachmentLaunch]{"attachment.claim"}
+	AttachmentConfirm     = Method[AttachmentConfirmRequest, AttachmentResult]{"attachment.confirm"}
+	AttachmentPing        = Method[AttachmentPingRequest, AttachmentResult]{"attachment.ping"}
 
 	SessionServices      = Method[SessionServicesRequest, SessionServicesResult]{"session.services"}
 	SessionServiceAction = Method[SessionServiceActionRequest, SessionServiceActionResult]{"session.service.action"}
@@ -110,7 +104,6 @@ func Methods() []MethodInfo {
 		info(OriginRefresh, CapabilityGit),
 		info(OriginInspect, CapabilityGit),
 		info(OriginSources, CapabilityGit),
-		info(OriginPublicationPreview, CapabilityGit),
 		info(OriginPublish, CapabilityGit),
 		info(ProjectRetainedBranches, CapabilityGit),
 		info(ProjectCreate, CapabilityRuntime),
@@ -124,19 +117,14 @@ func Methods() []MethodInfo {
 		info(OperationWait, CapabilityGit),
 		info(OperationRetry, CapabilityGit),
 		info(SessionAttach, CapabilityRuntime),
-		info(SessionRemovalPreview, CapabilityRuntime),
 		info(SessionDiscard, CapabilityRuntime),
 		info(SessionDelete, CapabilityRuntime),
 		info(SessionRename, CapabilityRuntime),
 		info(ProjectRetainedRename, CapabilityRuntime),
-		info(ProjectDeletePreview, CapabilityRuntime),
-		info(ProjectDeleteConfirm, CapabilityRuntime),
-		info(ProjectRetainedDeletePreview, CapabilityRuntime),
-		info(ProjectRetainedDeleteConfirm, CapabilityRuntime),
-		info(SessionCreateReplacePreview, CapabilityRuntime),
-		info(SessionCreateReplaceConfirm, CapabilityRuntime),
-		info(SessionCreateCleanupPreview, CapabilityRuntime),
-		info(SessionCreateCleanupConfirm, CapabilityRuntime),
+		info(ProjectDelete, CapabilityRuntime),
+		info(ProjectRetainedDelete, CapabilityRuntime),
+		info(SessionCreateReplace, CapabilityRuntime),
+		info(SessionCreateCleanup, CapabilityRuntime),
 		info(AttachmentClaim, CapabilityRuntime),
 		info(AttachmentConfirm, CapabilityRuntime),
 		info(AttachmentPing, CapabilityRuntime),

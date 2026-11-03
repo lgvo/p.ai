@@ -87,9 +87,9 @@ stop=$(rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
 wait_completed "$stop"
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" remove "$socket" "$step_dir/uuid"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
-preview=$(rpc project.delete.preview '{"project":"tui56"}')
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"tui56-final-delete",project:"tui56",confirmation_token:$token}')")
+plan=$(rpc project.delete '{"project":"tui56"}')
+tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$plan")
+removed=$(rpc project.delete "$(jq -nc --arg tag "$tag" '{key:"tui56-final-delete",project:"tui56",if_match:$tag}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

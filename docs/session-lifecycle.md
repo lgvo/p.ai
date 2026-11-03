@@ -195,7 +195,7 @@ operation kind and requested outcome
 current P workflow phase and commit-point status, when applicable
 expected Git ref names and object IDs
 expected Incus project, instance name, image fingerprint, and P metadata
-confirmation fingerprint, when destructive
+change hash, for a risky change
 bounded diagnostic and last error
 created and updated times
 ```
@@ -392,8 +392,8 @@ container must already be stopped, have its exact native UUID/generation, and
 be the sole matching owned runtime in the full inventory.
 Origin/bootstrap, environment-builder/publication, replacement history and
 uncertain earlier init are outside that path. P does not look inside the
-container: the preview states that the container and everything in it will be
-lost. Previewing leaves the session `creating`, preserves its
+container: the plan states that the container and everything in it will be
+lost. A dry run leaves the session `creating`, preserves its
 branch/runtime/private files, and grants no deletion authority. Unsupported or
 changed facts are a refusal that preserves resources; they do not convert the
 failed creation into an established session.
@@ -414,56 +414,60 @@ contents are preserved.
 Reviewed P Git keys, principals and endpoint sockets may be removed. Runtime-
 local state is reported unavailable on this early path. P selects the path
 from the creator's phase. For the narrow stopped assembled case above, the
-preview reports the exact stopped container with `runtime_data_lost:true` and
-warns that deletion removes all private runtime state, including the
-workspace, home and agent credentials. P does not enumerate or hash their
-contents. A creation that already recorded its commit image, origin/bootstrap
-ambiguity and other unsupported failures remain outside cleanup. Preserve those
+plan names the exact stopped container and lists it as `runtime_data` loss:
+deletion removes all private runtime state, including the workspace, home and
+agent credentials. P does not enumerate or hash their contents. A creation
+that already recorded its commit image, origin/bootstrap ambiguity and other
+unsupported failures remain outside cleanup. Preserve those
 resources and use exact Retry only when its captured request can safely resume.
 Unreachable Incus never authorizes forgetting an accepted cleanup.
 
 Use the trusted host control socket and the old UUID from `operation.inspect`.
-First inspect the immutable failure and review the entire preview:
+First inspect the immutable failure, then make a dry run of the cleanup and
+review its entire plan:
 
 ```sh
 socket=/path/to/state/control.sock
 old_uuid=OLD_SESSION_UUID
 p api "$socket" operation.inspect '{"id":"OLD_CREATE_OPERATION_UUID"}'
-p api "$socket" session.create.cleanup.preview \
-  "$(jq -nc --arg uuid "$old_uuid" '{uuid:$uuid}')" > cleanup-preview.json
-jq '.result.preview' cleanup-preview.json
+request=$(jq -nc --arg uuid "$old_uuid" '{uuid:$uuid}')
+p api "$socket" session.create.cleanup "$request" > cleanup-plan.json
+jq '.result.plan' cleanup-plan.json
 ```
 
-The same preview call serves the early and the assembled path.
+The same dry run serves the early and the assembled path.
 
-Proceed only when `eligible` is true and the ref and resource identities match
-what you intend to preserve/remove. Copy the returned token into an explicit
-confirmation with a fresh cleanup key, then wait for its returned operation ID:
+Proceed only when `allowed` is true and the ref and resource identities match
+what you intend to preserve/remove. A plan that is not allowed lists its
+`refusals` and has no change tag. Run the plan: send the same request with a
+fresh cleanup key and the returned change tag, then wait for the returned
+operation ID:
 
 ```sh
-token=$(jq -er '.result.preview.confirmation_token' cleanup-preview.json)
-p api "$socket" session.create.cleanup.confirm \
-  "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" \
-      '{uuid:$uuid,key:"reviewed-cleanup-1",confirmation_token:$token}')"
+tag=$(jq -er '.result.change_tag' cleanup-plan.json)
+p api "$socket" session.create.cleanup \
+  "$(jq -c --arg tag "$tag" '. + {key:"reviewed-cleanup-1",if_match:$tag}' <<< "$request")"
 p api "$socket" operation.wait '{"id":"CLEANUP_OPERATION_UUID","timeout":20}'
 # If accepted cleanup blocks, inspect its diagnostic, correct the observed
 # condition, and resume this same intent:
 p api "$socket" operation.retry '{"id":"CLEANUP_OPERATION_UUID"}'
 ```
 
-Unconsumed tokens expire after two minutes or daemon restart; obtain and review
-a fresh preview. Exact accepted confirmation replay uses the same UUID, key and
-token, even after restart. Early cleanup disables old session authority and
-retains a durable ref guard and resource identities until completion. A new or
+A change tag expires two minutes after its dry run, and a run with an expired
+or changed plan answers `precondition_failed` and records nothing: make and
+review a new dry run. Replaying an accepted run with the same UUID, key and
+tag returns its operation, even after restart. Early cleanup disables old
+session authority and retains a durable ref guard and resource identities
+until completion. A new or
 unreachable native identity leaves it incomplete. Retry never changes the
 approved losses or restores the superseded Create.
 
-Assembled confirmation first installs a reversible precommit guard while the
-original creator stays blocked/creating, then rechecks the reviewed facts
+An accepted assembled run first installs a reversible precommit guard while
+the original creator stays blocked/creating, then rechecks the planned facts
 before source deletion. A changed container identity (Incus UUID, generation
 or image) or a changed branch fails the cleanup at `stale`: P releases the
 cleanup guards and preserves the container, the branch and the original
-creator. Repeat the preview and confirmation with fresh keys. The guard keeps
+creator. Make a new dry run and run it with a fresh key. The guard keeps
 the creator's Retry, replay, reconciliation or stale worker from advancing,
 including after daemon restart. Ambiguous effects keep their guard.
 Authority retirement occurs atomically at native deletion admission; from that
@@ -681,18 +685,22 @@ workflow.
 
 ## Destructive preflight
 
-Discard and delete state what they lose before confirmation. P does not look
-inside the container to do so: it does not read the workspace, activate the
-environment, run the shell hook, prepare the interactive host, or execute
-repository-controlled commands. A running session needs no Stop first; P stops
-it as part of the removal. A pending or confirmed attachment refuses both the
-preview and the confirmation.
+Discard and delete are risky changes
+([control API](control-api.md#risky-changes)): a dry run returns their plan,
+which states what they lose, and a separate run carries out that plan. P does
+not look inside the container to state the loss: it does not read the
+workspace, activate the environment, run the shell hook, prepare the
+interactive host, or execute repository-controlled commands. A running session
+needs no Stop first; P stops it as part of the removal. A pending or confirmed
+attachment refuses the plan with `attachment_active`, so there is no change
+tag to run.
 
 ### Runtime-local loss
 
 P states runtime-local loss by category. When the session's runtime exists,
-the preview names its exact identity (Incus UUID, generation and image) and
-states that the container and everything in it will be lost:
+the plan names its exact identity (Incus UUID, generation and image) and lists
+one `runtime_data` loss item: the container and everything in it will be
+lost:
 
 - uncommitted changes and files outside Git;
 - local refs and commits not pushed to P;
@@ -705,25 +713,25 @@ remain external state. Commits already in P's repository are reported as
 [branch loss](#branch-loss) when Delete removes them.
 
 P does not enumerate files, count commits or hash workspace contents, so
-changes made inside a running session after the preview do not make it stale.
-The preview records whether the runtime was running or stopped for information
-only: a Start or Stop between preview and confirmation does not make it stale
-either. A replaced runtime (changed Incus UUID or generation) does.
+changes made inside a running session after the dry run do not make its plan
+stale. The plan records whether the runtime was running or stopped for
+information only: a Start or Stop between the dry run and the run does not make
+it stale either. A replaced runtime (changed Incus UUID or generation) does.
 
-If Incus authoritatively reports the runtime missing, P states that
-runtime-local state is already unavailable and may continue cleanup after
-explicit acknowledgement. Missing-runtime preview and confirmation, the local
-authority commit, and final record removal require full confined-project
-inventory proof that no runtime carries the session UUID. A renamed or
-competing runtime blocks ordinary removal; it is neither adopted nor deleted
-through the missing-name path. If Incus is unavailable, P reports the unavailable
-authority and cannot issue a new removal confirmation. An already-confirmed
-removal remains incomplete with its session identity, durable operation and
-existing authorization restrictions intact. Retry or reconciliation may resume
-that same operation when Incus returns. P never claims successful deletion,
-forgets uncertain resources or creates replacement machinery while existence
-is uncertain. Manual Incus investigation is supported; MVP has no abandonment
-override.
+If Incus authoritatively reports the runtime missing, the plan states that
+runtime-local state is already lost: it lists the runtime's contents in
+`gone`, not in `loss`, and running the plan proves the caller saw that. The
+missing-runtime dry run and run, the local authority commit, and final record
+removal require full confined-project inventory proof that no runtime carries
+the session UUID. A renamed or competing runtime refuses ordinary removal; it
+is neither adopted nor deleted through the missing-name path. If Incus is
+unavailable, P reports the unavailable authority and returns no plan. An
+already-accepted removal remains incomplete with its session identity, durable
+operation and existing authorization restrictions intact. Retry or
+reconciliation may resume that same operation when Incus returns. P never
+claims successful deletion, forgets uncertain resources or creates replacement
+machinery while existence is uncertain. Manual Incus investigation is
+supported; MVP has no abandonment override.
 
 ### Branch loss
 
@@ -738,37 +746,42 @@ there is the user's concern. Commits that leave P's repository are reported as
 lost whether or not the origin has them.
 
 Removal accepts a missing assigned P ref, whether it was deleted outside P or
-is a blank project's unborn first branch. The preview then marks the ref
+is a blank project's unborn first branch. The plan then marks the ref
 missing and has no tip. Delete has nothing in P's repository to remove, and
 Discard has no branch to retain, so it ends like a Delete. Commits that
 existed only in the runtime are part of its runtime-local loss.
 
-### Confirmation token
+### Change tag
 
-The preflight result produces a short-lived confirmation token bound to:
+The dry run returns, with an allowed plan, a change tag that expires two
+minutes later. The tag binds a hash of the planned change and the facts it was
+planned from:
 
 ```text
 session UUID and operation kind
 project and assigned ref
 P ref object ID, or the missing assigned ref
-runtime identity (Incus UUID, generation, image) or explicit missing-runtime acknowledgement
-delete's branch-loss review
+runtime identity (Incus UUID, generation, image) or the missing runtime
+delete's branch loss
 ```
 
-Execution revalidates these facts under the lifecycle lock before the removal
-commit point. A mismatch never falls through to a generic “are you sure”; it
-fails the operation as stale and requires review of the updated facts.
+The run plans again under the lifecycle lock and records the operation only
+when that gives the same tag; otherwise it answers `precondition_failed` and
+records nothing. Execution revalidates these facts once more before the
+removal commit point. A mismatch never falls through to a generic “are you
+sure”: it fails the operation as stale, and the user reviews a new dry run of
+the updated facts.
 
 ## Discard
 
 Discard ends the session and removes its runtime while retaining the current P
 branch as an ordinary retained source branch.
 
-After a valid destructive confirmation, discard completes forward through:
+After an accepted run, discard completes forward through:
 
 1. guard the assigned P ref against further writes;
 2. revalidate the assigned tip, runtime identity, and missing-runtime proof;
-3. if the confirmation is still valid, mark the registry and operation
+3. if the planned facts still hold, mark the registry and operation
    `removing` and disable the session's P Git and session-RPC authority;
 4. persist the runtime-removal commit point, force-stop a running runtime,
    then request Incus removal;
@@ -776,13 +789,13 @@ After a valid destructive confirmation, discard completes forward through:
    remove P-owned local secret copies;
 6. remove other session credentials;
 7. verify that the P branch still exists at the guarded expected tip, unless
-   the assigned ref was already missing at preview;
+   the assigned ref was already missing at the dry run;
 8. end the UUID-to-branch assignment and remove the session row; and
 9. release the guard and leave the branch visible as a retained project
    branch.
 
-A stale confirmation discovered in step 2 releases the guard and leaves the
-established session and authorities unchanged.
+Changed facts discovered in step 2 fail the operation as stale, release the
+guard and leave the established session and authorities unchanged.
 
 Once the runtime-removal commit point is persisted, discard never recreates the
 runtime to roll back. Reconciliation completes cleanup forward. Failure to
@@ -796,12 +809,12 @@ deletes the assigned P branch.
 
 After runtime removal verifies, P:
 
-1. checks that the guarded branch still has the confirmed object ID;
+1. checks that the guarded branch still has the planned object ID;
 2. atomically deletes that ref with an expected-old-value check;
 3. ends the assignment and removes the session row; and
 4. retains bounded operation diagnostics after all required cleanup verifies.
 
-When the assigned ref was already missing at preview, steps 1 and 2 have
+When the assigned ref was already missing at the dry run, steps 1 and 2 have
 nothing to delete.
 
 Delete never deletes or renames an origin ref, external mount contents, or
@@ -852,10 +865,10 @@ retained branch:
 |---|---|
 | Incomplete authorized operation | Reconciliation resumes a running one, and `operation.retry` a blocked one, along its defined forward/rollback path. |
 | Stale runtime locator | Outside MVP: instance names are derived from the session UUID, and no mutable locator is stored. P reports the missing expected runtime; a same-UUID runtime under another name blocks removal, and P does not adopt it. |
-| Missing runtime, assigned P branch intact | Start refuses. Discard with the explicit missing-runtime acknowledgement described in [destructive preflight](#destructive-preflight), then create a new session on the retained branch. Delete accepts the same acknowledgement when the branch should go too. |
+| Missing runtime, assigned P branch intact | Start refuses. Discard the session: its plan lists the runtime's contents as already gone ([destructive preflight](#destructive-preflight)). Then create a new session on the retained branch. Delete instead when the branch should go too. |
 | Missing, revoked, or changed session Git principal or key | Start refuses. Discard, then create a new session on the retained branch. Discard removes the runtime, so rescue uncommitted work from it by hand first. |
 | Runtime exists, assigned P ref missing | Discard or Delete the session; with no ref both end it the same way and leave no branch. Commits that exist only in the runtime are lost with it, so rescue them by hand first; P does not import them. Then create a new session on another branch. |
-| Session row has neither runtime nor branch | Delete with the missing-runtime acknowledgement removes the record; Discard ends the same way. |
+| Session row has neither runtime nor branch | Delete removes the record; Discard ends the same way. |
 | Workspace branch/upstream mismatch | Show expected and actual branch/upstream values and block actions that depend on the assigned branch. The user or agent corrects Git manually; P rechecks on the next attempt. P performs no automatic checkout or reset. |
 
 A new session on the retained branch starts from its committed tip. It cannot
@@ -956,7 +969,7 @@ same concepts:
   at most 1024 bytes;
 - registry state, observed session and policy condition, project, branch, and
   UUID;
-- destructive preflight facts and confirmation token; and
+- a risky change's plan and change tag; and
 - retry, cleanup, or removal actions permitted by the current facts.
 
 Attach returns a short-lived one-use pending token and structured `AttachSpec`.
@@ -1016,8 +1029,8 @@ The lifecycle design is implemented when integration tests prove:
 6. rename of a stopped session preserves UUID, workspace files, local-ahead
    commits, and credentials while changing both Git refs safely, and rename
    refuses a running session;
-7. destructive confirmation becomes stale when the assigned tip, the runtime
-   identity, or delete's branch-loss review changes, and stays valid when the
+7. a removal's change tag stops matching when the assigned tip, the runtime
+   identity, or delete's branch loss changes, and still matches when the
    session is only started or stopped;
 8. discard preserves the assigned branch as retained, delete removes only the
    confirmed P ref, both stop a running session themselves, and both proceed

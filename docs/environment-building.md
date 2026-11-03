@@ -519,9 +519,9 @@ next run. Because release and creation share the per-commit lock, a session is
 never created from an image that is being deleted.
 
 **Project deletion** deletes all of the project's images.
-[Aggregate project deletion](control-api.md#aggregate-project-deletion) reviews
-each indexed image through the driver, deletes it exactly after the project's
-runtimes are proven absent, and removes its row. It reviews at most twenty
+[Project deletion](control-api.md#project-deletion) plans each indexed image
+through the driver, deletes it exactly after the project's runtimes are proven
+absent, and removes its row. It plans at most twenty
 indexed images, fewer when the deletion's evidence cannot record them all
 (eight with four sessions and the longest names P accepts), and refuses a
 project with more. An image labeled with the

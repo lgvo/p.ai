@@ -70,7 +70,7 @@ func (l *lifecycle) blockDiscard(op api.Operation, cause error) {
 }
 
 // discardSourceMatches reports whether o is still the reviewed container. Its
-// status may have changed since the preview: P stops a running one itself.
+// status may have changed since its plan: P stops a running one itself.
 func discardSourceMatches(o runtimeincus.Observation, ev control.DiscardEvidence) bool {
 	return o.Exists && o.Name == ev.InstanceName && removableStatus(o.Status) && o.IncusUUID == ev.IncusUUID &&
 		o.Generation == ev.Generation && o.Fingerprint == ev.ImageFingerprint

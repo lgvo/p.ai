@@ -162,28 +162,30 @@ delete_p_ref() {
   test "$(guest "$target" git branch --show-current)" = "$branch"
   test "$(guest "$target" git ls-remote origin "refs/heads/$branch")" = ""
 }
-# Both reviews of a session without its P ref are allowed and say so. P does
+# Both plans of a session without its P ref are allowed and say so. P does
 # not look inside the running container; it states that everything in it is
-# lost.
-assert_missing_ref_previews() {
-  local target="$1" branch="$2"
-  discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$target" '{uuid:$uuid,kind:"discard"}')")
-  delete_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$target" '{uuid:$uuid,kind:"delete"}')")
-  for preview in "$discard_preview" "$delete_preview"; do
+# lost. No commit leaves P with the missing ref.
+assert_missing_ref_plans() {
+  local target="$1" branch="$2" plan
+  discard_plan=$(rpc session.discard "$(jq -nc --arg uuid "$target" '{uuid:$uuid}')")
+  delete_plan=$(rpc session.delete "$(jq -nc --arg uuid "$target" '{uuid:$uuid}')")
+  for plan in "$discard_plan" "$delete_plan"; do
     jq -e --arg uuid "$target" --arg branch "$branch" '
-      .result.preview | .session_uuid==$uuid and .project=="missing-ref-removal" and
-      .branch==$branch and .assigned_ref==("refs/heads/"+$branch) and
-      .assigned_ref_missing==true and (has("assigned_tip")|not) and
-      .runtime.condition=="present" and .runtime.original_status=="Running" and
-      .runtime.runtime_data_lost==true and (.runtime|has("runtime_loss_unknown")|not) and
-      (.confirmation_token|test("^[0-9a-f]{32}$"))' <<< "$preview" >/dev/null
+      .result | (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and (.plan |
+      .target==("session/"+$uuid) and .allowed==true and .refusals==[] and .gone==[] and
+      .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and
+      (.details | .project=="missing-ref-removal" and
+        .branch==$branch and .assigned_ref==("refs/heads/"+$branch) and
+        .assigned_ref_missing==true and (has("assigned_tip")|not) and
+        .runtime.condition=="present" and .runtime.original_status=="Running" and
+        (.runtime | has("runtime_data_lost") or has("runtime_loss_unknown") | not)))' <<< "$plan" >/dev/null
   done
-  jq -e '.result.preview | .kind=="discard" and .branch_loss==null' <<< "$discard_preview" >/dev/null
-  jq -e --arg branch "$branch" --arg tip "$tip" '.result.preview | .kind=="delete" and
-    (.branch_loss | .assigned_ref==("refs/heads/"+$branch) and (has("assigned_tip")|not) and
+  jq -e '.result.plan | .action=="session.discard" and (.details|has("branch_loss")|not)' <<< "$discard_plan" >/dev/null
+  jq -e --arg branch "$branch" --arg tip "$tip" '.result.plan | .action=="session.delete" and
+    (.details.branch_loss | .assigned_ref==("refs/heads/"+$branch) and (has("assigned_tip")|not) and
       .commits_losing_p_reachability==[] and (has("origin")|not) and
       all(.p_refs[]; .name!=("refs/heads/"+$branch)) and
-      any(.p_refs[]; .name=="refs/heads/keep" and .oid==$tip))' <<< "$delete_preview" >/dev/null
+      any(.p_refs[]; .name=="refs/heads/keep" and .oid==$tip))' <<< "$delete_plan" >/dev/null
 }
 # The session record, its runtime, key and endpoints are gone, and no ref of
 # its branch exists in P's repository.
@@ -243,10 +245,10 @@ test "$(bare_ref doomed)" = "$tip"
 # Discard of the running bootstrap session after its main ref was deleted:
 # with no branch to keep it ends like a delete.
 delete_p_ref main "$uuid"
-assert_missing_ref_previews "$uuid" main
-token=$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")
-removed=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{key:"missing-ref-discard",uuid:$uuid,confirmation_token:$token}')")
+assert_missing_ref_plans "$uuid" main
+tag=$(jq -er '.result.change_tag' <<< "$discard_plan")
+removed=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg tag "$tag" \
+  '{uuid:$uuid,key:"missing-ref-discard",if_match:$tag}')")
 discard_op=$(operation_id "$removed")
 op_ids+=("$discard_op")
 discarded=$(wait_operation "$discard_op")
@@ -259,10 +261,10 @@ uuid=
 # Delete of the running doomed session after its ref was deleted: nothing of
 # its branch is left in P's repository to remove.
 delete_p_ref doomed "$doomed_uuid"
-assert_missing_ref_previews "$doomed_uuid" doomed
-token=$(jq -er '.result.preview.confirmation_token' <<< "$delete_preview")
-removed=$(rpc session.delete "$(jq -nc --arg uuid "$doomed_uuid" --arg token "$token" \
-  '{key:"missing-ref-delete",uuid:$uuid,confirmation_token:$token}')")
+assert_missing_ref_plans "$doomed_uuid" doomed
+tag=$(jq -er '.result.change_tag' <<< "$delete_plan")
+removed=$(rpc session.delete "$(jq -nc --arg uuid "$doomed_uuid" --arg tag "$tag" \
+  '{uuid:$uuid,key:"missing-ref-delete",if_match:$tag}')")
 delete_op=$(operation_id "$removed")
 op_ids+=("$delete_op")
 deleted=$(wait_operation "$delete_op")

@@ -2,56 +2,43 @@ package api
 
 import "encoding/json"
 
-// The reviews that a risky change's preview method returns. Each carries a
-// short-lived confirmation token that its confirmation method takes.
+// The details of each risky change's plan (plans.go): everything the plan
+// shows besides its envelope.
 
-type RemovalPreviewResult struct {
-	Preview RemovalPreview `json:"preview"`
-}
-
-// RemovalPreview is the reviewed discard or delete of one session.
+// RemovalDetails is the plan of a session's discard or delete.
 // AssignedRefMissing says there is no branch: delete then removes nothing from
-// P's repository, and discard keeps no branch.
-type RemovalPreview struct {
-	Kind               string                `json:"kind"`
-	SessionUUID        string                `json:"session_uuid"`
-	Project            string                `json:"project"`
-	Branch             string                `json:"branch"`
-	AssignedRef        string                `json:"assigned_ref"`
-	AssignedTip        string                `json:"assigned_tip,omitempty"`
-	AssignedRefMissing bool                  `json:"assigned_ref_missing,omitempty"`
-	PolicySHA256       string                `json:"policy_sha256"`
-	Runtime            RemovalRuntimePreview `json:"runtime"`
-	BranchLoss         *RemovalBranchLoss    `json:"branch_loss,omitempty"`
-	ConfirmationToken  string                `json:"confirmation_token"`
-	ExpiresAt          string                `json:"expires_at"`
+// P's repository, and discard keeps no branch. BranchLoss is a delete's.
+type RemovalDetails struct {
+	Project            string             `json:"project"`
+	Branch             string             `json:"branch"`
+	AssignedRef        string             `json:"assigned_ref"`
+	AssignedTip        string             `json:"assigned_tip,omitempty"`
+	AssignedRefMissing bool               `json:"assigned_ref_missing,omitempty"`
+	PolicySHA256       string             `json:"policy_sha256"`
+	Runtime            RemovalRuntime     `json:"runtime"`
+	BranchLoss         *RemovalBranchLoss `json:"branch_loss,omitempty"`
 }
 
-// RemovalRuntimePreview states what removal does to a session's runtime. P
-// does not look inside a present container: RuntimeDataLost says that the
-// container and everything in it (uncommitted changes, files outside Git,
-// commits not pushed to P, home, runtime-local credentials) is lost.
-type RemovalRuntimePreview struct {
-	Condition          string `json:"condition"`
-	IncusProject       string `json:"incus_project"`
-	InstanceName       string `json:"instance_name"`
-	IncusUUID          string `json:"incus_uuid,omitempty"`
-	Generation         string `json:"generation,omitempty"`
-	ImageFingerprint   string `json:"image_fingerprint,omitempty"`
-	OriginalStatus     string `json:"original_status,omitempty"`
-	RuntimeDataLost    bool   `json:"runtime_data_lost,omitempty"`
-	RuntimeLossUnknown bool   `json:"runtime_loss_unknown,omitempty"`
+// RemovalRuntime is a session's container as a removal found it: present,
+// with its exact identity and its Incus status, or missing. P does not look
+// inside a present container.
+type RemovalRuntime struct {
+	Condition        string `json:"condition"`
+	IncusProject     string `json:"incus_project"`
+	InstanceName     string `json:"instance_name"`
+	IncusUUID        string `json:"incus_uuid,omitempty"`
+	Generation       string `json:"generation,omitempty"`
+	ImageFingerprint string `json:"image_fingerprint,omitempty"`
+	OriginalStatus   string `json:"original_status,omitempty"`
 }
 
-// RemovalBranchLoss lists the commits that leave P's repository. Only
-// retained-branch deletion reads the origin; session and project deletion
-// leave Origin nil.
+// RemovalBranchLoss lists the commits that leave P's repository, and every
+// ref of P's repository at its tip.
 type RemovalBranchLoss struct {
-	AssignedRef                string         `json:"assigned_ref"`
-	AssignedTip                string         `json:"assigned_tip,omitempty"`
-	CommitsLosingPReachability []string       `json:"commits_losing_p_reachability"`
-	PRefs                      []PRef         `json:"p_refs"`
-	Origin                     *RemovalOrigin `json:"origin,omitempty"`
+	AssignedRef                string   `json:"assigned_ref"`
+	AssignedTip                string   `json:"assigned_tip,omitempty"`
+	CommitsLosingPReachability []string `json:"commits_losing_p_reachability"`
+	PRefs                      []PRef   `json:"p_refs"`
 }
 
 // PRef is one ref of P's repository at its tip.
@@ -60,39 +47,19 @@ type PRef struct {
 	OID  string `json:"oid"`
 }
 
-// RemovalOrigin is what a fresh origin read says about the commits a deletion
-// removes from P's repository.
-type RemovalOrigin struct {
-	URL                string   `json:"url,omitempty"`
-	Status             string   `json:"status"`
-	Reason             string   `json:"reason,omitempty"`
-	ContainingBranches []string `json:"containing_branches"`
-	ObservedRefsDigest string   `json:"observed_refs_digest,omitempty"`
-	UnresolvedRefs     []string `json:"unresolved_refs"`
+// RetainedDeleteDetails is the plan of deleting a retained branch.
+type RetainedDeleteDetails struct {
+	Project    string             `json:"project"`
+	Branch     string             `json:"branch"`
+	Ref        string             `json:"ref"`
+	Tip        string             `json:"tip"`
+	BranchLoss *RemovalBranchLoss `json:"branch_loss"`
 }
 
-type RetainedDeletePreviewResult struct {
-	Preview RetainedDeletePreview `json:"preview"`
-}
-
-type RetainedDeletePreview struct {
-	Project           string             `json:"project"`
-	Branch            string             `json:"branch"`
-	Ref               string             `json:"ref"`
-	Tip               string             `json:"tip"`
-	BranchLoss        *RemovalBranchLoss `json:"branch_loss"`
-	ConfirmationToken string             `json:"confirmation_token"`
-	ExpiresAt         string             `json:"expires_at"`
-}
-
-type ProjectDeletePreviewResult struct {
-	Preview ProjectDeletionPreview `json:"preview"`
-}
-
-// ProjectDeletionPreview is one bounded whole-project loss review. Sessions
-// must already be stopped and detached; unknown native effects are never
-// removal grants.
-type ProjectDeletionPreview struct {
+// ProjectDeleteDetails is the plan of deleting a whole project: every
+// session, image and the repository it removes. Attachments is always
+// empty: an attached session refuses the deletion.
+type ProjectDeleteDetails struct {
 	Project             string                   `json:"project"`
 	Outcome             string                   `json:"outcome"`
 	StateSHA256         string                   `json:"state_sha256"`
@@ -104,17 +71,15 @@ type ProjectDeletionPreview struct {
 	Images              []CommitImageClaim       `json:"images"`
 	Repository          ReplacementLocalIdentity `json:"repository_identity"`
 	RepositoryParent    ReplacementLocalIdentity `json:"repository_parent_identity"`
-	Warnings            []string                 `json:"warnings"`
-	ConfirmationToken   string                   `json:"confirmation_token"`
-	ExpiresAt           string                   `json:"expires_at"`
 }
 
 // ProjectDeleteSession is one session that project deletion removes, and the
-// exact local resources it holds.
+// exact local resources it holds. Condition is running, stopped or missing:
+// P stops a running session itself.
 type ProjectDeleteSession struct {
 	Session   SessionRecord            `json:"session"`
 	Condition string                   `json:"condition"`
-	Runtime   RemovalRuntimePreview    `json:"runtime"`
+	Runtime   RemovalRuntime           `json:"runtime"`
 	Local     CreateReplacementCleanup `json:"credentials"`
 }
 
@@ -188,15 +153,10 @@ type GrantSourceIdentity struct {
 	OwnerGID uint32 `json:"owner_gid"`
 }
 
-type CreateReplacePreviewResult struct {
-	Preview CreateReplacePreview `json:"preview"`
-}
-
-// CreateReplacePreview names the old immutable request and the only new
-// request this short-lived confirmation may admit. Ineligible previews carry
-// reasons but no token.
-type CreateReplacePreview struct {
-	OldUUID             string                 `json:"old_uuid"`
+// CreateReplaceDetails is the plan of replacing a blocked creation with a new
+// one: the old creation and its branch, the new request without its key, and
+// the provisional resources of the old one.
+type CreateReplaceDetails struct {
 	OldOperationID      string                 `json:"old_operation_id"`
 	OldStatus           string                 `json:"old_status"`
 	OldPhase            string                 `json:"old_phase"`
@@ -207,17 +167,13 @@ type CreateReplacePreview struct {
 	OldEvidenceSHA256   string                 `json:"old_evidence_sha256"`
 	OldPolicySHA256     string                 `json:"old_policy_sha256"`
 	OldImageFingerprint string                 `json:"old_image_fingerprint"`
-	NewRequest          SessionCreateRequest   `json:"new_request"`
+	NewRequest          CreationChoices        `json:"new_request"`
 	NewCapturedOID      string                 `json:"new_captured_oid,omitempty"`
 	NewImageFingerprint string                 `json:"new_image_fingerprint"`
 	NewSelection        CreationSelection      `json:"new_selection"`
 	NewEnvironment      *EnvironmentIntent     `json:"new_environment,omitempty"`
 	NewPolicySHA256     string                 `json:"new_policy_sha256,omitempty"`
 	Provisional         CreateReplaceResources `json:"provisional"`
-	UnsafeReasons       []string               `json:"unsafe_reasons"`
-	Eligible            bool                   `json:"eligible"`
-	ConfirmationToken   string                 `json:"confirmation_token,omitempty"`
-	ExpiresAt           string                 `json:"expires_at,omitempty"`
 }
 
 // CreationSelection is the runtime, host, source and agent plugins that a
@@ -304,14 +260,10 @@ func (c CreateReplacementCleanup) Valid() bool {
 		c.KeyDirectory.UID == c.Key.UID && c.Key.UID == c.EndpointPrefix.UID && c.Key.UID == c.EndpointDirectory.UID && c.Key.UID == c.GitSocket.UID && c.Key.UID == c.SessionSocket.UID
 }
 
-type CreateCleanupPreviewResult struct {
-	Preview CreateCleanupPreview `json:"preview"`
-}
-
-// CreateCleanupPreview reviews cleaning up a failed creation. Runtime and
-// LossWarnings are set for an assembled creator's stopped container.
-type CreateCleanupPreview struct {
-	UUID               string                 `json:"uuid"`
+// CreateCleanupDetails is the plan of cleaning up a failed creation. Runtime
+// is set for an assembled creator's stopped container, which the cleanup
+// deletes.
+type CreateCleanupDetails struct {
 	OldOperationID     string                 `json:"old_operation_id"`
 	OldRequest         SessionCreateRequest   `json:"old_request"`
 	OldPhase           string                 `json:"old_phase"`
@@ -324,12 +276,7 @@ type CreateCleanupPreview struct {
 	Provisional        CreateReplaceResources `json:"provisional"`
 	ExternalMounts     string                 `json:"external_mounts"`
 	SharedImages       string                 `json:"shared_images"`
-	Runtime            *RemovalRuntimePreview `json:"runtime,omitempty"`
-	LossWarnings       []string               `json:"loss_warnings,omitempty"`
-	Eligible           bool                   `json:"eligible"`
-	UnsafeReasons      []string               `json:"unsafe_reasons"`
-	ConfirmationToken  string                 `json:"confirmation_token,omitempty"`
-	ExpiresAt          string                 `json:"expires_at,omitempty"`
+	Runtime            *RemovalRuntime        `json:"runtime,omitempty"`
 }
 
 // CreationBuilderState is a creation's latest image build: its cycle, and its

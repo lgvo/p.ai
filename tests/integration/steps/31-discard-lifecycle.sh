@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Confirmed public Discard of a running, unattached session: P stops and
-# deletes the exact runtime and removes its credentials without looking
-# inside it. All files are disposable fixtures; no authentication is used.
+# Public Discard, planned by a dry run and then run with its change tag, of a
+# running, unattached session: P stops and deletes the exact runtime and
+# removes its credentials without looking inside it. All files are disposable
+# fixtures; no authentication is used.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-31"
@@ -177,7 +178,8 @@ expect_refusal() {
   fi
   jq -e --arg kind "$kind" --arg reason "$reason" '
     {method_not_found: -32601, invalid: -32602, retry: -32010, conflict: -32011,
-     capacity: -32012, precondition_failed: -32013, not_found: -32015} as $codes |
+     capacity: -32012, precondition_failed: -32013, precondition_required: -32014,
+     not_found: -32015} as $codes |
     .error.message==$kind and .error.code==$codes[$kind] and
     ($reason=="" or .error.data.reason==$reason)' <<< "$response" >/dev/null
 }
@@ -185,10 +187,23 @@ source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
     'length==1 and .[0].name==$name and .[0].status=="Running"' >/dev/null
 }
-preview_discard() {
-  discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-    '{uuid:$uuid,kind:"discard"}')")
-  discard_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$discard_preview")
+# plan_discard: the dry run of session.discard of the session sets its plan
+# and its change tag.
+plan_discard() {
+  discard_plan=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')")
+  discard_tag=$(jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$discard_plan")
+}
+# discard KEY TAG: runs the discard with idempotency key KEY and change tag
+# TAG.
+discard() {
+  local key="$1" tag="$2"
+  rpc session.discard "$(jq -nc --arg key "$key" --arg uuid "$uuid" --arg tag "$tag" \
+    '{uuid:$uuid,key:$key,if_match:$tag}')"
+}
+# no_operation KEY: no operation is recorded with idempotency key KEY.
+no_operation() {
+  rpc operation.list '{"limit":20}' | jq -e --arg key "$1" \
+    '.result.operations | all(.[]; .idempotency_key!=$key)' >/dev/null
 }
 
 guest /run/current-system/sw/bin/git config user.name P
@@ -210,36 +225,30 @@ guest /usr/libexec/p/codex-adapter init
 guest /run/current-system/sw/bin/bash -c \
   'printf doomed-dummy > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json; printf dirty > tracked'
 
-# The review of a running session does not look inside it: it states that
-# the container and everything in it is lost.
-preview_discard
+# The plan of a running session does not look inside it: it states that the
+# container and everything in it is lost.
+plan_discard
 jq -e --arg uuid "$uuid" --arg oid "$main_oid" '
-  .result.preview | .kind=="discard" and .session_uuid==$uuid and
-  .project=="discard-lifecycle" and .branch=="main" and
-  .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
-  (has("assigned_ref_missing")|not) and .branch_loss==null and
-  .runtime.condition=="present" and .runtime.original_status=="Running" and
-  .runtime.instance_name==("p-"+$uuid) and .runtime.runtime_data_lost==true and
-  (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
-    has("observed_at") or has("runtime_loss_unknown")) | not)
-' <<< "$discard_preview" >/dev/null
-stale_token=$discard_token
-# A changed assigned P tip makes the old confirmation stale before any
-# removal commit point.
+  .result.plan | .action=="session.discard" and .target==("session/"+$uuid) and
+  .allowed==true and .refusals==[] and .gone==[] and
+  .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and
+  (.details | .project=="discard-lifecycle" and .branch=="main" and
+    .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
+    (has("assigned_ref_missing")|not) and (has("branch_loss")|not) and
+    .runtime.condition=="present" and .runtime.original_status=="Running" and
+    .runtime.instance_name==("p-"+$uuid) and
+    (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
+      has("observed_at") or has("runtime_data_lost") or has("runtime_loss_unknown")) | not))
+' <<< "$discard_plan" >/dev/null
+stale_tag=$discard_tag
+# A changed assigned P tip makes the old change tag stale: the run plans
+# again, is refused as changed and records no operation.
 guest /run/current-system/sw/bin/bash -c \
   'printf tip > tracked; git add tracked; git commit -qm after-preview; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-discard() {
-  local key="$1" token="$2"
-  rpc session.discard "$(jq -nc --arg key "$key" --arg uuid "$uuid" --arg token "$token" \
-    '{key:$key,uuid:$uuid,confirmation_token:$token}')"
-}
-stale_response=$(discard discard-stale "$stale_token")
-stale_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$stale_response")
-op_ids+=("$stale_op")
-stale_result=$(wait_operation "$stale_op" failed)
-jq -e '.result.operation | .kind=="session.discard" and .phase=="stale" and
-  .committed==false and (.diagnostic|type=="string" and length>0)' <<< "$stale_result" >/dev/null
+expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg tag "$stale_tag" \
+  '{uuid:$uuid,key:"discard-stale",if_match:$tag}')" precondition_failed changed
+no_operation discard-stale
 source_running
 test "$(guest /run/current-system/sw/bin/cat tracked)" = tip
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = doomed-dummy
@@ -251,21 +260,23 @@ test -S "$endpoint_prefix/$uuid/session.sock"
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
 inc list "^p-$uuid_b$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
-# The stale review's token was spent by its confirmation.
-expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$stale_token" \
-  '{key:"discard-stale-reused",uuid:$uuid,confirmation_token:$token}')" precondition_failed expired
-# A real push proves the stale path released the P ref guard and Git principal.
+# A refused tag is not spent, but its state stays changed: sent again, it is
+# refused the same way.
+expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg tag "$stale_tag" \
+  '{uuid:$uuid,key:"discard-stale-reused",if_match:$tag}')" precondition_failed changed
+no_operation discard-stale-reused
+# A real push proves the refused runs left the P ref and Git principal usable.
 guest /run/current-system/sw/bin/bash -c 'printf after-stale > tracked; git add tracked; git commit -qm after-stale; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/main | cut -f1)" = "$main_oid"
 
-# Changed container contents do not make a review stale: P does not look
+# Changed container contents do not make a tag stale: P does not look
 # inside. P stops the running, unattached session itself, then deletes it.
-preview_discard
-fresh_token=$discard_token
+plan_discard
+fresh_tag=$discard_tag
 guest /run/current-system/sw/bin/bash -c 'printf other > tracked; printf new > untracked'
 printf 'p-%s\n' "$uuid" > "$step_dir/removal-arm"
-completed_response=$(discard discard-confirmed "$fresh_token")
+completed_response=$(discard discard-confirmed "$fresh_tag")
 discard_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$completed_response")
 op_ids+=("$discard_op")
 pause_deadline=$((SECONDS+40))
@@ -281,8 +292,12 @@ jq -e '.result.operation | .kind=="session.discard" and .phase=="discarded" and
 # The exact source was stopped, then deleted: never paused or restarted.
 printf 'stop p-%s\ndelete p-%s\n' "$uuid" "$uuid" > "$step_dir/source-effects-expected"
 cmp "$step_dir/source-effects-expected" "$step_dir/source-effects"
-replayed=$(discard discard-confirmed "$fresh_token")
+# The same key and tag return the same operation; the same key with another
+# tag is another request.
+replayed=$(discard discard-confirmed "$fresh_tag")
 test "$(jq -er '.result.operation.id' <<< "$replayed")" = "$discard_op"
+expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg tag "$stale_tag" \
+  '{uuid:$uuid,key:"discard-confirmed",if_match:$tag}')" invalid key_reused
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test ! -e "$endpoint_prefix/$uuid"
 test ! -e "$state/session_keys/$uuid"

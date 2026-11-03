@@ -16,22 +16,24 @@ import (
 // CreationEvidence is immutable selection data made under the Git authority
 // lock. It is stored before an absent-ref CAS or runtime side effect.
 type CreationEvidence struct {
-	CapturedOID            string                        `json:"captured_oid,omitempty"`
-	BranchExisted          bool                          `json:"branch_existed"`
-	ImageFingerprint       string                        `json:"image_fingerprint"`
-	PolicySHA256           string                        `json:"policy_sha256"`
-	EnvironmentBuilder     *CreationBuilderState         `json:"environment_builder,omitempty"`
-	RuntimeInitState       string                        `json:"runtime_init_state,omitempty"`
-	RefCASIntent           bool                          `json:"ref_cas_intent,omitempty"`
-	Selection              CreationSelection             `json:"selection"`
-	OriginURL              string                        `json:"origin_url,omitempty"`
-	OriginRef              string                        `json:"origin_ref,omitempty"`
-	Environment            *EnvironmentIntent            `json:"environment,omitempty"`
-	Image                  *CreationImage                `json:"image,omitempty"`
-	SupersedesOperationID  string                        `json:"supersedes_operation_id,omitempty"`
-	SupersedesUUID         string                        `json:"supersedes_uuid,omitempty"`
-	ReplacementCleanup     *api.CreateReplacementCleanup `json:"replacement_cleanup,omitempty"`
-	ReplacementTokenSHA256 string                        `json:"replacement_token_sha256,omitempty"`
+	CapturedOID           string                        `json:"captured_oid,omitempty"`
+	BranchExisted         bool                          `json:"branch_existed"`
+	ImageFingerprint      string                        `json:"image_fingerprint"`
+	PolicySHA256          string                        `json:"policy_sha256"`
+	EnvironmentBuilder    *CreationBuilderState         `json:"environment_builder,omitempty"`
+	RuntimeInitState      string                        `json:"runtime_init_state,omitempty"`
+	RefCASIntent          bool                          `json:"ref_cas_intent,omitempty"`
+	Selection             CreationSelection             `json:"selection"`
+	OriginURL             string                        `json:"origin_url,omitempty"`
+	OriginRef             string                        `json:"origin_ref,omitempty"`
+	Environment           *EnvironmentIntent            `json:"environment,omitempty"`
+	Image                 *CreationImage                `json:"image,omitempty"`
+	SupersedesOperationID string                        `json:"supersedes_operation_id,omitempty"`
+	SupersedesUUID        string                        `json:"supersedes_uuid,omitempty"`
+	ReplacementCleanup    *api.CreateReplacementCleanup `json:"replacement_cleanup,omitempty"`
+	// ReplacementTag is the change tag of the replacement that recorded this
+	// creation.
+	ReplacementTag string `json:"replacement_tag,omitempty"`
 }
 
 // EnvironmentIntent is selected by the trusted host before reservation and

@@ -147,7 +147,7 @@ printf 'host_git=%q\nfixture=%q\np_binary=%q\njq_binary=%q\nsleep_binary=%q\n' "
 cat >> "$step_dir/bin/git" <<'GIT_WRAPPER'
 set -euo pipefail
 # Fixture-only pause of the cleanup worker's first precommit ref read, so the
-# test can move the assigned branch after the confirmation was accepted.
+# test can move the assigned branch after the run was accepted.
 if test -f "$fixture/stale-arm" && test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify && test "$5" = --quiet && test "$6" = refs/heads/work; then
  read -r session_uuid < "$fixture/stale-arm"
  if "$p_binary" api "$fixture/state/control.sock" operation.list '{"limit":20}' |
@@ -289,12 +289,15 @@ refs_before=$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)')
 key_before=$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)
 printf 'p-%s\n' "$uuid" > "$step_dir/protect-source"
 assert_source
-preview_cleanup() {
-  rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"
+# plan_cleanup: the cleanup's dry run. run_params KEY TAG: its run's params,
+# the same plus the key and the dry run's change tag.
+plan_cleanup() {
+  rpc session.create.cleanup "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"
 }
-confirm_params() {
-  jq -nc --arg uuid "$uuid" --arg key "$1" --arg token "$2" '{uuid:$uuid,key:$key,confirmation_token:$token}'
+run_params() {
+  jq -nc --arg uuid "$uuid" --arg key "$1" --arg tag "$2" '{uuid:$uuid,key:$key,if_match:$tag}'
 }
+change_tag() { jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$1"; }
 assert_retained() {
   test "$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
   test "$(inc image list --format json | jq -c '[.[].fingerprint]|sort')" = "$images_before"
@@ -313,37 +316,41 @@ assert_old_effects_absent() {
 }
 images_before=$(inc image list --format json | jq -c '[.[].fingerprint]|sort')
 # The removed loss inspection parameter is refused by strict decoding.
-expect_error -32602 invalid param session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,loss_operation_id:$uuid}')"
+expect_error -32602 invalid param session.create.cleanup "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,loss_operation_id:$uuid}')"
 # P picks the assembled path itself and names the exact stopped container,
-# stating it and everything in it lost without looking inside.
-preview=$(preview_cleanup)
+# whose data the plan lists as lost without looking inside.
+plan=$(plan_cleanup)
 jq -e --arg creator "$creator" --arg native "$native_uuid" --arg generation "$generation" --arg uuid "$uuid" --arg image "$base" \
- '.result.preview | .eligible==true and .old_operation_id==$creator and .old_phase=="assembly-ready" and
- (.unsafe_reasons // [])==[] and (.old_request_sha256|test("^[0-9a-f]{64}$")) and
+ '.result | (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and
+ (.plan | .action=="session.create.cleanup" and .target==("session/"+$uuid) and
+ .allowed==true and .refusals==[] and .gone==[] and
+ .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and (.details |
+ .old_operation_id==$creator and .old_phase=="assembly-ready" and
+ (.old_request_sha256|test("^[0-9a-f]{64}$")) and
  .runtime.condition=="present" and .runtime.original_status=="Stopped" and .runtime.incus_uuid==$native and
  .runtime.generation==$generation and .runtime.incus_project=="user-1000" and .runtime.instance_name==("p-"+$uuid) and
- .runtime.image_fingerprint==$image and .runtime.runtime_data_lost==true and
- (.runtime | has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at") | not) and
- (.loss_warnings|length)==3 and
- any(.loss_warnings[];contains("private")) and any(.loss_warnings[];contains("credentials")) and
+ .runtime.image_fingerprint==$image and
+ (.runtime | has("runtime_data_lost") or has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at") | not) and
  .provisional.runtime=="present" and .provisional.runtime_local=="will_be_removed" and
- .provisional.assigned_ref=="preserved_existing" and .shared_images=="preserved" and .external_mounts=="preserved"' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+ .provisional.assigned_ref=="preserved_existing" and .shared_images=="preserved" and .external_mounts=="preserved"))' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
 assert_source
-# A branch moved between preview and confirmation refuses the request.
+# A branch moved between the dry run and the run makes the run stale: it
+# plans again, is refused, and records no operation.
 moved=$(git -C "$repo" -c user.name=P -c user.email=p@example.invalid commit-tree "$(git -C "$repo" rev-parse "$tip^{tree}")" -p "$tip" -m moved-after-review)
 git -C "$repo" update-ref refs/heads/work "$moved" "$tip"
-expect_error -32013 precondition_failed changed session.create.cleanup.confirm "$(confirm_params moved-before-confirm "$token")"
+expect_error -32013 precondition_failed changed session.create.cleanup "$(run_params moved-before-run "$tag")"
+rpc operation.list '{"limit":20}' | jq -e '.result.operations | all(.[]; .kind!="session.create.cleanup")' >/dev/null
 git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
 assert_source
-# A branch moved after the confirmation was accepted but before the cleanup
-# committed fails it as stale and preserves everything.
-preview=$(preview_cleanup)
-jq -e '.result.preview.eligible==true' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+# A branch moved after the run was accepted but before the cleanup committed
+# fails it as stale and preserves everything.
+plan=$(plan_cleanup)
+jq -e '.result.plan.allowed==true' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
 printf '%s\n' "$uuid" > "$step_dir/stale-arm"
-confirmed=$(rpc session.create.cleanup.confirm "$(confirm_params stale-cleanup "$token")")
-stale_id=$(jq -er '.result.operation.id|select(length==36)' <<< "$confirmed")
+ran=$(rpc session.create.cleanup "$(run_params stale-cleanup "$tag")")
+stale_id=$(jq -er '.result.operation.id|select(length==36)' <<< "$ran")
 op_ids+=("$stale_id")
 deadline=$((SECONDS+100))
 while test ! -f "$step_dir/stale-paused" && ((SECONDS<deadline)); do sleep 0.1; done
@@ -359,28 +366,28 @@ rm "$step_dir/stale-arm"
 git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
 assert_source
 expect_error -32011 conflict operation_not_retryable operation.retry "$(jq -nc --arg id "$stale_id" '{id:$id}')"
-# A new preview, token and key are the supported settled-stale recovery
+# A new dry run, tag and key are the supported settled-stale recovery
 # procedure. The same original identity is retained.
-preview=$(preview_cleanup)
-jq -e '.result.preview.eligible==true' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+plan=$(plan_cleanup)
+jq -e '.result.plan.allowed==true' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
 # P does not look inside the container: workspace bytes changed after the
-# review do not refuse the cleanup.
+# dry run do not refuse the cleanup.
 printf changed-after-review > "$step_dir/changed"
 inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/changed" "p-$uuid/workspace/tracked"
 printf 'pending\n' > "$step_dir/completion-arm"
-confirmed_status=0
-confirmed=$(rpc session.create.cleanup.confirm "$(confirm_params cleanup-reviewed "$token")") || confirmed_status=$?
-if test "$confirmed_status" -ne 0; then
-  jq -c --argjson status "$confirmed_status" \
-    '{method:"session.create.cleanup.confirm",status:$status,error:{code:.error.code,kind:.error.message,data:.error.data}}' \
-    <<< "$confirmed" >&2 || true
+ran_status=0
+ran=$(rpc session.create.cleanup "$(run_params cleanup-reviewed "$tag")") || ran_status=$?
+if test "$ran_status" -ne 0; then
+  jq -c --argjson status "$ran_status" \
+    '{method:"session.create.cleanup",status:$status,error:{code:.error.code,kind:.error.message,data:.error.data}}' \
+    <<< "$ran" >&2 || true
 fi
-test "$confirmed_status" -eq 0
-cleanup_id=$(jq -er '.result.operation.id|select(length==36)' <<< "$confirmed")
+test "$ran_status" -eq 0
+cleanup_id=$(jq -er '.result.operation.id|select(length==36)' <<< "$ran")
 op_ids+=("$cleanup_id")
 printf '%s\n' "$cleanup_id" > "$step_dir/completion-arm"
-params=$(confirm_params cleanup-reviewed "$token")
+params=$(run_params cleanup-reviewed "$tag")
 deadline=$((SECONDS+100))
 while test ! -f "$step_dir/completion-paused" && ((SECONDS<deadline)); do sleep 0.1; done
 test -f "$step_dir/completion-paused"
@@ -411,7 +418,7 @@ rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -e '.result.session.registry_state=="removing"' >/dev/null
 assert_old_effects_absent
 assert_retained
-replayed=$(rpc session.create.cleanup.confirm "$params")
+replayed=$(rpc session.create.cleanup "$params")
 jq -e --arg id "$cleanup_id" '.result.operation.id==$id' <<< "$replayed" >/dev/null
 expect_error -32011 conflict operation_superseded operation.retry "$(jq -nc --arg id "$creator" '{id:$id}')"
 printf 'P_ASSEMBLED_CLEANUP_NATIVE_UNAVAILABLE_PRESERVED\n'

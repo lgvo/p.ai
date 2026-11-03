@@ -57,23 +57,20 @@ cleanup() {
 on_error() {
   printf 'P_RETAINED_DELETE_FAIL line=%s status=%s\n' "$2" "$1" >&2
   local result
-  if test -n "${preview:-}"; then
-    jq -c --arg tip "${unique:-}" --arg base "${source:-}" --arg url "${full_url:-}" '
-      .result.preview as $p | {
-        project:$p.project, branch:$p.branch, ref:$p.ref,
-        tip:$p.tip, tip_matches_expected:($p.tip==$tip),
-        expires_at:$p.expires_at,
-        loss:{assigned_ref:$p.branch_loss.assigned_ref,
-          assigned_tip:$p.branch_loss.assigned_tip,
-          losing_commits:$p.branch_loss.commits_losing_p_reachability,
-          p_refs:$p.branch_loss.p_refs,
-          expected_base_present:any($p.branch_loss.p_refs[]; .name=="refs/heads/work" and .oid==$base),
-          origin:{url_matches_expected:($p.branch_loss.origin.url==$url),
-            status:$p.branch_loss.origin.status,reason:$p.branch_loss.origin.reason,
-            containing_branches:$p.branch_loss.origin.containing_branches,
-            observed_refs_digest_length:($p.branch_loss.origin.observed_refs_digest|length),
-            unresolved_refs:$p.branch_loss.origin.unresolved_refs}}}' \
-      <<< "$preview" 2>/dev/null | head -c 2048 >&2 || true
+  if test -n "${plan:-}"; then
+    jq -c --arg tip "${unique:-}" --arg base "${source:-}" '
+      .result as $r | .result.plan as $p | {
+        action:$p.action, target:$p.target, allowed:$p.allowed, refusals:$p.refusals,
+        loss:$p.loss, gone:$p.gone, has_change_tag:($r|has("change_tag")),
+        project:$p.details.project, branch:$p.details.branch, ref:$p.details.ref,
+        tip:$p.details.tip, tip_matches_expected:($p.details.tip==$tip),
+        branch_loss:{assigned_ref:$p.details.branch_loss.assigned_ref,
+          assigned_tip:$p.details.branch_loss.assigned_tip,
+          losing_commits:$p.details.branch_loss.commits_losing_p_reachability,
+          p_refs:$p.details.branch_loss.p_refs,
+          expected_base_present:any($p.details.branch_loss.p_refs[]?; .name=="refs/heads/work" and .oid==$base),
+          has_origin:(($p.details.branch_loss // {})|has("origin"))}}' \
+      <<< "$plan" 2>/dev/null | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
   if result=$(timeout 5 p api "$socket" operation.list '{"limit":20}' 2>/dev/null); then
@@ -306,48 +303,61 @@ empty_before=$(git -C "$empty" for-each-ref --format='%(refname) %(objectname)')
 work_before=$(git -C "$repo" rev-parse refs/heads/work)
 key_before=$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)
 exec_p "$uuid" /run/current-system/sw/bin/bash -c 'printf dummy-private > /home/p/delete-private; chmod 0600 /home/p/delete-private'
-preview_delete() {
-  rpc project.retained.delete.preview "$(jq -nc --arg branch "$1" '{project:"publication",branch:$branch}')"
+# plan_delete BRANCH: the deletion's dry run. run_delete KEY BRANCH TAG: its
+# run, with the same params plus the key and the dry run's change tag.
+plan_delete() {
+  rpc project.retained.delete "$(jq -nc --arg branch "$1" '{project:"publication",branch:$branch}')"
 }
-confirm_delete() {
-  rpc project.retained.delete.confirm "$(jq -nc --arg key "$1" --arg branch "$2" --arg token "$3" \
-    '{key:$key,project:"publication",branch:$branch,confirmation_token:$token}')"
+run_delete() {
+  rpc project.retained.delete "$(jq -nc --arg key "$1" --arg branch "$2" --arg tag "$3" \
+    '{project:"publication",branch:$branch,key:$key,if_match:$tag}')"
+}
+change_tag() { jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$1"; }
+no_retained_delete_recorded() {
+  rpc operation.list '{"limit":20}' |
+    jq -e '.result.operations | all(.[]; .kind!="project.retained.delete")' >/dev/null
 }
 rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
-expect_error conflict branch_assigned project/publication:branch/work project.retained.delete.preview '{"project":"publication","branch":"work"}'
-preview=$(preview_delete a-retained)
-jq -e --arg tip "$unique" --arg base "$source" --arg url "$full_url" '
-  .result.preview | .project=="publication" and .branch=="a-retained" and
-  .ref=="refs/heads/a-retained" and .tip==$tip and
-  (.confirmation_token|test("^[0-9a-f]{32}$")) and
-  (.branch_loss | .assigned_ref=="refs/heads/a-retained" and .assigned_tip==$tip and
-   .commits_losing_p_reachability==[$tip] and
-   any(.p_refs[]; .name=="refs/heads/work" and .oid==$base) and
-   any(.p_refs[]; .name=="refs/heads/z-retained" and .oid==$base) and
-   .origin.url==$url and .origin.status=="unknown" and
-   .origin.reason=="origin_object_or_comparison_unavailable" and
-   .origin.containing_branches==[] and
-   .origin.unresolved_refs==["refs/heads/divergent"] and
-   (.origin.observed_refs_digest|length==64))' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-# A changed origin observation invalidates the exact reviewed loss facts.
+# Deletion never reads the origin: no plan or run below contacts it.
+origin_contacts=$(wc -l < "$trace")
+# An assigned branch is refused in the plan, which then carries no change tag.
+plan=$(plan_delete work)
+jq -e '.result | (has("change_tag")|not) and (has("operation")|not) and
+  (.plan | .action=="project.retained.delete" and .target=="project/publication:branch/work" and
+   .allowed==false and .refusals==[{code:"branch_assigned"}])' <<< "$plan" >/dev/null
+plan=$(plan_delete a-retained)
+jq -e --arg tip "$unique" --arg base "$source" '
+  .result | (has("operation")|not) and
+  (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and
+  (.plan | .action=="project.retained.delete" and .target=="project/publication:branch/a-retained" and
+   .allowed==true and .refusals==[] and .gone==[] and
+   .loss==[{kind:"p_commits",target:"project/publication:branch/a-retained",count:1,sample:[$tip],certain:true}] and
+   (.details | .project=="publication" and .branch=="a-retained" and
+    .ref=="refs/heads/a-retained" and .tip==$tip and
+    (.branch_loss | .assigned_ref=="refs/heads/a-retained" and .assigned_tip==$tip and
+     .commits_losing_p_reachability==[$tip] and
+     any(.p_refs[]; .name=="refs/heads/work" and .oid==$base) and
+     any(.p_refs[]; .name=="refs/heads/z-retained" and .oid==$base) and
+     (has("origin")|not))))' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
+# A changed origin leaves the plan as it was: the origin is not part of it.
 git -C "$full" update-ref refs/heads/extra "$first" 0000000000000000000000000000000000000000
-expect_error precondition_failed changed '' project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-origin",project:"publication",branch:"a-retained",confirmation_token:$token}')"
-test "$(git -C "$repo" rev-parse refs/heads/a-retained)" = "$unique"
+plan_delete a-retained | jq -e --argjson planned "$(jq -c '.result.plan' <<< "$plan")" '.result.plan==$planned' >/dev/null
 git -C "$full" update-ref -d refs/heads/extra "$first"
 test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$origin_before"
-# A moved P tip also makes confirmation stale before any issued deletion.
-preview=$(preview_delete a-retained)
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+# A moved P tip makes the run stale: it plans again, is refused, and records
+# no operation.
 git -C "$repo" update-ref refs/heads/a-retained "$source" "$unique"
-expect_error precondition_failed changed '' project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-tip",project:"publication",branch:"a-retained",confirmation_token:$token}')"
+expect_error precondition_failed changed '' project.retained.delete "$(jq -nc --arg tag "$tag" '{key:"stale-tip",project:"publication",branch:"a-retained",if_match:$tag}')"
 test "$(git -C "$repo" rev-parse refs/heads/a-retained)" = "$source"
+no_retained_delete_recorded
 git -C "$repo" update-ref refs/heads/a-retained "$unique" "$source"
 
-preview=$(preview_delete a-retained)
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-confirmed=$(confirm_delete delete-retained a-retained "$token")
-delete_id=$(operation_id "$confirmed")
+plan=$(plan_delete a-retained)
+tag=$(change_tag "$plan")
+ran=$(run_delete delete-retained a-retained "$tag")
+jq -e '.result | (has("plan")|not) and (has("change_tag")|not)' <<< "$ran" >/dev/null
+delete_id=$(operation_id "$ran")
 completed=$(wait_operation "$delete_id" completed)
 jq -e '.result.operation | .kind=="project.retained.delete" and .status=="completed" and .phase=="completed" and .committed==true and .project=="publication" and .session_uuid==null' <<< "$completed" >/dev/null
 if git -C "$repo" show-ref --verify --quiet refs/heads/a-retained; then
@@ -363,12 +373,13 @@ test "$(exec_p "$uuid" git rev-parse HEAD)" = "$unpushed"
 inspect_session "$uuid" | jq -e --arg uuid "$uuid" '.result.session | .uuid==$uuid and .branch=="work" and .registry_state=="established"' >/dev/null
 rpc project.retained_branches '{"project":"publication","limit":8}' |
   jq -e '.result.branches | any(.[]; .branch=="z-retained") and all(.[]; .branch!="a-retained")' >/dev/null
-test "$(operation_id "$(confirm_delete delete-retained a-retained "$token")")" = "$delete_id"
+test "$(operation_id "$(run_delete delete-retained a-retained "$tag")")" = "$delete_id"
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
 rpc operation.inspect "$(jq -nc --arg id "$delete_id" '{id:$id}')" |
   jq -e '.result.operation | .status=="completed" and .phase=="completed"' >/dev/null
-test "$(operation_id "$(confirm_delete delete-retained a-retained "$token")")" = "$delete_id"
+test "$(operation_id "$(run_delete delete-retained a-retained "$tag")")" = "$delete_id"
 test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$origin_before"
+test "$(wc -l < "$trace")" = "$origin_contacts"
 echo P_RETAINED_DELETE_PASS

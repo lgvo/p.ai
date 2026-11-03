@@ -34,6 +34,32 @@ expect_refusal() {
     .error.message==$kind and .error.code==$codes[$kind] and .error.data.reason==$reason and
     (.error.message!="conflict" or .error.data.target==$target)' <<< "$response" >/dev/null
 }
+tag_pattern='^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$'
+# expect_refused_plan ACTION CODE: the dry run of session.ACTION, discard or
+# delete, of this test's session returns a plan that is not allowed, refused
+# with CODE about the session itself, and no change tag.
+expect_refused_plan() {
+  rpc "session.$1" "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e --arg action "session.$1" \
+    --arg target "session/$uuid" --arg code "$2" '.result | (has("change_tag")|not) and (.plan |
+      .action==$action and .target==$target and .allowed==false and .refusals==[{code:$code}])' >/dev/null
+}
+# plan_missing ACTION: the dry run of session.ACTION of this test's session,
+# whose runtime is missing, returns an allowed plan with a change tag. The
+# plan states the runtime missing and its data already gone, not lost by the
+# removal; it prints the plan.
+plan_missing() {
+  local result
+  result=$(rpc "session.$1" "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')") || return
+  jq -e --arg action "session.$1" --arg target "session/$uuid" --arg tag "$tag_pattern" '
+    .result | (.change_tag | test($tag)) and (.plan | .action==$action and .target==$target and
+      .allowed==true and .refusals==[] and
+      .gone==[{kind:"runtime_data",target:$target,certain:true}] and
+      all(.loss[]; .kind!="runtime_data") and
+      (.details.runtime | .condition=="missing" and
+        ((has("incus_uuid") or has("original_status") or has("runtime_data_lost") or
+          has("runtime_loss_unknown")) | not)))' <<< "$result" >/dev/null || return
+  printf '%s\n' "$result"
+}
 guest() {
   inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
     --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh -- "$@"
@@ -260,8 +286,7 @@ renamed="p-renamed-$uuid"
 inc rename "p-$uuid" "$renamed"
 renamed_identity=$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')
 for removal_kind in discard delete; do
-  expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
-    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')" conflict runtime_present
+  expect_refused_plan "$removal_kind" runtime_present
 done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
@@ -284,26 +309,29 @@ if start_reply=$(rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"
   wait_operation "$start_id" failed >/dev/null
 fi
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
-discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
-discard_token=$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")
-delete_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
-delete_token=$(jq -er '.result.preview.confirmation_token' <<< "$delete_preview")
-# A competing UUID identity appearing after preview invalidates admission.
+# A missing runtime needs no acknowledgement: both plans state it and are
+# allowed. Nothing of the session's branch leaves P: its sibling holds it.
+discard_plan=$(plan_missing discard)
+jq -e '.result.plan | .loss==[] and (.details|has("branch_loss")|not)' <<< "$discard_plan" >/dev/null
+discard_tag=$(jq -er '.result.change_tag' <<< "$discard_plan")
+delete_plan=$(plan_missing delete)
+jq -e --arg tip "$main_oid" '.result.plan | .loss==[] and
+  (.details | .assigned_tip==$tip and .branch_loss.commits_losing_p_reachability==[])' <<< "$delete_plan" >/dev/null
+delete_tag=$(jq -er '.result.change_tag' <<< "$delete_plan")
+# A competing UUID identity appearing after the dry runs invalidates their
+# tags: each run plans again, is refused as changed and records nothing.
 # The fixture owns this stopped dummy instance and removes it explicitly.
 competing="p-competing-$uuid"
 inc init "$base_image" "$competing" --profile default \
   --config security.idmap.isolated=true --config security.privileged=false \
   --config security.nesting=false --config "user.p.session_uuid=$uuid"
 competing_identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
-expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
-  '{key:"discard-stale-runtime",uuid:$uuid,confirmation_token:$token}')" precondition_failed changed
-expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$delete_token" \
-  '{key:"delete-stale-runtime",uuid:$uuid,confirmation_token:$token}')" precondition_failed changed
+expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg tag "$discard_tag" \
+  '{uuid:$uuid,key:"discard-stale-runtime",if_match:$tag}')" precondition_failed changed
+expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg tag "$delete_tag" \
+  '{uuid:$uuid,key:"delete-stale-runtime",if_match:$tag}')" precondition_failed changed
 for removal_kind in discard delete; do
-  expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
-    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')" conflict runtime_present
+  expect_refused_plan "$removal_kind" runtime_present
 done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
@@ -316,11 +344,9 @@ inc delete "$competing"
 competing=
 # Genuine absence remains eligible for both explicit removal outcomes.
 discard_uuid=$uuid
-preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-removed=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{key:"missing-discard",uuid:$uuid,confirmation_token:$token}')")
+tag=$(plan_missing discard | jq -er '.result.change_tag')
+removed=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg tag "$tag" \
+  '{uuid:$uuid,key:"missing-discard",if_match:$tag}')")
 wait_operation "$(jq -er '.result.operation.id' <<< "$removed")" >/dev/null
 test ! -e "$state/session_keys/$discard_uuid"
 test ! -e "$endpoint_prefix/$discard_uuid"
@@ -334,12 +360,10 @@ test "$uuid" != "$discard_uuid"
 wait_operation "$(jq -er '.result.operation.id' <<< "$created")" >/dev/null
 wait_ready "$uuid"
 inc delete --force "p-$uuid"
-preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+tag=$(plan_missing delete | jq -er '.result.change_tag')
 printf '%s\n' "$uuid" > "$step_dir/delete-read-arm"
-removed=$(rpc session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{key:"missing-delete",uuid:$uuid,confirmation_token:$token}')")
+removed=$(rpc session.delete "$(jq -nc --arg uuid "$uuid" --arg tag "$tag" \
+  '{uuid:$uuid,key:"missing-delete",if_match:$tag}')")
 delete_op=$(jq -er '.result.operation.id' <<< "$removed")
 pause_deadline=$((SECONDS+40))
 while test ! -f "$step_dir/delete-read-paused" && ((SECONDS < pause_deadline)); do sleep 0.1; done

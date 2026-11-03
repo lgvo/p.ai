@@ -115,14 +115,17 @@ type RetainedRenameAPI interface {
 	RenameRetainedBranch(context.Context, RetainedRenameRequest) (api.Operation, error)
 }
 
+// RetainedDeleteAPI deletes retained branches, a risky change: a dry run
+// plans it, and a run with the plan's change tag records its operation.
 type RetainedDeleteAPI interface {
-	PreviewRetainedDelete(context.Context, string, string) (api.RetainedDeletePreview, error)
-	ConfirmRetainedDelete(context.Context, string, string, string, string) (api.Operation, error)
+	DeleteRetainedBranch(ctx context.Context, project, branch string, req api.ChangeRequest) (api.ChangeResult[api.RetainedDeleteDetails], error)
 }
 
+// CreateReplaceAPI replaces a blocked creation with a new one, a risky
+// change: a dry run plans it, and a run with the plan's change tag records
+// the new creation. The run's key is also the new creation's.
 type CreateReplaceAPI interface {
-	PreviewCreateReplace(context.Context, string, ReserveSessionRequest) (api.CreateReplacePreview, error)
-	ConfirmCreateReplace(context.Context, string, string, string) (api.Operation, error)
+	ReplaceCreation(ctx context.Context, oldUUID string, choices api.CreationChoices, req api.ChangeRequest) (api.ChangeResult[api.CreateReplaceDetails], error)
 }
 
 // addLifecycleMethods serves the lifecycle methods. A method whose optional
@@ -194,20 +197,12 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 	if attachment, ok := life.(AttachmentAPI); ok {
 		addAttachmentMethods(t, attachment)
 	}
-	if removal, ok := life.(RemovalPreviewAPI); ok {
-		Register(t, api.SessionRemovalPreview, func(ctx context.Context, r api.SessionRemovalPreviewRequest) (api.RemovalPreviewResult, error) {
-			preview, e := removal.PreviewRemoval(ctx, RemovalPreviewRequest(r))
-			return api.RemovalPreviewResult{Preview: preview}, e
+	if removal, ok := life.(RemovalAPI); ok {
+		Register(t, api.SessionDiscard, func(ctx context.Context, r api.SessionDiscardRequest) (api.ChangeResult[api.RemovalDetails], error) {
+			return removal.DiscardSession(ctx, r.UUID, r.ChangeRequest)
 		})
-	}
-	if discard, ok := life.(DiscardAPI); ok {
-		Register(t, api.SessionDiscard, func(ctx context.Context, r api.SessionDiscardRequest) (api.OperationResult, error) {
-			return operationResult(discard.DiscardSession(ctx, DiscardConfirmRequest(r)))
-		})
-	}
-	if deletion, ok := life.(DeleteAPI); ok {
-		Register(t, api.SessionDelete, func(ctx context.Context, r api.SessionDeleteRequest) (api.OperationResult, error) {
-			return operationResult(deletion.DeleteSession(ctx, DiscardConfirmRequest(r)))
+		Register(t, api.SessionDelete, func(ctx context.Context, r api.SessionDeleteRequest) (api.ChangeResult[api.RemovalDetails], error) {
+			return removal.DeleteSession(ctx, r.UUID, r.ChangeRequest)
 		})
 	}
 	if rename, ok := life.(RenameAPI); ok {
@@ -221,39 +216,23 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 		})
 	}
 	if deletion, ok := life.(ProjectDeleteAPI); ok {
-		Register(t, api.ProjectDeletePreview, func(ctx context.Context, r api.ProjectDeletePreviewRequest) (api.ProjectDeletePreviewResult, error) {
-			preview, e := deletion.PreviewProjectDelete(ctx, ProjectDeletePreviewRequest(r))
-			return api.ProjectDeletePreviewResult{Preview: preview}, e
-		})
-		Register(t, api.ProjectDeleteConfirm, func(ctx context.Context, r api.ProjectDeleteConfirmRequest) (api.OperationResult, error) {
-			return operationResult(deletion.ConfirmProjectDelete(ctx, ProjectDeleteConfirmRequest(r)))
+		Register(t, api.ProjectDelete, func(ctx context.Context, r api.ProjectDeleteRequest) (api.ChangeResult[api.ProjectDeleteDetails], error) {
+			return deletion.DeleteProject(ctx, r.Project, r.ChangeRequest)
 		})
 	}
 	if deletion, ok := life.(RetainedDeleteAPI); ok {
-		Register(t, api.ProjectRetainedDeletePreview, func(ctx context.Context, r api.ProjectRetainedDeletePreviewRequest) (api.RetainedDeletePreviewResult, error) {
-			preview, e := deletion.PreviewRetainedDelete(ctx, r.Project, r.Branch)
-			return api.RetainedDeletePreviewResult{Preview: preview}, e
-		})
-		Register(t, api.ProjectRetainedDeleteConfirm, func(ctx context.Context, r api.ProjectRetainedDeleteConfirmRequest) (api.OperationResult, error) {
-			return operationResult(deletion.ConfirmRetainedDelete(ctx, r.Key, r.Project, r.Branch, r.ConfirmationToken))
+		Register(t, api.ProjectRetainedDelete, func(ctx context.Context, r api.ProjectRetainedDeleteRequest) (api.ChangeResult[api.RetainedDeleteDetails], error) {
+			return deletion.DeleteRetainedBranch(ctx, r.Project, r.Branch, r.ChangeRequest)
 		})
 	}
 	if replace, ok := life.(CreateReplaceAPI); ok {
-		Register(t, api.SessionCreateReplacePreview, func(ctx context.Context, r api.SessionCreateReplacePreviewRequest) (api.CreateReplacePreviewResult, error) {
-			preview, e := replace.PreviewCreateReplace(ctx, r.OldUUID, r.Create())
-			return api.CreateReplacePreviewResult{Preview: preview}, e
-		})
-		Register(t, api.SessionCreateReplaceConfirm, func(ctx context.Context, r api.SessionCreateReplaceConfirmRequest) (api.OperationResult, error) {
-			return operationResult(replace.ConfirmCreateReplace(ctx, r.OldUUID, r.Key, r.ConfirmationToken))
+		Register(t, api.SessionCreateReplace, func(ctx context.Context, r api.SessionCreateReplaceRequest) (api.ChangeResult[api.CreateReplaceDetails], error) {
+			return replace.ReplaceCreation(ctx, r.OldUUID, r.CreationChoices, r.ChangeRequest)
 		})
 	}
 	if cleanup, ok := life.(CreateCleanupAPI); ok {
-		Register(t, api.SessionCreateCleanupPreview, func(ctx context.Context, r api.SessionCreateCleanupPreviewRequest) (api.CreateCleanupPreviewResult, error) {
-			preview, e := cleanup.PreviewCreateCleanup(ctx, r.UUID)
-			return api.CreateCleanupPreviewResult{Preview: preview}, e
-		})
-		Register(t, api.SessionCreateCleanupConfirm, func(ctx context.Context, r api.SessionCreateCleanupConfirmRequest) (api.OperationResult, error) {
-			return operationResult(cleanup.ConfirmCreateCleanup(ctx, r.UUID, r.Key, r.ConfirmationToken))
+		Register(t, api.SessionCreateCleanup, func(ctx context.Context, r api.SessionCreateCleanupRequest) (api.ChangeResult[api.CreateCleanupDetails], error) {
+			return cleanup.CleanupCreation(ctx, r.UUID, r.ChangeRequest)
 		})
 	}
 }

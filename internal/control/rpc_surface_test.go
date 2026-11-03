@@ -23,7 +23,7 @@ const (
 	surfaceUUID  = "11111111-2222-3333-4444-555555555555"
 	surfaceUUID2 = "66666666-7777-8888-9999-aaaaaaaaaaaa"
 	surfaceOID   = "0123456789abcdef0123456789abcdef01234567"
-	surfaceToken = "0123456789abcdef0123456789abcdef"
+	surfaceTag   = "20261102T153012Z-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	surfaceUnit  = "p-project-api.service"
 )
 
@@ -83,14 +83,20 @@ func (l fullLife) ClaimAttachment(_ context.Context, token string, _ *Connection
 func (l fullLife) ConfirmAttachment(_ context.Context, _ *Connection, operation string) error {
 	return l.record("ConfirmAttachment %s", operation)
 }
-func (l fullLife) PreviewRemoval(_ context.Context, r RemovalPreviewRequest) (api.RemovalPreview, error) {
-	return api.RemovalPreview{}, l.record("PreviewRemoval %+v", r)
+func (l fullLife) DiscardSession(_ context.Context, id string, r api.ChangeRequest) (api.ChangeResult[api.RemovalDetails], error) {
+	return changeAnswer[api.RemovalDetails](r, "discard"), l.record("DiscardSession %s %+v", id, r)
 }
-func (l fullLife) DiscardSession(_ context.Context, r DiscardConfirmRequest) (api.Operation, error) {
-	return api.Operation{ID: "discard"}, l.record("DiscardSession %+v", r)
+func (l fullLife) DeleteSession(_ context.Context, id string, r api.ChangeRequest) (api.ChangeResult[api.RemovalDetails], error) {
+	return changeAnswer[api.RemovalDetails](r, "delete"), l.record("DeleteSession %s %+v", id, r)
 }
-func (l fullLife) DeleteSession(_ context.Context, r DiscardConfirmRequest) (api.Operation, error) {
-	return api.Operation{ID: "delete"}, l.record("DeleteSession %+v", r)
+
+// changeAnswer is a risky change's answer to r: a plan for a dry run, and
+// the operation id for a run.
+func changeAnswer[D any](r api.ChangeRequest, id string) api.ChangeResult[D] {
+	if r.DryRun() {
+		return api.ChangeResult[D]{Plan: &api.Plan[D]{Allowed: true, Refusals: []api.Refusal{}, Loss: []api.Loss{}, Gone: []api.Loss{}}, ChangeTag: surfaceTag}
+	}
+	return api.ChangeResult[D]{Operation: &api.Operation{ID: id}}
 }
 func (l fullLife) RenameSession(_ context.Context, r RenameRequest) (api.Operation, error) {
 	return api.Operation{ID: "rename"}, l.record("RenameSession %+v", r)
@@ -98,29 +104,17 @@ func (l fullLife) RenameSession(_ context.Context, r RenameRequest) (api.Operati
 func (l fullLife) RenameRetainedBranch(_ context.Context, r RetainedRenameRequest) (api.Operation, error) {
 	return api.Operation{ID: "retained-rename"}, l.record("RenameRetainedBranch %+v", r)
 }
-func (l fullLife) PreviewProjectDelete(_ context.Context, r ProjectDeletePreviewRequest) (api.ProjectDeletionPreview, error) {
-	return api.ProjectDeletionPreview{}, l.record("PreviewProjectDelete %+v", r)
+func (l fullLife) DeleteProject(_ context.Context, project string, r api.ChangeRequest) (api.ChangeResult[api.ProjectDeleteDetails], error) {
+	return changeAnswer[api.ProjectDeleteDetails](r, "project-delete"), l.record("DeleteProject %s %+v", project, r)
 }
-func (l fullLife) ConfirmProjectDelete(_ context.Context, r ProjectDeleteConfirmRequest) (api.Operation, error) {
-	return api.Operation{ID: "project-delete"}, l.record("ConfirmProjectDelete %+v", r)
+func (l fullLife) DeleteRetainedBranch(_ context.Context, project, branch string, r api.ChangeRequest) (api.ChangeResult[api.RetainedDeleteDetails], error) {
+	return changeAnswer[api.RetainedDeleteDetails](r, "retained-delete"), l.record("DeleteRetainedBranch %s %s %+v", project, branch, r)
 }
-func (l fullLife) PreviewRetainedDelete(_ context.Context, project, branch string) (api.RetainedDeletePreview, error) {
-	return api.RetainedDeletePreview{}, l.record("PreviewRetainedDelete %s %s", project, branch)
+func (l fullLife) ReplaceCreation(_ context.Context, old string, choices api.CreationChoices, r api.ChangeRequest) (api.ChangeResult[api.CreateReplaceDetails], error) {
+	return changeAnswer[api.CreateReplaceDetails](r, "replace"), l.record("ReplaceCreation %s %+v %+v", old, choices, r)
 }
-func (l fullLife) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (api.Operation, error) {
-	return api.Operation{ID: "retained-delete"}, l.record("ConfirmRetainedDelete %s %s %s %s", key, project, branch, token)
-}
-func (l fullLife) PreviewCreateReplace(_ context.Context, old string, r ReserveSessionRequest) (api.CreateReplacePreview, error) {
-	return api.CreateReplacePreview{}, l.record("PreviewCreateReplace %s %+v", old, r)
-}
-func (l fullLife) ConfirmCreateReplace(_ context.Context, old, key, token string) (api.Operation, error) {
-	return api.Operation{ID: "replace"}, l.record("ConfirmCreateReplace %s %s %s", old, key, token)
-}
-func (l fullLife) PreviewCreateCleanup(_ context.Context, id string) (api.CreateCleanupPreview, error) {
-	return api.CreateCleanupPreview{}, l.record("PreviewCreateCleanup %s", id)
-}
-func (l fullLife) ConfirmCreateCleanup(_ context.Context, id, key, token string) (api.Operation, error) {
-	return api.Operation{ID: "cleanup"}, l.record("ConfirmCreateCleanup %s %s %s", id, key, token)
+func (l fullLife) CleanupCreation(_ context.Context, id string, r api.ChangeRequest) (api.ChangeResult[api.CreateCleanupDetails], error) {
+	return changeAnswer[api.CreateCleanupDetails](r, "cleanup"), l.record("CleanupCreation %s %+v", id, r)
 }
 
 type surfaceConfig int
@@ -271,7 +265,9 @@ func TestTheTableRegistersExactlyTheProtocol(t *testing.T) {
 }
 
 func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
-	uuid, uuid2, oid, token := surfaceUUID, surfaceUUID2, surfaceOID, surfaceToken
+	uuid, oid, tag := surfaceUUID, surfaceOID, surfaceTag
+	run := `"key":"k","if_match":"` + tag + `"`
+	ran := "{Key:k IfMatch:" + tag + "}"
 	for _, test := range []struct {
 		method, params, call string
 		// The result object's keys, and for an operation or session envelope
@@ -282,20 +278,20 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		{"project.create", `{"key":"k","project":"team/app","url":"ssh://host/repo"}`, "CreateProject {Key:k Project:team/app URL:ssh://host/repo}", []string{"operation"}, "created-project"},
 		{"session.create", `{"key":"k","project":"team/app","branch":"work","choice":"existing"}`, "CreateSession {Key:k Project:team/app Branch:work Choice:existing Source: OriginRef: ExpectedCommitOID: ExpectedOriginURL:}", []string{"operation"}, "created-session"},
 		{"session.create", `{"key":"k","project":"team/app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `","expected_origin_url":"ssh://host/repo"}`, "CreateSession {Key:k Project:team/app Branch:work Choice:new Source: OriginRef:refs/heads/main ExpectedCommitOID:" + oid + " ExpectedOriginURL:ssh://host/repo}", []string{"operation"}, "created-session"},
-		{"session.create.cleanup.preview", `{"uuid":"` + uuid + `"}`, "PreviewCreateCleanup " + uuid, []string{"preview"}, ""},
-		{"session.create.cleanup.confirm", `{"uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateCleanup " + uuid + " k " + token, []string{"operation"}, "cleanup"},
-		{"session.create.replace.preview", `{"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"new","source":"refs/heads/main"}`, "PreviewCreateReplace " + uuid + " {Key:k Project:team/app Branch:work Choice:new Source:refs/heads/main OriginRef: ExpectedCommitOID: ExpectedOriginURL:}", []string{"preview"}, ""},
-		{"session.create.replace.confirm", `{"old_uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateReplace " + uuid + " k " + token, []string{"operation"}, "replace"},
-		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"discard"}`, "PreviewRemoval {UUID:" + uuid + " Kind:discard AcknowledgeMissingRuntime:false}", []string{"preview"}, ""},
-		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"delete","acknowledge_missing_runtime":true}`, "PreviewRemoval {UUID:" + uuid + " Kind:delete AcknowledgeMissingRuntime:true}", []string{"preview"}, ""},
-		{"session.discard", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "DiscardSession {Key:k UUID:" + uuid + " ConfirmationToken:" + token + "}", []string{"operation"}, "discard"},
-		{"session.delete", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "DeleteSession {Key:k UUID:" + uuid + " ConfirmationToken:" + token + "}", []string{"operation"}, "delete"},
+		{"session.create.cleanup", `{"uuid":"` + uuid + `"}`, "CleanupCreation " + uuid + " {Key: IfMatch:}", []string{"change_tag", "plan"}, ""},
+		{"session.create.cleanup", `{"uuid":"` + uuid + `",` + run + `}`, "CleanupCreation " + uuid + " " + ran, []string{"operation"}, "cleanup"},
+		{"session.create.replace", `{"old_uuid":"` + uuid + `","project":"team/app","branch":"work","choice":"new","source":"refs/heads/main"}`, "ReplaceCreation " + uuid + " {Project:team/app Branch:work Choice:new Source:refs/heads/main OriginRef: ExpectedCommitOID:} {Key: IfMatch:}", []string{"change_tag", "plan"}, ""},
+		{"session.create.replace", `{"old_uuid":"` + uuid + `","project":"team/app","branch":"work","choice":"new","source":"refs/heads/main",` + run + `}`, "ReplaceCreation " + uuid + " {Project:team/app Branch:work Choice:new Source:refs/heads/main OriginRef: ExpectedCommitOID:} " + ran, []string{"operation"}, "replace"},
+		{"session.discard", `{"uuid":"` + uuid + `"}`, "DiscardSession " + uuid + " {Key: IfMatch:}", []string{"change_tag", "plan"}, ""},
+		{"session.discard", `{"uuid":"` + uuid + `",` + run + `}`, "DiscardSession " + uuid + " " + ran, []string{"operation"}, "discard"},
+		{"session.delete", `{"uuid":"` + uuid + `"}`, "DeleteSession " + uuid + " {Key: IfMatch:}", []string{"change_tag", "plan"}, ""},
+		{"session.delete", `{"uuid":"` + uuid + `",` + run + `}`, "DeleteSession " + uuid + " " + ran, []string{"operation"}, "delete"},
 		{"session.rename", `{"key":"k","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + oid + `"}`, "RenameSession {Key:k UUID:" + uuid + " NewBranch:next ExpectedOldTip:" + oid + "}", []string{"operation"}, "rename"},
 		{"project.retained.rename", `{"key":"k","project":"team/app","old_branch":"old","new_branch":"new","expected_old_tip":"` + oid + `"}`, "RenameRetainedBranch {Key:k Project:team/app OldBranch:old NewBranch:new ExpectedOldTip:" + oid + "}", []string{"operation"}, "retained-rename"},
-		{"project.delete.preview", `{"project":"team/app","acknowledge_missing":["` + uuid2 + `"]}`, "PreviewProjectDelete {Project:team/app AcknowledgeMissing:[" + uuid2 + "]}", []string{"preview"}, ""},
-		{"project.delete.confirm", `{"key":"k","project":"team/app","confirmation_token":"` + token + `"}`, "ConfirmProjectDelete {Key:k Project:team/app ConfirmationToken:" + token + "}", []string{"operation"}, "project-delete"},
-		{"project.retained.delete.preview", `{"project":"team/app","branch":"saved"}`, "PreviewRetainedDelete team/app saved", []string{"preview"}, ""},
-		{"project.retained.delete.confirm", `{"key":"k","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`, "ConfirmRetainedDelete k team/app saved " + token, []string{"operation"}, "retained-delete"},
+		{"project.delete", `{"project":"team/app"}`, "DeleteProject team/app {Key: IfMatch:}", []string{"change_tag", "plan"}, ""},
+		{"project.delete", `{"project":"team/app",` + run + `}`, "DeleteProject team/app " + ran, []string{"operation"}, "project-delete"},
+		{"project.retained.delete", `{"project":"team/app","branch":"saved"}`, "DeleteRetainedBranch team/app saved {Key: IfMatch:}", []string{"change_tag", "plan"}, ""},
+		{"project.retained.delete", `{"project":"team/app","branch":"saved",` + run + `}`, "DeleteRetainedBranch team/app saved " + ran, []string{"operation"}, "retained-delete"},
 		{"operation.retry", `{"id":"op-1"}`, "Retry op-1", []string{"operation"}, "op-1"},
 		{"session.inspect", `{"uuid":"` + uuid + `"}`, "InspectSession " + uuid, []string{"session"}, uuid},
 		{"session.start", `{"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"changed", "operation"}, ""},
@@ -357,7 +353,7 @@ func TestGitOnlyHandlerRoutesOperationWork(t *testing.T) {
 }
 
 func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
-	uuid, token := surfaceUUID, surfaceToken
+	uuid, tag := surfaceUUID, surfaceTag
 	for _, test := range []struct{ method, params string }{
 		{"project.create", `{"key":"k","project":"team/app","extra":1}`},
 		{"project.create", `{"v":1,"key":"k","project":"team/app"}`},
@@ -365,22 +361,29 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		{"project.create", `{"key":"k","project":"/abs"}`},
 		{"session.create", `{"key":"k","project":"team/app","branch":"work","choice":"existing","source":"refs/heads/main"}`},
 		{"session.create", `{"key":"k","project":"team/app","branch":"work..x","choice":"existing"}`},
-		{"session.create.cleanup.preview", `{"uuid":"short"}`},
-		{"session.create.cleanup.preview", `{"uuid":"` + uuid + `","loss_operation_id":"` + uuid + `"}`},
-		{"session.create.cleanup.confirm", `{"uuid":"` + uuid + `","key":"k","confirmation_token":"ABCDEF0123456789abcdef0123456789"}`},
-		{"session.create.replace.preview", `{"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"maybe"}`},
-		{"session.create.replace.confirm", `{"old_uuid":"` + uuid + `","key":"","confirmation_token":"` + token + `"}`},
-		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + uuid + `"}`},
-		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"stop"}`},
-		{"session.discard", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
-		{"session.delete", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
+		{"session.create.cleanup", `{"uuid":"short"}`},
+		{"session.create.cleanup", `{"uuid":"` + uuid + `","loss_operation_id":"` + uuid + `"}`},
+		{"session.create.cleanup", `{"uuid":"` + uuid + `","key":"k","if_match":"` + strings.ToUpper(tag) + `"}`},
+		{"session.create.cleanup", `{"uuid":"` + uuid + `","key":"k","confirmation_token":"0123456789abcdef0123456789abcdef"}`},
+		{"session.create.replace", `{"old_uuid":"` + uuid + `","project":"team/app","branch":"work","choice":"maybe"}`},
+		{"session.create.replace", `{"old_uuid":"` + uuid + `","project":"team/app","branch":"work","choice":"existing","key":"","if_match":"` + tag + `"}`},
+		{"session.discard", `{"uuid":"` + uuid + `","kind":"discard"}`},
+		{"session.discard", `{"uuid":"` + uuid + `","acknowledge_missing_runtime":true}`},
+		{"session.discard", `{"uuid":"` + uuid + `","key":"k","if_match":"short"}`},
+		{"session.delete", `{"uuid":"` + uuid + `","if_match":"` + tag + `"}`},
 		{"session.rename", `{"key":"k","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"0000000000000000000000000000000000000000"}`},
 		{"project.retained.rename", `{"key":"k","project":"team/app","old_branch":"same","new_branch":"same","expected_old_tip":"` + surfaceOID + `"}`},
-		{"project.delete.preview", `{"project":"team/app","loss_operations":{}}`},
-		{"project.delete.preview", `{"project":"team/app","acknowledge_missing":["bad"]}`},
-		{"project.delete.confirm", `{"key":"k","project":"team/app","confirmation_token":"short"}`},
-		{"project.retained.delete.preview", `{"project":"team/app","branch":".hidden"}`},
-		{"project.retained.delete.confirm", `{"key":"","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`},
+		{"project.delete", `{"project":"team/app","loss_operations":{}}`},
+		{"project.delete", `{"project":"team/app","acknowledge_missing":["` + uuid + `"]}`},
+		{"project.delete", `{"project":"team/app","key":"k","if_match":"20261131T153012Z-` + strings.Repeat("0", 64) + `"}`},
+		{"project.delete", `{"v":1,"project":"team/app"}`},
+		{"project.delete", `{"project":"team/app","force":true}`},
+		{"project.delete", `{"project":"team/app","project":"team/app"}`},
+		{"session.create.replace", `{"old_uuid":"` + uuid + `","project":"team/app","branch":"work","choice":"existing","source":"refs/heads/main"}`},
+		{"session.create.replace", `{"old_uuid":"` + uuid + `","project":"team/app","branch":"work","choice":"existing","key":"k","key":"again","if_match":"` + tag + `"}`},
+		{"session.create.cleanup", `{"uuid":"` + uuid + `","key":"k","if_match":"` + tag + `","force":true}`},
+		{"project.retained.delete", `{"project":"team/app","branch":".hidden"}`},
+		{"project.retained.delete", `{"project":"team/app","branch":"saved","key":"","if_match":"` + tag + `"}`},
 		{"operation.inspect", `{"id":""}`},
 		{"operation.retry", `{}`},
 		{"operation.list", `{"limit":21}`},
@@ -411,6 +414,35 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 				t.Fatalf("reached the lifecycle: %q", calls.calls)
 			}
 		})
+	}
+}
+
+// A run of a risky change that sends its key but no change tag is refused
+// with precondition_required, and one that sends a tag but no key as
+// invalid, before either reaches the lifecycle.
+func TestRiskyChangesRequireTheirTag(t *testing.T) {
+	uuid, tag := surfaceUUID, surfaceTag
+	for _, method := range []struct{ name, params string }{
+		{"session.discard", `"uuid":"` + uuid + `"`},
+		{"session.delete", `"uuid":"` + uuid + `"`},
+		{"session.create.cleanup", `"uuid":"` + uuid + `"`},
+		{"session.create.replace", `"old_uuid":"` + uuid + `","project":"team/app","branch":"work","choice":"existing"`},
+		{"project.delete", `"project":"team/app"`},
+		{"project.retained.delete", `"project":"team/app","branch":"saved"`},
+		{"origin.publish", `"expected_origin_url":"ssh://host/repo","project":"team/app","kind":"retained","source":"saved","source_oid":"` + surfaceOID + `","destination_ref":"refs/heads/main"`},
+	} {
+		h, calls := surfaceHandler(t, surfaceFullLifecycle)
+		_, rpcErr := surfaceCall(t, h, context.Background(), method.name, `{`+method.params+`,"key":"k"}`)
+		if !reflect.DeepEqual(rpcErr, api.NewError(api.KindPreconditionRequired, api.ReasonIfMatchMissing)) {
+			t.Errorf("%s with a key and no tag answered %v", method.name, rpcErr)
+		}
+		_, rpcErr = surfaceCall(t, h, context.Background(), method.name, `{`+method.params+`,"if_match":"`+tag+`"}`)
+		if !reflect.DeepEqual(rpcErr, api.InvalidParam("key")) {
+			t.Errorf("%s with a tag and no key answered %v", method.name, rpcErr)
+		}
+		if len(calls.calls) != 0 {
+			t.Errorf("%s reached the lifecycle: %q", method.name, calls.calls)
+		}
 	}
 }
 
@@ -523,7 +555,7 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 // TestHandlerErrorsAnswerTheirKind checks the three rules that map an error a
 // handler returns to its answer, through a registered method.
 func TestHandlerErrorsAnswerTheirKind(t *testing.T) {
-	discard := `{"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
+	discard := `{"key":"k","uuid":"` + surfaceUUID + `","if_match":"` + surfaceTag + `"}`
 	projectPreview := `{"project":"team/app"}`
 	services := `{"uuid":"` + surfaceUUID + `"}`
 	for _, test := range []struct {
@@ -546,9 +578,9 @@ func TestHandlerErrorsAnswerTheirKind(t *testing.T) {
 		{"untyped", "session.discard", discard, errors.New("boom"), wantError(api.KindInternal, api.ReasonUnexpected, "")},
 		{"failed authority", "session.discard", discard, Failed(api.ReasonRuntime, errors.New("incus down")), wantError(api.KindFailed, api.ReasonRuntime, "")},
 		{"failed keeps a typed cause", "session.discard", discard, Failed(api.ReasonRuntime, NotFound(api.ReasonSession, "")), wantError(api.KindNotFound, api.ReasonSession, "")},
-		{"a joined conflict does not hide a typed cause", "project.delete.preview", projectPreview, errors.Join(NotFound(api.ReasonProject, "project/team/app"), ErrConflict), wantError(api.KindNotFound, api.ReasonProject, "project/team/app")},
-		{"a joined conflict does not hide a missing record", "project.delete.preview", projectPreview, errors.Join(ErrNotFound, ErrConflict), &api.Error{Code: -32015, Message: "not_found"}},
-		{"a joined conflict does not hide a cancellation", "project.delete.preview", projectPreview, errors.Join(context.Canceled, ErrConflict), &api.Error{Code: -32001, Message: "cancelled"}},
+		{"a joined conflict does not hide a typed cause", "project.delete", projectPreview, errors.Join(NotFound(api.ReasonProject, "project/team/app"), ErrConflict), wantError(api.KindNotFound, api.ReasonProject, "project/team/app")},
+		{"a joined conflict does not hide a missing record", "project.delete", projectPreview, errors.Join(ErrNotFound, ErrConflict), &api.Error{Code: -32015, Message: "not_found"}},
+		{"a joined conflict does not hide a cancellation", "project.delete", projectPreview, errors.Join(context.Canceled, ErrConflict), &api.Error{Code: -32001, Message: "cancelled"}},
 		{"services refusal", "session.services", services, Conflict(api.ReasonSessionNotRunning, ""), wantError(api.KindConflict, api.ReasonSessionNotRunning, "")},
 		{"services untyped", "session.services", services, errors.New("boom"), wantError(api.KindInternal, api.ReasonUnexpected, "")},
 	} {
@@ -578,7 +610,7 @@ func wantError(kind api.ErrorKind, reason, target string) *api.Error {
 func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 	notConfigured := func(capability string) *api.Error { return api.NewError(api.KindNotConfigured, capability) }
 	unknown := api.NewError(api.KindMethodNotFound, "")
-	discard := `{"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
+	discard := `{"key":"k","uuid":"` + surfaceUUID + `","if_match":"` + surfaceTag + `"}`
 	for _, test := range []struct {
 		name           string
 		config         surfaceConfig
@@ -606,7 +638,17 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		{"removed cache collection", surfaceFullLifecycle, "environment.cache.collect", `{}`, unknown},
 		{"removed workspace inspection", surfaceFullLifecycle, "workspace.inspect", `{}`, unknown},
 		{"renamed service journal", surfaceFullLifecycle, "session.service.journal", `{}`, unknown},
-		{"cleanup without its API", surfaceCoreLifecycle, "session.create.cleanup.preview", `{"uuid":"` + surfaceUUID + `"}`, notConfigured("runtime")},
+		{"cleanup without its API", surfaceCoreLifecycle, "session.create.cleanup", `{"uuid":"` + surfaceUUID + `"}`, notConfigured("runtime")},
+		{"removed session.removal.preview", surfaceFullLifecycle, "session.removal.preview", `{}`, unknown},
+		{"removed project.delete.preview", surfaceFullLifecycle, "project.delete.preview", `{}`, unknown},
+		{"removed project.delete.confirm", surfaceFullLifecycle, "project.delete.confirm", `{}`, unknown},
+		{"removed project.retained.delete.preview", surfaceFullLifecycle, "project.retained.delete.preview", `{}`, unknown},
+		{"removed project.retained.delete.confirm", surfaceFullLifecycle, "project.retained.delete.confirm", `{}`, unknown},
+		{"removed session.create.replace.preview", surfaceFullLifecycle, "session.create.replace.preview", `{}`, unknown},
+		{"removed session.create.replace.confirm", surfaceFullLifecycle, "session.create.replace.confirm", `{}`, unknown},
+		{"removed session.create.cleanup.preview", surfaceFullLifecycle, "session.create.cleanup.preview", `{}`, unknown},
+		{"removed session.create.cleanup.confirm", surfaceFullLifecycle, "session.create.cleanup.confirm", `{}`, unknown},
+		{"removed origin.publication.preview", surfaceFullLifecycle, "origin.publication.preview", `{}`, unknown},
 		{"removed session.repair.preview", surfaceFullLifecycle, "session.repair.preview", `{}`, unknown},
 		{"removed session.repair.confirm", surfaceFullLifecycle, "session.repair.confirm", `{}`, unknown},
 		{"removed session.ref.repair.preview", surfaceFullLifecycle, "session.ref.repair.preview", `{}`, unknown},

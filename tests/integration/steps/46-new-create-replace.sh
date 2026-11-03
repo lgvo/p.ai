@@ -45,10 +45,11 @@ cleanup() {
 }
 on_error() {
   printf 'P_NEW_CREATE_REPLACE_FAIL line=%s status=%s\n' "$2" "$1" >&2
-  if test -n "${preview:-}"; then
-    jq -c '.result.preview | {eligible,old_status,old_phase,
-      unsafe_reasons:((.unsafe_reasons // [])[:8]),provisional}' \
-      <<< "$preview" | head -c 2048 >&2 || true
+  if test -n "${plan:-}"; then
+    jq -c '.result | {allowed:.plan.allowed,refusals:((.plan.refusals // [])[:8]),
+      has_change_tag:has("change_tag"),old_status:.plan.details.old_status,
+      old_phase:.plan.details.old_phase,provisional:.plan.details.provisional}' \
+      <<< "$plan" | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
   timeout 5 p api "$socket" operation.list '{"limit":20}' >&2 || true
@@ -236,17 +237,18 @@ key_before=$(sha256sum "$state/session_keys/$sibling" | cut -d' ' -f1)
 exec_p "$sibling" /run/current-system/sw/bin/bash -c 'printf dummy-private > /home/p/replacement-private; chmod 0600 /home/p/replacement-private; printf dirty > sibling-dirty'
 
 
-preview_replace() { rpc session.create.replace.preview "$1"; }
-confirmation_params() {
-  jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg token "$2" \
-    '{old_uuid:$uuid,key:$key,confirmation_token:$token}'
-}
-confirm_replace() { rpc session.create.replace.confirm "$(confirmation_params "$1" "$2")"; }
-preview_params() {
-  jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg branch "$2" --arg choice "$3" --arg source "$4" \
-    '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
+# replace_params BRANCH CHOICE SOURCE: a replacement's dry-run params.
+# run_params KEY TAG: the run's, the dry run's $params plus the key, which is
+# also the new creation's, and the dry run's change tag.
+plan_replace() { rpc session.create.replace "$1"; }
+replace_params() {
+  jq -nc --arg uuid "$old_uuid" --arg branch "$1" --arg choice "$2" --arg source "$3" \
+    '{old_uuid:$uuid,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
+run_params() { jq -c --arg key "$1" --arg tag "$2" '. + {key:$key,if_match:$tag}' <<< "$params"; }
+run_replace() { rpc session.create.replace "$(run_params "$1" "$2")"; }
+change_tag() { jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$1"; }
 # This daemon has no image builders configured: no builder may exist at all.
 assert_old_effects_absent() {
   test ! -e "$state/session_keys/$old_uuid"
@@ -271,36 +273,44 @@ jq -e --arg oid "$first" '.result.operation | .phase=="source-ready" and .commit
 if "$host_git" -C "$repo" show-ref --verify --quiet refs/heads/work; then echo 'before-CAS fault created a ref' >&2; exit 1; fi
 assert_old_effects_absent
 "$host_git" -C "$repo" update-ref refs/heads/source "$second" "$first"
-params=$(preview_params replace-absent work new refs/heads/source)
-preview=$(preview_replace "$params")
-jq -e --arg old "$first" --arg new "$second" '.result.preview | .eligible==true and
+params=$(replace_params work new refs/heads/source)
+plan=$(plan_replace "$params")
+jq -e --arg old "$first" --arg new "$second" '.result | (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and
+ (.plan | .allowed==true and .refusals==[] and .loss==[] and .gone==[] and (.details |
  .old_request.choice=="new" and .old_captured_oid==$old and .new_captured_oid==$new and
+ .new_request=={project:"replacement",branch:"work",choice:"new",source:"refs/heads/source"} and
  .old_branch=={ref:"refs/heads/work",observed:true,exists:false} and .new_branch=={ref:"refs/heads/work",observed:true,exists:false} and
  .provisional.assigned_ref=="absent" and .provisional.runtime=="absent" and
  .provisional.builder=="absent" and .provisional.session_key=="absent" and
- .provisional.endpoint=="absent" and .provisional.principal=="absent"' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-# Both source changes and target occupancy invalidate the reviewed absent ref.
+ .provisional.endpoint=="absent" and .provisional.principal=="absent"))' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
+# Both source changes and target occupancy make the run stale: it plans
+# again, is refused and records nothing.
 "$host_git" -C "$repo" update-ref refs/heads/source "$third" "$second"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-absent "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-absent "$tag")"
 "$host_git" -C "$repo" update-ref refs/heads/source "$second" "$third"
 "$host_git" -C "$repo" update-ref refs/heads/work "$first"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-absent "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-absent "$tag")"
 test "$("$host_git" -C "$repo" rev-parse refs/heads/work)" = "$first"
 # Remove only the disposable host-injected stale-test precondition. P's refusal
 # preserved it; replacement itself never deletes or resets an existing ref.
 "$host_git" -C "$repo" update-ref -d refs/heads/work "$first"
 assert_old_effects_absent
+# The daemon keeps nothing between the dry run and the run: a tag planned
+# before a restart runs after it.
+plan=$(plan_replace "$params")
+tag=$(change_tag "$plan")
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
 assert_old_effects_absent
-expect_error precondition_failed expired session.create.replace.confirm "$(confirmation_params replace-absent "$token")"
-preview=$(preview_replace "$params")
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-confirmed=$(confirm_replace replace-absent "$token")
-new_id=$(operation_id "$confirmed")
-new_uuid=$(session_uuid "$confirmed")
+# A tag past its expiry is refused before planning.
+expect_error precondition_failed expired session.create.replace \
+  "$(run_params replace-absent "20000101T000000Z-$(printf '%064d' 0)")"
+ran=$(run_replace replace-absent "$tag")
+jq -e '.result.operation | .kind=="session.create" and .idempotency_key=="replace-absent"' <<< "$ran" >/dev/null
+new_id=$(operation_id "$ran")
+new_uuid=$(session_uuid "$ran")
 sessions+=("$new_uuid")
 test "$new_id" != "$old_id"
 test "$new_uuid" != "$old_uuid"
@@ -311,7 +321,7 @@ jq -e --arg old "$old_id" --arg oid "$second" '.result.operation | .evidence.sup
  .evidence.captured_oid==$oid and .evidence.ref_cas_intent==true and .evidence.branch_existed==false' <<< "$completed" >/dev/null
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
 expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
-test "$(operation_id "$(confirm_replace replace-absent "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace replace-absent "$tag")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 test "$("$host_git" -C "$repo" rev-parse refs/heads/work)" = "$second"
 test "$(exec_p "$new_uuid" git rev-parse HEAD)" = "$second"
@@ -332,27 +342,28 @@ jq -e --arg oid "$second" '.result.operation | .phase=="source-ready" and .commi
  .evidence.ref_cas_intent==true and .evidence.captured_oid==$oid' <<< "$blocked" >/dev/null
 test "$("$host_git" -C "$repo" rev-parse refs/heads/retained)" = "$second"
 assert_old_effects_absent
-params=$(preview_params replace-preserved retained existing '')
-preview=$(preview_replace "$params")
-jq -e --arg oid "$second" '.result.preview | .eligible==true and .old_request.choice=="new" and
- .new_request.choice=="existing" and .old_captured_oid==$oid and .new_captured_oid==$oid and
+params=$(replace_params retained existing '')
+plan=$(plan_replace "$params")
+jq -e --arg oid "$second" '.result | (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and
+ (.plan | .allowed==true and .refusals==[] and (.details | .old_request.choice=="new" and
+ .new_request=={project:"replacement",branch:"retained",choice:"existing"} and .old_captured_oid==$oid and .new_captured_oid==$oid and
  .old_branch=={ref:"refs/heads/retained",observed:true,exists:true,oid:$oid} and .new_branch==.old_branch and
- .provisional.assigned_ref=="preserved_created"' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+ .provisional.assigned_ref=="preserved_created"))' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
 "$host_git" -C "$repo" update-ref refs/heads/retained "$third" "$second"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-preserved "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-preserved "$tag")"
 test "$("$host_git" -C "$repo" rev-parse refs/heads/retained)" = "$third"
 "$host_git" -C "$repo" update-ref refs/heads/retained "$second" "$third"
 printf unexpected > "$state/session_keys/$old_uuid"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-preserved "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-preserved "$tag")"
 test "$(cat "$state/session_keys/$old_uuid")" = unexpected
 rm "$state/session_keys/$old_uuid"
-preview=$(preview_replace "$params")
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+plan=$(plan_replace "$params")
+tag=$(change_tag "$plan")
 refs_before=$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')
-confirmed=$(confirm_replace replace-preserved "$token")
-new_id=$(operation_id "$confirmed")
-new_uuid=$(session_uuid "$confirmed")
+ran=$(run_replace replace-preserved "$tag")
+new_id=$(operation_id "$ran")
+new_uuid=$(session_uuid "$ran")
 sessions+=("$new_uuid")
 release_on_running "$new_uuid" "$new_id"
 wait_operation "$new_id" completed >/dev/null
@@ -360,13 +371,13 @@ wait_ready "$new_uuid"
 test "$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
 test "$(exec_p "$new_uuid" git rev-parse HEAD)" = "$second"
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
-test "$(operation_id "$(confirm_replace replace-preserved "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace replace-preserved "$tag")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 new_key=$(sha256sum "$state/session_keys/$new_uuid" | cut -d' ' -f1)
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-test "$(operation_id "$(confirm_replace replace-preserved "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace replace-preserved "$tag")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 assert_old_effects_absent
 test "$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"

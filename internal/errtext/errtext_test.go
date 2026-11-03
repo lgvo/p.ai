@@ -63,7 +63,7 @@ func TestEveryKindAndReasonHasASentence(t *testing.T) {
 		}
 	}
 	for name, reason := range apiReasons(t) {
-		found := kindSentenceSuffices[reason] || operationSentences[reason] != ""
+		found := kindSentenceSuffices[reason] || operationSentences[reason] != "" || refusalSentences[reason] != ""
 		for _, sentences := range reasonSentences {
 			found = found || sentences[reason] != ""
 		}

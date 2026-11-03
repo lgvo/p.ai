@@ -93,17 +93,6 @@ func TestBranchRemovalLossWithRealBareRepository(t *testing.T) {
 	if err != nil || unborn.AssignedTip != "" || len(unborn.CommitsLosingPReachability) != 0 || len(unborn.PRefs) != 0 {
 		t.Fatalf("unborn branch with dangling fetched object unavailable: %+v %v", unborn, err)
 	}
-	originLoss, err := b.CompareOriginRemoval(context.Background(), "loss", []plugin.GitOriginRef{{Ref: "refs/heads/origin-main", CommitOID: retained}}, []string{retained})
-	if err != nil || originLoss.Status != "observed" || !reflect.DeepEqual(originLoss.ContainingBranches, []string{"refs/heads/origin-main"}) || len(originLoss.ObservedRefsDigest) != 64 {
-		t.Fatalf("fresh origin containment: %+v %v", originLoss, err)
-	}
-	originLoss, err = b.CompareOriginRemoval(context.Background(), "loss", []plugin.GitOriginRef{{Ref: "refs/heads/unfetched", CommitOID: strings.Repeat("f", 40)}}, []string{retained})
-	if err != nil || originLoss.Status != "unknown" || !reflect.DeepEqual(originLoss.UnresolvedRefs, []string{"refs/heads/unfetched"}) {
-		t.Fatalf("unfetched origin commit misclassified: %+v %v", originLoss, err)
-	}
-	if _, err := b.CompareOriginRemoval(context.Background(), "loss", []plugin.GitOriginRef{{Ref: "invalid", CommitOID: retained}}, nil); err == nil {
-		t.Fatal("malformed advertised origin ref accepted when no commits would be lost")
-	}
 	// With every head removed outside P, the commit stays a valid object
 	// that no P head retains.
 	gitTest(t, nil, "-C", repo, "update-ref", "-d", "refs/heads/main")

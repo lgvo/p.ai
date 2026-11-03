@@ -111,7 +111,7 @@ func TestAPanicInImageReleaseLeavesLaterReleasesRunning(t *testing.T) {
 	wait(func() bool { return len(f.driver.projectImages("app")) == 0 }, "a release after the panic kept the unused image")
 }
 
-func TestAProjectDeletionReviewIsRefusedWhenItsEvidenceCannotBeRecorded(t *testing.T) {
+func TestAProjectDeletionPlanIsRefusedWhenItsEvidenceCannotBeRecorded(t *testing.T) {
 	project := strings.Repeat("p", 100) + "/" + strings.Repeat("q", 100) + "/" + strings.Repeat("r", 53)
 	claims := func(n int) []control.CommitImageClaim {
 		var all []control.CommitImageClaim
@@ -125,13 +125,13 @@ func TestAProjectDeletionReviewIsRefusedWhenItsEvidenceCannotBeRecorded(t *testi
 	}
 	l := &lifecycle{instanceID: "11111111-1111-4111-8111-111111111111", cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64), IncusProject: "p"}}
 	review := func(images []control.CommitImageClaim) error {
-		return l.boundProjectDeleteReview(api.ProjectDeletionPreview{Project: project, Images: control.CommitImageClaimViews(images)}, images)
+		return l.boundProjectDeleteEvidence(api.ProjectDeleteDetails{Project: project, Images: control.CommitImageClaimViews(images)}, images)
 	}
 	if err := review(claims(1)); err != nil {
 		t.Fatalf("a review of one image refused: %v", err)
 	}
 	// Twenty images fit a response frame, but not the evidence the deletion
-	// would be confirmed with.
+	// would run with.
 	err := review(claims(control.MaxProjectDeleteImages))
 	var refusal *control.Refusal
 	if !errors.As(err, &refusal) || refusal.Kind != api.KindConflict || refusal.Reason != api.ReasonBoundExceeded || refusal.Target != api.TargetProject(project) {

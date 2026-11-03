@@ -1,8 +1,9 @@
 # shellcheck shell=bash
-# Confirmed public Delete of a running, unattached session: P stops and
-# deletes the exact runtime, removes its credentials and its guarded P ref,
-# without looking inside the runtime or reading the origin. All files are
-# disposable fixtures; no authentication is used.
+# Public Delete, planned by a dry run and then run with its change tag, of a
+# running, unattached session: P stops and deletes the exact runtime, removes
+# its credentials and its guarded P ref, without looking inside the runtime
+# or reading the origin. All files are disposable fixtures; no
+# authentication is used.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-32"
@@ -178,7 +179,8 @@ expect_refusal() {
   fi
   jq -e --arg kind "$kind" --arg reason "$reason" '
     {method_not_found: -32601, invalid: -32602, retry: -32010, conflict: -32011,
-     capacity: -32012, precondition_failed: -32013, not_found: -32015} as $codes |
+     capacity: -32012, precondition_failed: -32013, precondition_required: -32014,
+     not_found: -32015} as $codes |
     .error.message==$kind and .error.code==$codes[$kind] and
     ($reason=="" or .error.data.reason==$reason)' <<< "$response" >/dev/null
 }
@@ -186,15 +188,24 @@ source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
     'length==1 and .[0].name==$name and .[0].status=="Running"' >/dev/null
 }
-preview_delete() {
-  delete_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-    '{uuid:$uuid,kind:"delete"}')")
-  delete_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$delete_preview")
+tag_pattern='^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$'
+# plan_delete: the dry run of session.delete of the session sets its plan and
+# its change tag.
+plan_delete() {
+  delete_plan=$(rpc session.delete "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')")
+  delete_tag=$(jq -er --arg tag "$tag_pattern" '.result.change_tag | select(test($tag))' <<< "$delete_plan")
 }
-delete_confirm() {
-  local key="$1" token="$2"
-  rpc session.delete "$(jq -nc --arg key "$key" --arg uuid "$uuid" --arg token "$token" \
-    '{key:$key,uuid:$uuid,confirmation_token:$token}')"
+# delete_run KEY TAG: runs the delete with idempotency key KEY and change tag
+# TAG.
+delete_run() {
+  local key="$1" tag="$2"
+  rpc session.delete "$(jq -nc --arg key "$key" --arg uuid "$uuid" --arg tag "$tag" \
+    '{uuid:$uuid,key:$key,if_match:$tag}')"
+}
+# no_operation KEY: no operation is recorded with idempotency key KEY.
+no_operation() {
+  rpc operation.list '{"limit":20}' | jq -e --arg key "$1" \
+    '.result.operations | all(.[]; .idempotency_key!=$key)' >/dev/null
 }
 
 guest /run/current-system/sw/bin/git config user.name P
@@ -216,58 +227,68 @@ guest /usr/libexec/p/codex-adapter init
 guest /run/current-system/sw/bin/bash -c \
   'printf doomed-dummy > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json; printf unique > tracked; git add tracked; git commit -qm unique; git push origin HEAD:main'
 unique_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-# The review lists the commits leaving P's repository. It does not look
-# inside the running container or compare anything with an origin.
-preview_delete
-stale_token=$delete_token
+# The plan lists the commits leaving P's repository. It does not look inside
+# the running container or compare anything with an origin.
+plan_delete
+stale_tag=$delete_tag
 jq -e --arg uuid "$uuid" --arg unique "$unique_oid" --arg base "$base_oid" '
-  .result.preview | .kind=="delete" and .session_uuid==$uuid and
-  .assigned_ref=="refs/heads/main" and .assigned_tip==$unique and
-  (has("assigned_ref_missing")|not) and
-  .runtime.condition=="present" and .runtime.original_status=="Running" and
-  .runtime.runtime_data_lost==true and
-  (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
-    has("observed_at") or has("runtime_loss_unknown")) | not) and
-  (.branch_loss | .assigned_ref=="refs/heads/main" and .assigned_tip==$unique and
-    .commits_losing_p_reachability==[$unique] and
-    any(.p_refs[]; .name=="refs/heads/sibling" and .oid==$base) and
-    (has("origin")|not))
-' <<< "$delete_preview" >/dev/null
-# Changed assigned tip requires another review before any irreversible point.
+  .result.plan | .action=="session.delete" and .target==("session/"+$uuid) and
+  .allowed==true and .refusals==[] and .gone==[] and
+  .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true},
+    {kind:"p_commits",target:"project/delete-lifecycle:branch/main",count:1,sample:[$unique],certain:true}] and
+  (.details | .assigned_ref=="refs/heads/main" and .assigned_tip==$unique and
+    (has("assigned_ref_missing")|not) and
+    .runtime.condition=="present" and .runtime.original_status=="Running" and
+    (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
+      has("observed_at") or has("runtime_data_lost") or has("runtime_loss_unknown")) | not) and
+    (.branch_loss | .assigned_ref=="refs/heads/main" and .assigned_tip==$unique and
+      .commits_losing_p_reachability==[$unique] and
+      any(.p_refs[]; .name=="refs/heads/sibling" and .oid==$base) and
+      (has("origin")|not)))
+' <<< "$delete_plan" >/dev/null
+# A changed assigned tip requires another dry run before any irreversible
+# point: the run plans again, is refused as changed and records nothing.
 guest /run/current-system/sw/bin/bash -c \
   'printf after > tracked; git add tracked; git commit -qm after-preview; git push origin HEAD:main'
 final_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-stale_response=$(delete_confirm delete-stale "$stale_token")
-stale_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$stale_response")
-op_ids+=("$stale_op")
-stale_result=$(wait_operation "$stale_op" failed)
-jq -e '.result.operation | .kind=="session.delete" and .phase=="stale" and
-  .committed==false' <<< "$stale_result" >/dev/null
+expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg tag "$stale_tag" \
+  '{uuid:$uuid,key:"delete-stale",if_match:$tag}')" precondition_failed changed
+no_operation delete-stale
 source_running
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = doomed-dummy
 test -f "$state/session_keys/$uuid"
 test -S "$endpoint_prefix/$uuid/git.sock"
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/main | cut -f1)" = "$final_oid"
-# The stale review's token was spent by its confirmation.
-expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$stale_token" \
-  '{key:"delete-stale-reused",uuid:$uuid,confirmation_token:$token}')" precondition_failed expired
-preview_delete
-fresh_token=$delete_token
-jq -e --arg final "$final_oid" --arg unique "$unique_oid" --arg base "$base_oid" '
-  .result.preview | .assigned_tip==$final and .runtime.runtime_data_lost==true and
-  (.branch_loss | (.commits_losing_p_reachability|sort)==([$final,$unique]|sort) and
+# A refused tag is not spent, but its state stays changed: sent again, it is
+# refused the same way.
+expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg tag "$stale_tag" \
+  '{uuid:$uuid,key:"delete-stale-reused",if_match:$tag}')" precondition_failed changed
+no_operation delete-stale-reused
+plan_delete
+fresh_tag=$delete_tag
+jq -e --arg uuid "$uuid" --arg final "$final_oid" --arg unique "$unique_oid" --arg base "$base_oid" '
+  .result.plan | .allowed==true and .details.assigned_tip==$final and
+  .loss[0]=={kind:"runtime_data",target:("session/"+$uuid),certain:true} and
+  (.loss[1] | .kind=="p_commits" and .target=="project/delete-lifecycle:branch/main" and
+    .count==2 and (.sample|sort)==([$final,$unique]|sort) and .certain==true) and
+  (.details.branch_loss | (.commits_losing_p_reachability|sort)==([$final,$unique]|sort) and
     any(.p_refs[]; .name=="refs/heads/sibling" and .oid==$base) and
     (has("origin")|not))
-' <<< "$delete_preview" >/dev/null
-# A Discard review cannot be used as a Delete authorization.
-discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{uuid:$uuid,kind:"discard"}')")
-discard_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$discard_preview")
-expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
-  '{key:"delete-wrong-action",uuid:$uuid,confirmation_token:$token}')" precondition_failed changed
+' <<< "$delete_plan" >/dev/null
+# A Discard plan cannot authorize a Delete: the change tag of the same
+# session's discard dry run does not run its delete.
+discard_plan=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')")
+jq -e --arg uuid "$uuid" '.result.plan | .action=="session.discard" and .target==("session/"+$uuid)' \
+  <<< "$discard_plan" >/dev/null
+discard_tag=$(jq -er --arg tag "$tag_pattern" '.result.change_tag | select(test($tag))' <<< "$discard_plan")
+test "$discard_tag" != "$fresh_tag"
+expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg tag "$discard_tag" \
+  '{uuid:$uuid,key:"delete-wrong-action",if_match:$tag}')" precondition_failed changed
+no_operation delete-wrong-action
+source_running
 # P stops the running, unattached session itself, then deletes it.
 printf 'p-%s\n' "$uuid" > "$step_dir/removal-arm"
-completed_response=$(delete_confirm delete-confirmed "$fresh_token")
+completed_response=$(delete_run delete-confirmed "$fresh_tag")
 delete_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$completed_response")
 op_ids+=("$delete_op")
 pause_deadline=$((SECONDS+40))
@@ -283,7 +304,7 @@ jq -e '.result.operation | .kind=="session.delete" and .phase=="deleted" and
 # The exact source was stopped, then deleted: never paused or restarted.
 printf 'stop p-%s\ndelete p-%s\n' "$uuid" "$uuid" > "$step_dir/source-effects-expected"
 cmp "$step_dir/source-effects-expected" "$step_dir/source-effects"
-replayed=$(delete_confirm delete-confirmed "$fresh_token")
+replayed=$(delete_run delete-confirmed "$fresh_tag")
 test "$(jq -er '.result.operation.id' <<< "$replayed")" = "$delete_op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test ! -e "$endpoint_prefix/$uuid"

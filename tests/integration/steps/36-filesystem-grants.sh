@@ -151,13 +151,15 @@ wait_ready() {
   echo "session $id did not become ready" >&2
   return 1
 }
+# discard_owned UUID: discards session UUID, a dry run then a run with its
+# change tag, and waits for the discard to complete.
 discard_owned() {
-  local id="$1" preview token confirmed op
-  preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$id" \
-    '{uuid:$uuid,kind:"discard"}')")
-  token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$preview")
-  confirmed=$(rpc session.discard "$(jq -nc --arg uuid "$id" --arg token "$token" \
-    '{key:"grant-discard",uuid:$uuid,confirmation_token:$token}')")
+  local id="$1" plan tag confirmed op
+  plan=$(rpc session.discard "$(jq -nc --arg uuid "$id" '{uuid:$uuid}')")
+  tag=$(jq -er --arg target "session/$id" '.result | select(.plan.allowed==true and .plan.target==$target) |
+    .change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$plan")
+  confirmed=$(rpc session.discard "$(jq -nc --arg uuid "$id" --arg tag "$tag" \
+    '{uuid:$uuid,key:"grant-discard",if_match:$tag}')")
   op=$(jq -er '.result.operation.id | select(length==36)' <<< "$confirmed")
   wait_operation "$op"
 }

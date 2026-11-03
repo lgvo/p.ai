@@ -12,35 +12,39 @@ import (
 
 // CreateReplaceIntent is limited to a blocked local-source creation whose
 // durable evidence proves that no builder or publication was attempted.
+// IfMatch is the replacement's change tag and ChangeHash its plan's change
+// hash; New is the new creation, under the run's key.
 type CreateReplaceIntent struct {
 	OldOperationID    string
 	OldUUID           string
 	OldEvidenceSHA256 string
 	OldPolicySHA256   string
 	NewPolicySHA256   string
-	TokenSHA256       string
-	ExpiresAt         string
+	IfMatch           string
+	ChangeHash        string
 	Cleanup           *api.CreateReplacementCleanup
 	New               ReserveSessionRequest
 }
 
 // ReplayCreateReplacement reads exact accepted intent without acquiring a
 // mutation lock. Cleanup may own the retired UUID and Git authority while the
-// caller merely retrieves the operation it already authorized.
-func (s *Store) ReplayCreateReplacement(ctx context.Context, key, oldUUID, tokenSHA256 string) (api.Operation, bool, error) {
-	if key == "" || len(key) > 128 || !validUUID(oldUUID) || !validFingerprint(tokenSHA256) {
+// caller merely retrieves the operation it already authorized: the creation
+// that replaced oldUUID with request new under change tag tag.
+func (s *Store) ReplayCreateReplacement(ctx context.Context, oldUUID, tag string, new ReserveSessionRequest) (api.Operation, bool, error) {
+	if new.Key == "" || len(new.Key) > 128 || !validUUID(oldUUID) || !api.ValidChangeTag(tag) {
 		return api.Operation{}, false, ErrInvalid
 	}
-	prior, err := s.GetOperationByKey(ctx, key)
+	prior, err := s.GetOperationByKey(ctx, new.Key)
 	if errors.Is(err, ErrNotFound) {
 		return api.Operation{}, false, nil
 	}
 	if err != nil {
 		return api.Operation{}, false, err
 	}
+	request, _ := json.Marshal(new)
 	var saved CreationEvidence
-	if prior.Kind != "session.create" || json.Unmarshal(prior.Evidence, &saved) != nil ||
-		saved.SupersedesUUID != oldUUID || saved.ReplacementTokenSHA256 != tokenSHA256 {
+	if prior.Kind != "session.create" || digest(prior.Request) != digest(request) || json.Unmarshal(prior.Evidence, &saved) != nil ||
+		saved.SupersedesUUID != oldUUID || saved.ReplacementTag != tag {
 		return api.Operation{}, false, KeyReused()
 	}
 	return prior, true, nil
@@ -64,16 +68,13 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	verify func(context.Context) (string, error)) (api.Operation, error) {
 	if !validUUID(intent.OldOperationID) || !validUUID(intent.OldUUID) ||
 		!validFingerprint(intent.OldEvidenceSHA256) || !validFingerprint(intent.OldPolicySHA256) || !validFingerprint(intent.NewPolicySHA256) ||
-		!validFingerprint(intent.TokenSHA256) || !ValidSessionCreateRequest(intent.New) ||
+		!api.ValidChangeTag(intent.IfMatch) || !validFingerprint(intent.ChangeHash) || !ValidSessionCreateRequest(intent.New) ||
 		intent.New.OriginRef != "" || !validFingerprint(image) || !selection.Valid() ||
 		observe == nil || verify == nil || intent.Cleanup != nil && (!intent.Cleanup.Valid() || intent.Cleanup.Completed || intent.Cleanup.OldUUID != intent.OldUUID || intent.Cleanup.OldOperationID != intent.OldOperationID) || environment != nil && (!environment.Valid() || environment.BaseFingerprint != image) {
 		return api.Operation{}, ErrInvalid
 	}
-	expiry, err := time.Parse(time.RFC3339Nano, intent.ExpiresAt)
-	if err != nil {
-		return api.Operation{}, ErrInvalid
-	}
-	if err = s.lockGitAuthority(ctx); err != nil {
+	expiry, _ := api.ParseChangeTag(intent.IfMatch)
+	if err := s.lockGitAuthority(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
@@ -84,7 +85,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 		if prior.Kind != "session.create" || digest(prior.Request) != digest(request) ||
 			json.Unmarshal(prior.Evidence, &saved) != nil ||
 			saved.SupersedesOperationID != intent.OldOperationID || saved.SupersedesUUID != intent.OldUUID ||
-			saved.ReplacementTokenSHA256 != intent.TokenSHA256 {
+			saved.ReplacementTag != intent.IfMatch {
 			return api.Operation{}, KeyReused()
 		}
 		return prior, nil
@@ -94,7 +95,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if !time.Now().Before(expiry) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
-	if err = s.checkReplacementCapacity(ctx, observe); err != nil {
+	if err := s.checkReplacementCapacity(ctx, observe); err != nil {
 		return api.Operation{}, err
 	}
 	tip, err := verify(ctx)
@@ -104,15 +105,16 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if !validOID(tip) {
 		return api.Operation{}, ErrConflict
 	}
-	if !time.Now().Before(expiry) {
-		return api.Operation{}, Stale(api.ReasonExpired)
-	}
 	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
 	defer j.Rollback()
 	tx := j.Tx
+	// After the transaction's wait for the store's connection.
+	if !time.Now().Before(expiry) {
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
 	var oldKind, oldStatus, oldPhase, oldProject, oldSession, oldEvidence string
 	var oldCommitted int
 	err = tx.QueryRowContext(ctx, `SELECT kind,status,phase,project_path,COALESCE(session_uuid,''),COALESCE(evidence_json,''),committed
@@ -195,7 +197,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	}
 	ev := CreationEvidence{RuntimeInitState: "not-attempted", CapturedOID: tip, BranchExisted: intent.New.Choice == "existing", RefCASIntent: intent.New.Choice == "new", ImageFingerprint: image, PolicySHA256: newHash,
 		Selection: selection, ReplacementCleanup: intent.Cleanup, SupersedesOperationID: intent.OldOperationID, SupersedesUUID: intent.OldUUID,
-		ReplacementTokenSHA256: intent.TokenSHA256}
+		ReplacementTag: intent.IfMatch}
 	if environment != nil {
 		copy := *environment
 		ev.Environment = &copy
@@ -211,7 +213,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	}
 	recorded := creationIntent(intent.New, newSessionID)
 	recorded.ReplacesSession, recorded.ReplacesBranch = intent.OldUUID, oldRequest.Branch
-	rec := operationRecord{ID: newID, Key: intent.New.Key, Kind: KindSessionCreate, Project: project, Session: newSessionID, Request: request, Intent: recorded, Phase: phase, Evidence: evidence, Now: now}
+	rec := operationRecord{ID: newID, Key: intent.New.Key, Kind: KindSessionCreate, Project: project, Session: newSessionID, Request: request, Intent: recorded, Phase: phase, Evidence: evidence, ChangeHash: intent.ChangeHash, Now: now}
 	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -221,7 +223,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	return rec.operation(), nil
 }
 
-// CheckCreateReplacementTarget is read-only preview evidence. Admission repeats
+// CheckCreateReplacementTarget is a read-only planning fact. Admission repeats
 // the assignment and lifecycle-guard checks in its atomic handoff transaction.
 func (s *Store) CheckCreateReplacementTarget(ctx context.Context, project, branch, oldUUID string) error {
 	if !validProject(project) || !validBranch(branch) || !validUUID(oldUUID) {
@@ -241,8 +243,8 @@ func (s *Store) CheckCreateReplacementTarget(ctx context.Context, project, branc
 	return nil
 }
 
-// CheckCreateReplacementPrincipal refuses extra/revoked local authority during
-// preview; the handoff transaction repeats the exact check before retirement.
+// CheckCreateReplacementPrincipal refuses extra/revoked local authority while
+// planning; the handoff transaction repeats the exact check before retirement.
 func (s *Store) CheckCreateReplacementPrincipal(ctx context.Context, uuid, project, fingerprint string) error {
 	if !validUUID(uuid) || !validProject(project) || !validFingerprint(fingerprint) {
 		return ErrInvalid

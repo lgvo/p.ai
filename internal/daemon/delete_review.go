@@ -2,14 +2,15 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"github.com/lgvo/p.ai/internal/api"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 )
 
-var errDeleteReviewChanged = errors.New("reviewed Delete branch loss or origin changed")
+var errDeleteReviewChanged = errors.New("planned branch loss changed")
 
 // freshDeleteReview recomputes a session Delete's branch loss. A missing
 // assigned ref leaves nothing of the branch to lose in P's repository.
@@ -34,35 +35,17 @@ func deleteReview(branchLoss gitservice.BranchRemovalLoss) *api.RemovalBranchLos
 	return branch
 }
 
-// makeDeleteReviewInScope adds a fresh origin comparison to a retained-branch
-// deletion's review. The caller holds the origin scope through its final
-// effect, which avoids a nested origin lock.
-func (l *lifecycle) makeDeleteReviewInScope(ctx context.Context, project string, branchLoss gitservice.BranchRemovalLoss, scope *gitservice.OriginScope) (*api.RemovalBranchLoss, error) {
-	branch := deleteReview(branchLoss)
-	branch.Origin = &api.RemovalOrigin{Status: "local_only", ContainingBranches: []string{}, UnresolvedRefs: []string{}}
-	origin, _, err := l.store.Origin(ctx, project)
+// deleteReviewDigest is the digest of a deletion's branch loss, which its
+// worker compares with a fresh one before its effect.
+func deleteReviewDigest(review *api.RemovalBranchLoss) (string, error) {
+	if review == nil {
+		return "", control.ErrInvalid
+	}
+	raw, err := json.Marshal(review)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if origin.URL == "" {
-		return branch, nil
-	}
-	if scope == nil {
-		return nil, control.ErrConflict
-	}
-	branch.Origin.URL, branch.Origin.Status, branch.Origin.Reason = origin.URL, "unknown", "origin_refresh_unavailable"
-	advertised, e := scope.Observe(ctx, origin.URL)
-	if e != nil {
-		return branch, nil
-	}
-	comparison, e := l.git.backend.CompareOriginRemoval(ctx, project, advertised, branch.CommitsLosingPReachability)
-	if e != nil {
-		return branch, nil
-	}
-	branch.Origin.Status, branch.Origin.ContainingBranches = comparison.Status, comparison.ContainingBranches
-	branch.Origin.Reason = comparison.Reason
-	branch.Origin.ObservedRefsDigest, branch.Origin.UnresolvedRefs = comparison.ObservedRefsDigest, comparison.UnresolvedRefs
-	return branch, nil
+	return hexDigest(raw), nil
 }
 
 func (l *lifecycle) verifyDeleteReview(ctx context.Context, ev control.DiscardEvidence) error {

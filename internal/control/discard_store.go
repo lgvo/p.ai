@@ -10,10 +10,12 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
+// DiscardRequest is a Discard or Delete run as its operation records it: the
+// session, the run's idempotency key and the change tag it ran with.
 type DiscardRequest struct {
-	Key         string `json:"key"`
-	UUID        string `json:"uuid"`
-	TokenSHA256 string `json:"token_sha256"`
+	Key     string `json:"key"`
+	UUID    string `json:"uuid"`
+	IfMatch string `json:"if_match"`
 }
 
 // DiscardEvidence contains only the authority needed to recheck and finish
@@ -33,7 +35,6 @@ type DiscardEvidence struct {
 	IncusUUID          string `json:"incus_uuid,omitempty"`
 	Generation         string `json:"generation,omitempty"`
 	PRefsDigest        string `json:"p_refs_digest,omitempty"`
-	PreviewExpiresAt   string `json:"preview_expires_at"`
 	DeleteReviewSHA256 string `json:"delete_review_sha256,omitempty"`
 	MissingRuntime     bool   `json:"missing_runtime,omitempty"`
 }
@@ -51,32 +52,46 @@ func validDiscardEvidence(ev DiscardEvidence) bool {
 	return validUUID(ev.IncusUUID) && validUUID(ev.Generation) && validFingerprint(ev.ImageFingerprint)
 }
 
-func (s *Store) BeginDiscard(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (api.Operation, error) {
+// BeginDiscard records the Discard run req, whose plan has change hash hash,
+// after verify planned it again under the Git authority.
+func (s *Store) BeginDiscard(ctx context.Context, req DiscardRequest, ev DiscardEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
 	if ev.Action != "discard" {
 		return api.Operation{}, ErrInvalid
 	}
-	return s.beginRemoval(ctx, req, ev)
+	return s.beginRemoval(ctx, req, ev, hash, verify)
 }
 
-func (s *Store) BeginDelete(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (api.Operation, error) {
+// BeginDelete records the Delete run req, whose plan has change hash hash,
+// after verify planned it again under the Git authority.
+func (s *Store) BeginDelete(ctx context.Context, req DiscardRequest, ev DiscardEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
 	if ev.Action != "delete" {
 		return api.Operation{}, ErrInvalid
 	}
-	return s.beginRemoval(ctx, req, ev)
+	return s.beginRemoval(ctx, req, ev, hash, verify)
 }
 
-func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (api.Operation, error) {
-	if len(req.Key) < 1 || len(req.Key) > 128 || !validUUID(req.UUID) || !validFingerprint(req.TokenSHA256) || !validDiscardEvidence(ev) {
-		return api.Operation{}, ErrInvalid
-	}
-	expires, err := time.Parse(time.RFC3339Nano, ev.PreviewExpiresAt)
-	if err != nil {
+func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev DiscardEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	expires, ok := api.ParseChangeTag(req.IfMatch)
+	if len(req.Key) < 1 || len(req.Key) > 128 || !validUUID(req.UUID) || !ok || !validFingerprint(hash) || !validDiscardEvidence(ev) || verify == nil {
 		return api.Operation{}, ErrInvalid
 	}
 	request, _ := json.Marshal(req)
 	evidence, _ := json.Marshal(ev)
 	if len(evidence) > 4096 {
 		return api.Operation{}, ErrInvalid
+	}
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	defer s.gitAuthority.Unlock()
+	if replay, err := keyRecordsRequest(ctx, s.db, req.Key, "session."+ev.Action, request); err != nil || replay {
+		if err != nil {
+			return api.Operation{}, err
+		}
+		return s.GetOperationByKey(ctx, req.Key)
+	}
+	if err := verify(ctx); err != nil {
+		return api.Operation{}, err
 	}
 	j, err := s.beginJournal(ctx)
 	if err != nil {
@@ -101,7 +116,7 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 		return api.Operation{}, Stale(api.ReasonChanged)
 	}
 	// Check inside the admission transaction after any SQLite connection wait.
-	// A confirmed intent cannot be accepted after its review token expired.
+	// A run cannot be accepted after its change tag expired.
 	if !time.Now().Before(expires) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
@@ -114,7 +129,7 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	rec := operationRecord{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, Session: req.UUID, Request: request,
-		Intent: api.OperationIntent{Project: ev.Project, Session: req.UUID, Branch: ev.Branch}, Phase: "guard-pending", Evidence: evidence, Now: now}
+		Intent: api.OperationIntent{Project: ev.Project, Session: req.UUID, Branch: ev.Branch}, Phase: "guard-pending", Evidence: evidence, ChangeHash: hash, Now: now}
 	err = j.insert(ctx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)

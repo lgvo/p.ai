@@ -86,7 +86,6 @@ const (
 	ReasonSessionHeld     = "session_held"      // another request or a running operation holds the session
 	ReasonTooManyRequests = "too_many_requests" // the connection has 16 requests in flight
 	ReasonDeadline        = "deadline"          // the daemon's 30-second deadline passed
-	ReasonTooManyPreviews = "too_many_previews" // the daemon holds its limit of unexpired reviews; one expires within two minutes
 	ReasonRefsMoved       = "refs_moved"        // P's refs moved while the daemon read them
 	ReasonProjectHeld     = "project_held"      // another request or a running operation holds the project
 	// conflict
@@ -112,13 +111,39 @@ const (
 	ReasonCleanupActive          = "cleanup_active"           // a failed creation's cleanup holds the session
 	ReasonBoundExceeded          = "bound_exceeded"           // the answer would exceed the response bound
 	ReasonPublicEgressUnassigned = "public_egress_unassigned" // the session on the public network holds no address slot
+	// Refusals in plans only: a risky change's plan names them when it is not
+	// allowed (docs/control-api.md#refusals). The conflict reasons above are
+	// refusals in plans too.
+	ReasonDestinationDivergent = "destination_divergent" // the origin branch has commits the source lacks
+	// A blocked creation's replacement.
+	ReasonUnsupportedReplacementChoice   = "unsupported_replacement_choice"   // the new request is not a replacement this creation allows
+	ReasonOldCreationNotBlocked          = "old_creation_not_blocked"         // the creation is not blocked
+	ReasonOldEffectNotProvenAbsent       = "old_effect_not_proven_absent"     // the creation reached a step whose effects P cannot prove absent
+	ReasonCurrentPolicyUnavailable       = "current_policy_unavailable"       // the project's current policy is unavailable
+	ReasonNewSourceOrBranchUnavailable   = "new_source_or_branch_unavailable" // the new source or branch could not be read, or changed while read
+	ReasonTargetAssignmentUnavailable    = "target_assignment_unavailable"    // another session or an unfinished operation holds a branch the replacement needs
+	ReasonRequestUnchanged               = "request_unchanged"                // the new request would create the same session again
+	ReasonProvisionalResourceUnavailable = "provisional_resource_unavailable" // the creation's provisional resources are not as P left them, or are in use
+	// A failed creation's cleanup.
+	ReasonBlockedLocalCreationRequired     = "blocked_local_creation_required"                                        // the creation is not a blocked creation of this session
+	ReasonAssemblyReadyCreatorRequired     = "blocked_stopped_standalone_base_image_assembly_ready_creator_required"  // the assembled creation is not the stopped base-image creator a cleanup removes
+	ReasonActiveWorkspaceOrCleanupGuard    = "active_workspace_or_cleanup_guard"                                      // other work holds the session
+	ReasonDispatchUnsettled                = "native_or_builder_dispatch_unsettled_or_publication_origin_unsupported" // a runtime or image build may have started, or the creation is from the origin
+	ReasonCreationWorkerOrAttachmentActive = "creation_worker_or_attachment_active"                                   // the creation's worker or an attachment is active
+	ReasonAssignedRefUnavailable           = "assigned_P_ref_unavailable"                                             // the session's branch is missing or could not be read
+	ReasonAssignmentOrGuardUnavailable     = "assignment_or_lifecycle_guard_unavailable"                              // another session or an unfinished operation holds the branch
+	ReasonLocalCredentialsUnverified       = "local_credentials_or_endpoints_unverified"                              // the session's key, Git identity or endpoints are not exactly as P made them
+	ReasonExactStoppedRuntimeUnavailable   = "exact_stopped_runtime_unavailable"                                      // the creator's container is not the exact stopped one P made; the daemon's log has the detail
+	ReasonNativeEffectsUnsettled           = "native_runtime_or_builder_present_ambiguous_or_unreachable"             // a container or builder of the creation exists, is ambiguous or could not be checked
 	// capacity
 	ReasonSessionCapacity    = "session_capacity"     // every session slot is taken
 	ReasonAttachmentCapacity = "attachment_capacity"  // every pending attachment slot is taken
 	ReasonPublicAddresses    = "public_address_slots" // every public egress address is assigned
 	// precondition_failed
-	ReasonExpired = "expired" // the confirmation token expired
+	ReasonExpired = "expired" // the change tag or the pending attachment expired
 	ReasonChanged = "changed" // the state the client reviewed or expected changed
+	// precondition_required
+	ReasonIfMatchMissing = "if_match_missing" // a run call of a risky change sent a key but no change tag
 	// not_found: the kind of record
 	ReasonSession   = "session"
 	ReasonOperation = "operation"
@@ -211,6 +236,11 @@ func TargetSession(uuid string) string         { return "session/" + uuid }
 func TargetOperation(id string) string         { return "operation/" + id }
 func TargetProject(path string) string         { return "project/" + path }
 func TargetBranch(project, name string) string { return "project/" + project + ":branch/" + name }
+
+// TargetOriginBranch names branch name of project's origin.
+func TargetOriginBranch(project, name string) string {
+	return "project/" + project + ":origin-branch/" + name
+}
 
 // MaxDiagnosticBytes bounds every diagnostic P records: an operation's, a
 // session's start, and each resource's in project deletion evidence.

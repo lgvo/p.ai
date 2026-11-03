@@ -305,13 +305,14 @@ different branch from it is a separate choice that asks for a source.
 Creation, start, attachment, rename, stop, destructive preflight, and crash
 recovery are specified in [session lifecycle](docs/session-lifecycle.md).
 
-A separate project-level operation, **Delete project and all P data**, previews
-all sessions, retained branches, credentials, runtimes, and attachments that
-will be removed. The implemented path requires stopped, detached sessions, or
-acknowledged positively missing runtimes; incomplete creations need separate
-supported cleanup first. P records minimal durable confirmed intent and
-idempotently ensures each resource is absent; if some cleanup fails, the user
-retries and P reports the smaller remainder. Project creation, retained
+A separate project-level operation, **Delete project and all P data**, first
+shows a plan of all sessions, retained branches, credentials, runtimes, and
+attachments that will be removed, and runs only that plan. The implemented
+path stops running sessions itself and requires every terminal detached; a
+positively missing runtime is shown as already gone, and incomplete creations
+need separate supported cleanup first. P records minimal durable confirmed
+intent and idempotently ensures each resource is absent; if some cleanup fails,
+the user retries and P reports the smaller remainder. Project creation, retained
 branches, origins, and whole-project deletion are specified in
 [project lifecycle](docs/project-lifecycle.md).
 

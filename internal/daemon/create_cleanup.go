@@ -2,25 +2,18 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
-	"reflect"
-	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
-
-type createCleanupPreviewState struct {
-	Preview api.CreateCleanupPreview
-	Expiry  time.Time
-}
 
 func (l *lifecycle) reviewCreateCleanupLocal(ctx context.Context, op api.Operation, s control.Session) (*api.CreateReplacementCleanup, error) {
 	fp, found, err := l.store.SessionGitPrincipal(ctx, s.UUID)
@@ -68,8 +61,11 @@ func checkCreateCleanupLocalAbsent(state string, endpoints *endpointManager, uui
 	}
 	return nil
 }
-func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, p api.CreateCleanupPreview, instance string) error {
-	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: instance, SessionUUID: p.UUID, ProjectPath: p.OldRequest.Project, ContractVersion: "1", ImageFingerprint: p.ImageFingerprint}, lastBuild(p.OldOperationID, p.EnvironmentBuilder))
+
+// createCleanupNativeAbsent proves that no runtime or builder of session
+// uuid's failed creation, planned as d, remains.
+func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, uuid string, d api.CreateCleanupDetails, instance string) error {
+	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: instance, SessionUUID: uuid, ProjectPath: d.OldRequest.Project, ContractVersion: "1", ImageFingerprint: d.ImageFingerprint}, lastBuild(d.OldOperationID, d.EnvironmentBuilder))
 }
 
 // lastBuild names the creation's latest build, the only one whose builder
@@ -82,186 +78,120 @@ func lastBuild(operationID string, builder *api.CreationBuilderState) string {
 	return control.BuildRef(operationID, builder.Cycle)
 }
 
-// createCleanupFacts reviews the cleanup of a failed creation. A creator
-// blocked before its runtime was initialized takes the early path; any later
-// creator takes the assembled path, which removes its exact stopped container.
-func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (api.CreateCleanupPreview, error) {
-	p := api.CreateCleanupPreview{UUID: uuid, UnsafeReasons: []string{}, ExternalMounts: "preserved", SharedImages: "preserved", Provisional: api.CreateReplaceResources{RuntimeLocal: "unavailable"}}
-	unsafe := func(reason string) { p.UnsafeReasons = append(p.UnsafeReasons, reason) }
+// CleanupCreation answers a cleanup of session uuid's failed creation: its
+// plan, or the operation of a run.
+func (l *lifecycle) CleanupCreation(ctx context.Context, uuid string, req api.ChangeRequest) (api.ChangeResult[api.CreateCleanupDetails], error) {
+	recorded := control.DiscardRequest{Key: req.Key, UUID: uuid, IfMatch: req.IfMatch}
+	change := control.Change[api.CreateCleanupDetails]{
+		Action: api.SessionCreateCleanup.Name, Target: api.TargetSession(uuid), Instance: l.instanceID,
+		Hold: l.holdingSession(uuid),
+		Plan: func(ctx context.Context, p *api.Plan[api.CreateCleanupDetails]) error {
+			return l.planCreateCleanup(ctx, uuid, p)
+		},
+		Replay: func(ctx context.Context) (api.Operation, bool, error) {
+			return replayRequest(l, ctx, req.Key, control.KindCreateCleanup, recorded)
+		},
+		Begin: func(ctx context.Context, run control.Run[api.CreateCleanupDetails]) (api.Operation, error) {
+			ev := control.CreateCleanupEvidence{Review: run.Plan.Details, InstanceUUID: l.instanceID}
+			begin := l.store.BeginCreateCleanup
+			if ev.Review.Runtime != nil {
+				begin = l.store.BeginAssembledCreateCleanup
+			}
+			op, err := begin(ctx, recorded, ev, run.Hash, run.Recheck)
+			if err != nil {
+				return api.Operation{}, err
+			}
+			return op, l.enqueue(op.ID)
+		},
+	}
+	return change.Do(ctx, req)
+}
+
+// planCreateCleanup plans the cleanup of session uuid's failed creation into
+// p. A creator blocked before its runtime was initialized takes the early
+// path; any later creator takes the assembled path, which removes its exact
+// stopped container.
+func (l *lifecycle) planCreateCleanup(ctx context.Context, uuid string, p *api.Plan[api.CreateCleanupDetails]) error {
+	d := &p.Details
+	*d = api.CreateCleanupDetails{ExternalMounts: "preserved", SharedImages: "preserved", Provisional: api.CreateReplaceResources{RuntimeLocal: "unavailable"}}
+	refuse := func(code string) { p.Refusals = append(p.Refusals, api.Refusal{Code: code}) }
 	s, err := l.store.GetSession(ctx, uuid)
 	if err != nil {
-		return p, err
+		return err
 	}
 	op, err := l.store.CreationForSession(ctx, uuid)
 	if err != nil {
-		return p, err
+		return err
 	}
 	ev, err := control.Evidence(op)
-	if err != nil || json.Unmarshal(op.Request, &p.OldRequest) != nil {
-		return p, control.ErrConflict
+	if err != nil || json.Unmarshal(op.Request, &d.OldRequest) != nil {
+		return control.ErrConflict
 	}
-	p.OldOperationID, p.OldPhase, p.OldEvidenceSHA256 = op.ID, op.Phase, hexDigest(op.Evidence)
-	p.PolicySHA256, p.ImageFingerprint, p.EnvironmentBuilder = s.PolicySHA256, ev.ImageFingerprint, (*api.CreationBuilderState)(ev.EnvironmentBuilder)
-	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" || p.OldRequest.Project != s.Project || p.OldRequest.Branch != s.Branch || ev.PolicySHA256 != s.PolicySHA256 {
-		unsafe("blocked_local_creation_required")
+	d.OldOperationID, d.OldPhase, d.OldEvidenceSHA256 = op.ID, op.Phase, hexDigest(op.Evidence)
+	d.PolicySHA256, d.ImageFingerprint, d.EnvironmentBuilder = s.PolicySHA256, ev.ImageFingerprint, (*api.CreationBuilderState)(ev.EnvironmentBuilder)
+	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" || d.OldRequest.Project != s.Project || d.OldRequest.Branch != s.Branch || ev.PolicySHA256 != s.PolicySHA256 {
+		refuse(api.ReasonBlockedLocalCreationRequired)
 	}
 	assembled := !control.SafeCreateCleanupPhase(op)
 	if assembled {
-		p.OldRequestSHA256 = hexDigest(op.Request)
+		d.OldRequestSHA256 = hexDigest(op.Request)
 		if control.AssembledCreationForCleanup(s, op, l.cfg.BaseImageFingerprint) != nil || ev.Selection != l.selection() {
-			unsafe("blocked_stopped_standalone_base_image_assembly_ready_creator_required")
+			refuse(api.ReasonAssemblyReadyCreatorRequired)
 		}
 		if l.admitSessionWork(ctx, uuid, op.ID) != nil {
-			unsafe("active_workspace_or_cleanup_guard")
+			refuse(api.ReasonActiveWorkspaceOrCleanupGuard)
 		}
-	} else if !control.SafeCreateCleanupEvidence(p.OldRequest, ev) {
-		unsafe("native_or_builder_dispatch_unsettled_or_publication_origin_unsupported")
+	} else if !control.SafeCreateCleanupEvidence(d.OldRequest, ev) {
+		refuse(api.ReasonDispatchUnsettled)
 	}
 	var working bool
 	l.withLock(func() { working = l.working[op.ID] || l.hasAttachmentLocked(uuid) })
 	if working {
-		unsafe("creation_worker_or_attachment_active")
+		refuse(api.ReasonCreationWorkerOrAttachmentActive)
 	}
 	oid, exists, e := l.git.backend.InspectBranchRef(ctx, s.Project, s.Branch)
-	p.AssignedBranch = api.CreateReplaceBranch{Ref: "refs/heads/" + s.Branch, Observed: e == nil, Exists: exists, OID: oid}
+	d.AssignedBranch = api.CreateReplaceBranch{Ref: "refs/heads/" + s.Branch, Observed: e == nil, Exists: exists, OID: oid}
 	if e != nil || !exists {
-		unsafe("assigned_P_ref_unavailable")
+		refuse(api.ReasonAssignedRefUnavailable)
 	}
 	if l.store.CheckCreateReplacementTarget(ctx, s.Project, s.Branch, uuid) != nil {
-		unsafe("assignment_or_lifecycle_guard_unavailable")
+		refuse(api.ReasonAssignmentOrGuardUnavailable)
 	}
 	local, e := l.reviewCreateCleanupLocal(ctx, op, s)
 	if e != nil {
-		unsafe("local_credentials_or_endpoints_unverified")
+		refuse(api.ReasonLocalCredentialsUnverified)
 	} else {
-		p.Provisional.Cleanup = local
-		p.Provisional.SessionKey = "absent"
-		p.Provisional.Endpoint = "absent"
-		p.Provisional.Principal = "absent"
+		d.Provisional.Cleanup = local
+		d.Provisional.SessionKey = "absent"
+		d.Provisional.Endpoint = "absent"
+		d.Provisional.Principal = "absent"
 		if local != nil {
-			p.Provisional.SessionKey = "present"
-			p.Provisional.Endpoint = "present"
-			p.Provisional.Principal = "present"
+			d.Provisional.SessionKey = "present"
+			d.Provisional.Endpoint = "present"
+			d.Provisional.Principal = "present"
 		}
 	}
 	if assembled {
-		p.Runtime, e = l.reviewAssembledCleanupRuntime(ctx, s, op)
+		d.Runtime, e = l.reviewAssembledCleanupRuntime(ctx, s, op)
 		if e != nil {
-			unsafe("exact_stopped_runtime_unavailable: " + e.Error())
+			log.Printf("cleanup of failed creation %s: creator runtime unavailable: %v", uuid, e)
+			refuse(api.ReasonExactStoppedRuntimeUnavailable)
 		} else {
-			p.Provisional.Runtime, p.Provisional.Builder, p.Provisional.RuntimeLocal = "present", "absent", "will_be_removed"
-			p.LossWarnings = []string{"All runtime-local workspace and private files will be removed, including ignored files and unpushed Git state.", "P does not look inside the container; runtime-local credentials and dummy credential files are not enumerated and all will be removed.", "The reviewed P Git principal, host session key and endpoint sockets will be retired; the assigned P branch and shared images are preserved."}
+			d.Provisional.Runtime, d.Provisional.Builder, d.Provisional.RuntimeLocal = "present", "absent", "will_be_removed"
+			p.Loss = append(p.Loss, containerLoss(uuid))
 		}
-	} else if e = l.createCleanupNativeAbsent(ctx, p, l.instanceID); e != nil {
-		unsafe("native_runtime_or_builder_present_ambiguous_or_unreachable")
+	} else if e = l.createCleanupNativeAbsent(ctx, uuid, *d, l.instanceID); e != nil {
+		refuse(api.ReasonNativeEffectsUnsettled)
 	} else {
-		p.Provisional.Runtime = "absent"
-		p.Provisional.Builder = "absent"
+		d.Provisional.Runtime = "absent"
+		d.Provisional.Builder = "absent"
 	}
-	p.Provisional.AssignedRef = "preserved_existing"
-	p.Eligible = len(p.UnsafeReasons) == 0
-	return p, nil
+	d.Provisional.AssignedRef = "preserved_existing"
+	return nil
 }
+
 func hexDigest(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
-func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (api.CreateCleanupPreview, error) {
-	release, err := l.lockSession(ctx, uuid)
-	if err != nil {
-		return api.CreateCleanupPreview{}, err
-	}
-	defer release()
-	p, err := l.createCleanupFacts(ctx, uuid)
-	if err != nil || !p.Eligible {
-		return p, err
-	}
-	var bytes [16]byte
-	if _, err = rand.Read(bytes[:]); err != nil {
-		return p, err
-	}
-	expiry := time.Now().Add(2 * time.Minute)
-	p.ConfirmationToken = hex.EncodeToString(bytes[:])
-	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
-	if err = boundedReview(uuid, p); err != nil {
-		return api.CreateCleanupPreview{}, err
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.createCleanupPreviews == nil {
-		l.createCleanupPreviews = map[string]createCleanupPreviewState{}
-	}
-	err = storeReview(l.createCleanupPreviews, p.ConfirmationToken, createCleanupPreviewState{p, expiry},
-		func(s createCleanupPreviewState) time.Time { return s.Expiry })
-	if err != nil {
-		return api.CreateCleanupPreview{}, err
-	}
-	return p, nil
-}
-func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token string) (api.Operation, error) {
-	if len(uuid) != 36 || key == "" || len(key) > 128 || len(token) != 32 {
-		return api.Operation{}, control.ErrInvalid
-	}
-	req := control.DiscardRequest{UUID: uuid, Key: key, TokenSHA256: hexDigest([]byte(token))}
-	replay := func() (api.Operation, bool, error) {
-		op, e := l.store.GetOperationByKey(ctx, key)
-		if errors.Is(e, control.ErrNotFound) {
-			return op, false, nil
-		}
-		var saved control.DiscardRequest
-		if e != nil {
-			return op, true, e
-		}
-		if op.Kind != "session.create.cleanup" || json.Unmarshal(op.Request, &saved) != nil || saved != req {
-			return api.Operation{}, true, control.KeyReused()
-		}
-		return op, true, nil
-	}
-	if op, found, e := replay(); found || e != nil {
-		return op, e
-	}
-	release, err := l.lockSession(ctx, uuid)
-	if err != nil {
-		return api.Operation{}, err
-	}
-	defer release()
-	if op, found, e := replay(); found || e != nil {
-		return op, e
-	}
-	var state createCleanupPreviewState
-	var found bool
-	l.withLock(func() { state, found = l.createCleanupPreviews[token] })
-	if !found || !time.Now().Before(state.Expiry) {
-		return api.Operation{}, control.Stale(api.ReasonExpired)
-	}
-	if state.Preview.UUID != uuid {
-		return api.Operation{}, control.Stale(api.ReasonChanged)
-	}
-	fresh, err := l.createCleanupFacts(ctx, uuid)
-	if err != nil {
-		return api.Operation{}, err
-	}
-	fresh.ConfirmationToken, fresh.ExpiresAt = token, state.Preview.ExpiresAt
-	if !fresh.Eligible || !reflect.DeepEqual(fresh, state.Preview) {
-		return api.Operation{}, control.Stale(api.ReasonChanged)
-	}
-	ev := control.CreateCleanupEvidence{Review: fresh, InstanceUUID: l.instanceID}
-	ev.Review.ConfirmationToken = ""
-	begin := l.store.BeginCreateCleanup
-	if ev.Review.Runtime != nil {
-		begin = l.store.BeginAssembledCreateCleanup
-	}
-	op, err := begin(ctx, req, ev, func(call context.Context) error {
-		actual, e := l.createCleanupFacts(call, uuid)
-		actual.ConfirmationToken, actual.ExpiresAt = token, fresh.ExpiresAt
-		if e != nil || !actual.Eligible || !reflect.DeepEqual(actual, fresh) {
-			return confirmChanged(e)
-		}
-		return nil
-	})
-	if err != nil {
-		return op, err
-	}
-	l.withLock(func() { delete(l.createCleanupPreviews, token) })
-	return op, l.enqueue(op.ID)
-}
+
 func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 	ctx := l.ctx
 	if l.holdSession(ctx, observed.ID, observed.SessionUUID) != nil {
@@ -291,7 +221,7 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 	var original control.CreationEvidence
 	// Recheck the durable retired authority before touching any local entry.
 	// The original evidence remains inspectable after the atomic handoff.
-	if oldErr != nil || sessionErr != nil || old.Kind != "session.create" || old.Status != "superseded" || old.SessionUUID != op.SessionUUID || old.Project != op.Project || session.Registry != "removing" || session.Project != op.Project || session.Branch != ev.Review.OldRequest.Branch || ev.InstanceUUID != l.instanceID || ev.Review.UUID != op.SessionUUID || ev.Review.OldEvidenceSHA256 != hexDigest(old.Evidence) || json.Unmarshal(old.Request, &request) != nil || request != ev.Review.OldRequest || json.Unmarshal(old.Evidence, &original) != nil || !control.SafeCreateCleanupEvidence(request, original) || original.PolicySHA256 != ev.Review.PolicySHA256 || original.ImageFingerprint != ev.Review.ImageFingerprint || ev.Review.AssignedBranch.Ref != "refs/heads/"+session.Branch {
+	if oldErr != nil || sessionErr != nil || old.Kind != "session.create" || old.Status != "superseded" || old.SessionUUID != op.SessionUUID || old.Project != op.Project || session.Registry != "removing" || session.Project != op.Project || session.Branch != ev.Review.OldRequest.Branch || ev.InstanceUUID != l.instanceID || ev.Review.OldEvidenceSHA256 != hexDigest(old.Evidence) || json.Unmarshal(old.Request, &request) != nil || request != ev.Review.OldRequest || json.Unmarshal(old.Evidence, &original) != nil || !control.SafeCreateCleanupEvidence(request, original) || original.PolicySHA256 != ev.Review.PolicySHA256 || original.ImageFingerprint != ev.Review.ImageFingerprint || ev.Review.AssignedBranch.Ref != "refs/heads/"+session.Branch {
 		block(control.ErrConflict)
 		return
 	}
@@ -301,7 +231,9 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 		}
 		op.Status = "running"
 	}
-	prove := func(call context.Context) error { return l.createCleanupNativeAbsent(call, ev.Review, ev.InstanceUUID) }
+	prove := func(call context.Context) error {
+		return l.createCleanupNativeAbsent(call, op.SessionUUID, ev.Review, ev.InstanceUUID)
+	}
 	if err = prove(ctx); err != nil {
 		block(err)
 		return

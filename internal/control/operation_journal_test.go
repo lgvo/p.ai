@@ -178,7 +178,7 @@ func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
 			s, _, r, e := retainedDeleteFixture(t)
 			request := func(key string) RetainedDeleteRequest { r.Key = key; return r }
 			return keyCase{s, "app", "", func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
-				_, err := s.BeginRetainedDelete(context.Background(), request(key), e, func(ctx context.Context, _ RetainedDeleteEvidence) error { return observe(ctx) })
+				_, err := s.BeginRetainedDelete(context.Background(), request(key), e, testHash, observe)
 				return err
 			}}
 		}},

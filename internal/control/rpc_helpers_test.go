@@ -3,7 +3,9 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/strictjson"
@@ -53,3 +55,22 @@ func insertOperation(ctx context.Context, s *Store, r operationRecord) error {
 	}
 	return j.commit(ctx)
 }
+
+// testHash is a change hash for store tests.
+var testHash = strings.Repeat("c", 64)
+
+// testEpoch is when the package's tests began.
+var testEpoch = time.Now()
+
+// testTag is a change tag of testHash. A negative d expired d ago; any other
+// d names a tag that stays valid through the tests, the same tag for the same
+// d, so a test can repeat a request exactly.
+func testTag(d time.Duration) string {
+	if d < 0 {
+		return changeTag(time.Now().Add(d), testHash)
+	}
+	return changeTag(testEpoch.Add(time.Hour+d), testHash)
+}
+
+// noRecheck is a store Begin's verify that finds the plan unchanged.
+func noRecheck(context.Context) error { return nil }

@@ -1,5 +1,51 @@
 # MVP implementation progress
 
+## TUI removal plans — 2026-11-03
+
+Step 5 makes a risky change one method called twice. In the TUI, `d` and `X`
+send `session.discard`/`session.delete` with the session's UUID only (a dry
+run) and show its plan on the review page: the container line, "This will lose
+work; push or copy out what you need before you authorize:" with one item per
+loss, "Already gone:" for a missing runtime, the branch outcome and the tag's
+expiry. `y` sends the same method with a new key and the plan's change tag. A
+session whose runtime is missing can now be removed from the TUI. A plan that
+is not allowed leaves the progress page with the refusal's sentence.
+
+LLM experience review (mock socket only): the LLM drove the production
+`p tui --theme dark` against the fixture server (`--dataset portfolio`) through
+`tests/integration/tui-observe.py`, built from a `git archive` of `7cfe56a` and
+from this change (head `7cfe56a` + uncommitted step 5). At 120×35, 80×24 and
+48×16 it discarded and deleted a stopped and a running session, cancelled with
+`n` and Esc, authorized with `y` to the completed operation, opened Help
+during a plan read delayed by `mock.configure` (with an allowed and with a
+refused reply), and went Back during one. A second `p tui` on the same socket
+attached during a delayed dry run: the plan came back refused with
+`attachment_active`, and the page read as the old conflict error did. A Stop
+from the second client between the plan and `y` kept the tag, as in P (the
+running/stopped status is information only), and the Discard completed. A
+Rename from it made the run answer `changed` and record no operation, and
+reviewing again showed the renamed branch. A run after the tag's two minutes
+answered `expired` and recorded no operation. An injected failed dry run was
+also checked. Four findings were
+fixed and the affected paths repeated:
+
+- wrapped loss items continued at the margin and ran into the following
+  advice;
+- one lost commit read "1 commits … leave";
+- at 80×24 a running session's branch outcome fell below the fold, where
+  before it fit (the loss heading and advice now share one line, so the review
+  has its old row count);
+- the expiry sentence said a review could be "already used".
+
+One finding that predates this change stays open (low): a changed or expired
+review still offers `y`, and the user must cancel and review again. A Delete
+that loses commits still needs scrolling at 80×24, as before. The mock has no
+missing runtime and no commits leaving P, so those reviews were not rendered.
+The prototype has no session removal. Component checks: `internal/tui`,
+`internal/errtext`, `internal/control` and the mock's tests passed; `just tui-tests` passed 8
+terminal, 9 observer and 12 mock tests. Evidence:
+[checkpoint](llm-interactive-review/tui/removal-plans/checkpoint.json).
+
 ## TUI start and stop operations — 2026-11-03
 
 Step 4 of the interface rework records `session.start` and `session.stop` as
@@ -1234,26 +1280,24 @@ until `status:"completed"`; stop and inspect the diagnostic on `blocked` or
 
    Use this exact flow for A with `ACTION=discard`, then B with
    `ACTION=delete`, recreating A between them as described below. Detach first.
-   After loss inspection, poll its operation as
-   above until completed; review the printed preview before confirmation.
-   A changed or expired report requires a new inspection/preview.
+   The first call is a dry run: it returns the removal's plan and removes
+   nothing. Review the printed plan before running it: `loss` lists the
+   container and everything in it, and for Delete the commits that leave P.
+   The run sends the same request with a key and the plan's change tag. A tag
+   that expired (two minutes after the dry run) or whose facts changed answers
+   `precondition_failed`; make and review a new dry run.
 
    ```sh
    TARGET=$SESSION_A
    ACTION=discard
-   LOSS=$(p api "$P_SOCKET" workspace.loss.inspect "$(jq -nc \
-     --arg key "$RUN-$ACTION-loss" --arg uuid "$TARGET" '{key:$key,uuid:$uuid}')")
-   LOSS_ID=$(jq -er '.result.operation.id' <<< "$LOSS")
-   # Poll operation.inspect for LOSS_ID until completed before continuing.
-   PREVIEW=$(p api "$P_SOCKET" session.removal.preview "$(jq -nc \
-     --arg uuid "$TARGET" --arg kind "$ACTION" --arg loss "$LOSS_ID" \
-     '{uuid:$uuid,kind:$kind,loss_operation_id:$loss}')")
-   jq '.result.preview' <<< "$PREVIEW"
+   REQUEST=$(jq -nc --arg uuid "$TARGET" '{uuid:$uuid}')
+   PLAN=$(p api "$P_SOCKET" "session.$ACTION" "$REQUEST")
+   jq '.result.plan' <<< "$PLAN"
    # Only after reviewing and accepting the named losses:
-   TOKEN=$(jq -er '.result.preview.confirmation_token' <<< "$PREVIEW")
-   REMOVE=$(p api "$P_SOCKET" "session.$ACTION" "$(jq -nc \
-     --arg key "$RUN-$ACTION" --arg uuid "$TARGET" --arg token "$TOKEN" \
-     '{key:$key,uuid:$uuid,confirmation_token:$token}')")
+   TAG=$(jq -er '.result.change_tag' <<< "$PLAN")
+   REMOVE=$(p api "$P_SOCKET" "session.$ACTION" "$(jq -c \
+     --arg key "$RUN-$ACTION" --arg tag "$TAG" \
+     '. + {key:$key,if_match:$tag}' <<< "$REQUEST")")
    # Poll the returned operation ID until completed; old session.inspect and
    # p attach must then fail; verify the unrelated session described below.
    ```

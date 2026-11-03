@@ -24,7 +24,7 @@ func AssembledCreationForCleanup(session Session, op api.Operation, base string)
 		ev.RuntimeInitState != "attempted" || ev.BranchExisted != (req.Choice == "existing") || ev.RefCASIntent != (req.Choice == "new") ||
 		req.OriginRef != "" || ev.OriginURL != "" || ev.OriginRef != "" ||
 		ev.Environment != nil || ev.EnvironmentBuilder != nil ||
-		ev.SupersedesOperationID != "" || ev.SupersedesUUID != "" || ev.ReplacementCleanup != nil || ev.ReplacementTokenSHA256 != "" {
+		ev.SupersedesOperationID != "" || ev.SupersedesUUID != "" || ev.ReplacementCleanup != nil || ev.ReplacementTag != "" {
 		return fmt.Errorf("%w: assembled failed creation cleanup requires a blocked local base-image assembly-ready creator with recorded init", ErrConflict)
 	}
 	policy, err := ParseStoredProjectPolicy(session.Policy)
@@ -36,12 +36,12 @@ func AssembledCreationForCleanup(session Session, op api.Operation, base string)
 	return nil
 }
 
-func validAssembledCleanupReview(ev CreateCleanupEvidence) bool {
+func validAssembledCleanupReview(uuid string, ev CreateCleanupEvidence) bool {
 	p, r := ev.Review, ev.Review.Runtime
 	return r != nil && validFingerprint(p.OldRequestSHA256) && p.OldPhase == "assembly-ready" &&
 		r.Condition == "present" && r.OriginalStatus == "Stopped" && validUUID(r.IncusUUID) && validUUID(r.Generation) &&
-		r.InstanceName == "p-"+p.UUID && r.IncusProject != "" && r.ImageFingerprint == p.ImageFingerprint && r.RuntimeDataLost &&
-		len(p.LossWarnings) == 3 && p.Provisional.Cleanup != nil && !ev.RuntimeAbsent && !ev.LocalComplete
+		r.InstanceName == "p-"+uuid && r.IncusProject != "" && r.ImageFingerprint == p.ImageFingerprint &&
+		p.Provisional.Cleanup != nil && !ev.RuntimeAbsent && !ev.LocalComplete
 }
 
 // ValidateAssembledCleanupAuthority keeps creator/request/policy and the exact

@@ -11,40 +11,41 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
+// RetainedDeleteRequest is a retained branch's deletion run as its operation
+// records it: the branch, the run's idempotency key and its change tag.
 type RetainedDeleteRequest struct {
-	Key         string `json:"key"`
-	Project     string `json:"project"`
-	Branch      string `json:"branch"`
-	TokenSHA256 string `json:"token_sha256"`
+	Key     string `json:"key"`
+	Project string `json:"project"`
+	Branch  string `json:"branch"`
+	IfMatch string `json:"if_match"`
 }
 
+// RetainedDeleteEvidence is what the deletion's worker checks again before
+// it deletes the branch: its tip and a digest of the commits that leave P.
 type RetainedDeleteEvidence struct {
-	Project          string `json:"project"`
-	Branch           string `json:"branch"`
-	Tip              string `json:"tip"`
-	ReviewSHA256     string `json:"review_sha256"`
-	InstanceUUID     string `json:"instance_uuid"`
-	PreviewExpiresAt string `json:"preview_expires_at"`
+	Project      string `json:"project"`
+	Branch       string `json:"branch"`
+	Tip          string `json:"tip"`
+	ReviewSHA256 string `json:"review_sha256"`
+	InstanceUUID string `json:"instance_uuid"`
 }
 
 func validRetainedDeleteRequest(r RetainedDeleteRequest) bool {
-	return len(r.Key) > 0 && len(r.Key) <= 128 && validProject(r.Project) && validBranch(r.Branch) && validFingerprint(r.TokenSHA256)
+	return len(r.Key) > 0 && len(r.Key) <= 128 && validProject(r.Project) && validBranch(r.Branch) && api.ValidChangeTag(r.IfMatch)
 }
 func validRetainedDeleteEvidence(e RetainedDeleteEvidence) bool {
 	return validProject(e.Project) && validBranch(e.Branch) && validOID(e.Tip) && strings.Trim(e.Tip, "0") != "" && validFingerprint(e.ReviewSHA256) && validUUID(e.InstanceUUID)
 }
 
-// BeginRetainedDelete reserves the one unassigned ref only after a fresh full
-// loss review under gitAuthority. The callback must not re-enter Store locks.
-func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest, e RetainedDeleteEvidence, verify func(context.Context, RetainedDeleteEvidence) error) (api.Operation, error) {
-	if !validRetainedDeleteRequest(r) || !validRetainedDeleteEvidence(e) || r.Project != e.Project || r.Branch != e.Branch || verify == nil {
+// BeginRetainedDelete reserves the one unassigned ref of run r, whose plan
+// has change hash hash, only after verify planned it again under
+// gitAuthority. The callback must not re-enter Store locks.
+func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest, e RetainedDeleteEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	if !validRetainedDeleteRequest(r) || !validRetainedDeleteEvidence(e) || r.Project != e.Project || r.Branch != e.Branch || !validFingerprint(hash) || verify == nil {
 		return api.Operation{}, ErrInvalid
 	}
-	expires, err := time.Parse(time.RFC3339Nano, e.PreviewExpiresAt)
-	if err != nil {
-		return api.Operation{}, ErrInvalid
-	}
-	if err = s.lockGitAuthority(ctx); err != nil {
+	expires, _ := api.ParseChangeTag(r.IfMatch)
+	if err := s.lockGitAuthority(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
@@ -57,7 +58,7 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	if !time.Now().Before(expires) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
-	if err = verify(ctx, e); err != nil {
+	if err := verify(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	j, err := s.beginJournal(ctx)
@@ -91,7 +92,7 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	evRaw, _ := json.Marshal(e)
 	rec := operationRecord{ID: id, Key: r.Key, Kind: KindRetainedDelete, Project: r.Project, Request: raw,
-		Intent: api.OperationIntent{Project: r.Project, Branch: r.Branch}, Phase: "guarded", Evidence: evRaw, Now: now}
+		Intent: api.OperationIntent{Project: r.Project, Branch: r.Branch}, Phase: "guarded", Evidence: evRaw, ChangeHash: hash, Now: now}
 	err = j.insert(ctx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)

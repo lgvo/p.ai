@@ -324,7 +324,7 @@ this daemon serves:
 
 | Capability | Present when | Methods it serves |
 |---|---|---|
-| `git` | The host configuration has a `git` object | `project.list`, `project.branches`, `project.retained_branches`, the six `origin.` methods, and the operation methods `operation.inspect`, `operation.list`, `operation.wait` and `operation.retry` |
+| `git` | The host configuration has a `git` object | `project.list`, `project.branches`, `project.retained_branches`, the five `origin.` methods, and the operation methods `operation.inspect`, `operation.list`, `operation.wait` and `operation.retry` |
 | `runtime` | The host configuration also has a `runtime` object, which requires `git` | Project and session creation; session inspection, listing, Start, Stop, attachment, removal and rename; failed-creation replacement and cleanup; retained-branch rename and deletion; project deletion; the attachment helper's methods |
 | `services` | `runtime` is present; the daemon always serves project services with a runtime | `session.services`, `session.service.action` and `session.service.logs` |
 
@@ -436,6 +436,11 @@ are available even when runtime configuration is absent: a daemon without a
 runtime runs the journal's origin operations. The retained-branch
 rename and deletion and the project deletion methods in this table need the
 `runtime` capability. Every request rejects unknown or duplicate fields.
+`origin.publish`, `project.retained.delete` and `project.delete` are
+[risky changes](#risky-changes): each is called twice, first as a dry run that
+returns a plan and its change tag, then with `key` and `if_match` to run it.
+Their result is a `ChangeResult`: `plan` and `change_tag` for a dry run,
+`operation` for a run.
 
 | Method | Params | Result |
 |---|---|---|
@@ -443,14 +448,11 @@ rename and deletion and the project deletion methods in this table need the
 | `origin.refresh` | `{"project":"team/app"}` | current `origin` state after contact. Failed contact returns `status:"unknown"` and retains the prior completed observation as stale presentation data. |
 | `origin.inspect` | Same as refresh | current `origin` state without contact. |
 | `origin.sources` | `{"project":"team/app","after":"optional-ref","limit":1..16}` | `project`, `origin_url`, `status`, `observation_status`, `observed_at`, `refs` (`ref`, `oid`, `commit_oid`), `next`. Refs are bytewise ordered and paged; `next` is empty at the end. |
-| `origin.publication.preview` | `{"project":"team/app","expected_origin_url":"ssh://host/repo","kind":"session","source":"session-UUID","source_oid":"<exact P tip>","destination_ref":"refs/heads/main"}`; `kind:"retained"` uses a P branch name in `source` | `preview` with project, origin URL, source kind/identity/ref/OID, destination ref and observed OID or absence, relation, and `workspace_status:"unknown"`. This contacts the origin afresh. |
-| `origin.publish` | Same source fields as preview, plus `"key":"idempotency-key"` | `operation` of kind `origin.publish`, returned at once. Its worker performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. The operation's evidence holds `publication`, the preview and `status` (`created`, `advanced`, `satisfied`, `refused`, or `outcome_unknown`). |
+| `origin.publish` | `{"project":"team/app","expected_origin_url":"ssh://host/repo","kind":"session","source":"session-UUID","source_oid":"<exact P tip>","destination_ref":"refs/heads/main"}`; `kind:"retained"` uses a P branch name in `source`. The run adds `"key":"idempotency-key","if_match":"<change tag>"` | Dry run: `plan` on target `project/<path>:origin-branch/<name>`, whose `details` hold the project, origin URL, source kind/identity/ref/OID, destination ref and observed OID or absence, `relation`, and `workspace_status:"unknown"`, and `change_tag`. It contacts the origin afresh. A `divergent` relation refuses the plan with `destination_divergent`. Run: `operation` of kind `origin.publish`, returned at once. Its worker performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. The operation's evidence holds `publication`: the plan's details as `preview`, and `status` (`created`, `advanced`, `satisfied`, `refused` when the origin's server rejected the push, or `outcome_unknown`). |
 | `project.retained_branches` | `{"project":"team/app","after":"optional-full-P-head-ref","limit":1..8}` | `branches` with `branch`, full `ref`, and tip `oid`, plus `next`. The cursor traverses P Git refs, so a page may be empty while `next` is nonempty if its refs are assigned to live sessions. |
 | `project.retained.rename` | `{"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key answer `invalid` with reason `key_reused`. |
-| `project.retained.delete.preview` | `{"project":"team/app","branch":"saved"}` | `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
-| `project.retained.delete.confirm` | `{"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs answer `invalid` with reason `key_reused`. |
-| `project.delete.preview` | `{"project":"team/app","acknowledge_missing":[]}` | aggregate `preview` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, exact credentials/repository/image identities, preserved external mounts, warnings, token and expiry. It contacts no origin. |
-| `project.delete.confirm` | `{"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | durable `operation` (`kind:"project.delete"`), returned at once. A fresh preview must match the reviewed one before atomic authority closure. Completed exact confirmation replays without deleting again. |
+| `project.retained.delete` | `{"project":"team/app","branch":"saved"}`; the run adds `key` and `if_match` | Dry run: `plan` on target `project/<path>:branch/<name>`, whose `details` hold the `project`, `branch`, unassigned P `ref` and `tip`, and `branch_loss` (commits losing all P reachability and the complete P refs), and `change_tag`. It reads only P's Git repository and contacts no origin. A branch a session holds refuses the plan with `branch_assigned`, and one an unfinished operation guards with `branch_reserved`. Run: `operation` (`kind:"project.retained.delete"`). A completed exact run replays; the same key with other params or another tag answers `invalid` with reason `key_reused`. |
+| `project.delete` | `{"project":"team/app"}`; the run adds `key` and `if_match` | Dry run: one `plan` on target `project/<path>` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, and exact credential, repository and image identities and preserved external mounts in its `details`, and `change_tag`. It contacts no origin. Run: durable `operation` (`kind:"project.delete"`), returned at once. A completed exact run replays without deleting again. See [project deletion](#project-deletion). |
 
 An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
 or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
@@ -476,37 +478,48 @@ uncertain issued effect stays blocked and guarded until exact positive
 reconciliation; retry never repeats an uncertain Git command. The operation
 does not change session assignment, runtime, credential, or origin refs.
 
-Retained branch deletion is Git-only. Confirmation reobserves the complete
-reviewed loss report and origin identity under ref authority, then reserves the
-unassigned source branch. Immediately before the selected Git effect, it
-rechecks the report and records `ref-delete-issued`; only an exact old-tip
-compare-and-swap may delete the P ref. Changed review facts fail `stale` before
-that marker. An uncertain issued deletion remains guarded and is never
-reissued; exact ref absence permits completion. It does not delete origin
-refs, sibling refs, sessions, runtimes, images, or credentials.
+Retained branch deletion is Git-only and contacts no origin: the commits that
+leave P's repository are certain `p_commits` loss whether or not the origin
+has them. A branch assigned to a session refuses the plan with
+`branch_assigned`; a missing branch answers `not_found` with reason `branch`.
+The run plans again under ref authority, then reserves the unassigned source
+branch (phase `guarded`). Immediately before the selected Git effect, the
+worker rechecks the tip and the branch loss and records `ref-delete-issued`;
+only an exact old-tip compare-and-swap may delete the P ref. Changed facts fail
+the operation `stale` before that marker. An uncertain issued deletion remains
+guarded and is never reissued; exact ref absence permits completion. It does
+not delete origin refs, sibling refs, sessions, runtimes, images, or
+credentials.
 
 Publication requires an established session with no unfinished operation or
 ref guard, or a retained branch with no live session assignment. The exact
-`source_oid` must still be that P branch's tip. The preview is
-informational; `origin.publish` requires the same `expected_origin_url` that
-the developer reviewed. The request checks these facts before it records the
-operation, so a changed origin answers `precondition_failed` with reason
-`changed` before any contact or push, and records nothing. The URL is
-persisted with the request key; reusing a key with another URL answers
-`invalid` with reason `key_reused`, including after restart. A session's
-publication holds the session while it runs. Its worker rechecks the facts
-under the project origin lock and excludes assignment/ref mutations through
-the shared Git authority lock; one that no longer holds ends the operation
-`failed` with its reason. Publication keys share one namespace with every
-other operation's key. A key replays its operation without contacting Git.
+`source_oid` must still be that P branch's tip, and the project's origin must
+still be `expected_origin_url`. Both calls check these facts: an origin URL
+that changed answers `precondition_failed` with reason `changed` before any
+contact, a source tip that moved answers the same once the origin is
+observed, and neither records anything. A
+local-only project refuses the plan with `origin_not_set`. A destination that
+has commits the source lacks refuses the plan with `destination_divergent`, so
+the dry run returns no change tag and nothing can run. The run contacts the
+origin again while it plans again, and records the operation only if that
+gives the same change tag. The URL is persisted with the request key; reusing
+a key with another URL or tag answers `invalid` with reason `key_reused`,
+including after restart. A session's publication holds the session while it
+runs. Its worker rechecks the facts under the project origin lock and excludes
+assignment/ref mutations through the shared Git authority lock; one that no
+longer holds ends the operation `failed` with its reason. A destination that
+diverged after the run was accepted ends it `failed` with reason `changed`,
+without a push. Publication keys share one namespace with every other
+operation's key. A key replays its operation without contacting Git.
 Before the push, the operation records phase `push-issued`. A push whose
 outcome is unknown, or a daemon that stopped after `push-issued`, ends the
 operation `failed` with reason `outcome_unknown`, and it never starts another
 push; a push that failed before starting ends it `failed` with reason
-`origin`, its evidence holding the preview and no status. Neither is retried: a new explicit request and key can perform
-another fresh comparison. Runtime workspace divergence is currently
-unobservable at this API boundary, so the preview reports `unknown`; only the
-committed P tip is eligible for publication.
+`origin`, its evidence holding the plan's details and no status. Neither is
+retried: a new dry run and a run with a new key perform another fresh
+comparison. Runtime workspace divergence is currently unobservable at this API
+boundary, so the plan reports `workspace_status:"unknown"`; only the committed
+P tip is eligible for publication.
 
 With trusted runtime configuration, the following lifecycle subset is also
 available. A create response returns a durable operation immediately. The
@@ -518,17 +531,18 @@ digests. It reuses the recorded image when available. If that image is gone
 before an instance exists, Retry rebuilds it from the same captured commit; an
 uncertain instance or build cannot trigger blind recreation. A changed
 request needs a new idempotency key. Reusing a blocked creation's assigned
-branch requires the explicit replacement methods below, or supported confirmed
-failed-create cleanup followed by a separate Create.
+branch requires the explicit replacement below, or supported confirmed
+failed-create cleanup followed by a separate Create. Both are
+[risky changes](#risky-changes), as are `session.discard` and `session.delete`:
+a dry run returns their plan and change tag, and a run with `key` and
+`if_match` returns the operation.
 
 | Method | Params | Result |
 |---|---|---|
 | `project.create` | `{"key":"idempotency-key","project":"team/app"}`; optionally include `"url":"ssh://host/repo"` for origin mode | `operation`; blank mode reserves unborn `main`. Origin mode contacts the URL before committing the project and observation; an empty origin also reserves unborn `main`. |
 | `session.create` | `{"key":"idempotency-key","project":"team/app","branch":"work","choice":"existing"}` or `choice:"new"` with `source:"refs/heads/main"` or a committed object ID; origin mode uses `choice:"new"`, `origin_ref:"refs/heads/main"` or a tag, and `expected_commit_oid:"<observed commit>"` with no `source` | `operation`; origin mode requires a fresh observation and fetch, then captures the exact commit and origin identity for Retry. Blank session creation is unavailable. |
-| `session.create.replace.preview` | `{"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","project":"team/app","branch":"work","choice":"existing"}`; a failed local new-branch creation also permits `choice:"new"` with a local `source` branch or committed OID and an absent target | `preview` with old immutable request/operation/UUID/source/policy/image, `old_branch` and `new_branch` observations, new request/source/policy/image/plugin selection, provisional resource facts, `eligible`, and `unsafe_reasons`. Eligible previews also return `confirmation_token` and `expires_at`. |
-| `session.create.replace.confirm` | `{"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | new `session.create` operation; an exact accepted key/token replays after restart. |
-| `session.create.cleanup.preview` | `{"uuid":"blocked-session-UUID"}` | `preview` with the old immutable request and evidence digest, assigned ref, image, tracked builder state, provisional resources, `external_mounts:"preserved"`, `shared_images:"preserved"`, eligibility and reasons; an eligible preview includes a two-minute confirmation token. |
-| `session.create.cleanup.confirm` | `{"uuid":"blocked-session-UUID","key":"cleanup-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | one `session.create.cleanup` operation on the old UUID; exact accepted key/token replay works during cleanup and after restart. |
+| `session.create.replace` | `{"old_uuid":"blocked-session-UUID","project":"team/app","branch":"work","choice":"existing"}`; a failed local new-branch creation also permits `choice:"new"` with a local `source` branch or committed OID and an absent target. The run adds `"key":"new-idempotency-key","if_match":"<change tag>"` | Dry run: `plan` on target `session/<old_uuid>`, whose `details` hold the old operation, status, phase, immutable request, captured source, evidence digest, policy and image, the `old_branch` and `new_branch` observations, the `new_request` without a key, the new source, policy, image and plugin selection, and the provisional resource facts, and `change_tag`. Run: the new `session.create` operation, whose idempotency key is the run's `key`; an exact accepted run replays after restart. |
+| `session.create.cleanup` | `{"uuid":"blocked-session-UUID"}`; the run adds `"key":"cleanup-idempotency-key","if_match":"<change tag>"` | Dry run: `plan` on target `session/<uuid>`, whose `details` hold the old immutable request and evidence digest, assigned ref, image, tracked builder state, provisional resources, `external_mounts:"preserved"` and `shared_images:"preserved"`, and `change_tag`. Run: one `session.create.cleanup` operation on the old UUID; an exact accepted run replays during cleanup and after restart. |
 | `operation.inspect` | `{"id":"operation-UUID"}` | `operation` with status, phase, a `reason` and `diagnostic` once it is blocked or failed, and immutable evidence. |
 | `operation.wait` | `{"id":"operation-UUID","timeout":1..25}`, whole seconds | `operation`, as inspect returns it, as soon as its status is not `running`, or when the timeout passes with it still `running`. See [Waiting for an operation](#waiting-for-an-operation). |
 | `operation.retry` | Same as inspect | `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
@@ -538,6 +552,8 @@ failed-create cleanup followed by a separate Create.
 | `session.start` | `{"uuid":"session-UUID"}` | `changed`, with `operation` or `session`: a new `session.start` operation (`changed:true`), which completes once the session host is ready or fails with the runtime's `reason` and `diagnostic`; the unfinished start of the session (`changed:false`); or, for a session already ready, its view and nothing recorded (`changed:false`). See [Start and stop](#start-and-stop). |
 | `session.stop` | Same as Start | The same shape: a new `session.stop` operation, which completes once the runtime is stopped; the unfinished stop; or, for a stopped session, its view. The runtime filesystem is retained. Pending or confirmed attachments answer `conflict` with reason `attachment_active`. |
 | `session.attach` | Same as Start | `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`, for a ready session. It starts nothing: a session that is not ready answers `conflict` with reason `session_not_running`, and one with an unfinished start `retry` naming it. Start the session and wait for its operation first; `p attach` does. |
+| `session.discard` | `{"uuid":"session-UUID"}`; the run adds `key` and `if_match` | Dry run: `plan` on target `session/<uuid>` for removing the session and its runtime while keeping its branch, and `change_tag`. Run: `operation` of kind `session.discard`. See [session removal](#session-removal-and-rename). |
+| `session.delete` | Same as Discard | The same, for removing the session's assigned P branch too; the operation's kind is `session.delete`. |
 
 Session listing reads a complete registry page before inspecting its sessions.
 An inspection reporting a missing record is omitted only after confirming that
@@ -547,8 +563,8 @@ belongs to the original registry page and remains valid after such omissions.
 
 Every operation and operation summary carries `intent`: what the change's
 caller named, recorded when the daemon accepted it. It never holds a guard
-read from live state, such as an expected tip, URL or commit, or a
-confirmation token. Its fields, each present only when the kind has it, are
+read from live state, such as an expected tip, URL or commit, or a change
+tag. Its fields, each present only when the kind has it, are
 `project`; `session`, the target session or, for a creation, the new one;
 `branch`, the P branch named or held by the session at acceptance;
 `new_branch` for a rename; `choice`, `source` and `origin_ref` for a session
@@ -637,9 +653,11 @@ validated branch or upstream names. `operation.list` shows the same diagnostic
 as `operation.inspect`. Operation lists still enforce the control-frame limit
 and return a continuation when a page must be shortened.
 
-The replacement methods implement a bounded subset of
+### Failed-creation replacement and cleanup
+
+`session.create.replace` implements a bounded subset of
 [Try again with changes](session-lifecycle.md#failure-cancellation-and-retry).
-They accept a blocked local creation in `source-ready` or `branch-assigned`
+It accepts a blocked local creation in `source-ready` or `branch-assigned`
 before UUID resources exist, or a base-image local creation in `principals-ready`
 with its exact reviewed P Git key, active principal, and endpoint sockets present,
 and affirmative durable `runtime_init_state:"not-attempted"` evidence. Ordinary
@@ -649,13 +667,13 @@ Dispatch provenance and approved cleanup completion are monotonic in SQLite;
 a stale Retry/status update cannot erase either checkpoint. A missing runtime
 after an attempted init cannot prove that a delayed request
 will not materialize; replacement refuses it. Historical `principals-ready`
-evidence without this tracked state is also ineligible. Exact Retry refuses a
+evidence without this tracked state is also refused. Exact Retry refuses a
 second absent-runtime init after an uncertain attempt, while an observed exact
 owned instance may continue without another init.
 An attempted or settled image build, an accepted commit image, and later
 phases are outside this slice. Fresh full native inventory must positively prove both the
 runtime UUID and creation builder absent; unavailable or ambiguous observations
-are ineligible. An existing-branch failure may select the same existing branch. A
+refuse the plan. An existing-branch failure may select the same existing branch. A
 local-source new-branch failure may select an absent target with `choice:"new"`
 from freshly observed committed local source, including the same desired name.
 If the failed request's ref is present at its captured commit, the replacement
@@ -680,7 +698,8 @@ and image fingerprint, the key's public fingerprint, and device/inode/owner/mode
 identities for the private key directory/file, endpoint prefix/directory, and
 exact `git.sock` and `session.sock` entries. It contains no private key bytes.
 Wrong fingerprints, symlinks, unsafe metadata, extra principals or endpoint
-contents are refused and preserved. Unavailable inspection or an unexpected old created tip yields an ineligible preview. Existing refs are
+contents are refused and preserved. Unavailable inspection or an unexpected
+old created tip yields a plan that is not allowed. Existing refs are
 never deleted or reset by replacement, including when the old assignment moves
 to another name. A new target must be unassigned and free of lifecycle guards;
 the old reservation may be transferred to the same name.
@@ -692,22 +711,25 @@ that it ran. Replacement binds fresh ref facts and preserves any observed ref
 without inferring cleanup authority from that marker. Beyond the reviewed
 base-image `principals-ready` checkpoint, later phases, unexpected
 UUID resources, attachments, active workers, and unavailable native observations
-remain ineligible. This path does not review or clean uncertain runtime effects
-or workspace data.
+refuse the plan. This path does not review or clean uncertain runtime effects
+or workspace data, so its plan lists no loss. A plan that is not allowed lists
+its refusals, the codes in the [refusals table](#refusals), and has no change
+tag.
 
-Preview is read-only. Ineligible previews return reasons without a token.
-Eligible tokens expire after two minutes and are held by the issuing daemon;
-restart invalidates an unconsumed token. A blocked creation, like every
+The dry run is read-only. A blocked creation, like every
 blocked operation, stays blocked across restart until explicit Retry or exact
 Create replay; startup does not resume branch assignment or native creation. Established endpoint
-consumers may be reopened during recovery. Confirmation rechecks the exact
-reviewed request, source and target/old ref facts, policy, image, plugin selection,
-old evidence, resource identity, and native absence. Stale facts or an expired
-token answer `precondition_failed` with reason `changed` or `expired` without
-superseding the old request. Successful confirmation atomically marks the old
-operation `superseded`, releases its session assignment, and creates one new
-UUID, operation, and immutable request with the new key before scheduling its
-worker. For reviewed local resources the same transaction retires the exact old
+consumers may be reopened during recovery. The run plans again under the
+session lock, and once more under the Git authority just before the handoff
+transaction. Each time it rechecks the exact request, source and target/old
+ref facts, policy, image, plugin selection, old evidence, resource identity,
+and native absence. Changed facts or an
+expired change tag answer `precondition_failed` with reason `changed` or
+`expired` without superseding the old request. An accepted run atomically
+marks the old operation `superseded`, releases its session assignment, and
+creates one new UUID, operation, and immutable `session.create` request whose
+idempotency key is the run's `key`, before scheduling its worker. For
+reviewed local resources the same transaction retires the exact old
 Git principal and records a new `replacement-cleanup` phase. Its durable
 `replacement_cleanup` evidence retains every reviewed old identity after the
 old session row is retired. The new worker serializes with the old UUID and
@@ -719,11 +741,11 @@ resume with reviewed entries legitimately absent; substituted entries and newly
 appearing native identities block with the old cleanup evidence retained.
 Running cleanup recovers after restart; a blocked cleanup can resume by exact
 Create replay or Retry of the same new operation. Evidence records
-`supersedes_operation_id`, `supersedes_uuid`, and a
-confirmation-token hash. Repeating an accepted confirmation with the same key,
-old UUID, and token returns that operation, including after restart. Reusing
-its key with different confirmation inputs answers `invalid` with reason
-`key_reused`. Retrying the superseded operation answers `conflict` with reason
+`supersedes_operation_id`, `supersedes_uuid`, and `replacement_tag`, the
+run's change tag. Repeating an accepted run with the same params, key and tag
+returns that operation, including after restart. Reusing its key with other
+params or another tag answers `invalid` with reason `key_reused`. Retrying
+the superseded operation answers `conflict` with reason
 `operation_superseded`; exact replay of its original `session.create` key
 returns the superseded operation without scheduling the old creation.
 
@@ -739,7 +761,7 @@ definitely or when Retry settled an unknown outcome. Affirmative cycle-zero
 `not-attempted` evidence also permits cleanup after a failure before the
 build's gate, such as a builder preflight failure. The gate runs after
 confinement, storage and pinned-image preflight; correcting such a failure
-permits exact Retry without a new request. These are ineligible: a build still
+permits exact Retry without a new request. These refuse the plan: a build still
 `attempted`, whose outcome is unknown; a build recorded `abandoned`, whose
 leftovers may remain until recovery deletes them; an accepted commit image; and
 origin requests. Later runtime/workspace phases
@@ -748,13 +770,15 @@ evidence. Early cleanup requires runtime initialization to affirmatively remain
 `not-attempted`. Native
 absence alone never settles a possibly delayed init.
 
-Preview reports runtime-local state as `unavailable`, not clean or empty.
+The early path's plan reports runtime-local state as `unavailable`, not clean
+or empty, and lists no loss.
 Keys/principals/endpoints must either be absent or match the same reviewed local
-identity checks used by integrated replacement. Confirmation rechecks the
-preview, including its ref tip, old evidence, principal, local entries and full
-native inventory. Stale or unavailable facts answer `precondition_failed` with
-reason `changed` (`expired` for the token) and preserve the old request; a Git
-failure answers `failed`. Early-path accepted confirmation atomically supersedes the old Create,
+identity checks used by integrated replacement. The run plans again, under the
+session lock and once more under the Git authority, including the ref tip, old
+evidence, principal, local entries and full native inventory. Changed or
+unavailable facts answer `precondition_failed` with reason `changed`
+(`expired` for an expired change tag) and preserve the old request; a Git
+failure answers `failed`. An accepted early-path run atomically supersedes the old Create,
 records a forward cleanup operation and ref guard on its existing UUID, changes its
 registry from `creating` to `removing`, and disables its Git principal and
 session RPC authority. Durable evidence retains the reviewed old identities.
@@ -772,28 +796,29 @@ releases the assignment for a separate corrected `session.create` with a new
 key and UUID. The superseded original Create remains inspectable and exact
 replay cannot schedule its worker.
 
-`session.create.cleanup.preview` takes only `{"uuid":"session-UUID"}`;
+`session.create.cleanup` takes only `uuid` besides `key` and `if_match`;
 P selects the path from the creator's state. A creator blocked at an early
 phase takes the early path above. Any other creator takes the narrow stopped
 assembled path, which requires a blocked, committed, `assembly-ready` local
 base-image creator with a standalone policy (network `none`, no filesystem
-grants) and its exact stopped container. A creator outside that boundary is
-refused with `unsafe_reasons`; an unavailable exact stopped container gives
-`exact_stopped_runtime_unavailable: <error>`.
+grants) and its exact stopped container. A creator outside that boundary gets
+a plan that is not allowed, with the cleanup's codes from the
+[refusals table](#refusals). A creator container that P cannot identify
+exactly refuses the plan with `exact_stopped_runtime_unavailable`; the
+daemon's log has the cause.
 
-P does not look inside the container. The assembled preview's `runtime` has
-`condition:"present"`, `incus_project`, `instance_name`, `incus_uuid`,
-`generation`, `image_fingerprint`, `original_status:"Stopped"` and
-`runtime_data_lost:true`: the container and everything in it are lost,
-including private home and credential files, whose contents P neither
-enumerates nor hashes. The preview also binds `old_request_sha256`, includes
-the three `loss_warnings` texts, and preserves the assigned P ref.
-Confirmation uses the same existing UUID/key/token shape. A durable precommit
-cleanup guard keeps the original creator blocked while the worker rechecks the
-reviewed facts. A changed container identity (Incus UUID, generation or image)
-or a changed branch fails the cleanup at `stale` and releases its guards; the
-container, the branch and the original creator remain. A new
-preview/confirmation requires new keys.
+P does not look inside the container. The assembled plan's `details.runtime`
+has `condition:"present"`, `incus_project`, `instance_name`, `incus_uuid`,
+`generation`, `image_fingerprint` and `original_status:"Stopped"`, and its
+`loss` lists one `runtime_data` item: the container and everything in it are
+lost, including private home and credential files, whose contents P neither
+enumerates nor hashes. The plan also binds `old_request_sha256` and preserves
+the assigned P ref. Its run takes the same `uuid`, `key` and `if_match`. A
+durable precommit cleanup guard keeps the original creator blocked while the
+worker rechecks the planned facts. A changed container identity (Incus UUID,
+generation or image) or a changed branch fails the cleanup at `stale` and
+releases its guards; the container, the branch and the original creator
+remain. A new dry run and a run with a new key are then needed.
 
 Only after those facts match does cleanup atomically retire the original
 creator/session authority and admit deletion of the exact native source.
@@ -804,6 +829,8 @@ the identity. The selected assembled-cleanup integration gate is separate from
 earlier no-init cleanup evidence. Other unsupported
 failures preserve resources and explain the unresolved condition.
 See the [CLI procedure](session-lifecycle.md#confirmed-failed-create-cleanup).
+
+### Session views
 
 Each session view returns all four [public status facts](session-observability.md#status-model).
 When a session was created with environment selection, its view also includes
@@ -896,87 +923,238 @@ the SQLite reservation also rejects a captured URL mismatch. Exact replay keeps
 the original request/URL and does not recontact a changed origin. Older callers
 that omit this field retain their existing API behavior.
 
-## Session removal preview
+## Risky changes
 
-`session.removal.preview` is a host-only, read-only method. The current patch
-passed focused tests, retained review, and selected VM30; see
-[implementation progress](implementation-progress.md). It does not remove a
-session or authorize removal by itself. Call it with:
+Seven methods make changes that can lose work or replace something:
 
-```json
-{"uuid":"session-UUID","kind":"discard"}
+| Method | Params besides `key` and `if_match` | Plan `target` | Described in |
+|---|---|---|---|
+| `session.discard` | `uuid` | `session/<uuid>` | [Session removal](#session-removal-and-rename) |
+| `session.delete` | `uuid` | `session/<uuid>` | [Session removal](#session-removal-and-rename) |
+| `session.create.replace` | `old_uuid`, `project`, `branch`, `choice`, and optional `source`, `origin_ref` and `expected_commit_oid` | `session/<old_uuid>` | [Failed-creation replacement and cleanup](#failed-creation-replacement-and-cleanup) |
+| `session.create.cleanup` | `uuid` | `session/<uuid>` | [Failed-creation replacement and cleanup](#failed-creation-replacement-and-cleanup) |
+| `project.delete` | `project` | `project/<path>` | [Project deletion](#project-deletion) |
+| `project.retained.delete` | `project`, `branch` | `project/<path>:branch/<branch>` | [Implemented methods](#implemented-methods) |
+| `origin.publish` | `expected_origin_url`, `project`, `kind`, `source`, `source_oid`, `destination_ref` | `project/<path>:origin-branch/<name>`, where `<name>` is `destination_ref` without `refs/heads/` | [Implemented methods](#implemented-methods) |
+
+Each is one method called twice. The first call, a **dry run**, sends the
+params without `key` and `if_match`. The daemon plans the change and returns
+its **plan**, with a **change tag** when the plan is allowed. The second call,
+the **run**, sends the same params plus an idempotency `key` and the change tag
+in `if_match`. The daemon plans the change again and records its operation only
+if that gives the same change tag. It stores nothing between the two calls, so
+the run must repeat the dry run's params exactly.
+
+```text
+→ session.delete  {"uuid":"4f1c…"}
+← {"plan":{"action":"session.delete","target":"session/4f1c…","allowed":true,"refusals":[],"loss":[…],"gone":[],"details":{…}},"change_tag":"20261103T153012Z-<64 hex>"}
+→ session.delete  {"uuid":"4f1c…","key":"k1","if_match":"20261103T153012Z-<64 hex>"}
+← {"operation":{…}}
 ```
 
-Use `kind:"delete"` to include branch-loss evidence. P does not inspect the
-container before removal; there is no workspace loss inspection method. A
-present runtime may be running or stopped; any other native status answers
-`conflict` with reason `runtime_unsettled`. A pending or confirmed attachment
-answers `conflict` with reason `attachment_active`. Another unfinished
-operation on the session, such as its creation, a discard, delete, rename or
-failed-create cleanup, answers `retry` with reason `session_held` while it
-runs and `conflict` with reason `operation_blocked` once it is blocked, both
-naming the operation.
+The two fields decide what a call is:
 
-When Incus authoritatively reports the runtime absent, pass
-`"acknowledge_missing_runtime":true`. The result then has
-`runtime.condition:"missing"` and `runtime.runtime_loss_unknown:true`. The
-acknowledgement with a present runtime answers `precondition_failed` with
-reason `changed`; a runtime that is missing and not acknowledged answers
-`conflict` with reason `runtime_missing`. An unreachable Incus
-authority does not qualify as an absent runtime. Missing-runtime
-preview/confirmation and durable removal require a full confined-project
-inventory with no matching session UUID. A renamed or competing instance
-produces a refusal without a token or newly accepted action. The proof is
-repeated before the authority commit and final row removal, including after a
-present-runtime deletion.
+| The call has | Result |
+|---|---|
+| Neither `key` nor `if_match` | Dry run: `{"plan":{…},"change_tag":"…"}` when the plan is allowed, or `{"plan":{…}}` with `allowed:false`, its `refusals` and no `change_tag` |
+| `key` and `if_match` | Run: `{"operation":{…}}`, the operation it recorded |
+| `key` but no `if_match` | `precondition_required` with reason `if_match_missing` |
+| `if_match` but no `key` | `invalid` with reason `param` and field `key` |
 
-The result is `{"preview":{...}}`. The preview identifies the session,
-project, assigned ref and tip, policy, runtime identity or missing state, a
-short-lived `confirmation_token`, and `expires_at`; the token expires after two
-minutes. A present runtime has `runtime.condition:"present"`, `incus_uuid`,
-`generation`, `image_fingerprint`, an informational `original_status`
-(`Running` or `Stopped`) and `runtime_data_lost:true`: the container and
-everything in it are lost, including uncommitted changes, files outside Git,
-commits not pushed to P, the home directory and runtime-local credentials.
-When the assigned P ref is missing, because it was deleted outside P or is a
-blank project's unborn first branch, the preview omits the tip and has
-`assigned_ref_missing:true`. Delete also includes `branch_loss`: the
-`assigned_ref`, its `assigned_tip` when present, the
-`commits_losing_p_reachability` (empty for a missing ref) and the captured
-`p_refs`. Discard and delete contact and compare no origin. Discard passed
-selected VM31 and Delete passed selected VM32, using dummy Codex credential
-files without authentication.
+`key` is 1 to 128 bytes. An `if_match` that is not a change tag answers
+`invalid` with field `if_match`. The result type of every risky change is a
+`ChangeResult`, which holds either `plan` and `change_tag` or `operation`.
 
-`session.discard` accepts
-`{"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns `{"operation":{...}}`. It accepts only a Discard preview.
+A dry run starts no operation and destroys nothing. It reads P's control store,
+P's Git repository and, for a session's runtime, Incus. Publication's dry run
+also contacts the origin, which refreshes P's observation of it as
+`origin.refresh` does.
+
+### The run
+
+A run is answered in this order:
+
+1. When its `key` already recorded an operation for the same params and tag,
+   the run returns that operation, also after the tag expired and after a
+   daemon restart. A `key` recorded for other params, another tag or another
+   request answers `invalid` with reason `key_reused`.
+2. Once the tag's expiry has passed, the run answers `precondition_failed` with
+   reason `expired`.
+3. The daemon plans the change again while it holds what the change acts on.
+   A plan that is no longer allowed, or that gives another tag, answers
+   `precondition_failed` with reason `changed`.
+4. The daemon records the operation and returns it. Recording checks the
+   planned facts again.
+
+A refused run records nothing. Its error carries no plan and no tag: make a new
+dry run to see the current plan. The daemon does not mark a tag as used, so
+another run with the same tag and a new key plans again and meets the state
+the first run left.
+
+### Change tag and change hash
+
+A change tag is an expiry, a dash, and 64 lowercase hex digits:
+
+```text
+20261103T153012Z-9f2c4e…
+```
+
+The expiry is two minutes after the dry run, in UTC to the second, in ISO 8601
+basic format (`YYYYMMDDTHHMMSSZ`); only the daemon's clock sets and checks it.
+The hex digits are the SHA-256 of the expiry and the change's **change hash**.
+The change hash is the SHA-256 of one JSON object: the recipe name
+`p.plan/v1`, the daemon's `instance_id`, the action, the target, the caller's
+other params, and the plan, less the facts it shows for information only (a
+removal's `original_status`). The same state gives the same change hash, and
+any other changed fact in the plan changes it. Because the action, the target and the
+instance are hashed, a tag for one change cannot run another. Editing the
+expiry breaks the tag, because rebuilding it needs the change hash, which the
+daemon never returns. The tag is not a secret; it keeps every run close to a
+recent dry run.
+
+The operation journal records each run's change hash with its operation: the
+exact change that ran. No reply shows it. The operation's `request` holds the
+run's params with `key` and `if_match`. A replacement's new `session.create`
+operation records the creation request under the run's key, and its evidence
+holds the tag as `replacement_tag`.
+
+### The plan
+
+| Field | Type | Meaning |
+|---|---|---|
+| `action` | string | The method name, such as `session.delete`. |
+| `target` | string | What the change acts on, in target form. |
+| `allowed` | boolean | Whether the change can run now: `true` exactly when `refusals` is empty. |
+| `refusals` | array, never null | Why the change cannot run now. |
+| `loss` | array, never null | What the change would destroy, by category. An empty list means nothing is lost. |
+| `gone` | array, never null | What is already lost before the change runs, such as the contents of a missing runtime. The change destroys none of it. |
+| `details` | object | Everything else the change would do and the facts it was planned from, typed per method. |
+
+A target names what a plan, a refusal, a loss item or an error is about:
+`session/<uuid>`, `operation/<id>`, `project/<path>`,
+`project/<path>:branch/<name>` for a P branch, or
+`project/<path>:origin-branch/<name>` for a branch of the project's origin. A
+project path never contains `:`, so the first `:` ends it.
+
+A refusal is `{"code":"…"}`, with a `target` when it is about something other
+than the plan's target, such as the session that blocks a project deletion. A
+refusal carries no text; the daemon's log has the cause. Refusal codes share
+one namespace with error reasons. Every `conflict` reason that a change meets
+while it plans is a refusal code in its plan rather than an error: for example
+`attachment_active`, `session_not_established`, `runtime_unsettled`,
+`runtime_present`, `operation_blocked` (with target `operation/<id>`),
+`operation_unfinished`, `branch_assigned`, `branch_reserved`,
+`project_deleting`, `origin_not_set` and `bound_exceeded`. The
+[refusals table](#refusals) lists the codes that only plans use.
+
+Planning may stop at its first refusal, so a plan that is not allowed can have
+incomplete `loss` and `details`. Only an allowed plan's `loss` is complete: an
+empty `loss` in a plan that is not allowed does not mean nothing would be
+lost.
+
+A loss item, in `loss` or in `gone`, has these fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `kind` | string | One of the kinds below. |
+| `target` | string | Where the lost thing lives, in target form. It can differ from the plan's target. |
+| `count` | integer, optional | How many, where P counts them. An item with a count of zero is not listed. |
+| `sample` | array of strings, optional | At most five commit IDs, in the order of the full list in `details`. |
+| `certain` | boolean | `true` when P saw that the thing exists and the change destroys it; `false` when P cannot rule the loss out. |
+| `reason` | string, optional | Why P cannot tell, when `certain` is `false`. |
+
+| Kind | What is lost | Target |
+|---|---|---|
+| `runtime_data` | A session's container and everything in it: uncommitted changes, files outside Git, commits not pushed to P, processes, home, temporary files and runtime-local credentials. P does not look inside. Always certain; listed in `gone` for a missing runtime. | `session/<uuid>` |
+| `p_commits` | Commits that leave P's repository because no remaining branch keeps them, with `count` and `sample`. Always certain: P does not check whether the origin has them. | `project/<path>:branch/<name>`, or `project/<path>` for project deletion |
+| `unreachable_objects` | Git objects in P's repository that no branch reaches. Project deletion always lists it, with `certain:false` and `reason:"not_enumerated"`. | `project/<path>` |
+
+Loss items follow the order of the targets in `details`, sessions first and
+then the branch or project, and within one target the order of this table.
+
+Errors keep their meaning for risky changes and never carry a plan or a tag:
+`invalid`, `not_found`, `retry` (such as `session_held` while a running
+operation holds the session), `failed` (such as `runtime`, `git` or `origin`),
+`internal`, and `precondition_failed` with reason `changed` when a guard the
+caller sent, such as publication's `expected_origin_url` or `source_oid`, no
+longer holds. A dry run whose reply would exceed the 64 KiB frame less 1 KiB
+answers `conflict` with reason `bound_exceeded`.
+
+## Session removal and rename
+
+`session.discard` removes a session and its runtime and keeps its assigned P
+branch; `session.delete` removes the branch too. Both are
+[risky changes](#risky-changes) on target `session/<uuid>`, and the dry run
+takes `{"uuid":"session-UUID"}`. P does not inspect the container before
+removal, and a running session needs no Stop: P stops it as part of the
+removal.
+
+The plan is not allowed, with one of these refusals:
+
+- `attachment_active` while a terminal is attached or an attachment is
+  pending;
+- `session_not_established` for a session that is being created or removed;
+- `runtime_unsettled` for a present runtime that is neither running nor
+  stopped;
+- `operation_blocked`, naming the operation, while a blocked operation holds
+  the session; or
+- `runtime_present` when Incus reports the session's instance absent but
+  another instance carries the session's UUID.
+
+Another unfinished operation on the session that is still running, such as its
+creation, a discard, delete, rename or failed-create cleanup, answers `retry`
+with reason `session_held` naming the operation. An unreachable Incus answers
+`failed` with reason `runtime`: it does not count as an absent runtime.
+
+When Incus reports the runtime absent, P also checks that a full inventory of
+its confined Incus project holds no instance carrying the session's UUID. The
+plan then has `runtime.condition:"missing"`, lists the runtime's contents as
+one `runtime_data` item in `gone`, and is allowed: running it proves the caller
+saw that the runtime is gone. A renamed or competing instance is neither
+adopted nor deleted; it refuses the plan with `runtime_present`. The absence
+proof is repeated before the authority commit and the final row removal,
+including after a present-runtime deletion.
+
+The plan's `details`:
+
+| Field | Meaning |
+|---|---|
+| `project`, `branch` | The session's project and assigned branch. |
+| `assigned_ref`, `assigned_tip` | The full assigned ref and its tip. When the ref is missing, because it was deleted outside P or is a blank project's unborn first branch, `assigned_tip` is omitted and `assigned_ref_missing` is `true`. |
+| `policy_sha256` | The digest of the session's captured policy. |
+| `runtime` | `condition` (`present` or `missing`), `incus_project` and `instance_name`. A present runtime adds `incus_uuid`, `generation`, `image_fingerprint` and `original_status` (`Running` or `Stopped`). |
+| `branch_loss` | Delete only: the `assigned_ref`, its `assigned_tip` when present, the `commits_losing_p_reachability` (empty for a missing ref) and `p_refs`, every P ref with its `name` and `oid`. |
+
+`loss` lists a present runtime as one `runtime_data` item. Delete adds one
+`p_commits` item on `project/<path>:branch/<branch>` when commits leave P's
+repository. Discard and delete contact and compare no origin.
+`original_status` is shown for information only and is not in the change
+hash: a Start or Stop between the dry run and the run keeps the change tag.
+
+The run, `{"uuid":"session-UUID","key":"idempotency-key","if_match":"<change tag>"}`,
+returns `{"operation":{...}}` of kind `session.discard` or `session.delete`.
 Before the removal commit point, a changed assigned tip, a replaced container
 (changed Incus UUID or generation) or a reappearing missing runtime
 fails the operation at `stale`, releases its guard, and leaves the branch and
-session intact. A Start or Stop between preview and
-confirmation does not make it stale. A valid confirmation commits removal,
-disables session authority, force-stops a running container, removes the exact
-owned runtime and P-owned endpoint/key, and ends the assignment while retaining
-the confirmed P branch. With a missing assigned ref there is no branch to
-retain, so Discard ends like a Delete. A revoked or missing Git principal
-registration and a missing host key file do not stop removal; a host key file
-with an unexpected owner, mode or link count still blocks the key removal.
-While the operation runs, Start, Stop, Attach and service requests answer
-`retry` naming it, and `conflict` with reason `operation_blocked` once it is
-blocked. The same key and request replay the operation. An uncertain native
-stop/delete stays guarded and blocked for investigation; P does not retry a
-name-targeted request against a possible replacement.
+session intact. An accepted run commits removal, disables session authority,
+force-stops a running container, removes the exact owned runtime and P-owned
+endpoint/key, and ends the assignment while retaining the planned P branch.
+With a missing assigned ref there is no branch to retain, so Discard ends like
+a Delete. A revoked or missing Git principal registration and a missing host
+key file do not stop removal; a host key file with an unexpected owner, mode or
+link count still blocks the key removal. While the operation runs, Start,
+Stop, Attach and service requests answer `retry` naming it, and `conflict`
+with reason `operation_blocked` once it is blocked. The same key and request
+replay the operation. An uncertain native stop/delete stays guarded and
+blocked for investigation; P does not retry a name-targeted request against a
+possible replacement.
 
-`session.delete` accepts
-`{"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns `{"operation":{...}}`. It accepts only a Delete preview.
-The same pre-commit stale checks apply, and a changed `branch_loss` review is
-also stale. The exact runtime, endpoint, and key cleanup is the same. After
+Delete applies the same pre-commit stale checks, and a changed `branch_loss`
+is also stale. The exact runtime, endpoint, and key cleanup is the same. After
 runtime absence, it removes only the assigned P branch through an
 expected-old-tip check; sibling P refs and origin refs remain. With a missing
 assigned ref it has nothing to remove in P's repository. A mismatched or
-uncertain branch effect stays guarded for investigation. The same key and
-request replay the durable operation.
+uncertain branch effect stays guarded for investigation.
 
 `session.rename` accepts
 `{"key":"idempotency-key","uuid":"session-UUID","new_branch":"renamed","expected_old_tip":"<40-hex P commit>"}`
@@ -1000,58 +1178,95 @@ remains blocked for exact recovery or investigation. The current supported
 workspace layout is a single ordinary worktree with loose branch refs; other
 layouts return unavailable before the ref commit point.
 
-## Aggregate project deletion
+## Project deletion
 
-The implemented aggregate boundary requires at most four established, stopped,
-detached sessions. Project deletion does not stop sessions itself: an
-attached, starting or running session answers `conflict` (reason
-`attachment_active` or `session_not_stopped`) or `retry` (`session_held`),
-naming the session. P does not look inside
-the containers. Each present session's `sessions[].runtime` has
-`condition:"present"`, `incus_project`, `instance_name`, `incus_uuid`,
-`generation`, `image_fingerprint`, `original_status:"Stopped"` and
-`runtime_data_lost:true`. List each positively missing session UUID in
-`acknowledge_missing`: the preview explicitly reports unknown runtime loss and
-still requires full native absence proof. Listing a present session answers
-`precondition_failed` with reason `changed`; listing a UUID that is not a
-missing session of the project answers `invalid` with field
-`acknowledge_missing`. Unknown native identity or unavailable Incus cannot be
-acknowledged into deletion authority.
+`project.delete` deletes a project and everything P keeps of it: every session
+and its runtime, every assigned and retained P ref, the bare repository,
+credentials and the project's commit images. It is a
+[risky change](#risky-changes) on target `project/<path>`, and the dry run
+takes `{"project":"team/app"}`. P does not look inside the containers and
+contacts no origin.
+
+The implemented boundary accepts at most four sessions, each established and
+without an attachment. P stops running sessions itself: the run's worker stops
+a running session's container, then deletes it. The plan is not allowed, with
+one of these refusals:
+
+- `attachment_active`, naming the session, while a terminal is attached to it
+  or an attachment is pending;
+- `session_not_established`, naming the session, for an incomplete creation or
+  a session being removed; a failed creation needs supported cleanup first;
+- `runtime_unsettled`, naming the session, for a present runtime that is
+  neither running nor stopped;
+- `runtime_present`, naming the session, when Incus reports its instance
+  absent but another instance carries its UUID;
+- `operation_blocked`, naming the operation, while a blocked operation holds
+  the project;
+- `operation_unfinished` while a branch guard holds the project;
+- `project_deleting` once the project is being deleted; or
+- `bound_exceeded` for more than four sessions, or more images or facts than
+  the deletion's evidence can record.
+
+A running operation in the project, or another `project.delete` call on it,
+answers `retry` with reason `project_held`; a session that another request
+holds answers `retry` with reason `session_held`. An unreachable Incus, or an
+instance or image labeled with the project that the plan does not name,
+answers `failed` with reason `runtime`. A missing runtime is planned as for
+[session removal](#session-removal-and-rename): after the full inventory
+proof, its session has `condition:"missing"` and the runtime's contents are
+listed in `gone`. A refused plan directs the caller to detach, supported
+failed-creation cleanup or identity investigation; P does not delete uncertain
+resources.
+
+The plan's `details` hold `project`, `outcome`
+(`delete_project_and_all_p_data`), `state_sha256`, `project_policy_sha256`,
+`external_mounts_preserved` (the filesystem grants whose contents P keeps),
+`sessions`, `attachments` (always empty, because an attachment refuses the
+plan), `branch_loss`, `images`, `repository_identity` and
+`repository_parent_identity`. Each entry of `sessions` has the `session`
+record, its `condition` (`running`, `stopped` or `missing`), its `runtime` as
+for session removal, and `credentials`: the exact identities of its key and
+endpoint entries. `branch_loss` covers every assigned and retained P ref and
+the union of the commits that lose P reachability; it has no origin evidence.
+`loss` lists one `runtime_data` item per present session, one `p_commits` item
+on `project/<path>` when commits leave P's repository, and always
+`unreachable_objects`.
 
 At most twenty indexed commit images and bounded Git/history and report
-inventories are accepted. The review also answers `conflict` with reason
-`bound_exceeded` when the evidence the deletion would be confirmed with
-exceeds 24 KiB, so the effective image limit depends on the sessions and
-names: with four sessions and the longest project, branch and builder-version
-names P accepts, eight images fit. The preview's `images` lists each commit image the
-project's index holds as an `api.CommitImageClaim`: its index row (`image`: the
-image's key, reference, build, labels as a list of `{name, value}`, selection,
-material digest, size and state), whether the runtime driver found the image
-(`image_present`), its observed size (`observed_size`), and a digest of the
-sessions started from its commit (`related_digest`). The preview covers every assigned and retained P ref and
-the union of commits losing P reachability. It contacts no origin, and its
-`branch_loss` has no origin evidence. Its expiry is at most two minutes.
-Changed facts or an expired preview need a new preview/token/key. Refused
-preparation directs the caller to Stop/detach, supported failed-creation
-cleanup or identity investigation; P does not delete uncertain resources.
+inventories are accepted. The plan is also refused with `bound_exceeded` when
+the evidence the deletion would run with exceeds 24 KiB, so the effective
+image limit depends on the sessions and names: with four sessions and the
+longest project, branch and builder-version names P accepts, eight images fit.
+`images` lists each commit image the project's index holds as an
+`api.CommitImageClaim`: its index row (`image`: the image's key, reference,
+build, labels as a list of `{name, value}`, selection, material digest, size
+and state), whether the runtime driver found the image (`image_present`), its
+observed size (`observed_size`), and a digest of the sessions started from its
+commit (`related_digest`).
 
-After reviewing the complete preview, call `project.delete.confirm` with its
-token and a new key. A fresh preview must match the reviewed one in full
-before P atomically sets the project to `deleting`, sessions to `removing`,
-and principals inactive. The call returns the operation at once. Poll
-`operation.inspect`; its incomplete evidence contains
-independent `runtime`, `local`, `image` and `repository` resources with `remaining`,
-`unreachable`, `deleted` or `already_absent` status. Existing `operation.retry`
-resumes the same confirmed outcome; it does not grant replacement machinery.
+The run, `{"project":"team/app","key":"idempotency-key","if_match":"<change tag>"}`,
+plans the deletion again under the project's locks and once more under the Git
+authority. The transaction that retires the project then compares the
+project's stored state with the planned one; any difference answers
+`precondition_failed` with reason `changed` and records nothing. P then
+atomically sets the project to `deleting`, sessions to `removing`, and
+principals inactive. The call returns the operation at once. Follow it with
+`operation.wait`; its incomplete evidence contains independent `runtime`,
+`local`, `image` and `repository` resources with `remaining`, `unreachable`,
+`deleted` or `already_absent` status. Existing `operation.retry` resumes the
+same confirmed outcome; it does not grant replacement machinery.
 
-An issued source DELETE is never dispatched again. Available name and full
-inventory checks may positively prove absence after a crash; a still-present,
-renamed, competing or uncertain source keeps cleanup blocked for investigation.
-Indexed commit images are deleted exactly, through the runtime driver, only
-after runtime absence, and their index rows with them. The repository and
-registry disappear last. The base image, other projects and their images,
-external grant contents and delivered logs remain. Completion clears bulky claims and old raw
-requests/evidence, retaining a minimal completed result and immutable retired
+A stop or a delete of a session's container is recorded as issued before it
+starts, and is never dispatched again: a container still running after an
+issued stop leaves the deletion blocked with reason `outcome_unknown`.
+Available name and full inventory checks may positively prove absence after a
+crash; a still-present, renamed, competing or uncertain source keeps cleanup
+blocked for investigation. Indexed commit images are deleted exactly, through
+the runtime driver, only after runtime absence, and their index rows with
+them. The repository and registry disappear last. The base image, other
+projects and their images, external grant contents and delivered logs remain.
+Completion clears bulky claims and old raw requests/evidence, retaining a
+minimal completed result and immutable retired
 key/operation-ID/kind/request-digest receipts. Replaying old Create, origin or
 publication keys refuses instead of recreating deleted authority.
 
@@ -1123,7 +1338,7 @@ error has a reason:
 | Field | Meaning |
 |---|---|
 | `reason` | A stable snake_case code from the tables below. A client that meets a reason it does not know uses its sentence for the kind. |
-| `target` | What the error is about, when it names one: `session/<uuid>`, `operation/<id>`, `project/<path>` or `project/<path>:branch/<name>`. A project path never contains `:`, so the first `:` ends it. |
+| `target` | What the error is about, when it names one: `session/<uuid>`, `operation/<id>`, `project/<path>`, `project/<path>:branch/<name>` or `project/<path>:origin-branch/<name>`. A project path never contains `:`, so the first `:` ends it. |
 | `field` | For `invalid`, the request field at fault when one is. |
 | `supported` | For `unsupported_version`, the protocols the daemon speaks. |
 
@@ -1141,10 +1356,10 @@ Invalid request IDs are returned as JSON `null`.
 | `cancelled` | -32001 | Nothing: the client cancelled the request or closed the connection. |
 | `unsupported_version` | -32002 | Use a client that speaks a protocol in `supported`. |
 | `retry` | -32010 | Send the same request again; when `target` names an operation, after it leaves `running`. |
-| `conflict` | -32011 | Change the named state first: detach, stop or start the session, retry the blocked operation, or wait for a person. Sending the same request again fails the same way until then. |
+| `conflict` | -32011 | Change the named state first: detach, stop or start the session, retry the blocked operation, or wait for a person. Sending the same request again fails the same way until then. A [risky change](#risky-changes) answers such a state with a refusal in its plan instead. |
 | `capacity` | -32012 | Free a slot: discard or delete a session. |
-| `precondition_failed` | -32013 | Read the state again and decide again: for a confirmation, a new preview. |
-| `precondition_required` | -32014 | Send the precondition the change needs. No method answers it yet. |
+| `precondition_failed` | -32013 | Read the state again and decide again: for a risky change, make a new dry run. |
+| `precondition_required` | -32014 | Send the precondition the change needs: a risky change's run needs the dry run's change tag in `if_match`. |
 | `not_found` | -32015 | Stop: the named record does not exist. |
 | `not_configured` | -32016 | Configure the named capability on the host. |
 | `failed` | -32017 | Check the named authority, then send the request again. |
@@ -1188,16 +1403,15 @@ it.
 | `retry` | `session_held` | Another request or a running operation holds the session; `target` names the operation when there is one. |
 | `retry` | `too_many_requests` | The connection has 16 requests in flight. |
 | `retry` | `deadline` | The daemon's 30-second deadline passed. |
-| `retry` | `project_held` | Another request or a running operation holds the project: another creation of it, a deletion review or confirmation, or any running operation in it for `project.delete.preview`. `target` names the operation when there is one. |
+| `retry` | `project_held` | Another request or a running operation holds the project: another creation of it, another `project.delete` call on it, or, for `project.delete`, any running operation in it. `target` names the operation when there is one. |
 | `retry` | `refs_moved` | P's branches moved while the daemon read them. |
-| `retry` | `too_many_previews` | The daemon holds its limit of unexpired reviews of that kind; one expires within two minutes. |
 | `conflict` | `attachment_active` | A terminal is attached to the session, or an attachment is pending. |
 | `conflict` | `session_not_established` | The session is still being created, is being removed, or was never created. |
-| `conflict` | `session_not_stopped` | The change needs a stopped session: Rename, and project deletion for each of its sessions. |
+| `conflict` | `session_not_stopped` | The change needs a stopped session: Rename. |
 | `conflict` | `session_not_running` | The request needs a ready session: attachment and project services. |
-| `conflict` | `runtime_missing` | The session's container does not exist; for a removal, acknowledge it in the preview. |
+| `conflict` | `runtime_missing` | The session's container does not exist. A removal plans a missing runtime instead and lists its contents in `gone`. |
 | `conflict` | `runtime_unsettled` | The session's container is neither running nor stopped. |
-| `conflict` | `runtime_present` | A container of the session exists where the request expected none, such as a missing runtime acknowledged in a preview. |
+| `conflict` | `runtime_present` | A container of the session exists where P had to prove none does, such as another instance carrying the UUID of a session whose own instance is absent. |
 | `conflict` | `operation_blocked` | A blocked operation holds the target and waits for `operation.retry`; `target` names it. |
 | `conflict` | `operation_superseded` | `operation.retry` of an operation that a replacement or cleanup superseded. |
 | `conflict` | `operation_not_retryable` | `operation.retry` of an operation that cannot run again, such as a cleanup that found its review stale. |
@@ -1212,12 +1426,13 @@ it.
 | `conflict` | `project_deleting` | The project is being deleted. |
 | `conflict` | `origin_not_set` | The project has no origin. |
 | `conflict` | `cleanup_active` | A failed creation's assembled cleanup holds the session. |
-| `conflict` | `bound_exceeded` | The answer would exceed the response bound, such as a removal or project deletion preview with too many facts. |
+| `conflict` | `bound_exceeded` | The answer would exceed the response bound, such as a dry run whose plan does not fit in one reply, or a project deletion with more sessions, images or facts than its evidence can record. |
 | `capacity` | `session_capacity` | Every session slot is taken. Discard or Delete a session to free one; Stop keeps its slot. The [runtime contract](runtime-isolation.md#incus-boundary) owns capacity accounting. |
 | `capacity` | `attachment_capacity` | Every pending or active attachment slot is taken: eight per session, 128 in all. |
 | `capacity` | `public_address_slots` | Every public egress address is assigned. |
-| `precondition_failed` | `expired` | The confirmation or attachment token expired, was already used, or is unknown, for example after a daemon restart. |
-| `precondition_failed` | `changed` | What the request reviewed or expected no longer holds: the facts behind a confirmation token, an `expected_old_tip`, `expected_url`, `expected_origin_url`, `expected_commit_oid` or `source_oid`, or a token issued for another target. |
+| `precondition_failed` | `expired` | The change tag's expiry, two minutes after its dry run, has passed; or the attachment token expired, was already used, or is unknown, for example after a daemon restart. |
+| `precondition_failed` | `changed` | What the request reviewed or expected no longer holds: the plan behind a change tag, which changed, is no longer allowed, or is for another change or target; or an `expected_old_tip`, `expected_url`, `expected_origin_url`, `expected_commit_oid` or `source_oid`. |
+| `precondition_required` | `if_match_missing` | A risky change's run sent `key` without `if_match`. |
 | `not_found` | `session` | The session does not exist; `target` names it. |
 | `not_found` | `operation` | The operation does not exist. |
 | `not_found` | `project` | The project does not exist. |
@@ -1231,6 +1446,36 @@ it.
 | `failed` | `git` | P's Git repository or the source-Git plugin failed. |
 | `failed` | `origin` | The origin could not be contacted, or refused an observation, fetch or push. |
 | `failed` | `plugin` | A selected plugin failed its recheck before use. |
+
+### Refusals
+
+A [risky change](#risky-changes)'s plan that is not allowed lists its
+refusals. Refusal codes share one namespace with the reasons above, so a client
+keeps one sentence per code. Every `conflict` reason a risky change meets while
+it plans is a refusal code in its plan, such as `attachment_active`,
+`operation_blocked` or `bound_exceeded`. These codes appear only in plans:
+
+| Change | Code | Meaning |
+|---|---|---|
+| `origin.publish` | `destination_divergent` | The origin branch has commits the source lacks; P only creates or fast-forwards a branch. |
+| `session.create.replace` | `unsupported_replacement_choice` | The new request is not a replacement this creation allows. |
+| `session.create.replace` | `old_creation_not_blocked` | The creation is not blocked. |
+| `session.create.replace` | `old_effect_not_proven_absent` | The creation reached a step whose effects P cannot prove absent. |
+| `session.create.replace` | `current_policy_unavailable` | The project's current policy is unavailable. |
+| `session.create.replace` | `new_source_or_branch_unavailable` | The new source or branch could not be read, or changed while P read it. |
+| `session.create.replace` | `target_assignment_unavailable` | Another session or an unfinished operation holds a branch the replacement needs. |
+| `session.create.replace` | `request_unchanged` | The new request would create the same session again. |
+| `session.create.replace` | `provisional_resource_unavailable` | The creation's provisional resources are not as P left them, or are in use. |
+| `session.create.cleanup` | `blocked_local_creation_required` | The creation is not a blocked creation of this session. |
+| `session.create.cleanup` | `blocked_stopped_standalone_base_image_assembly_ready_creator_required` | The assembled creation is not the stopped base-image creator that a cleanup removes. |
+| `session.create.cleanup` | `active_workspace_or_cleanup_guard` | Other work holds the session. |
+| `session.create.cleanup` | `native_or_builder_dispatch_unsettled_or_publication_origin_unsupported` | A runtime or image build may have started, or the creation is from the origin. |
+| `session.create.cleanup` | `creation_worker_or_attachment_active` | The creation's worker or an attachment is active. |
+| `session.create.cleanup` | `assigned_P_ref_unavailable` | The session's branch is missing or could not be read. |
+| `session.create.cleanup` | `assignment_or_lifecycle_guard_unavailable` | Another session or an unfinished operation holds the branch. |
+| `session.create.cleanup` | `local_credentials_or_endpoints_unverified` | The session's key, Git identity or endpoints are not exactly as P made them. |
+| `session.create.cleanup` | `exact_stopped_runtime_unavailable` | The creator's container is not the exact stopped one P made; the daemon's log has the cause. |
+| `session.create.cleanup` | `native_runtime_or_builder_present_ambiguous_or_unreachable` | A container or builder of the creation exists, is ambiguous, or could not be checked. |
 
 ### Capability boundary
 

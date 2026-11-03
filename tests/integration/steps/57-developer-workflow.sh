@@ -126,13 +126,12 @@ setup() {
  guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 }
 remove_session() {
- local kind=$1 key=$2 response token
+ local kind=$1 key=$2 response tag
  stop_session
- response=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$kind" \
-  '{uuid:$uuid,kind:$kind}')")
- token=$(jq -er '.result.preview.confirmation_token' <<< "$response")
- response=$(rpc "session.$kind" "$(jq -nc --arg uuid "$uuid" --arg key "$key" --arg token "$token" \
-  '{uuid:$uuid,key:$key,confirmation_token:$token}')")
+ response=$(rpc "session.$kind" "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')")
+ tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$response")
+ response=$(rpc "session.$kind" "$(jq -nc --arg uuid "$uuid" --arg key "$key" --arg tag "$tag" \
+  '{uuid:$uuid,key:$key,if_match:$tag}')")
  op=$(jq -er '.result.operation.id' <<< "$response")
  wait_completed "$op"
  inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
@@ -389,9 +388,9 @@ wait_sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL' 0
 uuid=$uuid_a
 test "$(sql 'SELECT count(*) FROM notes')" = 3
 stop_session
-review=$(rpc project.delete.preview '{"project":"notes57"}')
-token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"notes57-project-delete",project:"notes57",confirmation_token:$token}')")
+plan=$(rpc project.delete '{"project":"notes57"}')
+tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$plan")
+removed=$(rpc project.delete "$(jq -nc --arg tag "$tag" '{key:"notes57-project-delete",project:"notes57",if_match:$tag}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
@@ -400,9 +399,9 @@ uuid=$uuid_sibling
 test "$(sql 'SELECT body FROM notes')" = 'sibling survives'
 guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 stop_session
-review=$(rpc project.delete.preview '{"project":"notes57-sibling"}')
-token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"notes57-sibling-project-delete",project:"notes57-sibling",confirmation_token:$token}')")
+plan=$(rpc project.delete '{"project":"notes57-sibling"}')
+tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$plan")
+removed=$(rpc project.delete "$(jq -nc --arg tag "$tag" '{key:"notes57-sibling-project-delete",project:"notes57-sibling",if_match:$tag}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

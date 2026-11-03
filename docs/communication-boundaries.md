@@ -217,8 +217,8 @@ MVP accepts SSH Git URLs, including `ssh://` and conventional
 filesystem remotes, and arbitrary transport helpers are not supported.
 
 Changing or removing the origin is explicit. A URL change immediately marks
-the last origin observation inapplicable; P makes no source, preservation, or
-publication claim about the new origin until a successful refresh. It never
+the last origin observation inapplicable; P makes no source or publication
+claim about the new origin until a successful refresh. It never
 rewrites session remotes because sessions have only their P upstream.
 
 ### Host SSH and Git runner
@@ -275,8 +275,7 @@ origin-generation refs to do so.
 
 A failed or interrupted refresh leaves the last completed observation only as
 stale presentation data and marks current origin state unknown. It is not used
-to authorize source selection, publication, or a destructive-preservation
-claim.
+to authorize source selection or publication.
 
 There is no ahead/behind or “published” truth without a successful refresh.
 Every correctness-sensitive operation consumes its fresh observation while
@@ -290,17 +289,16 @@ MVP performs a refresh:
 - before an origin is initially recorded for a new or existing project; a
   failed contact leaves the project unchanged;
 - on explicit user request;
-- before resolving a source explicitly selected from current origin state;
-- before every P-managed publication; and
-- before a retained-branch deletion preview reports origin preservation.
+- before resolving a source explicitly selected from current origin state; and
+- before every P-managed publication: at its dry run, at its run, and again in
+  its worker.
 
 Origin source selection and publication require their refresh to succeed. If
 it fails, the user may still select an exact commit already reachable in P, but
-P does not describe that commit as current origin state. A retained-branch
-deletion preview may continue after refresh failure only by displaying origin
-preservation as `unknown`, as defined by
-[project lifecycle](project-lifecycle.md#retained-branches). Session discard
-and delete and project deletion contact no origin.
+P does not describe that commit as current origin state. Deletions contact no
+origin: session discard and delete, retained-branch deletion and project
+deletion report the commits that leave P's repository whether or not the
+origin has them ([project lifecycle](project-lifecycle.md#retained-branches)).
 
 Background refresh is an optional best-effort convenience. It may update the
 overview, but its presence, interval, or success is never a correctness
@@ -310,8 +308,8 @@ on a wall-clock freshness threshold.
 
 Concurrent origin operations for one project are serialized. A waiting
 read-only refresh may reuse the result of the in-progress required refresh,
-but publication and destructive preflight evaluate their own current
-observation after acquiring the lock.
+but publication evaluates its own current observation after acquiring the
+lock.
 
 ### Origin sources
 
@@ -342,15 +340,16 @@ It is permitted only when:
   an exact object ID.
 
 The TUI may suggest the current session branch name, but the structured request
-always contains the complete destination. The confirmation/preview names the
-origin URL, project, source P ref and object ID, destination ref, observed
-destination object ID or absence, and fast-forward relation.
+always contains the complete destination. The publication's plan, which its
+dry run returns, names the origin URL, project, source P ref and object ID,
+destination ref, observed destination object ID or absence, and fast-forward
+relation.
 
 The destination must pass Git branch-ref validation.
 
 Publication uses only the P branch tip. Uncommitted files and commits still
 ahead only in the runtime workspace are not included; when P can observe them,
-the preview warns about them but never commits or pushes them implicitly.
+the plan warns about them but never commits or pushes them implicitly.
 
 ### Publication update rule
 
@@ -362,7 +361,10 @@ After the required refresh:
   work and satisfies the request;
 - a destination that is an ancestor of the source receives one normal
   fast-forward push; and
-- a divergent destination is refused with the observed object IDs.
+- a divergent destination is refused: the dry run's plan carries the refusal
+  `destination_divergent` and the observed object IDs, and has no change tag
+  to run. A destination that diverges after the run was accepted fails the
+  operation without a push.
 
 Git on the origin is the final authority and atomically accepts or rejects the
 non-force update if the destination races after P's refresh. P never sends
@@ -386,13 +388,14 @@ user Git.
 
 ## Destructive operations
 
-Destructive preflight and lifecycle intent travel over host RPC. Runtime loss
-is stated by category from the runtime's presence and identity; P does not
-read the workspace. Branch loss comes from Git reachability in P's repository;
-only retained-branch deletion also compares freshly observed origin branches.
-Runtime files and Git objects never travel inside the RPC request.
+Destructive plans and lifecycle intent travel over host RPC, as the dry run
+and the run of a [risky change](control-api.md#risky-changes). Runtime loss is
+stated by category from the runtime's presence and identity; P does not read
+the workspace. Branch loss comes from Git reachability in P's repository; no
+deletion contacts the origin. Runtime files and Git objects never travel
+inside the RPC request.
 
-Session discard/delete, missing/unreachable behavior, confirmation tokens and
+Session discard/delete, missing/unreachable behavior, change tags and
 credential cleanup are defined in
 [session lifecycle](session-lifecycle.md#destructive-preflight).
 Unavailable Incus keeps confirmed cleanup incomplete and resumable; explicit

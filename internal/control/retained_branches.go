@@ -9,6 +9,20 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
+// CheckBranchUnreserved refuses branch of project while an unfinished
+// operation guards it, with conflict branch_reserved.
+func (s *Store) CheckBranchUnreserved(ctx context.Context, project, branch string) error {
+	var guarded int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM git_ref_guards WHERE project_path=? AND branch=?`, project, branch).Scan(&guarded)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return Conflict(api.ReasonBranchReserved, api.TargetBranch(project, branch))
+}
+
 func (s *Store) IsRetainedBranch(ctx context.Context, project, branch string) (bool, error) {
 	if !validProject(project) || !validBranch(branch) {
 		return false, ErrInvalid

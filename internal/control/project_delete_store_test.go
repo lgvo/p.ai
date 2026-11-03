@@ -37,7 +37,7 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 			t.Fatal(e)
 		}
 		session, _ = s.GetSession(ctx, session.UUID)
-		ev.Sessions = append(ev.Sessions, api.ProjectDeleteSession{Session: api.SessionRecord(session), Condition: "stopped", Local: *local, Runtime: api.RemovalRuntimePreview{Condition: "present", IncusProject: ev.IncusProject, InstanceName: "p-" + session.UUID, IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333", ImageFingerprint: ev.BaseFingerprint, OriginalStatus: "Stopped", RuntimeDataLost: true}})
+		ev.Sessions = append(ev.Sessions, api.ProjectDeleteSession{Session: api.SessionRecord(session), Condition: "stopped", Local: *local, Runtime: api.RemovalRuntime{Condition: "present", IncusProject: ev.IncusProject, InstanceName: "p-" + session.UUID, IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333", ImageFingerprint: ev.BaseFingerprint, OriginalStatus: "Stopped"}})
 	}
 	// Store admission compares the exact stable UUID ordering.
 	if ev.Sessions[0].Session.UUID > ev.Sessions[1].Session.UUID {
@@ -57,13 +57,14 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 	completedOperation(t, s, KindOriginChange, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"})
 	completedOperation(t, s, KindOriginPublish, oldPublication)
 	_, ev.StateSHA256, _ = s.ProjectDeleteSnapshot(ctx, "bulk")
-	req := ProjectDeleteRequest{Key: "delete-bulk", Project: "bulk", TokenSHA256: strings.Repeat("a", 64)}
+	req := ProjectDeleteRequest{Key: "delete-bulk", Project: "bulk", IfMatch: testTag(time.Minute)}
 	return s, dir, req, ev
 }
 
 // oldPublication is the request of the publication projectDeleteFixture
 // records completed.
-var oldPublication = PublicationRequest{Key: "old-publication", Project: "bulk", ExpectedOriginURL: "ssh://host/private-origin", Kind: "retained", Source: "main", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main"}
+var oldPublication = PublicationRequest{Key: "old-publication", Project: "bulk", ExpectedOriginURL: "ssh://host/private-origin", Kind: "retained", Source: "main", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main",
+	IfMatch: "20261102T153012Z-" + strings.Repeat("a", 64)}
 
 // completedOperation records request, an OriginChange or PublicationRequest,
 // as a completed operation of kind.
@@ -93,7 +94,7 @@ func completedOperation(t *testing.T, s *Store, kind string, request any) {
 
 func acceptProjectDelete(t *testing.T, s *Store, req ProjectDeleteRequest, ev ProjectDeleteEvidence) api.Operation {
 	t.Helper()
-	op, e := s.BeginProjectDelete(context.Background(), req, ev, time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), func(context.Context) error { return nil })
+	op, e := s.BeginProjectDelete(context.Background(), req, ev, testHash, func(context.Context) error { return nil })
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -255,7 +256,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 	if _, e = s.BeginOriginChange(ctx, OriginChange{Key: "old-origin", Project: "bulk", Kind: "remove", ExpectedURL: "ssh://host/private-origin"}); !errors.Is(e, ErrConflict) {
 		t.Fatal("retired origin replay accepted", e)
 	}
-	if _, e = s.BeginPublication(ctx, oldPublication, func(context.Context) (string, error) {
+	if _, e = s.BeginPublication(ctx, oldPublication, testHash, func(context.Context) (string, error) {
 		t.Fatal("retired publication admitted")
 		return "", nil
 	}); !errors.Is(e, ErrConflict) {
@@ -267,7 +268,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 		t.Fatal("retired Origin contacted external authority", e)
 	}
 	publicationRunner := &fakePublication{}
-	if _, e = (OriginAPI{Store: s, Runner: publicationRunner, Queue: noQueue}).Publish(ctx, oldPublication); !errors.Is(e, ErrConflict) || publicationRunner.observes != 0 || publicationRunner.pushes != 0 {
+	if _, e = (OriginAPI{Store: s, Runner: publicationRunner, Queue: noQueue}).Publish(ctx, publishRequest(oldPublication, api.ChangeRequest{Key: oldPublication.Key, IfMatch: oldPublication.IfMatch})); !errors.Is(e, ErrConflict) || publicationRunner.observes != 0 || publicationRunner.pushes != 0 {
 		t.Fatal("retired publication contacted external authority", e)
 	}
 	for _, table := range []string{"project_origins", "sessions", "projects", "commit_images"} {
@@ -295,7 +296,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 		t.Fatal("raw old origin key reused")
 	}
 
-	replay, e := s.BeginProjectDelete(ctx, req, ev, time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), func(context.Context) error { t.Fatal("replay invoked new authority"); return nil })
+	replay, e := s.BeginProjectDelete(ctx, req, ev, testHash, func(context.Context) error { t.Fatal("replay invoked new authority"); return nil })
 	if e != nil || replay.ID != op.ID || replay.Status != "completed" || len(replay.Evidence) != 0 {
 		t.Fatal("completed exact replay changed", e)
 	}
@@ -305,13 +306,12 @@ func TestProjectDeleteStaleSnapshotAndAdmissionRace(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			s, _, req, ev := projectDeleteFixture(t)
 			ctx := context.Background()
-			expiry := time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
 			verify := func(context.Context) error { return nil }
 			switch change {
 			case "verify":
 				verify = func(context.Context) error { return ErrConflict }
 			case "expiry":
-				expiry = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
+				req.IfMatch = testTag(-time.Second)
 			case "policy":
 				if e := s.SetProjectPolicy(ctx, "bulk", json.RawMessage(`{"changed":true}`)); e != nil {
 					t.Fatal(e)
@@ -331,7 +331,7 @@ func TestProjectDeleteStaleSnapshotAndAdmissionRace(t *testing.T) {
 					t.Fatal(e)
 				}
 			}
-			if _, e := s.BeginProjectDelete(ctx, req, ev, expiry, verify); !errors.Is(e, ErrConflict) {
+			if _, e := s.BeginProjectDelete(ctx, req, ev, testHash, verify); !errors.Is(e, ErrConflict) {
 				t.Fatal("stale proof accepted", e)
 			}
 			if active, _ := s.HasActiveProject(ctx, "bulk"); !active {
@@ -348,7 +348,7 @@ func TestProjectDeleteStaleSnapshotAndAdmissionRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-start
-		_, deleteErr = s.BeginProjectDelete(ctx, req, ev, time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), func(context.Context) error { return nil })
+		_, deleteErr = s.BeginProjectDelete(ctx, req, ev, testHash, func(context.Context) error { return nil })
 	}()
 	go func() {
 		defer wg.Done()
@@ -362,7 +362,7 @@ func TestProjectDeleteStaleSnapshotAndAdmissionRace(t *testing.T) {
 	}
 }
 
-func TestProjectDeletionPreviewShowsEachReviewedImageClaim(t *testing.T) {
+func TestProjectDeletionPlanShowsEachImageClaim(t *testing.T) {
 	img := testCommitImage("bulk", strings.Repeat("a", 40))
 	img.State = "releasing"
 	claim := CommitImageClaim{Image: img, ImagePresent: true, ObservedSize: 2048, RelatedDigest: strings.Repeat("f", 64)}
@@ -382,5 +382,34 @@ func TestProjectDeletionPreviewShowsEachReviewedImageClaim(t *testing.T) {
 	}
 	if got := CommitImageClaimViews(nil); got == nil || len(got) != 0 {
 		t.Fatalf("a deletion without images shows %#v, not an empty list", got)
+	}
+}
+
+// TestProjectDeleteStateNamesAReCreatedImage checks that a commit image
+// forgotten and indexed again with otherwise identical facts changes the
+// state digest a project deletion's plan shows, and so its change hash: the
+// plan the user saw named the earlier image.
+func TestProjectDeleteStateNamesAReCreatedImage(t *testing.T) {
+	s, _, _, ev := projectDeleteFixture(t)
+	ctx := context.Background()
+	image := ev.Images[0].Image
+	_, before, err := s.ProjectDeleteSnapshot(ctx, "bulk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.ForgetCommitImage(ctx, image.Key, image.Ref); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Millisecond)
+	if err = s.PutCommitImage(ctx, image); err != nil {
+		t.Fatal(err)
+	}
+	again, _, _ := s.GetCommitImage(ctx, image.Key)
+	again.CreatedAt, image.CreatedAt = "", ""
+	if !reflect.DeepEqual(again, image) {
+		t.Fatalf("re-created image differs beyond its creation: %+v %+v", again, image)
+	}
+	if _, after, err := s.ProjectDeleteSnapshot(ctx, "bulk"); err != nil || after == before {
+		t.Fatalf("a re-created image kept state digest %s: %v", after, err)
 	}
 }

@@ -95,7 +95,7 @@ func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
 					t.Fatal("restart changed init provenance")
 				}
 			}
-			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: old.SessionUUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), Cleanup: c, New: ReserveSessionRequest{Key: "new", Project: "app", Branch: "work", Choice: "existing"}}
+			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: old.SessionUUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, IfMatch: testTag(time.Minute), ChangeHash: testHash, Cleanup: c, New: ReserveSessionRequest{Key: "new", Project: "app", Branch: "work", Choice: "existing"}}
 			switch negative {
 			case "principal-changed":
 				c.KeyFingerprint = strings.Repeat("e", 64)

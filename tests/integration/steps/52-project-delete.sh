@@ -1,8 +1,9 @@
 # shellcheck shell=bash
-# Aggregate deletion of a project whose sessions are stopped. P does not look
-# inside the containers or contact an origin: the review states each runtime
-# lost by category. Private/credential bytes are dummy sentinels; outages and
-# competing identities below are explicit test injection.
+# Aggregate deletion of a project with two stopped sessions and one running
+# session, which the deletion stops itself. P does not look inside the
+# containers or contact an origin: the plan lists each container's data as
+# lost. Private/credential bytes are dummy sentinels; outages and competing
+# identities below are explicit test injection.
 set -E
 umask 077
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
@@ -21,6 +22,7 @@ export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 daemon_pid=
 main=
 work=
+live=
 unrelated=
 first=
 second=
@@ -57,7 +59,7 @@ stop_daemon() {
 }
 cleanup() {
  stop_daemon
- for id in "$main" "$work" "$unrelated"; do
+ for id in "$main" "$work" "$live" "$unrelated"; do
   if test -n "$id"; then inc delete --force "p-$id" >/dev/null 2>&1 || true; rm -rf -- "${endpoint_prefix:?}/${id:?}"; fi
  done
  for name in "$parked" "$competing"; do if test -n "$name"; then inc delete --force "$name" >/dev/null 2>&1 || true; fi; done
@@ -65,6 +67,13 @@ cleanup() {
 }
 on_error() {
  printf 'P_PROJECT_DELETE_FAIL line=%s status=%s\n' "$2" "$1" >&2
+ if test -n "${plan:-}"; then
+  jq -c '.result | {allowed:.plan.allowed,refusals:.plan.refusals,loss:.plan.loss,gone:.plan.gone,
+   has_change_tag:has("change_tag"),sessions:[.plan.details.sessions[]? |
+    {uuid:.session.uuid,condition,runtime:.runtime.condition,status:.runtime.original_status}]}' \
+   <<< "$plan" 2>/dev/null | head -c 2048 >&2 || true
+  printf '\n' >&2
+ fi
  for op in "${op_ids[@]}"; do rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" 2>/dev/null |
   jq -cr '.result.operation|{id,status,phase,diagnostic,evidence}' >&2 || true; done
  tail -c 3072 "$step_dir/daemon.err" >&2 || true
@@ -190,15 +199,25 @@ expect_refused() {
   return 1
  fi
 }
-preview() {
- rpc project.delete.preview '{"project":"bulk-delete"}'
+# plan_delete: the deletion's dry run. run_params KEY TAG: its run's params,
+# the same plus the key and the dry run's change tag.
+plan_delete() {
+ rpc project.delete '{"project":"bulk-delete"}'
 }
+run_params() {
+ jq -nc --arg key "$1" --arg tag "$2" '{project:"bulk-delete",key:$key,if_match:$tag}'
+}
+change_tag() { jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$1"; }
 assert_project_active() {
  rpc project.list '{"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="active")' >/dev/null
  for uuid in "$main" "$work"; do
   rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.registry_state=="established" and .result.session.session_condition=="stopped"' >/dev/null
   test -f "$state/session_keys/$uuid"
  done
+ # The running session stays running until the deletion stops it.
+ rpc session.inspect "$(jq -nc --arg uuid "$live" '{uuid:$uuid}')" | jq -e '.result.session.registry_state=="established"' >/dev/null
+ inc list "^p-$live$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
+ test -f "$state/session_keys/$live"
  test -d "$repo"
 }
 created=$(rpc project.create '{"key":"bulk-bootstrap","project":"bulk-delete"}')
@@ -252,15 +271,18 @@ if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
   'any(.[]; .fingerprint==$image and .properties["p.project_path"]=="bulk-delete" and
    .properties["p.source_commit"]==$oid and .properties["p.selection"]=="devshell")' >/dev/null
 fi
+# A third session stays running: the deletion stops it itself.
+created=$(rpc session.create '{"key":"bulk-live","project":"bulk-delete","branch":"live","choice":"new","source":"refs/heads/main"}')
+live=$(jq -er '.result.operation.session_uuid' <<< "$created")
+live_creator=$(jq -er '.result.operation.id' <<< "$created")
+op_ids+=("$live_creator")
+wait_operation "$live_creator" completed >/dev/null
 created=$(rpc project.create '{"key":"unrelated-bootstrap","project":"bulk-other"}')
 unrelated=$(jq -er '.result.operation.session_uuid' <<< "$created")
 other_creator=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$other_creator")
 wait_operation "$other_creator" completed >/dev/null
 guest "$unrelated" /run/current-system/sw/bin/bash -c 'printf unrelated-private > /home/p/p-bulk-other'
-# Project deletion does not stop sessions: a running session refuses the review.
-inc list "^p-$work$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
-expect_refused project.delete.preview '{"project":"bulk-delete"}' conflict session_not_stopped
 for uuid in "$main" "$work"; do
  change_session session.stop "$uuid"
  printf 'private-%s\n' "$uuid" > "$step_dir/private-$uuid"
@@ -276,13 +298,28 @@ other_repo="$state/repositories/$other_repo_name.git"
 other_key=$(sha256sum "$state/session_keys/$unrelated" | cut -d' ' -f1)
 git -C "$repo" update-ref refs/heads/retained "$tip"
 # The removed loss inspection parameter is refused by strict decoding.
-expect_refused project.delete.preview '{"project":"bulk-delete","loss_operations":{}}' invalid param
-review=$(preview)
-token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-jq -e --arg main "$main" --arg work "$work" '.result.preview|.outcome=="delete_project_and_all_p_data" and (.sessions|length)==2 and ([.sessions[].session.uuid]|sort)==([$main,$work]|sort) and .attachments==[] and (.branch_loss.p_refs|length)==3 and (.branch_loss.commits_losing_p_reachability|length)==1 and (.branch_loss|has("origin")|not) and (.sessions|all(.runtime|.condition=="present" and .original_status=="Stopped" and .runtime_data_lost==true and .incus_project=="user-1000" and (.incus_uuid|length)>0 and (.generation|length)>0 and (.image_fingerprint|length)==64 and (has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at")|not))) and (.warnings|any(contains("private"))) and (.warnings|any(contains("credentials")))' <<< "$review" >/dev/null
-# A new retained ref changes aggregate review and refuses before retirement.
+expect_refused project.delete '{"project":"bulk-delete","loss_operations":{}}' invalid param
+plan=$(plan_delete)
+tag=$(change_tag "$plan")
+# Every container's data is lost, the stopped ones' and the running one's,
+# with the project's only commit and its unreachable Git objects.
+jq -e --arg main "$main" --arg work "$work" --arg live "$live" --arg tip "$tip" '.result.plan |
+ .action=="project.delete" and .target=="project/bulk-delete" and .allowed==true and .refusals==[] and .gone==[] and
+ .loss==([.details.sessions[].session.uuid | {kind:"runtime_data",target:("session/"+.),certain:true}] +
+  [{kind:"p_commits",target:"project/bulk-delete",count:1,sample:[$tip],certain:true},
+   {kind:"unreachable_objects",target:"project/bulk-delete",certain:false,reason:"not_enumerated"}]) and
+ (.details | .outcome=="delete_project_and_all_p_data" and (.sessions|length)==3 and
+  ([.sessions[].session.uuid]|sort)==([$main,$work,$live]|sort) and .attachments==[] and
+  (.branch_loss.p_refs|length)==4 and .branch_loss.commits_losing_p_reachability==[$tip] and
+  (.branch_loss|has("origin")|not) and (has("warnings")|not) and
+  (.sessions|all(.runtime|.condition=="present" and .incus_project=="user-1000" and (.incus_uuid|length)>0 and (.generation|length)>0 and (.image_fingerprint|length)==64 and (has("runtime_data_lost") or has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at")|not))) and
+  ([.sessions[] | select(.session.uuid==$live) | .condition=="running" and .runtime.original_status=="Running"]==[true]) and
+  ([.sessions[] | select(.session.uuid!=$live) | .condition=="stopped" and .runtime.original_status=="Stopped"]==[true,true]))' <<< "$plan" >/dev/null
+# A new retained ref changes the plan: the run is stale, records no
+# operation, and nothing is retired.
 git -C "$repo" update-ref refs/heads/changed-after-preview "$tip"
-expect_refused project.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-ref",project:"bulk-delete",confirmation_token:$token}')" precondition_failed changed
+expect_refused project.delete "$(run_params stale-ref "$tag")" precondition_failed changed
+rpc operation.list '{"limit":20}' | jq -e '.result.operations | all(.[]; .kind!="project.delete")' >/dev/null
 assert_project_active
 for uuid in "$main" "$work"; do
  rm -f -- "$step_dir/pulled"
@@ -292,41 +329,46 @@ for uuid in "$main" "$work"; do
  inc file pull "p-$uuid/home/p/p-bulk-dummy-credential" "$step_dir/pulled"
  cmp "$step_dir/dummy-$uuid" "$step_dir/pulled"
 done
-review=$(preview)
-token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-first=$(jq -er '.result.preview.sessions[0].session.uuid' <<< "$review")
+plan=$(plan_delete)
+tag=$(change_tag "$plan")
+# first and second are the stopped sessions, in the order the deletion
+# removes them.
+first=$(jq -er '[.result.plan.details.sessions[] | select(.condition=="stopped")][0].session.uuid' <<< "$plan")
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
- jq -e --arg image "$commit_image" --arg oid "$tip" '.result.preview | (has("cache_images")|not) and
+ jq -e --arg image "$commit_image" --arg oid "$tip" '.result.plan.details | (has("cache_images")|not) and
   (.images|length)==1 and (.images[0] | .image_present==true and .image.ref==$image and
-   .image.key.project=="bulk-delete" and .image.key.commit_oid==$oid and .image.state=="ready")' <<< "$review" >/dev/null
+   .image.key.project=="bulk-delete" and .image.key.commit_oid==$oid and .image.state=="ready")' <<< "$plan" >/dev/null
 else
- jq -e '.result.preview | .images==[] and (has("cache_images")|not)' <<< "$review" >/dev/null
+ jq -e '.result.plan.details | .images==[] and (has("cache_images")|not)' <<< "$plan" >/dev/null
 fi
-second=$(jq -er '.result.preview.sessions[1].session.uuid' <<< "$review")
+second=$(jq -er '[.result.plan.details.sessions[] | select(.condition=="stopped")][1].session.uuid' <<< "$plan")
 # P does not look inside the containers: workspace bytes changed after the
-# review do not refuse the confirmation.
+# dry run do not refuse the run.
 printf changed-workspace > "$step_dir/dirty"
 inc file push "$step_dir/dirty" "p-$work/workspace/tracked" --uid 1000 --gid 1000 --mode 0644
 printf 'p-%s\n' "$first" > "$step_dir/confirmed-first"
 printf 'p-%s\n' "$second" > "$step_dir/confirmed-second"
 : > "$step_dir/outage-arm"
-# Confirmation returns its operation at once (within p api's ten-second
+# The run returns its operation at once (within p api's ten-second
 # deadline); the deletion runs afterwards.
-confirmed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')")
-jq -e '.result.operation|.kind=="project.delete" and .status=="running" and .phase=="ensure-absent" and .committed==true' <<< "$confirmed" >/dev/null
-deletion=$(jq -er '.result.operation.id' <<< "$confirmed")
+ran=$(rpc project.delete "$(run_params bulk-confirm "$tag")")
+jq -e '.result|(has("plan")|not) and (has("change_tag")|not) and (.operation|.kind=="project.delete" and .status=="running" and .phase=="ensure-absent" and .committed==true)' <<< "$ran" >/dev/null
+deletion=$(jq -er '.result.operation.id' <<< "$ran")
 op_ids+=("$deletion")
 result=$(wait_operation "$deletion" blocked)
-jq -e --arg first "$first" --arg second "$second" '.result.operation|.kind=="project.delete" and .committed==true and .phase=="ensure-absent" and (.evidence.resources|any(.kind=="runtime" and .id==$first and .status=="deleted")) and (.evidence.resources|any(.kind=="runtime" and .id==$second and .status=="unreachable" and .delete_issued!=true))' <<< "$result" >/dev/null
+jq -e --arg first "$first" --arg second "$second" --arg live "$live" '.result.operation|.kind=="project.delete" and .committed==true and .phase=="ensure-absent" and (.evidence.resources|any(.kind=="runtime" and .id==$first and .status=="deleted")) and (.evidence.resources|any(.kind=="runtime" and .id==$second and .status=="unreachable" and .delete_issued!=true)) and (.evidence.resources|any(.kind=="runtime" and .id==$live and .status=="deleted" and .stop_issued==true))' <<< "$result" >/dev/null
 test -f "$step_dir/native-unavailable-seen"
 inc list "^p-$first$" --format json | jq -e 'length==0' >/dev/null
 test ! -e "$state/session_keys/$first"
+# The running session was stopped, then deleted, by the deletion itself.
+inc list "^p-$live$" --format json | jq -e 'length==0' >/dev/null
+test ! -e "$state/session_keys/$live"
 test -f "$state/session_keys/$second"
 test -d "$repo"
 stop_daemon
 start_daemon
 rpc project.list '{"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="deleting")' >/dev/null
-for uuid in "$main" "$work"; do rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.registry_state=="removing"' >/dev/null; done
+for uuid in "$main" "$work" "$live"; do rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.registry_state=="removing"' >/dev/null; done
 expect_refused session.create '{"key":"closed-new","project":"bulk-delete","branch":"closed","choice":"new","source":"refs/heads/main"}' conflict project_deleting
 expect_refused session.start "$(jq -nc --arg uuid "$second" '{uuid:$uuid}')" conflict session_not_established
 rpc session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}' | jq -e '.result.operation.status=="completed"' >/dev/null
@@ -350,7 +392,7 @@ parked=
 rpc operation.retry "$(jq -nc --arg id "$deletion" '{id:$id}')" >/dev/null
 wait_operation "$deletion" completed >/dev/null
 rpc project.list '{"limit":100}' | jq -e '(.result.projects|any(.path=="bulk-delete")|not) and (.result.projects|any(.path=="bulk-other" and .registry_state=="active"))' >/dev/null
-for uuid in "$main" "$work"; do
+for uuid in "$main" "$work" "$live"; do
  inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
  test ! -e "$state/session_keys/$uuid"
  test ! -e "$endpoint_prefix/$uuid"
@@ -369,7 +411,7 @@ inc image list --format json | jq -e --arg base "$base" 'any(.fingerprint==$base
 # The deleted project's request keys are retired: reusing one is refused.
 expect_refused project.create '{"key":"bulk-bootstrap","project":"bulk-delete"}' invalid key_reused
 expect_refused session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}' invalid key_reused
-rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')" | jq -e --arg id "$deletion" '.result.operation.id==$id and .result.operation.status=="completed"' >/dev/null
+rpc project.delete "$(run_params bulk-confirm "$tag")" | jq -e --arg id "$deletion" '.result.operation.id==$id and .result.operation.status=="completed"' >/dev/null
 test "$(wc -l < "$step_dir/source-effects")" -eq 2
 test "$(awk '$1!="delete"{n++} END{print n+0}' "$step_dir/source-effects")" -eq 0
 # No native resource of the deleted project remains.

@@ -49,12 +49,12 @@
 
 - Where: internal/control project_delete.go `MaxProjectDeleteImages`,
   `maxProjectDeleteReviewBytes` and `ProjectDeleteReviewFits`; internal/daemon
-  project_delete.go `boundProjectDeleteReview`
+  project_delete.go `planProjectDelete`
 - Problem: The review accepts up to 20 commit images, but the evidence a deletion is
   confirmed with must encode within 24 KiB, which four sessions and eight images fill when
-  the project, branch and builder-version names are as long as P accepts. The review
-  refuses a project whose evidence would not fit with `conflict`, reason `bound_exceeded`;
-  the confirmation no longer refuses it as invalid.
+  the project, branch and builder-version names are as long as P accepts. The dry run
+  refuses a project whose evidence would not fit: its plan is not allowed, with the refusal
+  `bound_exceeded`, so the run never meets it as invalid.
 - Evidence: control's `TestProjectDeleteEvidenceFitsAtTheDiagnosticLimit` measures eight
   images with four sessions at those names; each commit image claim then encodes to about
   1.7 KiB, and its resource to about 0.1 KiB.
@@ -67,12 +67,17 @@
   back from the index, or let the evidence bound alone decide and drop the separate cap.
 - Fix when: a project deletion is refused this way, or the deletion evidence next changes.
 - Left by: the agent, by rule (a problem outside the change).
-- Added 2026-11-03, updated 2026-11-03, 2 cases:
+- Added 2026-11-03, updated 2026-11-03, 3 cases:
   - 2026-11-03: "one diagnostic limit" found it while checking that the evidence fits at
     the new diagnostic limit.
   - 2026-11-03: "one image per source commit", moved onto step 3, replaced environment
     images with commit images, made the review refuse what the evidence cannot record,
     and measured eight images at four sessions with the longest names.
+  - 2026-11-03: "risky changes confirmed with change tags" changed the deletion evidence,
+    which meets "Fix when", without the fix: each resource gained `stop_issued`, and
+    `planProjectDelete` refuses a plan that does not fit with `bound_exceeded` where
+    `boundProjectDeleteReview` answered `conflict`. The 24 KiB bound and the cap of twenty
+    images are unchanged.
 
 ## A builder admitted after its creation's reply was lost is never collected
 

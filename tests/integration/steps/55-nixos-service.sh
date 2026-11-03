@@ -128,9 +128,9 @@ test "$(guest git rev-parse HEAD)" = "$tip"
 test "$(guest cat /home/p/service-private)" = dummy-private
 test "$(guest cat /home/p/service-credential)" = dummy-credential
 stop_when_idle
-review=$(rpc project.delete.preview '{"project":"nixos-service55"}')
-token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"service55-delete",project:"nixos-service55",confirmation_token:$token}')")
+plan=$(rpc project.delete '{"project":"nixos-service55"}')
+tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$plan")
+removed=$(rpc project.delete "$(jq -nc --arg tag "$tag" '{key:"service55-delete",project:"nixos-service55",if_match:$tag}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

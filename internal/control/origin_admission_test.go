@@ -24,7 +24,7 @@ func TestOriginOperationsRecheckTheProjectWhenTheyRecord(t *testing.T) {
 			mustExec(t, s, `DELETE FROM sessions`)
 			mustExec(t, s, `DELETE FROM project_origins`)
 			r.Kind, r.Source = "retained", "saved"
-			_, err := s.BeginPublication(ctx, r, func(context.Context) (string, error) {
+			_, err := s.BeginPublication(ctx, r, testHash, func(context.Context) (string, error) {
 				mustExec(t, s, test.change)
 				return "saved", nil
 			})
@@ -46,9 +46,9 @@ func TestIdenticalRequestRecordedMeanwhileIsReturned(t *testing.T) {
 	s, _, _, r := publicationFixture(t)
 	ctx := context.Background()
 	var first api.Operation
-	second, err := s.BeginPublication(ctx, r, func(ctx context.Context) (string, error) {
+	second, err := s.BeginPublication(ctx, r, testHash, func(ctx context.Context) (string, error) {
 		var e error
-		first, e = s.BeginPublication(ctx, r, func(context.Context) (string, error) { return "work", nil })
+		first, e = s.BeginPublication(ctx, r, testHash, func(context.Context) (string, error) { return "work", nil })
 		return "work", e
 	})
 	if err != nil || first.ID == "" || second.ID != first.ID {
@@ -64,8 +64,8 @@ func TestKeyRecordedMeanwhileForAnotherRequestIsReused(t *testing.T) {
 	ctx := context.Background()
 	other := r
 	other.DestinationRef = "refs/heads/other"
-	_, err := s.BeginPublication(ctx, r, func(ctx context.Context) (string, error) {
-		if _, e := s.BeginPublication(ctx, other, func(context.Context) (string, error) { return "work", nil }); e != nil {
+	_, err := s.BeginPublication(ctx, r, testHash, func(ctx context.Context) (string, error) {
+		if _, e := s.BeginPublication(ctx, other, testHash, func(context.Context) (string, error) { return "work", nil }); e != nil {
 			t.Fatal(e)
 		}
 		return "", Retry(api.ReasonSessionHeld, "")

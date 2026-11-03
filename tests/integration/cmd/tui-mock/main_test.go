@@ -154,37 +154,81 @@ func TestFixtureCreationIdempotencyAndSourceFreshness(t *testing.T) {
 	}
 }
 
-func TestFixtureRemovalPreviewBindsKindSessionAndExpiry(t *testing.T) {
+// The fixture's removal runs only with the tag of its own plan: an expired
+// tag, a changed state, and the tag of another kind or session are refused.
+func TestFixtureRemovalRunsOnlyItsOwnPlan(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
+	f.native = &nativeServer{tmux: filepath.Join(t.TempDir(), "tmux.sock")}
 	h := connect(f)
 	id := sessionID(f, "atlas", "feat/ui")
 	other := sessionID(f, "atlas", "fix/cache")
-	token := strings.Repeat("c", 32)
-	for _, review := range []preview{{UUID: id, Kind: "discard", Expires: time.Now().Add(-time.Second)}, {UUID: id, Kind: "delete", Expires: time.Now().Add(time.Minute)}, {UUID: other, Kind: "discard", Expires: time.Now().Add(time.Minute)}} {
-		f.previews[token] = review
-		if err := refusal(h, api.SessionDiscard, api.SessionDiscardRequest{Key: "remove", UUID: id, ConfirmationToken: token}); err == nil || err.Kind() != api.KindPreconditionFailed {
-			t.Fatalf("invalid preview %+v: %+v", review, err)
+	discard := do(t, h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id})
+	if discard.ChangeTag == "" || discard.Plan == nil || !discard.Plan.Allowed {
+		t.Fatalf("plan: %+v", discard)
+	}
+	expiry, _ := api.ParseChangeTag(discard.ChangeTag)
+	expired := time.Now().Add(-time.Minute).UTC().Format(api.ChangeTagTimeLayout) + discard.ChangeTag[len(api.ChangeTagTimeLayout):]
+	for _, run := range []struct {
+		name string
+		call func() *api.Error
+	}{
+		{"an expired tag", func() *api.Error {
+			return refusal(h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id, ChangeRequest: api.ChangeRequest{Key: "expired", IfMatch: expired}})
+		}},
+		{"another expiry", func() *api.Error {
+			edited := expiry.Add(time.Hour).Format(api.ChangeTagTimeLayout) + discard.ChangeTag[len(api.ChangeTagTimeLayout):]
+			return refusal(h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id, ChangeRequest: api.ChangeRequest{Key: "edited", IfMatch: edited}})
+		}},
+		{"a delete", func() *api.Error {
+			return refusal(h, api.SessionDelete, api.SessionDeleteRequest{UUID: id, ChangeRequest: api.ChangeRequest{Key: "delete", IfMatch: discard.ChangeTag}})
+		}},
+		{"another session", func() *api.Error {
+			return refusal(h, api.SessionDiscard, api.SessionDiscardRequest{UUID: other, ChangeRequest: api.ChangeRequest{Key: "other", IfMatch: discard.ChangeTag}})
+		}},
+	} {
+		if err := run.call(); err == nil || err.Kind() != api.KindPreconditionFailed {
+			t.Fatalf("%s: %+v", run.name, err)
 		}
 		if _, ok := f.sessions[id]; !ok {
-			t.Fatal("invalid review removed session")
+			t.Fatalf("%s removed the session", run.name)
 		}
+	}
+	f.refs["atlas"]["feat/ui"] = strings.Repeat("9", 40)
+	if err := refusal(h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id, ChangeRequest: api.ChangeRequest{Key: "changed", IfMatch: discard.ChangeTag}}); err == nil || err.Kind() != api.KindPreconditionFailed || err.Reason() != api.ReasonChanged {
+		t.Fatalf("a changed branch: %+v", err)
+	}
+	// As P's, whether the container runs is information only: a Start
+	// between the calls keeps the tag.
+	discard = do(t, h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id})
+	s := f.sessions[id]
+	s.Condition = "ready"
+	f.sessions[id] = s
+	if run := do(t, h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id, ChangeRequest: api.ChangeRequest{Key: "started", IfMatch: discard.ChangeTag}}); run.Operation == nil {
+		t.Fatalf("a started session's run: %+v", run)
 	}
 }
 
-func TestFixtureRemovalPreviewMatchesPublicShapeAndSeparatesBranchLoss(t *testing.T) {
+func TestFixtureRemovalPlanMatchesPublicShapeAndSeparatesBranchLoss(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
 	h := connect(f)
 	id := sessionID(f, "atlas", "feat/ui")
 	for _, kind := range []string{"discard", "delete"} {
-		p := do(t, h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: id, Kind: kind}).Preview
-		if p.Runtime.Condition != "present" || p.Runtime.InstanceName != "p-"+id || !p.Runtime.RuntimeDataLost || p.Runtime.OriginalStatus != "Stopped" || p.AssignedTip != tip || p.AssignedRefMissing {
-			t.Fatalf("runtime review shape differs from public contract: %+v", p)
+		var plan api.ChangeResult[api.RemovalDetails]
+		if kind == "delete" {
+			plan = do(t, h, api.SessionDelete, api.SessionDeleteRequest{UUID: id})
+		} else {
+			plan = do(t, h, api.SessionDiscard, api.SessionDiscardRequest{UUID: id})
+		}
+		p := plan.Plan.Details
+		if plan.Plan.Action != "session."+kind || plan.Plan.Target != "session/"+id || p.Runtime.Condition != "present" || p.Runtime.InstanceName != "p-"+id ||
+			p.Runtime.OriginalStatus != "Stopped" || p.AssignedTip != tip || p.AssignedRefMissing || !reflect.DeepEqual(plan.Plan.Loss[0], api.Loss{Kind: api.LossRuntimeData, Target: "session/" + id, Certain: true}) {
+			t.Fatalf("runtime plan shape differs from public contract: %+v", plan)
 		}
 		if (p.BranchLoss != nil) != (kind == "delete") {
 			t.Fatal("branch loss applies only to Delete")
 		}
-		if p.BranchLoss != nil && (p.BranchLoss.Origin != nil || !slices.Contains(p.BranchLoss.PRefs, api.PRef{Name: "refs/heads/feat/ui", OID: tip})) {
-			t.Fatalf("session Delete preview reads the origin or misses its ref: %+v", p.BranchLoss)
+		if p.BranchLoss != nil && !slices.Contains(p.BranchLoss.PRefs, api.PRef{Name: "refs/heads/feat/ui", OID: tip}) {
+			t.Fatalf("session Delete plan misses its ref: %+v", p.BranchLoss)
 		}
 	}
 }
@@ -194,23 +238,31 @@ func TestFixtureRemovesARunningUnattachedSessionAndRefusesAnAttachedOne(t *testi
 	f.native = &nativeServer{tmux: filepath.Join(t.TempDir(), "tmux.sock")}
 	h := connect(f)
 	running := sessionID(f, "forge", "fix/token-refresh")
-	p := do(t, h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: running, Kind: "discard"}).Preview
-	if p.Runtime.OriginalStatus != "Running" {
-		t.Fatalf("running session previewed as %q", p.Runtime.OriginalStatus)
+	plan := do(t, h, api.SessionDiscard, api.SessionDiscardRequest{UUID: running})
+	if plan.Plan.Details.Runtime.OriginalStatus != "Running" {
+		t.Fatalf("running session planned as %q", plan.Plan.Details.Runtime.OriginalStatus)
 	}
-	do(t, h, api.SessionDiscard, api.SessionDiscardRequest{Key: "discard", UUID: running, ConfirmationToken: p.ConfirmationToken})
+	run := api.SessionDiscardRequest{UUID: running, ChangeRequest: api.ChangeRequest{Key: "discard", IfMatch: plan.ChangeTag}}
+	done := do(t, h, api.SessionDiscard, run)
+	if done.Operation == nil || done.Operation.Kind != "session.discard" {
+		t.Fatalf("run: %+v", done)
+	}
 	if _, ok := f.sessions[running]; ok {
-		t.Fatal("running session survived its confirmed Discard")
+		t.Fatal("running session survived its Discard")
 	}
 	if f.refs["forge"]["fix/token-refresh"] == "" {
 		t.Fatal("Discard removed the assigned branch")
+	}
+	if replay := do(t, h, api.SessionDiscard, run); replay.Operation == nil || replay.Operation.ID != done.Operation.ID {
+		t.Fatalf("replay: %+v", replay)
 	}
 	attached := sessionID(f, "orbit", "feat/job-retries")
 	s := f.sessions[attached]
 	s.AttachedCount = 1
 	f.sessions[attached] = s
-	if err := refusal(h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: attached, Kind: "delete"}); err == nil || err.Kind() != api.KindConflict || err.Reason() != api.ReasonAttachmentActive {
-		t.Fatalf("attached session preview: %+v", err)
+	refused := do(t, h, api.SessionDelete, api.SessionDeleteRequest{UUID: attached})
+	if refused.Plan.Allowed || refused.ChangeTag != "" || !reflect.DeepEqual(refused.Plan.Refusals, []api.Refusal{{Code: api.ReasonAttachmentActive}}) {
+		t.Fatalf("attached session plan: %+v", refused)
 	}
 }
 
@@ -230,8 +282,8 @@ func TestFixtureHasNoLossInspection(t *testing.T) {
 	if _, err := send(context.Background(), h, "workspace.loss.inspect", `{"key":"inspect","uuid":"`+id+`"}`); err == nil || err.Kind() != "method_not_found" {
 		t.Fatalf("loss inspection: %+v", err)
 	}
-	if _, err := send(context.Background(), h, "session.removal.preview", `{"uuid":"`+id+`","kind":"discard","loss_operation_id":"inspect"}`); err == nil || err.Kind() != "invalid" {
-		t.Fatalf("preview with a loss operation: %+v", err)
+	if _, err := send(context.Background(), h, "session.discard", `{"uuid":"`+id+`","loss_operation_id":"inspect"}`); err == nil || err.Kind() != "invalid" {
+		t.Fatalf("a plan with a loss operation: %+v", err)
 	}
 	hello, rpcErr := send(context.Background(), h, "system.hello", `{"protocol":"`+api.Protocol+`"}`)
 	if rpcErr != nil || strings.Contains(string(hello), "workspace.loss.inspect") {
@@ -259,7 +311,7 @@ func TestFixtureServesOnlyProtocolAndFixtureMethods(t *testing.T) {
 	for _, m := range []string{"system.hello", "system.health", "project.list", "session.list", "operation.list",
 		"project.branches", "project.retained_branches", "origin.refresh", "origin.sources", "project.create",
 		"session.create", "session.inspect", "session.start", "session.stop", "session.rename",
-		"session.removal.preview", "session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
+		"session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
 		"session.services", "session.service.action", "session.service.logs", "session.attach",
 		"attachment.claim", "attachment.confirm", "attachment.ping"} {
 		served[m] = true

@@ -75,8 +75,8 @@ func TestTheOtherDiagnosticWritersKeepOneLimit(t *testing.T) {
 	}
 	bounded("FailRenamePrecommit", rs, rename.ID, api.ReasonWorkspaceMismatch)
 
-	as, _, _, aev := assembledCleanupFixture(t)
-	cleanup := beginAssembledCleanup(t, as, aev)
+	as, _, creator, aev := assembledCleanupFixture(t)
+	cleanup := beginAssembledCleanup(t, as, creator, aev)
 	if err = as.AdvanceOperation(ctx, cleanup.ID, "blocked", "stale-cleanup", false, cleanup.Evidence, api.ReasonChanged, "stale"); err != nil {
 		t.Fatal(err)
 	}

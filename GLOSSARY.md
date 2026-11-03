@@ -32,6 +32,31 @@ successfully contacted empty origin.
 - **Rules:** It is the only MVP session without a committed source. Its first
   push creates `main`; no artificial commit is created by P.
 
+### Change hash
+
+The daemon's name for one planned risky change: a SHA-256 of the change's
+action, target and inputs, the P instance, and its plan.
+
+- **Related:** [Change tag](#change-tag), [plan](#plan).
+- **Boundaries:** It never leaves the daemon. The operation journal records it
+  as the exact change that ran.
+- **Rules:** The same state gives the same change hash; any changed fact in
+  the plan changes it, except the facts a plan shows for information only,
+  such as whether a removal's container was running.
+
+### Change tag
+
+The value that a dry run returns with an allowed plan and that the run sends
+back to carry out exactly that plan: an expiry followed by a hash that binds
+the expiry to the change hash.
+
+- **Related:** [Change hash](#change-hash), [dry run](#dry-run),
+  [risky change](#risky-change).
+- **Rules:** It expires two minutes after its dry run. A run whose fresh plan
+  gives another tag is refused and records nothing. The daemon stores nothing
+  between the dry run and the run.
+- **Avoid:** `confirmation token`.
+
 ### Commit image
 
 The immutable image sessions started from one source commit are created from:
@@ -48,6 +73,17 @@ commit in the workspace.
   only when trusted host configuration enables image building; otherwise a
   session starts from the P base image.
 - **Avoid:** `environment image` and `cached image` for this concept.
+
+### Dry run
+
+The first call of a risky change, which plans the change and returns its plan,
+and its change tag when the plan is allowed, without starting an operation or
+destroying anything.
+
+- **Related:** [Plan](#plan), [risky change](#risky-change).
+- **Rules:** A call without an idempotency key and change tag is the dry run.
+  The second call, the run, repeats its parameters with both.
+- **Avoid:** `preview` for this call.
 
 ### Event handler
 
@@ -103,6 +139,20 @@ through the runtime's systemd contract.
 - **Rules:** It operates with the session's effective grants and receives no
   ambient host authority from the plugin that provides it.
 
+### Loss item
+
+One category of what a risky change destroys, or of what is already gone
+before it runs.
+
+- **Related:** [Plan](#plan).
+- **Boundaries:** It states loss by category, such as a session's container
+  and everything in it or the commits that leave P's repository; P does not
+  look inside a container to list files. Deleting a cache, such as a commit
+  image, is not loss.
+- **Rules:** A loss that P cannot rule out is marked uncertain. What is
+  already lost, such as a missing runtime's contents, is listed apart from the
+  loss the change causes.
+
 ### Origin
 
 The optional ordinary Git remote configured for a project and accessed only by
@@ -140,6 +190,18 @@ and accepts temporary attachments, such as tmux.
   the session container. MVP ships tmux as the default implementation.
 - **Avoid:** `direct`, which is not an MVP host.
 
+### Plan
+
+What a risky change would do now: whether it can run and why not, its loss
+items, what is already gone, and the change's own details.
+
+- **Related:** [Dry run](#dry-run), [refusal](#refusal),
+  [loss item](#loss-item), [change tag](#change-tag).
+- **Rules:** A plan is allowed exactly when it has no refusals, and only an
+  allowed plan's loss is complete. A run carries out only the plan its change
+  tag names.
+- **Avoid:** `preview` for the returned plan.
+
 ### Plugin
 
 An independently authored, installable implementation of one or more stable,
@@ -173,6 +235,16 @@ together with its trusted project policy and optional origin.
 - **Boundaries:** An Incus project is an infrastructure confinement boundary,
   not a P project.
 
+### Refusal
+
+A stable code, in a plan, for why a risky change cannot run now.
+
+- **Related:** [Plan](#plan).
+- **Boundaries:** A refusal is part of a plan, not an error: the dry run still
+  returns the plan. It carries no message text; clients hold one sentence per
+  code.
+- **Rules:** Refusal codes share one namespace with error reasons.
+
 ### Replacement creation
 
 A new Create request presented as **Try again with changes** after a failed
@@ -191,6 +263,17 @@ An ordinary unassigned P branch preserved after its session is discarded.
   as source when creating a different new branch. It may also be listed,
   renamed, published, or deleted after loss review.
 - **Avoid:** `unassigned ref` when the user-facing concept is a branch.
+
+### Risky change
+
+A change that can lose work or replace something: discarding or deleting a
+session, deleting a project or a retained branch, publishing to an origin, or
+cleaning up or replacing a failed creation.
+
+- **Related:** [Dry run](#dry-run), [plan](#plan), [change tag](#change-tag).
+- **Rules:** Each risky change is one method called twice: a dry run that
+  returns its plan, then a run that carries out that plan only while its
+  change tag still matches.
 
 ### Runtime
 

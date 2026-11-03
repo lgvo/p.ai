@@ -13,7 +13,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-02, 8 cases:
+- Added 2026-11-01, updated 2026-11-03, 9 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -45,6 +45,15 @@
     step (image.go, image_release.go), which calls the narrow `runtimedriver.Images` and is
     unit-tested on an in-memory driver; that took the runtime from 25 methods and 63 calls to
     16 and 45.
+  - 2026-11-03: "risky changes confirmed with change tags" changed `processProjectDelete`'s
+    recovery, which meets "Fix when": it now stops a running session's container through the
+    concrete runtime's `StopForDiscardExact` before deleting it, and never issues that stop
+    twice. The runtime still has 16 methods and 45 calls. The new branches are decided in
+    `projectDeleteRuntimeDecision`, which needs no runtime, but the stop itself still runs
+    only against a real one. The plans of discard, delete, project deletion and failed-creation
+    cleanup and replacement read the concrete runtime too, so their unit tests reach only the
+    refusals found before that read; the VM scenarios cover the rest. Retained-branch
+    deletion's plan reads only Git and is unit-tested end to end.
 
 ## Long worker functions
 
@@ -56,7 +65,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 6 cases:
+- Added 2026-11-01, updated 2026-11-03, 7 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -74,6 +83,8 @@
   - 2026-11-03: "one image per source commit", moved onto step 3, put project deletion's
     image delete in `deleteProjectImage` and creation's image step in `ensureImage`:
     `processProjectDelete` went from 328 lines to 298 and `processCreation` from 300 to 285.
+  - 2026-11-03: "risky changes confirmed with change tags" grew `processProjectDelete` by 15
+    lines, to stop a running session's container before deleting it.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
@@ -81,14 +92,16 @@
   `active_assembled_cleanup`, `assembled_cleanup_guards`, the `assembled_cleanup_*`
   triggers, `assembled_cleanup_requires_creator`); commit_images.go `commitSessionsWhere`
 - Problem: SQL invariants read JSON evidence fields by name (`$.review.runtime`,
-  `$.review.old_operation_id`, `$.runtime_absent`, `$.captured_oid`) that mirror Go struct
-  tags.
-- Evidence: tags in create_cleanup.go, removal_preview.go and lifecycle_store.go.
+  `$.review.old_operation_id`, `$.review.old_request_sha256`, `$.runtime_absent`,
+  `$.local_complete`, `$.captured_oid`) that mirror Go struct tags.
+- Evidence: tags in internal/control create_cleanup.go (`CreateCleanupEvidence`) and
+  lifecycle_store.go (`CreationEvidence`), and in internal/api details.go
+  (`CreateCleanupDetails`, the cleanup evidence's `review`).
 - Risk: renaming an evidence field's tag silently disables an exclusion trigger.
 - Fix: a test that breaks each JSON-keyed trigger when its field is renamed.
 - Fix when: any change to an evidence struct those triggers read.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 4 cases:
+- Added 2026-11-01, updated 2026-11-03, 5 cases:
   - 2026-11-01: "complete rework of P's implementation" kept migrations unchanged.
   - 2026-11-02: "collapse the 21 migrations into one schema file" replaced the migrations
     with schema.sql, which ends the half of this entry about seeing the effective schema;
@@ -102,6 +115,12 @@
     without adding the test; its commit-image queries, which decide whether an image is
     still in use and guard its release, read `$.captured_oid` in SQL, so renaming that
     tag would let release delete images that sessions' commits still use.
+  - 2026-11-03: "risky changes confirmed with change tags" changed `CreateCleanupEvidence`,
+    which meets "Fix when", without adding the test: its `review` is now the cleanup plan's
+    details, `api.CreateCleanupDetails` in internal/api details.go, which dropped `uuid`,
+    `eligible`, `unsafe_reasons`, `loss_warnings` and the token fields. The fields the
+    triggers read keep their JSON names (`review.runtime`, `review.old_operation_id`,
+    `review.old_request_sha256`).
 
 ## Incus exec and HTTP access is hand-built in many places
 
@@ -132,37 +151,6 @@
     environment list. It added one more HTTP-over-socket client, builder.go `putStream`,
     which streams the source bundle into the builder: a change to how P reaches Incus that
     meets "Fix when", with consolidation outside the step.
-
-## Preview confirmation tokens are issued by copied code
-
-- Where: internal/daemon `PreviewRemoval`, `PreviewCreateReplace`, `PreviewRetainedDelete`,
-  `PreviewCreateCleanup`, `PreviewProjectDelete`
-- Problem: Each preview family issues its token, prunes expired entries, enforces its own
-  capacity (32 or 128) and checks the frame size with its own copy of the code and its own
-  map on `lifecycle`.
-- Evidence: five preview maps on `lifecycle`; each copy answers its full table on its own
-  (`retry`, reason `too_many_previews`).
-- Risk: a fix to token issue or expiry reaches one family and misses the others.
-- Fix: one preview-book type with an instance per family carrying its TTL, capacity and error.
-- Fix when: the previews' facts can be produced in unit tests (with the worker interfaces
-  above), so each family's saturation can be characterized first.
-- Left by: the agent, by rule (a restructuring not pursued; the plan review cut it because its
-  behavior cannot be characterized before the change).
-- Added 2026-11-01, updated 2026-11-03, 8 cases:
-  - 2026-11-01: "complete rework of P's implementation" cut it from step 5 after review.
-  - 2026-11-02: "recover from a panic in a request handler" had to make the same lock change
-    in each copy: the token read in all ten, the token delete in nine, the insert in seven.
-  - 2026-11-02: "remove `workspace.inspect` and `environment.cache.*`" removed
-    `PreviewEnvironmentCollection` and its map; nine families remain.
-  - 2026-11-02: "remove session repair" removed the four repair preview families and their
-    maps; five families remain.
-  - 2026-11-02: "deletions without inspection" removed the loss inspection's expiry bound
-    from `PreviewRemoval` and `PreviewProjectDelete`; each family still issues its own token.
-  - 2026-11-03: "errors that name the next step" typed each family's token refusals
-    (`expired`, `changed`) and its full-table refusal in each copy.
-  - 2026-11-03: "one image per source commit", moved onto step 3, moved
-    `PreviewProjectDelete`'s frame check into `boundProjectDeleteReview` beside the
-    evidence bound; the family still issues and stores its own token.
 
 ## Trusted configuration and the RPC server live in the store package
 

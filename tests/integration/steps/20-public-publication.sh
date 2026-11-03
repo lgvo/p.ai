@@ -70,13 +70,16 @@ trap 'on_error "$?" "$LINENO"' ERR
 
 # expect_error KIND REASON METHOD PARAMS [NAME=VALUE]: the request is refused
 # with error kind KIND (the error's message), its code and data.reason
-# REASON; NAME=VALUE also checks data.NAME, such as field=key.
+# REASON, or no data when REASON is empty; NAME=VALUE also checks data.NAME,
+# such as field=key.
 expect_error() {
   local kind="$1" reason="$2" method="$3" params="$4" detail="${5:-}" code response status
   case "$kind" in
+    method_not_found) code=-32601 ;;
     invalid) code=-32602 ;;
     conflict) code=-32011 ;;
     precondition_failed) code=-32013 ;;
+    precondition_required) code=-32014 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
@@ -88,7 +91,8 @@ expect_error() {
   jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" \
     --arg name "${detail%%=*}" --arg value "${detail#*=}" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.message==$kind and .error.code==$code and .error.data.reason==$reason and
+     .error.message==$kind and .error.code==$code and
+     (if $reason=="" then (.error|has("data")|not) else .error.data.reason==$reason end) and
      ($name=="" or .error.data[$name]==$value)' \
     <<< "$response" >/dev/null
 }
@@ -288,7 +292,18 @@ change() {
   rpc origin.change "$(jq -nc --arg key "$1" --arg old "$2" --arg url "$3" \
     '{key:$key,project:"publication",kind:"set",expected_url:$old,url:$url}')"
 }
-# publish REQUEST STATUS: sends origin.publish REQUEST and prints the
+tag_pattern='^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$'
+# tagged REQUEST: origin.publish REQUEST, which has its key, with the change
+# tag of its dry run (REQUEST without its key) added: the run of REQUEST. The
+# dry run's plan must be allowed.
+tagged() {
+  local plan tag
+  plan=$(rpc origin.publish "$(jq -c 'del(.key)' <<< "$1")") || return 1
+  tag=$(jq -er --arg tag "$tag_pattern" \
+    '.result | select(.plan.allowed==true) | .change_tag | select(test($tag))' <<< "$plan") || return 1
+  jq -c --arg tag "$tag" '. + {if_match:$tag}' <<< "$1"
+}
+# publish RUN STATUS: sends RUN, a run of origin.publish, and prints the
 # operation.wait answer once its operation reaches STATUS.
 publish() {
   local answer id
@@ -296,23 +311,37 @@ publish() {
   id=$(operation_id "$answer") || return 1
   wait_operation "$id" "$2"
 }
-preview_request=$(request '' session "$uuid" refs/heads/main)
+plan_request=$(request '' session "$uuid" refs/heads/main)
 trace_before=$(wc -l < "$trace")
-expect_error invalid param origin.publication.preview "$(jq 'del(.expected_origin_url)' <<< "$preview_request")" \
+# Publication is one method: its separate preview is gone.
+expect_error method_not_found '' origin.publication.preview "$plan_request"
+expect_error invalid param origin.publish "$(jq 'del(.expected_origin_url)' <<< "$plan_request")" \
   field=expected_origin_url
-expect_error conflict branch_assigned origin.publication.preview "$(request '' retained work refs/heads/main)" \
-  target=project/publication:branch/work
+# A branch a session holds is not a retained source: the plan is refused,
+# about that branch, before the origin is contacted, and has no change tag.
+rpc origin.publish "$(request '' retained work refs/heads/main)" | jq -e '.result |
+  (has("change_tag") or has("operation") | not) and (.plan | .action=="origin.publish" and
+    .target=="project/publication:origin-branch/main" and .allowed==false and
+    .refusals==[{code:"branch_assigned",target:"project/publication:branch/work"}])' >/dev/null
 test "$(wc -l < "$trace")" -eq "$trace_before"
-rpc origin.publication.preview "$preview_request" | jq -e --arg oid "$source" --arg first "$first" \
-  --arg uuid "$uuid" --arg url "$full_url" '.result.preview |
-  .url==$url and .source_kind=="session" and .source==$uuid and .source_ref=="refs/heads/work" and
-  .source_oid==$oid and .destination_oid==$first and .relation=="fast_forward" and .workspace_status=="unknown"' >/dev/null
-publish_request=$(request publish-session session "$uuid" refs/heads/main)
+planned=$(rpc origin.publish "$plan_request")
+jq -e --arg oid "$source" --arg first "$first" --arg uuid "$uuid" --arg url "$full_url" \
+  --arg tag "$tag_pattern" '.result | (.change_tag | test($tag)) and (has("operation")|not) and
+  (.plan | .action=="origin.publish" and .target=="project/publication:origin-branch/main" and
+    .allowed==true and .refusals==[] and .loss==[] and .gone==[] and (.details |
+    .project=="publication" and .url==$url and .source_kind=="session" and .source==$uuid and
+    .source_ref=="refs/heads/work" and .source_oid==$oid and .destination_ref=="refs/heads/main" and
+    .destination_oid==$first and .relation=="fast_forward" and .workspace_status=="unknown"))' \
+  <<< "$planned" >/dev/null
+publish_tag=$(jq -er '.result.change_tag' <<< "$planned")
+# The run repeats the dry run's params with a key and the plan's tag.
+publish_request=$(request publish-session session "$uuid" refs/heads/main | jq -c --arg tag "$publish_tag" '. + {if_match:$tag}')
 receives_before=$(receive_count)
 accepted=$(rpc origin.publish "$publish_request")
-jq -e --arg uuid "$uuid" '.result.operation | .kind=="origin.publish" and .status=="running" and
-  .session_uuid==$uuid and
-  .intent=={project:"publication",session:$uuid,branch:"work",destination:"refs/heads/main"}' <<< "$accepted" >/dev/null
+jq -e --arg uuid "$uuid" --arg tag "$publish_tag" '.result | (has("plan") or has("change_tag") | not) and
+  (.operation | .kind=="origin.publish" and .status=="running" and
+  .session_uuid==$uuid and .request.key=="publish-session" and .request.if_match==$tag and
+  .intent=={project:"publication",session:$uuid,branch:"work",destination:"refs/heads/main"})' <<< "$accepted" >/dev/null
 published=$(wait_operation "$(operation_id "$accepted")" completed)
 jq -e --arg oid "$source" '.result.operation.evidence.publication | .status=="advanced" and .preview.source_oid==$oid' \
   <<< "$published" >/dev/null
@@ -325,20 +354,33 @@ trace_before=$(wc -l < "$trace")
 test "$(rpc origin.publish "$publish_request" | jq -c '.result')" = "$(jq -c '.result' <<< "$published")"
 test "$(wc -l < "$trace")" -eq "$trace_before"
 
-publish "$(request publish-retained retained a-retained refs/heads/new)" completed | jq -e '.result.operation |
+run=$(tagged "$(request publish-retained retained a-retained refs/heads/new)")
+publish "$run" completed | jq -e '.result.operation |
   .intent=={project:"publication",branch:"a-retained",destination:"refs/heads/new"} and
   .evidence.publication.status=="created" and .evidence.publication.preview.source_kind=="retained"' >/dev/null
 test "$(git -C "$full" rev-parse refs/heads/new)" = "$source"
+# A divergent destination is refused by the plan: there is no change tag and
+# nothing to run. A run with any tag plans again and is refused as changed. No
+# operation is recorded and nothing is pushed.
 receives_before=$(receive_count)
-publish "$(request refuse-divergent retained a-retained refs/heads/divergent)" completed | jq -e \
-  '.result.operation.evidence.publication | .status=="refused" and .preview.relation=="divergent"' >/dev/null
+operations_before=$(rpc system.inspect | jq -er '.result.operations')
+divergent_request=$(request '' retained a-retained refs/heads/divergent)
+rpc origin.publish "$divergent_request" | jq -e --arg oid "$source" --arg divergent "$divergent" '.result |
+  (has("change_tag") or has("operation") | not) and (.plan | .action=="origin.publish" and
+    .target=="project/publication:origin-branch/divergent" and .allowed==false and
+    .refusals==[{code:"destination_divergent"}] and (.details |
+    .source_kind=="retained" and .source=="a-retained" and .source_ref=="refs/heads/a-retained" and
+    .source_oid==$oid and .destination_oid==$divergent and .relation=="divergent"))' >/dev/null
+expect_error precondition_failed changed origin.publish "$(jq -c --arg tag "20991231T000000Z-$(printf '%064d' 0)" \
+  '. + {key:"refuse-divergent",if_match:$tag}' <<< "$divergent_request")"
+test "$(rpc system.inspect | jq -er '.result.operations')" -eq "$operations_before"
 test "$(receive_count)" -eq "$receives_before"
 test "$(git -C "$full" rev-parse refs/heads/divergent)" = "$divergent"
 
 # A server-accepted push with lost success ends failed as unknown and never
 # auto-replays.
 : > "$lost_marker"
-uncertain_request=$(request uncertain retained a-retained refs/heads/uncertain)
+uncertain_request=$(tagged "$(request uncertain retained a-retained refs/heads/uncertain)")
 uncertain=$(publish "$uncertain_request" failed)
 jq -e '.result.operation | .reason=="outcome_unknown" and .phase=="push-issued" and
   .evidence.publication.status=="outcome_unknown"' <<< "$uncertain" >/dev/null
@@ -351,13 +393,17 @@ start_daemon
 trace_before=$(wc -l < "$trace")
 test "$(rpc origin.publish "$uncertain_request" | jq -c '.result')" = "$(jq -c '.result' <<< "$uncertain")"
 test "$(wc -l < "$trace")" -eq "$trace_before"
-publish "$(request confirm-uncertain retained a-retained refs/heads/uncertain)" completed | jq -e \
+run=$(tagged "$(request confirm-uncertain retained a-retained refs/heads/uncertain)")
+publish "$run" completed | jq -e \
   '.result.operation.evidence.publication | .status=="satisfied" and .preview.relation=="equal"' >/dev/null
 test "$(receive_count)" -eq "$((receives_before+1))"
 
-# Review one origin, replace it, then reject the stale action before any contact.
-stale_preview=$(request '' session "$uuid" refs/heads/reviewed)
-rpc origin.publication.preview "$stale_preview" | jq -e '.result.preview.relation=="absent"' >/dev/null
+# Plan against one origin, replace it, then reject the stale dry run and run
+# before any contact.
+stale_request=$(request '' session "$uuid" refs/heads/reviewed)
+stale_plan=$(rpc origin.publish "$stale_request")
+jq -e '.result.plan | .allowed==true and .details.relation=="absent"' <<< "$stale_plan" >/dev/null
+stale_tag=$(jq -er '.result.change_tag' <<< "$stale_plan")
 replaced=$(change replace-origin "$full_url" "$empty_url")
 wait_operation "$(operation_id "$replaced")" completed >/dev/null
 stop_process "$daemon_pid"
@@ -365,13 +411,13 @@ daemon_pid=
 start_daemon
 trace_before=$(wc -l < "$trace")
 operations_before=$(rpc system.inspect | jq -er '.result.operations')
-expect_error precondition_failed changed origin.publication.preview "$stale_preview"
-stale_publish=$(request stale-origin session "$uuid" refs/heads/reviewed)
+expect_error precondition_failed changed origin.publish "$stale_request"
+stale_publish=$(request stale-origin session "$uuid" refs/heads/reviewed | jq -c --arg tag "$stale_tag" '. + {if_match:$tag}')
 expect_error precondition_failed changed origin.publish "$stale_publish"
 # The refused publication records nothing, while a recorded key cannot be
 # retargeted to the replacement URL, even after the restart.
-expect_error invalid key_reused origin.publish "$(request publish-session session "$uuid" refs/heads/main "$empty_url")" \
-  field=key
+expect_error invalid key_reused origin.publish "$(request publish-session session "$uuid" refs/heads/main "$empty_url" |
+  jq -c --arg tag "$publish_tag" '. + {if_match:$tag}')" field=key
 test "$(rpc system.inspect | jq -er '.result.operations')" -eq "$operations_before"
 test "$(wc -l < "$trace")" -eq "$trace_before"
 test -z "$(git -C "$empty" for-each-ref --format='%(refname)')"

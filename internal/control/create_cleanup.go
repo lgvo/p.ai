@@ -77,13 +77,18 @@ func SafeCreateCleanupPhase(op api.Operation) bool {
 	return op.Phase == "source-ready" && !op.Committed || (op.Phase == "branch-assigned" || op.Phase == "principals-ready") && op.Committed
 }
 
+// CreateCleanupEvidence is a cleanup's planned details, which its worker
+// checks again, and its progress. Schema triggers read Review's runtime,
+// old_operation_id and old_request_sha256 by these JSON names.
 type CreateCleanupEvidence struct {
-	Review        api.CreateCleanupPreview `json:"review"`
+	Review        api.CreateCleanupDetails `json:"review"`
 	InstanceUUID  string                   `json:"instance_uuid"`
 	LocalComplete bool                     `json:"local_complete,omitempty"`
 	RuntimeAbsent bool                     `json:"runtime_absent,omitempty"`
 }
+
+// CreateCleanupAPI cleans up failed creations, a risky change: a dry run
+// plans it, and a run with the plan's change tag records its operation.
 type CreateCleanupAPI interface {
-	PreviewCreateCleanup(context.Context, string) (api.CreateCleanupPreview, error)
-	ConfirmCreateCleanup(context.Context, string, string, string) (api.Operation, error)
+	CleanupCreation(ctx context.Context, uuid string, req api.ChangeRequest) (api.ChangeResult[api.CreateCleanupDetails], error)
 }

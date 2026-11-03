@@ -298,7 +298,7 @@ func TestOriginOperationsNameTheirIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkIntent(t, s, remove, api.OperationIntent{Project: "app"})
-	session, err := a.Publish(ctx, r)
+	session, _, err := publish(a, r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,13 +308,14 @@ func TestOriginOperationsNameTheirIntent(t *testing.T) {
 	}
 	retained := r
 	retained.Key, retained.Kind, retained.Source, retained.DestinationRef = "retained", "retained", "kept", "refs/heads/release"
-	kept, err := a.Publish(ctx, retained)
+	kept, _, err := publish(a, retained)
 	if err != nil {
 		t.Fatal(err)
 	}
 	checkIntent(t, s, kept, api.OperationIntent{Project: "app", Branch: "kept", Destination: "refs/heads/release"})
-	if kept.SessionUUID != "" || f.observes != 0 || f.pushes != 0 {
-		t.Fatalf("retained publication %+v, or accepting contacted the origin (observes %d, pushes %d)", kept, f.observes, f.pushes)
+	// Each dry run and run reads the origin; nothing runs the workers.
+	if kept.SessionUUID != "" || f.observes != 4 || f.pushes != 0 {
+		t.Fatalf("retained publication %+v, or accepting pushed (observes %d, pushes %d)", kept, f.observes, f.pushes)
 	}
 }
 

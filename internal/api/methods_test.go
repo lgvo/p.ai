@@ -70,6 +70,13 @@ func writeFields(b *strings.Builder, t reflect.Type, indent string, open map[ref
 		if !f.IsExported() || name == "-" {
 			continue
 		}
+		if f.Anonymous && name == "" {
+			// encoding/json lifts an embedded struct's fields.
+			delete(open, t)
+			writeFields(b, f.Type, indent, open)
+			open[t] = true
+			continue
+		}
 		var marks []string
 		if len(parts) > 1 && parts[1] == "omitempty" {
 			marks = append(marks, "optional")

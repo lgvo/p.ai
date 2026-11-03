@@ -74,10 +74,6 @@ func ValidUUID(value string) bool {
 	return true
 }
 
-// ValidToken reports whether value is a confirmation token: 32 lowercase hex
-// digits.
-func ValidToken(value string) bool { return len(value) == 32 && lowerHex(value) }
-
 // ValidFingerprint reports whether s is a SHA-256 digest in lowercase hex.
 func ValidFingerprint(s string) bool { return len(s) == 64 && lowerHex(s) }
 
@@ -122,17 +118,6 @@ func validBranchPage(project, after string, limit int) error {
 		return invalid("limit")
 	case !validBranchCursor(after):
 		return invalid("after")
-	}
-	return nil
-}
-
-// validConfirmation checks a confirmation's key and token.
-func validConfirmation(key, token string) error {
-	switch {
-	case !validKey(key):
-		return invalid("key")
-	case !ValidToken(token):
-		return invalid("confirmation_token")
 	}
 	return nil
 }

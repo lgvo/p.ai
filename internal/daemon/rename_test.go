@@ -2,7 +2,10 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -129,25 +132,87 @@ func TestRetainedRenameRefusalsNameTheirKind(t *testing.T) {
 	wantRefusal(t, "reserved new name", err, api.KindConflict, api.ReasonBranchReserved, "project/app:branch/archive")
 }
 
-func TestRetainedDeleteRefusalsNameTheirKind(t *testing.T) {
-	l, store, _, _ := retainedFixture(t)
+// TestRetainedDeleteDryRunAndRun checks a retained branch's deletion through
+// its two calls on real Git: the dry run plans it, lists the commits that
+// leave P as certain loss and changes nothing; the run with its tag records
+// the deletion once; a changed branch, an expired tag or a missing tag
+// refuse the run; refusals are in the plan, and unknown records are errors.
+func TestRetainedDeleteDryRunAndRun(t *testing.T) {
+	l, store, repo, tip := retainedFixture(t)
+	l.instanceID = "11111111-1111-4111-8111-111111111111"
 	ctx := context.Background()
 	holdBranch(t, store, "held")
-	_, err := l.PreviewRetainedDelete(ctx, "app", "held")
-	wantRefusal(t, "assigned branch", err, api.KindConflict, api.ReasonBranchAssigned, "project/app:branch/held")
-	_, err = l.PreviewRetainedDelete(ctx, "app", "absent")
+	tree := dispatchGit(t, repo, "mktree")
+	own := dispatchGit(t, repo, "-c", "user.name=P fixture", "-c", "user.email=p@example.test", "commit-tree", tree, "-p", tip, "-m", "only on saved")
+	dispatchGit(t, repo, "update-ref", "refs/heads/saved", own)
+	dryRun := func(branch string) (api.ChangeResult[api.RetainedDeleteDetails], error) {
+		return l.DeleteRetainedBranch(ctx, "app", branch, api.ChangeRequest{})
+	}
+
+	plan, err := dryRun("saved")
+	p := plan.Plan
+	if err != nil || p == nil || !p.Allowed || plan.ChangeTag == "" || p.Action != "project.retained.delete" || p.Target != "project/app:branch/saved" ||
+		p.Details.Tip != own || p.Details.Ref != "refs/heads/saved" || p.Details.BranchLoss == nil ||
+		!reflect.DeepEqual(p.Loss, []api.Loss{{Kind: api.LossPCommits, Target: "project/app:branch/saved", Count: 1, Sample: []string{own}, Certain: true}}) || len(p.Gone) != 0 {
+		t.Fatalf("plan: %+v %v", plan, err)
+	}
+	if raw, _ := json.Marshal(p.Details); strings.Contains(string(raw), "origin") {
+		t.Fatalf("the plan reads the origin: %s", raw)
+	}
+	if again, err := dryRun("saved"); err != nil || !reflect.DeepEqual(again.Plan, p) {
+		t.Fatalf("a second dry run of the same state: %+v %v", again, err)
+	}
+	if got := dispatchGit(t, repo, "rev-parse", "refs/heads/saved"); got != own {
+		t.Fatalf("the dry run moved the branch to %s", got)
+	}
+	if _, err = store.GetOperationByKey(ctx, "delete"); !errors.Is(err, control.ErrNotFound) {
+		t.Fatalf("the dry run recorded an operation: %v", err)
+	}
+
+	held, err := dryRun("held")
+	if err != nil || held.Plan.Allowed || held.ChangeTag != "" || !reflect.DeepEqual(held.Plan.Refusals, []api.Refusal{{Code: api.ReasonBranchAssigned}}) {
+		t.Fatalf("an assigned branch's plan: %+v %v", held, err)
+	}
+	_, err = dryRun("absent")
 	wantRefusal(t, "missing branch", err, api.KindNotFound, api.ReasonBranch, "project/app:branch/absent")
-	_, err = l.PreviewRetainedDelete(ctx, "gone", "saved")
+	_, err = l.DeleteRetainedBranch(ctx, "gone", "saved", api.ChangeRequest{})
 	wantRefusal(t, "missing project", err, api.KindNotFound, api.ReasonProject, "project/gone")
-	token := strings.Repeat("d", 32)
-	_, err = l.ConfirmRetainedDelete(ctx, "delete", "app", "saved", token)
-	wantRefusal(t, "unknown token", err, api.KindPreconditionFailed, api.ReasonExpired, "")
-	l.retainedDeletePreviews = map[string]retainedDeletePreviewState{token: {
-		Preview: api.RetainedDeletePreview{Project: "app", Branch: "saved"}, Expiry: time.Now().Add(-time.Second)}}
-	_, err = l.ConfirmRetainedDelete(ctx, "delete", "app", "saved", token)
-	wantRefusal(t, "expired token", err, api.KindPreconditionFailed, api.ReasonExpired, "")
-	l.retainedDeletePreviews = map[string]retainedDeletePreviewState{token: {
-		Preview: api.RetainedDeletePreview{Project: "app", Branch: "other"}, Expiry: time.Now().Add(time.Minute)}}
-	_, err = l.ConfirmRetainedDelete(ctx, "delete", "app", "saved", token)
-	wantRefusal(t, "token of another branch", err, api.KindPreconditionFailed, api.ReasonChanged, "")
+
+	_, err = l.DeleteRetainedBranch(ctx, "app", "saved", api.ChangeRequest{Key: "delete"})
+	if !reflect.DeepEqual(err, api.PreconditionRequired()) {
+		t.Fatalf("a run without its tag answered %v", err)
+	}
+	_, err = l.DeleteRetainedBranch(ctx, "app", "saved", api.ChangeRequest{Key: "delete", IfMatch: futureTag(-time.Second)})
+	wantRefusal(t, "an expired tag", err, api.KindPreconditionFailed, api.ReasonExpired, "")
+	_, err = l.DeleteRetainedBranch(ctx, "app", "taken", api.ChangeRequest{Key: "delete", IfMatch: plan.ChangeTag})
+	wantRefusal(t, "the tag of another branch", err, api.KindPreconditionFailed, api.ReasonChanged, "")
+	dispatchGit(t, repo, "update-ref", "refs/heads/saved", tip)
+	_, err = l.DeleteRetainedBranch(ctx, "app", "saved", api.ChangeRequest{Key: "delete", IfMatch: plan.ChangeTag})
+	wantRefusal(t, "a moved branch", err, api.KindPreconditionFailed, api.ReasonChanged, "")
+	if _, err = store.GetOperationByKey(ctx, "delete"); !errors.Is(err, control.ErrNotFound) {
+		t.Fatalf("a refused run recorded an operation: %v", err)
+	}
+
+	dispatchGit(t, repo, "update-ref", "refs/heads/saved", own)
+	run := api.ChangeRequest{Key: "delete", IfMatch: plan.ChangeTag}
+	result, err := l.DeleteRetainedBranch(ctx, "app", "saved", run)
+	if err != nil || result.Operation == nil || result.Plan != nil || result.Operation.Kind != control.KindRetainedDelete || result.Operation.Phase != "guarded" {
+		t.Fatalf("run: %+v %v", result, err)
+	}
+	var recorded control.RetainedDeleteRequest
+	if err = json.Unmarshal(result.Operation.Request, &recorded); err != nil || recorded != (control.RetainedDeleteRequest{Key: "delete", Project: "app", Branch: "saved", IfMatch: plan.ChangeTag}) {
+		t.Fatalf("recorded request %s: %v", result.Operation.Request, err)
+	}
+	if replay, err := l.DeleteRetainedBranch(ctx, "app", "saved", run); err != nil || replay.Operation.ID != result.Operation.ID {
+		t.Fatalf("replay: %+v %v", replay, err)
+	}
+	other, _ := dryRun("taken")
+	_, err = l.DeleteRetainedBranch(ctx, "app", "taken", api.ChangeRequest{Key: "delete", IfMatch: other.ChangeTag})
+	wantRefusal(t, "the key of another run", err, api.KindInvalid, api.ReasonKeyReused, "")
+	// The recorded deletion guards its branch until it ends: another plan of
+	// it is refused.
+	guarded, err := dryRun("saved")
+	if err != nil || guarded.Plan.Allowed || guarded.ChangeTag != "" || !reflect.DeepEqual(guarded.Plan.Refusals, []api.Refusal{{Code: api.ReasonBranchReserved}}) {
+		t.Fatalf("a guarded branch's plan: %+v %v", guarded, err)
+	}
 }

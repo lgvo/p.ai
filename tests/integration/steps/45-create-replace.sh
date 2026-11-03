@@ -45,10 +45,11 @@ cleanup() {
 }
 on_error() {
   printf 'P_CREATE_REPLACE_FAIL line=%s status=%s\n' "$2" "$1" >&2
-  if test -n "${preview:-}"; then
-    jq -c '.result.preview | {eligible,old_status,old_phase,
-      unsafe_reasons:((.unsafe_reasons // [])[:8]),provisional}' \
-      <<< "$preview" | head -c 2048 >&2 || true
+  if test -n "${plan:-}"; then
+    jq -c '.result | {allowed:.plan.allowed,refusals:((.plan.refusals // [])[:8]),
+      has_change_tag:has("change_tag"),old_status:.plan.details.old_status,
+      old_phase:.plan.details.old_phase,provisional:.plan.details.provisional}' \
+      <<< "$plan" | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
   timeout 5 p api "$socket" operation.list '{"limit":20}' >&2 || true
@@ -281,46 +282,65 @@ test ! -e "$state/session_keys/$old_uuid"
 test ! -e "$endpoint_prefix/$old_uuid"
 inc list --format json | jq -e --arg name "p-$old_uuid" 'all(.[];.name!=$name)' >/dev/null
 
-preview_replace() {
-  rpc session.create.replace.preview "$(jq -nc --arg uuid "$old_uuid" --arg key "$1" \
-    '{old_uuid:$uuid,key:$key,project:"replacement",branch:"work",choice:"existing"}')"
+# plan_replace: the replacement's dry run. run_params KEY TAG: its run's
+# params, the same plus the key, which is also the new creation's, and the
+# dry run's change tag.
+plan_replace() {
+  rpc session.create.replace "$(jq -nc --arg uuid "$old_uuid" \
+    '{old_uuid:$uuid,project:"replacement",branch:"work",choice:"existing"}')"
 }
-confirm_replace() {
-  rpc session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg token "$2" \
-    '{old_uuid:$uuid,key:$key,confirmation_token:$token}')"
+run_params() {
+  jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg tag "$2" \
+    '{old_uuid:$uuid,project:"replacement",branch:"work",choice:"existing",key:$key,if_match:$tag}'
 }
-# Unsupported new-branch replacement receives an inspectable refusal, no token.
-rpc session.create.replace.preview "$(jq -nc --arg uuid "$old_uuid" \
-  '{old_uuid:$uuid,key:"unsupported",project:"replacement",branch:"other",choice:"new",source:"refs/heads/main"}')" |
-  jq -e '.result.preview | .eligible==false and (.unsafe_reasons|index("unsupported_replacement_choice")!=null) and (has("confirmation_token")|not)' >/dev/null
-preview=$(preview_replace changed-create)
+run_replace() { rpc session.create.replace "$(run_params "$1" "$2")"; }
+change_tag() { jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$1"; }
+# Unsupported new-branch replacement is refused in its plan, with no tag.
+rpc session.create.replace "$(jq -nc --arg uuid "$old_uuid" \
+  '{old_uuid:$uuid,project:"replacement",branch:"other",choice:"new",source:"refs/heads/main"}')" |
+  jq -e '.result | (has("change_tag")|not) and .plan.allowed==false and
+   any(.plan.refusals[]; .code=="unsupported_replacement_choice")' >/dev/null
+plan=$(plan_replace)
 jq -e --arg uuid "$old_uuid" --arg id "$old_id" --arg old "$first" --arg new "$second" '
- .result.preview | .eligible==true and .old_uuid==$uuid and .old_operation_id==$id and
- .old_request.key=="old-create" and .old_captured_oid==$old and .new_captured_oid==$new and
- .old_policy_sha256==.new_policy_sha256 and .new_request.key=="changed-create" and
- .provisional=={assigned_ref:"preserved_existing",runtime:"absent",builder:"absent",session_key:"absent",endpoint:"absent",principal:"absent",runtime_local:"unavailable"} and
- (.confirmation_token|test("^[0-9a-f]{32}$"))' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-# Positive no-effect facts are rechecked at confirmation, including unexpected keys.
+ .result | (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and
+ (.plan | .action=="session.create.replace" and .target==("session/"+$uuid) and
+  .allowed==true and .refusals==[] and .loss==[] and .gone==[] and
+  (.details | .old_operation_id==$id and
+   .old_request.key=="old-create" and .old_captured_oid==$old and .new_captured_oid==$new and
+   .old_policy_sha256==.new_policy_sha256 and
+   .new_request=={project:"replacement",branch:"work",choice:"existing"} and
+   .provisional=={assigned_ref:"preserved_existing",runtime:"absent",builder:"absent",session_key:"absent",endpoint:"absent",principal:"absent",runtime_local:"unavailable"}))' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
+# Positive no-effect facts are planned again at the run, including unexpected
+# keys: the plan refuses, so the run is stale and records nothing.
 printf unexpected > "$state/session_keys/$old_uuid"
-expect_error precondition_failed changed session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
+plan_replace | jq -e '.result | (has("change_tag")|not) and .plan.allowed==false and
+  any(.plan.refusals[]; .code=="provisional_resource_unavailable")' >/dev/null
+expect_error precondition_failed changed session.create.replace "$(run_params changed-create "$tag")"
 test "$(cat "$state/session_keys/$old_uuid")" = unexpected
 rm "$state/session_keys/$old_uuid"
-# A moved tip invalidates the token before supersession or a new reservation.
+# A moved tip makes the run stale before supersession or a new reservation.
 "$host_git" -C "$repo" update-ref refs/heads/work "$third" "$second"
-expect_error precondition_failed changed session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
+expect_error precondition_failed changed session.create.replace "$(run_params changed-create "$tag")"
 inspect_operation "$old_id" | jq -e '.result.operation.status=="blocked"' >/dev/null
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$third"
-# Unconsumed previews expire on daemon restart. The real blocked request remains.
+# A tag past its expiry is refused before planning.
+expect_error precondition_failed expired session.create.replace \
+  "$(run_params changed-create "20000101T000000Z-$(printf '%064d' 0)")"
+# The daemon keeps nothing between the dry run and the run: a tag planned
+# before a restart runs after it. The real blocked request remains until then.
+plan=$(plan_replace)
+tag=$(change_tag "$plan")
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-expect_error precondition_failed expired session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
-preview=$(preview_replace changed-create)
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-confirmed=$(confirm_replace changed-create "$token")
-new_id=$(operation_id "$confirmed")
-new_uuid=$(session_uuid "$confirmed")
+inspect_operation "$old_id" | jq -e '.result.operation.status=="blocked"' >/dev/null
+ran=$(run_replace changed-create "$tag")
+# The run's key is the new creation's: the answer is its session.create.
+jq -e '.result | (has("plan")|not) and (has("change_tag")|not) and
+  (.operation | .kind=="session.create" and .idempotency_key=="changed-create" and .request.key=="changed-create")' <<< "$ran" >/dev/null
+new_id=$(operation_id "$ran")
+new_uuid=$(session_uuid "$ran")
 sessions+=("$new_uuid")
 test "$new_uuid" != "$old_uuid"
 test "$new_id" != "$old_id"
@@ -333,7 +353,7 @@ jq -e --arg uuid "$old_uuid" --arg id "$old_id" --arg oid "$second" '
 inspect_operation "$old_id" | jq -e '.result.operation | .status=="superseded" and .phase=="superseded"' >/dev/null
 expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
-test "$(operation_id "$(confirm_replace changed-create "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace changed-create "$tag")")" = "$new_id"
 test "$(exec_p "$new_uuid" git rev-parse HEAD)" = "$second"
 test "$("$host_git" -C "$repo" rev-parse refs/heads/work)" = "$second"
 test "$("$host_git" -C "$repo" rev-parse refs/heads/main)" = "$first"
@@ -350,7 +370,7 @@ inc list --format json | jq -e --arg old "p-$old_uuid" --arg new "p-$new_uuid" '
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-test "$(operation_id "$(confirm_replace changed-create "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace changed-create "$tag")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
 wait_ready "$new_uuid"

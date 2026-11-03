@@ -54,10 +54,11 @@ cleanup() {
 }
 on_error() {
   printf 'P_FAILED_CREATE_CLEANUP_FAIL line=%s status=%s\n' "$2" "$1" >&2
-  if test -n "${preview:-}"; then
-    jq -c '.result.preview | {eligible,old_status,old_phase,
-      unsafe_reasons:((.unsafe_reasons // [])[:8]),provisional}' \
-      <<< "$preview" | head -c 2048 >&2 || true
+  if test -n "${plan:-}"; then
+    jq -c '.result | {allowed:.plan.allowed,refusals:((.plan.refusals // [])[:8]),
+      has_change_tag:has("change_tag"),old_status:.plan.details.old_status,
+      old_phase:.plan.details.old_phase,provisional:.plan.details.provisional}' \
+      <<< "$plan" | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
   timeout 5 p api "$socket" operation.list '{"limit":20}' >&2 || true
@@ -268,12 +269,14 @@ key_before=$(sha256sum "$state/session_keys/$sibling" | cut -d' ' -f1)
 exec_p "$sibling" /run/current-system/sw/bin/bash -c 'printf dummy-private > /home/p/replacement-private; chmod 0600 /home/p/replacement-private; printf dirty > sibling-dirty; mkdir -p /home/p/.config/p-fixture; printf fixture-credential > /home/p/.config/p-fixture/credential; chmod 0600 /home/p/.config/p-fixture/credential'
 
 
-preview_replace() { rpc session.create.replace.preview "$1"; }
-preview_params() {
-  jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg branch "$2" --arg choice "$3" --arg source "$4" \
-    '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
+# replace_params BRANCH CHOICE SOURCE: a replacement's dry-run params.
+plan_replace() { rpc session.create.replace "$1"; }
+replace_params() {
+  jq -nc --arg uuid "$old_uuid" --arg branch "$1" --arg choice "$2" --arg source "$3" \
+    '{old_uuid:$uuid,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
+change_tag() { jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$1"; }
 # No build runs whenever this is called, so no builder may exist at all: the
 # old creation's builders are named by build references derived from its
 # operation and cycle.
@@ -316,44 +319,53 @@ test "$(instance_images)" = '[]'
 images_before=$(inc image list --format json | jq -c '[.[].fingerprint]|sort')
 # Corrected committed source still cannot be integrated replacement of builder history.
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$bad_tip"
-preview=$(preview_replace "$(preview_params corrected work existing '')")
-jq -e '.result.preview | .eligible==false and (has("confirmation_token")|not)' <<< "$preview" >/dev/null
+plan=$(plan_replace "$(replace_params work existing '')")
+jq -e '.result | .plan.allowed==false and (has("change_tag")|not)' <<< "$plan" >/dev/null
 "$host_git" -C "$repo" update-ref refs/heads/work "$bad_tip" "$second"
-cleanup_preview() { rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$old_uuid" '{uuid:$uuid}')"; }
-cleanup_params() { jq -nc --arg uuid "$old_uuid" --arg token "$1" '{uuid:$uuid,key:"cleanup-bad-nix",confirmation_token:$token}'; }
-preview=$(cleanup_preview)
-jq -e --arg oid "$bad_tip" '.result.preview | .eligible==true and
+# plan_cleanup: the cleanup's dry run. cleanup_params TAG: its run's params,
+# the same plus the key and the dry run's change tag.
+plan_cleanup() { rpc session.create.cleanup "$(jq -nc --arg uuid "$old_uuid" '{uuid:$uuid}')"; }
+cleanup_params() { jq -nc --arg uuid "$old_uuid" --arg tag "$1" '{uuid:$uuid,key:"cleanup-bad-nix",if_match:$tag}'; }
+plan=$(plan_cleanup)
+jq -e --arg oid "$bad_tip" --arg uuid "$old_uuid" '.result | (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and
+ (.plan | .action=="session.create.cleanup" and .target==("session/"+$uuid) and
+ .allowed==true and .refusals==[] and .loss==[] and .gone==[] and (.details |
  .assigned_branch.oid==$oid and .environment_builder=={cycle:1,state:"absent"} and
  .provisional.runtime=="absent" and .provisional.builder=="absent" and
- .provisional.runtime_local=="unavailable" and .external_mounts=="preserved" and .shared_images=="preserved"' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+ .provisional.runtime_local=="unavailable" and .external_mounts=="preserved" and .shared_images=="preserved" and
+ (has("runtime")|not)))' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
+# Each change below makes the run stale: it plans again, is refused and
+# records nothing.
 "$host_git" -C "$repo" update-ref refs/heads/work "$third" "$bad_tip"
-expect_error precondition_failed changed session.create.cleanup.confirm "$(cleanup_params "$token")"
+expect_error precondition_failed changed session.create.cleanup "$(cleanup_params "$tag")"
 test "$("$host_git" -C "$repo" rev-parse refs/heads/work)" = "$third"
 "$host_git" -C "$repo" update-ref refs/heads/work "$bad_tip" "$third"
 printf preserve > "$state/session_keys/$old_uuid"
-expect_error precondition_failed changed session.create.cleanup.confirm "$(cleanup_params "$token")"
+expect_error precondition_failed changed session.create.cleanup "$(cleanup_params "$tag")"
 test "$(cat "$state/session_keys/$old_uuid")" = preserve
 rm "$state/session_keys/$old_uuid"
 competing="p-recovery-$old_uuid"
 inc init "$fingerprint" "$competing" --profile default  --config security.idmap.isolated=true --config security.privileged=false  --config security.nesting=false --config "user.p.session_uuid=$old_uuid"
 identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
-expect_error precondition_failed changed session.create.cleanup.confirm "$(cleanup_params "$token")"
+expect_error precondition_failed changed session.create.cleanup "$(cleanup_params "$tag")"
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$identity"
 inc delete "$competing"
 competing=
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-expect_error precondition_failed expired session.create.cleanup.confirm "$(cleanup_params "$token")"
+# A tag past its expiry is refused before planning.
+expect_error precondition_failed expired session.create.cleanup "$(cleanup_params "20000101T000000Z-$(printf '%064d' 0)")"
 inspect_operation "$old_id" | jq -e '.result.operation | .status=="blocked" and .evidence.environment_builder.cycle==1' >/dev/null
-preview=$(cleanup_preview)
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+rpc operation.list '{"limit":20}' | jq -e '.result.operations | all(.[]; .kind!="session.create.cleanup")' >/dev/null
+plan=$(plan_cleanup)
+tag=$(change_tag "$plan")
 refs_before=$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')
 printf '%s\n' "$old_uuid" > "$step_dir/cleanup-arm"
-confirmed=$(rpc session.create.cleanup.confirm "$(cleanup_params "$token")")
-cleanup_id=$(operation_id "$confirmed")
-test "$(session_uuid "$confirmed")" = "$old_uuid"
+ran=$(rpc session.create.cleanup "$(cleanup_params "$tag")")
+cleanup_id=$(operation_id "$ran")
+test "$(session_uuid "$ran")" = "$old_uuid"
 pause_deadline=$((SECONDS+45))
 while test ! -f "$step_dir/cleanup-paused" && ((SECONDS < pause_deadline)); do sleep 0.1; done
 if test ! -f "$step_dir/cleanup-paused"; then
@@ -363,7 +375,7 @@ if test ! -f "$step_dir/cleanup-paused"; then
 fi
 inspect_operation "$cleanup_id" | jq -e '.result.operation | .status=="running" and .phase=="local-complete" and .committed==true and .evidence.local_complete==true' >/dev/null
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
-test "$(operation_id "$(rpc session.create.cleanup.confirm "$(cleanup_params "$token")")")" = "$cleanup_id"
+test "$(operation_id "$(rpc session.create.cleanup "$(cleanup_params "$tag")")")" = "$cleanup_id"
 old_replay_status=0
 old_replay=$(rpc session.create "$old_request") || old_replay_status=$?
 if test "$old_replay_status" -ne 0; then
@@ -390,7 +402,7 @@ inspect_session "$old_uuid" | jq -e '.result.session.registry_state=="removing"'
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
 assert_old_effects_absent
 test "$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
-test "$(operation_id "$(rpc session.create.cleanup.confirm "$(cleanup_params "$token")")")" = "$cleanup_id"
+test "$(operation_id "$(rpc session.create.cleanup "$(cleanup_params "$tag")")")" = "$cleanup_id"
 echo P_FAILED_CREATE_CLEANUP_UNAVAILABLE_PRESERVED
 # Once the observation returns, a newly competing UUID must still retain the
 # removing record and P refs. Explicit Retry cannot delete fixture machinery.
@@ -406,7 +418,7 @@ jq -e '.result.operation | .phase=="local-complete" and .evidence.local_complete
 inspect_session "$old_uuid" | jq -e '.result.session.registry_state=="removing"' >/dev/null
 test "$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$identity"
-test "$(operation_id "$(rpc session.create.cleanup.confirm "$(cleanup_params "$token")")")" = "$cleanup_id"
+test "$(operation_id "$(rpc session.create.cleanup "$(cleanup_params "$tag")")")" = "$cleanup_id"
 inc delete "$competing"
 competing=
 rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{id:$id}')" | jq -e --arg id "$cleanup_id" '.result.operation.id==$id' >/dev/null
@@ -439,7 +451,7 @@ new_key=$(sha256sum "$state/session_keys/$new_uuid" | cut -d' ' -f1)
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-test "$(operation_id "$(rpc session.create.cleanup.confirm "$(cleanup_params "$token")")")" = "$cleanup_id"
+test "$(operation_id "$(rpc session.create.cleanup "$(cleanup_params "$tag")")")" = "$cleanup_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 test "$(operation_id "$(rpc session.create "$next_request")")" = "$new_id"
 assert_old_effects_absent

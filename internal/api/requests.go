@@ -162,37 +162,24 @@ func (r OriginSourcesRequest) Validate() error {
 	return nil
 }
 
-// OriginPublicationPreviewRequest names the P source, its exact tip and the
-// origin branch to publish to. Source is a session UUID or a retained branch
-// name, according to Kind.
-type OriginPublicationPreviewRequest struct {
-	ExpectedOriginURL string `json:"expected_origin_url"`
-	Project           string `json:"project"`
-	Kind              string `json:"kind"`
-	Source            string `json:"source"`
-	SourceOID         string `json:"source_oid"`
-	DestinationRef    string `json:"destination_ref"`
-}
-
-func (r OriginPublicationPreviewRequest) Validate() error {
-	return validPublication(r.ExpectedOriginURL, r.Project, r.Kind, r.Source, r.SourceOID, r.DestinationRef)
-}
-
+// OriginPublishRequest publishes the P source, at its exact tip, to an
+// origin branch: a dry run without Key and IfMatch, a run with both. Source
+// is a session UUID or a retained branch name, according to Kind.
 type OriginPublishRequest struct {
 	ExpectedOriginURL string `json:"expected_origin_url"`
-	Key               string `json:"key"`
 	Project           string `json:"project"`
 	Kind              string `json:"kind"`
 	Source            string `json:"source"`
 	SourceOID         string `json:"source_oid"`
 	DestinationRef    string `json:"destination_ref"`
+	ChangeRequest
 }
 
 func (r OriginPublishRequest) Validate() error {
-	if !validKey(r.Key) {
-		return invalid("key")
+	if err := validPublication(r.ExpectedOriginURL, r.Project, r.Kind, r.Source, r.SourceOID, r.DestinationRef); err != nil {
+		return err
 	}
-	return validPublication(r.ExpectedOriginURL, r.Project, r.Kind, r.Source, r.SourceOID, r.DestinationRef)
+	return r.ChangeRequest.Validate()
 }
 
 func validPublication(url, project, kind, source, oid, destination string) error {
@@ -397,54 +384,29 @@ func validOperationID(id string) error {
 	return nil
 }
 
-// SessionRemovalPreviewRequest reviews a discard or delete. Acknowledge a
-// runtime that Incus reports absent with AcknowledgeMissingRuntime.
-type SessionRemovalPreviewRequest struct {
-	UUID                      string `json:"uuid"`
-	Kind                      string `json:"kind"`
-	AcknowledgeMissingRuntime bool   `json:"acknowledge_missing_runtime,omitempty"`
-}
-
-func (r SessionRemovalPreviewRequest) Validate() error {
-	switch {
-	case !ValidUUID(r.UUID):
-		return invalid("uuid")
-	case r.Kind != "discard" && r.Kind != "delete":
-		return invalid("kind")
-	}
-	return nil
-}
-
+// SessionDiscardRequest discards session UUID: a dry run without Key and
+// IfMatch, a run with both.
 type SessionDiscardRequest struct {
-	Key               string `json:"key"`
-	UUID              string `json:"uuid"`
-	ConfirmationToken string `json:"confirmation_token"`
+	UUID string `json:"uuid"`
+	ChangeRequest
 }
 
-func (r SessionDiscardRequest) Validate() error {
-	return validRemoval(r.Key, r.UUID, r.ConfirmationToken)
-}
+func (r SessionDiscardRequest) Validate() error { return validRemoval(r.UUID, r.ChangeRequest) }
 
+// SessionDeleteRequest deletes session UUID and its branch: a dry run without
+// Key and IfMatch, a run with both.
 type SessionDeleteRequest struct {
-	Key               string `json:"key"`
-	UUID              string `json:"uuid"`
-	ConfirmationToken string `json:"confirmation_token"`
+	UUID string `json:"uuid"`
+	ChangeRequest
 }
 
-func (r SessionDeleteRequest) Validate() error {
-	return validRemoval(r.Key, r.UUID, r.ConfirmationToken)
-}
+func (r SessionDeleteRequest) Validate() error { return validRemoval(r.UUID, r.ChangeRequest) }
 
-func validRemoval(key, uuid, token string) error {
-	switch {
-	case !validKey(key):
-		return invalid("key")
-	case !ValidUUID(uuid):
+func validRemoval(uuid string, change ChangeRequest) error {
+	if !ValidUUID(uuid) {
 		return invalid("uuid")
-	case !ValidToken(token):
-		return invalid("confirmation_token")
 	}
-	return nil
+	return change.Validate()
 }
 
 type SessionRenameRequest struct {
@@ -492,88 +454,41 @@ func (r ProjectRetainedRenameRequest) Validate() error {
 	return nil
 }
 
-// ProjectDeletePreviewRequest reviews deleting a whole project. List each
-// session whose runtime Incus reports absent in AcknowledgeMissing.
-type ProjectDeletePreviewRequest struct {
-	Project            string   `json:"project"`
-	AcknowledgeMissing []string `json:"acknowledge_missing,omitempty"`
+// ProjectDeleteRequest deletes project Project and everything P keeps of
+// it: a dry run without Key and IfMatch, a run with both.
+type ProjectDeleteRequest struct {
+	Project string `json:"project"`
+	ChangeRequest
 }
 
-func (r ProjectDeletePreviewRequest) Validate() error {
+func (r ProjectDeleteRequest) Validate() error {
 	if !ValidProject(r.Project) {
 		return invalid("project")
 	}
-	if len(r.AcknowledgeMissing) > 4 {
-		return invalid("acknowledge_missing")
-	}
-	for _, uuid := range r.AcknowledgeMissing {
-		if !ValidUUID(uuid) {
-			return invalid("acknowledge_missing")
-		}
-	}
-	return nil
+	return r.ChangeRequest.Validate()
 }
 
-type ProjectDeleteConfirmRequest struct {
-	Key               string `json:"key"`
-	Project           string `json:"project"`
-	ConfirmationToken string `json:"confirmation_token"`
-}
-
-func (r ProjectDeleteConfirmRequest) Validate() error {
-	switch {
-	case !validKey(r.Key):
-		return invalid("key")
-	case !ValidProject(r.Project):
-		return invalid("project")
-	case !ValidToken(r.ConfirmationToken):
-		return invalid("confirmation_token")
-	}
-	return nil
-}
-
-type ProjectRetainedDeletePreviewRequest struct {
+// ProjectRetainedDeleteRequest deletes retained branch Branch of Project: a
+// dry run without Key and IfMatch, a run with both.
+type ProjectRetainedDeleteRequest struct {
 	Project string `json:"project"`
 	Branch  string `json:"branch"`
+	ChangeRequest
 }
 
-func (r ProjectRetainedDeletePreviewRequest) Validate() error {
+func (r ProjectRetainedDeleteRequest) Validate() error {
 	switch {
 	case !ValidProject(r.Project):
 		return invalid("project")
 	case !ValidBranch(r.Branch):
 		return invalid("branch")
 	}
-	return nil
+	return r.ChangeRequest.Validate()
 }
 
-type ProjectRetainedDeleteConfirmRequest struct {
-	Key               string `json:"key"`
-	Project           string `json:"project"`
-	Branch            string `json:"branch"`
-	ConfirmationToken string `json:"confirmation_token"`
-}
-
-func (r ProjectRetainedDeleteConfirmRequest) Validate() error {
-	switch {
-	case !validKey(r.Key):
-		return invalid("key")
-	case !ValidProject(r.Project):
-		return invalid("project")
-	case !ValidBranch(r.Branch):
-		return invalid("branch")
-	case !ValidToken(r.ConfirmationToken):
-		return invalid("confirmation_token")
-	}
-	return nil
-}
-
-// SessionCreateReplacePreviewRequest reviews replacing the blocked creation
-// OldUUID with a new creation request. Origin requests are outside this
-// path, so it takes no expected origin URL.
-type SessionCreateReplacePreviewRequest struct {
-	OldUUID           string `json:"old_uuid"`
-	Key               string `json:"key"`
+// CreationChoices is what a session creation chooses, without its
+// idempotency key: the project and branch, existing or new, and its source.
+type CreationChoices struct {
 	Project           string `json:"project"`
 	Branch            string `json:"branch"`
 	Choice            string `json:"choice"`
@@ -582,54 +497,45 @@ type SessionCreateReplacePreviewRequest struct {
 	ExpectedCommitOID string `json:"expected_commit_oid,omitempty"`
 }
 
-// Create is the creation request the replacement would admit.
-func (r SessionCreateReplacePreviewRequest) Create() SessionCreateRequest {
-	return SessionCreateRequest{Key: r.Key, Project: r.Project, Branch: r.Branch, Choice: r.Choice, Source: r.Source,
-		OriginRef: r.OriginRef, ExpectedCommitOID: r.ExpectedCommitOID}
+// Create is the creation request of choices c under key.
+func (c CreationChoices) Create(key string) SessionCreateRequest {
+	return SessionCreateRequest{Key: key, Project: c.Project, Branch: c.Branch, Choice: c.Choice, Source: c.Source,
+		OriginRef: c.OriginRef, ExpectedCommitOID: c.ExpectedCommitOID}
 }
 
-func (r SessionCreateReplacePreviewRequest) Validate() error {
+// SessionCreateReplaceRequest replaces the blocked creation OldUUID with a new
+// creation of CreationChoices: a dry run without Key and IfMatch, a run with
+// both. The run's Key is also the new creation's idempotency key. Origin
+// requests are outside this path, so it takes no expected origin URL.
+type SessionCreateReplaceRequest struct {
+	OldUUID string `json:"old_uuid"`
+	CreationChoices
+	ChangeRequest
+}
+
+func (r SessionCreateReplaceRequest) Validate() error {
 	if !ValidUUID(r.OldUUID) {
 		return invalid("old_uuid")
 	}
-	return r.Create().Validate()
-}
-
-type SessionCreateReplaceConfirmRequest struct {
-	OldUUID           string `json:"old_uuid"`
-	Key               string `json:"key"`
-	ConfirmationToken string `json:"confirmation_token"`
-}
-
-func (r SessionCreateReplaceConfirmRequest) Validate() error {
-	if !ValidUUID(r.OldUUID) {
-		return invalid("old_uuid")
+	// A dry run has no key; the choices' bounds are a creation's.
+	if err := r.Create("k").Validate(); err != nil {
+		return err
 	}
-	return validConfirmation(r.Key, r.ConfirmationToken)
+	return r.ChangeRequest.Validate()
 }
 
-type SessionCreateCleanupPreviewRequest struct {
+// SessionCreateCleanupRequest cleans up the failed creation of session UUID:
+// a dry run without Key and IfMatch, a run with both.
+type SessionCreateCleanupRequest struct {
 	UUID string `json:"uuid"`
+	ChangeRequest
 }
 
-func (r SessionCreateCleanupPreviewRequest) Validate() error {
+func (r SessionCreateCleanupRequest) Validate() error {
 	if !ValidUUID(r.UUID) {
 		return invalid("uuid")
 	}
-	return nil
-}
-
-type SessionCreateCleanupConfirmRequest struct {
-	UUID              string `json:"uuid"`
-	Key               string `json:"key"`
-	ConfirmationToken string `json:"confirmation_token"`
-}
-
-func (r SessionCreateCleanupConfirmRequest) Validate() error {
-	if !ValidUUID(r.UUID) {
-		return invalid("uuid")
-	}
-	return validConfirmation(r.Key, r.ConfirmationToken)
+	return r.ChangeRequest.Validate()
 }
 
 type SessionServicesRequest struct {

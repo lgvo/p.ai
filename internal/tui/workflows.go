@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
+	"github.com/lgvo/p.ai/internal/plugin"
 )
 
 // branchInventory is what session creation and the retained-branch page show
@@ -283,34 +284,23 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.sourceParams[id] = sourceSelection{originRef: r.Ref, expectedCommitOID: r.CommitOID, expectedOriginURL: b.OriginURL}
 		}
 		m.notice = b.OriginDiagnostic
-	case api.ProjectCreate.Name, api.SessionCreate.Name, api.SessionRename.Name, api.SessionDiscard.Name, api.SessionDelete.Name, api.OperationRetry.Name:
-		op := operationOf(v)
-		m.operation = op
-		m.operationID = op.ID
-		m.attachOnComplete = v.method == api.SessionCreate.Name || v.method == api.ProjectCreate.Name
-		m.navigate("progress")
-		return m.begin(waitFor(m.operationID))
+	case api.ProjectCreate.Name, api.SessionCreate.Name, api.SessionRename.Name, api.OperationRetry.Name:
+		return m.accepted(operationOf(v), v.method)
+	case api.SessionDiscard.Name, api.SessionDelete.Name:
+		r := resultOf(v, api.SessionDiscard)
+		if v.method == api.SessionDelete.Name {
+			r = resultOf(v, api.SessionDelete)
+		}
+		if r.Operation != nil {
+			return m.accepted(*r.Operation, v.method)
+		}
+		return m.removalPlanned(r)
 	case api.OperationInspect.Name:
 		// An operation opened from O, or read again after a change made
 		// elsewhere, is observed: the page did not ask for it.
 		return m.followOperation(resultOf(v, api.OperationInspect).Operation, false)
 	case api.OperationWait.Name:
 		return m.followOperation(resultOf(v, api.OperationWait).Operation, true)
-	case api.SessionRemovalPreview.Name:
-		p := resultOf(v, api.SessionRemovalPreview).Preview
-		if p.ConfirmationToken == "" || m.removal == nil || p.SessionUUID != m.removal.UUID || p.Kind != m.removal.Kind || !p.Runtime.RuntimeDataLost {
-			m.notice = "No valid removal confirmation returned."
-			return nil
-		}
-		m.review = removalReview(p)
-		m.reviewOffset = 0
-		if m.removal.Kind == "delete" {
-			m.confirm = callOf(api.SessionDelete, api.SessionDeleteRequest{Key: newKey(), UUID: m.removal.UUID, ConfirmationToken: p.ConfirmationToken})
-		} else {
-			m.confirm = callOf(api.SessionDiscard, api.SessionDiscardRequest{Key: newKey(), UUID: m.removal.UUID, ConfirmationToken: p.ConfirmationToken})
-		}
-		m.removal = nil
-		m.navigate("review")
 	case api.SessionStart.Name, api.SessionStop.Name:
 		r := resultOf(v, api.SessionStart)
 		if v.method == api.SessionStop.Name {
@@ -394,13 +384,61 @@ func operationOf(v actionDone) api.Operation {
 		return resultOf(v, api.SessionCreate).Operation
 	case api.SessionRename.Name:
 		return resultOf(v, api.SessionRename).Operation
-	case api.SessionDiscard.Name:
-		return resultOf(v, api.SessionDiscard).Operation
-	case api.SessionDelete.Name:
-		return resultOf(v, api.SessionDelete).Operation
 	default:
 		return resultOf(v, api.OperationRetry).Operation
 	}
+}
+
+// accepted shows operation op, which a change of method recorded, and waits
+// for it.
+func (m *Model) accepted(op api.Operation, method string) tea.Cmd {
+	m.operation = op
+	m.operationID = op.ID
+	m.attachOnComplete = method == api.SessionCreate.Name || method == api.ProjectCreate.Name
+	m.navigate("progress")
+	return m.begin(waitFor(m.operationID))
+}
+
+// removalPlanCall is the dry run of a discard or delete (kind) of session
+// uuid: it returns the removal's plan.
+func removalPlanCall(kind, uuid string) daemonCall {
+	if kind == "delete" {
+		return callOf(api.SessionDelete, api.SessionDeleteRequest{UUID: uuid})
+	}
+	return callOf(api.SessionDiscard, api.SessionDiscardRequest{UUID: uuid})
+}
+
+// removalPlanned shows the plan of the removal the page asked for and offers
+// to run it with its change tag. A plan that is not allowed says why.
+func (m *Model) removalPlanned(r api.ChangeResult[api.RemovalDetails]) tea.Cmd {
+	intent := m.removal
+	p := r.Plan
+	if intent == nil || p == nil || p.Action != "session."+intent.Kind || p.Target != api.TargetSession(intent.UUID) {
+		m.notice = "No valid removal plan returned."
+		return nil
+	}
+	if !p.Allowed || r.ChangeTag == "" {
+		sentences := []string{}
+		for _, refusal := range p.Refusals {
+			sentences = append(sentences, errtext.Refusal(refusal.Code))
+		}
+		if len(sentences) == 0 {
+			sentences = append(sentences, "No valid removal plan returned.")
+		}
+		m.notice = strings.Join(sentences, " ")
+		return nil
+	}
+	m.review = removalReview(intent.Kind, intent.UUID, *p, r.ChangeTag)
+	m.reviewOffset = 0
+	change := api.ChangeRequest{Key: newKey(), IfMatch: r.ChangeTag}
+	if intent.Kind == "delete" {
+		m.confirm = callOf(api.SessionDelete, api.SessionDeleteRequest{UUID: intent.UUID, ChangeRequest: change})
+	} else {
+		m.confirm = callOf(api.SessionDiscard, api.SessionDiscardRequest{UUID: intent.UUID, ChangeRequest: change})
+	}
+	m.removal = nil
+	m.navigate("review")
+	return nil
 }
 
 // followOperation shows op on the progress page and follows it to its end: a
@@ -456,52 +494,88 @@ func (m *Model) sessionObserved(s api.SessionView) tea.Cmd {
 	return nil
 }
 
-// removalReview states the loss by category. P does not look inside the
-// container, so the review names what it holds instead of listing it.
-func removalReview(p api.RemovalPreview) string {
+// removalReview shows the plan p of a discard or delete (kind) of session
+// uuid, whose change tag is tag: what is lost, by category, and what is
+// already gone. P does not look inside the container, so the review names
+// what it holds instead of listing it.
+func removalReview(kind, uuid string, p api.Plan[api.RemovalDetails], tag string) string {
+	d := p.Details
 	action := "Discard"
-	if p.Kind == "delete" {
+	if kind == "delete" {
 		action = "Delete"
 	}
-	lines := []string{
-		action + " " + p.Project + " / " + p.Branch + "?",
-		"UUID: " + p.SessionUUID,
-		"Review expires: " + p.ExpiresAt,
-		"",
-		"Container: " + p.Runtime.InstanceName + " in Incus project " + p.Runtime.IncusProject + " · " + p.Runtime.OriginalStatus,
+	lines := []string{action + " " + d.Project + " / " + d.Branch + "?", "UUID: " + uuid}
+	if expiry, ok := api.ParseChangeTag(tag); ok {
+		lines = append(lines, "Review expires: "+expiry.Format(time.RFC3339))
 	}
-	if p.Runtime.OriginalStatus == "Running" {
-		lines = append(lines, "P stops the running container before deleting it.")
+	lines = append(lines, "")
+	if d.Runtime.Condition == "present" {
+		lines = append(lines, "Container: "+d.Runtime.InstanceName+" in Incus project "+d.Runtime.IncusProject+" · "+d.Runtime.OriginalStatus)
+		if d.Runtime.OriginalStatus == "Running" {
+			lines = append(lines, "P stops the running container before deleting it.")
+		}
+	} else {
+		lines = append(lines, "Container: "+d.Runtime.InstanceName+" is missing from Incus project "+d.Runtime.IncusProject+".")
 	}
-	lines = append(lines,
-		"It is deleted with everything in it: uncommitted changes, files outside Git, commits not pushed to P, the home directory and runtime-local credentials.",
-		"P does not look inside the container to list them. Push or copy out what you need before you authorize.",
-		"")
+	if len(p.Loss) > 0 {
+		lines = append(lines, "This will lose work; push or copy out what you need before you authorize:")
+		for _, item := range p.Loss {
+			lines = append(lines, lossLines(item, d)...)
+		}
+	}
+	if len(p.Gone) > 0 {
+		lines = append(lines, "Already gone:")
+		for _, item := range p.Gone {
+			lines = append(lines, goneLines(item)...)
+		}
+	}
+	lines = append(lines, "")
 	switch {
-	case p.AssignedRefMissing:
-		lines = append(lines, "Branch: "+p.AssignedRef+" is already gone from P.")
-		if p.Kind == "delete" {
+	case d.AssignedRefMissing:
+		lines = append(lines, "Branch: "+d.AssignedRef+" is already gone from P.")
+		if kind == "delete" {
 			lines = append(lines, "Delete removes nothing from P's repository.")
 		} else {
 			lines = append(lines, "Discard keeps no branch; it ends like Delete.")
 		}
-	case p.Kind == "delete":
-		lines = append(lines, "Branch: "+p.AssignedRef+" at "+p.AssignedTip, "Delete removes this branch from P's repository.")
-		commits := []string{}
-		if p.BranchLoss != nil {
-			commits = p.BranchLoss.CommitsLosingPReachability
-		}
-		if len(commits) == 0 {
+	case kind == "delete":
+		lines = append(lines, "Branch: "+d.AssignedRef+" at "+d.AssignedTip, "Delete removes this branch from P's repository.")
+		if d.BranchLoss == nil || len(d.BranchLoss.CommitsLosingPReachability) == 0 {
 			lines = append(lines, "No commits leave P: other P branches still reach them.")
-		} else {
-			lines = append(lines, fmt.Sprintf("Commits that leave P (%d):", len(commits)))
-			lines = append(lines, commits...)
-			lines = append(lines, "P does not check whether the external origin has them.")
 		}
 	default:
-		lines = append(lines, "Branch: "+p.AssignedRef+" at "+p.AssignedTip, "Discard keeps this branch in P.")
+		lines = append(lines, "Branch: "+d.AssignedRef+" at "+d.AssignedTip, "Discard keeps this branch in P.")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// lossLines states loss item item of a removal planned as d.
+func lossLines(item api.Loss, d api.RemovalDetails) []string {
+	switch item.Kind {
+	case api.LossRuntimeData:
+		return []string{"- The container and everything in it: uncommitted changes, files outside Git, commits not pushed to P, the home directory and runtime-local credentials. P does not look inside the container to list them."}
+	case api.LossPCommits:
+		commits := fmt.Sprintf("%d commits on branch %s leave", item.Count, d.Branch)
+		if item.Count == 1 {
+			commits = "1 commit on branch " + d.Branch + " leaves"
+		}
+		lines := []string{"- " + commits + " P's repository; P does not check whether the origin has them:"}
+		if d.BranchLoss != nil {
+			for _, oid := range d.BranchLoss.CommitsLosingPReachability {
+				lines = append(lines, "  "+oid)
+			}
+		}
+		return lines
+	}
+	return []string{"- " + item.Kind + " at " + item.Target}
+}
+
+// goneLines states item, which was lost before the removal.
+func goneLines(item api.Loss) []string {
+	if item.Kind == api.LossRuntimeData {
+		return []string{"- The runtime is already missing; whatever it held is gone."}
+	}
+	return []string{"- " + item.Kind + " at " + item.Target}
 }
 
 func (m *Model) dispatchService(intent serviceIntent) tea.Cmd {

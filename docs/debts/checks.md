@@ -51,25 +51,6 @@
     the DNS-over-HTTPS upstreams, so "Fix when" now names only the next public-egress
     acceptance claim.
 
-## The pending manual Codex acceptance still inspects workspace loss
-
-- Where: docs/implementation-progress.md, "Manual Codex acceptance — pending user
-  validation", step 5 (the Discard and Delete flow)
-- Problem: The procedure the user is to run calls `workspace.loss.inspect` and passes
-  `loss_operation_id` to `session.removal.preview`. Groundwork step 0e removed the loss
-  inspection, so step 5 fails at its first call, and the preview refuses the unknown field.
-- Evidence: `api.Methods()` has no `workspace.loss.inspect`;
-  `api.SessionRemovalPreviewRequest` has no `loss_operation_id`, and strict decoding refuses
-  it (TestUnconfiguredAndUnknownMethodAnswers, TestRemovalPreviewRPCUsesClosedRequest).
-- Risk: the user's manual acceptance stops at Discard/Delete, or is misread as a product
-  failure.
-- Fix: rewrite step 5 as preview, review and confirm, without the loss inspection.
-- Fix when: before the user runs the manual Codex acceptance.
-- Left by: the agent, by rule (a problem outside the change: the wire types step only removed
-  `v` from the procedure's calls).
-- Added 2026-11-02, 1 case:
-  - 2026-11-02: "wire types" found it while moving the procedure's calls off `"v":1`.
-
 ## An observer test waits a fixed tenth of a second for a redraw
 
 - Where: tests/integration/tui-observe-test.py, `test_real_pty_expansion_renders_tabs_in_detail_column`

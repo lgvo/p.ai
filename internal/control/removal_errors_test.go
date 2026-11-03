@@ -19,10 +19,10 @@ func TestRemovalAdmissionRefusalsNameTheirNextStep(t *testing.T) {
 	}
 	session := "550e8400-e29b-41d4-a716-446655440000"
 	request := func(key string) DiscardRequest {
-		return DiscardRequest{Key: key, UUID: session, TokenSHA256: strings.Repeat("9", 64)}
+		return DiscardRequest{Key: key, UUID: session, IfMatch: testTag(time.Minute)}
 	}
-	expired := ev
-	expired.PreviewExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
+	expired := request("expired")
+	expired.IfMatch = testTag(-time.Second)
 	changed := ev
 	changed.PolicySHA256 = strings.Repeat("e", 64)
 	for _, test := range []struct {
@@ -33,14 +33,14 @@ func TestRemovalAdmissionRefusalsNameTheirNextStep(t *testing.T) {
 		reason string
 		target string
 	}{
-		{"expired review", request("expired"), expired, api.KindPreconditionFailed, api.ReasonExpired, ""},
+		{"expired tag", expired, ev, api.KindPreconditionFailed, api.ReasonExpired, ""},
 		{"changed policy", request("changed"), changed, api.KindPreconditionFailed, api.ReasonChanged, ""},
-		{"key of another request", DiscardRequest{Key: "discard-1", UUID: session, TokenSHA256: strings.Repeat("8", 64)}, ev, api.KindInvalid, api.ReasonKeyReused, ""},
-		{"missing session", DiscardRequest{Key: "missing", UUID: "660e8400-e29b-41d4-a716-446655440000", TokenSHA256: strings.Repeat("9", 64)}, ev,
+		{"key of another request", DiscardRequest{Key: "discard-1", UUID: session, IfMatch: testTag(2 * time.Minute)}, ev, api.KindInvalid, api.ReasonKeyReused, ""},
+		{"missing session", DiscardRequest{Key: "missing", UUID: "660e8400-e29b-41d4-a716-446655440000", IfMatch: testTag(time.Minute)}, ev,
 			api.KindNotFound, api.ReasonSession, "session/660e8400-e29b-41d4-a716-446655440000"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := s.BeginDiscard(ctx, test.req, test.ev)
+			_, err := s.BeginDiscard(ctx, test.req, test.ev, testHash, noRecheck)
 			answer := answerError(ctx, err)
 			if answer.Kind() != test.kind || answer.Reason() != test.reason || answer.Target() != test.target {
 				t.Fatalf("answered %v (%v), want %s %s %s", answer, err, test.kind, test.reason, test.target)
@@ -101,7 +101,8 @@ func TestProjectDeleteRefusalsNameTheirNextStep(t *testing.T) {
 	t.Run("stale and reused confirmations", func(t *testing.T) {
 		s, _, req, ev := projectDeleteFixture(t)
 		begin := func(r ProjectDeleteRequest, e ProjectDeleteEvidence, expires time.Time) error {
-			_, err := s.BeginProjectDelete(ctx, r, e, expires.UTC().Format(time.RFC3339Nano), func(context.Context) error { return nil })
+			r.IfMatch = changeTag(expires, testHash)
+			_, err := s.BeginProjectDelete(ctx, r, e, testHash, func(context.Context) error { return nil })
 			return err
 		}
 		if a := answer(begin(req, ev, time.Now().Add(-time.Second))); a.Kind() != api.KindPreconditionFailed || a.Reason() != api.ReasonExpired {
@@ -113,9 +114,7 @@ func TestProjectDeleteRefusalsNameTheirNextStep(t *testing.T) {
 			t.Fatalf("changed review answered %v", a)
 		}
 		acceptProjectDelete(t, s, req, ev)
-		reused := req
-		reused.TokenSHA256 = strings.Repeat("b", 64)
-		if a := answer(begin(reused, ev, time.Now().Add(time.Minute))); a.Kind() != api.KindInvalid || a.Reason() != api.ReasonKeyReused {
+		if a := answer(begin(req, ev, time.Now().Add(2*time.Minute))); a.Kind() != api.KindInvalid || a.Reason() != api.ReasonKeyReused {
 			t.Fatalf("reused key answered %v", a)
 		}
 	})
@@ -127,15 +126,15 @@ func TestProjectDeleteRefusalsNameTheirNextStep(t *testing.T) {
 func TestRemovalAdmissionNamesTheOperationHoldingTheSession(t *testing.T) {
 	ctx := context.Background()
 	s, ev, first := setupDiscardStore(t)
-	second := DiscardRequest{Key: "discard-second", UUID: "550e8400-e29b-41d4-a716-446655440000", TokenSHA256: strings.Repeat("7", 64)}
-	_, err := s.BeginDiscard(ctx, second, ev)
+	second := DiscardRequest{Key: "discard-second", UUID: "550e8400-e29b-41d4-a716-446655440000", IfMatch: testTag(time.Minute)}
+	_, err := s.BeginDiscard(ctx, second, ev, testHash, noRecheck)
 	if a := answerError(ctx, err); a.Kind() != api.KindRetry || a.Reason() != api.ReasonSessionHeld || a.Target() != "operation/"+first.ID {
 		t.Fatalf("a running holder answered %v (%v)", a, err)
 	}
 	if err = s.AdvanceOperation(ctx, first.ID, "blocked", first.Phase, first.Committed, first.Evidence, "internal", "blocked"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = s.BeginDiscard(ctx, second, ev)
+	_, err = s.BeginDiscard(ctx, second, ev, testHash, noRecheck)
 	if a := answerError(ctx, err); a.Kind() != api.KindConflict || a.Reason() != api.ReasonOperationBlocked || a.Target() != "operation/"+first.ID {
 		t.Fatalf("a blocked holder answered %v (%v)", a, err)
 	}

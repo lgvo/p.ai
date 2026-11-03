@@ -21,37 +21,102 @@ type PublicationRunner interface {
 	WithPublication(context.Context, string, func(PublicationScope) error) error
 }
 
-// PreviewPublication always contacts the currently configured origin. The
-// caller supplies the captured P tip so confirmation can bind to exact work.
-func (a OriginAPI) PreviewPublication(ctx context.Context, r PublicationRequest) (api.PublicationPreview, error) {
-	if !validPublicationRequest(r) {
-		return api.PublicationPreview{}, ErrInvalid
+// publicationInputs are a publication's inputs besides its target: the
+// origin and the exact source the caller chose.
+type publicationInputs struct {
+	ExpectedOriginURL string `json:"expected_origin_url"`
+	Kind              string `json:"kind"`
+	Source            string `json:"source"`
+	SourceOID         string `json:"source_oid"`
+}
+
+// Publish answers publication r, a risky change. Its dry run contacts the
+// currently configured origin, which refreshes P's view of it, and plans the
+// publication of the source's exact tip; a divergent destination refuses it.
+// A run records the publication as an operation of kind origin.publish and
+// queues it: its worker publishes (RunPublication).
+func (a OriginAPI) Publish(ctx context.Context, r api.OriginPublishRequest) (api.ChangeResult[api.PublicationPreview], error) {
+	req := PublicationRequest{ExpectedOriginURL: r.ExpectedOriginURL, Key: r.Key, Project: r.Project, Kind: r.Kind, Source: r.Source,
+		SourceOID: r.SourceOID, DestinationRef: r.DestinationRef, IfMatch: r.IfMatch}
+	if !validPublicationRequest(req) {
+		return api.ChangeResult[api.PublicationPreview]{}, ErrInvalid
 	}
 	runner, ok := a.Runner.(PublicationRunner)
 	if !ok {
-		return api.PublicationPreview{}, NotConfigured(api.ReasonGit)
+		return api.ChangeResult[api.PublicationPreview]{}, NotConfigured(api.ReasonGit)
 	}
-	var preview api.PublicationPreview
-	err := runner.WithPublication(ctx, r.Project, func(scope PublicationScope) error {
-		if err := a.Store.lockGitAuthority(ctx); err != nil {
-			return err
-		}
-		defer a.Store.gitAuthority.Unlock()
-		url, ref, err := a.publicationContext(ctx, r, "")
-		if err != nil {
-			return err
-		}
-		if err = a.observeForPublication(ctx, scope, r.Project, url); err != nil {
-			return err
-		}
-		preview, err = scope.PreviewPublication(ctx, ref, r.SourceOID, r.DestinationRef)
-		if err != nil {
-			return err
-		}
-		preview.SourceKind, preview.Source, preview.WorkspaceStatus = r.Kind, r.Source, "unknown"
-		return nil
-	})
-	return preview, err
+	instance, err := a.Store.InstanceID(ctx)
+	if err != nil {
+		return api.ChangeResult[api.PublicationPreview]{}, err
+	}
+	request, err := json.Marshal(req)
+	if err != nil {
+		return api.ChangeResult[api.PublicationPreview]{}, err
+	}
+	var scope PublicationScope
+	change := Change[api.PublicationPreview]{
+		Action:   api.OriginPublish.Name,
+		Target:   api.TargetOriginBranch(r.Project, strings.TrimPrefix(r.DestinationRef, "refs/heads/")),
+		Instance: instance,
+		Inputs:   publicationInputs{ExpectedOriginURL: r.ExpectedOriginURL, Kind: r.Kind, Source: r.Source, SourceOID: r.SourceOID},
+		Hold: func(ctx context.Context, fn func(context.Context) error) error {
+			return runner.WithPublication(ctx, r.Project, func(held PublicationScope) error {
+				if err := a.Store.lockGitAuthority(ctx); err != nil {
+					return err
+				}
+				defer a.Store.gitAuthority.Unlock()
+				scope = held
+				return fn(ctx)
+			})
+		},
+		Plan: func(ctx context.Context, p *api.Plan[api.PublicationPreview]) error {
+			p.Details = api.PublicationPreview{Project: r.Project, SourceKind: r.Kind, Source: r.Source, SourceOID: r.SourceOID, DestinationRef: r.DestinationRef, WorkspaceStatus: "unknown"}
+			preview, err := a.planPublication(ctx, scope, req, "")
+			if err != nil {
+				return err
+			}
+			p.Details = preview
+			if preview.Relation == "divergent" {
+				p.Refusals = append(p.Refusals, api.Refusal{Code: api.ReasonDestinationDivergent})
+			}
+			return nil
+		},
+		Replay: func(ctx context.Context) (api.Operation, bool, error) {
+			return a.Store.recorded(ctx, req.Key, KindOriginPublish, request)
+		},
+		Begin: func(ctx context.Context, run Run[api.PublicationPreview]) (api.Operation, error) {
+			return a.Store.BeginPublication(ctx, req, run.Hash, func(ctx context.Context) (string, error) {
+				_, ref, err := a.publicationContext(ctx, req, "")
+				return strings.TrimPrefix(ref, "refs/heads/"), err
+			})
+		},
+	}
+	result, err := change.Do(ctx, r.ChangeRequest)
+	// The worker takes the origin scope and the Git authority that the run
+	// held: queue it once they are released.
+	if err != nil || result.Operation == nil || result.Operation.Status != "running" {
+		return result, err
+	}
+	return result, a.Queue(result.Operation.ID)
+}
+
+// planPublication observes the origin in scope and compares the destination
+// with the source of publication r. except is the publication's own
+// operation, which holds a session source.
+func (a OriginAPI) planPublication(ctx context.Context, scope PublicationScope, r PublicationRequest, except string) (api.PublicationPreview, error) {
+	url, ref, err := a.publicationContext(ctx, r, except)
+	if err != nil {
+		return api.PublicationPreview{}, err
+	}
+	if err = a.observeForPublication(ctx, scope, r.Project, url); err != nil {
+		return api.PublicationPreview{}, err
+	}
+	preview, err := scope.PreviewPublication(ctx, ref, r.SourceOID, r.DestinationRef)
+	if err != nil {
+		return api.PublicationPreview{}, err
+	}
+	preview.SourceKind, preview.Source, preview.WorkspaceStatus = r.Kind, r.Source, "unknown"
+	return preview, nil
 }
 
 // publicationContext returns the origin URL and the source's P ref. A
@@ -89,34 +154,15 @@ func (a OriginAPI) observeForPublication(ctx context.Context, scope PublicationS
 	return a.Store.StoreOriginRefresh(writeCtx, project, url, refs, "")
 }
 
-// Publish records publication r as an operation of kind origin.publish and
-// queues it, once the project has the expected origin and the source can be
-// published: its worker publishes (RunPublication).
-func (a OriginAPI) Publish(ctx context.Context, r PublicationRequest) (api.Operation, error) {
-	if !validPublicationRequest(r) || r.Key == "" || len(r.Key) > 128 {
-		return api.Operation{}, ErrInvalid
-	}
-	if _, ok := a.Runner.(PublicationRunner); !ok {
-		return api.Operation{}, NotConfigured(api.ReasonGit)
-	}
-	op, err := a.Store.BeginPublication(ctx, r, func(ctx context.Context) (string, error) {
-		_, ref, err := a.publicationContext(ctx, r, "")
-		return strings.TrimPrefix(ref, "refs/heads/"), err
-	})
-	if err != nil || op.Status != "running" {
-		return op, err
-	}
-	return op, a.Queue(op.ID)
-}
-
 // RunPublication is the work of publication op. In the project's origin
 // scope and under the Git authority it checks the source and origin again,
 // observes the origin and compares the destination: a destination that
-// diverged is refused, one that has the commit is satisfied, and otherwise
-// it records push-issued before the one ordinary push. The operation
-// completes with the publication in its evidence. A push whose outcome is
-// unknown, or a resumed operation already at push-issued, ends failed with
-// reason outcome_unknown and is never pushed again.
+// diverged since the run was admitted fails the operation with reason
+// changed, one that has the commit is satisfied, and otherwise it records
+// push-issued before the one ordinary push. The operation completes with the
+// publication in its evidence. A push whose outcome is unknown, or a resumed
+// operation already at push-issued, ends failed with reason outcome_unknown
+// and is never pushed again.
 func (a OriginAPI) RunPublication(ctx context.Context, op api.Operation) {
 	var r PublicationRequest
 	runner, ok := a.Runner.(PublicationRunner)
@@ -133,26 +179,17 @@ func (a OriginAPI) RunPublication(ctx context.Context, op api.Operation) {
 			return err
 		}
 		defer a.Store.gitAuthority.Unlock()
-		url, ref, err := a.publicationContext(ctx, r, op.ID)
+		preview, err := a.planPublication(ctx, scope, r, op.ID)
 		if err != nil {
 			return err
 		}
-		if err = a.observeForPublication(ctx, scope, r.Project, url); err != nil {
-			return err
-		}
-		preview, err := scope.PreviewPublication(ctx, ref, r.SourceOID, r.DestinationRef)
-		if err != nil {
-			return err
-		}
-		preview.SourceKind, preview.Source, preview.WorkspaceStatus = r.Kind, r.Source, "unknown"
 		result := api.Publication{Preview: preview}
 		switch preview.Relation {
 		case "divergent":
-			result.Status = "refused"
+			// The run was admitted on a plan that did not diverge.
+			return a.endPublication(ctx, &op, "failed", api.ReasonChanged, result, errors.New("the origin branch diverged from the source"))
 		case "equal", "destination_contains":
 			result.Status = "satisfied"
-		}
-		if result.Status != "" {
 			return a.endPublication(ctx, &op, "completed", "", result, nil)
 		}
 		// Record the uncertainty boundary before any possible network effect.
@@ -201,13 +238,7 @@ func (a OriginAPI) endPublication(ctx context.Context, op *api.Operation, status
 	return nil
 }
 
-// addPublicationMethods serves origin.publication.preview and origin.publish.
+// addPublicationMethods serves origin.publish.
 func addPublicationMethods(t *MethodTable, origins OriginAPI) {
-	Register(t, api.OriginPublicationPreview, func(ctx context.Context, r api.OriginPublicationPreviewRequest) (api.PublicationPreviewResult, error) {
-		preview, e := origins.PreviewPublication(ctx, PublicationRequest{ExpectedOriginURL: r.ExpectedOriginURL, Project: r.Project, Kind: r.Kind, Source: r.Source, SourceOID: r.SourceOID, DestinationRef: r.DestinationRef})
-		return api.PublicationPreviewResult{Preview: preview}, e
-	})
-	Register(t, api.OriginPublish, func(ctx context.Context, r api.OriginPublishRequest) (api.OperationResult, error) {
-		return operationResult(origins.Publish(ctx, PublicationRequest(r)))
-	})
+	Register(t, api.OriginPublish, origins.Publish)
 }

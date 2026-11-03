@@ -134,14 +134,15 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
   history is an outside host Git operation.
 - Retained branches are first-class project resources with
   list/source/fetch/rename/fast-forward-publish/loss-preview/delete operations.
-- **Delete project and all P data** uses aggregate loss preflight, explicit
-  confirmation, a minimal durable deletion record, and idempotent ensure-absent
-  retry. The CLI-first boundary requires established stopped, detached
-  sessions, or acknowledged positively missing runtimes. Running, attached or
-  incomplete sessions require the documented preparation/cleanup
-  first. It has no rollback/recovery-mode state machine. Base-session deletion
-  and restart/identity refusal passed VM52; actual Nix-built indexed-image
-  deletion passed VM53 using offline fixture source.
+- **Delete project and all P data** uses an aggregate plan from a dry run,
+  an explicit run of that plan, a minimal durable deletion record, and
+  idempotent ensure-absent retry. The CLI-first boundary requires established,
+  detached sessions; it stops running ones itself and shows a positively
+  missing runtime as already gone. Attached or incomplete sessions require the
+  documented preparation/cleanup first. It has no rollback/recovery-mode
+  state machine. Base-session deletion and restart/identity refusal passed
+  VM52; actual Nix-built indexed-image deletion passed VM53 using offline
+  fixture source.
 
 ### Runtime, environment, and policy
 

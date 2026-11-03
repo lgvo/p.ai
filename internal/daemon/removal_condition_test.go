@@ -33,16 +33,16 @@ func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				ev := control.DiscardEvidence{Action: action, Project: s.Project, Branch: s.Branch, AssignedTip: strings.Repeat("e", 40), PolicySHA256: s.PolicySHA256, IncusProject: "user-1000", InstanceName: "p-" + s.UUID, InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true, PRefsDigest: strings.Repeat("1", 64), PreviewExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}
+				ev := control.DiscardEvidence{Action: action, Project: s.Project, Branch: s.Branch, AssignedTip: strings.Repeat("e", 40), PolicySHA256: s.PolicySHA256, IncusProject: "user-1000", InstanceName: "p-" + s.UUID, InstanceUUID: instance, BaseFingerprint: strings.Repeat("d", 64), MissingRuntime: true, PRefsDigest: strings.Repeat("1", 64)}
 				if action == "delete" {
 					ev.DeleteReviewSHA256 = strings.Repeat("b", 64)
 				}
-				req := control.DiscardRequest{Key: "condition-" + action, UUID: s.UUID, TokenSHA256: strings.Repeat("a", 64)}
+				req := control.DiscardRequest{Key: "condition-" + action, UUID: s.UUID, IfMatch: futureTag(time.Minute)}
 				var op api.Operation
 				if action == "delete" {
-					op, err = f.m.store.BeginDelete(f.ctx, req, ev)
+					op, err = f.m.store.BeginDelete(f.ctx, req, ev, strings.Repeat("c", 64), noRecheck)
 				} else {
-					op, err = f.m.store.BeginDiscard(f.ctx, req, ev)
+					op, err = f.m.store.BeginDiscard(f.ctx, req, ev, strings.Repeat("c", 64), noRecheck)
 				}
 				if err != nil {
 					t.Fatal(err)

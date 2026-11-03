@@ -27,8 +27,7 @@ REQUIRED_METHODS = {
     "system.hello", "project.list", "session.list", "operation.list",
     "project.branches", "project.retained_branches", "origin.refresh", "origin.sources",
     "project.create", "session.create", "session.inspect", "session.start", "session.stop",
-    "session.rename", "session.removal.preview",
-    "session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
+    "session.rename", "session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
     "session.services", "session.service.action", "session.service.logs",
     "session.attach", "attachment.claim", "attachment.confirm",
 }
@@ -144,6 +143,10 @@ class MockTUITests(unittest.TestCase):
 
     def count(self, method):
         return sum(c["method"] == method for c in self.rpc("mock.inspect")["calls"])
+
+    def params(self, method):
+        """The params of each call of method, in the order the fixture got them."""
+        return [c["params"] for c in self.rpc("mock.inspect")["calls"] if c["method"] == method]
 
     def choose_project(self, name="forge"):
         self.key("c", "Create · project")
@@ -385,25 +388,41 @@ class MockTUITests(unittest.TestCase):
                 self.key("/" + project + " " + branch + "\r")
                 sid = self.session(branch, project)["uuid"]
                 running = self.session(branch, project)["session_condition"] == "ready"
-                before = self.count("session." + kind)
+                method = "session." + kind
+                before = len(self.params(method))
                 self.key(action, "Removal loss preview")
-                self.assertIn("P does not look inside the container", self.screen())
-                self.assertEqual("P stops the running container" in self.screen(), running)
+                # The review wraps its sentences at the terminal's width.
+                review = " ".join(self.screen().split())
+                self.assertIn("P does not look inside the container", review)
+                self.assertEqual("P stops the running container" in review, running)
                 if action == "d":
-                    self.assertIn("Discard keeps this branch in P", self.screen())
+                    self.assertIn("Discard keeps this branch in P", review)
                 else:
-                    self.assertIn("Delete removes this branch from P's repository", self.screen())
-                previews = [c for c in self.rpc("mock.inspect")["calls"] if c["method"] == "session.removal.preview"]
-                self.assertEqual(previews[-1]["params"], {"uuid": sid, "kind": kind})
+                    self.assertIn("Delete removes this branch from P's repository", review)
+                # The review is the plan of a dry run: the uuid only, no key or tag.
+                self.assertEqual(self.params(method)[before:], [{"uuid": sid}])
                 self.key("Ggg")
                 self.key("n", "Enter open")
                 self.assertIn(sid, self.rpc("mock.inspect")["sessions"])
-                self.assertEqual(self.count("session." + kind), before)
+                self.assertEqual(self.params(method)[before:], [{"uuid": sid}])
                 self.key(action, "Removal loss preview")
                 self.key("y", "Operation completed")
                 state = self.rpc("mock.inspect")
                 self.assertNotIn(sid, state["sessions"])
                 self.assertEqual(branch in state["refs"][project], action == "d")
+                # A second dry run planned the authorized removal; only then did
+                # the run send the same uuid with a key and the plan's tag.
+                calls = self.params(method)[before:]
+                self.assertEqual(calls[:2], [{"uuid": sid}, {"uuid": sid}])
+                self.assertEqual(len(calls), 3)
+                run = calls[2]
+                self.assertEqual(set(run), {"uuid", "key", "if_match"})
+                self.assertEqual(run["uuid"], sid)
+                self.assertRegex(run["if_match"], r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")
+                ops = [op for op in state["operations"].values() if op["idempotency_key"] == run["key"]]
+                self.assertEqual(len(ops), 1)
+                self.assertEqual((ops[0]["kind"], ops[0]["session_uuid"], ops[0]["request"]["if_match"]),
+                                 (method, sid, run["if_match"]))
                 self.key("q", "Enter open")
                 self.key("q", "All project sessions")  # clear search
         self.rpc("mock.configure", method="project.branches", error="failed", reason="git")
@@ -518,7 +537,7 @@ class MockTUITests(unittest.TestCase):
         # Fail when production starts issuing an unrepresented socket method.
         # The TUI calls methods through internal/api's typed values, such as
         # api.SessionList; map each one it names to its method name.
-        names = dict(re.findall(r'^\s*(\w+)\s*=\s*Method\[[^\]]*\]\{"([a-z_.]+)"\}',
+        names = dict(re.findall(r'^\s*(\w+)\s*=\s*Method\[.*\]\{"([a-z_.]+)"\}',
                                 (ROOT / "internal" / "api" / "method.go").read_text(), re.M))
         source = "\n".join(path.read_text() for path in (ROOT / "internal" / "tui").glob("*.go")
                            if not path.name.endswith("_test.go"))

@@ -57,7 +57,7 @@ var schemaSQL string
 // schemaVersion marks a database built from schemaSQL. P does not migrate
 // state: every schema change raises it, and openStore refuses a database of
 // any other version.
-const schemaVersion = 29
+const schemaVersion = 30
 
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)

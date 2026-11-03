@@ -137,24 +137,24 @@ partial derived resources, and rebuild without creating a retry chain. Also
 test the supported **Try again with changes** paths as a new creation that
 supersedes and cleans the failed provisional creation before reusing the desired
 branch name. For complex cases that refuse integrated replacement, validate the
-documented cleanup followed by a separate new Create. Cleanup must preview
-losses, require explicit confirmation, recheck identity/ownership, recover
-durably, and preserve shared or unrelated resources. Uncertain cleanup must
+documented cleanup followed by a separate new Create. Cleanup must state
+losses in its plan, require explicit confirmation, recheck identity/ownership,
+recover durably, and preserve shared or unrelated resources. Uncertain cleanup must
 explain the unresolved condition and leave uncertain resources intact.
 
 For the narrow assembled failed-creation cleanup path, use an actual failed
 host startup with a stopped, committed local base-image workspace. Prove that
-the cleanup preview identifies the exact stopped container and states it lost
-by category without reading the workspace, and that previewing preserves
+the cleanup's plan identifies the exact stopped container and states it lost
+by category without reading the workspace, and that its dry run preserves
 workspace/private files, the assigned P ref and the original `creating`
 session. Reject changed native identity, unsupported policy and uncertain
-init. A preview does not establish confirmed cleanup acceptance.
+init. A dry run does not establish confirmed cleanup acceptance.
 
 For confirmed assembled cleanup, change the container's identity or the
-assigned branch after preview and prove the precommit check fails the cleanup
-as stale, preserves the container, private/dummy credential files and the
-branch, and releases its guards. Exercise durable creator fencing by that
-guard across Retry, replay and daemon restart. A new preview and confirmation
+assigned branch after the run is accepted and prove the precommit check fails
+the cleanup as stale, preserves the container, private/dummy credential files
+and the branch, and releases its guards. Exercise durable creator fencing by
+that guard across Retry, replay and daemon restart. A new dry run and run
 must then remove only the exact stopped source and reviewed local authority,
 retaining the P branch, sibling and shared base image. Crash after native
 deletion/local cleanup; unavailable or competing authority must retain the
@@ -179,7 +179,7 @@ repair action or automatic checkout/reset is required.
 
 Discard and delete a running session and prove P stops it after the removal
 commit point; prove both refuse while a terminal is attached, and that a Start
-or Stop between preview and confirmation does not make the confirmation stale.
+or Stop between the dry run and the run does not make the plan stale.
 Remove a session whose assigned ref was deleted outside P, then create a new
 session on a branch. Rename must refuse a running session.
 
@@ -200,9 +200,9 @@ creating a new branch requires a source and creates only the named destination.
 An already assigned branch must not acquire a second session. Cancel, fail,
 retry, and replace each path, verifying that cleanup preserves pre-existing
 refs. Exercise retained-branch assignment/list/source/fetch,
-rename, fast-forward publication, and deletion after the loss preview.
+rename, fast-forward publication, and deletion after the loss review.
 
-For **Delete project and all P data**, confirm the aggregate preview enumerates
+For **Delete project and all P data**, confirm the aggregate plan enumerates
 and terminates listed live attachments, the minimal deletion record survives daemon
 restart, partial failures leave an idempotent ensure-absent retry with a smaller
 remainder, and unavailable Incus keeps identity and cleanup incomplete until
@@ -420,7 +420,7 @@ and are excluded from production capabilities.
 | s Stop | Default No and explicit decline issue no Stop; confirmation changes fixture condition; subsequent Start retains files |
 | c Create | Project creation, new branch from P source, captured external origin, retained-branch resume; assigned identity, source params and automatic attachment |
 | R Rename | Literal q/g/G in forms, editing/cancel, reviewed rename preserving UUID and changing assigned ref |
-| d Discard; X Delete | Detach requirement, bound preview stating the runtime's loss by category, cancel with no removal; Discard retains ref, Delete removes it |
+| d Discard; X Delete | Detach requirement, bound plan stating the runtime's loss by category or a missing runtime's contents as already gone, cancel with no removal; Discard retains ref, Delete removes it |
 | O operations; Enter inspect; r retry | Inspect failed operation, retry request and completed observation |
 | S services; s start/stop; r restart | Exact session/unit/action, updated state, inventory/action refusals, queued action bound to original unit, Back cancels queued work |
 | Enter/J journal; h/l; /; n/N; f; movement | Journal data, horizontal pan, find/matches, follow toggle, scroll, clear find then Back |
@@ -429,7 +429,7 @@ and are excluded from production capabilities.
 The suite checks every RPC method used by the current TUI action path, and flags
 new method literals that have no entry in its coverage set. Focused Go tests
 validate the fixture's closed request fields, bounded pagination, source
-freshness, idempotency, cancellation, and preview/token binding. Existing model
+freshness, idempotency, cancellation, and plan/change-tag binding. Existing model
 tests retain finer navigation and asynchronous-state invariants. Failures save
 rendered frames and fixture state under `.cache/tui-mock-failures/`.
 
@@ -565,7 +565,7 @@ milestones.
 ## Cached-session bulk deletion
 
 Selected `53-project-delete-cached.sh` exercises the public environment build,
-native image import/index and aggregate preview before exact project deletion.
+native image import/index and aggregate plan before exact project deletion.
 It requires removal of the owned image/index after runtime absence, preservation
 of shared base/unrelated resources, and the same outage/restart/competing-identity
 checks as VM52. Its offline fixture source does not establish external-repository

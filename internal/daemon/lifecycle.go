@@ -24,47 +24,42 @@ import (
 )
 
 type lifecycle struct {
-	store                  *control.Store
-	cfg                    control.RuntimeConfig
-	git                    *gitCapability
-	runtime                *runtimeincus.Backend
-	images                 runtimedriver.Images
-	runtimePlugin          plugin.Active
-	hostPlan               plugin.AssetPlan
-	sourcePlan             plugin.AssetPlan
-	agentPlan              *plugin.AssetPlan
-	endpoints              *endpointManager
-	instanceID             string
-	ctx                    context.Context
-	mu                     sync.Mutex
-	working                map[string]bool
-	gitOnly                bool // no runtime: only kinds marked withoutRuntime run
-	origins                *control.OriginAPI
-	onlyRunning            map[string]bool // queued resumptions: run only while still running
-	pending                []string
-	queueSlots             chan struct{}
-	sessionLocks           map[string]chan struct{}
-	sessionReads           map[string]*readsInFlight
-	holdMu                 sync.Mutex
-	holds                  map[string][]heldSession // what each operation's worker holds
-	holders                map[string]string        // the operation whose worker holds each session
-	waitMu                 sync.Mutex
-	waiters                map[string]map[chan struct{}]bool // operation.wait calls, by operation
-	confinementCheck       func(context.Context) error
-	attachments            map[string]*attachment
-	onAttachment           func(context.Context, string, int, bool)
-	events                 *eventDelivery
-	eventMu                sync.Mutex
-	observed               map[string]observedFacts
-	eventContexts          map[string]eventContext
-	changedPolicies        map[string]bool
-	commitLocks            map[string]chan struct{}
-	releases               map[string]bool // projects whose image release runs; true asks for another run
-	removalPreviews        map[string]removalPreviewState
-	retainedDeletePreviews map[string]retainedDeletePreviewState
-	createReplacePreviews  map[string]createReplacePreviewState
-	createCleanupPreviews  map[string]createCleanupPreviewState
-	projectDeletePreviews  map[string]projectDeletePreviewState
+	store            *control.Store
+	cfg              control.RuntimeConfig
+	git              *gitCapability
+	runtime          *runtimeincus.Backend
+	images           runtimedriver.Images
+	runtimePlugin    plugin.Active
+	hostPlan         plugin.AssetPlan
+	sourcePlan       plugin.AssetPlan
+	agentPlan        *plugin.AssetPlan
+	endpoints        *endpointManager
+	instanceID       string
+	ctx              context.Context
+	mu               sync.Mutex
+	working          map[string]bool
+	gitOnly          bool // no runtime: only kinds marked withoutRuntime run
+	origins          *control.OriginAPI
+	onlyRunning      map[string]bool // queued resumptions: run only while still running
+	pending          []string
+	queueSlots       chan struct{}
+	sessionLocks     map[string]chan struct{}
+	sessionReads     map[string]*readsInFlight
+	holdMu           sync.Mutex
+	holds            map[string][]heldSession // what each operation's worker holds
+	holders          map[string]string        // the operation whose worker holds each session
+	waitMu           sync.Mutex
+	waiters          map[string]map[chan struct{}]bool // operation.wait calls, by operation
+	confinementCheck func(context.Context) error
+	attachments      map[string]*attachment
+	onAttachment     func(context.Context, string, int, bool)
+	events           *eventDelivery
+	eventMu          sync.Mutex
+	observed         map[string]observedFacts
+	eventContexts    map[string]eventContext
+	changedPolicies  map[string]bool
+	commitLocks      map[string]chan struct{}
+	releases         map[string]bool // projects whose image release runs; true asks for another run
 }
 
 // The control-API surface dispatches each lifecycle method only to an
@@ -74,9 +69,7 @@ var (
 	_ control.LifecycleAPI      = (*lifecycle)(nil)
 	_ control.ServiceAPI        = (*lifecycle)(nil)
 	_ control.AttachmentAPI     = (*lifecycle)(nil)
-	_ control.RemovalPreviewAPI = (*lifecycle)(nil)
-	_ control.DiscardAPI        = (*lifecycle)(nil)
-	_ control.DeleteAPI         = (*lifecycle)(nil)
+	_ control.RemovalAPI        = (*lifecycle)(nil)
 	_ control.RenameAPI         = (*lifecycle)(nil)
 	_ control.RetainedRenameAPI = (*lifecycle)(nil)
 	_ control.ProjectDeleteAPI  = (*lifecycle)(nil)

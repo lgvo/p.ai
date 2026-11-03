@@ -19,8 +19,7 @@ func testDiscardEvidence() DiscardEvidence {
 		InstanceUUID:     "11111111-1111-4111-8111-111111111111",
 		ImageFingerprint: strings.Repeat("c", 64), BaseFingerprint: strings.Repeat("d", 64),
 		IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333",
-		PRefsDigest:      strings.Repeat("1", 64),
-		PreviewExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
+		PRefsDigest: strings.Repeat("1", 64),
 	}
 }
 
@@ -29,8 +28,7 @@ func TestDiscardExpiredAtTransactionalAdmissionLeavesNoGuard(t *testing.T) {
 	if err := s.FailStaleDiscard(context.Background(), first.ID, "first review stale"); err != nil {
 		t.Fatal(err)
 	}
-	ev.PreviewExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
-	_, err := s.BeginDiscard(context.Background(), DiscardRequest{Key: "expired-discard", UUID: "550e8400-e29b-41d4-a716-446655440000", TokenSHA256: strings.Repeat("9", 64)}, ev)
+	_, err := s.BeginDiscard(context.Background(), DiscardRequest{Key: "expired-discard", UUID: "550e8400-e29b-41d4-a716-446655440000", IfMatch: testTag(-time.Second)}, ev, testHash, noRecheck)
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expired confirmation accepted: %v", err)
 	}
@@ -55,7 +53,7 @@ func setupDiscardStore(t *testing.T) (*Store, DiscardEvidence, api.Operation) {
 	if err = s.RegisterGitPrincipal(ctx, strings.Repeat("f", 64), "session", ev.Project, "550e8400-e29b-41d4-a716-446655440000"); err != nil {
 		t.Fatal(err)
 	}
-	op, err := s.BeginDiscard(ctx, DiscardRequest{Key: "discard-1", UUID: "550e8400-e29b-41d4-a716-446655440000", TokenSHA256: strings.Repeat("a", 64)}, ev)
+	op, err := s.BeginDiscard(ctx, DiscardRequest{Key: "discard-1", UUID: "550e8400-e29b-41d4-a716-446655440000", IfMatch: testTag(time.Minute)}, ev, testHash, noRecheck)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,15 +189,15 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	ev.Action, ev.DeleteReviewSHA256 = "delete", strings.Repeat("2", 64)
-	request := DiscardRequest{Key: "delete-1", UUID: discarded.SessionUUID, TokenSHA256: strings.Repeat("3", 64)}
-	if _, err := s.BeginDiscard(ctx, request, ev); !errors.Is(err, ErrInvalid) {
+	request := DiscardRequest{Key: "delete-1", UUID: discarded.SessionUUID, IfMatch: testTag(time.Minute)}
+	if _, err := s.BeginDiscard(ctx, request, ev, testHash, noRecheck); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("wrong action accepted by Discard: %v", err)
 	}
-	op, err := s.BeginDelete(ctx, request, ev)
+	op, err := s.BeginDelete(ctx, request, ev, testHash, noRecheck)
 	if err != nil || op.Kind != "session.delete" {
 		t.Fatalf("delete intent unavailable: %+v %v", op, err)
 	}
-	if _, err := s.BeginDiscard(ctx, request, testDiscardEvidence()); !errors.Is(err, ErrConflict) {
+	if _, err := s.BeginDiscard(ctx, request, testDiscardEvidence(), testHash, noRecheck); !errors.Is(err, ErrConflict) {
 		t.Fatalf("cross-action key replay accepted: %v", err)
 	}
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
@@ -288,12 +286,12 @@ func TestRemovalDoesNotDependOnTheSessionGitPrincipal(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				req := DiscardRequest{Key: "remove", UUID: uuid, TokenSHA256: strings.Repeat("a", 64)}
+				req := DiscardRequest{Key: "remove", UUID: uuid, IfMatch: testTag(time.Minute)}
 				begin, commit, complete, terminal := s.BeginDiscard, s.CommitDiscard, s.CompleteDiscard, "secrets-absent"
 				if action == "delete" {
 					begin, commit, complete, terminal = s.BeginDelete, s.CommitDelete, s.CompleteDelete, "branch-absent"
 				}
-				op, err := begin(ctx, req, ev)
+				op, err := begin(ctx, req, ev, testHash, noRecheck)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -321,5 +319,30 @@ func TestRemovalDoesNotDependOnTheSessionGitPrincipal(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A removal's run is recorded only after verify planned it again under the
+// Git authority; a plan that changed records nothing.
+func TestRemovalRunPlansAgainUnderTheGitAuthority(t *testing.T) {
+	s, ev, first := setupDiscardStore(t)
+	ctx := context.Background()
+	if err := s.FailStaleDiscard(ctx, first.ID, "first plan stale"); err != nil {
+		t.Fatal(err)
+	}
+	req := DiscardRequest{Key: "replanned", UUID: "550e8400-e29b-41d4-a716-446655440000", IfMatch: testTag(time.Minute)}
+	held := false
+	_, err := s.BeginDiscard(ctx, req, ev, testHash, func(context.Context) error {
+		held = !s.gitAuthority.TryLock()
+		if !held {
+			s.gitAuthority.Unlock()
+		}
+		return Stale(api.ReasonChanged)
+	})
+	if !held || !answers(err, api.KindPreconditionFailed, api.ReasonChanged) {
+		t.Fatalf("a changed plan answered %v (verify under the Git authority: %v)", err, held)
+	}
+	if _, err = s.GetOperationByKey(ctx, req.Key); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a changed plan recorded its run: %v", err)
 	}
 }

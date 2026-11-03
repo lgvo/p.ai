@@ -107,10 +107,9 @@ type OriginSourcesResult struct {
 	Next              string                `json:"next"`
 }
 
-type PublicationPreviewResult struct {
-	Preview PublicationPreview `json:"preview"`
-}
-
+// PublicationPreview is the plan of a publication: where it publishes, the
+// destination's tip and its relation to the source. A divergent destination
+// refuses the publication.
 type PublicationPreview struct {
 	Project        string `json:"project"`
 	URL            string `json:"url"`
@@ -132,8 +131,10 @@ type PublicationEvidence struct {
 }
 
 // Publication is one publication's outcome: created, advanced, satisfied,
-// refused or outcome_unknown; no status when its push failed before it
-// started.
+// refused when the origin's server rejected the push, or outcome_unknown; no
+// status when its push failed before it started. A destination that diverged
+// is refused before the push: by the plan, or by the worker's own compare,
+// which fails the operation.
 type Publication struct {
 	Preview PublicationPreview `json:"preview"`
 	Status  string             `json:"status,omitempty"`
@@ -179,7 +180,7 @@ type Operation struct {
 
 // OperationIntent is what the caller of a change named, recorded when the
 // daemon accepted it. It never holds a guard read from live state, such as an
-// expected tip, URL or commit, or a confirmation token.
+// expected tip, URL or commit, or a change tag.
 type OperationIntent struct {
 	Project string `json:"project"`
 	// Session is the target session; for a creation, the new one.

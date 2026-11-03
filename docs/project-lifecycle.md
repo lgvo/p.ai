@@ -172,10 +172,13 @@ host actions may:
   create-or-fast-forward rule; or
 - delete it after a Git-only loss review and confirmation.
 
-Rename never affects an origin ref. Deletion reports the exact ref/tip, commits
-that would lose their last retained P ref, and fresh origin-preservation
-evidence or `unknown`. A changed tip makes confirmation stale. P never
-reclaims, renames, publishes, or deletes retained branches automatically.
+Rename never affects an origin ref. Deletion's plan reports the exact ref and
+tip and the commits that would lose their last retained P ref, as certain
+loss. Deletion contacts no origin: whether the origin has those commits is the
+user's concern. A changed tip or branch loss changes the plan, so a run of the
+reviewed plan is refused; a change after the run was accepted fails the
+operation as stale before the ref is deleted. P never reclaims, renames,
+publishes, or deletes retained branches automatically.
 
 ## Project deletion
 
@@ -185,43 +188,47 @@ the bare repository, credentials, runtimes, the project's commit images,
 observations, and registry records will become absent.
 
 It does not delete external filesystem-grant contents or retract events already
-delivered to a configured handler. Those are outside project-state authority;
-the preview names them and points to the handler's own log-retention policy.
-The project deletion and its outcome may itself be emitted as an event.
+delivered to a configured handler. Those are outside project-state authority:
+the plan names the preserved filesystem grants, and the handler's own
+log-retention policy governs what it keeps. The project deletion and its
+outcome may itself be emitted as an event.
 
-### Preflight and confirmation
+### Plan and confirmation
 
-Before confirmation P obtains the project lock and produces one aggregate
-report containing:
+Project deletion is a risky change
+([control API](control-api.md#risky-changes)): a dry run returns its plan, and
+a separate run carries out that plan. P obtains the project lock and produces
+one aggregate plan containing:
 
-- every session and its condition;
-- every live attachment that confirmation will terminate;
+- every session and its condition: running, stopped or missing;
 - for every session whose runtime exists, its exact identity and the statement
   that the container and everything in it will be lost; P does not look inside;
-- missing or unreachable runtime facts;
+- for every session whose runtime is missing, the statement that its contents
+  are already gone; an unreachable runtime returns no plan;
 - every assigned and retained P ref and the commits that lose their last P
   reference;
 - session and project credentials;
 - project-scoped builders and every commit image of the project; and
-- external mounts and already-delivered event-log records that P will not
-  delete.
+- the external mounts whose contents P will not delete.
 
 Project deletion contacts and compares no origin: whether work is published
 there is the user's concern. Commits that lose their last P reference are
 reported as lost whether or not the origin has them.
 
-The confirmation is bound to the project path, origin identity, session UUIDs,
-attachment set, runtime identities and states, ref names and tips, and
-requested complete-deletion outcome. A changed fact requires a new report. The
-action is named and described as deletion, never as unregistering.
+An attached terminal refuses the plan with `attachment_active`: detach it
+first. The plan's change tag is bound to the project path, origin identity,
+session UUIDs, runtime identities and states, ref names and tips, and
+requested complete-deletion outcome. A changed fact refuses the run and
+requires a new plan. The action is named and described as deletion, never as
+unregistering.
 
 ### Ensure absent
 
-After confirmation P marks the project `deleting`, disables all project and
-session authority, tears down the confirmed attachments, and attempts every
-owned deletion. Each step has the same monotonic desired result: absent.
-Already-absent resources are success; there is no rollback or reconstruction
-of a resource deleted by an earlier attempt.
+After an accepted run P marks the project `deleting`, disables all project and
+session authority, stops running sessions, and attempts every owned
+deletion. Each step has the same monotonic
+desired result: absent. Already-absent resources are success; there is no
+rollback or reconstruction of a resource deleted by an earlier attempt.
 
 The operation reports each target as `deleted`, `already_absent`, `remaining`,
 or `unreachable`. Partial success is expected. Retry runs the same authorized
@@ -259,22 +266,22 @@ session authority and are distinct from the excluded abandonment workflow.
 
 ### Implemented aggregate boundary
 
-The CLI-first aggregate path accepts established, stopped, detached sessions,
-or explicit acknowledgement of positively proved missing runtimes. It accepts
-the project's indexed commit images, each read through the runtime driver and
-deleted exactly once the project's runtimes are proven absent, and bounded
-Git/history/report inventories. Project deletion does not stop sessions
-itself: running or attached sessions require detach and Stop first. Incomplete
-creators require supported separate cleanup or exact-identity investigation
-first. Oversized or unfamiliar inventories remain intact with preparation or
-investigation instructions; no uncertain resource is deleted to meet a limit.
-The [host API](control-api.md#aggregate-project-deletion) owns the request
-fields and current bounds; validation evidence belongs in the
+The CLI-first aggregate path accepts established, detached sessions, running
+or stopped, and sessions whose runtime is positively proved missing. It stops
+a running session itself before deleting its runtime; an attached terminal
+refuses the plan, so detach first. It accepts the project's indexed commit
+images, each read through the runtime driver and deleted exactly once the
+project's runtimes are proven absent, and bounded Git/history/report
+inventories. Incomplete creators require supported separate cleanup or
+exact-identity investigation first. Oversized or unfamiliar inventories remain
+intact with preparation or investigation instructions; no uncertain resource is
+deleted to meet a limit. The [host API](control-api.md#project-deletion) owns
+the request fields and current bounds; validation evidence belongs in the
 progress record.
 
-Within already-confirmed bulk ensure-absent work, an issued source DELETE is
-never repeated. After interruption, available deterministic-name and full
-project/session inventory checks may positively prove the source absent and
+Within already-confirmed bulk ensure-absent work, an issued source stop or
+DELETE is never repeated. After interruption, available deterministic-name and
+full project/session inventory checks may positively prove the source absent and
 advance the durable outcome. A present original, renamed/competing machinery,
 unavailable authority or uncertain identity retains the incomplete operation
 for investigation. P never recreates or reuses a retired session name to finish
@@ -304,11 +311,11 @@ The project lifecycle is supported only when tests prove:
 4. project paths cannot be renamed or confused by equal origins;
 5. retained branches can be selected, fetched, renamed, published, and deleted
    without acquiring session authority;
-6. retained-branch and project deletion previews become stale when any bound
-   Git, runtime, or attachment fact changes, and a retained-branch preview also
-   when its origin evidence changes;
-7. confirmed project deletion terminates only its listed attachments, disables
-   new project authority, and converges through repeated ensure-absent calls;
+6. retained-branch and project deletion plans become stale, and their change
+   tags stop matching, when any bound Git, runtime, or attachment fact
+   changes;
+7. project deletion runs only with no terminal attached, disables new project
+   authority, and converges through repeated ensure-absent calls;
 8. partial deletion and daemon restart retain enough identity to find every
    remaining resource without recreating deleted state; and
 9. Incus unavailability preserves project/session identity, incomplete durable

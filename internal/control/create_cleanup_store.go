@@ -10,31 +10,32 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
-func (s *Store) BeginCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, verify func(context.Context) error) (api.Operation, error) {
+// BeginCreateCleanup records the run req of an early cleanup, whose plan has
+// change hash hash, after verify planned it again under the Git authority.
+func (s *Store) BeginCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
 	if ev.Review.Runtime != nil {
 		return api.Operation{}, ErrInvalid
 	}
-	return s.beginCreateCleanup(ctx, req, ev, verify)
+	return s.beginCreateCleanup(ctx, req, ev, hash, verify)
 }
 
-func (s *Store) BeginAssembledCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, verify func(context.Context) error) (api.Operation, error) {
-	if !validAssembledCleanupReview(ev) {
+// BeginAssembledCreateCleanup is BeginCreateCleanup for an assembled
+// creator's cleanup, which deletes its stopped container.
+func (s *Store) BeginAssembledCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	if !validAssembledCleanupReview(req.UUID, ev) {
 		return api.Operation{}, ErrInvalid
 	}
-	return s.beginCreateCleanup(ctx, req, ev, verify)
+	return s.beginCreateCleanup(ctx, req, ev, hash, verify)
 }
 
-func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, verify func(context.Context) error) (api.Operation, error) {
+func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
 	p := ev.Review
 	assembled := p.Runtime != nil
-	if req.Key == "" || len(req.Key) > 128 || !validUUID(req.UUID) || !validFingerprint(req.TokenSHA256) || !validUUID(ev.InstanceUUID) || req.UUID != p.UUID || !p.Eligible || p.ConfirmationToken != "" || !validUUID(p.OldOperationID) || !validFingerprint(p.OldEvidenceSHA256) || !validFingerprint(p.PolicySHA256) || !validFingerprint(p.ImageFingerprint) || !p.AssignedBranch.Observed || !p.AssignedBranch.Exists || !validOID(p.AssignedBranch.OID) || verify == nil {
+	expiry, ok := api.ParseChangeTag(req.IfMatch)
+	if req.Key == "" || len(req.Key) > 128 || !validUUID(req.UUID) || !ok || !validFingerprint(hash) || !validUUID(ev.InstanceUUID) || !validUUID(p.OldOperationID) || !validFingerprint(p.OldEvidenceSHA256) || !validFingerprint(p.PolicySHA256) || !validFingerprint(p.ImageFingerprint) || !p.AssignedBranch.Observed || !p.AssignedBranch.Exists || !validOID(p.AssignedBranch.OID) || verify == nil {
 		return api.Operation{}, ErrInvalid
 	}
-	expiry, err := time.Parse(time.RFC3339Nano, p.ExpiresAt)
-	if err != nil {
-		return api.Operation{}, ErrInvalid
-	}
-	if err = s.lockGitAuthority(ctx); err != nil {
+	if err := s.lockGitAuthority(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	defer s.gitAuthority.Unlock()
@@ -50,7 +51,7 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	if !time.Now().Before(expiry) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
-	if err = verify(ctx); err != nil {
+	if err := verify(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	j, err := s.beginJournal(ctx)
@@ -65,27 +66,27 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	}
 	var request ReserveSessionRequest
 	oldEv, e := Evidence(old)
-	if e != nil || old.Kind != "session.create" || old.Status != "blocked" || old.SessionUUID != p.UUID || old.Project != p.OldRequest.Project || old.Phase != p.OldPhase || digest(old.Evidence) != p.OldEvidenceSHA256 || json.Unmarshal(old.Request, &request) != nil || request != p.OldRequest || oldEv.PolicySHA256 != p.PolicySHA256 || oldEv.ImageFingerprint != p.ImageFingerprint {
+	if e != nil || old.Kind != "session.create" || old.Status != "blocked" || old.SessionUUID != req.UUID || old.Project != p.OldRequest.Project || old.Phase != p.OldPhase || digest(old.Evidence) != p.OldEvidenceSHA256 || json.Unmarshal(old.Request, &request) != nil || request != p.OldRequest || oldEv.PolicySHA256 != p.PolicySHA256 || oldEv.ImageFingerprint != p.ImageFingerprint {
 		return api.Operation{}, reviewChanged(nil)
 	}
 	if !assembled && (!SafeCreateCleanupEvidence(request, oldEv) || !SafeCreateCleanupPhase(old)) {
 		return api.Operation{}, reviewChanged(nil)
 	}
 	if assembled {
-		session, e := getSessionTx(ctx, tx, p.UUID)
+		session, e := getSessionTx(ctx, tx, req.UUID)
 		if e != nil || digest(old.Request) != p.OldRequestSHA256 || AssembledCreationForCleanup(session, old, p.ImageFingerprint) != nil {
 			return api.Operation{}, reviewChanged(e)
 		}
 	}
 	var registry, branch, policy string
-	if err = tx.QueryRowContext(ctx, `SELECT registry_state,branch,policy_sha256 FROM sessions WHERE uuid=? AND project_path=?`, p.UUID, old.Project).Scan(&registry, &branch, &policy); err != nil || registry != "creating" || branch != request.Branch || p.AssignedBranch.Ref != "refs/heads/"+branch || policy != p.PolicySHA256 {
+	if err = tx.QueryRowContext(ctx, `SELECT registry_state,branch,policy_sha256 FROM sessions WHERE uuid=? AND project_path=?`, req.UUID, old.Project).Scan(&registry, &branch, &policy); err != nil || registry != "creating" || branch != request.Branch || p.AssignedBranch.Ref != "refs/heads/"+branch || policy != p.PolicySHA256 {
 		return api.Operation{}, reviewChanged(err)
 	}
 	var count int
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=? AND branch=?`, old.Project, branch).Scan(&count); err != nil || count != 0 {
 		return api.Operation{}, reviewChanged(err)
 	}
-	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE session_uuid=?`, p.UUID).Scan(&count); err != nil {
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE session_uuid=?`, req.UUID).Scan(&count); err != nil {
 		return api.Operation{}, err
 	}
 	local := p.Provisional.Cleanup
@@ -94,12 +95,12 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 			return api.Operation{}, reviewChanged(nil)
 		}
 	} else {
-		if !local.Valid() || local.Completed || local.OldUUID != p.UUID || local.OldOperationID != old.ID || local.OldImageFingerprint != p.ImageFingerprint || count != 1 {
+		if !local.Valid() || local.Completed || local.OldUUID != req.UUID || local.OldOperationID != old.ID || local.OldImageFingerprint != p.ImageFingerprint || count != 1 {
 			return api.Operation{}, reviewChanged(nil)
 		}
 		var fp, role, project string
 		var active int
-		if err = tx.QueryRowContext(ctx, `SELECT fingerprint,role,project_path,active FROM git_principals WHERE session_uuid=?`, p.UUID).Scan(&fp, &role, &project, &active); err != nil || fp != local.KeyFingerprint || role != "session" || project != old.Project || active != 1 {
+		if err = tx.QueryRowContext(ctx, `SELECT fingerprint,role,project_path,active FROM git_principals WHERE session_uuid=?`, req.UUID).Scan(&fp, &role, &project, &active); err != nil || fp != local.KeyFingerprint || role != "session" || project != old.Project || active != 1 {
 			return api.Operation{}, reviewChanged(err)
 		}
 	}
@@ -115,10 +116,10 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 		if _, err = j.update(ctx, old.ID, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "cleanup by "+id, now, old.ID); err != nil {
 			return api.Operation{}, err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=? AND registry_state='creating'`, p.UUID); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=? AND registry_state='creating'`, req.UUID); err != nil {
 			return api.Operation{}, err
 		}
-		if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE session_uuid=? AND role='session'`, p.UUID); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE session_uuid=? AND role='session'`, req.UUID); err != nil {
 			return api.Operation{}, err
 		}
 	}
@@ -130,8 +131,8 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	if assembled {
 		phase, committed = "validated", false
 	}
-	rec := operationRecord{ID: id, Key: req.Key, Kind: KindCreateCleanup, Project: old.Project, Session: p.UUID, Request: raw,
-		Intent: api.OperationIntent{Project: old.Project, Session: p.UUID, Branch: p.OldRequest.Branch}, Phase: phase, Committed: committed, Evidence: evidence, Now: now}
+	rec := operationRecord{ID: id, Key: req.Key, Kind: KindCreateCleanup, Project: old.Project, Session: req.UUID, Request: raw,
+		Intent: api.OperationIntent{Project: old.Project, Session: req.UUID, Branch: p.OldRequest.Branch}, Phase: phase, Committed: committed, Evidence: evidence, ChangeHash: hash, Now: now}
 	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}

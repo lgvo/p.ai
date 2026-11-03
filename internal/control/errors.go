@@ -59,7 +59,7 @@ func Conflict(reason, target string) error {
 }
 
 // Stale refuses a request because a condition it sent no longer holds: a
-// confirmation token expired, or the facts it reviewed or expected changed.
+// change tag expired, or the facts it reviewed or expected changed.
 func Stale(reason string) error {
 	return &Refusal{Kind: api.KindPreconditionFailed, Reason: reason, Cause: ErrConflict}
 }

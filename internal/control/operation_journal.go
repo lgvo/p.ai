@@ -149,7 +149,10 @@ type operationRecord struct {
 	Phase                  string
 	Committed              bool
 	Evidence               []byte // nil records no evidence
-	Now                    string
+	// ChangeHash is the change hash of a risky change's run: the exact change
+	// it runs. The journal keeps it out of every reply.
+	ChangeHash string
+	Now        string
 }
 
 // operation is the operation that r records, as the journal returns it.
@@ -211,8 +214,8 @@ func (j *journalTx) insert(ctx context.Context, r operationRecord) error {
 	if err != nil {
 		return err
 	}
-	_, err = j.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,?,'running',?,?,?,?,?)`, r.ID, r.Key, r.Kind, r.Project, session, string(r.Request), digest(r.Request), string(intent), r.Phase, r.Committed, nullableJSON(r.Evidence), r.Now, r.Now)
+	_, err = j.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,change_hash,status,phase,committed,evidence_json,created_at,updated_at)
+	 VALUES(?,?,?,?,?,?,?,?,?,'running',?,?,?,?,?)`, r.ID, r.Key, r.Kind, r.Project, session, string(r.Request), digest(r.Request), string(intent), r.ChangeHash, r.Phase, r.Committed, nullableJSON(r.Evidence), r.Now, r.Now)
 	if err == nil {
 		j.changes = append(j.changes, statusChange{id: r.ID, to: "running"})
 	}

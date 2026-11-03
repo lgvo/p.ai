@@ -12,16 +12,18 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
-// PublicationRequest binds a confirmation to one exact P tip and one origin head.
-// Source is a session UUID or a retained branch name, according to Kind.
+// PublicationRequest binds a publication to one exact P tip and one origin
+// head. Source is a session UUID or a retained branch name, according to
+// Kind. Key and IfMatch are a run's; a dry run has neither.
 type PublicationRequest struct {
 	ExpectedOriginURL string `json:"expected_origin_url"`
-	Key               string `json:"key"`
+	Key               string `json:"key,omitempty"`
 	Project           string `json:"project"`
 	Kind              string `json:"kind"`
 	Source            string `json:"source"`
 	SourceOID         string `json:"source_oid"`
 	DestinationRef    string `json:"destination_ref"`
+	IfMatch           string `json:"if_match,omitempty"`
 }
 
 func validPublicationRequest(r PublicationRequest) bool {
@@ -97,13 +99,14 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest, exc
 	return "refs/heads/" + r.Source, nil
 }
 
-// BeginPublication records publication r as an operation of kind
-// origin.publish, after admit accepts it, and returns it. An identical earlier
-// request under r.Key returns its operation without admit. A session's
-// publication holds the session: the journal refuses competing work on it
-// while the operation is unfinished.
-func (s *Store) BeginPublication(ctx context.Context, r PublicationRequest, admit func(context.Context) (branch string, err error)) (api.Operation, error) {
-	if !validPublicationRequest(r) || r.Key == "" || len(r.Key) > 128 {
+// BeginPublication records publication run r, whose plan has change hash
+// hash, as an operation of kind origin.publish, after admit accepts it, and
+// returns it. An identical earlier request under r.Key returns its operation
+// without admit. A session's publication holds the session: the journal
+// refuses competing work on it while the operation is unfinished.
+func (s *Store) BeginPublication(ctx context.Context, r PublicationRequest, hash string, admit func(context.Context) (branch string, err error)) (api.Operation, error) {
+	expiry, ok := api.ParseChangeTag(r.IfMatch)
+	if !validPublicationRequest(r) || r.Key == "" || len(r.Key) > 128 || !ok || !validFingerprint(hash) {
 		return api.Operation{}, ErrInvalid
 	}
 	request, err := json.Marshal(r)
@@ -132,6 +135,12 @@ func (s *Store) BeginPublication(ctx context.Context, r PublicationRequest, admi
 	}
 	rec := operationRecord{ID: id, Key: r.Key, Kind: KindOriginPublish, Project: r.Project, Session: session, Request: request,
 		Intent: api.OperationIntent{Project: r.Project, Session: session, Branch: branch, Destination: r.DestinationRef},
-		Phase:  "accepted", Now: time.Now().UTC().Format(time.RFC3339Nano)}
-	return s.insertForProject(ctx, rec, nil)
+		Phase:  "accepted", ChangeHash: hash, Now: time.Now().UTC().Format(time.RFC3339Nano)}
+	return s.insertForProject(ctx, rec, func(queryRower) error {
+		// Inside the transaction, after its wait for the store's connection.
+		if !time.Now().Before(expiry) {
+			return Stale(api.ReasonExpired)
+		}
+		return nil
+	})
 }

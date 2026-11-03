@@ -141,6 +141,48 @@ shows the rest and the Diagnostic. The [checkpoint](image-reasons/checkpoint.jso
 lists the findings; the [action record](image-reasons/actions.ndjson) keeps the
 first-wording runs and the prototype check. Mock-socket evidence only.
 
+## Removal plans — 2026-11-03
+
+Step 5 makes Discard and Delete one method called twice: `d`/`X` ask for the
+plan with a dry run, and `y` runs it with a new key and the plan's change tag.
+In the [before frames](removal-plans/before-0003-discard-stopped-review-120x35.png),
+built from a `git archive` of `7cfe56a`, the review states the container's loss
+in one paragraph. The final review lists it under "This will lose work; push or
+copy out what you need before you authorize:"
+([stopped](removal-plans/after4-0033-delete-stopped-review-120x35.png),
+[running](removal-plans/after4-0007-delete-running-review-120x35.png)) and
+completes as before. A dry run that the daemon refused because a second client
+attached during it shows the same
+[refusal page](removal-plans/after-0031-discard-plan-refused-120x35.png) as the
+old conflict error. Help during a pending plan read, Back during it, and an
+expired run were checked. A second client's Stop between the plan and `y` kept
+the tag, as in P, and the Discard
+[completed](removal-plans/after5-0005-discard-completed-after-stop-120x35.png).
+A second client's Rename did not: the run answered
+[changed](removal-plans/after5-0011-delete-run-changed-120x35.png) and recorded
+no operation. The first review's Stop answered changed only because the mock
+then hashed the running/stopped status; the mock now matches P.
+
+The review found four problems in the first build, all fixed and repeated.
+Wrapped loss items ran into the next line
+([48×16](removal-plans/after-0008-delete-stopped-loss-48x16.png)); the item now
+[wraps under its text](removal-plans/after4-0005-delete-running-loss-48x16.png).
+One lost commit read "1 commits … leave". At 80×24 the branch outcome of a
+running session's review fell
+[below the fold](removal-plans/after2-0015-delete-running-review-80x24.png),
+where [before](removal-plans/before2-0003-delete-running-review-80x24.png) it
+fit. With the loss heading and advice on one line, the review
+[fits again](removal-plans/after4-0003-delete-running-review-80x24.png). The
+expiry sentence said a review could be "already used"; it now
+[names only the attachment](removal-plans/after4-0019-discard-run-expired-120x35.png)
+as used. One finding that predates this change remains: a changed or expired
+review still offers `y`. A Delete that loses commits still needs scrolling at
+80×24, as before. The mock cannot show a missing runtime or commits leaving P,
+so those reviews were not rendered. The
+[checkpoint](removal-plans/checkpoint.json) lists the findings and the
+[action record](removal-plans/actions.ndjson) marks fixture API calls and the
+second client's input. Mock-socket evidence only.
+
 ## Removal without loss inspection — 2026-11-02
 
 Step 0e removed the workspace loss inspection. The

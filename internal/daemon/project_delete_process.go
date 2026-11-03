@@ -19,17 +19,25 @@ func projectDeleteAbsent(r control.ProjectDeleteResource) bool {
 	return r.Status == "deleted" || r.Status == "already_absent"
 }
 
-// Absence observed after an issued DELETE can recover only through the full
-// authoritative absence proof; a present issued target never grants redispatch.
-func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, review api.RemovalRuntimePreview, actual runtimeincus.Observation) string {
+// projectDeleteRuntimeDecision decides what a pass does with a session's
+// runtime. Absence observed after an issued DELETE can recover only through
+// the full authoritative absence proof; a present issued target never grants
+// redispatch. A running runtime is stopped first, once: a stop issued before
+// that leaves it running is never issued again.
+func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, planned api.RemovalRuntime, actual runtimeincus.Observation) string {
 	if !actual.Exists {
 		return "prove-absence"
 	}
-	if projectDeleteAbsent(resource) || review.Condition != "present" || actual.Status != "Stopped" || actual.Name != review.InstanceName || actual.IncusUUID != review.IncusUUID || actual.Generation != review.Generation || actual.Fingerprint != review.ImageFingerprint {
+	if projectDeleteAbsent(resource) || planned.Condition != "present" || !removableStatus(actual.Status) || actual.Name != planned.InstanceName || actual.IncusUUID != planned.IncusUUID || actual.Generation != planned.Generation || actual.Fingerprint != planned.ImageFingerprint {
 		return "identity-conflict"
 	}
-	if resource.DeleteIssued {
+	switch {
+	case resource.DeleteIssued:
 		return "issued-unresolved"
+	case actual.Status == "Running" && resource.StopIssued:
+		return "stop-unresolved"
+	case actual.Status == "Running":
+		return "stop-exact"
 	}
 	return "delete-exact"
 }
@@ -148,6 +156,21 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 					return
 				}
 				continue
+			}
+			if decision == "stop-unresolved" {
+				if !fail(ri, control.OutcomeUnknown(fmt.Errorf("native stop outcome unresolved for %s UUID %s generation %s", ps.Runtime.InstanceName, ps.Runtime.IncusUUID, ps.Runtime.Generation))) {
+					return
+				}
+				continue
+			}
+			if decision == "stop-exact" {
+				err = l.runtime.StopForDiscardExact(ctx, native, ps.Runtime.IncusUUID, ps.Runtime.Generation, func() error { r.StopIssued = true; return persist("running", "", "") })
+				if err != nil {
+					if !fail(ri, err) {
+						return
+					}
+					continue
+				}
 			}
 			err = l.runtime.DeleteForDiscardExact(ctx, native, ps.Runtime.IncusUUID, ps.Runtime.Generation, func() error { r.DeleteIssued = true; return persist("running", "", "") })
 			if err != nil {
@@ -310,7 +333,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			return l.projectDeleteRepositoryAbsent(op.Project, ev.RepositoryParent)
 		})
 		if err == nil {
-			l.forgetProjectDeletePreviews(op.Project)
+			l.forgetProject(op.Project)
 			func() {
 				l.eventMu.Lock()
 				defer l.eventMu.Unlock()

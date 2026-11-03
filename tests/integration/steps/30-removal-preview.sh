@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Removal previews and session admission capacity; no removal is confirmed.
+# Removal plans (the dry runs of session.discard and session.delete) and
+# session admission capacity; no removal runs.
 # All files are disposable fixtures; no authentication is used.
 set -E
 umask 077
@@ -152,7 +153,8 @@ expect_refusal() {
   fi
   jq -e --arg kind "$kind" --arg reason "$reason" '
     {method_not_found: -32601, invalid: -32602, retry: -32010, conflict: -32011,
-     capacity: -32012, precondition_failed: -32013, not_found: -32015} as $codes |
+     capacity: -32012, precondition_failed: -32013, precondition_required: -32014,
+     not_found: -32015} as $codes |
     .error.message==$kind and .error.code==$codes[$kind] and
     ($reason=="" or .error.data.reason==$reason)' <<< "$response" >/dev/null
 }
@@ -163,29 +165,46 @@ source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
     'length==1 and .[0].name==$name and .[0].status=="Running"' >/dev/null
 }
-preview() {
-  rpc session.removal.preview "$(jq -nc --arg uuid "$1" --arg kind "$2" '{uuid:$uuid,kind:$kind}')"
+# dry_run UUID ACTION: the dry run of session.ACTION, discard or delete, of
+# session UUID: its plan and, when the plan is allowed, its change tag.
+dry_run() {
+  rpc "session.$2" "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"
 }
-# Loss inspection is gone: its method is unknown and the preview's former
-# loss parameter is refused by the strict request decoder.
+tag_pattern='^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$'
+# Loss inspection and the separate preview are gone: their methods are
+# unknown, and the former loss and acknowledgement parameters are refused by
+# the strict request decoder.
 expect_refusal workspace.loss.inspect '{}' method_not_found
-expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg op "$create_op" \
-  '{uuid:$uuid,kind:"discard",loss_operation_id:$op}')" invalid param
-# Empty bootstrap must be previewable before any P branch tip exists: its
-# unborn first branch has no P ref, and the preview says so.
-unborn_preview=$(preview "$uuid" discard)
-jq -e --arg uuid "$uuid" '
-  .result.preview | .kind=="discard" and .session_uuid==$uuid and
-  .assigned_ref=="refs/heads/main" and (has("assigned_tip")|not) and
-  .assigned_ref_missing==true and .branch_loss==null and
-  .runtime.condition=="present" and .runtime.original_status=="Running" and
-  .runtime.runtime_data_lost==true and
-  (.confirmation_token | test("^[0-9a-f]{32}$"))
-' <<< "$unborn_preview" >/dev/null
-unborn_delete=$(preview "$uuid" delete)
-jq -e '.result.preview | .assigned_ref_missing==true and (has("assigned_tip")|not) and
-  (.branch_loss | .assigned_ref=="refs/heads/main" and (has("assigned_tip")|not) and
-    .commits_losing_p_reachability==[] and .p_refs==[] and (has("origin")|not))' <<< "$unborn_delete" >/dev/null
+expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,kind:"discard"}')" \
+  method_not_found
+expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg op "$create_op" \
+  '{uuid:$uuid,loss_operation_id:$op}')" invalid param
+# A run needs the change tag of a dry run: a key alone is refused as a missing
+# precondition, a tag alone as a request without its key. Neither removes
+# anything.
+expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,key:"preview-untagged"}')" \
+  precondition_required if_match_missing
+expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg tag "20991231T000000Z-$(printf '%064d' 0)" \
+  '{uuid:$uuid,if_match:$tag}')" invalid param
+# Empty bootstrap can be planned before any P branch tip exists: its unborn
+# first branch has no P ref, and the plan says so.
+unborn_discard=$(dry_run "$uuid" discard)
+jq -e --arg uuid "$uuid" --arg tag "$tag_pattern" '
+  .result | (.change_tag | test($tag)) and (has("confirmation_token") or has("expires_at") | not) and
+  (.plan | .action=="session.discard" and .target==("session/"+$uuid) and
+    .allowed==true and .refusals==[] and .gone==[] and
+    .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and
+    (.details | .assigned_ref=="refs/heads/main" and (has("assigned_tip")|not) and
+      .assigned_ref_missing==true and (has("branch_loss")|not) and
+      (has("kind") or has("session_uuid") | not) and
+      .runtime.condition=="present" and .runtime.original_status=="Running"))
+' <<< "$unborn_discard" >/dev/null
+unborn_delete=$(dry_run "$uuid" delete)
+jq -e --arg uuid "$uuid" '.result.plan | .action=="session.delete" and .allowed==true and
+  .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and
+  (.details | .assigned_ref_missing==true and (has("assigned_tip")|not) and
+    (.branch_loss | .assigned_ref=="refs/heads/main" and (has("assigned_tip")|not) and
+      .commits_losing_p_reachability==[] and .p_refs==[] and (has("origin")|not)))' <<< "$unborn_delete" >/dev/null
 source_running
 
 # Admission needs room for one more container only: four sessions fill the
@@ -221,52 +240,58 @@ inc project list --format json | jq -e \
 inc list --format json | jq -e 'length==4' >/dev/null
 
 # main now has a commit whose last P branch would disappear on Delete. The
-# previews do not look inside the running container: they state that it and
+# plans do not look inside the running container: they state that it and
 # everything in it is lost, and leave it untouched.
 guest /run/current-system/sw/bin/bash -c 'printf unique > tracked; git add tracked; git commit -qm unique; git push origin HEAD:main'
 unique_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
 guest /run/current-system/sw/bin/bash -c 'printf dirty > tracked; mkdir -m 0700 /home/p/.codex; printf dummy-auth-only > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json'
-discard_preview=$(preview "$uuid" discard)
-delete_preview=$(preview "$uuid" delete)
-for result in "$discard_preview" "$delete_preview"; do
-  jq -e --arg uuid "$uuid" --arg oid "$unique_oid" --arg image "$base" '
-    .result.preview | .session_uuid==$uuid and .project=="removal-preview" and
-    .branch=="main" and .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
-    (has("assigned_ref_missing")|not) and (.policy_sha256|length)==64 and
-    (.confirmation_token | test("^[0-9a-f]{32}$")) and (.expires_at|length>0) and
-    .runtime.condition=="present" and .runtime.original_status=="Running" and
-    .runtime.incus_project=="user-1000" and .runtime.instance_name==("p-"+$uuid) and
-    (.runtime.incus_uuid|length)==36 and (.runtime.generation|length)==36 and
-    .runtime.image_fingerprint==$image and .runtime.runtime_data_lost==true and
-    (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
-      has("observed_at") or has("runtime_loss_unknown")) | not)
+discard_plan=$(dry_run "$uuid" discard)
+delete_plan=$(dry_run "$uuid" delete)
+for result in "$discard_plan" "$delete_plan"; do
+  jq -e --arg uuid "$uuid" --arg oid "$unique_oid" --arg image "$base" --arg tag "$tag_pattern" '
+    .result | (.change_tag | test($tag)) and (.plan |
+    .target==("session/"+$uuid) and .allowed==true and .refusals==[] and .gone==[] and
+    .loss[0]=={kind:"runtime_data",target:("session/"+$uuid),certain:true} and
+    (.details | .project=="removal-preview" and
+      .branch=="main" and .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
+      (has("assigned_ref_missing")|not) and (.policy_sha256|length)==64 and
+      .runtime.condition=="present" and .runtime.original_status=="Running" and
+      .runtime.incus_project=="user-1000" and .runtime.instance_name==("p-"+$uuid) and
+      (.runtime.incus_uuid|length)==36 and (.runtime.generation|length)==36 and
+      .runtime.image_fingerprint==$image and
+      (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
+        has("observed_at") or has("runtime_data_lost") or has("runtime_loss_unknown")) | not)))
   ' <<< "$result" >/dev/null
 done
-jq -e '.result.preview | .kind=="discard" and .branch_loss==null' <<< "$discard_preview" >/dev/null
+jq -e --arg uuid "$uuid" '.result.plan | .action=="session.discard" and (.details|has("branch_loss")|not) and
+  .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}]' <<< "$discard_plan" >/dev/null
 jq -e --arg oid "$unique_oid" --arg retained "$retained_oid" '
-  .result.preview | .kind=="delete" and
-  (.branch_loss | .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
+  .result.plan | .action=="session.delete" and
+  (.loss | length==2 and .[1]=={kind:"p_commits",target:"project/removal-preview:branch/main",
+    count:1,sample:[$oid],certain:true}) and
+  (.details.branch_loss | .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
     .commits_losing_p_reachability==[$oid] and (.p_refs|length)==4 and
     any(.p_refs[]; .name=="refs/heads/keep" and .oid==$retained) and
     (has("origin")|not))
-' <<< "$delete_preview" >/dev/null
-test "$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")" != \
-  "$(jq -er '.result.preview.confirmation_token' <<< "$delete_preview")"
-# Acknowledging a missing runtime is refused while the runtime is present: the
-# condition the client sent does not hold.
-expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid_keep" \
-  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')" precondition_failed changed
+' <<< "$delete_plan" >/dev/null
+test "$(jq -er '.result.change_tag' <<< "$discard_plan")" != \
+  "$(jq -er '.result.change_tag' <<< "$delete_plan")"
+# Acknowledging a missing runtime is no longer a parameter: a plan states a
+# missing runtime itself, and the request decoder refuses the old member.
+expect_refusal session.delete "$(jq -nc --arg uuid "$uuid_keep" \
+  '{uuid:$uuid,acknowledge_missing_runtime:true}')" invalid param
 source_running
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-auth-only
 test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
 
-# A stopped session previews the same way; its status is informational.
+# A stopped session is planned the same way; its status is informational.
 change_session session.stop "$uuid"
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | \
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
-stopped_preview=$(preview "$uuid" discard)
-jq -e '.result.preview.runtime | .condition=="present" and .original_status=="Stopped" and
-  .runtime_data_lost==true' <<< "$stopped_preview" >/dev/null
+stopped_plan=$(dry_run "$uuid" discard)
+jq -e --arg uuid "$uuid" '.result.plan | .allowed==true and
+  (.details.runtime | .condition=="present" and .original_status=="Stopped") and
+  .loss==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}]' <<< "$stopped_plan" >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
 change_session session.start "$uuid"
 deadline=$((SECONDS+80))
@@ -277,31 +302,34 @@ while ((SECONDS < deadline)); do
 done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | \
   jq -e '.result.session.session_condition=="ready"' >/dev/null
-# A changed P tip is reviewed afresh: a new preview reports it.
+# A changed P tip is planned afresh: a new dry run reports it.
 guest /run/current-system/sw/bin/bash -c 'git add tracked; git commit -qm changed-after-preview; git push origin HEAD:main'
 changed_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-changed_preview=$(preview "$uuid" delete)
-jq -e --arg oid "$changed_oid" --arg unique "$unique_oid" '.result.preview |
-  .assigned_tip==$oid and (.branch_loss.commits_losing_p_reachability|sort)==([$oid,$unique]|sort)' \
-  <<< "$changed_preview" >/dev/null
+changed_plan=$(dry_run "$uuid" delete)
+jq -e --arg oid "$changed_oid" --arg unique "$unique_oid" '.result.plan |
+  .details.assigned_tip==$oid and
+  (.details.branch_loss.commits_losing_p_reachability|sort)==([$oid,$unique]|sort) and
+  any(.loss[]; .kind=="p_commits" and .target=="project/removal-preview:branch/main" and
+    .count==2 and (.sample|sort)==([$oid,$unique]|sort) and .certain==true)' \
+  <<< "$changed_plan" >/dev/null
 source_running
 
-# Fixture-only removal simulates authoritative native absence. The preview
-# must label runtime loss unknown, require explicit acknowledgement, and leave
-# P's session row/ref intact. This is not public cleanup evidence.
+# Fixture-only removal simulates authoritative native absence. The plan
+# states the runtime missing and its contents already gone, not lost by the
+# removal, needs no acknowledgement, and leaves P's session row/ref intact.
+# This is not public cleanup evidence.
 inc delete --force "p-$uuid_third"
-expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid_third" \
-  '{uuid:$uuid,kind:"delete"}')" conflict runtime_missing
-missing_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid_third" \
-  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
-jq -e --arg uuid "$uuid_third" --arg oid "$retained_oid" '
-  .result.preview | .session_uuid==$uuid and .kind=="delete" and
-  .runtime.condition=="missing" and .runtime.runtime_loss_unknown==true and
-  (.runtime | (has("runtime_data_lost") or has("loss")) | not) and
-  .assigned_ref=="refs/heads/third" and .assigned_tip==$oid and
-  .branch_loss.commits_losing_p_reachability==[] and (.branch_loss|has("origin")|not) and
-  (.confirmation_token | test("^[0-9a-f]{32}$"))
-' <<< "$missing_preview" >/dev/null
+missing_plan=$(dry_run "$uuid_third" delete)
+jq -e --arg uuid "$uuid_third" --arg oid "$retained_oid" --arg tag "$tag_pattern" '
+  .result | (.change_tag | test($tag)) and (.plan |
+  .action=="session.delete" and .target==("session/"+$uuid) and .allowed==true and .refusals==[] and
+  .gone==[{kind:"runtime_data",target:("session/"+$uuid),certain:true}] and .loss==[] and
+  (.details | .runtime.condition=="missing" and
+    (.runtime | (has("incus_uuid") or has("original_status") or has("runtime_data_lost") or
+      has("runtime_loss_unknown") or has("loss")) | not) and
+    .assigned_ref=="refs/heads/third" and .assigned_tip==$oid and
+    .branch_loss.commits_losing_p_reachability==[] and (.branch_loss|has("origin")|not)))
+' <<< "$missing_plan" >/dev/null
 rpc session.inspect "$(jq -nc --arg uuid "$uuid_third" '{uuid:$uuid}')" | \
   jq -e --arg uuid "$uuid_third" '.result.session.uuid==$uuid' >/dev/null
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/third | cut -f1)" = "$retained_oid"

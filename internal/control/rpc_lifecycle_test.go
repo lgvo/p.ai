@@ -23,49 +23,6 @@ type retainedRenameRPCProbe struct {
 	request RetainedRenameRequest
 }
 
-type retainedDeleteRPCProbe struct {
-	LifecycleAPI
-	previews, confirms          int
-	project, branch, key, token string
-}
-
-func (p *retainedDeleteRPCProbe) PreviewRetainedDelete(_ context.Context, project, branch string) (api.RetainedDeletePreview, error) {
-	p.previews++
-	p.project, p.branch = project, branch
-	return api.RetainedDeletePreview{Project: project, Branch: branch, ConfirmationToken: strings.Repeat("a", 32)}, nil
-}
-func (p *retainedDeleteRPCProbe) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (api.Operation, error) {
-	p.confirms++
-	p.key, p.project, p.branch, p.token = key, project, branch, token
-	return api.Operation{Kind: "project.retained.delete", Project: project}, nil
-}
-func TestRetainedDeleteRPCClosedRequests(t *testing.T) {
-	p := &retainedDeleteRPCProbe{}
-	h := NewHandler(HandlerConfig{Lifecycle: p})
-	for _, raw := range []string{`{"v":1,"project":"app","branch":"saved"}`, `{"project":"app","branch":"saved","workspace":"/tmp"}`, `{"project":"app","branch":"saved","branch":"saved"}`} {
-		if _, e := h(context.Background(), "project.retained.delete.preview", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
-			t.Fatalf("preview accepted %s: %+v", raw, e)
-		}
-	}
-	token := strings.Repeat("a", 32)
-	for _, raw := range []string{`{"v":1,"key":"delete","project":"app","branch":"saved","confirmation_token":"` + token + `"}`, `{"key":"delete","project":"app","branch":"saved","confirmation_token":"short"}`, `{"key":"delete","project":"app","branch":"saved","confirmation_token":"` + token + `","force":true}`} {
-		if _, e := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
-			t.Fatalf("confirm accepted %s: %+v", raw, e)
-		}
-	}
-	if p.previews != 0 || p.confirms != 0 {
-		t.Fatal("invalid request reached authority")
-	}
-	preview, e := h(context.Background(), "project.retained.delete.preview", json.RawMessage(`{"project":"app","branch":"saved"}`))
-	if e != nil || preview.(api.RetainedDeletePreviewResult).Preview.Branch != "saved" || p.previews != 1 {
-		t.Fatalf("preview: %+v %+v", preview, e)
-	}
-	confirmed, e := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(`{"key":"delete","project":"app","branch":"saved","confirmation_token":"`+token+`"}`))
-	if e != nil || confirmed.(api.OperationResult).Operation.Kind != "project.retained.delete" || p.confirms != 1 || p.token != token {
-		t.Fatalf("confirm: %+v %+v", confirmed, e)
-	}
-}
-
 func (p *retainedRenameRPCProbe) RenameRetainedBranch(_ context.Context, req RetainedRenameRequest) (api.Operation, error) {
 	p.called++
 	p.request = req
@@ -124,47 +81,6 @@ func TestRenameRPCUsesClosedRequest(t *testing.T) {
 	if rpcErr != nil || p.called != 1 || p.request.NewBranch != "next" || p.request.ExpectedOldTip != tip ||
 		result.(api.OperationResult).Operation.Kind != "session.rename" {
 		t.Fatalf("rename route: %+v %+v", result, rpcErr)
-	}
-}
-
-type removalRPCProbe struct {
-	LifecycleAPI
-	called  int
-	request RemovalPreviewRequest
-}
-
-func (p *removalRPCProbe) PreviewRemoval(_ context.Context, req RemovalPreviewRequest) (api.RemovalPreview, error) {
-	p.called++
-	p.request = req
-	return api.RemovalPreview{Kind: req.Kind, SessionUUID: req.UUID, ConfirmationToken: strings.Repeat("a", 32)}, nil
-}
-
-func TestRemovalPreviewRPCUsesClosedRequest(t *testing.T) {
-	p := &removalRPCProbe{}
-	handler := NewHandler(HandlerConfig{Lifecycle: p})
-	uuid := "550e8400-e29b-41d4-a716-446655440000"
-	loss := "11111111-1111-1111-1111-111111111111"
-	for _, raw := range []string{
-		`{"v":1,"uuid":"` + uuid + `","kind":"discard"}`,
-		`{"uuid":"` + uuid + `","kind":"delete","path":"/workspace"}`,
-		`{"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + loss + `"}`,
-		`{"uuid":"` + uuid + `","kind":"rename","acknowledge_missing_runtime":true}`,
-	} {
-		if _, rpcErr := handler(context.Background(), "session.removal.preview", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind() != "invalid" {
-			t.Fatalf("unsafe removal request accepted: %s: %+v", raw, rpcErr)
-		}
-	}
-	if p.called != 0 {
-		t.Fatal("invalid removal request reached authority")
-	}
-	result, rpcErr := handler(context.Background(), "session.removal.preview", json.RawMessage(`{"uuid":"`+uuid+`","kind":"delete"}`))
-	if rpcErr != nil || p.called != 1 || p.request.UUID != uuid || p.request.Kind != "delete" || p.request.AcknowledgeMissingRuntime ||
-		result.(api.RemovalPreviewResult).Preview.ConfirmationToken != strings.Repeat("a", 32) {
-		t.Fatalf("removal preview route: %+v %+v", result, rpcErr)
-	}
-	_, rpcErr = handler(context.Background(), "session.removal.preview", json.RawMessage(`{"uuid":"`+uuid+`","kind":"discard","acknowledge_missing_runtime":true}`))
-	if rpcErr != nil || p.called != 2 || !p.request.AcknowledgeMissingRuntime {
-		t.Fatalf("missing runtime acknowledgement route: %+v", rpcErr)
 	}
 }
 

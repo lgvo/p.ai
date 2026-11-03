@@ -47,10 +47,11 @@ cleanup() {
 }
 on_error() {
   printf 'P_CREATE_REPLACE_CLEANUP_FAIL line=%s status=%s\n' "$2" "$1" >&2
-  if test -n "${preview:-}"; then
-    jq -c '.result.preview | {eligible,old_status,old_phase,
-      unsafe_reasons:((.unsafe_reasons // [])[:8]),provisional}' \
-      <<< "$preview" | head -c 2048 >&2 || true
+  if test -n "${plan:-}"; then
+    jq -c '.result | {allowed:.plan.allowed,refusals:((.plan.refusals // [])[:8]),
+      has_change_tag:has("change_tag"),old_status:.plan.details.old_status,
+      old_phase:.plan.details.old_phase,provisional:.plan.details.provisional}' \
+      <<< "$plan" | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
   timeout 5 p api "$socket" operation.list '{"limit":20}' >&2 || true
@@ -246,17 +247,18 @@ key_before=$(sha256sum "$state/session_keys/$sibling" | cut -d' ' -f1)
 exec_p "$sibling" /run/current-system/sw/bin/bash -c 'printf dummy-private > /home/p/replacement-private; chmod 0600 /home/p/replacement-private; printf dirty > sibling-dirty'
 
 
-preview_replace() { rpc session.create.replace.preview "$1"; }
-confirmation_params() {
-  jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg token "$2" \
-    '{old_uuid:$uuid,key:$key,confirmation_token:$token}'
-}
-confirm_replace() { rpc session.create.replace.confirm "$(confirmation_params "$1" "$2")"; }
-preview_params() {
-  jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg branch "$2" --arg choice "$3" --arg source "$4" \
-    '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
+# replace_params BRANCH CHOICE SOURCE: a replacement's dry-run params.
+# run_params KEY TAG: the run's, the dry run's $params plus the key, which is
+# also the new creation's, and the dry run's change tag.
+plan_replace() { rpc session.create.replace "$1"; }
+replace_params() {
+  jq -nc --arg uuid "$old_uuid" --arg branch "$1" --arg choice "$2" --arg source "$3" \
+    '{old_uuid:$uuid,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
+run_params() { jq -c --arg key "$1" --arg tag "$2" '. + {key:$key,if_match:$tag}' <<< "$params"; }
+run_replace() { rpc session.create.replace "$(run_params "$1" "$2")"; }
+change_tag() { jq -er '.result.change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$1"; }
 # This daemon has no image builders configured: no builder may exist at all.
 assert_old_effects_absent() {
   test ! -e "$state/session_keys/$old_uuid"
@@ -290,61 +292,69 @@ inc list --format json | jq -e --arg uuid "$old_uuid" \
   (.config["user.p.session_uuid"] // "")!=$uuid and .config["user.p.builder_request_uuid"]==null)' >/dev/null
 # Changed committed source keeps the same existing branch and preserves every ref.
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$first"
-params=$(preview_params replace-key-endpoint work existing '')
-preview=$(preview_replace "$params")
+params=$(replace_params work existing '')
+plan=$(plan_replace "$params")
 jq -e --arg uuid "$old_uuid" --arg id "$old_id" --arg image "$fingerprint" --arg oid "$second" \
- '.result.preview | .eligible==true and .old_phase=="principals-ready" and
+ '.result | (.change_tag|test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$")) and
+  (.plan | .allowed==true and .refusals==[] and (.details | .old_phase=="principals-ready" and
   .new_captured_oid==$oid and .provisional.runtime=="absent" and .provisional.builder=="absent" and
   .provisional.runtime_local=="unavailable" and .provisional.session_key=="present" and
   .provisional.endpoint=="present" and .provisional.principal=="present" and
   (.provisional.cleanup | .old_uuid==$uuid and .old_operation_id==$id and .old_image_fingerprint==$image and
-    (.key_fingerprint|length==64) and .key.mode==33152 and .endpoint_directory.mode==16877)' <<< "$preview" >/dev/null
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+    (.key_fingerprint|length==64) and .key.mode==33152 and .endpoint_directory.mode==16877)))' <<< "$plan" >/dev/null
+tag=$(change_tag "$plan")
+# Each change below makes the run stale: it plans again, is refused and
+# records nothing.
 # Same inode with another real P Git key must fail exact public-fingerprint proof.
 cp "$state/session_keys/$old_uuid" "$step_dir/reviewed-key-backup"
 cat "$state/session_keys/$sibling" > "$state/session_keys/$old_uuid"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
-preview_bad=$(preview_replace "$params")
-jq -e '.result.preview | .eligible==false and (has("confirmation_token")|not)' <<< "$preview_bad" >/dev/null
+expect_error precondition_failed changed session.create.replace "$(run_params replace-key-endpoint "$tag")"
+plan_bad=$(plan_replace "$params")
+jq -e '.result | (has("change_tag")|not) and .plan.allowed==false and
+  any(.plan.refusals[]; .code=="provisional_resource_unavailable")' <<< "$plan_bad" >/dev/null
 cat "$step_dir/reviewed-key-backup" > "$state/session_keys/$old_uuid"
 rm "$step_dir/reviewed-key-backup"
 chmod 0644 "$state/session_keys/$old_uuid"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-key-endpoint "$tag")"
 chmod 0600 "$state/session_keys/$old_uuid"
 printf preserve > "$endpoint_prefix/$old_uuid/unexpected"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-key-endpoint "$tag")"
 test "$(cat "$endpoint_prefix/$old_uuid/unexpected")" = preserve
 rm "$endpoint_prefix/$old_uuid/unexpected"
 "$host_git" -C "$repo" update-ref refs/heads/work "$third" "$second"
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-key-endpoint "$tag")"
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$third"
-# A competing UUID introduced after preview refuses acceptance without cleanup.
+# A competing UUID introduced after the dry run refuses the run without cleanup.
 competing="p-recovery-$old_uuid"
 inc init "$fingerprint" "$competing" --profile default \
  --config security.idmap.isolated=true --config security.privileged=false \
  --config security.nesting=false --config "user.p.session_uuid=$old_uuid"
 identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
-expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace "$(run_params replace-key-endpoint "$tag")"
 test -f "$state/session_keys/$old_uuid"
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$identity"
 inc delete "$competing"
 competing=
-# Unconsumed review is invalidated by restart. The blocked old creation stays
-# dormant with its real key; fresh preview binds the reopened socket identities.
+# The blocked old creation stays dormant with its real key across a restart,
+# which reopens its endpoint sockets; a fresh dry run binds the reopened
+# socket identities.
 old_key=$(sha256sum "$state/session_keys/$old_uuid" | cut -d' ' -f1)
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-expect_error precondition_failed expired session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+# A tag past its expiry is refused before planning.
+expect_error precondition_failed expired session.create.replace \
+  "$(run_params replace-key-endpoint "20000101T000000Z-$(printf '%064d' 0)")"
 test "$(sha256sum "$state/session_keys/$old_uuid" | cut -d' ' -f1)" = "$old_key"
 inspect_operation "$old_id" | jq -e '.result.operation | .status=="blocked" and .phase=="principals-ready"' >/dev/null
-preview=$(preview_replace "$params")
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+plan=$(plan_replace "$params")
+tag=$(change_tag "$plan")
 refs_before=$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')
 printf '%s\n' "$old_uuid" > "$step_dir/cleanup-arm"
-confirmed=$(confirm_replace replace-key-endpoint "$token")
-new_id=$(operation_id "$confirmed")
-new_uuid=$(session_uuid "$confirmed")
+ran=$(run_replace replace-key-endpoint "$tag")
+jq -e '.result.operation | .kind=="session.create" and .idempotency_key=="replace-key-endpoint"' <<< "$ran" >/dev/null
+new_id=$(operation_id "$ran")
+new_uuid=$(session_uuid "$ran")
 sessions+=("$new_uuid")
 test "$new_id" != "$old_id"
 test "$new_uuid" != "$old_uuid"
@@ -365,7 +375,7 @@ test ! -e "$endpoint_prefix/$new_uuid"
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
 expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
-test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace replace-key-endpoint "$tag")")" = "$new_id"
 stop_process "$daemon_pid"
 daemon_pid=
 # Recover the durable unfinished cleanup against a newly competing old UUID.
@@ -386,7 +396,7 @@ test ! -e "$state/session_keys/$new_uuid"
 test ! -e "$endpoint_prefix/$new_uuid"
 test -d "$endpoint_prefix/$old_uuid"
 test "$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
-test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace replace-key-endpoint "$tag")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 inc delete "$competing"
 competing=
@@ -404,7 +414,7 @@ new_key=$(sha256sum "$state/session_keys/$new_uuid" | cut -d' ' -f1)
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$new_id"
+test "$(operation_id "$(run_replace replace-key-endpoint "$tag")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 assert_old_effects_absent

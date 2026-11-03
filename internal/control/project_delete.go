@@ -9,21 +9,12 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
-// api.ProjectDeletionPreview is one bounded whole-project loss review. Sessions must
-// already be stopped/detached; unknown native effects are never removal grants.
-type ProjectDeletePreviewRequest struct {
-	Project            string   `json:"project"`
-	AcknowledgeMissing []string `json:"acknowledge_missing,omitempty"`
-}
-type ProjectDeleteConfirmRequest struct {
-	Key               string `json:"key"`
-	Project           string `json:"project"`
-	ConfirmationToken string `json:"confirmation_token"`
-}
+// ProjectDeleteRequest is a project deletion's run as its operation records
+// it: the project, the run's idempotency key and its change tag.
 type ProjectDeleteRequest struct {
-	Key         string `json:"key"`
-	Project     string `json:"project"`
-	TokenSHA256 string `json:"token_sha256"`
+	Key     string `json:"key"`
+	Project string `json:"project"`
+	IfMatch string `json:"if_match"`
 }
 
 // CommitImageClaim is one reviewed commit image of a project deletion: its
@@ -37,7 +28,7 @@ type CommitImageClaim struct {
 	RelatedDigest string      `json:"related_digest"`
 }
 
-// CommitImageClaimViews returns claims as the project deletion preview shows
+// CommitImageClaimViews returns claims as the project deletion plan shows
 // them, each image's labels in name order.
 func CommitImageClaimViews(claims []CommitImageClaim) []api.CommitImageClaim {
 	views := make([]api.CommitImageClaim, 0, len(claims))
@@ -55,10 +46,14 @@ func CommitImageClaimViews(claims []CommitImageClaim) []api.CommitImageClaim {
 	return views
 }
 
+// ProjectDeleteResource is one resource a project deletion removes, and its
+// progress. StopIssued and DeleteIssued record a native stop or delete as
+// issued right before it starts; neither is ever issued again.
 type ProjectDeleteResource struct {
 	Kind         string `json:"kind"`
 	ID           string `json:"id"`
 	Status       string `json:"status"` // remaining, unreachable, deleted, already_absent
+	StopIssued   bool   `json:"stop_issued,omitempty"`
 	DeleteIssued bool   `json:"delete_issued,omitempty"`
 	Diagnostic   string `json:"diagnostic,omitempty"`
 }
@@ -77,9 +72,11 @@ type ProjectDeleteEvidence struct {
 	RepositoryParent api.ReplacementLocalIdentity `json:"repository_parent_identity"`
 	Resources        []ProjectDeleteResource      `json:"resources"`
 }
+
+// ProjectDeleteAPI deletes projects, a risky change: a dry run plans it, and
+// a run with the plan's change tag records its operation.
 type ProjectDeleteAPI interface {
-	PreviewProjectDelete(context.Context, ProjectDeletePreviewRequest) (api.ProjectDeletionPreview, error)
-	ConfirmProjectDelete(context.Context, ProjectDeleteConfirmRequest) (api.Operation, error)
+	DeleteProject(context.Context, string, api.ChangeRequest) (api.ChangeResult[api.ProjectDeleteDetails], error)
 }
 
 // maxProjectDeleteReviewBytes bounds the encoded evidence a project deletion
@@ -92,10 +89,10 @@ const (
 	maxProjectDeleteEvidenceBytes = 56 << 10
 )
 
-// ProjectDeleteReviewFits reports whether a deletion can be confirmed with
-// ev: its encoding is within maxProjectDeleteReviewBytes, which leaves room
-// for a diagnostic on every resource. A review that does not fit is refused
-// before its token is issued.
+// ProjectDeleteReviewFits reports whether a deletion can run with ev: its
+// encoding is within maxProjectDeleteReviewBytes, which leaves room for a
+// diagnostic on every resource. A plan that does not fit is refused before
+// its change tag is issued.
 func ProjectDeleteReviewFits(ev ProjectDeleteEvidence) bool {
 	raw, err := json.Marshal(ev)
 	return err == nil && len(raw) <= maxProjectDeleteReviewBytes
@@ -135,10 +132,10 @@ func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
 			return false
 		}
 		if r.Condition == "present" {
-			if !validUUID(r.IncusUUID) || !validUUID(r.Generation) || !validFingerprint(r.ImageFingerprint) || r.OriginalStatus != "Stopped" || !r.RuntimeDataLost {
+			if !validUUID(r.IncusUUID) || !validUUID(r.Generation) || !validFingerprint(r.ImageFingerprint) || r.OriginalStatus != "Running" && r.OriginalStatus != "Stopped" {
 				return false
 			}
-		} else if r.Condition != "missing" || !r.RuntimeLossUnknown {
+		} else if r.Condition != "missing" {
 			return false
 		}
 	}

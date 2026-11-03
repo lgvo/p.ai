@@ -12,7 +12,7 @@ import (
 // waiting here keeps it from acting until the handoff has committed. Reloading
 // then rejects the superseded request before reading its old session or
 // creating endpoints, credentials, builders, or runtimes. Waiting also keeps
-// a worker queued during a read-only preview from being silently dropped.
+// a worker queued during a read-only dry run from being silently dropped.
 // The hold belongs to the operation (holdSession).
 func (l *lifecycle) lockCreationOperation(ctx context.Context, observed api.Operation,
 	load func(context.Context, string) (api.Operation, error)) (api.Operation, error) {

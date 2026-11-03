@@ -3,9 +3,6 @@ package gitservice
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os/exec"
 	"strings"
@@ -19,95 +16,6 @@ type BranchRemovalLoss struct {
 	AssignedTip                string          `json:"assigned_tip,omitempty"`
 	CommitsLosingPReachability []string        `json:"commits_losing_p_reachability"`
 	PRefs                      []plugin.GitRef `json:"p_refs"`
-}
-
-type OriginRemovalLoss struct {
-	Status             string   `json:"status"` // local_only, observed, or unknown
-	Reason             string   `json:"reason,omitempty"`
-	ContainingBranches []string `json:"containing_branches"`
-	ObservedRefsDigest string   `json:"observed_refs_digest,omitempty"`
-	UnresolvedRefs     []string `json:"unresolved_refs"`
-}
-
-// CompareOriginRemoval uses only freshly advertised literal branch tips. An
-// object not already present in P's bare repository is unknown, never proof
-// that the origin does not preserve a local commit. No origin object is fetched.
-func (b *Backend) CompareOriginRemoval(ctx context.Context, project string, advertised []plugin.GitOriginRef, lost []string) (OriginRemovalLoss, error) {
-	if len(advertised) > 1024 || len(lost) > 256 {
-		return OriginRemovalLoss{}, errors.New("origin removal comparison exceeds bound")
-	}
-	encoded, err := json.Marshal(advertised)
-	if err != nil {
-		return OriginRemovalLoss{}, err
-	}
-	sum := sha256.Sum256(encoded)
-	result := OriginRemovalLoss{Status: "observed", ContainingBranches: []string{},
-		ObservedRefsDigest: hex.EncodeToString(sum[:]), UnresolvedRefs: []string{}}
-	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-	repo, err := b.checkRepository(ctx, project)
-	if err != nil {
-		return OriginRemovalLoss{}, err
-	}
-	tips := make([]string, 0, len(advertised))
-	seen := map[string]bool{}
-	for _, ref := range advertised {
-		if !validOID(ref.CommitOID) || seen[ref.Ref] ||
-			!strings.HasPrefix(ref.Ref, "refs/heads/") && !strings.HasPrefix(ref.Ref, "refs/tags/") {
-			return OriginRemovalLoss{}, errors.New("fresh origin branch inventory malformed")
-		}
-		seen[ref.Ref] = true
-		if strings.HasPrefix(ref.Ref, "refs/heads/") {
-			tips = append(tips, ref.CommitOID)
-		}
-	}
-	if len(lost) == 0 {
-		return result, nil
-	}
-	for _, oid := range lost {
-		if !validOID(oid) {
-			return OriginRemovalLoss{}, errors.New("branch loss commit malformed")
-		}
-	}
-	types, err := b.lossPObjectTypes(ctx, repo, tips, lost)
-	if err != nil {
-		return OriginRemovalLoss{}, err
-	}
-	for _, ref := range advertised {
-		if !strings.HasPrefix(ref.Ref, "refs/heads/") {
-			continue
-		}
-		if types[ref.CommitOID] != "commit" || len(advertised)*len(lost) > 4096 {
-			result.Status = "unknown"
-			result.Reason = "origin_object_or_comparison_unavailable"
-			result.UnresolvedRefs = append(result.UnresolvedRefs, ref.Ref)
-			continue
-		}
-		contained := false
-		unknown := false
-		for _, candidate := range lost {
-			query := exec.CommandContext(ctx, b.gitPath, "-C", repo, "merge-base", "--is-ancestor", candidate, ref.CommitOID)
-			query.Env = b.gitEnv()
-			err := query.Run()
-			if err == nil {
-				contained = true
-				break
-			}
-			var exit *exec.ExitError
-			if !errors.As(err, &exit) || exit.ExitCode() != 1 {
-				unknown = true
-				break
-			}
-		}
-		if contained {
-			result.ContainingBranches = append(result.ContainingBranches, ref.Ref)
-		} else if unknown {
-			result.Status = "unknown"
-			result.Reason = "origin_object_or_comparison_unavailable"
-			result.UnresolvedRefs = append(result.UnresolvedRefs, ref.Ref)
-		}
-	}
-	return result, nil
 }
 
 // ErrRefsMoving reports that P's refs changed while a branch loss was read; a

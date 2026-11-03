@@ -71,10 +71,10 @@ while IFS= read -r owned; do
 done < "$step_dir/owned-uuids"
 
 # Whole-project deletion remains an owner API action after the TUI has
-# removed the streams. No fabricated preview tokens or privileged cleanup.
-preview=$(rpc project.delete.preview "$(jq -nc --arg project "$project" '{project:$project}')")
-token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg project "$project" --arg token "$token" '{key:"notes58-project-delete",project:$project,confirmation_token:$token}')")
+# removed the streams. No fabricated change tags or privileged cleanup.
+plan=$(rpc project.delete "$(jq -nc --arg project "$project" '{project:$project}')")
+tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$plan")
+removed=$(rpc project.delete "$(jq -nc --arg project "$project" --arg tag "$tag" '{key:"notes58-project-delete",project:$project,if_match:$tag}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 deadline=$((SECONDS+100))
 while true; do

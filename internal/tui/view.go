@@ -314,9 +314,24 @@ func (m Model) renderLines(lines []string, width int) []string {
 	return out
 }
 
+// reviewLines wraps the review to the page. A list item ("- ") wraps under
+// its own text, so where one item ends stays visible.
 func (m Model) reviewLines() []string {
 	width := max(1, min(m.width, 96)-4)
-	return strings.Split(ansi.Wrap(strings.Join(plainLines(m.review), "\n"), width, ""), "\n")
+	out := []string{}
+	for _, line := range plainLines(m.review) {
+		item, ok := strings.CutPrefix(line, "- ")
+		if !ok || width <= 2 {
+			out = append(out, strings.Split(ansi.Wrap(line, width, ""), "\n")...)
+			continue
+		}
+		prefix := "- "
+		for _, part := range strings.Split(ansi.Wrap(item, width-2, ""), "\n") {
+			out = append(out, prefix+part)
+			prefix = "  "
+		}
+	}
+	return out
 }
 func (m Model) inspectionPage() bool {
 	switch m.page {

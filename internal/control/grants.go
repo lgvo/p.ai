@@ -25,7 +25,7 @@ type FilesystemGrant struct {
 	SourceIdentity *SourceIdentity `json:"source_identity,omitempty"`
 }
 
-// GrantViews returns grants as previews show them.
+// GrantViews returns grants as plans and session views show them.
 func GrantViews(grants []FilesystemGrant) []api.FilesystemGrant {
 	views := make([]api.FilesystemGrant, 0, len(grants))
 	for _, g := range grants {

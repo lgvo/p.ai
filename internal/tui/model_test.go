@@ -80,8 +80,8 @@ const (
 	runningID = "00000000-0000-4000-8000-000000000002"
 	waitingID = "00000000-0000-4000-8000-000000000003"
 	targetID  = "00000000-0000-4000-8000-000000000004"
-	// reviewToken is a removal review's confirmation token.
-	reviewToken = "0123456789abcdef0123456789abcdef"
+	// reviewTag is a removal plan's change tag.
+	reviewTag = "20261102T120200Z-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
 func fixture() Model {
@@ -331,7 +331,7 @@ func TestSnapshotUUIDDoesNotSilentlySelectAnother(t *testing.T) {
 	}
 }
 
-func TestRemovalRequiresPreviewAndExplicitYes(t *testing.T) {
+func TestRemovalRequiresAPlanAndExplicitYes(t *testing.T) {
 	m := fixture()
 	m.contextSession = m.data.sessions[0]
 	m.removal = &removalIntent{UUID: stoppedID, Kind: "discard"}
@@ -340,10 +340,10 @@ func TestRemovalRequiresPreviewAndExplicitYes(t *testing.T) {
 		t.Fatalf("unexpected command execution %s", method)
 		return nil, nil
 	}}
-	updated, cmd := m.Update(reply(t, m.epoch, "session.removal.preview", `{"preview":{"session_uuid":"`+stoppedID+`","kind":"discard","confirmation_token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"condition":"present","runtime_data_lost":true}}}`))
+	updated, cmd := m.Update(reply(t, m.epoch, "session.discard", removalPlan("discard", stoppedID, `{"runtime":{"condition":"present"}}`)))
 	m = updated.(Model)
-	if m.page != "review" || cmd != nil || requestOf[api.SessionDiscardRequest](t, m.confirm).UUID != stoppedID {
-		t.Fatal("preview skipped review or retargeted")
+	if run := requestOf[api.SessionDiscardRequest](t, m.confirm); m.page != "review" || cmd != nil || run.UUID != stoppedID || run.IfMatch != reviewTag {
+		t.Fatal("the plan skipped review or retargeted")
 	}
 	m, cmd = press(m, "enter")
 	if cmd != nil || m.page != "review" {
@@ -385,7 +385,7 @@ func TestCanceledRemovalAndOperationInspectionStayReadOnly(t *testing.T) {
 	_, cmd = m.Update(reply(t, m.epoch, "operation.inspect", `{"operation":{"id":"removal","kind":"session.discard","session_uuid":"`+stoppedID+`","status":"completed"}}`))
 	if cmd != nil {
 		if _, ok := cmd().(loaded); !ok {
-			t.Fatal("wrong UUID triggered removal preview")
+			t.Fatal("wrong UUID triggered a removal plan")
 		}
 	}
 }

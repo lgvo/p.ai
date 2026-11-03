@@ -187,13 +187,16 @@ create_branch() {
   op_ids+=("$new_op")
   sessions+=("$new_uuid")
 }
+# discard_owned UUID SUFFIX: discards session UUID, a dry run then a run with
+# its change tag and key discard-SUFFIX, and checks that its runtime and key
+# are gone.
 discard_owned() {
-  local uuid="$1" suffix="$2" preview token reply discard_op
-  preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-    '{uuid:$uuid,kind:"discard"}')")
-  token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$preview")
-  reply=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg key "discard-$suffix" --arg token "$token" \
-    '{key:$key,uuid:$uuid,confirmation_token:$token}')")
+  local uuid="$1" suffix="$2" plan tag reply discard_op
+  plan=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')")
+  tag=$(jq -er --arg target "session/$uuid" '.result | select(.plan.allowed==true and .plan.target==$target) |
+    .change_tag | select(test("^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{64}$"))' <<< "$plan")
+  reply=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg key "discard-$suffix" --arg tag "$tag" \
+    '{uuid:$uuid,key:$key,if_match:$tag}')")
   discard_op=$(operation_id "$reply")
   op_ids+=("$discard_op")
   wait_operation "$discard_op" completed >/dev/null
