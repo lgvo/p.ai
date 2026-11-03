@@ -134,7 +134,8 @@ the gallery remains historical reference.
 
 Try the current implementation in the [interactive P lab](dev/vm/README.md):
 `nix run path:./dev/vm` builds this checkout, boots a configured NixOS/Incus VM,
-and opens a guest shell. Use `p api` there or run `p tui` for the browser.
+and opens a guest shell. Use the task commands there (`p help` lists them) or
+run `p tui` for the browser.
 The first boot seeds a local-only `p-ai/main` session from committed `HEAD`
 and its Git history. Its disk persists between runs. Add `-- --public` for
 public DNS/HTTP(S) access. People and coding agents can explore through the VM
@@ -575,9 +576,8 @@ After applying your NixOS configuration, use the service account for CLI calls:
 
 ```sh
 sudo systemctl start p.service
-sudo --preserve-env=P_SOCKET -u p p api system.health
-sudo --preserve-env=P_SOCKET -u p p api system.hello
-sudo --preserve-env=P_SOCKET -u p p api project.list '{"limit":20}'
+sudo --preserve-env=P_SOCKET -u p p status
+sudo --preserve-env=P_SOCKET -u p p project list
 sudo journalctl -u p.service -n 30 --no-pager
 ```
 

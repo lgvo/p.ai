@@ -69,7 +69,8 @@ its request, response, method, error, and host configuration schemas.
 
 ### Host RPC audience
 
-The local user, TUI, and `p api` share the complete lifecycle surface:
+The local user, the TUI, the CLI's task commands and `p api` share the complete
+lifecycle surface:
 
 | Area | Examples |
 |---|---|
@@ -524,7 +525,7 @@ interface is owned by
 
 | Listener | Exposure | Purpose |
 |---|---|---|
-| Host control RPC | user-owned Unix socket | TUI and `p api` |
+| Host control RPC | user-owned Unix socket | TUI, task commands and `p api` |
 | Per-session RPC | private mounted Unix socket | identity and status reports |
 | P Git SSH | host loopback plus explicit runtime path | fixed Git services |
 | Bifrost inference (post-MVP) | explicit runtime path when granted | model APIs under virtual key |

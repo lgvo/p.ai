@@ -14,11 +14,11 @@ import (
 
 func managePlugins(args []string) error {
 	if len(args) < 4 {
-		return errors.New("usage: p plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256")
+		return pluginsUsage()
 	}
 	method := args[1]
 	if method == "install" && len(args) != 5 || method == "update" && len(args) != 6 || method == "remove" && len(args) != 4 {
-		return usage()
+		return pluginsUsage()
 	}
 	host := mustAbs(args[2])
 	cfg, err := control.LoadHostConfig(host)

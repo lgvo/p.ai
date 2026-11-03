@@ -42,8 +42,8 @@ Nix's `nix-build`, GNU coreutils, and `flock` on PATH; public mode also needs
 `ip` (iproute2) and `awk`.
 
 The serial console logs in as the confined `pdev` account and opens a shell.
-The configured daemon starts in the background. Use `p api` directly or
-run `p tui` to open the browser. The lab configures its instance automatically.
+The configured daemon starts in the background. Use the task commands
+(`p help` lists them) or run `p tui` to open the browser. The lab configures its instance automatically.
 On first boot, the lab creates the local-only project `p-ai`, with a `main`
 session containing this repository's committed `HEAD` and its reachable Git
 history. A Git bundle carries only committed objects; uncommitted changes,
@@ -74,8 +74,8 @@ A clean lab reset uses the disk-reset procedure below.
 From the guest shell:
 
 ```sh
-p api system.health            # JSON API, as the daemon's owning account
-p api session.list '{"limit":8}'
+p status                       # the instance, as the daemon's owning account
+p session list
 p tui                          # open the TUI
 p tui --snapshot               # render a live frame without interaction
 p-demo-poweroff                # clean shutdown, retaining all demo state
@@ -84,12 +84,11 @@ p-demo-poweroff                # clean shutdown, retaining all demo state
 The lab sets `P_SOCKET=/var/lib/p-demo/control.sock`; commands read it without
 requiring a socket argument. You can override it for another instance. The
 standard installation defaults to `/var/lib/p/control.sock`. For the user
-guide's examples, define `api() { p api "$@"; }` and
-`attach() { p attach "$1"; }` in the guest shell.
+guide's raw API examples, define `api() { p api "$@"; }` in the guest shell.
 The older `p-demo` and `p-demo-api` helpers remain compatible aliases;
 `p-demo` waits for daemon readiness before opening the browser.
-On first boot, initialization can take a while; check `p api system.health`
-for `control_state: ready` before issuing lifecycle commands. The repository
+On first boot, initialization can take a while; check that `p status` shows
+the control state `ready` before issuing lifecycle commands. The repository
 seed has its own readiness check above. Quit the TUI
 to return to the shell.
 If the serial console reports the wrong dimensions, set them with

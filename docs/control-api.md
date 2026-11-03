@@ -262,18 +262,40 @@ sent for each valid request, with the same ID, `jsonrpc:"2.0"`, and exactly one
 of `result` or `error`. Responses may arrive out of order. JSON object keys
 must be unique at every depth.
 
-The CLI `p api [socket-path] <method> [json-params]` connects, sends
+The CLI's task commands, such as `p session create` and `p operation wait`,
+are the clients for ordinary work; `p help` lists them and the
+[user guide](user-guide.md) walks through them. Each opens a connection per
+call, sends the hello, and calls through the request types, so a request's
+`Validate` refuses bad arguments before anything is sent. A change makes its
+own idempotency key, `cli-` and 32 hex digits, and `--key KEY` repeats a
+change whose reply was lost: the command first pages `operation.list` for the
+operation that key recorded and, when its `kind` and `intent` match the
+command, reports it without sending anything. A change waits for its
+operation with `operation.wait`, asking for 20 seconds within a 25-second
+budget for the whole call; any other call has 35 seconds, the request
+deadline and time to answer. A command repeats a call that answered `retry`
+only where a second call cannot act twice: after `session_held` or
+`project_held` naming an operation, once that operation leaves `running`;
+after any other `retry` refusal, for up to 10 seconds; and after
+`deadline`, for reads, keyed changes, start and stop, never for a service
+action or `operation.retry`. Their exit status is 0 done, 1 failed, 2 invalid
+arguments, 3 not run, nothing changed, and 4 not finished.
+
+`p api [socket-path] <method> [json-params]` stays for protocol work: it
+makes no keys, does not wait, and repeats nothing. It connects, sends
 `system.hello` itself, then sends one request and writes that request's full
 JSON response envelope to stdout; the envelope's `id` is `2`. `json-params`
 defaults to `{}`, or to `{"protocol":"p.control/v2"}` for `system.hello`, so
 `p api system.hello` prints the daemon's hello result. An RPC error exits
 nonzero. A daemon that refuses `p api`'s own hello has its error object
 written as `{"error":{…}}`; any other connection failure writes
-`{"error":{"message":"transport","detail":"<text>"}}`. Both exit nonzero.
+`{"error":{"message":"transport","detail":"<text>"}}`. Both exit 1, and a
+command line it cannot use exits 2.
 
-The host client commands `p api`, `p tui`, and `p attach` select their control
-socket in this order: an explicit positional socket argument, a nonempty
-`P_SOCKET` environment variable, then `/var/lib/p/control.sock`. An empty or
+The client commands select their control socket in this order: `--socket`,
+or for `p api`, `p tui` and `p attach` an explicit positional socket
+argument, then a nonempty `P_SOCKET` environment variable, then
+`/var/lib/p/control.sock`. An empty or
 unset `P_SOCKET` uses the standard location. Selected paths must be absolute;
 an invalid override fails without falling back to another instance. For an
 owner-run daemon in another state directory, export
@@ -333,8 +355,8 @@ The connection follows these rules:
   so a client may write the hello and its first request together.
 - **Repeats.** A repeated hello on the same connection is answered again.
 
-The TUI and `p attach` connect with `api.Dial`, which sends the hello; the
-attachment helper sends its own hello on its lease connection. These clients
+The TUI and the task commands connect with `api.Dial`, which sends the hello;
+the attachment helper sends its own hello on its lease connection. These clients
 call each method through `api.Do`, which runs the request's `Validate` before
 sending. Only `p api` sends untyped params, through `api.CallRaw`.
 
@@ -1035,8 +1057,9 @@ publication keys refuses instead of recreating deleted authority.
 
 ## Terminal attachment
 
-Run `p attach SESSION_UUID` on the P host using the configured control socket,
-or `p attach /absolute/control.sock SESSION_UUID` to select it explicitly.
+Run `p attach SESSION` on the P host using the configured control socket, or
+`p attach /absolute/control.sock SESSION` to select it explicitly. `SESSION` is
+a session UUID, or `PROJECT:BRANCH` for the session that holds that branch.
 Run it directly or inside a client-initiated SSH terminal. The CLI first
 starts a session that is not ready and waits for its start operation, since
 `session.attach` starts nothing. It restores local terminal settings on exit

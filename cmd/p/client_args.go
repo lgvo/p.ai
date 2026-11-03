@@ -11,7 +11,7 @@ import (
 
 func apiArguments(args []string) (string, string, json.RawMessage, error) {
 	if len(args) == 1 && filepath.IsAbs(args[0]) {
-		return "", "", nil, errors.New("usage: p api [CONTROL_SOCKET] METHOD [JSON_PARAMS]")
+		return "", "", nil, usageError("usage: p api [CONTROL_SOCKET] METHOD [JSON_PARAMS]")
 	}
 	explicit := ""
 	// Preserve the original socket/method form alongside method/JSON params.
@@ -22,7 +22,7 @@ func apiArguments(args []string) (string, string, json.RawMessage, error) {
 		}
 	}
 	if len(args) < 1 || len(args) > 2 || args[0] == "" {
-		return "", "", nil, errors.New("usage: p api [CONTROL_SOCKET] METHOD [JSON_PARAMS]")
+		return "", "", nil, usageError("usage: p api [CONTROL_SOCKET] METHOD [JSON_PARAMS]")
 	}
 	socket, err := api.ClientSocket(explicit)
 	if err != nil {

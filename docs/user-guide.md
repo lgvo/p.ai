@@ -180,60 +180,69 @@ restricted public-egress configuration. A session cannot grant itself network
 access or host directory mounts. Ask the instance owner to configure those
 capabilities before planning an online agent task.
 
-The following host commands use **Bash, jq, and p on PATH**. Ordinary commands
-such as `p api system.health`, `p tui`, and `p attach SESSION_UUID` use the
-configured instance. The standard socket is `/var/lib/p/control.sock`; export
-`P_SOCKET` to override it. Existing explicit socket arguments remain supported.
-See [socket selection](control-api.md#host-framing-and-request-envelope).
+The following host commands use **Bash and p on PATH**; the walkthroughs that
+still send raw API requests also use jq. Every client command, such as
+`p status`, `p tui` and `p attach demo:main`, uses the configured instance.
+The standard socket is `/var/lib/p/control.sock`; export `P_SOCKET` to
+override it, or pass `--socket PATH`. Existing explicit socket arguments of
+`p tui`, `p attach` and `p api` remain supported. See
+[socket selection](control-api.md#host-framing-and-request-envelope).
 
 For the standard NixOS service, this guide uses these shell helpers to run
 commands as the owning account:
 
 ```bash
-api() { sudo --preserve-env=P_SOCKET -u p p api "$@"; }
-attach() { sudo --preserve-env=P_SOCKET -u p p attach "$1"; }
+p() { sudo --preserve-env=P_SOCKET -u p p "$@"; }
+api() { p api "$@"; }
 ```
 
+The `p` function runs the `p` binary through sudo; it does not call itself.
 Preserving `P_SOCKET` carries the configured socket or your exported override
-through sudo's environment reset. `api` and `attach` here are convenience
-functions, not additional P commands.
-If you run your own daemon, use its absolute socket path and its owning account:
+through sudo's environment reset. `api` is a convenience function, not an
+additional P command. If you run your own daemon, use its absolute socket path
+and its owning account, with no `p` function:
 
 ```bash
 export P_SOCKET=/absolute/path/to/control.sock
 api() { p api "$@"; }
-attach() { p attach "$1"; }
 ```
 
 Use one of these configurations, then check the instance:
 
 ```bash
 p version
-api system.health
-api system.hello
-api project.list '{"limit":20}'
-api session.list '{"limit":8}'
+p status
+p project list
+p session list
 ```
 
+`p status` shows the instance ID, the build, the agreed protocol, the
+capabilities this instance's configuration enables and the control state:
+`git` for project lists, origins and retained branches; `runtime` for creating
+projects and sessions and the session lifecycle; and `services` for project
+services. A command whose capability is missing fails with the daemon's
+`not_configured` answer. The control state says that P's state answered, not
+that every container is ready.
+
+`p help` lists every command, and `p session --help` describes the session
+commands with their flags. Arguments name things as you see them: a project
+path such as `demo`, `PROJECT:BRANCH` such as `demo:main` for a P branch or
+for the session that holds it, a session UUID, or an operation ID. Results
+go to standard output; progress and errors go to standard error. `--json`
+prints the API's own types instead. The exit status says what happened: 0
+done, 1 failed, 2 invalid arguments, 3 not run because the current state does
+not allow it, and 4 not finished, because the operation is blocked or runs on
+without the command.
+
 The examples are separate tasks, not one script to run from top to bottom.
-Choose your own project, branch, UUID, and unique action keys. Keep the same
-key only when replaying the same intent.
+Choose your own project, branch and session names.
 
-Responses are JSON-RPC envelopes: successful values are under `result`; an
-error is under `error` and the CLI exits unsuccessfully. `system.health` checks
-the control state, not whether every container is ready. `system.hello` lists
-under `result.capabilities` what this instance's configuration enables: `git`
-for project lists, origins and retained branches; `runtime` for creating
-projects and sessions, the session lifecycle and operations; and `services`
-for project services. A method whose capability is missing answers
-`not_configured`; see the [connection agreement](control-api.md#connection-agreement).
-`p api` agrees the protocol with the daemon itself, so params never carry a
-version.
-
-Lists are paginated. Follow `result.next` by supplying it as `after` with the
-same method. Session pages have at most eight entries. A retained-branch page
-can be empty with a nonempty continuation because assigned branches are filtered
-out while traversing the repository.
+The sections on removal and publication still send raw requests with `p api`.
+Its responses are JSON-RPC envelopes: successful values are under `result`;
+an error is under `error` and the CLI exits unsuccessfully. Lists are
+paginated: follow `result.next` by supplying it as `after` with the same
+method. Choose a unique action key for each raw change, and keep the same key
+only when replaying the same intent.
 
 ## Create your first project and commit
 
@@ -242,34 +251,38 @@ use. This example starts an empty, local-only project:
 
 ```bash
 PROJECT=demo
-KEY=demo-create-1
-CREATE=$(api project.create "$(jq -nc --arg project "$PROJECT" --arg key "$KEY" \
-  '{key:$key,project:$project}')")
-OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
-SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
+p project create "$PROJECT"
 ```
 
-Creation continues in the daemon after the request returns. The wait returns
-as soon as the operation is no longer `running`, or after 20 seconds with it
-still `running`; repeat it until the operation is `completed`. If it is `blocked` or `failed`,
-read its `reason`, `phase` and `diagnostic` before proceeding; the TUI says
-what the reason means and what to do. Do not enter an incomplete
-session or issue another Create to hide the failure.
+A blank project gets its first session, on the unborn branch `main`. The
+command waits for the creation and prints the project and the session's UUID;
+while creation runs, it prints each new phase on standard error. If creation
+ends `blocked` or `failed`, the command says what the reason means, prints the
+diagnostic and exits nonzero; for a blocked operation it also prints the
+`p operation retry` command. Do not enter an incomplete session or issue
+another Create to hide the failure. Ctrl-C while it waits stops only the
+command: creation runs on in the daemon, and the command prints the
+`p operation wait` command that waits for it again.
 
-The `key` identifies this exact intent. Keep the key and request if a response
-is lost: replaying that exact request retrieves the same operation rather than
-creating another session. Use a new key for a genuinely different action;
-changing parameters under an existing key is refused.
+Each change makes its own idempotency key, which identifies this exact intent.
+If the connection fails before the daemon answers, the command prints itself
+with `--key KEY` added: run that to repeat it. With the key, the command first
+looks for the operation the key recorded and reports it instead of sending the
+change again, so the change happens at most once. Running the command again
+without `--key` is a new request. Reusing a key for a different change is
+refused with exit status 2.
 
-Once creation completes, inspect the session and enter it:
+Once creation completes, read the session and enter it. Later sections use its
+UUID, kept here as `SESSION`:
 
 ```bash
-api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
-attach "$SESSION"
+p session show "$PROJECT:main"
+SESSION=$(p session show "$PROJECT:main" --json | jq -er .session.uuid)
+p attach "$PROJECT:main"
 ```
 
-Expect `session_condition: "ready"`. You enter the workspace at `/workspace`.
+`p project create "$PROJECT" --attach` does both at once.
+Expect the condition `ready`. You enter the workspace at `/workspace`.
 The initial `main` branch is unborn: P does not invent an initial commit.
 Inside the session, create your first commit and push it:
 
@@ -298,120 +311,105 @@ After the initial commit has been pushed to P, create a branch from that retaine
 source. Run this on the host after detaching:
 
 ```bash
-CREATE=$(api session.create "$(jq -nc --arg project "$PROJECT" \
-  '{key:"demo-feature-1",project:$project,branch:"feature",choice:"new",source:"refs/heads/main"}')")
-OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
-FEATURE_SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
+p session create "$PROJECT:feature" --from main
+p attach "$PROJECT:feature"
 ```
 
-Wait for completion as before, then `attach "$FEATURE_SESSION"`. This session
-has its own files and home. Editing the first session's workspace does not edit
-this one. A branch can be assigned to only one session at a time.
+`--from` takes a P branch, such as `main`, or a full commit ID; the command
+waits for the creation as before. This session has its own files and home.
+Editing the first session's workspace does not edit this one. A branch can be
+assigned to only one session at a time; `PROJECT:BRANCH` names the session
+that holds it.
 
-To resume a branch left behind by Discard, list retained branches and use
-`choice: "existing"` without a source:
+To resume a branch left behind by Discard, list the retained branches and
+create a session on one without `--from`:
 
 ```bash
-api project.retained_branches "$(jq -nc --arg project "$PROJECT" \
-  '{project:$project,limit:8}')"
-api session.create "$(jq -nc --arg project "$PROJECT" \
-  '{key:"demo-resume-feature-1",project:$project,branch:"feature",choice:"existing"}')"
+p branch list "$PROJECT" --retained
+p session create "$PROJECT:feature"
 ```
 
 This produces a new UUID and a fresh private home. It recovers the retained
 Git branch, not the discarded session's unpushed work or authentication.
+`p branch rename PROJECT:BRANCH NEW` renames a retained branch.
 
 ### Start from an external repository
 
-Include `url` in `project.create` to associate an SSH Git origin. P contacts
-that origin before committing the project. A nonempty origin does not create a
-session automatically: choose a source after observing it.
+Pass `--origin` to associate an SSH Git origin. P contacts that origin before
+committing the project. A nonempty origin does not create a session
+automatically: choose a source after observing it.
 
 ```bash
-CREATE=$(api project.create '{"key":"app-create-1","project":"app","url":"ssh://git.example.com/team/app.git"}')
-OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
-api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
+p project create app --origin ssh://git.example.com/team/app.git
+p origin refs app
 ```
 
-Replace the example URL before creating. Wait for the operation to complete
-before discovering its sources:
+Replace the example URL before creating. `p origin refs` observes the origin
+again and lists its branches and tags with their commits. It lists refs only
+from that fresh observation: when the origin cannot be reached, it lists none,
+says when the origin was last reached and exits 1. `p origin show app` shows
+the origin's URL and the status of its last observation, and `p origin set`
+and `p origin remove` change it.
+
+Create a session from an origin branch, or from a tag given as its full ref
+such as `refs/tags/v1`:
 
 ```bash
-api origin.refresh '{"project":"app"}'
-api origin.sources '{"project":"app","limit":16}'
+p session create app:work --from-origin main
+p attach app:work
 ```
 
-For a new session, supply
-`choice: "new"`, an `origin_ref`, and the freshly observed `commit_oid` as
-`expected_commit_oid`; omit `source`. Use the peeled `commit_oid` for a tag,
-not its tag object ID. P captures that exact source and origin identity, so a
-Retry does not silently pick up a later upstream commit. For example, after
-reviewing the fresh `main` observation:
-
-```bash
-ORIGIN_COMMIT=replace-with-observed-main-commit_oid
-CREATE=$(api session.create "$(jq -nc --arg commit "$ORIGIN_COMMIT" \
-  '{key:"app-work-1",project:"app",branch:"work",choice:"new",origin_ref:"refs/heads/main",expected_commit_oid:$commit}')")
-OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
-APP_SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
-```
-
-Wait for completion and check readiness before `attach "$APP_SESSION"`. See the
-[creation schemas](control-api.md#implemented-methods) for exact request fields.
+`--from-origin` observes the origin again, takes the commit and the origin
+URL only from that fresh observation, and prints the commit it chose. For a
+tag it takes the peeled commit, not the tag object. P captures that exact
+source and origin identity, so a Retry does not silently pick up a later
+upstream commit. See the [creation schemas](control-api.md#implemented-methods)
+for what the daemon records.
 
 ## Return to work or stop it
 
-Keep the session UUID from creation or find it with `session.list`. Reattach
-to return to the persistent terminal:
+Name the session by its branch, or by the UUID from creation; `p session list`
+lists every session. Reattach to return to the persistent terminal:
 
 ```bash
-attach "$SESSION"
+p attach "$PROJECT:main"
 ```
 
 To stop, detach all attachments first. On the host:
 
 ```bash
-STOP=$(api session.stop "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')")
-jq -e '.result.operation' <<< "$STOP" >/dev/null &&
-  api operation.wait "$(jq -nc --arg id "$(jq -er '.result.operation.id' <<< "$STOP")" '{id:$id,timeout:20}')"
-api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
+p session stop "$PROJECT:main"
 ```
 
-Stop answers a `session.stop` operation to wait for (a new one, or with
-`changed: false` the one already under way), or `changed: false` with the
-session when it is already stopped. Once the operation is `completed`,
-expect `session_condition: "stopped"`. A pending or confirmed attachment makes
-Stop answer `conflict` with reason `attachment_active`; it does not silently
-evict another terminal.
+Stop waits until the session is stopped and keeps its files. A session already
+stopped reads "already stopped" and exits 0; a stop already under way is
+waited for. A pending or confirmed attachment makes Stop answer `conflict`
+with reason `attachment_active`: the command says to detach every terminal
+first and exits 3. It does not silently evict another terminal.
 
 When ready to work again:
 
 ```bash
-START=$(api session.start "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')")
-jq -e '.result.operation' <<< "$START" >/dev/null &&
-  api operation.wait "$(jq -nc --arg id "$(jq -er '.result.operation.id' <<< "$START")" '{id:$id,timeout:20}')"
+p session start "$PROJECT:main"
 ```
 
-Start answers a `session.start` operation (a new one, or with
-`changed: false` the one already under way), or `changed: false` with the
-session when it is already ready. Repeat the wait until the operation is not
-`running`: `completed` means the session is ready; `failed` carries the reason
-and the diagnostic, which `session.inspect` also shows. While a start or stop
-runs, the session reads `starting` or `stopping`. `attach` starts a stopped
-session itself and waits for it.
+Start waits until the session is ready. A ready session reads "already
+running" and exits 0; a start already under way is waited for. A failed start
+prints the reason and the diagnostic, which `p session show` also shows. While
+a start or stop runs, the session reads `starting` or `stopping`. `p attach`
+starts a stopped session itself, waits for it, then enters it.
 Workspace files, private home files, and session-local Nix additions remain;
 commands and terminal processes must be started again.
 
 A daemon restart retains P's registry and local Git repositories. Your terminal
-connection may end; reconnect by UUID. These retention guarantees cover normal
+connection may end; reconnect with `p attach`. These retention guarantees cover normal
 lifecycle operations, not disk loss or deliberate deletion. MVP includes no
 backup/restore or upgrade/rollback subsystem.
 
 ## Read the session status
 
-`session.inspect` and `session.list` expose four separate facts:
+`p session show SESSION` and `p session list` show four separate facts. With
+`--json` they print the `session.inspect` and `session.list` fields below:
 
 | Field | How to use it |
 |---|---|
@@ -484,30 +482,30 @@ retained commit, not dirty files or unpushed commits in the workspace.
 
 ## Rename a stream
 
-Use `session.rename` to rename the session's assigned branch while keeping its
+`p session rename` renames the session's assigned branch while keeping its
 UUID and private files. Detach and Stop the session first: Rename answers
-`conflict` with reason `session_not_stopped` for a session that is not stopped.
-Supply the current P tip as
-`expected_old_tip`:
+`conflict` with reason `session_not_stopped` for a session that is not
+stopped, and the command exits 3.
 
 ```bash
-api session.rename "$(jq -nc --arg uuid "$SESSION" --arg tip "$SOURCE_OID" \
-  '{key:"demo-rename-1",uuid:$uuid,new_branch:"feature-renamed",expected_old_tip:$tip}')"
+p session stop "$PROJECT:feature"
+p session rename "$PROJECT:feature" feature-renamed
 ```
 
-Read a fresh tip before using this example; the publication variable may now
-be stale. Inspect the returned operation until complete. The destination must
-be absent, and the supported workspace must have the expected branch and
-upstream. This action does not rename a branch on the external origin.
+The command reads the branch's current P tip and sends it as the tip it
+expects, so a branch that moved in the meantime refuses the rename. It waits
+for the operation. The destination must be absent, and the supported
+workspace must have the expected branch and upstream. This action does not
+rename a branch on the external origin.
 
 If P reports a branch/upstream mismatch (operation reason
 `workspace_mismatch`), compare the expected and actual values in its
 diagnostic. Correct Git manually after deciding what you want to keep,
 then recheck. A Rename refused before making changes has a failed operation:
-read a fresh P tip and submit the corrected Rename with a **new key**. Replaying
-its old key only returns that same failure. This differs from resuming a blocked
-operation that has already made effects. P does not automatically check out or
-reset your workspace to make it match.
+run the corrected command again, which reads a fresh tip and makes a new key.
+Repeating it with its old `--key` only reports that same failure. This differs
+from resuming a blocked operation that has already made effects. P does not
+automatically check out or reset your workspace to make it match.
 
 ## Discard or Delete safely
 
@@ -572,20 +570,23 @@ See the [project lifecycle](project-lifecycle.md) and [API schemas](control-api.
 ## When something does not finish
 
 Read the diagnostic and inspect the durable operation before choosing another
-action. A transport timeout does not prove the daemon abandoned an operation.
-An error answers with a kind that names your next step and a reason code under
-`error.data.reason`; the [control API](control-api.md#errors) lists them, and
-the TUI shows a sentence for each. The daemon's log has the cause.
+action: `p operation list` lists the operations with their keys, and
+`p operation show ID` shows one with its reason and diagnostic. A transport
+timeout does not prove the daemon abandoned an operation. An error answers
+with a kind that names your next step and a reason code; the
+[control API](control-api.md#errors) lists them, and the commands and the TUI
+say a sentence for each. `--json` prints the error object, with the reason
+under `error.data.reason`. The daemon's log has the cause.
 
 | What you see | What to do next |
 |---|---|
-| Creation is still running | Inspect the same operation. Do not create another stream with a new key just to retry. |
-| A blocked operation with a corrected prerequisite | Use `operation.retry` with its ID. Retry keeps the captured request, source, identity, and policy. |
-| `retry` | Something holds the session for a moment, such as another request or a running operation named in `error.data.target`. Send the same request again once it finishes. |
+| Creation is still running | Wait for the same operation with `p operation wait ID`. Do not create another stream with a new key just to retry. |
+| A blocked operation with a corrected prerequisite | Run `p operation retry ID`. Retry keeps the captured request, source, identity, and policy. |
+| `retry` | Something holds the session for a moment, such as another request or a running operation named in `error.data.target`. The commands wait for a named operation, or pause briefly, and send the same request again themselves; with `p api`, send it again once the holder finishes. |
 | `conflict` | The state forbids the action until something changes it: an attached terminal, a session that must be stopped or started, a blocked operation, an assigned or reserved branch. `error.data.reason` names it; change that state, then try again. |
 | `capacity` | Every session slot is taken. Discard or Delete a session; Stop keeps its slot. |
 | `precondition_failed` | What you reviewed or expected changed, or the review expired. Preview again and confirm the new review. |
-| Reason `workspace_mismatch` | Compare the expected and actual values in the diagnostic, correct Git manually, then submit Rename again with a new key. |
+| Reason `workspace_mismatch` | Compare the expected and actual values in the diagnostic, correct Git manually, then run Rename again without `--key`. |
 | Reason `image_build_failed` | The image of the session's source commit did not build; the diagnostic says why. Retry builds the same commit again, so for a fault in the commit, such as an invalid devShell, clean up the failed creation and create a session from a fixed commit. For another cause, such as a failed fetch, fix it and Retry. |
 | Reason `image_builder_changed` | The host's image builder configuration changed after the creation began. Restore it and Retry, or clean up the failed creation and create the session again. |
 | Reason `internal` | P failed in a way it does not classify, or its work panicked; the diagnostic has the detail, and the daemon's log a panic's stack. A blocked operation keeps its guards; Retry it once the cause is understood. |
@@ -594,10 +595,10 @@ the TUI shows a sentence for each. The daemon's log has the cause.
 | Failed Create needs different inputs | Try the explicit replacement preview only for supported cases. Otherwise use confirmed failed-create cleanup, then a new Create. |
 | Cleanup preview refuses | Read `unsafe_reasons`. Resolve the stated condition or investigate Incus manually; uncertain resources remain untouched. |
 
-Retry example:
+Retry example, with the operation's ID:
 
 ```bash
-api operation.retry "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
+p operation retry 9b0e2f4c-…
 ```
 
 Replacement and cleanup are bounded capabilities, not universal recovery, and

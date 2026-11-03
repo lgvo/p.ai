@@ -24,25 +24,43 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		if errors.Is(err, errAPIExit) {
-			os.Exit(1)
+		if text := err.Error(); text != "" {
+			fmt.Fprintln(os.Stderr, "p:", text)
 		}
-		fmt.Fprintln(os.Stderr, "p:", err)
-		os.Exit(1)
+		os.Exit(exitStatus(err))
 	}
 }
 
-var errAPIExit = errors.New("api error")
+// errAPIExit ends p api after it printed the daemon's error reply.
+var errAPIExit = &exitError{code: exitFailed}
 
 var buildVersion = "0.1.0-dev"
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return usage()
+		printHelp(os.Stderr)
+		return &exitError{code: exitUsage}
+	}
+	switch {
+	case args[0] == "help" && len(args) == 1, args[0] == "--help", args[0] == "-h":
+		return printHelp(os.Stdout)
+	case args[0] == "help" && len(args) == 2 && isNoun(args[1]):
+		return printNounHelp(os.Stdout, args[1])
+	case isNoun(args[0]) && findCommand(args) == nil && len(args) == 1:
+		printNounHelp(os.Stderr, args[0])
+		return &exitError{code: exitUsage}
+	case isNoun(args[0]) && findCommand(args) == nil && (args[1] == "--help" || args[1] == "-h"):
+		return printNounHelp(os.Stdout, args[0])
+	}
+	if isNoun(args[0]) {
+		// SIGHUP too: a closed terminal ends an attachment.
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer stop()
+		return (&cli{stdout: os.Stdout, stderr: os.Stderr, pause: pause}).runCommand(ctx, args)
 	}
 	if args[0] == "version" {
 		if len(args) != 1 {
-			return usage()
+			return usageError("usage: p version")
 		}
 		type dependency struct {
 			Path    string `json:"path"`
@@ -69,31 +87,12 @@ func run(args []string) error {
 	if args[0] == "attach-helper" && len(args) == 1 {
 		return attachment.Helper(os.NewFile(3, "attachment-carrier"))
 	}
-	if args[0] == "attach" {
-		if len(args) != 2 && len(args) != 3 {
-			return errors.New("usage: p attach [CONTROL_SOCKET] SESSION_UUID")
-		}
-		explicit, id := "", args[len(args)-1]
-		if len(args) == 3 {
-			explicit = args[1]
-			if explicit == "" {
-				return errors.New("control socket must be an absolute path")
-			}
-		}
-		socket, err := api.ClientSocket(explicit)
-		if err != nil {
-			return err
-		}
-		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-		defer stop()
-		return attachment.Client(ctx, socket, id)
-	}
 	if args[0] == "tui" {
 		return tui.Run(args[1:])
 	}
 	if args[0] == "daemon" {
 		if len(args) != 2 {
-			return usage()
+			return usageError("usage: p daemon HOST_JSON")
 		}
 		cfg, err := control.LoadHostConfig(mustAbs(args[1]))
 		if err != nil {
@@ -141,8 +140,11 @@ func run(args []string) error {
 		}
 		return nil
 	}
-	if len(args) < 3 || args[0] != "plugins" {
+	if args[0] != "plugins" {
 		return usage()
+	}
+	if len(args) < 3 {
+		return pluginsUsage()
 	}
 	if args[1] == "install" || args[1] == "update" || args[1] == "remove" {
 		return managePlugins(args)
@@ -150,7 +152,7 @@ func run(args []string) error {
 	switch args[1] {
 	case "defaults":
 		if len(args) != 3 && len(args) != 4 {
-			return usage()
+			return pluginsUsage()
 		}
 		catalog := ""
 		if len(args) == 4 {
@@ -173,7 +175,7 @@ func run(args []string) error {
 		return printJSON(activation)
 	case "conformance":
 		if len(args) != 3 {
-			return usage()
+			return pluginsUsage()
 		}
 		p, err := plugin.Conformance(mustAbs(args[2]))
 		if err != nil {
@@ -182,7 +184,7 @@ func run(args []string) error {
 		return printJSON(p)
 	case "list":
 		if len(args) != 3 {
-			return usage()
+			return pluginsUsage()
 		}
 		found, rejected, err := plugin.Discover(mustAbs(args[2]))
 		if err != nil {
@@ -194,7 +196,7 @@ func run(args []string) error {
 		}{found, rejected})
 	case "activate":
 		if len(args) != 3 {
-			return usage()
+			return pluginsUsage()
 		}
 		active, err := plugin.LoadActivation(mustAbs(args[2]))
 		if err != nil {
@@ -218,7 +220,7 @@ func run(args []string) error {
 		return printJSON(summary)
 	case "plan-assets":
 		if len(args) != 4 {
-			return usage()
+			return pluginsUsage()
 		}
 		active, err := plugin.LoadActivation(mustAbs(args[2]))
 		if err != nil {
@@ -236,7 +238,7 @@ func run(args []string) error {
 		return errors.New("selected asset package not active")
 	case "emit", "run-event":
 		if len(args) != 4 {
-			return usage()
+			return pluginsUsage()
 		}
 		active, err := plugin.LoadActivation(mustAbs(args[2]))
 		if err != nil {
@@ -274,7 +276,7 @@ func run(args []string) error {
 		}
 		return printJSON(map[string]string{"status": result.Status, "event_id": event.ID})
 	default:
-		return usage()
+		return pluginsUsage()
 	}
 }
 
@@ -292,6 +294,7 @@ func printJSON(value any) error {
 	return enc.Encode(value)
 }
 
-func usage() error {
-	return errors.New("usage: p version | daemon <trusted-host.json> | tui [socket-path] [--snapshot ...] | attach [socket-path] <session-uuid> | api [socket-path] <method> [json-params] | plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>\nControl socket: explicit argument, then P_SOCKET, then /var/lib/p/control.sock.")
+// pluginsUsage is the usage error of p plugins.
+func pluginsUsage() error {
+	return usageError("usage: p plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
 }
