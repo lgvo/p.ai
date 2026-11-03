@@ -450,10 +450,15 @@ func (b *Backend) builderTransition(ctx context.Context, r Builder, action strin
 	}
 	if action == "delete" || before.Status != want {
 		args := []string{action, builderName(r)}
+		var bootErr error
 		if action == "stop" {
 			args = append(args, "--timeout", "30")
+			if before.Status == "Running" {
+				bootErr = b.awaitGuestSystemd(ctx, builderName(r))
+			}
 		}
-		_, err = b.command(ctx, args...)
+		_, err = b.lifecycleCommand(ctx, args...)
+		err = errors.Join(bootErr, err)
 	}
 	if action == "delete" {
 		// Deletion is the one operation whose successful postcondition is absence.

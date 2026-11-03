@@ -659,7 +659,9 @@ first. This prevents one client from unexpectedly closing another client's
 terminal.
 
 Stop requests Incus's bounded graceful shutdown and uses its documented forced
-termination after the timeout. It never removes the instance. Already
+termination after the timeout. It first waits until the guest can take the
+request ([runtime isolation](runtime-isolation.md#reconciliation-and-cleanup)).
+It never removes the instance. Already
 stopped succeeds idempotently. Missing or unreachable machinery is not reported
 as stopped. Unreachable Incus must be restored; a missing runtime is an
 [inconsistent session](#inconsistent-sessions).

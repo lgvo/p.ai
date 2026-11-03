@@ -88,11 +88,12 @@ type Observation struct {
 type runner func(context.Context, string, []string, []string) ([]byte, error)
 
 type Backend struct {
-	config     Config
-	run        runner
-	runBuilder runner // purpose-specific bounded Nix output; nil uses run in tests
-	validate   func(Config) error
-	proofRun   runner
+	config       Config
+	run          runner
+	runBuilder   runner // purpose-specific bounded Nix output; nil uses run in tests
+	runLifecycle runner // start, stop and delete with Incus's error; nil uses run in tests
+	validate     func(Config) error
+	proofRun     runner
 }
 
 // New refuses an administrative socket, a root process, an unbounded project,
@@ -101,7 +102,7 @@ func New(config Config) (*Backend, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
-	return &Backend{config: config, run: runCommand, runBuilder: runBuilderCommand, validate: validateConfig, proofRun: runCommand}, nil
+	return &Backend{config: config, run: runCommand, runBuilder: runBuilderCommand, runLifecycle: runLifecycleCommand, validate: validateConfig, proofRun: runCommand}, nil
 }
 
 func validateConfig(c Config) error {
@@ -312,6 +313,10 @@ func runBuilderCommand(ctx context.Context, binary string, argv, env []string) (
 	return runCommandBounded(ctx, binary, argv, env, 2<<20, 64<<10, true)
 }
 
+func runLifecycleCommand(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+	return runCommandBounded(ctx, binary, argv, env, maxOutput, 4<<10, true)
+}
+
 func runCommandBounded(ctx context.Context, binary string, argv, env []string, stdoutLimit, stderrLimit int, diagnostic bool) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, binary, argv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -361,6 +366,16 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 
 func (b *Backend) command(ctx context.Context, args ...string) ([]byte, error) {
 	return b.commandWith(ctx, b.run, 120*time.Second, args...)
+}
+
+// lifecycleCommand starts, stops or deletes an instance. Its stderr is
+// Incus's own, never a guest's, so a failure names why Incus refused or gave up.
+func (b *Backend) lifecycleCommand(ctx context.Context, args ...string) ([]byte, error) {
+	run := b.runLifecycle
+	if run == nil {
+		run = b.run
+	}
+	return b.commandWith(ctx, run, 120*time.Second, args...)
 }
 
 func (b *Backend) builderCommand(ctx context.Context, args ...string) ([]byte, error) {
@@ -906,10 +921,15 @@ func (b *Backend) transition(ctx context.Context, s Session, action string) (Obs
 	}
 	if action == "delete" || !strings.EqualFold(before.Status, want) {
 		argv := []string{action, b.name(s)}
+		var bootErr error
 		if action == "stop" {
 			argv = append(argv, "--timeout", "30")
+			if strings.EqualFold(before.Status, "Running") {
+				bootErr = b.awaitGuestSystemd(ctx, b.name(s))
+			}
 		}
-		_, err = b.command(ctx, argv...)
+		_, err = b.lifecycleCommand(ctx, argv...)
+		err = errors.Join(bootErr, err)
 	}
 	after, inspectErr := b.Inspect(ctx, s)
 	if inspectErr != nil {

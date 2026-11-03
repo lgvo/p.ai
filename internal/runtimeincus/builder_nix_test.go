@@ -281,6 +281,16 @@ func nixBuilderBackend(t *testing.T, f *fakeBuilderIncus, flake []byte) *Backend
 			return
 		}
 		path := req.URL.Query().Get("path")
+		if path == "/run/systemd/private" && req.Method == http.MethodHead {
+			// The running builder has booted: Incus reports systemd's socket
+			// as an empty file.
+			w.Header().Set("X-Incus-type", "file")
+			w.Header().Set("X-Incus-uid", "0")
+			w.Header().Set("X-Incus-gid", "0")
+			w.Header().Set("X-Incus-mode", "0700")
+			w.Header().Set("Content-Length", "0")
+			return
+		}
 		if path == builderSource+"/flake.lock" || path == builderSource+"/flake.nix" && flake == nil {
 			w.WriteHeader(http.StatusNotFound)
 			return

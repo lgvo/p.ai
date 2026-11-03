@@ -208,7 +208,9 @@ func fakeBackend(f *fakeIncus) *Backend {
 
 func TestLifecycleUsesObservedIncusState(t *testing.T) {
 	f := &fakeIncus{failCreateAfterEffect: true}
+	f.socket = (&fakeGuest{t: t, instance: "p-" + testUUID, systemdUp: true}).serveFiles()
 	b := fakeBackend(f)
+	b.config.UserSocket = f.socket
 	s := testSession()
 	ctx := context.Background()
 	got, err := b.Create(ctx, s)

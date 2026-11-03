@@ -250,6 +250,9 @@ func TestBuilderCreateAndVerifiedCleanup(t *testing.T) {
 		t.Fatalf("unexpected creation: %v", f.mutations)
 	}
 	f.status = "Running"
+	f.socket = (&fakeGuest{t: t, instance: builderName(r), systemdUp: true}).serveFiles()
+	f.base.socket = f.socket
+	b.config.UserSocket = f.socket
 	got, err = b.DeleteBuilder(ctx, r)
 	if err != nil || got.Exists {
 		t.Fatalf("cleanup: %+v %v", got, err)
