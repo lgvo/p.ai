@@ -43,8 +43,9 @@ type SystemInspectResult struct {
 	Git        *GitInfo `json:"git,omitempty"`
 }
 
-// GitInfo is how a host client reaches P's Git service. It holds public keys
-// and a key path, never private key bytes.
+// GitInfo is how a host client reaches P's Git service, and which source
+// driver serves it. It holds public keys and a key path, never private key
+// bytes.
 type GitInfo struct {
 	Endpoint        string `json:"endpoint"`
 	URLTemplate     string `json:"url_template"`
@@ -52,8 +53,8 @@ type GitInfo struct {
 	KnownHosts      string `json:"known_hosts"`
 	ClientPublicKey string `json:"client_public_key"`
 	ClientKeyPath   string `json:"client_key_path"`
-	SourcePluginID  string `json:"source_plugin_id"`
-	SourceSHA256    string `json:"source_sha256"`
+	DriverBackend   string `json:"driver_backend"`
+	DriverVersion   string `json:"driver_version"`
 }
 
 // CancelResult acknowledges a cancellation request, including when its

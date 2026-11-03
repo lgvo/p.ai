@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/lgvo/p.ai/internal/gitservice"
+	"github.com/lgvo/p.ai/internal/sshserver"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -65,7 +65,7 @@ func sessionKeyAt(ctx context.Context, id, stateDir string, principal func(conte
 	if err != nil {
 		return nil, nil, err
 	}
-	if exists && registered != gitservice.Fingerprint(pub) {
+	if exists && registered != sshserver.Fingerprint(pub) {
 		return nil, nil, sessionKeyMismatch("registered session key changed; discard the session and create a new one")
 	}
 	return key, pub, nil

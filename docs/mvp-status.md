@@ -79,7 +79,7 @@ native Incus image build. The usable public
 interfaces and this basic composition are sufficient for MVP; a separate
 agent-authored plugin is not a release gate. The [plugin contract](plugin-contract.md)
 now owns packaging, activation, compatibility, and the selected executable
-boundary. Event-handler, source-Git and runtime executable methods and
+boundary. Event-handler and runtime executable methods and
 host/agent assets are validated. Selected VM48 exercised the production
 package's exact bundled plugin catalog and CLI default activation through real
 session creation, fixture status reporting and Stop/Start with daemon restart.

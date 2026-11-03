@@ -14,8 +14,8 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sshserver"
 )
 
 type endpointPair struct {
@@ -306,7 +306,7 @@ func (m *endpointManager) serveGit(ctx context.Context, l net.Listener, uuid str
 		}
 		go func() {
 			defer m.releaseGit(conn, uuid)
-			m.proxyGit(ctx, conn, gitservice.Timeout)
+			m.proxyGit(ctx, conn, sshserver.Timeout)
 		}()
 	}
 }

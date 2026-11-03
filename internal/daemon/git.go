@@ -16,52 +16,44 @@ import (
 	"syscall"
 
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
 	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
+	"github.com/lgvo/p.ai/internal/sshserver"
 	"golang.org/x/crypto/ssh"
 )
 
 type gitCapability struct {
 	// driver is the source driver: P's repositories, heads, commits and
-	// the commit export, and the origin.
+	// the commit export, the Git service and the origin.
 	driver sourcedriver.Driver
-	// prepared is P's SSH endpoint, which gitservice still serves.
-	prepared *gitservice.PreparedServer
+	// endServices ends the Git services the driver runs and refuses later
+	// ones.
+	endServices func() error
+	// server is P's SSH server, with Git its one service.
+	server   *sshserver.Server
 	listener net.Listener
 	info     *api.GitInfo
-	source   plugin.Active
 }
 
+// newGitCapability starts the source driver, pins its backend, and makes P's
+// SSH server on the configured loopback address with the driver's Git
+// service.
 func newGitCapability(ctx context.Context, cfg control.HostConfig, store *control.Store) (_ *gitCapability, err error) {
 	selected := cfg.Git
 	if selected == nil {
 		return nil, errors.New("Git configuration is absent")
 	}
-	if err := privateTrustedFile(selected.ActivationPath); err != nil {
-		return nil, fmt.Errorf("Git activation: %w", err)
-	}
-	active, err := plugin.LoadActivation(selected.ActivationPath)
-	if err != nil {
-		return nil, fmt.Errorf("Git activation: %w", err)
-	}
-	var source *plugin.Active
-	for i := range active {
-		if active[i].Package.Manifest.ID == selected.SourcePluginID {
-			source = &active[i]
-		}
-	}
-	if source == nil || source.Package.Manifest.Capability != "source-git" || source.Package.Manifest.Runtime.Kind != "wasi-command" || len(source.Grants) != 1 || source.Grants[0] != "git.project" {
-		return nil, errors.New("selected source-Git plugin or grant is unavailable")
-	}
-	backend, err := gitservice.New(store, cfg.StateDir, []plugin.Active{*source})
-	if err != nil {
-		return nil, err
-	}
 	driver, err := newSourceDriver(ctx, cfg)
 	if err != nil {
 		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			driver.Close()
+		}
+	}()
+	if err := store.PinSourceBackend(ctx, driver.Describe().Backend); err != nil {
+		return nil, fmt.Errorf("source driver: %w", err)
 	}
 	serverKey, serverPub, err := loadPinnedServerKey(ctx, store, filepath.Join(cfg.StateDir, "git_server_key"))
 	if err != nil {
@@ -71,19 +63,14 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 	if err != nil {
 		return nil, fmt.Errorf("Git client key: %w", err)
 	}
-	if err := store.EnsureHostGitPrincipal(ctx, gitservice.Fingerprint(clientPub)); err != nil {
+	if err := store.EnsureHostGitPrincipal(ctx, sshserver.Fingerprint(clientPub)); err != nil {
 		return nil, fmt.Errorf("Git host principal: %w", err)
 	}
 	listener, err := net.Listen("tcp", selected.Listen)
 	if err != nil {
 		return nil, err
 	}
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok || !addr.IP.IsLoopback() {
-		listener.Close()
-		return nil, errors.New("Git listener is not loopback")
-	}
-	prepared, err := backend.Prepare(ctx, listener, serverKey)
+	server, err := sshserver.Prepare(listener, serverKey, store, sshserver.Git(ctx, store, driver))
 	if err != nil {
 		listener.Close()
 		return nil, fmt.Errorf("Git SSH setup: %w", err)
@@ -101,17 +88,23 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 		KnownHosts:      "[" + host + "]:" + port + " " + strings.TrimSpace(string(ssh.MarshalAuthorizedKey(serverPub))),
 		ClientPublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(clientPub))),
 		ClientKeyPath:   filepath.Join(cfg.StateDir, "git_client_key"),
-		SourcePluginID:  source.Package.Manifest.ID,
-		SourceSHA256:    source.Package.SHA256,
+		DriverBackend:   driver.Describe().Backend,
+		DriverVersion:   driver.Describe().Version,
 	}
-	return &gitCapability{driver: driver, prepared: prepared, listener: listener, info: info, source: *source}, nil
+	return &gitCapability{driver: driver, endServices: driver.Close, server: server, listener: listener, info: info}, nil
+}
+
+// close stops P's SSH endpoint and ends the Git services the driver runs.
+func (g *gitCapability) close() {
+	g.listener.Close()
+	g.endServices()
 }
 
 // newSourceDriver starts the source driver host configuration selects: the
-// bundled Git driver, in process, over the state directory, which keeps P's
-// repositories where gitservice serves them. It refuses to start a driver
-// whose storage or Git tools fail its check.
-func newSourceDriver(ctx context.Context, cfg control.HostConfig) (sourcedriver.Driver, error) {
+// bundled Git driver, in process, over the state directory. It refuses to
+// start a driver whose storage or Git tools fail its check, which also ends
+// the Git services a driver that died left running.
+func newSourceDriver(ctx context.Context, cfg control.HostConfig) (*sourcegit.Driver, error) {
 	driver, err := sourcegit.New(cfg.StateDir, cfg.Git.Driver.Config)
 	if err != nil {
 		return nil, fmt.Errorf("source driver: %w", err)
@@ -226,7 +219,7 @@ func loadPinnedServerKey(ctx context.Context, store serverIdentityStore, path st
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := store.EnsureGitServerIdentity(ctx, gitservice.Fingerprint(public)); err != nil {
+	if err := store.EnsureGitServerIdentity(ctx, sshserver.Fingerprint(public)); err != nil {
 		return nil, nil, fmt.Errorf("Git server identity: %w", err)
 	}
 	return key, public, nil

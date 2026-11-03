@@ -16,11 +16,11 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/supervise"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
+	"github.com/lgvo/p.ai/internal/sshserver"
 )
 
 type lifecycle struct {
@@ -30,7 +30,6 @@ type lifecycle struct {
 	driver                 runtimedriver.Driver
 	supervisor             *supervise.Supervisor // runs the driver executable; Close stops it
 	hostPlan               plugin.AssetPlan
-	sourcePlan             plugin.AssetPlan
 	agentPlan              *plugin.AssetPlan
 	endpoints              *endpointManager
 	instanceID             string
@@ -101,10 +100,6 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	sourcePlan, err := plugin.PlanAssets(git.source)
-	if err != nil {
-		return nil, err
-	}
 	var agentPlan *plugin.AssetPlan
 	if cfg.AgentAdapter != nil {
 		if err := privateTrustedFile(cfg.AgentAdapter.ActivationPath); err != nil {
@@ -153,7 +148,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, supervisor: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, supervisor: driver, hostPlan: hostPlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -458,7 +453,7 @@ func (l *lifecycle) dispatchLocked() {
 }
 
 func (l *lifecycle) selection() control.CreationSelection {
-	s := control.CreationSelection{HostID: l.hostPlan.PackageID, HostSHA256: l.hostPlan.PackageSHA256, SourceID: l.sourcePlan.PackageID, SourceSHA256: l.sourcePlan.PackageSHA256}
+	s := control.CreationSelection{HostID: l.hostPlan.PackageID, HostSHA256: l.hostPlan.PackageSHA256}
 	if l.agentPlan != nil {
 		s.AgentID, s.AgentSHA256 = l.agentPlan.PackageID, l.agentPlan.PackageSHA256
 	}
@@ -1159,7 +1154,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		fail(err)
 		return
 	}
-	if err = l.store.EnsureSessionGitPrincipal(ctx, gitservice.Fingerprint(pub), session.Project, session.UUID); err != nil {
+	if err = l.store.EnsureSessionGitPrincipal(ctx, sshserver.Fingerprint(pub), session.Project, session.UUID); err != nil {
 		fail(err)
 		return
 	}
@@ -1379,10 +1374,10 @@ func (l *lifecycle) runtimeSpec(uuid, project, image string, grants []runtimedri
 	}
 }
 
-// sessionAssets are the files of the selected interactive host, source and
-// agent adapter packages, each named by its role.
+// sessionAssets are the files of the selected interactive host and agent
+// adapter packages, each named by its role.
 func (l *lifecycle) sessionAssets() []runtimedriver.Asset {
-	files := slices.Concat(l.hostPlan.Files, l.sourcePlan.Files)
+	files := slices.Clone(l.hostPlan.Files)
 	if l.agentPlan != nil {
 		files = append(files, l.agentPlan.Files...)
 	}

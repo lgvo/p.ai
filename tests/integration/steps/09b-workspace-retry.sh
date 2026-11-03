@@ -35,15 +35,11 @@ activate_package() {
   jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
-activate_package "$P_TEST_GIT_PLUGIN" "$step_dir/git-server.json" git.project
 
-# The package copy changes only the selected session asset. Its new digest is
-# pinned by the normal asset plan. Git init and remote configuration finish;
-# the first SSH fetch then waits at the wrapper before contacting the server.
-mkdir -m 0700 "$step_dir/source-package"
-cp "$P_TEST_GIT_PLUGIN/"* "$step_dir/source-package/"
-rm "$step_dir/source-package/p-git-ssh"
-cat > "$step_dir/source-package/p-git-ssh" <<'SH'
+# A gated copy of the driver's Git SSH wrapper. Git init and remote
+# configuration finish; the first SSH fetch then waits at the wrapper before
+# contacting the server.
+cat > "$step_dir/gated-git-ssh" <<'SH'
 #!/bin/sh
 attempt=0
 while [ ! -e /etc/p/test-init-release ]; do
@@ -55,8 +51,6 @@ while [ ! -e /etc/p/test-init-release ]; do
 done
 exec /usr/bin/ssh -F /etc/p/git/ssh_config "$@"
 SH
-chmod 0755 "$step_dir/source-package/p-git-ssh"
-activate_package "$step_dir/source-package" "$step_dir/source.json" git.project
 activate_package "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host.json" session.asset.install
 
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
@@ -64,7 +58,7 @@ test "${#fingerprint}" -eq 64
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/server"
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/session"
 mkdir -m 0700 "$step_dir/git-state"
-git-fixture serve "$step_dir/git-state" "$step_dir/git-server.json" 127.0.0.1:0 "$step_dir/server" \
+git-fixture serve "$step_dir/git-state" 127.0.0.1:0 "$step_dir/server" \
   > "$step_dir/git-ready.json" 2> "$step_dir/git.err" &
 pids+=("$!")
 for ((attempt=0; attempt<100; attempt++)); do
@@ -99,9 +93,8 @@ jq -n --arg instance 11111111-1111-4111-8111-111111111111 \
   --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint" \
   --arg commit "$initial_oid" --arg key "$step_dir/session" \
   --arg server "$step_dir/server.pub" --arg host "$step_dir/host.json" \
-  --arg source "$step_dir/source.json" \
   '{instance_uuid:$instance,session_uuid:$session,project:"retry",branch:"main",commit:$commit,
-    image:$image,endpoints:$endpoints,host_activation:$host,source_activation:$source,
+    image:$image,endpoints:$endpoints,host_activation:$host,
     git_key_file:$key,git_host_key_file:$server}' \
   > "$step_dir/session.json"
 spec_digest=$(sha256sum "$step_dir/session.json" | cut -d' ' -f1)
@@ -150,6 +143,10 @@ start_host_failure() {
 }
 
 invoke create | jq -e '.state=="stopped" and .complete and .gated' >/dev/null
+# The driver installs its wrapper at create only; the stopped runtime takes
+# the gated copy in its place, root-owned and executable as the guest checks.
+file_after_stop push --uid 0 --gid 0 --mode 0555 \
+  "$step_dir/gated-git-ssh" "$name/etc/p/assets/p-git-ssh"
 # The gated fetch holds the host, so Start waits in the background.
 invoke start > "$step_dir/first-start.json" 2> "$step_dir/start.err" &
 start_pid=$!

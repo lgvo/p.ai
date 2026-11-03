@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 type fakeServerIdentity struct{ fingerprint string }
@@ -139,5 +142,75 @@ func TestSourceDriverStartsOnlyWithItsOwnConfigOverPrivateStorage(t *testing.T) 
 	}
 	if _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err == nil {
 		t.Fatal("the driver started over storage others can write")
+	}
+}
+
+// gitHostConfig is host configuration with P's Git endpoint on a free
+// loopback port and the bundled source driver over store's state directory.
+func gitHostConfig(store *control.Store) control.HostConfig {
+	return control.HostConfig{StateDir: store.StateDir(), Git: &control.GitConfig{Listen: "127.0.0.1:0", Driver: control.SourceDriverConfig{Name: control.GitDriver, Config: json.RawMessage(`{}`)}}}
+}
+
+func TestTheDaemonRefusesToStartWithAnotherBackendWhileAProjectExists(t *testing.T) {
+	store, err := control.OpenStore(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.PinSourceBackend(t.Context(), "forge"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProject(t.Context(), "app", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	git, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	if err == nil {
+		git.close()
+	}
+	if !errors.Is(err, control.ErrConflict) {
+		t.Fatalf("the daemon started the git backend over another backend's project: %v", err)
+	}
+}
+
+func TestTheDaemonStartsAgainOverTheProjectsItsBackendMade(t *testing.T) {
+	store, err := control.OpenStore(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	first, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.close()
+	if err := store.CreateProject(t.Context(), "app", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	second, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	if err != nil {
+		t.Fatalf("the daemon did not start again over its backend's project: %v", err)
+	}
+	second.close()
+}
+
+func TestClosingTheGitCapabilityEndsTheDriversGitService(t *testing.T) {
+	store, err := control.OpenStore(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	git, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	git.close()
+	opened := false
+	open := func(sourcedriver.ServiceKind, string) (sourcedriver.Service, sourcedriver.Approve, error) {
+		opened = true
+		return sourcedriver.Service{}, nil, errors.New("refused")
+	}
+	err = git.driver.ServeGit(t.Context(), "git-upload-pack 'app'", sourcedriver.Stream{In: strings.NewReader(""), Out: io.Discard, Err: io.Discard}, open)
+	if !errors.Is(err, sourcedriver.ErrUnavailable) || opened {
+		t.Fatalf("a closed capability's driver served Git: %v, opened %v", err, opened)
 	}
 }

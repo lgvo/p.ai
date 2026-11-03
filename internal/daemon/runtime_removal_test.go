@@ -12,10 +12,10 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/memory"
+	"github.com/lgvo/p.ai/internal/sshserver"
 )
 
 // hookedDriver is the in-memory driver with hooks that let a test act as
@@ -156,7 +156,6 @@ func newCreatedFixture(t *testing.T) *sessionFixture {
 	l := &lifecycle{ctx: ctx, store: store, driver: driver, git: git, endpoints: endpoints, working: map[string]bool{},
 		instanceID: "99999999-9999-4999-8999-999999999999",
 		hostPlan:   plugin.AssetPlan{PackageID: "host", PackageSHA256: strings.Repeat("b", 64)},
-		sourcePlan: plugin.AssetPlan{PackageID: "source", PackageSHA256: strings.Repeat("c", 64)},
 		cfg: control.RuntimeConfig{EndpointPrefix: prefix, BaseImageFingerprint: string(world.BaseImage()),
 			ProjectPolicies: map[string]control.ProjectPolicy{"app": policy}}}
 	// The journal releases a worker's hold on the session when it records
@@ -175,7 +174,7 @@ func newCreatedFixture(t *testing.T) *sessionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.EnsureSessionGitPrincipal(ctx, gitservice.Fingerprint(pub), "app", session.UUID); err != nil {
+	if err = store.EnsureSessionGitPrincipal(ctx, sshserver.Fingerprint(pub), "app", session.UUID); err != nil {
 		t.Fatal(err)
 	}
 	f := &sessionFixture{t: t, ctx: ctx, l: l, world: world, driver: driver, repo: repo, tip: tip, session: session, creator: op.ID}

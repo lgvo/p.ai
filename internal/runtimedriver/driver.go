@@ -254,7 +254,7 @@ type Network struct {
 // Asset is one file of a session asset package core selected, named by its
 // role. The driver installs it where its session host expects that role.
 type Asset struct {
-	Role   string // such as p-attach, p-git-ssh or p-codex-adapter
+	Role   string // such as p-attach or p-codex-adapter
 	Mode   uint32
 	Data   []byte
 	SHA256 string // hex SHA-256 of Data

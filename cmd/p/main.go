@@ -18,8 +18,8 @@ import (
 	"github.com/lgvo/p.ai/internal/attachment"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/daemon"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
 	"github.com/lgvo/p.ai/internal/tui"
 )
 
@@ -85,7 +85,7 @@ func run(args []string) error {
 		}{buildVersion, runtime.Version(), api.Protocol, plugin.APIVersion, deps})
 	}
 	if len(args) == 1 && args[0] == "git-hook" {
-		return gitservice.RunPreReceiveHook(context.Background(), os.Stdin)
+		return sourcegit.RunPreReceiveHook(context.Background(), os.Stdin)
 	}
 	if args[0] == "attach-helper" && len(args) == 1 {
 		return attachment.Helper(os.NewFile(3, "attachment-carrier"))

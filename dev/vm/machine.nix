@@ -245,8 +245,6 @@ in
       bundledActivation = true;
       settings = {
         git = {
-          activation_path = "${pState}/activation.json";
-          source_plugin_id = "org.p.git";
           listen = "127.0.0.1:0";
           driver = { name = "git"; config = { }; };
         };

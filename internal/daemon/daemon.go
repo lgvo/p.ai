@@ -41,10 +41,7 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 	if err != nil {
 		return err
 	}
-	defer git.listener.Close()
-	if !sameLeasedSelection(leasedPackages, git.source) {
-		return errors.New("source selection changed while acquiring package leases")
-	}
+	defer git.close()
 	origins := &control.OriginAPI{Store: store, Driver: git.driver}
 	surface := control.HandlerConfig{Store: store, Git: git.driver, GitInfo: git.info, Origins: origins}
 	if cfg.Runtime != nil {
@@ -58,7 +55,7 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 			cancel()
 			life.Close()
 		}()
-		if !sameLeasedAsset(leasedPackages, life.hostPlan) || !sameLeasedAsset(leasedPackages, life.sourcePlan) || life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
+		if !sameLeasedAsset(leasedPackages, life.hostPlan) || life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
 			return errors.New("asset selection changed while acquiring package leases")
 		}
 		life.events = events
@@ -84,7 +81,7 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 	}
 	handler := control.NewHandler(surface)
 	return runPair(scope,
-		func(ctx context.Context) error { return git.prepared.Serve(ctx) },
+		func(ctx context.Context) error { return git.server.Serve(ctx) },
 		func(ctx context.Context) error {
 			return control.ServeWithHandler(ctx, cfg.StateDir, handler)
 		},

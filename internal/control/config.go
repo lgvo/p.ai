@@ -211,13 +211,10 @@ func StoredProjectPolicyShapeSHA(raw json.RawMessage) (string, error) {
 	return sha, err
 }
 
-// GitConfig selects a reviewed source-Git package, the source driver and a
-// private host listener.
+// GitConfig selects the source driver and P's private Git listener.
 type GitConfig struct {
-	ActivationPath string             `json:"activation_path"`
-	SourcePluginID string             `json:"source_plugin_id"`
-	Listen         string             `json:"listen"`
-	Driver         SourceDriverConfig `json:"driver"`
+	Listen string             `json:"listen"`
+	Driver SourceDriverConfig `json:"driver"`
 }
 
 // GitDriver names the bundled Git source driver, compiled into P and the
@@ -320,12 +317,6 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 		return cfg, fmt.Errorf("state_dir: %w", err)
 	}
 	if cfg.Git != nil {
-		if cfg.Git.SourcePluginID == "" || strings.TrimSpace(cfg.Git.SourcePluginID) != cfg.Git.SourcePluginID {
-			return cfg, errors.New("git.source_plugin_id is required")
-		}
-		if err := checkPath(cfg.Git.ActivationPath); err != nil {
-			return cfg, fmt.Errorf("git.activation_path: %w", err)
-		}
 		host, port, err := net.SplitHostPort(cfg.Git.Listen)
 		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
 			return cfg, errors.New("git.listen must be a numeric loopback TCP address")

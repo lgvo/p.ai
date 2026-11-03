@@ -9,7 +9,6 @@ step_dir="$P_TEST_TMP/step-08"
 mkdir -m 0700 "$step_dir"
 state="$step_dir/state"
 mkdir -m 0700 "$state"
-activation="$step_dir/activation.json"
 fixture_pid=
 
 stop_fixture() {
@@ -36,15 +35,10 @@ on_error() {
 trap stop_fixture EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
-package_digest=$(p plugins conformance "$P_TEST_GIT_PLUGIN" | jq -er '.sha256')
-package_id=$(jq -er '.id' "$P_TEST_GIT_PLUGIN/plugin.json")
-jq -n --arg path "$P_TEST_GIT_PLUGIN" --arg digest "$package_digest" --arg id "$package_id" \
-  '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$activation"
-p plugins activate "$activation" | jq -e '.[0].capability == "source-git"' >/dev/null
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/server" >/dev/null
 start_fixture() {
   : > "$step_dir/fixture-ready.json"
-  git-fixture serve "$state" "$1" 127.0.0.1:0 "$step_dir/server" \
+  git-fixture serve "$state" 127.0.0.1:0 "$step_dir/server" \
     > "$step_dir/fixture-ready.json" 2> "$step_dir/fixture.err" &
   fixture_pid=$!
   ready=false
@@ -63,7 +57,7 @@ start_fixture() {
   socket=$(jq -er '.control' "$step_dir/fixture-ready.json")
   test -S "$socket"
 }
-start_fixture "$activation"
+start_fixture
 fixture() { timeout 15 git-fixture call "$socket" "$1"; }
 observe() {
   fixture "$(jq -nc --arg project "$1" --arg kind "$2" --arg value "$3" \

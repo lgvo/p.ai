@@ -175,15 +175,13 @@ type CreateReplaceDetails struct {
 	Provisional         CreateReplaceResources `json:"provisional"`
 }
 
-// CreationSelection is the host, source and agent plugins that a creation
-// pins, each by ID and digest.
+// CreationSelection is the host and agent plugins that a creation pins, each
+// by ID and digest.
 type CreationSelection struct {
-	HostID       string `json:"host_id"`
-	HostSHA256   string `json:"host_sha256"`
-	SourceID     string `json:"source_id"`
-	SourceSHA256 string `json:"source_sha256"`
-	AgentID      string `json:"agent_id,omitempty"`
-	AgentSHA256  string `json:"agent_sha256,omitempty"`
+	HostID      string `json:"host_id"`
+	HostSHA256  string `json:"host_sha256"`
+	AgentID     string `json:"agent_id,omitempty"`
+	AgentSHA256 string `json:"agent_sha256,omitempty"`
 }
 
 // EnvironmentIntent is the image-builder configuration that a creation pins

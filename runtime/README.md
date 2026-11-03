@@ -1,7 +1,7 @@
 # Base session image and tmux host
 
 `image.nix` is the production base-image module. It installs the local Nix
-daemon/client, Git, OpenSSH (`/usr/bin/ssh` for the source-git asset), tmux,
+daemon/client, Git, OpenSSH (`/usr/bin/ssh` for the Git SSH wrapper), tmux,
 Codex `0.151.0`, Python, and the root-owned runtime kit. The interactive-host package is authored in
 `plugins/bundled/tmux-host`; only its three declared assets should be staged
 into a package directory for conformance and digest-pinned activation.
@@ -50,9 +50,9 @@ store-owned symlink. NixOS adds a stateless `Wants=p-session.target` dependency
 to `multi-user.target`; before assembly the unit link is dangling, so the base
 image alone does not start the host. Boot-time tmpfiles gives the attach
 asset the fixed path `/usr/libexec/p/attach` through a root-owned link to
-`/etc/p/assets/p-attach`. The source-Git asset similarly appears at
-`/usr/libexec/p/git-ssh` through `/etc/p/assets/p-git-ssh`. Assembly writes
-verified bytes to those mutable targets.
+`/etc/p/assets/p-attach`. The runtime driver's own Git SSH wrapper similarly
+appears at `/usr/libexec/p/git-ssh` through `/etc/p/assets/p-git-ssh`.
+Assembly writes verified bytes to those mutable targets.
 
 Before `p-interactive.service` starts, trusted assembly must establish the
 paths specified by [runtime isolation](../docs/runtime-isolation.md#fixed-paths):

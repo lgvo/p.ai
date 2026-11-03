@@ -24,13 +24,11 @@ var (
 )
 
 var placements = map[string]string{
-	"interactive-host": "internal-session", "source-git": "hybrid",
-	"event-handler": "host", "agent-adapter": "internal-session",
+	"interactive-host": "internal-session", "event-handler": "host", "agent-adapter": "internal-session",
 }
 
 var grants = map[string]string{
-	"session.asset.install": "interactive-host", "git.project": "source-git",
-	"event.file.append": "event-handler", "agent.status.report": "agent-adapter",
+	"session.asset.install": "interactive-host", "event.file.append": "event-handler", "agent.status.report": "agent-adapter",
 }
 
 // Conformance validates package data and returns its content digest. It never
@@ -288,10 +286,6 @@ func validateManifest(m Manifest, names []string, headers map[string][4]byte) er
 				return fmt.Errorf("missing asset role %q", name)
 			}
 		}
-	} else if m.Capability == "source-git" && m.Runtime.Kind == "wasi-command" {
-		if len(m.Assets) > 1 || len(m.Assets) == 1 && m.Assets[0] != "p-git-ssh" {
-			return errors.New("source-git permits only the p-git-ssh session asset")
-		}
 	} else if len(m.Assets) != 0 {
 		return errors.New("assets require asset runtime")
 	}
@@ -312,7 +306,7 @@ func validateManifest(m Manifest, names []string, headers map[string][4]byte) er
 		}
 	case "assets":
 		if m.Runtime.Entry != "" || len(m.Assets) == 0 || m.Placement == "host" {
-			return errors.New("asset runtime requires internal-session or hybrid placement and assets")
+			return errors.New("asset runtime requires internal-session placement and assets")
 		}
 	default:
 		return fmt.Errorf("unsupported runtime kind %q", m.Runtime.Kind)

@@ -42,7 +42,7 @@ func TestRecoverBlockedSourceReadyDoesNotManufactureEndpoint(t *testing.T) {
 func TestEndpointRecoveryRequiresRecognizedDurableCreationProgress(t *testing.T) {
 	ctx := context.Background()
 	session := control.Session{UUID: "550e8400-e29b-41d4-a716-446655440000", Project: "app", Registry: "creating", PolicySHA256: strings.Repeat("d", 64)}
-	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
 	evidence, _ := json.Marshal(control.CreationEvidence{ImageFingerprint: strings.Repeat("e", 64), PolicySHA256: session.PolicySHA256, Selection: selection})
 	base := api.Operation{Kind: "session.create", Project: session.Project, SessionUUID: session.UUID, Status: "blocked", Phase: "principals-ready", Committed: true, Evidence: evidence}
 	for _, tc := range []struct {
@@ -150,7 +150,7 @@ func TestEndpointRecoveryPreservesEarlyArtifactsAndReopensLateSockets(t *testing
 		t.Fatal("established endpoint not reopened")
 	}
 
-	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
 	evidence, _ := json.Marshal(control.CreationEvidence{ImageFingerprint: strings.Repeat("e", 64), PolicySHA256: late.PolicySHA256, Selection: selection})
 	if e = recoverSessionEndpoint(ctx, late, func(context.Context, string) (api.Operation, error) {
 		return api.Operation{Kind: "session.create", Project: late.Project, SessionUUID: late.UUID, Status: "blocked", Phase: "runtime-created", Committed: true, Evidence: evidence}, nil

@@ -91,7 +91,7 @@ func TestOmittedMountPolicyIsCurrentAcrossRestart(t *testing.T) {
 func TestExactProjectPolicyMapAndCompatibility(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
-	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"activation_path":"` + dir + `/git.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"activation_path":"` + dir + `/runtime.json","host_plugin_id":"org.p.tmux-host","driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `",`
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"activation_path":"` + dir + `/runtime.json","host_plugin_id":"org.p.tmux-host","driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `",`
 	policy := `{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	for _, tc := range []struct {
 		name, fields string

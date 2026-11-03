@@ -9,12 +9,10 @@ mkdir -m 0700 "$step_dir"
 state="$step_dir/state"
 mkdir -m 0700 "$state"
 socket="$state/control.sock"
-activation="$step_dir/activation.json"
 config="$step_dir/host.json"
 fixture_pid=
 daemon_pid=
 server_key_backup=
-activation_backup=
 
 stop_fixture() {
   if test -n "${fixture_pid:-}"; then
@@ -46,9 +44,6 @@ cleanup() {
   if test -n "$server_key_backup" && test -f "$server_key_backup"; then
     mv -f "$server_key_backup" "$state/git_server_key"
   fi
-  if test -n "$activation_backup" && test -f "$activation_backup"; then
-    mv -f "$activation_backup" "$activation"
-  fi
 }
 on_error() {
   status="$1"
@@ -64,17 +59,11 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
-package_digest=$(p plugins conformance "$P_TEST_GIT_PLUGIN" | jq -er '.sha256')
-package_id=$(jq -er '.id' "$P_TEST_GIT_PLUGIN/plugin.json")
-jq -n --arg path "$P_TEST_GIT_PLUGIN" --arg digest "$package_digest" --arg id "$package_id" \
-  '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$activation"
-p plugins activate "$activation" | jq -e '.[0].capability == "source-git"' >/dev/null
-
 # Seed the same state directory through the fixture, then stop it so the
 # production daemon is the only SQLite writer and Git listener.
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/fixture-server" >/dev/null
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/session" >/dev/null
-git-fixture serve "$state" "$activation" 127.0.0.1:0 "$step_dir/fixture-server" \
+git-fixture serve "$state" 127.0.0.1:0 "$step_dir/fixture-server" \
   > "$step_dir/fixture-ready.json" 2> "$step_dir/fixture.err" &
 fixture_pid=$!
 for ((attempt=0; attempt<100; attempt++)); do
@@ -110,8 +99,8 @@ test -n "$session_uuid"
 stop_fixture
 test ! -e "$fixture_socket"
 
-jq -n --arg state "$state" --arg activation "$activation" --arg id "$package_id" \
-  '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$activation,source_plugin_id:$id,listen:"127.0.0.1:0",driver:{name:"git",config:{}}}}' > "$config"
+jq -n --arg state "$state" \
+  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}}}' > "$config"
 
 rpc() { timeout 15 p api "$socket" "$@"; }
 start_daemon() {
@@ -177,9 +166,9 @@ instance_id=$(jq -er '.result.instance_id' <<< "$hello")
 # Git is configured without a runtime.
 jq -e '.result.capabilities == ["git"]' <<< "$hello" >/dev/null
 inspected=$(rpc system.inspect)
-jq -e --arg id "$package_id" --arg digest "$package_digest" --arg key "$state/git_client_key" \
+jq -e --arg key "$state/git_client_key" \
   '.result.projects == 3 and .result.sessions == 1 and .result.operations == 1 and
-   .result.git.source_plugin_id == $id and .result.git.source_sha256 == $digest and
+   .result.git.driver_backend == "git" and .result.git.driver_version == "1" and
    .result.git.client_key_path == $key and
    ([.result.git.endpoint, .result.git.known_hosts, .result.git.client_public_key] |
      all(.[]; type == "string" and length > 0))' <<< "$inspected" >/dev/null
@@ -263,13 +252,6 @@ expect_refused_start 'Git server identity'
 rm "$state/git_server_key"
 mv "$server_key_backup" "$state/git_server_key"
 server_key_backup=
-
-activation_backup="$step_dir/activation.saved"
-mv "$activation" "$activation_backup"
-jq '.plugins[0].sha256 = ("0" * 64)' "$activation_backup" > "$activation"
-expect_refused_start "$package_id: package digest mismatch"
-mv "$activation_backup" "$activation"
-activation_backup=
 start_daemon
 test "$(rpc system.hello | jq -er '.result.instance_id')" = "$instance_id"
 stop_daemon

@@ -26,20 +26,16 @@ daemon user. It contains `control.sqlite`, SQLite WAL files, `daemon.lock`, and
 mode `0600` inside the private directory. With no `git` object, the daemon
 keeps the control foundation only.
 
-An optional trusted Git selection activates the real source-Git package and
-its host Git service:
+An optional trusted `git` object selects the source driver and starts P's
+host Git service:
 
 ```json
-{"schema":"p.host/v1","state_dir":"/absolute/private/p-state","git":{"activation_path":"/absolute/private/activation.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}}}
+{"schema":"p.host/v1","state_dir":"/absolute/private/p-state","git":{"listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}}}
 ```
 
-The activation file must be an owner-owned private regular file under trusted
-ancestors. Its selected source package must have the named ID, `source-git`
-capability, WASI command runtime, and exact `git.project` grant. The approved
-package digest is checked during loading and again at each invocation. Changes
-to the activation file take effect after daemon restart. `listen` is a numeric
-loopback TCP address with an explicit port; port `0` asks the OS for a free
-loopback port and `system.inspect` reports the actual endpoint.
+`listen` is a numeric loopback TCP address with an explicit port; port `0`
+asks the OS for a free loopback port and `system.inspect` reports the actual
+endpoint.
 
 `git.driver` names the source driver P uses and carries that driver's own
 settings in `config`, which only the driver reads. P has one driver, `git`,
@@ -47,7 +43,11 @@ built into P, which keeps P's repositories in the state directory; its
 `config` is an empty object, and the driver refuses any setting. Loading the
 host configuration checks only that the driver is `git` and that `config` is
 an object. At daemon start the driver refuses unknown settings and checks
-that its storage is private to the daemon user and that Git runs.
+that its storage is private to the daemon user and that Git runs. The daemon
+records the driver's backend at its first start; while any project exists,
+deleting ones included, it refuses to start with a driver of another backend,
+whose storage holds none of the instance's repositories. A driver of the
+same backend at another version starts.
 
 The state directory holds persistent `git_server_key` and `git_client_key`
 Ed25519 private files at mode `0600`. The daemon registers the latter as its
@@ -72,7 +72,7 @@ cannot add networking, mounts, commands, or other grants.
 {
   "schema": "p.host/v1",
   "state_dir": "/absolute/private/p-state",
-  "git": {"activation_path":"/absolute/private/git-activation.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}},
+  "git": {"listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}},
   "runtime": {
     "activation_path": "/absolute/private/runtime-activation.json",
     "host_plugin_id": "org.p.tmux-host",
@@ -483,7 +483,7 @@ owns when an accepted report replaces or clears the durable value.
 |---|---|---|
 | `system.hello` | `protocol`, `build_version`, `instance_id`, `capabilities` | Agrees protocol `p.control/v2` for the connection and reports the configured capabilities; see [connection agreement](#connection-agreement). |
 | `system.health` | `control_state` | `ready` means the SQLite control store responded. It makes no Git, Incus, systemd, or plugin readiness claim. |
-| `system.inspect` | `projects`, `sessions`, `operations`, optional `git` | Counts persisted control records. Counts are not reconciled runtime or Git status. With Git configured, `git` contains the actual listener endpoint, SSH URL template, server public key, known-hosts entry, host client public key and key path, and selected plugin ID and digest. |
+| `system.inspect` | `projects`, `sessions`, `operations`, optional `git` | Counts persisted control records. Counts are not reconciled runtime or Git status. With Git configured, `git` contains the actual listener endpoint, SSH URL template, server public key, known-hosts entry, host client public key and key path, and the source driver's backend (`driver_backend`, `git` for the bundled driver) and version (`driver_version`). |
 
 With trusted Git configuration, two more read-only methods are available:
 
@@ -758,7 +758,7 @@ this slice.
 
 `old_branch` and `new_branch` report the full `ref`, `observed`, `exists`, and
 optional `oid`. `observed:false` means inspection was unavailable, not absence.
-The selected source package applies ordinary Create's local committed-source
+The replacement applies ordinary Create's local committed-source
 rules: branch selectors capture their current commit, and commit selectors
 must be reachable from an ordinary P head. No missing objects are imported.
 `provisional.assigned_ref` reports `absent`, `preserved_existing`, or
@@ -1571,7 +1571,7 @@ it.
 | `not_configured` | `project_policy` | The host configuration has no policy for the project. |
 | `failed` | `runtime` | Incus or the runtime driver failed or could not be observed. |
 | `failed` | `services` | The session's user service manager is unavailable or refused the command. |
-| `failed` | `git` | P's Git repository, the source driver or the source-Git plugin failed, or a head change the source driver settled as not done. |
+| `failed` | `git` | P's Git repository or the source driver failed, or a head change the source driver settled as not done. |
 | `failed` | `origin` | The origin could not be contacted, or refused an observation, fetch or push. |
 | `failed` | `plugin` | A selected plugin failed its recheck before use. |
 

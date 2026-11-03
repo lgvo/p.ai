@@ -11,11 +11,10 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimekit"
 )
 
-// The asset roles of a session: its systemd host's units and attach program
-// and its Git transport, which every session has, and the agent adapter,
-// which one may have.
+// The asset roles of a session: its systemd host's units and attach program,
+// which every session has, and the agent adapter, which one may have.
 var (
-	requiredAssetRoles = []string{"p-session.target", "p-interactive.service", "p-attach", "p-git-ssh"}
+	requiredAssetRoles = []string{"p-session.target", "p-interactive.service", "p-attach"}
 	agentAssetRole     = "p-codex-adapter"
 )
 

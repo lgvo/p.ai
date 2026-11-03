@@ -254,8 +254,10 @@ func (s *Store) SetGitRefGuard(ctx context.Context, project, branch, operationID
 }
 
 // AcquireGitLease checks current SQLite authority and holds the shared lock
-// through the actual Git service process. Call release exactly once.
-func (s *Store) AcquireGitLease(ctx context.Context, fingerprint, project, service string) (allowedRef string, release func(), err error) {
+// through the actual Git service process. Call release exactly once. branch
+// is the session's branch, the one head a session principal may change; a
+// host principal has none.
+func (s *Store) AcquireGitLease(ctx context.Context, fingerprint, project, service string) (branch string, release func(), err error) {
 	if !gitFingerprintRE.MatchString(fingerprint) || !validProject(project) || (service != "upload" && service != "receive") {
 		return "", nil, ErrGitDenied
 	}
@@ -298,7 +300,7 @@ func (s *Store) AcquireGitLease(ctx context.Context, fingerprint, project, servi
 	if role != "session" || boundProject != project {
 		return deny(ErrGitDenied)
 	}
-	var branch, registry string
+	var registry string
 	err = s.db.QueryRowContext(ctx, `SELECT branch,registry_state FROM sessions WHERE uuid=? AND project_path=?`, sessionID, project).Scan(&branch, &registry)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -330,11 +332,11 @@ func (s *Store) AcquireGitLease(ctx context.Context, fingerprint, project, servi
 			return deny(err)
 		}
 	}
-	return "refs/heads/" + branch, release, nil
+	return branch, release, nil
 }
 
-// ConsumeGitUnbornGrant is called under a receive lease by the fixed
-// pre-receive callback for a validated old-zero update. Consumed is durable
+// ConsumeGitUnbornGrant is called under a receive lease by the Git
+// service's approval of an update that creates the head. Consumed is durable
 // even if Git then fails or crashes, which leaves the branch ref absent.
 func (s *Store) ConsumeGitUnbornGrant(ctx context.Context, fingerprint, project string) (bool, error) {
 	var sessionID, branch, registry, state string

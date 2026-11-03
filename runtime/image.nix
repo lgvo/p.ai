@@ -85,7 +85,7 @@ in
     python3
     tmux
   ];
-  # The source-git asset calls this fixed path; NixOS packages otherwise live
+  # The Git SSH wrapper calls this fixed path; NixOS packages otherwise live
   # under /run/current-system/sw/bin and immutable store paths.
   # Incus attaches sockets at /opt/p/endpoints. Only its parent is managed
   # here: prepare-endpoints binds it at /run/p after activation mounts /run.

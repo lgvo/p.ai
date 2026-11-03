@@ -68,8 +68,7 @@ func newOriginFixture(t *testing.T) *originFixture {
 	}
 	runtime := memory.NewWorld(memory.Config{Capacity: 8})
 	f.l = &lifecycle{ctx: ctx, store: store, driver: memory.NewDriver(runtime), git: &gitCapability{driver: driver},
-		hostPlan:   plugin.AssetPlan{PackageID: "host", PackageSHA256: strings.Repeat("b", 64)},
-		sourcePlan: plugin.AssetPlan{PackageID: "source", PackageSHA256: strings.Repeat("c", 64)},
+		hostPlan: plugin.AssetPlan{PackageID: "host", PackageSHA256: strings.Repeat("b", 64)},
 		cfg: control.RuntimeConfig{BaseImageFingerprint: string(runtime.BaseImage()),
 			ProjectPolicies: map[string]control.ProjectPolicy{"app": policy, "team/new": policy}},
 		// No worker starts: a queued operation stays pending.

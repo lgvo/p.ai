@@ -129,8 +129,7 @@ available across a P isolation or extension boundary.
 A plugin-provided capability that participates in P lifecycle work outside a
 session without being exposed to that session.
 
-- **Examples:** An event handler, or the host-side Git operations of a
-  source-Git plugin.
+- **Example:** An event handler.
 - **Rules:** It receives only the authority granted for its declared role and
   does not become a session service merely because its result affects one.
 
@@ -327,9 +326,12 @@ addressed in P's terms rather than Git's layout.
   transport. Core keeps lifecycle state, Git authority (principals, leases,
   guards and grants), the SSH server and its keys, the origin URL and
   observations, and each project's origin lock; the driver never opens P's
-  database or reaches a runtime. Host configuration selects it as
-  `git.driver`; its Git implementation runs inside the P daemon. The Git
-  service does not go through it yet.
+  database or reaches a runtime. Core's SSH server authenticates a session's
+  key and hands the stream to the driver's Git service, which asks core to
+  open the service and to approve the one head update a push makes. Host
+  configuration selects it as `git.driver`; its Git implementation runs
+  inside the P daemon. Core pins the driver's backend at its first start and
+  refuses another while any project exists; sessions pin no source package.
 - **Rules:** It acts only on P's repositories in its configured storage,
   changes a head only at an exact expected state, and claims nothing after an
   error.

@@ -137,7 +137,7 @@ the assigned branch's current tip remain the source authority.
 | Workspace files and local refs | The runtime's private root: the Incus instance root | records no duplicate file state |
 | Runtime existence, state, root storage, and runtime operation | The runtime driver's backend: the Incus instance | records the runtime's incarnation where a removal or rename reviewed it; no instance name or Incus project |
 | Commit image bytes, reference and labels | The runtime driver's backend: the Incus image store | indexes (project, commit, base image, system, builder version) to the image reference |
-| P Git write permission | P Git authorization using current SQLite assignment | records principal and revocation state |
+| P Git write permission | Core's Git authorization, which the source driver's Git service asks to open each service and to approve each head update, using current SQLite assignment | records principal and revocation state |
 | Post-MVP external-service principal validity | Configured service | records only the protected binding and cleanup state required by its plugin contract |
 | Interactive-host readiness and failure | `p-interactive.service` and persistent system journal | records only bounded operation/last-start diagnostics |
 | Pending attachments and attachment presence | The running daemon's pending tokens and terminal leases; the runtime driver's completion witness ends a lease | not persisted |
@@ -308,9 +308,10 @@ not reset its tip, rewrite its history, or restore an old session's runtime.
 The unborn-`main` bootstrap is created only as part of explicit blank/empty-
 origin project creation. It has no source object ID, uses the P base image, and
 may create only the already reserved `refs/heads/main` on its first push.
-The first update's server-side pre-receive check consumes a durable,
-single-use creation grant before Git commits the ref. Opening a receive
-connection or a dry-run push does not consume it. If the daemon fails after
+The first update's approval consumes a durable, single-use creation grant
+before Git commits the ref: after the source driver's pre-receive check, core's
+`Approve` consumes it. Opening a receive connection or a dry-run push does not
+consume it. If the daemon fails after
 that check but before the ref outcome is known, P keeps the grant consumed
 rather than permitting a second, potentially unrelated creation. If `main` is
 then absent, that session can no longer create it. An established bootstrap
@@ -321,6 +322,10 @@ MVP has no repository-controlled P configuration. Creation snapshots the
 trusted project-scoped P configuration and evaluates only the ordinary Nix
 devShell from the selected commit. The default devShell is used when present;
 otherwise the substrate-only environment applies.
+
+Creation pins the selected interactive-host and agent-adapter packages by ID
+and digest, and a Retry requires the same packages. It pins no source package:
+the source driver is part of P, whose backend P pins once for the instance.
 
 ### Create phases
 

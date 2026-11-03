@@ -13,18 +13,6 @@ for name in server host blank work unknown; do
   ssh-keygen -q -t ed25519 -N '' -f "$step_dir/$name" >/dev/null
 done
 
-make_activation() {
-  package="$1"
-  target="$2"
-  package_digest=$(p plugins conformance "$package" | jq -er '.sha256')
-  package_id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$package_digest" --arg id "$package_id" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$target"
-  p plugins activate "$target" | jq -e '.[0].capability == "source-git"' >/dev/null
-}
-make_activation "$P_TEST_GIT_PLUGIN" "$step_dir/bundled.json"
-make_activation "$P_TEST_GIT_ALTERNATE" "$step_dir/alternate.json"
-
 server_pid=
 step04_error() {
   status="$1"
@@ -49,9 +37,8 @@ stop_server() {
 trap stop_server EXIT
 trap 'step04_error "$?" "$LINENO"' ERR
 start_server() {
-  activation="$1"
   : > "$step_dir/server-ready.json"
-  git-fixture serve "$state" "$activation" 127.0.0.1:0 "$step_dir/server" \
+  git-fixture serve "$state" 127.0.0.1:0 "$step_dir/server" \
     > "$step_dir/server-ready.json" 2> "$step_dir/server.err" &
   server_pid=$!
   for ((attempt=0; attempt<100; attempt++)); do
@@ -84,7 +71,7 @@ set_git_key() {
 }
 git_net() { timeout 30 git "$@"; }
 
-start_server "$step_dir/bundled.json"
+start_server
 project_result=$(fixture '{"schema":"p.git-fixture/v1","kind":"project","project":"app"}')
 repo=$(jq -er '.result.repository_path' <<< "$project_result")
 fixture "$(jq -nc --arg key "$step_dir/host.pub" '{schema:"p.git-fixture/v1",kind:"host-key",public_key:$key}')" | jq -e '.ok' >/dev/null
@@ -166,7 +153,7 @@ fixture "$(jq -nc --arg op "$work_op" '{schema:"p.git-fixture/v1",kind:"guard",p
 expect_failure git_net -C "$step_dir/work-clone" push origin HEAD:work
 test "$(git -C "$repo" rev-parse refs/heads/work)" = "$work_oid"
 stop_server
-start_server "$step_dir/bundled.json"
+start_server
 set_git_key "$step_dir/work"
 git_net -C "$step_dir/work-clone" remote set-url origin "$url"
 expect_failure git_net -C "$step_dir/work-clone" push origin HEAD:work
@@ -179,34 +166,8 @@ test "$(git -C "$repo" rev-parse refs/heads/work)" = "$work_oid"
 for number in $(seq -w 1 10); do
   git -C "$repo" update-ref "refs/heads/b$number" "$main_oid"
 done
-bundled_page=$(fixture '{"schema":"p.git-fixture/v1","kind":"refs","project":"app","limit":8}')
-test "$(jq '.result.refs|length' <<< "$bundled_page")" -eq 8
-
-# The alternate independently authored WASI package changes the receive
-# ceiling. A small FF push succeeds under that package, then the same queued
-# oversized commit is refused there and accepted again under the bundled
-# package.
-stop_server
-start_server "$step_dir/alternate.json"
-git_net -C "$step_dir/work-clone" remote set-url origin "$url"
-set_git_key "$step_dir/work"
-printf 'small alternate\n' >> "$step_dir/work-clone/work.txt"
-git -C "$step_dir/work-clone" commit -qam alternate-small
-git_net -C "$step_dir/work-clone" push origin HEAD:work >/dev/null
-work_oid=$(git -C "$step_dir/work-clone" rev-parse HEAD)
-test "$(git -C "$repo" rev-parse refs/heads/work)" = "$work_oid"
-dd if=/dev/urandom of="$step_dir/work-clone/random.bin" bs=1024 count=80 status=none
-git -C "$step_dir/work-clone" add random.bin
-git -C "$step_dir/work-clone" commit -qm large
-large_oid=$(git -C "$step_dir/work-clone" rev-parse HEAD)
-expect_failure git_net -C "$step_dir/work-clone" push origin HEAD:work
-test "$(git -C "$repo" rev-parse refs/heads/work)" = "$work_oid"
-stop_server
-start_server "$step_dir/bundled.json"
-git_net -C "$step_dir/work-clone" remote set-url origin "$url"
-set_git_key "$step_dir/work"
-git_net -C "$step_dir/work-clone" push origin HEAD:work >/dev/null
-test "$(git -C "$repo" rev-parse refs/heads/work)" = "$large_oid"
+refs_page=$(fixture '{"schema":"p.git-fixture/v1","kind":"refs","project":"app","limit":8}')
+test "$(jq '.result.refs|length' <<< "$refs_page")" -eq 8
 
 # A hidden ref points to a unique commit unreachable from advertised heads.
 tree=$(git -C "$repo" rev-parse "refs/heads/main^{tree}")

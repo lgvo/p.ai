@@ -170,9 +170,19 @@ not a second writer to an existing branch.
 
 ### Daemon authority
 
-Only the daemon may create, rename, guard, or delete P refs. It invokes real
-Git plumbing and server hooks; P does not implement the Git wire protocol or
-duplicate Git objects in SQLite.
+Only the daemon may create, rename, guard, or delete P refs. Core decides and
+guards; the source driver performs. Core's SSH server authenticates the key
+and hands the stream to the service that declared the command's first word:
+Git, whose words the driver declares. The driver's `ServeGit` parses the rest
+of the command and calls core's `open` once before any Git runs; `open` checks
+the key's principal for the project and takes the lease of Git authority. The
+driver runs real `upload-pack` or `receive-pack` with its pre-receive check,
+and a push's one head update waits for core's `Approve`, which rechecks the
+assigned branch and consumes the unborn `main` grant for a creation. The lease
+ends when the service can no longer write: when `ServeGit` returns from a
+served or refused service, or, after a lost call, once the driver settles the
+service as ended. P does not implement the Git wire protocol or duplicate Git
+objects in SQLite.
 
 ## Session creation and branch identity
 
@@ -600,7 +610,7 @@ interface is owned by
 |---|---|---|
 | Host control RPC | user-owned Unix socket | TUI, task commands and `p api` |
 | Per-session RPC | private mounted Unix socket | identity and status reports |
-| P Git SSH | host loopback plus explicit runtime path | fixed Git services |
+| P Git SSH | host loopback plus explicit runtime path | the Git service, by the commands the source driver declares |
 | Bifrost inference (post-MVP) | explicit runtime path when granted | model APIs under virtual key |
 | Bifrost administration (post-MVP) | authenticated with a host-only credential; session keys rejected | native Bifrost configuration |
 

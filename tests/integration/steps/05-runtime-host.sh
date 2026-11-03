@@ -124,14 +124,13 @@ activate_package() {
 }
 runtime() { timeout 190 runtime-fixture "$@"; }
 activate_package "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host.json" session.asset.install
-activate_package "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 inc image list --format json | jq -e --arg f "$fingerprint" 'any(.[]; .fingerprint==$f)' >/dev/null
 
 for key in server a b; do ssh-keygen -q -t ed25519 -N '' -f "$step_dir/$key"; done
 mkdir -m 0700 "$step_dir/git-state"
-git-fixture serve "$step_dir/git-state" "$step_dir/git.json" 127.0.0.1:0 "$step_dir/server" \
+git-fixture serve "$step_dir/git-state" 127.0.0.1:0 "$step_dir/server" \
   > "$step_dir/git-ready.json" 2> "$step_dir/git.err" &
 pids+=("$!")
 for ((attempt=0; attempt<100; attempt++)); do
@@ -159,15 +158,15 @@ for label in a b; do
   done
   test -S "$endpoint/session.sock" && test -S "$endpoint/git.sock"
   jq -n --arg session "$session" --arg project "host-$label" --arg image "$fingerprint" \
-    --arg endpoints "$endpoint" --arg host "$step_dir/host.json" --arg source "$step_dir/git.json" \
+    --arg endpoints "$endpoint" --arg host "$step_dir/host.json" \
     --arg key "$step_dir/$label" --arg server "$step_dir/server.pub" \
     '{instance_uuid:"11111111-1111-4111-8111-111111111111",session_uuid:$session,project:$project,
-      branch:"main",image:$image,endpoints:$endpoints,host_activation:$host,source_activation:$source,
+      branch:"main",image:$image,endpoints:$endpoints,host_activation:$host,
       git_key_file:$key,git_host_key_file:$server}' > "$step_dir/$label-session.json"
   stat -c 'HOST_ENDPOINT %n uid=%u gid=%g mode=%a type=%F' "$endpoint_prefix" \
     "$endpoint" "$endpoint/session.sock" "$endpoint/git.sock"
-  # The driver installs the selected host and Git assets and the session's
-  # guest files; Start returns once the session host is ready.
+  # The driver installs the selected host assets, its own Git SSH wrapper and
+  # the session's guest files; Start returns once the session host is ready.
   runtime create "$step_dir/$label-session.json" | jq -e '.state=="stopped" and .complete' >/dev/null
   runtime start "$step_dir/$label-session.json" | jq -e '.state=="running" and .host.ready' >/dev/null
   test "$(inc list "$name" --format json | jq -er --arg n "$name" '.[] | select(.name==$n) | .expanded_devices["p-endpoint"].source')" = "$endpoint"

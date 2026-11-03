@@ -137,7 +137,7 @@ func (f *assignmentFixture) head(branch string) sourcedriver.OID {
 	return tip
 }
 
-var assignmentSelection = control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+var assignmentSelection = control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
 
 // creation records creation req with captured as its captured source, as
 // its reservation does, and returns the operation as the worker finds it.
@@ -400,7 +400,6 @@ func TestNewBranchCreationBuildsItsImageOnItsFirstRun(t *testing.T) {
 	l.driver = noRuntimes{f.driver}
 	selection := imageTestSelection()
 	l.hostPlan = plugin.AssetPlan{PackageID: selection.HostID, PackageSHA256: selection.HostSHA256}
-	l.sourcePlan = plugin.AssetPlan{PackageID: selection.SourceID, PackageSHA256: selection.SourceSHA256}
 	l.cfg.ProjectPolicies = map[string]control.ProjectPolicy{"app": {Network: "none", FilesystemMounts: []control.FilesystemGrant{}, Command: []string{"/bin/sh"}}}
 	prefix, err := os.MkdirTemp("/tmp", "p-creation-")
 	if err != nil {

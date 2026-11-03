@@ -119,36 +119,6 @@ let
           -o "$out/filter.wasm" ./internal/plugin/testdata/wasi-hostile
         cp plugins/examples/filter-log/plugin.json "$out/plugin.json"
       '';
-  wasiGit =
-    pkgs.runCommand "p-wasi-source-git"
-      {
-        nativeBuildInputs = [ pkgs.go ];
-      }
-      ''
-        export GOCACHE="$TMPDIR/go-cache"
-        export GOMODCACHE="$TMPDIR/go-modules"
-        export GOPROXY=off GOTOOLCHAIN=local
-        mkdir -p "$out"
-        cd ${pPackage.src}
-        GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build \
-          -o "$out/git.wasm" ./plugins/bundled/source-git
-        cp plugins/bundled/source-git/{plugin.json,p-git-ssh} "$out/"
-      '';
-  wasiGitAlternate =
-    pkgs.runCommand "p-wasi-source-git-alternate"
-      {
-        nativeBuildInputs = [ pkgs.go ];
-      }
-      ''
-        export GOCACHE="$TMPDIR/go-cache"
-        export GOMODCACHE="$TMPDIR/go-modules"
-        export GOPROXY=off GOTOOLCHAIN=local
-        mkdir -p "$out"
-        cd ${pPackage.src}
-        GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build \
-          -o "$out/git.wasm" ./internal/plugin/testdata/git-alternate
-        cp internal/plugin/testdata/git-alternate/plugin.json "$out/"
-      '';
   image = nixpkgs.lib.nixosSystem {
     inherit system;
     modules = [ ./vm/image.nix ];
@@ -195,8 +165,6 @@ let
       export P_TEST_SOURCE=${pPackage.src}
       export P_TEST_WASI_FILTER=${wasiFilter}
       export P_TEST_WASI_HOSTILE=${wasiHostile}
-      export P_TEST_GIT_PLUGIN=${wasiGit}
-      export P_TEST_GIT_ALTERNATE=${wasiGitAlternate}
       export P_TEST_RUNTIME_IMAGE_FILE=${runtimeIdentity}
       export P_TEST_INCUS_WRAPPER=${publishCountIncusWrapper}/bin/p-incus-publish-count-wrapper
       export P_TEST_NIX_FIXTURE=${nixActivationFixture}
@@ -271,8 +239,6 @@ in
     builderFixture
     wasiFilter
     wasiHostile
-    wasiGit
-    wasiGitAlternate
     vm
     runner
     ;

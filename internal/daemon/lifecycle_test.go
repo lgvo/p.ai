@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
+	"github.com/lgvo/p.ai/internal/sshserver"
 )
 
 func TestRegisteredSessionKeyCannotRotateOnRetry(t *testing.T) {
@@ -33,7 +33,7 @@ func TestRegisteredSessionKeyCannotRotateOnRetry(t *testing.T) {
 	if err != nil || len(key) == 0 {
 		t.Fatal(err)
 	}
-	registered = gitservice.Fingerprint(pub)
+	registered = sshserver.Fingerprint(pub)
 	again, same, err := sessionKeyAt(ctx, id, state, principal)
 	if err != nil || string(again) != string(key) || string(same.Marshal()) != string(pub.Marshal()) {
 		t.Fatal("retry rotated registered identity", err)

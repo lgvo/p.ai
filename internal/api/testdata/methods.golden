@@ -23,8 +23,8 @@ control system.inspect
       known_hosts string
       client_public_key string
       client_key_path string
-      source_plugin_id string
-      source_sha256 string
+      driver_backend string
+      driver_version string
 control rpc.cancel
   request
     id raw
@@ -1102,8 +1102,6 @@ control session.create.replace (runtime)
         new_selection object
           host_id string
           host_sha256 string
-          source_id string
-          source_sha256 string
           agent_id string (optional)
           agent_sha256 string (optional)
         new_environment object (optional)

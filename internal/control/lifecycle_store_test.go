@@ -10,7 +10,7 @@ import (
 )
 
 func testSelection() CreationSelection {
-	return CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	return CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
 }
 
 func TestCreationSelectionBindsOptionalAgentPackage(t *testing.T) {
@@ -175,9 +175,9 @@ func TestProjectCreateBootstrapReceiveOnlyAfterWorkspaceReady(t *testing.T) {
 	if err = s.AdvanceOperation(ctx, op.ID, "running", "workspace-ready", true, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	ref, release, err := s.AcquireGitLease(ctx, fingerprint, "blank", "receive")
-	if err != nil || ref != "refs/heads/main" {
-		t.Fatalf("bootstrap receive unavailable: %q %v", ref, err)
+	branch, release, err := s.AcquireGitLease(ctx, fingerprint, "blank", "receive")
+	if err != nil || branch != "main" {
+		t.Fatalf("bootstrap receive unavailable: %q %v", branch, err)
 	}
 	release()
 	claimed, err := s.ConsumeGitUnbornGrant(ctx, fingerprint, "blank")

@@ -92,7 +92,7 @@ func TestGuestPlanConfiguresTheRuntimeKitForTheSession(t *testing.T) {
 			if err := json.Unmarshal(files["/etc/p/workspace.json"].data, &workspace); err != nil || workspace != tc.workspace {
 				t.Fatalf("workspace config %+v %v, want %+v", workspace, err, tc.workspace)
 			}
-			want := []string{"/etc/p/session.json", "/etc/p/workspace.json", "/etc/p/git/ssh_config", "/etc/p/git/known_hosts", "/etc/p/git/identity"}
+			want := []string{"/etc/p/session.json", "/etc/p/workspace.json", "/etc/p/git/ssh_config", "/etc/p/git/known_hosts", "/etc/p/git/identity", "/etc/p/assets/p-git-ssh"}
 			for _, a := range s.Assets {
 				path := "/etc/p/assets/" + a.Role
 				if f := files[path]; f.typ != "file" || f.uid != 0 || f.gid != 0 || uint32(f.mode) != a.Mode || !bytes.Equal(f.data, a.Data) {
@@ -137,6 +137,25 @@ func TestGuestPlanInstallsTheSessionsGitIdentity(t *testing.T) {
 	}
 	if _, err := guestPlanFor(testSessionSpec(t), &runtimedriver.Shell{Selection: runtimedriver.SelectionDevShell}, nil); err == nil {
 		t.Fatal("a devShell image without its activation material planned")
+	}
+}
+
+// Git in the guest reaches P's Git endpoint through the driver's own SSH
+// wrapper, root-owned and executable, which uses the session's SSH config;
+// no session asset supplies it.
+func TestGuestPlanInstallsTheDriversGitSSHWrapper(t *testing.T) {
+	plan, err := guestPlanFor(testSessionSpec(t), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(plan.files, func(f guestInstall) bool { return f.path == "/etc/p/assets/p-git-ssh" })
+	if i < 0 {
+		t.Fatal("no Git SSH wrapper installed")
+	}
+	wrapper := plan.files[i].file
+	if wrapper.typ != "file" || wrapper.uid != 0 || wrapper.gid != 0 || wrapper.mode != 0555 ||
+		!bytes.Equal(wrapper.data, []byte("#!/bin/sh\nexec /usr/bin/ssh -F /etc/p/git/ssh_config \"$@\"\n")) {
+		t.Fatalf("Git SSH wrapper %+v", wrapper)
 	}
 }
 
@@ -210,8 +229,11 @@ func TestGuestPlanChecksTheSessionAssetsByRole(t *testing.T) {
 		"missing role":   func(s *runtimedriver.Session) { s.Assets = s.Assets[1:] },
 		"duplicate role": func(s *runtimedriver.Session) { s.Assets = append(s.Assets, s.Assets[0]) },
 		"unknown role":   func(s *runtimedriver.Session) { s.Assets[0].Role = "p-shell" },
-		"changed mode":   func(s *runtimedriver.Session) { s.Assets[2].Mode = 0755 },
-		"changed bytes":  func(s *runtimedriver.Session) { s.Assets[0].Data = []byte("tampered") },
+		"Git SSH wrapper": func(s *runtimedriver.Session) {
+			s.Assets = append(s.Assets, testAsset("p-git-ssh", 0555, []byte("#!/bin/sh\nexec /bin/sh\n")))
+		},
+		"changed mode":  func(s *runtimedriver.Session) { s.Assets[2].Mode = 0755 },
+		"changed bytes": func(s *runtimedriver.Session) { s.Assets[0].Data = []byte("tampered") },
 		"empty": func(s *runtimedriver.Session) {
 			s.Assets[0].Data, s.Assets[0].SHA256 = nil, hex.EncodeToString(sha256.New().Sum(nil))
 		},

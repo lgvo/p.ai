@@ -14,7 +14,7 @@
   recovery branches.
 - Fix when: a worker's recovery logic changes.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 19 cases:
+- Added 2026-11-01, updated 2026-11-03, 20 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -102,6 +102,10 @@
     start the driver executable through `supervise.Start` instead of building the Incus
     driver, and changed the claim's recovery from a connection lost while a terminal opens;
     the store and Git fields are unchanged.
+  - 2026-11-03: "step 9 S5: P's SSH server in core" moved P's SSH endpoint to
+    internal/sshserver, whose Git service runs the driver's `ServeGit`; gitservice is gone,
+    and the Git service's lease, approval and settling of a lost service are unit-tested on
+    the in-memory source driver with a real store.
 
 ## Long worker functions
 
@@ -175,7 +179,7 @@
 - Fix: a test that breaks each JSON-keyed trigger when its field is renamed.
 - Fix when: any change to an evidence struct those triggers read.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 6 cases:
+- Added 2026-11-01, updated 2026-11-03, 7 cases:
   - 2026-11-01: "complete rework of P's implementation" kept migrations unchanged.
   - 2026-11-02: "collapse the 21 migrations into one schema file" replaced the migrations
     with schema.sql, which ends the half of this entry about seeing the effective schema;
@@ -199,6 +203,9 @@
     `api.RemovalRuntime`, the object at `$.review.runtime`, with `name` and `incarnation`,
     which meets "Fix when", without adding the test; the triggers read only that the object
     is there, so they still hold.
+  - 2026-11-03: "step 9 S5: the source-git package and its selection go" removed
+    `source_id` and `source_sha256` from `CreationEvidence`'s `selection`, which meets
+    "Fix when", without adding the test; no trigger reads `$.selection`.
 
 ## Incus exec and HTTP access is hand-built in many places
 
@@ -255,17 +262,16 @@
   `normalizedObject`; `ProjectPolicySnapshot` errors wrap `control.ErrInvalid`, which the
   server answers as `invalid`. The request bounds moved to `internal/api`, but control's
   `validProject`, `validUUID` and siblings only delegate to them, and the server's error
-  mapping (errors.go) and the `Refusal` type that adapters such as gitservice return live
-  in control.
+  mapping (errors.go) and the `Refusal` type live in control.
 - Risk: configuration and persistence change together; an adapter that needs one trusted
   setting depends on the whole store package.
 - Fix: give P's identifier formats, digest and sentinel errors a package below control, then
   move configuration and the server to their own packages on top of it.
 - Fix when: identifier validation is consolidated (the same formats are also copied in
-  gitservice, plugin and the Incus driver), or the next change to host configuration.
+  the bundled source driver, plugin and the Incus driver), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 12 cases:
+- Added 2026-11-01, updated 2026-11-03, 13 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -305,6 +311,10 @@
     driver now takes core's settings from the hello but still imports control for the
     public-egress checks, so `p-runtime-incus` links the store package and its SQLite
     driver.
+  - 2026-11-03: "step 9 S5: the source-git package and its selection go" removed
+    `activation_path` and `source_plugin_id` from `git`, a change to host configuration
+    that meets "Fix when"; the move was outside that removal. gitservice, which copied
+    the identifier formats and returned control's refusals, is gone.
 
 ## Operation status updates and kind lists are still written per site
 
@@ -416,3 +426,30 @@
 - Added 2026-11-03, 1 case:
   - 2026-11-03: "step 9 S2: Git's syntax leaves core" made the request types bound names
     only and the handlers ask `CheckNames`; the CLI keeps the bundled driver's rules.
+
+## Production code carries seams only tests use
+
+- Where: internal/sourcedriver/git seams.go (`Driver.seams`: `betweenReads`,
+  `effectLanded`, `exportStaged`, `repositoryMoved`); internal/control store.go
+  (`Store.originCallTimeout`)
+- Problem: The bundled source driver carries four hooks that only tests set, empty in
+  production, and the store carries the origin call bound as a field only so that control's
+  tests can lower it; both depart from the rule that production code carries nothing only
+  tests use.
+- Evidence: production never sets `seams` (its `take*` functions return nil there); the
+  driver's tests set them (heads_test.go, which also serves its conformance fixture,
+  commits_test.go, deletion_test.go) to act between two head reads, after a head effect
+  lands, once an export is staged and after a deletion moved a repository.
+  `openStore` sets `originCallTimeout` to 35 s, and origin_test.go and
+  publication_api_test.go set it to 50 ms.
+- Risk: test-only paths live in shipped code, where a later change can call them or let
+  them drift from what production does; a reader cannot tell the production behavior
+  from the code alone.
+- Fix: inject these through constructors or test-only build tags, or test the behavior
+  another way.
+- Fix when: the next change to those reads or to the origin bound.
+- Left by: the agent, by rule (a departure from the coding-practice rule "production code
+  carries nothing only tests use", taken in step 9 S1 and S3).
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "step 9: the source driver" (S1 added the driver's seams, S3 the store's
+    origin call bound) recorded the departure without removing it.

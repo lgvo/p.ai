@@ -51,14 +51,13 @@ sed '/^\[Install\]$/i ExecStartPost=/run/current-system/sw/bin/timeout 90 /run/c
   "$step_dir/host-package/p-interactive.service" > "$step_dir/service-gated"
 mv "$step_dir/service-gated" "$step_dir/host-package/p-interactive.service"
 activate_package "$step_dir/host-package" "$step_dir/host.json" session.asset.install
-activate_package "$P_TEST_GIT_PLUGIN" "$step_dir/source.json" git.project
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/server"
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/blank"
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/work"
 mkdir -m 0700 "$step_dir/git-state"
-git-fixture serve "$step_dir/git-state" "$step_dir/source.json" 127.0.0.1:0 "$step_dir/server" \
+git-fixture serve "$step_dir/git-state" 127.0.0.1:0 "$step_dir/server" \
   > "$step_dir/git-ready.json" 2> "$step_dir/git.err" &
 pids+=("$!")
 for ((attempt=0; attempt<100; attempt++)); do
@@ -94,9 +93,8 @@ session_file() {
     --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint_prefix/$name" \
     --arg branch "$branch" --arg commit "$commit" --arg key "$step_dir/$key" \
     --arg server "$step_dir/server.pub" --arg host "$step_dir/host.json" \
-    --arg source "$step_dir/source.json" \
     '{instance_uuid:$instance,session_uuid:$session,project:"assembly",branch:$branch,commit:$commit,
-      image:$image,endpoints:$endpoints,host_activation:$host,source_activation:$source,
+      image:$image,endpoints:$endpoints,host_activation:$host,
       git_key_file:$key,git_host_key_file:$server}' > "$target"
 }
 runtime() { timeout 190 runtime-fixture "$@"; }

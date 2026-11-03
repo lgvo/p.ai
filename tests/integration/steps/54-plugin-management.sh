@@ -32,7 +32,7 @@ cleanup() {
  # The outer runner removes this disposable fixture tree. Change only our
  # recorded exact directories after assertions; production packages stay 0500.
  local report digest path
- for report in git-stage host-stage event-stage update; do
+ for report in host-stage event-stage update; do
   if ! test -f "$step_dir/$report.json" || test -L "$step_dir/$report.json"; then
    continue
   fi
@@ -62,7 +62,6 @@ stage() {
  test "$(stat -c '%a' "$(jq -er '.package.path' "$output")")" = 500
  test "$(stat -c '%a' "$(jq -er '.package.path' "$output")/plugin.json")" = 400
 }
-stage "$P_TEST_GIT_PLUGIN" "$step_dir/git-stage.json"
 stage "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host-stage.json"
 cp -R "$P_TEST_SOURCE/plugins/bundled/file-log" "$step_dir/event-source"
 chmod -R u+w "$step_dir/event-source"
@@ -80,15 +79,14 @@ test "$new_digest" != "$event_digest"
 expect_failure 'opened package bytes differ' p plugins update "$step_dir/offline.json" "$event_digest" "$event_source" "$event_digest"
 # Explicit trusted selections use printed paths/digests/grants, adding only
 # capability config reviewed here by the host owner.
-jq '{schema:"p.activation/v1",plugins:[.selection|.config={}]}' "$step_dir/git-stage.json" > "$step_dir/git.json"
 jq '{schema:"p.activation/v1",plugins:[.selection|.config={}]}' "$step_dir/host-stage.json" > "$step_dir/runtime.json"
 log="$step_dir/events.ndjson"
 jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path:$log,max_bytes:1048576}]}' "$step_dir/event-stage.json" > "$step_dir/events.json"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(command -v incus)")
-jq -n --arg state "$state" --arg git "$step_dir/git.json" --arg runtime "$step_dir/runtime.json" \
+jq -n --arg state "$state" --arg runtime "$step_dir/runtime.json" \
  --arg events "$step_dir/events.json" --arg prefix "$endpoint_prefix" --argjson driver "$driver" --arg image "$image" \
- '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$git,source_plugin_id:"org.p.git",listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+ '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
  events:{activation_path:$events,plugin_id:"org.p.filelog"},
  runtime:{activation_path:$runtime,host_plugin_id:"org.p.tmux-host",driver:$driver,endpoint_prefix:$prefix,
  disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,

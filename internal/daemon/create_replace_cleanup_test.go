@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lgvo/p.ai/internal/gitservice"
+	"github.com/lgvo/p.ai/internal/sshserver"
 )
 
 const replacementOldUUID = "550e8400-e29b-41d4-a716-446655440000"
@@ -45,7 +45,7 @@ func replacementLocalFixture(t *testing.T) (string, *endpointManager, *api.Creat
 			t.Fatal(err)
 		}
 	}
-	c, err := reviewReplacementLocal(state, m, replacementOldUUID, replacementOtherUUID, strings.Repeat("a", 64), gitservice.Fingerprint(pub))
+	c, err := reviewReplacementLocal(state, m, replacementOldUUID, replacementOtherUUID, strings.Repeat("a", 64), sshserver.Fingerprint(pub))
 	if err != nil {
 		t.Fatal(err)
 	}

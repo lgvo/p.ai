@@ -312,24 +312,59 @@ func readPacket(in *bufio.Reader) ([]byte, error) {
 	return line, err
 }
 
-func TestTheProtectiveOptionsOverrideEarlierOnesAndTheRepositorysConfig(t *testing.T) {
+// A creation from an origin ref keeps the commit it fetched as an object
+// that no head holds until the creation's head is made, perhaps after a
+// restart. The Git service must not let Git's implicit maintenance prune
+// it, whatever the repository's config asks for.
+func TestAnOriginCommitNoHeadHoldsSurvivesTheGitServicesMaintenanceAndARestart(t *testing.T) {
 	f := newFixture(t).(*fixture)
-	if _, err := f.driver.CreateRepository(t.Context(), "app"); err != nil {
+	ctx := t.Context()
+	if _, err := f.driver.CreateRepository(ctx, "app"); err != nil {
 		t.Fatal(err)
 	}
-	repo, err := f.driver.repository("app")
-	if err != nil {
+	tip := f.Commit("app")
+	f.SetHead("app", "work", tip)
+	origin := f.NewOrigin()
+	captured := f.OriginCommit(origin)
+	f.SetOriginRef(origin, "refs/heads/main", captured)
+	if _, err := f.driver.FetchOrigin(ctx, "app", origin, sourcedriver.OriginRef{Ref: "refs/heads/main", OID: captured, Target: captured}); err != nil {
 		t.Fatal(err)
 	}
-	for key, want := range map[string]string{"gc.auto": "0", "maintenance.auto": "false", "receive.autogc": "false"} {
-		f.git("app", "", "config", key, "true")
-		for _, kind := range []sourcedriver.ServiceKind{sourcedriver.ServiceUpload, sourcedriver.ServiceReceive} {
-			args := append([]string{"-c", key + "=true"}, transportGitConfigArgs(kind, f.driver.hooksDirectory(), 1024)...)
-			got, err := f.driver.run(t.Context(), repo, nil, 4096, append(args, "--git-dir="+repo, "config", "--get", key)...)
-			if err != nil || got.Exit != 0 || strings.TrimSpace(got.Stdout) != want {
-				t.Errorf("the %s service reads %s as %q (%v), want %q", kind, key, got.Stdout, err, want)
-			}
+	if heads, err := f.driver.Branches(ctx, "app"); err != nil || len(heads) != 1 || heads[0] != (sourcedriver.Head{Name: "work", Tip: tip}) {
+		t.Fatalf("the fetch left the heads %v, %v", heads, err)
+	}
+	f.SetOriginRef(origin, "refs/heads/main", f.OriginCommit(origin, captured))
+	f.Restart()
+	// Config that makes every push keep its pack and then, once the
+	// repository holds two packs, collect it at once, pruning what no ref
+	// holds.
+	for key, value := range map[string]string{
+		"receive.unpackLimit": "1", "receive.autogc": "true", "maintenance.auto": "true", "maintenance.strategy": "gc",
+		"maintenance.autoDetach": "false", "gc.autoDetach": "false", "gc.auto": "1", "gc.autoPackLimit": "1", "gc.pruneExpire": "now",
+	} {
+		f.git("app", "", "config", key, value)
+	}
+	client := f.Client("app")
+	serve := func(command string, stream sourcedriver.Stream) error {
+		return f.driver.ServeGit(ctx, command, stream, openService("push"))
+	}
+	if _, err := client.Fetch(serve, "work"); err != nil {
+		t.Fatal(err)
+	}
+	for at, pushes := tip, 0; pushes < 2; pushes++ {
+		at = client.Commit(at)
+		if err := client.Push(serve, conformance.Update{Ref: "refs/heads/work", New: at}); err != nil {
+			t.Fatal(err)
 		}
+	}
+	if err := f.driver.CreateBranch(ctx, "app", "from-origin", captured, func() error { return nil }); err != nil {
+		t.Fatalf("the captured commit cannot become a head: %v", err)
+	}
+	if got, exists, err := f.driver.InspectBranch(ctx, "app", "from-origin"); err != nil || !exists || got != captured {
+		t.Fatalf("the new head is at %q, %t, %v", got, exists, err)
+	}
+	if commit, err := f.driver.InspectCommit(ctx, "app", captured); err != nil || !commit.Present || !commit.Reachable {
+		t.Fatalf("the captured commit is %+v, %v", commit, err)
 	}
 }
 

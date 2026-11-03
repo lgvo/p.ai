@@ -945,7 +945,7 @@ func testSessionSpec(t *testing.T) runtimedriver.Session {
 		GitHostKey: string(bytes.TrimSpace(ssh.MarshalAuthorizedKey(pub))),
 		Endpoints:  "/var/lib/p-vm/endpoints/" + testUUID,
 		Assets: []runtimedriver.Asset{testAsset("p-session.target", 0644, nil), testAsset("p-interactive.service", 0644, nil),
-			testAsset("p-attach", 0555, nil), testAsset("p-git-ssh", 0555, nil)},
+			testAsset("p-attach", 0555, nil)},
 	}
 }
 

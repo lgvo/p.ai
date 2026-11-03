@@ -9,7 +9,6 @@ mkdir -m 0700 "$step_dir"
 state="$step_dir/state"
 mkdir -m 0700 "$state"
 socket="$state/control.sock"
-activation="$step_dir/git.json"
 config="$step_dir/host.json"
 account_ssh=/home/pdev/.ssh
 fixture_ssh="$step_dir/ssh"
@@ -115,15 +114,9 @@ start_daemon() {
   return 1
 }
 
-digest=$(p plugins conformance "$P_TEST_GIT_PLUGIN" | jq -er '.sha256')
-plugin_id=$(jq -er '.id' "$P_TEST_GIT_PLUGIN/plugin.json")
-jq -n --arg path "$P_TEST_GIT_PLUGIN" --arg digest "$digest" --arg id "$plugin_id" \
-  '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$activation"
-p plugins activate "$activation" | jq -e '.[0].capability == "source-git"' >/dev/null
-
 # Create registered blank projects with the existing test-only seed fixture.
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/seed-host" >/dev/null
-git-fixture serve "$state" "$activation" 127.0.0.1:0 "$step_dir/seed-host" \
+git-fixture serve "$state" 127.0.0.1:0 "$step_dir/seed-host" \
   > "$step_dir/seed-ready.json" 2> "$step_dir/seed.err" &
 seed_pid=$!
 for ((attempt=0; attempt<100; attempt++)); do
@@ -197,8 +190,8 @@ write_ssh_config "$fixture_ssh/id_origin"
 full_url=pdev@origin-fixture:full.git
 empty_url=ssh://pdev@origin-fixture/empty.git
 bad_url=pdev@origin-unreachable:full.git
-jq -n --arg state "$state" --arg activation "$activation" --arg id "$plugin_id" \
-  '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$activation,source_plugin_id:$id,listen:"127.0.0.1:0",driver:{name:"git",config:{}}}}' > "$config"
+jq -n --arg state "$state" \
+  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}}}' > "$config"
 start_daemon
 # A Git-only daemon advertises only git, yet serves the operation methods that
 # origin changes are waited on with.

@@ -11,7 +11,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
+	"github.com/lgvo/p.ai/internal/sshserver"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -68,7 +68,7 @@ func readReplacementKey(path string, identity api.ReplacementLocalIdentity) (str
 	if err != nil || signer.PublicKey().Type() != ssh.KeyAlgoED25519 {
 		return "", control.ErrConflict
 	}
-	return gitservice.Fingerprint(signer.PublicKey()), nil
+	return sshserver.Fingerprint(signer.PublicKey()), nil
 }
 
 func reviewReplacementLocal(stateDir string, m *endpointManager, uuid, op, image, principal string) (*api.CreateReplacementCleanup, error) {

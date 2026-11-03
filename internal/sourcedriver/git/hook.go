@@ -24,8 +24,9 @@ import (
 
 // A receive service's pre-receive hook checks the push inside receive-pack,
 // where the pushed objects are still kept apart, and asks the driver to
-// approve it over a socket of that push only. The protocol and environment
-// are today's `p git-hook`'s, so either hook entry serves the driver.
+// approve it over a socket of that push only. The hook executes the program
+// running the driver as `<program> git-hook`, which calls
+// RunPreReceiveHook: `p git-hook` in the daemon.
 
 // hookRequest is the hook's one request.
 type hookRequest struct {

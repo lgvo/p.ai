@@ -77,18 +77,14 @@ readelf -l "$package_root/bin/p" > "$step_dir/p-program-headers"
 readelf -d "$package_root/bin/p" > "$step_dir/p-dynamic-section"
 ! grep -q INTERP "$step_dir/p-program-headers"
 ! grep -q NEEDED "$step_dir/p-dynamic-section"
-for module in source-git; do
-  test -s "$package_root/share/p/licenses/plugins/$module/LICENSE"
-  test -s "$package_root/share/p/licenses/plugins/$module/go/LICENSE"
-  test -s "$package_root/share/p/licenses/plugins/$module/modules/github.com/lgvo/p.ai/plugins/bundled/$module/LICENSE"
-done
 p plugins defaults "$log_file" > "$step_dir/activation.json"
 jq -e --arg catalog "$catalog" --arg log "$log_file" '
-  .schema=="p.activation/v1" and (.plugins|length)==4 and
+  .schema=="p.activation/v1" and
+  ([.plugins[].id]|sort)==["org.p.codex-adapter","org.p.filelog","org.p.tmux-host"] and
   all(.plugins[]; (.path|startswith($catalog+"/")) and (.sha256|length)==64 and (.grants|length)==1) and
   any(.plugins[]; .id=="org.p.filelog" and .config.path==$log)' "$step_dir/activation.json" >/dev/null
-p plugins list "$catalog" | jq -e '(.packages|length)==4 and (.rejected|length)==0' >/dev/null
-p plugins activate "$step_dir/activation.json" | jq -e 'length==4' >/dev/null
+p plugins list "$catalog" | jq -e '(.packages|length)==3 and (.rejected|length)==0' >/dev/null
+p plugins activate "$step_dir/activation.json" | jq -e 'length==3' >/dev/null
 p plugins plan-assets "$step_dir/activation.json" org.p.tmux-host > "$step_dir/host-plan.json"
 p plugins plan-assets "$step_dir/activation.json" org.p.codex-adapter > "$step_dir/agent-plan.json"
 test ! -e "$log_file"
@@ -97,7 +93,7 @@ driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(com
 jq -n --arg state "$state" --arg activation "$step_dir/activation.json" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$image" \
   '{schema:"p.host/v1",state_dir:$state,
-    git:{activation_path:$activation,source_plugin_id:"org.p.git",listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+    git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
     runtime:{activation_path:$activation,
       host_plugin_id:"org.p.tmux-host",agent_adapter:{activation_path:$activation,plugin_id:"org.p.codex-adapter"},
       driver:$driver,endpoint_prefix:$prefix,

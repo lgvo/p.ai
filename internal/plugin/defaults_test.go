@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// The WASI headers below are conformance fixtures, not executable integration
-// evidence. VM48 exercises the actual installed compiled packages.
+// defaultsCatalog copies the bundled packages' sources into a catalog. VM48
+// exercises the installed packages.
 func defaultsCatalog(t *testing.T) string {
 	t.Helper()
 	catalog := t.TempDir()
@@ -39,11 +39,6 @@ func defaultsCatalog(t *testing.T) string {
 				t.Fatal(err)
 			}
 		}
-		if manifest.Runtime.Kind == "wasi-command" {
-			if err := os.WriteFile(filepath.Join(dir, manifest.Runtime.Entry), []byte("\x00asm\x01\x00\x00\x00"), 0600); err != nil {
-				t.Fatal(err)
-			}
-		}
 	}
 	return catalog
 }
@@ -55,7 +50,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selection.Plugins) != 4 || selection.Schema != ActivationSchema {
+	if len(selection.Plugins) != 3 || selection.Schema != ActivationSchema {
 		t.Fatalf("incomplete composition: %+v", selection)
 	}
 	if _, err := os.Stat(log); !os.IsNotExist(err) {
@@ -70,7 +65,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	active, err := LoadActivation(activation)
-	if err != nil || len(active) != 4 {
+	if err != nil || len(active) != 3 {
 		t.Fatalf("defaults cannot activate: %v, %+v", err, active)
 	}
 	for _, selected := range active {
@@ -85,8 +80,8 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 		}
 	}
 	// Selection is immutable: later package edits require a new reviewed digest.
-	module := filepath.Join(catalog, "source-git", "git.wasm")
-	if err := os.WriteFile(module, []byte("\x00asm\x01\x00\x00\x00changed"), 0600); err != nil {
+	asset := filepath.Join(catalog, "tmux-host", "p-attach")
+	if err := os.WriteFile(asset, []byte("#!/bin/sh\nexit 1\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadActivation(activation); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
@@ -95,32 +90,32 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 }
 
 func TestDefaultActivationRejectsUnsafeOrSubstitutedPackages(t *testing.T) {
-	for _, name := range []string{"relative log", "unclean log", "wrong identity", "missing module", "symlink module"} {
+	for _, name := range []string{"relative log", "unclean log", "wrong identity", "missing asset", "symlink asset"} {
 		t.Run(name, func(t *testing.T) {
 			catalog := defaultsCatalog(t)
 			log := filepath.Join(t.TempDir(), "events.ndjson")
-			module := filepath.Join(catalog, "source-git", "git.wasm")
+			asset := filepath.Join(catalog, "tmux-host", "p-attach")
 			switch name {
 			case "relative log":
 				log = "events.ndjson"
 			case "unclean log":
 				log = "/tmp/example/../events.ndjson"
 			case "wrong identity":
-				path := filepath.Join(catalog, "source-git", "plugin.json")
+				path := filepath.Join(catalog, "tmux-host", "plugin.json")
 				data, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
 				}
-				data = []byte(strings.Replace(string(data), "org.p.git", "org.p.alternate.git", 1))
+				data = []byte(strings.Replace(string(data), "org.p.tmux-host", "org.p.alternate.tmux-host", 1))
 				if err := os.WriteFile(path, data, 0600); err != nil {
 					t.Fatal(err)
 				}
-			case "missing module", "symlink module":
-				if err := os.Remove(module); err != nil {
+			case "missing asset", "symlink asset":
+				if err := os.Remove(asset); err != nil {
 					t.Fatal(err)
 				}
-				if name == "symlink module" {
-					if err := os.Symlink("/etc/passwd", module); err != nil {
+				if name == "symlink asset" {
+					if err := os.Symlink("/etc/passwd", asset); err != nil {
 						t.Fatal(err)
 					}
 				}

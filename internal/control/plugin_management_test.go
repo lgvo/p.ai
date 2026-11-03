@@ -25,7 +25,7 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 	if e = s.CheckPluginRemovalDependencies(ctx, digest); e == nil {
 		t.Fatal("unknown session selection permitted removal")
 	}
-	for _, selection := range []CreationSelection{{}, {HostID: "host", HostSHA256: "invalid", SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}, func() CreationSelection { v := testSelection(); v.AgentID = "agent"; return v }()} {
+	for _, selection := range []CreationSelection{{}, {HostID: "host", HostSHA256: "invalid"}, func() CreationSelection { v := testSelection(); v.AgentID = "agent"; return v }()} {
 		raw, _ := json.Marshal(CreationEvidence{Selection: selection})
 		if e = s.AdvanceOperation(ctx, op.ID, "blocked", "reserved", false, raw, "internal", ""); e != nil {
 			t.Fatal(e)

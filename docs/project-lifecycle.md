@@ -64,7 +64,11 @@ attachments, origin operations, or policy reloads.
 
 ## Project creation
 
-Project creation has two explicit modes.
+Project creation has two explicit modes. Either way, the project's repository
+lives in the source driver's backend. P records that backend at its first
+start and refuses to start with a driver of another backend while any project
+exists, deleting ones included, since that driver would find none of the
+instance's repositories; another version of the same backend is accepted.
 
 ### From origin
 
@@ -98,7 +102,8 @@ bootstrap session UUID assigned to the unborn `main` branch.
 The bootstrap session uses the immutable P base image because there is no
 committed devShell source. Its empty workspace has P as its only Git remote.
 The session principal may create only its reserved `refs/heads/main`; the first
-commit and first push create that ref through ordinary `git-receive-pack`.
+commit and first push create that ref through ordinary `git-receive-pack`,
+which the source driver's Git service runs once core approves the creation.
 P creates no artificial root commit.
 
 This is the only MVP exception to creation from committed source. Until `main`

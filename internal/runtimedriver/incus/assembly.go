@@ -33,13 +33,12 @@ type fileAPI interface {
 	put(context.Context, string, guestFile) error
 }
 
-// guestAssets are where the guest's systemd host, its Git transport and the
-// agent adapter find each asset role, with the mode each file gets.
+// guestAssets are where the guest's systemd host and the agent adapter find
+// each asset role, with the mode each file gets.
 var guestAssets = map[string]guestInstall{
 	"p-session.target":      {"/etc/p/assets/p-session.target", guestFile{"file", 0, 0, 0644, nil}},
 	"p-interactive.service": {"/etc/p/assets/p-interactive.service", guestFile{"file", 0, 0, 0644, nil}},
 	"p-attach":              {"/etc/p/assets/p-attach", guestFile{"file", 0, 0, 0555, nil}},
-	"p-git-ssh":             {"/etc/p/assets/p-git-ssh", guestFile{"file", 0, 0, 0555, nil}},
 	"p-codex-adapter":       {"/etc/p/assets/p-codex-adapter", guestFile{"file", 0, 0, 0555, nil}},
 }
 
@@ -60,7 +59,8 @@ func assetInstall(role string, mode uint32, data []byte, digest string) (guestIn
 
 // sessionGuestFiles are a session's own guest files: what its runtime kit
 // reads about the session and its workspace, and its Git identity with the
-// pinned host key of P's Git endpoint.
+// pinned host key of P's Git endpoint and the SSH wrapper Git uses to reach
+// it, which the image links at /usr/libexec/p/git-ssh.
 func sessionGuestFiles(sessionConfig runtimekit.Config, workspaceConfig runtimekit.WorkspaceConfig, identity []byte, hostKey string) ([]guestInstall, error) {
 	config, err := json.Marshal(sessionConfig)
 	if err != nil {
@@ -105,6 +105,7 @@ func sessionGuestFiles(sessionConfig runtimekit.Config, workspaceConfig runtimek
 		{"/etc/p/git/ssh_config", guestFile{"file", 0, 0, 0644, sshConfig}},
 		{"/etc/p/git/known_hosts", guestFile{"file", 0, 0, 0644, []byte("p " + key + "\n")}},
 		{"/etc/p/git/identity", guestFile{"file", 1000, 1000, 0400, bytes.Clone(identity)}},
+		{"/etc/p/assets/p-git-ssh", guestFile{"file", 0, 0, 0555, []byte("#!/bin/sh\nexec /usr/bin/ssh -F /etc/p/git/ssh_config \"$@\"\n")}},
 	}, nil
 }
 

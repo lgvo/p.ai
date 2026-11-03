@@ -23,20 +23,19 @@ const usage = "usage: runtime-fixture inspect|create|start|stop|delete|hostlog <
 	"  hostlog prints the session host's last words, at the incarnation when one is given"
 
 // sessionFile is a scenario's session: the driver's session spec, with the
-// selected asset packages and the keys as files.
+// selected host package and the keys as files.
 type sessionFile struct {
-	Instance         string `json:"instance_uuid"` // the P instance whose labels the runtime carries
-	Session          string `json:"session_uuid"`
-	Project          string `json:"project"`
-	Branch           string `json:"branch"`
-	Commit           string `json:"commit,omitempty"` // empty for an unborn branch
-	Image            string `json:"image"`
-	Endpoints        string `json:"endpoints"`
-	HostActivation   string `json:"host_activation"`
-	SourceActivation string `json:"source_activation"`
-	GitKeyFile       string `json:"git_key_file"`
-	GitHostKeyFile   string `json:"git_host_key_file"`
-	Socket           string `json:"socket,omitempty"` // default: the confined user socket
+	Instance       string `json:"instance_uuid"` // the P instance whose labels the runtime carries
+	Session        string `json:"session_uuid"`
+	Project        string `json:"project"`
+	Branch         string `json:"branch"`
+	Commit         string `json:"commit,omitempty"` // empty for an unborn branch
+	Image          string `json:"image"`
+	Endpoints      string `json:"endpoints"`
+	HostActivation string `json:"host_activation"`
+	GitKeyFile     string `json:"git_key_file"`
+	GitHostKeyFile string `json:"git_host_key_file"`
+	Socket         string `json:"socket,omitempty"` // default: the confined user socket
 }
 
 // observation is a runtimedriver.Observation as JSON. Gated says, for a
@@ -161,7 +160,7 @@ func readSessionFile(path string) (sessionFile, error) {
 	if dec.Decode(new(any)) != io.EOF {
 		return in, errors.New("trailing session file input")
 	}
-	for _, required := range []string{in.Instance, in.Session, in.Project, in.Branch, in.Image, in.Endpoints, in.HostActivation, in.SourceActivation, in.GitKeyFile, in.GitHostKeyFile} {
+	for _, required := range []string{in.Instance, in.Session, in.Project, in.Branch, in.Image, in.Endpoints, in.HostActivation, in.GitKeyFile, in.GitHostKeyFile} {
 		if required == "" {
 			return in, errors.New("session file incomplete")
 		}
@@ -172,15 +171,11 @@ func readSessionFile(path string) (sessionFile, error) {
 	return in, nil
 }
 
-// spec is the driver's session spec: the assets of the selected host and
-// source packages by role, the session's Git key, and the pinned host key of
-// P's Git endpoint.
+// spec is the driver's session spec: the assets of the selected host package
+// by role, the session's Git key, and the pinned host key of P's Git
+// endpoint.
 func (in sessionFile) spec() (runtimedriver.Session, error) {
 	host, err := assets(in.HostActivation, "interactive-host")
-	if err != nil {
-		return runtimedriver.Session{}, err
-	}
-	source, err := assets(in.SourceActivation, "source-git")
 	if err != nil {
 		return runtimedriver.Session{}, err
 	}
@@ -200,7 +195,7 @@ func (in sessionFile) spec() (runtimedriver.Session, error) {
 		Workspace: runtimedriver.Workspace{Repository: in.Project, Branch: in.Branch, Commit: in.Commit},
 		GitKey:    key, GitHostKey: string(hostKey),
 		Endpoints: in.Endpoints,
-		Assets:    append(host, source...),
+		Assets:    host,
 	}, nil
 }
 

@@ -1,7 +1,8 @@
 // git-fixture is a VM-only driver for the Git substrate. It seeds synthetic
-// SQLite authority state, serves P's Git endpoint with the production Git
-// service, and invokes the bundled source driver for integration tests; it
-// does not create a session runtime or implement public lifecycle methods.
+// SQLite authority state, serves P's Git endpoint with P's SSH server and
+// the bundled source driver's Git service, and invokes the bundled source
+// driver for integration tests; it does not create a session runtime or
+// implement public lifecycle methods.
 package main
 
 import (
@@ -22,9 +23,9 @@ import (
 	"charm.land/ssh"
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
+	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
+	"github.com/lgvo/p.ai/internal/sshserver"
 	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -70,7 +71,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 1 && args[0] == "git-hook" {
-		return gitservice.RunPreReceiveHook(context.Background(), os.Stdin)
+		return sourcegit.RunPreReceiveHook(context.Background(), os.Stdin)
 	}
 	if len(args) == 3 && args[0] == "probe" {
 		return probe(args[1], args[2])
@@ -78,10 +79,10 @@ func run(args []string) error {
 	if len(args) == 3 && args[0] == "call" {
 		return call(args[1], args[2])
 	}
-	if len(args) == 5 && args[0] == "serve" {
-		return serve(args[1], args[2], args[3], args[4])
+	if len(args) == 4 && args[0] == "serve" {
+		return serve(args[1], args[2], args[3])
 	}
-	return errors.New("usage: git-fixture serve <private-state-dir> <trusted-activation> <loopback-host:port> <host-private-key> | call <fixture.sock> <json> | probe <loopback-host:port> <client-private-key> | git-hook")
+	return errors.New("usage: git-fixture serve <private-state-dir> <loopback-host:port> <host-private-key> | call <fixture.sock> <json> | probe <loopback-host:port> <client-private-key> | git-hook")
 }
 
 // probe checks SSH request replies directly. OpenSSH can continue after a
@@ -150,10 +151,10 @@ func readPublic(path string) (string, error) {
 	if err != nil || len(strings.TrimSpace(string(rest))) != 0 {
 		return "", errors.New("invalid public key")
 	}
-	return gitservice.Fingerprint(key), nil
+	return sshserver.Fingerprint(key), nil
 }
 
-func serve(stateDir, activationPath, address, hostKeyPath string) error {
+func serve(stateDir, address, hostKeyPath string) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
 		return errors.New("listener must use a numeric loopback address")
@@ -163,15 +164,9 @@ func serve(stateDir, activationPath, address, hostKeyPath string) error {
 		return err
 	}
 	defer store.Close()
-	active, err := plugin.LoadActivation(activationPath)
-	if err != nil {
-		return err
-	}
-	backend, err := gitservice.New(store, stateDir, active)
-	if err != nil {
-		return err
-	}
-	driver, err := bundledgit.Open(context.Background(), stateDir)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	driver, err := bundledgit.Open(ctx, stateDir)
 	if err != nil {
 		return err
 	}
@@ -187,6 +182,10 @@ func serve(stateDir, activationPath, address, hostKeyPath string) error {
 		return err
 	}
 	defer listener.Close()
+	server, err := sshserver.Prepare(listener, keyBytes, store, sshserver.Git(ctx, store, driver))
+	if err != nil {
+		return err
+	}
 	controlPath := filepath.Join(stateDir, "fixture.sock")
 	if info, err := os.Lstat(controlPath); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
@@ -207,25 +206,12 @@ func serve(stateDir, activationPath, address, hostKeyPath string) error {
 	if err := os.Chmod(controlPath, 0600); err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	gitDone := make(chan error, 1)
 	go func() {
-		gitDone <- backend.Serve(ctx, listener, keyBytes)
+		gitDone <- server.Serve(ctx)
 		_ = controlListener.Close()
 	}()
 	go func() { <-ctx.Done(); controlListener.Close() }()
-	// Serve validates the host key and installs the fixed hook before it can
-	// accept clients. Fail the fixture before reporting readiness if that setup
-	// exits immediately; the first control call below catches later exits.
-	select {
-	case err := <-gitDone:
-		if err == nil {
-			return errors.New("Git SSH service exited before ready")
-		}
-		return err
-	case <-time.After(50 * time.Millisecond):
-	}
 	fmt.Printf("{\"schema\":\"%s\",\"listen\":%q,\"control\":%q}\n", schema, listener.Addr().String(), controlPath)
 	for {
 		conn, err := controlListener.Accept()

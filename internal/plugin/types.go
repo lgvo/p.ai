@@ -52,3 +52,10 @@ type Active struct {
 	Grants  []string        `json:"grants"`
 	Config  json.RawMessage `json:"config,omitempty"`
 }
+
+// GitRef is one head of a project as project.branches pages it: its full ref
+// and its tip.
+type GitRef struct {
+	Ref string `json:"ref"`
+	OID string `json:"oid"`
+}

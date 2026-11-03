@@ -61,9 +61,9 @@ func TestGitPrincipalAssignmentGuardAndRestart(t *testing.T) {
 	} else {
 		release()
 	}
-	ref, release, err := store.AcquireGitLease(ctx, agent, "team/app", "receive")
-	if err != nil || ref != "refs/heads/work" {
-		t.Fatalf("assigned write: %q %v", ref, err)
+	branch, release, err := store.AcquireGitLease(ctx, agent, "team/app", "receive")
+	if err != nil || branch != "work" {
+		t.Fatalf("assigned write: %q %v", branch, err)
 	}
 	guardDone := make(chan error, 1)
 	go func() { guardDone <- store.SetGitRefGuard(ctx, "team/app", "work", op.ID, true) }()
@@ -203,12 +203,12 @@ func TestCancelledGuardAndRevocationDoNotOvertakeReceive(t *testing.T) {
 	}
 	release()
 	// Pending canceled writers may briefly drain, but neither may mutate.
-	ref, release, err := store.AcquireGitLease(ctx, key, "app", "receive")
-	if err != nil || ref != "refs/heads/work" {
+	branch, release, err := store.AcquireGitLease(ctx, key, "app", "receive")
+	if err != nil || branch != "work" {
 		if release != nil {
 			release()
 		}
-		t.Fatalf("canceled mutation changed authority: %q %v", ref, err)
+		t.Fatalf("canceled mutation changed authority: %q %v", branch, err)
 	}
 	release()
 }

@@ -113,9 +113,6 @@ func containsPluginDigest(v any, digest string) bool {
 // this host configuration, including the optional adapter role.
 func (c HostConfig) PluginActivationPaths() []string {
 	paths := []string{}
-	if c.Git != nil {
-		paths = append(paths, c.Git.ActivationPath)
-	}
 	if c.Events != nil {
 		paths = append(paths, c.Events.ActivationPath)
 	}

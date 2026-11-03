@@ -12,9 +12,9 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/memory"
+	"github.com/lgvo/p.ai/internal/sshserver"
 )
 
 // testGitCapability is P's Git service as session specs name it.
@@ -55,7 +55,7 @@ func newDriverFixture(t *testing.T, capabilities runtimedriver.Capabilities) *dr
 		t.Fatal(err)
 	}
 	world := memory.NewWorld(memory.Config{Capabilities: capabilities})
-	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
 	op, session, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: "driver", Project: "app", Branch: "work", Choice: "existing"},
 		string(world.BaseImage()), selection, func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil
@@ -468,7 +468,7 @@ func startFixture(t *testing.T) *driverFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = f.l.store.EnsureSessionGitPrincipal(f.ctx, gitservice.Fingerprint(pub), "app", f.session.UUID); err != nil {
+	if err = f.l.store.EnsureSessionGitPrincipal(f.ctx, sshserver.Fingerprint(pub), "app", f.session.UUID); err != nil {
 		t.Fatal(err)
 	}
 	return f

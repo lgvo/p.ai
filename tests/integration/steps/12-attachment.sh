@@ -17,23 +17,20 @@ activate() {
   jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
-activate "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
 activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/runtime.json" session.asset.install
-p plugins activate "$step_dir/git.json" | jq -e '.[0].capability=="source-git"' >/dev/null
 p plugins activate "$step_dir/runtime.json" | jq -e 'length==1' >/dev/null
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 host_id=$(jq -er '.plugins[0].id' "$step_dir/runtime.json")
-git_id=$(jq -er '.plugins[0].id' "$step_dir/git.json")
 incus_binary=$(command -v incus)
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_binary")
-jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
-  --arg git_id "$git_id" --arg runtime_activation "$step_dir/runtime.json" \
+jq -n --arg state "$state" \
+  --arg runtime_activation "$step_dir/runtime.json" \
   --arg host_id "$host_id" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" \
   --arg image "$fingerprint" \
   '{schema:"p.host/v1",state_dir:$state,
-   git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+   git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
    runtime:{activation_path:$runtime_activation,
     host_plugin_id:$host_id,driver:$driver,
     endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],

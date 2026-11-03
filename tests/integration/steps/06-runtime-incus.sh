@@ -26,7 +26,6 @@ activate_package() {
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
 activate_package "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host.json" session.asset.install
-activate_package "$P_TEST_GIT_PLUGIN" "$step_dir/source.json" git.project
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/server"
@@ -34,7 +33,7 @@ ssh-keygen -q -t ed25519 -N '' -f "$step_dir/session"
 # The session host clones its workspace from P's Git endpoint before it is
 # ready, so the endpoint reaches a real Git fixture.
 mkdir -m 0700 "$step_dir/git-state"
-git-fixture serve "$step_dir/git-state" "$step_dir/source.json" 127.0.0.1:0 "$step_dir/server" \
+git-fixture serve "$step_dir/git-state" 127.0.0.1:0 "$step_dir/server" \
   > "$step_dir/git-ready.json" 2> "$step_dir/git.err" &
 pids+=("$!")
 for ((attempt=0; attempt<100; attempt++)); do
@@ -60,10 +59,10 @@ for ((attempt=0; attempt<100; attempt++)); do
 done
 test -S "$endpoint/session.sock" && test -S "$endpoint/git.sock"
 jq -n --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint" \
-  --arg host "$step_dir/host.json" --arg source "$step_dir/source.json" \
+  --arg host "$step_dir/host.json" \
   --arg key "$step_dir/session" --arg server "$step_dir/server.pub" \
   '{instance_uuid:"11111111-1111-4111-8111-111111111111",session_uuid:$session,project:"incus",
-    branch:"main",image:$image,endpoints:$endpoints,host_activation:$host,source_activation:$source,
+    branch:"main",image:$image,endpoints:$endpoints,host_activation:$host,
     git_key_file:$key,git_host_key_file:$server}' > "$step_dir/session.json"
 runtime() { timeout 190 runtime-fixture "$@"; }
 invoke() { runtime "$1" "$step_dir/session.json" "${@:2}"; }

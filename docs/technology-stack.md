@@ -22,7 +22,7 @@ runner and typed session asset plans are now available.
 | State | SQLite through `database/sql` and `modernc.org/sqlite` | P identity, policy snapshots, operations, and indexes only |
 | API | NDJSON-RPC 2.0 over Unix streams | direct local Unix for MVP; SSH-to-Unix later |
 | TUI | Bubble Tea v2 and Lip Gloss v2 | Live API client; built-in subsequence filtering |
-| Git server | Wish SSH middleware around real `git-upload-pack` and `git-receive-pack` | P refs remain Git authority |
+| Git server | P's SSH server on Wish in core; Git, served by the source driver over real `git-upload-pack` and `git-receive-pack`, its one service | P refs remain Git authority |
 | Runtime | local Incus, one confined user project, reached through the supervised `p-runtime-incus` driver | Incus owns instances, images, storage, state, and operations |
 | Session type | unprivileged Incus system container | one instance per session UUID |
 | Environment | one private Incus image per source commit: its default Nix devShell and a clone of the commit | Nix owns realization; Incus owns image bytes; SQLite indexes images by commit |
@@ -343,10 +343,18 @@ operation state.
 
 ## Git server
 
-Wish supplies the SSH server and key authentication. A narrow session-channel
-handler rejects environment, PTY, subsystem, forwarding, and commands other
-than the two fixed Git services before invoking real Git on bare repositories.
-Server policy enforces:
+P's SSH server, `internal/sshserver`, is core's: Wish supplies the server and
+the host key, and core authenticates each key as an active Git principal with
+user `git`. A narrow session channel refuses environment, PTY, shell,
+subsystem and forwarding requests and accepts only an exec whose first word a
+service declared; it hands that authenticated stream to the service. Git is
+the one service: it is registered for the command words the source driver
+declares in `Describe()`, so core holds no Git command word, and the driver's
+`ServeGit` parses the rest of the command and runs real Git on P's
+repositories. `ServeGit` calls core once to open the service, which takes the
+lease of Git authority and sets the 1 GiB and 10-minute ceilings, and once to
+approve the one head update a push makes after its pre-receive check, which
+consumes the unborn `main` grant for a creation. Server policy enforces:
 
 - a session principal may update only its currently assigned branch;
 - all session updates are fast-forward only; MVP has no force-push exception;
@@ -354,8 +362,9 @@ Server policy enforces:
 - lifecycle ref guards temporarily deny affected refs; and
 - reserved future namespaces for attempts/checks remain denied in MVP.
 
-P does not implement the pack protocol. Read-side queries shell out to Git;
-`go-git` remains an optional fallback only if profiling justifies it.
+P does not implement the pack protocol. The bundled driver's read-side
+queries shell out to Git; `go-git` remains an optional fallback only if
+profiling justifies it.
 
 The source driver, `internal/sourcedriver`, is the seam that is to own P's
 repositories and every Git effect, as the runtime driver owns runtime
@@ -366,7 +375,9 @@ host (`Describe`, `Check`), Git's syntax for the names P stores
 the commit `Export` for image builds), the Git edits that rename a session's
 clone (`RenameWorkspace`), the Git service behind P's endpoint (`ServeGit`),
 the origin, and `Settle` for an effect whose outcome is unknown. Host
-configuration selects it by name in `git.driver` ([control API](control-api.md)).
+configuration selects it by name in `git.driver` ([control API](control-api.md));
+core records the driver's backend at its first start and refuses to start with
+another backend while any project exists.
 The only driver is `git`, `internal/sourcedriver/git`, which runs inside the
 daemon over the state directory; an in-memory driver
 (`internal/sourcedriver/memory`) and a conformance suite
@@ -379,16 +390,11 @@ observation, fetch, comparison and push go through it. Core holds each
 project's origin lock and decides what an origin operation may do; the driver
 performs it. Core makes each build's private staging directory, the driver
 exports the commit's Git bundle into it, and core removes it after the build.
-The Git service still goes through the code below until a following step
-moves it onto the driver.
-
-The bundled `source-git` WASI package uses the versioned broker operations in
-[plugin contract](plugin-contract.md#wasi-source-git-abi) to sequence native
-transport plans. The broker alone chooses repository paths and Git argv. A per-stream private hook
-callback checks the proposed ref update at Git's pre-receive boundary; the
-SQLite assignment/ref-guard lease remains held through `receive-pack`.
-The optional session helper is a digest-bound asset plan; live installation
-belongs to the runtime lifecycle.
+The Git service runs in the driver too: its pre-receive hook checks the
+proposed ref update over a per-push socket, and core's lease is held until
+`ServeGit` returns from a served or refused service, or, after a lost call,
+until `Settle` reports the service ended. The session's Git SSH wrapper, `/usr/libexec/p/git-ssh`, is a file of
+the runtime driver, which installs it in every session.
 
 ## API and TUI
 

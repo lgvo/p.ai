@@ -5,7 +5,7 @@ containment, trusted activation, grants, and the minimum conformance workflow.
 [Technology stack](technology-stack.md) owns implementation dependencies and
 capability behavior. [Product direction](PRODUCT.md) owns the reason for the
 extension model. This contract is **v1 foundation**: package/activation schemas,
-the file-log operation, bounded WASI event and source-Git commands, and
+the file-log operation, bounded WASI event commands, and
 trusted stopped-session asset assembly are implemented. Capability-specific
 support claims remain subject to their recorded validation gates. P rejects an unimplemented method rather
 than executing it with ambient authority.
@@ -55,23 +55,19 @@ The v1 capability and placement pairs are:
 | Capability | Placement | Declared broker grant |
 |---|---|---|
 | `interactive-host` | `internal-session` | `session.asset.install` |
-| `source-git` | `hybrid` | `git.project` |
 | `event-handler` | `host` | `event.file.append` |
 | `agent-adapter` | `internal-session` | `agent.status.report` |
 
 Each capability is selected at most once per instance for MVP. The grant
 names are typed broker verbs, not operating-system privileges or permission to
-run arbitrary host commands. The Git broker implementation must also enforce
-operation-specific scope and the [runtime grant ceiling](runtime-isolation.md)
-before its public methods become active. A package can request only grants
+run arbitrary host commands. A package can request only grants
 assigned to its capability. Trusted activation grants must match the package's
 requests exactly; adding a grant requires manifest and trusted-config review.
 
 `runtime.kind` is one of `declarative`, `wasi-command`, or `assets`. The only
 current declarative operation is `event.file.append`; it is available only to
 an `event-handler`. `wasi-command` names a WebAssembly entry in the package;
-its implemented methods are the event handler and source-Git methods
-described below. Asset packages
+its implemented method is the event handler's, described below. Asset packages
 carry fixed files for the session's systemd/attach or adapter contract.
 Core validates activation and typed asset plans before installing their fixed
 paths in an owned, stopped session through the confined runtime adapter.
@@ -136,101 +132,6 @@ a flat package, run `p plugins conformance`, select that digest in trusted
 activation, then use `p plugins run-event` for a structured diagnostic. The
 example appends only ready-condition events.
 
-### WASI source-Git ABI
-
-The `source-git` capability uses `hybrid` placement, the `git.project` grant,
-and a `wasi-command` entry. Trusted source-Git config is absent or `{}`; no
-other config fields are accepted. Its module implements source-operation sequencing
-through the closed broker method below: the transport plan of P's Git service.
-P's repositories, heads and commits, and the origin's observation, fetch and
-publication, are the source driver's, not this module's
-([technology stack](technology-stack.md)). Core owns authorization, operation
-intent, repository locations, credentials, and ref guards. The broker invokes
-real Git; Git owns objects, refs, ancestry, and its wire protocol. SSH
-authentication and stream handling remain trusted substrate. A declarative
-selector for a compiled-in backend does not implement this executable
-contract. These schemas govern linkage; live session installation remains
-later runtime work.
-
-The module uses the same WASI Preview 1 command and `p_broker_v1.call` import
-as an event handler. Core supplies one `p.command/v1` JSON object and newline.
-Every request has `schema`, `kind`, `scope`, and `project`. `scope` is an opaque
-invocation token of at most 64 bytes; `project` is the logical project path,
-never a filesystem path. The additional fields depend on `kind`:
-
-| Kind | Additional fields | Operation scope |
-|---|---|---|
-| `git.transport.plan` | `service`: `upload` or `receive`; `ceilings`: positive integer `max_input_bytes` and `max_duration_ms` | Prepare the already authenticated, authorized SSH Git stream |
-
-For example, a transport plan request is:
-
-```json
-{"schema":"p.command/v1","kind":"git.transport.plan","scope":"invocation-token","project":"example","service":"receive","ceilings":{"max_input_bytes":1073741824,"max_duration_ms":600000}}
-```
-
-The only successful command result is
-`{"schema":"p.command-result/v1","status":"ready"}`. A module can instead
-return `status` `refused` with an optional `message` of at most 256 bytes.
-Unknown fields fail. Neither result supplies authoritative refs, OIDs,
-authorization decisions, or native command arguments.
-
-Every broker request has `schema` `p.broker/v1`, `method`, and the current
-`scope` token, plus only the fields listed below. Scope is bound to the host
-invocation and cannot be transferred or reused. Each successful reply is
-exactly `schema` `p.broker/v1` and `status` `ok`:
-
-| Broker method | Allowed command kind | Request fields beyond the envelope |
-|---|---|---|
-| `git.transport.prepare` | `git.transport.plan` | Optional positive integer `max_input_bytes` and `max_duration_ms`, each at most its core ceiling |
-
-The module may sequence the operation but cannot substitute a repository,
-service, or native Git argument.
-
-Transport preparation reserves exactly one plan for the invocation's existing
-authorized stream. Omitted limits use core's ceilings; supplied limits can
-only tighten them. The module cannot change the requested service or the
-stream. Preparation does not start Git. Core starts the native service only
-after a valid `ready` result, fresh authorization, and acquisition of the
-assignment/ref-guard lease held through the Git process. Malformed output,
-refusal, failed execution, invalid scope, or failed postconditions discard
-the plan. Git pack bytes flow directly between SSH and Git outside the WASI
-JSON channel, with the accepted byte and lifetime limits enforced by core.
-
-Source commands retain the event runner's strict parser, API version, digest
-snapshot, absent ambient authority, 2-second invocation deadline, four-command
-concurrency ceiling, 16 MiB linear memory, and 4 KiB limits on each input,
-output, diagnostic, broker request, and broker reply. They permit at most 16
-broker calls. Wrong-scope or wrong-command methods fail the invocation; no
-failure falls back to a native plugin. The separate Git stream lifetime starts
-after command completion and is bounded by the prepared plan.
-
-The hybrid package can additionally declare exactly the session asset role
-`p-git-ssh`, installed as `/usr/libexec/p/git-ssh` with mode `0555` and the same
-1-byte-to-1-MiB asset bound as other session assets. No other source-Git asset
-role or destination is accepted. This entry runs inside the session boundary
-and invokes ordinary SSH using core-generated `/etc/p/git/ssh_config`; core
-owns the endpoint, host-key pin, session key reference, provisioning, and
-revocation. Package content contains no credential. Planning this role does
-not install it; session installation and workspace wiring require later
-runtime validation.
-
-Conformance must exercise a separately built module through ordinary digest
-selection without rebuilding core. A replacement that lowers the receive byte
-budget must reject a real over-budget push that the bundled module permits
-within core's ceiling. Changed package IDs or declarative
-limits alone are insufficient evidence. Invalid modules must never start a
-transport, and every existing principal, assignment, fast-forward, and ref-
-guard check still applies to both packages.
-
-Build the bundled entry with `GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build
--o git.wasm ./plugins/bundled/source-git`. Stage only `plugin.json`,
-`git.wasm`, and the declared `p-git-ssh` asset in the flat package directory.
-The independently compiled fixture at
-`internal/plugin/testdata/git-alternate` stages only its own `plugin.json`
-and `git.wasm`; its executable code selects a 64 KiB receive ceiling. Source
-files are authoring material, not declared package files. These fixtures
-require real broker and transport validation before support is claimed.
-
 ### Session asset plans
 
 An `interactive-host` asset package must contain exactly `p-session.target`,
@@ -258,15 +159,15 @@ safety.
 
 `p plugins list /absolute/catalog/path` scans immediate package directories
 and reports valid packages and rejections. It does not activate anything.
-The NixOS distribution ships all four first-party packages under
-`share/p/plugins` beside its `bin/p`: tmux host, Git source, file-log handler
-and Codex adapter. Incus support is P's first-party runtime driver, the
-`p-runtime-incus` executable beside `bin/p`, not a package: host
-configuration pins it by path and SHA-256 as `runtime.driver`
+The NixOS distribution ships the three first-party packages under
+`share/p/plugins` beside its `bin/p`: tmux host, file-log handler and Codex
+adapter, each with only its declared files. Incus support is P's first-party
+runtime driver, the `p-runtime-incus` executable beside `bin/p`, not a package:
+host configuration pins it by path and SHA-256 as `runtime.driver`
 ([control API](control-api.md)), and the daemon checks the file's ownership,
 mode and links before it starts it
-([runtime isolation](runtime-isolation.md#driver-executable)). Executable packages
-include their compiled WASI modules and only declared package files.
+([runtime isolation](runtime-isolation.md#driver-executable)). Git source is
+P's built-in source driver, not a package.
 `p version` reports the P and Go versions, the control protocol
 (`control_protocol`, such as `p.control/v2`), the plugin API version and the
 linked module versions as JSON.
