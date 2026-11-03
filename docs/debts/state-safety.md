@@ -114,3 +114,27 @@
 - Added 2026-11-02, 1 case:
   - 2026-11-02: "one image per source commit" gave each build attempt its own reference
     and review found the late-admission case.
+
+## A failed Git read of a creation's source answers that the source is missing
+
+- Where: internal/gitservice source.go `commitType`, `reachableFromHead` and
+  `gitBroker.ObserveSource`, through `sourceGit`; their callers `Backend.ObserveSource` and
+  bundle.go `ExportBundle`
+- Problem: Each treats any failure of its `git` command as a missing source and answers
+  `not_found`, reason `source`. A corrupt object, an unreadable repository or a Git that
+  cannot run therefore answers that the source does not exist, instead of `failed`, reason
+  `git`.
+- Evidence: `sourceGit` returns one error, "Git source operation failed", whatever Git's
+  exit status, so its callers cannot tell an absent object or ref from a failed read;
+  `sourceMissing` answers both.
+- Risk: a client told to stop because the source is gone when it should check P's Git
+  repository; a session creation or a commit image's export from a corrupt repository
+  blocks with reason `source` instead of `git`.
+- Fix: have the Git broker report Git's exit status, and answer `failed git` for a failure
+  other than an absent object or ref.
+- Fix when: the source driver's `InspectCommit` and `InspectBranch` take these reads over
+  (rework step 9, S2).
+- Left by: the maintainer's orchestrator, handed back from step 3's review.
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "errors that name the next step" typed these reads' refusal as `not_found
+    source`; its review found that a failed Git command answers the same.
