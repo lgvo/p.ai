@@ -218,9 +218,14 @@ in
           activation_path = "${pState}/activation.json";
           runtime_plugin_id = "org.p.runtime.incus";
           host_plugin_id = "org.p.tmux-host";
-          incus_binary = "${pkgs.incus}/bin/incus";
-          incus_user_socket = "/var/lib/incus/unix.socket.user";
-          incus_project = "user-1000";
+          driver = {
+            name = "incus";
+            config = {
+              binary = "${pkgs.incus}/bin/incus";
+              user_socket = "/var/lib/incus/unix.socket.user";
+              project = "user-1000";
+            };
+          };
           endpoint_prefix = "/var/lib/p-vm/endpoints/pdev";
           disk_source_ceilings = [ "/var/lib/p-vm/endpoints" "/var/lib/p-vm/grants" ];
           base_image_fingerprint = lib.removeSuffix "\n" (builtins.readFile

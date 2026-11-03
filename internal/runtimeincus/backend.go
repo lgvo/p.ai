@@ -20,6 +20,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 const maxOutput = 1 << 20
@@ -97,6 +98,11 @@ type Backend struct {
 	runLifecycle runner // start, stop and delete with Incus's error; nil uses run in tests
 	validate     func(Config) error
 	proofRun     runner
+	// The host checks of a session's endpoint directory and grant sources;
+	// nil checks the host filesystem. Tests replace them, since a trusted
+	// disk ceiling never covers a temporary directory.
+	checkEndpoint    func(string) error
+	checkGrantSource func(FilesystemGrant) error
 }
 
 // New refuses an administrative socket, a root process, an unbounded project,
@@ -178,7 +184,7 @@ func validateSession(c Config, s Session) error {
 			return errors.New("endpoint source exceeds configured ceiling")
 		}
 	}
-	if err := validateRuntimeGrants(c, s, false); err != nil {
+	if err := validateRuntimeGrants(c, s); err != nil {
 		return err
 	}
 	if err := validatePublicSession(c.PublicEgress, s); err != nil {
@@ -188,6 +194,9 @@ func validateSession(c Config, s Session) error {
 }
 
 func (b *Backend) validateEndpoint(source string) error {
+	if b.checkEndpoint != nil {
+		return b.checkEndpoint(source)
+	}
 	if filepath.Dir(source) != b.config.EndpointPrefix {
 		return errors.New("endpoint directory must be a direct child of the private prefix")
 	}
@@ -545,6 +554,11 @@ func validateDiskCeilings(c Config) error {
 				return errors.New("disk source ceiling includes sensitive host path")
 			}
 		}
+		// Every grant and endpoint lies under a ceiling, so keeping the
+		// configured socket out of all ceilings keeps it out of every session.
+		if c.UserSocket != "" && (pathWithinCeiling(path, c.UserSocket) || pathWithinCeiling(c.UserSocket, path)) {
+			return errors.New("disk source ceiling includes the Incus user socket")
+		}
 	}
 	if c.EndpointPrefix != "" {
 		covered := false
@@ -619,10 +633,10 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 	}
 	in := instances[0]
 	if in.Type != "container" || len(in.Profiles) != 1 || in.Profiles[0] != "default" || !validIdentity(in.Config, s) || !validIdentity(in.ExpandedConfig, s) {
-		return observation, errors.New("Incus instance identity mismatch")
+		return observation, mismatch("Incus instance identity mismatch")
 	}
 	if !safeSecurity(in.Config) || !safeSecurity(in.ExpandedConfig) || in.ExpandedConfig["security.idmap.isolated"] != "true" {
-		return observation, errors.New("Incus instance security changed")
+		return observation, mismatch("Incus instance security changed")
 	}
 	grants := make(map[string]FilesystemGrant, len(s.Grants))
 	for _, grant := range s.Grants {
@@ -640,7 +654,7 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 		}
 		grant, ok := grants[name]
 		if !ok || !validGrantDevice(d, grant) {
-			return observation, errors.New("Incus instance device changed")
+			return observation, mismatch("Incus instance device changed")
 		}
 		mounted[grant.Name] = true
 	}
@@ -649,15 +663,15 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 		return observation, errors.New("Incus endpoint or grant mount missing")
 	}
 	if in.ExpandedDevices == nil || len(in.ExpandedDevices) < 1 || len(in.ExpandedDevices) > 2+len(s.Grants)+1 {
-		return observation, errors.New("Incus effective devices missing or unsafe")
+		return observation, mismatch("Incus effective devices missing or unsafe")
 	}
 	root, ok := in.ExpandedDevices["root"]
 	if !ok || root["type"] != "disk" || root["path"] != "/" || root["pool"] == "" || root["source"] != "" {
-		return observation, errors.New("Incus effective root disk unsafe")
+		return observation, mismatch("Incus effective root disk unsafe")
 	}
 	for key := range root {
 		if key != "type" && key != "path" && key != "pool" {
-			return observation, errors.New("Incus effective root disk option unsafe")
+			return observation, mismatch("Incus effective root disk option unsafe")
 		}
 	}
 	for name, d := range in.ExpandedDevices {
@@ -672,7 +686,7 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 		}
 		grant, ok := grants[name]
 		if !ok || !validGrantDevice(d, grant) {
-			return observation, errors.New("Incus effective device changed")
+			return observation, mismatch("Incus effective device changed")
 		}
 	}
 	if s.EndpointSource != "" && !allowPendingMount {
@@ -788,18 +802,7 @@ func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error
 	if err := validateSession(b.config, s); err != nil {
 		return Observation{}, err
 	}
-	if err := validateRuntimeGrants(b.config, s, true); err != nil {
-		return Observation{}, err
-	}
-	if s.EndpointSource != "" {
-		if err := b.validateEndpoint(s.EndpointSource); err != nil {
-			return Observation{}, err
-		}
-	}
-	if err := b.CheckConfinement(ctx); err != nil {
-		return Observation{}, err
-	}
-	if err := b.checkPublicAddressCollision(ctx, b.name(s), s.PublicIPv4); err != nil {
+	if err := b.effectChecks(ctx, s); err != nil {
 		return Observation{}, err
 	}
 	before, err := b.inspect(ctx, s, true)
@@ -807,11 +810,52 @@ func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error
 		return before, err
 	}
 	if before.Exists {
-		if (s.EndpointSource == "" || before.EndpointMounted) && before.GrantsMounted && (s.PublicIPv4 == "" || before.PublicNIC) {
+		if devicesComplete(s, before) {
 			return before, nil
 		}
-		return b.ensureSessionDevices(ctx, s, before)
+		return b.ensureSessionDevices(ctx, s, before, "")
 	}
+	after, err := b.initSession(ctx, s, beforeInit)
+	if err != nil {
+		return after, err
+	}
+	return b.ensureSessionDevices(ctx, s, after, "")
+}
+
+// effectChecks are the checks before Incus creates or starts a session's
+// runtime: its endpoint directory and grant sources on the host, the
+// project's confinement and egress substrate, and its public address.
+func (b *Backend) effectChecks(ctx context.Context, s Session) error {
+	if s.EndpointSource != "" {
+		if err := b.validateEndpoint(s.EndpointSource); err != nil {
+			return err
+		}
+	}
+	if err := validateRuntimeGrants(b.config, s); err != nil {
+		return err
+	}
+	for _, grant := range s.Grants {
+		if err := b.inspectGrantSource(grant); err != nil {
+			return err
+		}
+	}
+	if err := b.CheckConfinement(ctx); err != nil {
+		return err
+	}
+	return b.checkPublicAddressCollision(ctx, b.name(s), s.PublicIPv4)
+}
+
+// devicesComplete says whether an observed runtime has every device its
+// session names.
+func devicesComplete(s Session, o Observation) bool {
+	return (s.EndpointSource == "" || o.EndpointMounted) && o.GrantsMounted && (s.PublicIPv4 == "" || o.PublicNIC)
+}
+
+// initSession initializes the runtime of a session whose address holds
+// nothing, after its effect checks: it proves the whole project free of the
+// session's identity, calls beforeInit, and sends one incus init. It returns
+// the first observation of the new runtime, which has no devices yet.
+func (b *Backend) initSession(ctx context.Context, s Session, beforeInit func() error) (Observation, error) {
 	// Incus's image digest must exist locally; no remote or alias is accepted.
 	raw, err := b.command(ctx, "image", "list", "--format", "json")
 	if err != nil {
@@ -853,10 +897,16 @@ func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error
 	if !after.Exists {
 		return after, errors.Join(mutationErr, errors.New("Incus create postcondition failed"))
 	}
-	return b.ensureSessionDevices(ctx, s, after)
+	return after, nil
 }
 
-func (b *Backend) ensureSessionDevices(ctx context.Context, s Session, before Observation) (Observation, error) {
+// ensureSessionDevices adds the devices the observed runtime lacks, one at a
+// time, observing it after each. With an incarnation, every device goes to
+// that runtime: an observation of another refuses before any further effect.
+func (b *Backend) ensureSessionDevices(ctx context.Context, s Session, before Observation, at runtimedriver.Incarnation) (Observation, error) {
+	if err := sameIncarnation(before, at); err != nil {
+		return before, err
+	}
 	if !strings.EqualFold(before.Status, "Stopped") && (!before.GrantsMounted || s.EndpointSource != "" && !before.EndpointMounted || s.PublicIPv4 != "" && !before.PublicNIC) {
 		return before, errors.New("session devices cannot be repaired on running instance")
 	}
@@ -865,6 +915,9 @@ func (b *Backend) ensureSessionDevices(ctx context.Context, s Session, before Ob
 		after, inspectErr := b.inspect(ctx, s, true)
 		if inspectErr != nil {
 			return Observation{}, errors.Join(mutationErr, inspectErr)
+		}
+		if err := stillBound(after, at); err != nil {
+			return after, errors.Join(mutationErr, err)
 		}
 		if !after.PublicNIC {
 			return after, errors.Join(mutationErr, errors.New("public NIC postcondition failed"))
@@ -875,7 +928,7 @@ func (b *Backend) ensureSessionDevices(ctx context.Context, s Session, before Ob
 		if before.MountedGrants[grant.Name] {
 			continue
 		}
-		if err := inspectRuntimeGrantSource(grant); err != nil {
+		if err := b.inspectGrantSource(grant); err != nil {
 			return before, err
 		}
 		argv := grantDeviceAddArgs(b.name(s), grant)
@@ -884,6 +937,9 @@ func (b *Backend) ensureSessionDevices(ctx context.Context, s Session, before Ob
 		if inspectErr != nil {
 			return Observation{}, errors.Join(mutationErr, inspectErr)
 		}
+		if err := stillBound(after, at); err != nil {
+			return after, errors.Join(mutationErr, err)
+		}
 		if !after.MountedGrants[grant.Name] {
 			return after, errors.Join(mutationErr, fmt.Errorf("grant device %s postcondition failed (exists=%t status=%s observed=%d/%d)",
 				grant.Name, after.Exists, after.Status, len(after.MountedGrants), len(s.Grants)))
@@ -891,12 +947,16 @@ func (b *Backend) ensureSessionDevices(ctx context.Context, s Session, before Ob
 		before = after
 	}
 	if s.EndpointSource != "" && !before.EndpointMounted {
-		return b.ensureEndpoint(ctx, s, before)
+		return b.ensureEndpoint(ctx, s, before, at)
 	}
-	return b.Inspect(ctx, s)
+	after, err := b.Inspect(ctx, s)
+	if err != nil {
+		return after, err
+	}
+	return after, sameIncarnation(after, at)
 }
 
-func (b *Backend) ensureEndpoint(ctx context.Context, s Session, before Observation) (Observation, error) {
+func (b *Backend) ensureEndpoint(ctx context.Context, s Session, before Observation, at runtimedriver.Incarnation) (Observation, error) {
 	if err := b.validateEndpoint(s.EndpointSource); err != nil {
 		return before, err
 	}
@@ -908,6 +968,9 @@ func (b *Backend) ensureEndpoint(ctx context.Context, s Session, before Observat
 	after, inspectErr := b.Inspect(ctx, s)
 	if inspectErr != nil {
 		return Observation{}, errors.Join(mutationErr, inspectErr)
+	}
+	if err := sameIncarnation(after, at); err != nil {
+		return after, errors.Join(mutationErr, err)
 	}
 	return after, nil
 }
@@ -923,24 +986,21 @@ func (b *Backend) Delete(ctx context.Context, s Session) (Observation, error) {
 }
 
 func (b *Backend) transition(ctx context.Context, s Session, action string) (Observation, error) {
-	if action == "start" && s.EndpointSource != "" {
-		if err := b.validateEndpoint(s.EndpointSource); err != nil {
-			return Observation{}, err
-		}
-	}
+	var err error
 	if action == "start" {
-		if err := validateRuntimeGrants(b.config, s, true); err != nil {
-			return Observation{}, err
-		}
+		err = b.effectChecks(ctx, s)
+	} else {
+		err = b.CheckConfinement(ctx)
 	}
-	if err := b.CheckConfinement(ctx); err != nil {
+	if err != nil {
 		return Observation{}, err
 	}
-	if action == "start" {
-		if err := b.checkPublicAddressCollision(ctx, b.name(s), s.PublicIPv4); err != nil {
-			return Observation{}, err
-		}
-	}
+	return b.checkedTransition(ctx, s, action)
+}
+
+// checkedTransition moves the runtime to the action's state once the
+// action's checks passed, and observes the result.
+func (b *Backend) checkedTransition(ctx context.Context, s Session, action string) (Observation, error) {
 	before, err := b.Inspect(ctx, s)
 	if err != nil {
 		return Observation{}, err

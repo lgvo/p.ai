@@ -68,9 +68,14 @@ cannot add networking, mounts, commands, or other grants.
     "activation_path": "/absolute/private/runtime-activation.json",
     "runtime_plugin_id": "org.p.runtime.incus",
     "host_plugin_id": "org.p.tmux-host",
-    "incus_binary": "/absolute/trusted/incus",
-    "incus_user_socket": "/absolute/confined/unix.socket.user",
-    "incus_project": "p-confined",
+    "driver": {
+      "name": "incus",
+      "config": {
+        "binary": "/absolute/trusted/incus",
+        "user_socket": "/absolute/confined/unix.socket.user",
+        "project": "p-confined"
+      }
+    },
     "endpoint_prefix": "/absolute/private/p-endpoints",
     "disk_source_ceilings": ["/absolute/private/p-endpoints", "/absolute/private/p-grants"],
     "base_image_fingerprint": "<64 lowercase hex digits>",
@@ -78,6 +83,18 @@ cannot add networking, mounts, commands, or other grants.
   }
 }
 ```
+
+`runtime.driver` names the runtime driver P uses and carries that driver's own
+settings in `config`, which only the driver reads. P has one driver, `incus`,
+built into P. Its `config` holds exactly three settings: `binary`, the absolute
+path of the trusted Incus client; `user_socket`, the absolute path of the
+confined `unix.socket.user` that P connects through; and `project`, the
+confined Incus project that holds P's containers. Loading the host
+configuration checks only that the driver is `incus` and that `config` is an
+object. At daemon start the Incus driver refuses unknown or missing settings
+and paths that are not absolute and clean, checks the client, socket and
+project on the live host, and refuses a disk-source ceiling at, above or below
+the user socket, so no grant can reach it.
 
 The exact-path form replaces the single `project_policy` field with, for
 example:

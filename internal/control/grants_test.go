@@ -26,7 +26,7 @@ func grantTestLstat(root string) func(string) (os.FileInfo, error) {
 
 func TestFilesystemGrantClosedShapeAndCeiling(t *testing.T) {
 	boundary := GrantBoundary{Ceilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"},
-		StateDir: "/var/lib/p-vm/state", EndpointPrefix: "/var/lib/p-vm/endpoints/pdev", IncusSocket: "/var/lib/incus/unix.socket.user"}
+		StateDir: "/var/lib/p-vm/state", EndpointPrefix: "/var/lib/p-vm/endpoints/pdev"}
 	good := ProjectPolicy{Network: "none", Command: []string{"/bin/sh"}, FilesystemMounts: []FilesystemGrant{
 		{Name: "data", Source: "/var/lib/p-vm/grants/pdev/ro", Type: "directory", Access: "read-only"},
 		{Name: "scratch", Source: "/var/lib/p-vm/grants/pdev/rw", Type: "directory", Access: "read-write", Executable: true},

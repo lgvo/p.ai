@@ -23,16 +23,22 @@ const ImageBuilderVersion = commitImageContract + "+" + commitImageCompression +
 	"nix-" + nixenv.NixVersion + "+" + builderNixRulesVersion + ";" +
 	nixenv.MaterialSchema + ";" + nixenv.AdapterVersion
 
-// Driver is the Incus image driver: it builds commit images in disposable
-// builders and reads and deletes the images this P instance labeled.
+// Driver is the Incus runtime driver: it builds commit images in disposable
+// builders, reads and deletes the images this P instance labeled, and runs
+// sessions' runtimes and their project services.
 type Driver struct{ backend *Backend }
-
-var _ runtimedriver.Images = (*Driver)(nil)
 
 func NewDriver(b *Backend) *Driver { return &Driver{backend: b} }
 
+// Describe offers the public-egress network, with its reserved guest
+// addresses, only when the backend has the public egress substrate.
 func (d *Driver) Describe() runtimedriver.Capabilities {
-	return runtimedriver.Capabilities{ImageBuilder: ImageBuilderVersion}
+	c := runtimedriver.Capabilities{ImageBuilder: ImageBuilderVersion, Networks: []string{runtimedriver.NetworkNone}, Services: true}
+	if d.backend.config.PublicEgress != nil {
+		c.Networks = append(c.Networks, runtimedriver.NetworkPublicEgress)
+		c.EgressAddresses = publicEgressAddresses
+	}
+	return c
 }
 
 // The builder's two Nix stages, resolve and realize, run at most two at a
@@ -575,11 +581,11 @@ func (b *Backend) observeBuild(ctx context.Context, build runtimedriver.Build) (
 // Delete removes a build's builder. It acts only on a builder carrying the
 // build's reference and this instance's label, and succeeds once no instance
 // carries the reference. It never deletes an image.
-func (d *Driver) Delete(ctx context.Context, ref runtimedriver.Ref, g runtimedriver.Gate) error {
+func (d *Driver) Delete(ctx context.Context, ref runtimedriver.Ref, at runtimedriver.Incarnation, g runtimedriver.Gate) error {
 	if ref.Kind != runtimedriver.KindBuild {
 		return runtimedriver.ErrUnsupported
 	}
-	if !uuidPattern.MatchString(ref.ID) || g == nil {
+	if !uuidPattern.MatchString(ref.ID) || at != "" || g == nil {
 		return errors.New("invalid build delete")
 	}
 	return d.backend.removeBuilderOf(ctx, ref.ID, g)

@@ -107,7 +107,7 @@ func (f *fakeImages) Settle(context.Context, runtimedriver.Effect) (runtimedrive
 	return f.settlement, nil
 }
 
-func (f *fakeImages) Delete(_ context.Context, r runtimedriver.Ref, g runtimedriver.Gate) error {
+func (f *fakeImages) Delete(_ context.Context, r runtimedriver.Ref, _ runtimedriver.Incarnation, g runtimedriver.Gate) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deletes = append(f.deletes, r.ID)

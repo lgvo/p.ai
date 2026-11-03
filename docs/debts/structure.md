@@ -191,6 +191,9 @@
     creation evidence from the store package as before; the server stayed in control.
   - 2026-11-03: "errors that name the next step" added control's `Refusal` and error
     mapping; runtimeincus and gitservice return refusals from control too.
+  - 2026-11-03: "the runtime driver interface" moved the Incus settings into
+    `runtime.driver`, whose `config` control passes through unread, a change to host
+    configuration that meets "Fix when"; the move was outside that step.
 
 ## Operation status updates and kind lists are still written per site
 

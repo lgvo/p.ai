@@ -290,11 +290,12 @@ terms rather than its backend's.
 
 - **Related:** [Runtime](#runtime), [commit image](#commit-image).
 - **Boundaries:** It is part of trusted P, not a plugin; repositories,
-  requests, and plugins never reach it. Only its image part exists so far:
-  building, listing, inspecting, and deleting commit images, settling a build
-  whose outcome is unknown, and removing a build's leftovers. Its Incus
-  implementation runs inside the P daemon; other runtime effects do not yet go
-  through the driver.
+  requests, and plugins never reach it. Its contract covers images and their
+  builds, session runtimes, the workspace of a stopped session, terminals and
+  project services; host configuration selects it as `runtime.driver`. Its
+  Incus implementation runs inside the P daemon. So far only images go
+  through it; other runtime effects still reach Incus directly or through the
+  WASI runtime plugin.
 - **Rules:** It acts only on objects carrying its P instance's labels, stores
   those labels immutably, and claims nothing after an error.
 

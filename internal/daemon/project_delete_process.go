@@ -58,7 +58,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		return
 	}
 	var ev control.ProjectDeleteEvidence
-	if json.Unmarshal(op.Evidence, &ev) != nil || ev.InstanceUUID != l.instanceID || ev.IncusProject != l.cfg.IncusProject || ev.BaseFingerprint != l.cfg.BaseImageFingerprint || l.store.ValidateProjectDeleteAuthority(l.ctx, op, ev) != nil {
+	if json.Unmarshal(op.Evidence, &ev) != nil || ev.InstanceUUID != l.instanceID || ev.IncusProject != l.incus.Project || ev.BaseFingerprint != l.cfg.BaseImageFingerprint || l.store.ValidateProjectDeleteAuthority(l.ctx, op, ev) != nil {
 		_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, true, op.Evidence, api.ReasonChanged, "confirmed project deletion exact identity/authority unavailable")
 		return
 	}

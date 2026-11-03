@@ -13,6 +13,7 @@ one isolated Incus instance.
 ## Contents
 
 - [The rule](#the-rule)
+- [Runtime driver](#runtime-driver)
 - [Incus boundary](#incus-boundary)
 - [Configuration authority](#configuration-authority)
 - [Session specification](#session-specification)
@@ -51,6 +52,31 @@ immutable session UUID. The instance receives only:
 Repository content may execute inside the builder and session, but it cannot
 select an Incus project, modify Incus policy, attach a device, add a host path,
 or gain the Incus socket.
+
+## Runtime driver
+
+Runtime effects belong to one runtime driver, `internal/runtimedriver`: trusted
+code that owns runtime machinery and that core addresses in P's terms
+([technology stack](technology-stack.md#runtime-and-incus-access)). Host
+configuration selects it as `runtime.driver`. The only driver is the Incus
+driver, `runtimeincus.Driver`, which this document describes. Every driver
+proves these properties; the conformance suite
+(`internal/runtimedriver/conformance`) checks those a stubbed backend can show.
+
+| Property | The contract | How the Incus driver meets it |
+|---|---|---|
+| Isolation | Code in a runtime, root included, cannot gain host privilege, reach the driver's authority, see another runtime, or use a device P did not grant; `Check` proves it from live state. | Unprivileged container, isolated ID map, no nesting or `raw.*`, confined project ([Incus boundary](#incus-boundary), [container baseline](#container-baseline)). |
+| Network `none` | Nothing is reachable except the two P endpoints. | No NIC. |
+| Network `public-egress` | Only the outbound destinations the [network contract](#network-contract) allows, proven from live state before each create and start by a check the daemon's account cannot forge. | Managed bridge, ACL and nftables read by two fixed sudo commands. |
+| Private state | The whole private root survives stop and start, belongs to this runtime only, and is gone after `Delete`. | The instance root ([storage](#storage)). |
+| Stopped storage | Workspace operations reach only the session's private root, never a grant, the endpoint directory, a host path or another runtime's storage. | A stopped instance's file API sees only its storage volume. |
+| Session host and services | The runtime runs the session's command in a persistent host that terminals attach to, reports it ready or not with a bounded diagnostic, and runs project services its own way. | systemd, tmux from the interactive-host package, user units ([runtime process model](#runtime-process-model), [project user services](#project-user-services)). |
+| Identity | Labels stored and returned exactly; an incarnation stable across stop and start, new on re-create or restore. | `user.p.*` keys, `volatile.uuid` and its generation, image properties. |
+| Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints` and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. | Disk devices within the project's ceilings ([filesystem grants](#filesystem-grants)). |
+
+So far core reaches only images through the driver. Session runtimes, project
+services, terminals and removal still reach Incus directly or through the WASI
+runtime plugin.
 
 ## Incus boundary
 
@@ -132,8 +158,9 @@ Trusted configuration may select:
 - named filesystem grants within the Incus project's pre-authorized path
   ceiling.
 
-Instance configuration selects the confined Incus socket/project and the P
-base-image identity. A project cannot select a different Incus authority.
+Instance configuration selects the runtime driver, whose Incus settings name
+the confined Incus socket and project, and the P base-image identity. A project
+cannot select a different Incus authority.
 
 Creation normalizes and validates policy, records the effective snapshot and
 digest, and uses it for the lifetime of the session. A later configuration

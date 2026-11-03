@@ -73,32 +73,39 @@ validated before support is claimed.
 
 ## Runtime and Incus access
 
-`RuntimeBackend` remains the reusable placement seam. Incus is its only MVP
-implementation. Product direction requires Incus support to become a bundled
-runtime plugin, but this interface has not yet been reviewed or approved as
-that public contract:
+The runtime driver, `internal/runtimedriver`, is the seam that owns runtime
+machinery: images and their builds, session runtimes, the session host,
+project services, terminals, devices, network, and the proofs of its own
+boundary. Core addresses it in P's terms, through the operations in
+[`internal/runtimedriver/driver.go`](../internal/runtimedriver/driver.go): the
+host (`Describe`, `Check`, `Inventory`), sessions (`Inspect`, `Create`,
+`Start`, `Stop`, `Delete`, `OpenTerminal`), the workspace of a stopped session
+(`ReadWorkspace`, `WriteWorkspace`, `RemoveWorkspace`), images (`BuildImage`,
+`Images`, `InspectImage`, `DeleteImage`), `Settle` for an effect whose outcome
+is unknown, and project services (`Services`, `ServiceAction`, `ServiceLogs`).
 
-```go
-type RuntimeBackend interface {
-    Create(context.Context, SessionSpec, runtimedriver.ImageRef) (RuntimeLocator, error)
-    List(context.Context) ([]RuntimeInfo, error)
-    Inspect(context.Context, RuntimeLocator) (RuntimeInfo, error)
-    Start(context.Context, RuntimeLocator) (RuntimeOperation, error)
-    WorkspaceStatus(context.Context, RuntimeLocator) (WorkspaceStatus, error)
-    WorkspaceOperation(context.Context, RuntimeLocator, WorkspaceOperation) error
-    Attach(context.Context, RuntimeLocator) (AttachSpec, error)
-    Stop(context.Context, RuntimeLocator) (RuntimeOperation, error)
-    Remove(context.Context, RuntimeLocator) (RuntimeOperation, error)
-    Events(context.Context) (<-chan RuntimeEvent, error)
-}
-```
+`Session` is core's spec of one runtime: the session reference and project,
+the image, the interactive command, the workspace's repository, branch and
+commit, the session's Git key and P's pinned Git host key, the endpoint
+directory, the grants, the network and the session assets core selected. The
+driver decides where each part goes in the guest; the only guest place core
+knows is the workspace of a stopped session. A mutation takes a gate, a core
+function the driver calls right before its first effect, where core records
+its durable intent. An effect whose outcome is unknown is settled from native
+state, never sent again. An incarnation names one runtime at a reference: the
+same across stop and start, new when the runtime is re-created.
 
-`SessionSpec` contains backend-neutral session and policy input. The separate
-image reference names the commit image, or the pinned base image, the runtime
-is created from; it is opaque to core, and only the Incus adapter interprets it
-as an image fingerprint.
+Host configuration selects the driver by name in `runtime.driver`, with that
+driver's own settings ([control API](control-api.md)). The only driver is
+`incus`, `runtimeincus.Driver`, which runs inside the daemon process. An
+in-memory driver (`internal/runtimedriver/memory`) and a conformance suite
+(`internal/runtimedriver/conformance`) show that a driver keeps the contract;
+the Incus driver runs the suite over a stubbed Incus. Core so far reaches
+images through the driver; session runtimes, project services, terminals and
+removal still go to Incus through the WASI runtime plugin and direct
+`runtimeincus` calls.
 
-The Incus adapter is always bound to the configured local confined user
+The Incus driver is always bound to the configured local confined user
 project. It uses deterministic instance names and P metadata, passes structured
 argv, and queries Incus operations/state after interrupted calls. It never:
 
@@ -114,26 +121,15 @@ only to the confined socket/project. Configuration that also grants that user
 unrestricted Incus administration is unsupported.
 
 There is no Podman/Docker engine adapter in MVP. Incus VMs are a later instance
-type behind the same backend when their contract is validated. A Kubernetes P
-deployment is a later separate backend/placement implementation; an SSH host is
-never a backend.
+type behind the same driver when their contract is validated. A Kubernetes P
+deployment is a later separate driver; an SSH host is never a runtime.
 
 ## Runtime driver images
 
 Images go through the image part of the runtime driver, `internal/runtimedriver`,
-which separates building and storing images from session lifecycle:
-
-```go
-type Images interface {
-    Describe() Capabilities // the driver's builder version
-    BuildImage(context.Context, Build, Gate) (Image, error)
-    Images(context.Context) ([]Image, error)
-    InspectImage(context.Context, ImageRef) (Image, bool, error)
-    DeleteImage(context.Context, Image, Gate) error
-    Settle(context.Context, Effect) (Settlement, error)
-    Delete(context.Context, Ref, Gate) error // a build's leftovers, never an image
-}
-```
+which separates building and storing images from session lifecycle: its
+`Images` part (`Describe`, `BuildImage`, `Images`, `InspectImage`,
+`DeleteImage`, `Settle`, and `Delete` for a build's leftovers, never an image).
 
 Core names P's concepts: a build gets a new build reference, the image's
 labels (project, source commit, base image, system, builder version, build)
@@ -150,8 +146,7 @@ publishes a verified private Incus system image. The image contains a coherent
 initial Nix store/database, activation material and the clone. Each session
 receives a private writable Incus root derived from it. No plugin takes part.
 The runtime driver is an internal Go interface for now, not a public plugin
-contract; its operations for sessions, workspaces, terminals and project
-services are not yet implemented.
+contract.
 
 An image only has to work with the runtime that built it. MVP does not specify
 Dockerfile, OCI, or a format-negotiation framework.
@@ -452,7 +447,7 @@ broker call; the interpreter does not own P identity or policy.
 - Git's object, ref, and wire model is P's interchange; there is no generic VCS
   provider.
 - Linux is the execution platform, not an OS provider.
-- Incus is the only MVP runtime implementation, despite the retained backend
+- Incus is the only MVP runtime implementation, despite the runtime driver
   interface.
 - Nix devShell-to-Incus-image is the only MVP image build, despite the
   runtime driver interface.

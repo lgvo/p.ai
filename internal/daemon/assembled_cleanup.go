@@ -26,7 +26,7 @@ func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session c
 	if err = l.runtime.CheckAssembledCreationSource(ctx, source, creator.ID, observed.IncusUUID, observed.Generation); err != nil {
 		return nil, err
 	}
-	return &api.RemovalRuntime{Condition: "present", IncusProject: l.cfg.IncusProject, InstanceName: "p-" + session.UUID,
+	return &api.RemovalRuntime{Condition: "present", IncusProject: l.incus.Project, InstanceName: "p-" + session.UUID,
 		IncusUUID: observed.IncusUUID, Generation: observed.Generation, ImageFingerprint: source.ImageFingerprint, OriginalStatus: "Stopped"}, nil
 }
 
@@ -42,7 +42,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		message := fmt.Sprintf("assembled failed creation cleanup blocked: %v", cause)
 		_ = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), message)
 	}
-	if r == nil || ev.InstanceUUID != l.instanceID || r.IncusProject != l.cfg.IncusProject || ev.Review.ImageFingerprint != l.cfg.BaseImageFingerprint || r.OriginalStatus != "Stopped" ||
+	if r == nil || ev.InstanceUUID != l.instanceID || r.IncusProject != l.incus.Project || ev.Review.ImageFingerprint != l.cfg.BaseImageFingerprint || r.OriginalStatus != "Stopped" ||
 		l.store.ValidateAssembledCleanupAuthority(ctx, op) != nil {
 		block(errors.New("durable creator/session/ref authority changed"))
 		return

@@ -130,14 +130,14 @@ func run(args []string) error {
 	}
 	d := runtimeincus.NewDriver(b)
 	ref := runtimedriver.Ref{Kind: runtimedriver.KindBuild, ID: uuid}
-	if err := d.Delete(ctx, ref, func() error { return errors.New("gate reached for a foreign builder") }); !errors.Is(err, runtimedriver.ErrMismatch) {
+	if err := d.Delete(ctx, ref, "", func() error { return errors.New("gate reached for a foreign builder") }); !errors.Is(err, runtimedriver.ErrMismatch) {
 		return fmt.Errorf("driver delete of a foreign builder: %w", err)
 	}
 	if _, err := incus(ctx, binary, state, "config", "set", name, "user.p.builder_request_uuid="+uuid); err != nil {
 		return err
 	}
 	gates := 0
-	if err := d.Delete(ctx, ref, func() error { gates++; return nil }); err != nil || gates != 1 {
+	if err := d.Delete(ctx, ref, "", func() error { gates++; return nil }); err != nil || gates != 1 {
 		return fmt.Errorf("delete verified builder: gates=%d %w", gates, err)
 	}
 	created = false

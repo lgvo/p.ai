@@ -13,12 +13,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/nixenv"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimekit"
 	"golang.org/x/crypto/ssh"
 )
@@ -56,17 +58,84 @@ func validateAssembly(a Assembly) ([]guestInstall, error) {
 	if a.AgentAssets != nil && (a.AgentAssets.Schema != "p.asset-plan/v1" || a.AgentAssets.Scope != "internal-session" || a.AgentAssets.PackageID == "" || a.AgentAssets.PackageID == a.HostAssets.PackageID || a.AgentAssets.PackageID == a.SourceAssets.PackageID || !fingerprintPattern.MatchString(a.AgentAssets.PackageSHA256)) {
 		return nil, errors.New("invalid selected agent asset plan")
 	}
-	config, err := json.Marshal(a.SessionConfig)
+	if a.AgentAssets == nil && a.SessionConfig.AgentSHA256 != "" || a.AgentAssets != nil && (len(a.AgentAssets.Files) != 1 || a.SessionConfig.AgentSHA256 != a.AgentAssets.Files[0].SHA256) {
+		return nil, errors.New("selected agent asset differs from runtime config")
+	}
+	session, err := sessionGuestFiles(a.SessionConfig, a.Workspace, a.Identity, a.ServerPublicKey)
+	if err != nil {
+		return nil, err
+	}
+	files := []guestInstall{}
+	appendPlan := func(plan plugin.AssetPlan, roles ...string) error {
+		if len(plan.Files) != len(roles) {
+			return errors.New("asset role set incomplete")
+		}
+		seen := map[string]bool{}
+		visible := map[string]string{"p-session.target": "/etc/systemd/system/p-session.target", "p-interactive.service": "/etc/systemd/system/p-interactive.service", "p-attach": "/usr/libexec/p/attach", "p-git-ssh": "/usr/libexec/p/git-ssh", "p-codex-adapter": "/usr/libexec/p/codex-adapter"}
+		for _, f := range plan.Files {
+			if !slices.Contains(roles, f.Role) || seen[f.Role] || f.Destination != visible[f.Role] {
+				return errors.New("asset role, destination, or mode changed")
+			}
+			install, err := assetInstall(f.Role, f.Mode, f.Data, f.SHA256)
+			if err != nil {
+				return err
+			}
+			files = append(files, install)
+			seen[f.Role] = true
+		}
+		return nil
+	}
+	if err := appendPlan(a.HostAssets, "p-session.target", "p-interactive.service", "p-attach"); err != nil {
+		return nil, err
+	}
+	if err := appendPlan(a.SourceAssets, "p-git-ssh"); err != nil {
+		return nil, err
+	}
+	if a.AgentAssets != nil {
+		if err := appendPlan(*a.AgentAssets, "p-codex-adapter"); err != nil {
+			return nil, err
+		}
+	}
+	return append(files, session...), nil
+}
+
+// guestAssets are where the guest's systemd host, its Git transport and the
+// agent adapter find each asset role, with the mode each file gets.
+var guestAssets = map[string]guestInstall{
+	"p-session.target":      {"/etc/p/assets/p-session.target", guestFile{"file", 0, 0, 0644, nil}},
+	"p-interactive.service": {"/etc/p/assets/p-interactive.service", guestFile{"file", 0, 0, 0644, nil}},
+	"p-attach":              {"/etc/p/assets/p-attach", guestFile{"file", 0, 0, 0555, nil}},
+	"p-git-ssh":             {"/etc/p/assets/p-git-ssh", guestFile{"file", 0, 0, 0555, nil}},
+	"p-codex-adapter":       {"/etc/p/assets/p-codex-adapter", guestFile{"file", 0, 0, 0555, nil}},
+}
+
+// assetInstall checks one selected asset file against its role's mode and
+// its own digest, and says where it goes.
+func assetInstall(role string, mode uint32, data []byte, digest string) (guestInstall, error) {
+	want, ok := guestAssets[role]
+	if !ok || mode != uint32(want.file.mode) || len(data) == 0 || len(data) > 1<<20 {
+		return guestInstall{}, errors.New("asset role, destination, or mode changed")
+	}
+	h := sha256.Sum256(data)
+	if hex.EncodeToString(h[:]) != digest {
+		return guestInstall{}, errors.New("asset bytes differ from selected digest")
+	}
+	want.file.data = bytes.Clone(data)
+	return want, nil
+}
+
+// sessionGuestFiles are a session's own guest files: what its runtime kit
+// reads about the session and its workspace, and its Git identity with the
+// pinned host key of P's Git endpoint.
+func sessionGuestFiles(sessionConfig runtimekit.Config, workspaceConfig runtimekit.WorkspaceConfig, identity []byte, hostKey string) ([]guestInstall, error) {
+	config, err := json.Marshal(sessionConfig)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := runtimekit.ParseConfig(config); err != nil {
 		return nil, err
 	}
-	if a.AgentAssets == nil && a.SessionConfig.AgentSHA256 != "" || a.AgentAssets != nil && (len(a.AgentAssets.Files) != 1 || a.SessionConfig.AgentSHA256 != a.AgentAssets.Files[0].SHA256) {
-		return nil, errors.New("selected agent asset differs from runtime config")
-	}
-	workspace, err := json.Marshal(a.Workspace)
+	workspace, err := json.Marshal(workspaceConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -75,75 +144,34 @@ func validateAssembly(a Assembly) ([]guestInstall, error) {
 	}
 	// The commit image's devShell selection decides activation; the runtime
 	// config carries the material digest the image must hold.
-	if a.Workspace.Schema == "p.workspace/v2" && (a.Workspace.EnvironmentSelection == "devshell") != (a.SessionConfig.Activation == "devshell") {
+	if workspaceConfig.Schema == "p.workspace/v2" && (workspaceConfig.EnvironmentSelection == "devshell") != (sessionConfig.Activation == "devshell") {
 		return nil, errors.New("workspace environment differs from runtime activation")
 	}
-	if len(a.Identity) == 0 || len(a.Identity) > 16<<10 || bytes.IndexByte(a.Identity, 0) >= 0 {
+	if len(identity) == 0 || len(identity) > 16<<10 || bytes.IndexByte(identity, 0) >= 0 {
 		return nil, errors.New("invalid session identity")
 	}
-	block, rest := pem.Decode(a.Identity)
+	block, rest := pem.Decode(identity)
 	if block == nil || (block.Type != "PRIVATE KEY" && block.Type != "OPENSSH PRIVATE KEY") || len(bytes.TrimSpace(rest)) != 0 {
 		return nil, errors.New("invalid session private key PEM")
 	}
-	signer, err := ssh.ParsePrivateKey(a.Identity)
+	signer, err := ssh.ParsePrivateKey(identity)
 	if err != nil || signer.PublicKey().Type() != "ssh-ed25519" {
 		return nil, errors.New("unsupported session private key")
 	}
-	key := strings.TrimSpace(a.ServerPublicKey)
+	key := strings.TrimSpace(hostKey)
 	pub, _, options, restKey, err := ssh.ParseAuthorizedKey([]byte(key))
 	if err != nil || pub == nil || len(options) != 0 || len(bytes.TrimSpace(restKey)) != 0 || pub.Type() != "ssh-ed25519" || len(key) > 4096 {
 		return nil, errors.New("invalid pinned Git host key")
 	}
 	key = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub)))
 	sshConfig := []byte("Host p\n  HostName p\n  User git\n  HostKeyAlias p\n  IdentityFile /etc/p/git/identity\n  IdentitiesOnly yes\n  IdentityAgent none\n  UserKnownHostsFile /etc/p/git/known_hosts\n  GlobalKnownHostsFile /dev/null\n  StrictHostKeyChecking yes\n  BatchMode yes\n  ConnectTimeout 5\n  ProxyCommand /usr/libexec/p/runtime-kit git-stream\n")
-	files := []guestInstall{}
-	appendPlan := func(plan plugin.AssetPlan, expected map[string]guestInstall) error {
-		if len(plan.Files) != len(expected) {
-			return errors.New("asset role set incomplete")
-		}
-		seen := map[string]bool{}
-		visible := map[string]string{"p-session.target": "/etc/systemd/system/p-session.target", "p-interactive.service": "/etc/systemd/system/p-interactive.service", "p-attach": "/usr/libexec/p/attach", "p-git-ssh": "/usr/libexec/p/git-ssh", "p-codex-adapter": "/usr/libexec/p/codex-adapter"}
-		for _, f := range plan.Files {
-			want, ok := expected[f.Role]
-			if !ok || seen[f.Role] || f.Destination != visible[f.Role] || f.Mode != uint32(want.file.mode) || len(f.Data) == 0 || len(f.Data) > 1<<20 {
-				return errors.New("asset role, destination, or mode changed")
-			}
-			h := sha256.Sum256(f.Data)
-			if hex.EncodeToString(h[:]) != f.SHA256 {
-				return errors.New("asset bytes differ from selected digest")
-			}
-			want.file.data = bytes.Clone(f.Data)
-			files = append(files, want)
-			seen[f.Role] = true
-		}
-		return nil
-	}
-	host := map[string]guestInstall{
-		"p-session.target":      {"/etc/p/assets/p-session.target", guestFile{"file", 0, 0, 0644, nil}},
-		"p-interactive.service": {"/etc/p/assets/p-interactive.service", guestFile{"file", 0, 0, 0644, nil}},
-		"p-attach":              {"/etc/p/assets/p-attach", guestFile{"file", 0, 0, 0555, nil}},
-	}
-	source := map[string]guestInstall{"p-git-ssh": {"/etc/p/assets/p-git-ssh", guestFile{"file", 0, 0, 0555, nil}}}
-	if err := appendPlan(a.HostAssets, host); err != nil {
-		return nil, err
-	}
-	if err := appendPlan(a.SourceAssets, source); err != nil {
-		return nil, err
-	}
-	if a.AgentAssets != nil {
-		agent := map[string]guestInstall{"p-codex-adapter": {"/etc/p/assets/p-codex-adapter", guestFile{"file", 0, 0, 0555, nil}}}
-		if err := appendPlan(*a.AgentAssets, agent); err != nil {
-			return nil, err
-		}
-	}
-	files = append(files,
-		guestInstall{"/etc/p/session.json", guestFile{"file", 0, 0, 0644, config}},
-		guestInstall{"/etc/p/workspace.json", guestFile{"file", 0, 0, 0644, workspace}},
-		guestInstall{"/etc/p/git/ssh_config", guestFile{"file", 0, 0, 0644, sshConfig}},
-		guestInstall{"/etc/p/git/known_hosts", guestFile{"file", 0, 0, 0644, []byte("p " + key + "\n")}},
-		guestInstall{"/etc/p/git/identity", guestFile{"file", 1000, 1000, 0400, bytes.Clone(a.Identity)}},
-	)
-	return files, nil
+	return []guestInstall{
+		{"/etc/p/session.json", guestFile{"file", 0, 0, 0644, config}},
+		{"/etc/p/workspace.json", guestFile{"file", 0, 0, 0644, workspace}},
+		{"/etc/p/git/ssh_config", guestFile{"file", 0, 0, 0644, sshConfig}},
+		{"/etc/p/git/known_hosts", guestFile{"file", 0, 0, 0644, []byte("p " + key + "\n")}},
+		{"/etc/p/git/identity", guestFile{"file", 1000, 1000, 0400, bytes.Clone(identity)}},
+	}, nil
 }
 
 type guestInstall struct {
@@ -162,6 +190,25 @@ func (b *Backend) Assemble(ctx context.Context, s Session, a Assembly) (Observat
 	if s.ProjectPath != a.Workspace.Repository || s.AssignedBranch != a.Workspace.Branch || s.InitialOID != a.Workspace.InitialOID {
 		return Observation{}, errors.New("assembly workspace differs from bound session intent")
 	}
+	plan := guestPlan{files: files}
+	if a.SessionConfig.Activation == "devshell" {
+		plan.material = a.SessionConfig.MaterialSHA256
+	}
+	return b.installGuestPlan(ctx, s, plan, "")
+}
+
+// guestPlan is what a session's stopped runtime gets before its first
+// start: its guest files, and the digest of the devShell activation material
+// its image must already hold, empty for the base activation.
+type guestPlan struct {
+	files    []guestInstall
+	material string
+}
+
+// installGuestPlan writes plan into the session's stopped runtime at
+// incarnation at, or at any incarnation when at is empty, checking the
+// runtime again around every write.
+func (b *Backend) installGuestPlan(ctx context.Context, s Session, plan guestPlan, at runtimedriver.Incarnation) (Observation, error) {
 	if err := b.CheckConfinement(ctx); err != nil {
 		return Observation{}, err
 	}
@@ -172,6 +219,9 @@ func (b *Backend) Assemble(ctx context.Context, s Session, a Assembly) (Observat
 	if !o.Exists || o.Status != "Stopped" || !o.EndpointMounted {
 		return o, errors.New("assembly requires owned stopped instance with endpoints")
 	}
+	if at != "" && incarnationOf(o) != at {
+		return o, mismatch("the runtime is not the incarnation being assembled")
+	}
 	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(s)}
 	check := func() (Observation, error) {
 		if err := b.CheckConfinement(ctx); err != nil {
@@ -181,7 +231,7 @@ func (b *Backend) Assemble(ctx context.Context, s Session, a Assembly) (Observat
 		if err != nil {
 			return got, err
 		}
-		if !got.Exists || got.Status != "Stopped" || !got.EndpointMounted {
+		if !got.Exists || got.Status != "Stopped" || !got.EndpointMounted || at != "" && incarnationOf(got) != at {
 			return got, errors.New("instance changed during assembly")
 		}
 		return got, nil
@@ -189,8 +239,8 @@ func (b *Backend) Assemble(ctx context.Context, s Session, a Assembly) (Observat
 	if _, err := check(); err != nil {
 		return o, err
 	}
-	if a.SessionConfig.Activation == "devshell" {
-		if err := verifyStoppedDevShellImage(ctx, api, a.SessionConfig.MaterialSHA256); err != nil {
+	if plan.material != "" {
+		if err := verifyStoppedDevShellImage(ctx, api, plan.material); err != nil {
 			return o, fmt.Errorf("private environment image material: %w", err)
 		}
 	}
@@ -214,7 +264,7 @@ func (b *Backend) Assemble(ctx context.Context, s Session, a Assembly) (Observat
 	// NixOS owns the visible links. Their presence and exact destination are
 	// checked by the fixed image and runtime validation; assembly only writes
 	// the mutable /etc/p/assets targets.
-	for _, f := range files {
+	for _, f := range plan.files {
 		if _, err := check(); err != nil {
 			return o, err
 		}

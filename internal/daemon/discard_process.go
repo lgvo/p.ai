@@ -129,7 +129,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		return
 	}
 	if (ev.Action != "discard" && ev.Action != "delete") || op.Kind != "session."+ev.Action || ev.Project != op.Project || ev.InstanceUUID != l.instanceID || ev.BaseFingerprint != l.cfg.BaseImageFingerprint ||
-		ev.IncusProject != l.cfg.IncusProject || ev.InstanceName != "p-"+op.SessionUUID || ev.Branch == "" {
+		ev.IncusProject != l.incus.Project || ev.InstanceName != "p-"+op.SessionUUID || ev.Branch == "" {
 		l.blockDiscard(op, errors.New("discard durable identity unavailable"))
 		return
 	}

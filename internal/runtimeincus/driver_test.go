@@ -462,31 +462,31 @@ func TestDeleteRemovesOnlyThisInstancesBuilder(t *testing.T) {
 	r := testBuilder()
 	ctx := context.Background()
 	ref := runtimedriver.Ref{Kind: runtimedriver.KindBuild, ID: r.RequestUUID}
-	if err := NewDriver(builderBackend(&fakeBuilderIncus{request: r})).Delete(ctx, runtimedriver.Ref{Kind: "session", ID: r.RequestUUID}, func() error { return nil }); !errors.Is(err, runtimedriver.ErrUnsupported) {
+	if err := NewDriver(builderBackend(&fakeBuilderIncus{request: r})).Delete(ctx, runtimedriver.Ref{Kind: "session", ID: r.RequestUUID}, "", func() error { return nil }); !errors.Is(err, runtimedriver.ErrUnsupported) {
 		t.Fatalf("session delete: %v", err)
 	}
 	gates := 0
 	gate := func() error { gates++; return nil }
 	f := &fakeBuilderIncus{request: r}
-	if err := NewDriver(builderBackend(f)).Delete(ctx, ref, gate); err != nil || gates != 0 || len(f.mutations) != 0 {
+	if err := NewDriver(builderBackend(f)).Delete(ctx, ref, "", gate); err != nil || gates != 0 || len(f.mutations) != 0 {
 		t.Fatalf("absent builder: gates=%d %v %v", gates, f.mutations, err)
 	}
 	for name, f := range map[string]*fakeBuilderIncus{
 		"another build's builder": {request: r, exists: true, status: "Running", foreign: true},
 		"another instance's":      {request: r, exists: true, status: "Stopped", instance: "22222222-2222-4222-8222-222222222222"},
 	} {
-		if err := NewDriver(builderBackend(f)).Delete(ctx, ref, gate); !errors.Is(err, runtimedriver.ErrMismatch) || gates != 0 || len(f.mutations) != 0 {
+		if err := NewDriver(builderBackend(f)).Delete(ctx, ref, "", gate); !errors.Is(err, runtimedriver.ErrMismatch) || gates != 0 || len(f.mutations) != 0 {
 			t.Fatalf("%s: gates=%d %v %v", name, gates, f.mutations, err)
 		}
 	}
 	f = &fakeBuilderIncus{request: r, exists: true, status: "Running"}
 	refused := errors.New("intent not recorded")
-	if err := NewDriver(builderBackend(f)).Delete(ctx, ref, func() error { return refused }); err != refused || len(f.mutations) != 0 {
+	if err := NewDriver(builderBackend(f)).Delete(ctx, ref, "", func() error { return refused }); err != refused || len(f.mutations) != 0 {
 		t.Fatalf("gate refusal: %v %v", f.mutations, err)
 	}
 	// A leftover builder may be unfinished: no root limit, no NIC. Delete
 	// needs only its labels.
-	if err := NewDriver(builderBackend(f)).Delete(ctx, ref, gate); err != nil || gates != 1 || f.exists || !slices.Equal(f.mutations, []string{"stop", "delete"}) {
+	if err := NewDriver(builderBackend(f)).Delete(ctx, ref, "", gate); err != nil || gates != 1 || f.exists || !slices.Equal(f.mutations, []string{"stop", "delete"}) {
 		t.Fatalf("owned builder: gates=%d exists=%t %v %v", gates, f.exists, f.mutations, err)
 	}
 	f = &fakeBuilderIncus{request: r, exists: true, status: "Stopped"}
@@ -497,13 +497,13 @@ func TestDeleteRemovesOnlyThisInstancesBuilder(t *testing.T) {
 		}
 		return f.run(ctx, binary, argv, env)
 	}
-	if err := NewDriver(b).Delete(ctx, ref, gate); err == nil || !f.exists {
+	if err := NewDriver(b).Delete(ctx, ref, "", gate); err == nil || !f.exists {
 		t.Fatalf("remaining builder reported deleted: %v", err)
 	}
 	for _, named := range []bool{false, true} {
 		f, b := renamedBuilderIncus(r, named)
 		before := gates
-		if err := NewDriver(b).Delete(ctx, ref, gate); !errors.Is(err, runtimedriver.ErrMismatch) || gates != before || len(f.mutations) != 0 {
+		if err := NewDriver(b).Delete(ctx, ref, "", gate); !errors.Is(err, runtimedriver.ErrMismatch) || gates != before || len(f.mutations) != 0 {
 			t.Fatalf("renamed builder (also at its name: %t) passed for absent: gates=%d %v %v", named, gates, f.mutations, err)
 		}
 	}

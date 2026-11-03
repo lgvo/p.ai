@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // HostObservation is based on current systemd state when the instance runs.
@@ -28,6 +29,12 @@ func (b *Backend) ObserveHost(ctx context.Context, s Session) (HostObservation, 
 	if err != nil {
 		return HostObservation{}, err
 	}
+	return b.observeHostOf(ctx, s, o)
+}
+
+// observeHostOf reads the session host of the runtime o observed. It fails
+// only when a running runtime's systemd cannot be read.
+func (b *Backend) observeHostOf(ctx context.Context, s Session, o Observation) (HostObservation, error) {
 	h := HostObservation{Observation: o, Unit: "unavailable"}
 	if !o.Exists {
 		return h, nil
@@ -144,10 +151,16 @@ func (b *Backend) trustedJournalctl() (string, error) {
 	return path, nil
 }
 
+// boundedDiagnostic is the last 2,048 bytes of a host's account, cut on a
+// character boundary and made valid UTF-8.
 func boundedDiagnostic(data []byte) string {
-	text := strings.TrimSpace(string(data))
+	text := strings.ToValidUTF8(strings.TrimSpace(string(data)), "\uFFFD")
 	if len(text) > 2048 {
-		text = text[len(text)-2048:]
+		cut := len(text) - 2048
+		for cut < len(text) && !utf8.RuneStart(text[cut]) {
+			cut++
+		}
+		text = text[cut:]
 	}
 	return text
 }

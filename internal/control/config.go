@@ -41,9 +41,7 @@ type RuntimeConfig struct {
 	ActivationPath       string                   `json:"activation_path"`
 	RuntimePluginID      string                   `json:"runtime_plugin_id"`
 	HostPluginID         string                   `json:"host_plugin_id"`
-	IncusBinary          string                   `json:"incus_binary"`
-	IncusUserSocket      string                   `json:"incus_user_socket"`
-	IncusProject         string                   `json:"incus_project"`
+	Driver               RuntimeDriverConfig      `json:"driver"`
 	EndpointPrefix       string                   `json:"endpoint_prefix"`
 	DiskSourceCeilings   []string                 `json:"disk_source_ceilings"`
 	BaseImageFingerprint string                   `json:"base_image_fingerprint"`
@@ -52,6 +50,27 @@ type RuntimeConfig struct {
 	PublicEgress         *PublicEgressConfig      `json:"public_egress,omitempty"`
 	Environment          *EnvironmentConfig       `json:"environment,omitempty"`
 	AgentAdapter         *AgentAdapterConfig      `json:"agent_adapter,omitempty"`
+}
+
+// IncusDriver names the Incus runtime driver, compiled into P and the only
+// runtime driver P knows.
+const IncusDriver = "incus"
+
+// RuntimeDriverConfig selects the runtime driver P uses, by name, and carries
+// that driver's own settings. Only the driver interprets Config.
+type RuntimeDriverConfig struct {
+	Name   string          `json:"name"`
+	Config json.RawMessage `json:"config"`
+}
+
+func (d RuntimeDriverConfig) validate() error {
+	if d.Name != IncusDriver {
+		return fmt.Errorf("runtime.driver.name must be %q", IncusDriver)
+	}
+	if config := bytes.TrimSpace(d.Config); len(config) == 0 || config[0] != '{' {
+		return errors.New("runtime.driver.config must be a JSON object")
+	}
+	return nil
 }
 
 // AgentAdapterConfig selects one trusted, optional session asset package.
@@ -314,12 +333,15 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 		if singleton == mapped || mapped && (len(mapValue) == 0 || mapValue[0] != '{') {
 			return cfg, errors.New("runtime requires exactly one project policy mode")
 		}
-		if cfg.Git == nil || r.RuntimePluginID == "" || r.HostPluginID == "" || r.IncusProject == "" ||
+		if cfg.Git == nil || r.RuntimePluginID == "" || r.HostPluginID == "" ||
 			len(r.BaseImageFingerprint) != 64 || len(r.DiskSourceCeilings) == 0 || len(r.DiskSourceCeilings) > 8 ||
 			mapped && r.ProjectPolicies == nil {
 			return cfg, errors.New("runtime requires Git, pinned plugins/image and a confined baseline policy")
 		}
-		for _, value := range []string{r.ActivationPath, r.IncusBinary, r.IncusUserSocket, r.EndpointPrefix} {
+		if err := r.Driver.validate(); err != nil {
+			return cfg, err
+		}
+		for _, value := range []string{r.ActivationPath, r.EndpointPrefix} {
 			if err := checkPath(value); err != nil {
 				return cfg, fmt.Errorf("runtime path: %w", err)
 			}
@@ -351,7 +373,7 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 			if r.ProjectPolicy.Network == "public-egress" {
 				r.ProjectPolicy.PublicEgressSHA256 = r.PublicEgress.SHA256()
 			}
-			if err := ValidateConfiguredGrants(r.ProjectPolicy, GrantBoundary{Ceilings: r.DiskSourceCeilings, StateDir: cfg.StateDir, EndpointPrefix: r.EndpointPrefix, IncusSocket: r.IncusUserSocket}); err != nil {
+			if err := ValidateConfiguredGrants(r.ProjectPolicy, GrantBoundary{Ceilings: r.DiskSourceCeilings, StateDir: cfg.StateDir, EndpointPrefix: r.EndpointPrefix}); err != nil {
 				return cfg, err
 			}
 		} else {
@@ -372,7 +394,7 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 					policy.PublicEgressSHA256 = r.PublicEgress.SHA256()
 					r.ProjectPolicies[project] = policy
 				}
-				if err := ValidateConfiguredGrants(policy, GrantBoundary{Ceilings: r.DiskSourceCeilings, StateDir: cfg.StateDir, EndpointPrefix: r.EndpointPrefix, IncusSocket: r.IncusUserSocket}); err != nil {
+				if err := ValidateConfiguredGrants(policy, GrantBoundary{Ceilings: r.DiskSourceCeilings, StateDir: cfg.StateDir, EndpointPrefix: r.EndpointPrefix}); err != nil {
 					return cfg, fmt.Errorf("project_policies[%q]: %w", project, err)
 				}
 			}

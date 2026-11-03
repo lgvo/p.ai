@@ -26,6 +26,7 @@ import (
 type lifecycle struct {
 	store            *control.Store
 	cfg              control.RuntimeConfig
+	incus            runtimeincus.DriverConfig // the Incus driver's own settings from cfg.Driver
 	git              *gitCapability
 	runtime          *runtimeincus.Backend
 	images           runtimedriver.Images
@@ -79,6 +80,10 @@ var (
 )
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
+	incus, err := incusDriverConfig(cfg.Driver)
+	if err != nil {
+		return nil, err
+	}
 	if err := privateTrustedFile(cfg.ActivationPath); err != nil {
 		return nil, fmt.Errorf("runtime activation: %w", err)
 	}
@@ -150,7 +155,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if p := cfg.PublicEgress; p != nil {
 		egress = &runtimeincus.PublicEgressConfig{Network: p.Network, ACL: p.ACL, BridgeIPv4: p.BridgeIPv4, DNS: p.DNS, SudoBinary: p.SudoBinary, NftBinary: p.NftBinary, BridgeProofBinary: p.BridgeProofBinary}
 	}
-	runtime, err := runtimeincus.New(runtimeincus.Config{Binary: cfg.IncusBinary, UserSocket: cfg.IncusUserSocket, Project: cfg.IncusProject, EndpointPrefix: cfg.EndpointPrefix, DiskSourceCeilings: cfg.DiskSourceCeilings, BuilderStoragePool: pool, PInstanceID: id, PublicEgress: egress})
+	runtime, err := runtimeincus.New(runtimeincus.Config{Binary: incus.Binary, UserSocket: incus.UserSocket, Project: incus.Project, EndpointPrefix: cfg.EndpointPrefix, DiskSourceCeilings: cfg.DiskSourceCeilings, BuilderStoragePool: pool, PInstanceID: id, PublicEgress: egress})
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +166,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, runtime: runtime, images: runtimeincus.NewDriver(runtime), runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, runtime: runtime, images: runtimeincus.NewDriver(runtime), runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -214,6 +219,15 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	return l, nil
 }
 
+// incusDriverConfig reads the settings of the Incus driver, the only runtime
+// driver compiled into P.
+func incusDriverConfig(driver control.RuntimeDriverConfig) (runtimeincus.DriverConfig, error) {
+	if driver.Name != control.IncusDriver {
+		return runtimeincus.DriverConfig{}, fmt.Errorf("runtime driver %q unavailable", driver.Name)
+	}
+	return runtimeincus.ParseDriverConfig(driver.Config)
+}
+
 func projectPolicyRecordChanged(raw json.RawMessage, storedSHA, selectedSHA string) bool {
 	oldDigest := sha256.Sum256(raw)
 	if hex.EncodeToString(oldDigest[:]) != storedSHA {
@@ -228,7 +242,7 @@ func (l *lifecycle) grantBoundary() control.GrantBoundary {
 	if l.store != nil {
 		state = l.store.StateDir()
 	}
-	return control.GrantBoundary{Ceilings: l.cfg.DiskSourceCeilings, StateDir: state, EndpointPrefix: l.cfg.EndpointPrefix, IncusSocket: l.cfg.IncusUserSocket}
+	return control.GrantBoundary{Ceilings: l.cfg.DiskSourceCeilings, StateDir: state, EndpointPrefix: l.cfg.EndpointPrefix}
 }
 
 // currentProjectPolicy admits a new session of project only while its policy

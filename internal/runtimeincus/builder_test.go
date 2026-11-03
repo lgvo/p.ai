@@ -292,19 +292,25 @@ func publicBuilderBackend(t *testing.T, b *Backend, f *fakeBuilderIncus) *Backen
 	t.Helper()
 	c := testEgressSubstrate()
 	b.config.PublicEgress, f.public = c, c
+	b.proofRun = egressProof(t, c)
+	return b
+}
+
+// egressProof answers the fixed root proof commands of a host whose live
+// bridge, ACL and packet filters are exactly the public egress substrate c.
+func egressProof(t *testing.T, c *PublicEgressConfig) runner {
 	bridge := egressNetworkJSON{Name: c.Network, Project: "default", Type: "bridge", Status: "Created", Managed: true, Config: map[string]string{
 		"ipv4.address": c.BridgeIPv4, "ipv4.dhcp": "false", "ipv4.nat": "true", "ipv4.routing": "true", "ipv4.firewall": "true",
 		"ipv6.address": "none", "dns.mode": "none", "security.acls": c.ACL,
 		"security.acls.default.ingress.action": "reject", "security.acls.default.egress.action": "reject",
 	}}
 	acl := egressACLJSON{Name: c.ACL, Config: map[string]string{}, Ingress: []egressACLRuleJSON{}, Egress: expectedEgressRules(c)}
-	b.proofRun = func(_ context.Context, _ string, argv []string, _ []string) ([]byte, error) {
+	return func(_ context.Context, _ string, argv []string, _ []string) ([]byte, error) {
 		if slices.Contains(argv, c.BridgeProofBinary) {
 			return json.Marshal(egressPublicProofJSON{Network: bridge, ACL: acl})
 		}
 		return firewallFixture(t), nil
 	}
-	return b
 }
 
 func TestPublicBuilderGetsExactlyItsSessionAddressNIC(t *testing.T) {

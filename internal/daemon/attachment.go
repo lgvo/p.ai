@@ -197,7 +197,7 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *con
 		return api.AttachmentLaunch{}, err
 	}
 	a.connection = conn
-	return api.AttachmentLaunch{Socket: l.cfg.IncusUserSocket, Spec: a.spec}, nil
+	return api.AttachmentLaunch{Socket: l.incus.UserSocket, Spec: a.spec}, nil
 }
 func (l *lifecycle) releaseAttachment(token string) {
 	l.mu.Lock()

@@ -58,7 +58,7 @@ func validGrantDevice(actual map[string]string, g FilesystemGrant) bool {
 	return true
 }
 
-func validateRuntimeGrants(c Config, s Session, inspectSource bool) error {
+func validateRuntimeGrants(c Config, s Session) error {
 	if len(s.Grants) > 8 {
 		return errors.New("invalid runtime grant count")
 	}
@@ -86,13 +86,17 @@ func validateRuntimeGrants(c Config, s Session, inspectSource bool) error {
 				return errors.New("runtime grants overlap")
 			}
 		}
-		if inspectSource {
-			if err := inspectRuntimeGrantSource(g); err != nil {
-				return err
-			}
-		}
 	}
 	return nil
+}
+
+// inspectGrantSource proves a grant's host source still is the path core
+// captured.
+func (b *Backend) inspectGrantSource(g FilesystemGrant) error {
+	if b.checkGrantSource != nil {
+		return b.checkGrantSource(g)
+	}
+	return inspectRuntimeGrantSource(g)
 }
 
 func inspectRuntimeGrantSource(g FilesystemGrant) error {

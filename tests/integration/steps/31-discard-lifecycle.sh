@@ -119,8 +119,8 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
     runtime:{activation_path:$runtime_activation,runtime_plugin_id:$runtime_id,
       host_plugin_id:$host_id,
       agent_adapter:{activation_path:$agent_activation,plugin_id:$agent_id},
-      incus_binary:$incus_binary,
-      incus_user_socket:"/var/lib/incus/unix.socket.user",incus_project:"user-1000",
+      driver:{name:"incus",config:{binary:$incus_binary,
+      user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
       base_image_fingerprint:$image,
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"

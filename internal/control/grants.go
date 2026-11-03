@@ -47,12 +47,12 @@ type SourceIdentity struct {
 }
 
 // GrantBoundary holds only host-owned isolation facts. Incus's active project
-// restriction is checked separately against these exact configured ceilings.
+// restriction is checked separately against these exact configured ceilings,
+// and the Incus driver keeps its own socket out of every ceiling.
 type GrantBoundary struct {
 	Ceilings       []string
 	StateDir       string
 	EndpointPrefix string
-	IncusSocket    string
 }
 
 func grantWithin(path, prefix string) bool {
@@ -96,7 +96,7 @@ func validateGrantBoundary(grant FilesystemGrant, boundary GrantBoundary) error 
 	if !allowed {
 		return errors.New("filesystem grant exceeds confined disk-source ceiling")
 	}
-	for _, protected := range []string{"/", "/etc", "/home", "/root", "/var/lib/incus", "/var/lib/p", "/nix", "/run", "/proc", "/sys", "/dev", "/tmp", "/var/tmp", boundary.StateDir, boundary.EndpointPrefix, boundary.IncusSocket} {
+	for _, protected := range []string{"/", "/etc", "/home", "/root", "/var/lib/incus", "/var/lib/p", "/nix", "/run", "/proc", "/sys", "/dev", "/tmp", "/var/tmp", boundary.StateDir, boundary.EndpointPrefix} {
 		if protected == "" {
 			continue
 		}

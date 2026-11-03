@@ -197,7 +197,7 @@ func (l *lifecycle) settleBuild(ctx context.Context, op *api.Operation, ev *cont
 	if err != nil {
 		return false, err
 	}
-	if err = l.images.Delete(ctx, build.Ref, noIntent); err != nil {
+	if err = l.images.Delete(ctx, build.Ref, "", noIntent); err != nil {
 		return false, imageFailure(err)
 	}
 	return l.acceptBuiltImage(ctx, op, ev, key, build, cycle, img)
@@ -208,7 +208,7 @@ func (l *lifecycle) settleBuild(ctx context.Context, op *api.Operation, ev *cont
 // delete.
 func (l *lifecycle) endAbandonedBuild(ctx context.Context, op *api.Operation, ev *control.CreationEvidence, key control.CommitImageKey) error {
 	cycle := ev.EnvironmentBuilder.Cycle
-	if err := l.images.Delete(ctx, imageBuild(op.ID, cycle, key).Ref, noIntent); err != nil {
+	if err := l.images.Delete(ctx, imageBuild(op.ID, cycle, key).Ref, "", noIntent); err != nil {
 		return imageFailure(err)
 	}
 	ev.EnvironmentBuilder = &control.CreationBuilderState{Cycle: cycle, State: "absent"}

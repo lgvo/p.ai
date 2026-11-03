@@ -347,6 +347,20 @@ func TestConfinementAndIdentityDenials(t *testing.T) {
 	}
 }
 
+func TestDiskCeilingMayNotHoldTheIncusUserSocket(t *testing.T) {
+	socket := "/srv/incus/unix.socket.user"
+	for _, ceiling := range []string{"/srv/incus/unix.socket.user", "/srv/incus", "/srv", "/srv/incus/unix.socket.user/below"} {
+		c := Config{UserSocket: socket, DiskSourceCeilings: []string{"/var/lib/p-vm/grants", ceiling}}
+		if err := validateDiskCeilings(c); err == nil {
+			t.Fatalf("ceiling %q around the user socket accepted", ceiling)
+		}
+	}
+	beside := Config{UserSocket: socket, DiskSourceCeilings: []string{"/srv/grants", "/srv/incus-grants"}}
+	if err := validateDiskCeilings(beside); err != nil {
+		t.Fatalf("ceiling beside the user socket refused: %v", err)
+	}
+}
+
 func TestDiskCeilingConfigurationAndAncestors(t *testing.T) {
 	if err := validateDiskCeilings(Config{}); err == nil {
 		t.Fatal("empty disk ceiling accepted")
@@ -509,7 +523,7 @@ func TestEndpointBoundaryBlocksChangedSocket(t *testing.T) {
 	// ensureEndpoint after its confinement check; this fixture exercises the
 	// endpoint mutation under a real local Unix socket without changing the
 	// production disk-ceiling policy to permit /tmp.
-	got, err := b.ensureEndpoint(context.Background(), s, Observation{Status: "Stopped"})
+	got, err := b.ensureEndpoint(context.Background(), s, Observation{Status: "Stopped"}, "")
 	if err != nil || !got.EndpointMounted || !slices.Equal(f.mutations, []string{"endpoint"}) {
 		t.Fatalf("fixed endpoint device: %+v, %v, %v", got, err, f.mutations)
 	}

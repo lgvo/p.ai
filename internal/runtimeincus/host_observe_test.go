@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestHostReadinessRequiresActualSystemdState(t *testing.T) {
@@ -32,5 +34,15 @@ func TestHostReadinessRequiresActualSystemdState(t *testing.T) {
 	h, err = b.ObserveHost(context.Background(), testSession())
 	if err != nil || !h.Ready || h.Unit != "active/running" || commands < 2 {
 		t.Fatalf("systemd active not ready: %+v %v", h, err)
+	}
+}
+
+// A long journal of multibyte characters is cut on a character boundary, so
+// the host's diagnostic stays valid UTF-8.
+func TestHostDiagnosticTailIsValidUTF8(t *testing.T) {
+	journal := []byte(strings.Repeat("€", 1000) + "\xff end")
+	got := boundedDiagnostic(journal)
+	if len(got) > 2048 || !utf8.ValidString(got) || !strings.HasSuffix(got, "\uFFFD end") {
+		t.Fatalf("diagnostic tail: %d bytes, valid=%t, %q", len(got), utf8.ValidString(got), got[len(got)-8:])
 	}
 }

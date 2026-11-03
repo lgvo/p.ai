@@ -3,7 +3,8 @@ package runtimeincus
 import (
 	"context"
 	"errors"
-	"fmt"
+
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // RuntimePresentError reports that a container of the session exists where
@@ -12,6 +13,10 @@ import (
 type RuntimePresentError struct{ text string }
 
 func (e *RuntimePresentError) Error() string { return e.text }
+
+// Unwrap gives the driver's kind of the refusal: an object carries the
+// session's reference where none was expected.
+func (e *RuntimePresentError) Unwrap() error { return runtimedriver.ErrMismatch }
 
 // ConfirmSessionRuntimeAbsent is a project-scoped, read-only proof. It checks
 // the deterministic name and the complete bounded project inventory so a
@@ -45,7 +50,7 @@ func (b *Backend) ConfirmSessionRuntimeAbsent(ctx context.Context, s Session) er
 		}
 		seen[in.Name] = true
 		if in.Name == b.name(s) || in.Config["user.p.session_uuid"] == s.SessionUUID || in.ExpandedConfig["user.p.session_uuid"] == s.SessionUUID {
-			return &RuntimePresentError{fmt.Sprintf("competing session runtime identity at %s", in.Name)}
+			return &RuntimePresentError{"competing session runtime identity at " + in.Name}
 		}
 	}
 	return nil

@@ -175,7 +175,7 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		if e != nil {
 			return nil, control.Failed(api.ReasonRuntime, e)
 		}
-		ps := api.ProjectDeleteSession{Session: api.SessionRecord(s), Runtime: api.RemovalRuntime{IncusProject: l.cfg.IncusProject, InstanceName: "p-" + s.UUID}}
+		ps := api.ProjectDeleteSession{Session: api.SessionRecord(s), Runtime: api.RemovalRuntime{IncusProject: l.incus.Project, InstanceName: "p-" + s.UUID}}
 		creator, e := l.store.CreationForSession(ctx, s.UUID)
 		if e != nil {
 			return nil, e
@@ -268,7 +268,7 @@ func (l *lifecycle) boundProjectDeleteEvidence(d api.ProjectDeleteDetails, claim
 // projectDeleteEvidence is the evidence that deletes the plan d, with its
 // image claims: every planned resource, remaining.
 func (l *lifecycle) projectDeleteEvidence(d api.ProjectDeleteDetails, images []control.CommitImageClaim) control.ProjectDeleteEvidence {
-	ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.cfg.IncusProject, StateSHA256: d.StateSHA256, Sessions: append([]api.ProjectDeleteSession(nil), d.Sessions...), Images: images, Repository: d.Repository, RepositoryParent: d.RepositoryParent}
+	ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.incus.Project, StateSHA256: d.StateSHA256, Sessions: append([]api.ProjectDeleteSession(nil), d.Sessions...), Images: images, Repository: d.Repository, RepositoryParent: d.RepositoryParent}
 	reviewed, _ := json.Marshal(d)
 	ev.ReviewSHA256 = hexDigest(reviewed)
 	for i := range ev.Sessions {

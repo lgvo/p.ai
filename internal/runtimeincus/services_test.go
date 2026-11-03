@@ -211,20 +211,3 @@ func TestServiceOutputBoundsAndFailures(t *testing.T) {
 		t.Fatal("unavailable authority claimed success")
 	}
 }
-
-// P's states for systemd's: an unloaded unit is stopped, and a state systemd
-// does not document is refused rather than guessed.
-func TestServiceStatesMapSystemdActiveStates(t *testing.T) {
-	for active, want := range map[string]api.ServiceState{
-		"inactive": api.ServiceStopped, "activating": api.ServiceStarting, "active": api.ServiceRunning,
-		"reloading": api.ServiceRunning, "refreshing": api.ServiceRunning, "deactivating": api.ServiceStopping,
-		"maintenance": api.ServiceStopping, "failed": api.ServiceFailed,
-	} {
-		if got, known := serviceState(active); !known || got != want {
-			t.Errorf("%s: %q %v, want %q", active, got, known, want)
-		}
-	}
-	if _, known := serviceState("unknown"); known {
-		t.Error("an undocumented state was mapped")
-	}
-}

@@ -83,7 +83,7 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 	}
 	d := &p.Details
 	*d = api.RemovalDetails{Project: session.Project, Branch: session.Branch, AssignedRef: "refs/heads/" + session.Branch,
-		PolicySHA256: session.PolicySHA256, Runtime: api.RemovalRuntime{IncusProject: l.cfg.IncusProject, InstanceName: "p-" + session.UUID}}
+		PolicySHA256: session.PolicySHA256, Runtime: api.RemovalRuntime{IncusProject: l.incus.Project, InstanceName: "p-" + session.UUID}}
 	if session.Registry != "established" {
 		return control.Conflict(api.ReasonSessionNotEstablished, target)
 	}
