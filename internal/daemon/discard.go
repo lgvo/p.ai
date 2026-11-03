@@ -20,7 +20,7 @@ func (l *lifecycle) DeleteSession(ctx context.Context, req control.DiscardConfir
 	return l.confirmRemoval(ctx, req, "delete")
 }
 
-func deleteReviewDigest(review *control.RemovalBranchLoss) (string, error) {
+func deleteReviewDigest(review *api.RemovalBranchLoss) (string, error) {
 	if review == nil {
 		return "", control.ErrInvalid
 	}

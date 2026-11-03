@@ -16,7 +16,7 @@ import (
 )
 
 func TestRPCReadsCLIErrorReplyFromExitOne(t *testing.T) {
-	installFakeP(t, `{"jsonrpc":"2.0","id":1,"error":{"code":-32003,"kind":"busy","message":"attachment pending"}}`, 1)
+	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32003,"kind":"busy","message":"attachment pending"}}`, 1)
 	if output, err := command(time.Second, "p", "api", "/unused/control.sock", "session.stop"); err == nil || output != "" {
 		t.Fatalf("generic command unexpectedly accepted exit one: %q, %v", output, err)
 	}
@@ -24,12 +24,12 @@ func TestRPCReadsCLIErrorReplyFromExitOne(t *testing.T) {
 	if err := f.stopBusy("session-id"); err != nil {
 		t.Fatalf("busy stop response: %v", err)
 	}
-	installFakeP(t, `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"kind":"busy","message":"attachment pending"}}`, 1)
+	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"kind":"busy","message":"attachment pending"}}`, 1)
 	if err := f.stopBusy("session-id"); err == nil {
 		t.Fatal("accepted busy response with wrong code")
 	}
-	installFakeP(t, `{"jsonrpc":"2.0","id":1,"error":{"code":-32004,"kind":"unavailable","message":"helper required"}}`, 1)
-	reply, err := f.rpc("attachment.claim", map[string]any{"v": 1, "token": "invalid"})
+	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32004,"kind":"unavailable","message":"helper required"}}`, 1)
+	reply, err := f.rpc("attachment.claim", map[string]any{"token": "invalid"})
 	if err != nil {
 		t.Fatalf("ordinary RPC error response: %v", err)
 	}
@@ -45,19 +45,19 @@ func TestRPCRejectsInvalidCLIReplies(t *testing.T) {
 		output string
 		exit   int
 	}{
-		{"success", `{"jsonrpc":"2.0","id":1,"result":{"v":1}}`, 0},
-		{"result with failure exit", `{"jsonrpc":"2.0","id":1,"result":{"v":1}}`, 1},
-		{"error with success exit", `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 0},
-		{"wrong id", `{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"wrong version", `{"jsonrpc":"1.0","id":1,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"both outcomes", `{"jsonrpc":"2.0","id":1,"result":{},"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"missing error code", `{"jsonrpc":"2.0","id":1,"error":{"kind":"busy","message":"pending"}}`, 1},
+		{"success", `{"jsonrpc":"2.0","id":2,"result":{}}`, 0},
+		{"result with failure exit", `{"jsonrpc":"2.0","id":2,"result":{}}`, 1},
+		{"error with success exit", `{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 0},
+		{"wrong id", `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
+		{"wrong version", `{"jsonrpc":"1.0","id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
+		{"both outcomes", `{"jsonrpc":"2.0","id":2,"result":{},"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
+		{"missing error code", `{"jsonrpc":"2.0","id":2,"error":{"kind":"busy","message":"pending"}}`, 1},
 		{"transport object", `{"error":{"kind":"transport","message":"dial failed"}}`, 1},
-		{"duplicate field", `{"jsonrpc":"2.0","id":1,"id":1,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"multiple replies", "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32001,\"kind\":\"busy\",\"message\":\"pending\"}}\n{}", 1},
+		{"duplicate field", `{"jsonrpc":"2.0","id":2,"id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
+		{"multiple replies", "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32001,\"kind\":\"busy\",\"message\":\"pending\"}}\n{}", 1},
 		{"malformed", `{`, 1},
 		{"empty", "", 1},
-		{"other exit status", `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 2},
+		{"other exit status", `{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -155,9 +155,9 @@ set_git_key() {
 }
 git_net() { timeout 30 git "$@"; }
 check_restarted_git() {
-  restarted=$(rpc system.capabilities)
-  jq -e --arg server "$(jq -er '.result.git.host_public_key' <<< "$capabilities")" \
-    --arg client "$(jq -er '.result.git.client_public_key' <<< "$capabilities")" \
+  restarted=$(rpc system.inspect)
+  jq -e --arg server "$(jq -er '.result.git.host_public_key' <<< "$inspected")" \
+    --arg client "$(jq -er '.result.git.client_public_key' <<< "$inspected")" \
     --arg key "$state/git_client_key" \
     '.result.git.host_public_key == $server and .result.git.client_public_key == $client and
      .result.git.client_key_path == $key' <<< "$restarted" >/dev/null
@@ -172,35 +172,34 @@ check_restarted_git() {
 start_daemon
 test "$(stat -c '%a' "$state/git_server_key")" = 600
 test "$(stat -c '%a' "$state/git_client_key")" = 600
-instance_id=$(rpc system.hello | jq -er '.result.instance_id')
-capabilities=$(rpc system.capabilities)
+hello=$(rpc system.hello)
+instance_id=$(jq -er '.result.instance_id' <<< "$hello")
+# Git is configured without a runtime.
+jq -e '.result.capabilities == ["git"]' <<< "$hello" >/dev/null
+inspected=$(rpc system.inspect)
 jq -e --arg id "$package_id" --arg digest "$package_digest" --arg key "$state/git_client_key" \
-  '.result.lifecycle == "unavailable" and
-   (.result.available | index("project.list") != null and index("project.branches") != null) and
+  '.result.projects == 3 and .result.sessions == 1 and .result.operations == 1 and
    .result.git.source_plugin_id == $id and .result.git.source_sha256 == $digest and
    .result.git.client_key_path == $key and
    ([.result.git.endpoint, .result.git.known_hosts, .result.git.client_public_key] |
-     all(.[]; type == "string" and length > 0))' <<< "$capabilities" >/dev/null
-git_info=$(jq -c '.result.git' <<< "$capabilities")
-rpc system.inspect | jq -e --argjson git "$git_info" \
-  '.result.projects == 3 and .result.sessions == 1 and .result.operations == 1 and .result.git == $git' >/dev/null
+     all(.[]; type == "string" and length > 0))' <<< "$inspected" >/dev/null
 
-page1=$(rpc project.list '{"v":1,"limit":2}')
+page1=$(rpc project.list '{"limit":2}')
 jq -e '.result.projects == [{"path":"app","registry_state":"active"},{"path":"other","registry_state":"active"}] and .result.next == "other"' <<< "$page1" >/dev/null
-page2=$(rpc project.list '{"v":1,"limit":2,"after":"other"}')
+page2=$(rpc project.list '{"limit":2,"after":"other"}')
 jq -e '.result.projects == [{"path":"z-last","registry_state":"active"}] and .result.next == ""' <<< "$page2" >/dev/null
-branches1=$(rpc project.branches '{"v":1,"project":"app","limit":8}')
+branches1=$(rpc project.branches '{"project":"app","limit":8}')
 jq -e --arg oid "$main_oid" \
   '.result.project == "app" and (.result.refs | length) == 8 and
    .result.refs[0] == {"ref":"refs/heads/b01","oid":$oid} and
    .result.next == "refs/heads/b08"' <<< "$branches1" >/dev/null
-branches2=$(rpc project.branches '{"v":1,"project":"app","limit":8,"after":"refs/heads/b08"}')
+branches2=$(rpc project.branches '{"project":"app","limit":8,"after":"refs/heads/b08"}')
 jq -e --arg oid "$main_oid" \
   '.result.refs == [{"ref":"refs/heads/b09","oid":$oid},{"ref":"refs/heads/main","oid":$oid},{"ref":"refs/heads/work","oid":$oid}] and .result.next == ""' <<< "$branches2" >/dev/null
 
-endpoint=$(jq -er '.result.git.endpoint' <<< "$capabilities")
+endpoint=$(jq -er '.result.git.endpoint' <<< "$inspected")
 port=${endpoint##*:}
-printf '%s\n' "$(jq -er '.result.git.known_hosts' <<< "$capabilities")" > "$step_dir/known_hosts"
+printf '%s\n' "$(jq -er '.result.git.known_hosts' <<< "$inspected")" > "$step_dir/known_hosts"
 url="ssh://git@127.0.0.1:$port/app"
 set_git_key "$state/git_client_key"
 git_net clone "$url" "$step_dir/host-clone" >/dev/null 2> "$step_dir/expected.err"
@@ -228,7 +227,7 @@ git -C "$step_dir/session-clone" commit -qm session-change
 git_net -C "$step_dir/session-clone" push origin HEAD:work >/dev/null
 work_oid=$(git -C "$step_dir/session-clone" rev-parse HEAD)
 test "$(git -C "$repo" rev-parse refs/heads/work)" = "$work_oid"
-rpc project.branches '{"v":1,"project":"app","limit":8,"after":"refs/heads/main"}' | \
+rpc project.branches '{"project":"app","limit":8,"after":"refs/heads/main"}' | \
   jq -e --arg oid "$work_oid" '.result.refs == [{"ref":"refs/heads/work","oid":$oid}]' >/dev/null
 
 stop_daemon

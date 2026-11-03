@@ -101,11 +101,11 @@ start_daemon() {
   echo 'configured daemon did not become ready' >&2
   return 1
 }
-inspect() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
+inspect() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
 wait_operation() {
   local id="$1" result status deadline=$((SECONDS+160))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
     if test "$status" = blocked; then echo "operation blocked: $result" >&2; return 1; fi
@@ -130,7 +130,7 @@ wait_ready() {
 }
 create_project() {
   local key="$1" project="$2" result op uuid
-  result=$(rpc project.create "$(jq -nc --arg key "$key" --arg project "$project" '{v:1,key:$key,project:$project}')")
+  result=$(rpc project.create "$(jq -nc --arg key "$key" --arg project "$project" '{key:$key,project:$project}')")
   op=$(jq -er '.result.operation.id' <<< "$result")
   uuid=$(jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$result")
   sessions+=("$uuid")
@@ -242,15 +242,15 @@ second_a=$(latest "$uuid_a")
 test "$(jq -r '.receive_sequence' <<< "$second_a")" -gt "$(jq -r '.receive_sequence' <<< "$first_a")"
 test "$(jq -r '.receive_sequence' <<< "$first_b")" -gt "$(jq -r '.receive_sequence' <<< "$first_a")"
 assert_preserved "$uuid_b" "$first_b"
-rpc session.list '{"v":1,"limit":8}' | jq -e --arg a "$uuid_a" --arg b "$uuid_b" \
+rpc session.list '{"limit":8}' | jq -e --arg a "$uuid_a" --arg b "$uuid_b" \
   --argjson latest_a "$second_a" --argjson latest_b "$first_b" \
   '.result.sessions | any(.[]; .uuid==$a and .attached_count==0 and
     .session_condition=="ready" and .policy_condition=="current" and
     .latest_unattended_condition==$latest_a) and
    any(.[]; .uuid==$b and .attached_count==0 and .latest_unattended_condition==$latest_b)' >/dev/null
-page1=$(rpc session.list '{"v":1,"limit":1}')
+page1=$(rpc session.list '{"limit":1}')
 cursor=$(jq -er '.result.next | select(type=="string" and length==36)' <<< "$page1")
-page2=$(rpc session.list "$(jq -nc --arg after "$cursor" '{v:1,limit:1,after:$after}')")
+page2=$(rpc session.list "$(jq -nc --arg after "$cursor" '{limit:1,after:$after}')")
 jq -n --arg a "$uuid_a" --arg b "$uuid_b" --argjson first "$page1" --argjson second "$page2" \
   --argjson latest_a "$second_a" --argjson latest_b "$first_b" \
   '($first.result.sessions + $second.result.sessions) as $sessions |
@@ -335,10 +335,10 @@ start_daemon
 assert_preserved "$uuid_a" "$stable_a"
 assert_preserved "$uuid_b" "$stable_b"
 query "$uuid_b" after-kill session.identity | jq -e --arg uuid "$uuid_b" '.result.uuid==$uuid' >/dev/null
-rpc session.stop "$(jq -nc --arg uuid "$uuid_a" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$uuid_a" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 assert_preserved "$uuid_a" "$stable_a"
-rpc session.start "$(jq -nc --arg uuid "$uuid_a" '{v:1,uuid:$uuid}')" |
+rpc session.start "$(jq -nc --arg uuid "$uuid_a" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="starting"' >/dev/null
 wait_ready "$uuid_a"
 assert_preserved "$uuid_a" "$stable_a"

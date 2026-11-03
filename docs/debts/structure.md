@@ -143,8 +143,9 @@
   server cannot be read or tested apart from persistence.
 - Evidence: config.go calls the store's `validProject`, `validFingerprint`, `digest` and
   `normalizedObject`; `ProjectPolicySnapshot` errors wrap `control.ErrInvalid`, which the
-  daemon's lifecycle errors map to `invalid_params`. The RPC handlers call the unexported
-  `validUUID`, `validProject`, `validHexToken` and `validFingerprint` and match the unexported
+  daemon's lifecycle errors map to `invalid_params`. The request bounds moved to
+  `internal/api`, but control's `validProject`, `validUUID` and siblings only delegate to
+  them, and the server still maps the store's sentinel errors and the unexported
   `sessionCapacityError`.
 - Risk: configuration and persistence change together; an adapter that needs one trusted
   setting depends on the whole store package.
@@ -154,12 +155,15 @@
   gitservice, plugin and runtimeincus), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-02, 2 cases:
+- Added 2026-11-01, updated 2026-11-02, 3 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
     and the inspection parameters from rpc_lifecycle.go; the handlers still use the store's
     validators.
+  - 2026-11-02: "wire types" moved the identifier formats into `internal/api`, where each
+    request type's `Validate` checks them; the server stays in control and registers its
+    handlers there.
 
 ## Operation status updates and kind lists are still written per site
 

@@ -16,11 +16,11 @@ import (
 )
 
 type retainedDeletePreviewState struct {
-	Preview control.RetainedDeletePreview
+	Preview api.RetainedDeletePreview
 	Expiry  time.Time
 }
 
-func (l *lifecycle) freshRetainedDeleteReview(ctx context.Context, project, branch string, scope *gitservice.OriginScope) (*control.RemovalBranchLoss, error) {
+func (l *lifecycle) freshRetainedDeleteReview(ctx context.Context, project, branch string, scope *gitservice.OriginScope) (*api.RemovalBranchLoss, error) {
 	loss, err := l.git.backend.BranchRemovalLoss(ctx, project, branch, false)
 	if err != nil || loss.AssignedTip == "" {
 		return nil, errors.Join(err, control.ErrConflict)
@@ -28,37 +28,37 @@ func (l *lifecycle) freshRetainedDeleteReview(ctx context.Context, project, bran
 	return l.makeDeleteReviewInScope(ctx, project, loss, scope)
 }
 
-func (l *lifecycle) PreviewRetainedDelete(ctx context.Context, project, branch string) (control.RetainedDeletePreview, error) {
+func (l *lifecycle) PreviewRetainedDelete(ctx context.Context, project, branch string) (api.RetainedDeletePreview, error) {
 	if project == "" || branch == "" {
-		return control.RetainedDeletePreview{}, control.ErrInvalid
+		return api.RetainedDeletePreview{}, control.ErrInvalid
 	}
 	if err := l.git.backend.ValidateRenameBranch(ctx, branch); err != nil {
-		return control.RetainedDeletePreview{}, err
+		return api.RetainedDeletePreview{}, err
 	}
 	retained, err := l.store.IsRetainedBranch(ctx, project, branch)
 	if err != nil || !retained {
-		return control.RetainedDeletePreview{}, errors.Join(err, control.ErrConflict)
+		return api.RetainedDeletePreview{}, errors.Join(err, control.ErrConflict)
 	}
-	var review *control.RemovalBranchLoss
+	var review *api.RemovalBranchLoss
 	err = l.git.backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
 		var e error
 		review, e = l.freshRetainedDeleteReview(ctx, project, branch, scope)
 		return e
 	})
 	if err != nil {
-		return control.RetainedDeletePreview{}, err
+		return api.RetainedDeletePreview{}, err
 	}
 	var token [16]byte
 	if _, err = rand.Read(token[:]); err != nil {
-		return control.RetainedDeletePreview{}, err
+		return api.RetainedDeletePreview{}, err
 	}
 	now := time.Now().UTC()
 	expiry := now.Add(removalPreviewTTL)
-	preview := control.RetainedDeletePreview{Project: project, Branch: branch, Ref: review.AssignedRef, Tip: review.AssignedTip, BranchLoss: review,
+	preview := api.RetainedDeletePreview{Project: project, Branch: branch, Ref: review.AssignedRef, Tip: review.AssignedTip, BranchLoss: review,
 		ConfirmationToken: hex.EncodeToString(token[:]), ExpiresAt: expiry.Format(time.RFC3339Nano)}
-	raw, err := json.Marshal(map[string]any{"v": 1, "preview": preview})
+	raw, err := json.Marshal(api.RetainedDeletePreviewResult{Preview: preview})
 	if err != nil || len(raw) > api.MaxFrameBytes-1024 {
-		return control.RetainedDeletePreview{}, errors.New("retained delete preview exceeds bounded control response")
+		return api.RetainedDeletePreview{}, errors.New("retained delete preview exceeds bounded control response")
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -71,7 +71,7 @@ func (l *lifecycle) PreviewRetainedDelete(ctx context.Context, project, branch s
 		}
 	}
 	if len(l.retainedDeletePreviews) >= 128 {
-		return control.RetainedDeletePreview{}, control.ErrConflict
+		return api.RetainedDeletePreview{}, control.ErrConflict
 	}
 	l.retainedDeletePreviews[preview.ConfirmationToken] = retainedDeletePreviewState{Preview: preview, Expiry: expiry}
 	return preview, nil
@@ -147,7 +147,7 @@ func (l *lifecycle) verifyRetainedDeleteReview(ctx context.Context, e control.Re
 	return matchRetainedDeleteReview(fresh, e.ReviewSHA256)
 }
 
-func matchRetainedDeleteReview(fresh *control.RemovalBranchLoss, reviewedSHA256 string) error {
+func matchRetainedDeleteReview(fresh *api.RemovalBranchLoss, reviewedSHA256 string) error {
 	digest, err := deleteReviewDigest(fresh)
 	if err != nil {
 		return err

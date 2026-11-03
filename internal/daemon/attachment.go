@@ -126,7 +126,7 @@ func (l *lifecycle) reserveAttachment(id string, spec plugin.AttachSpec) (api.Pe
 		l.attachments = map[string]*attachment{}
 	}
 	l.attachments[token] = &attachment{session: id, expires: expires, spec: spec}
-	return api.PendingAttachment{V: 1, Token: token, ExpiresAt: expires, Spec: spec}, nil
+	return api.PendingAttachment{Token: token, ExpiresAt: expires, Spec: spec}, nil
 }
 func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.AttachSpec, error) {
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
@@ -185,7 +185,7 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *con
 		return api.AttachmentLaunch{}, err
 	}
 	a.connection = conn
-	return api.AttachmentLaunch{V: 1, Socket: l.cfg.IncusUserSocket, Spec: a.spec}, nil
+	return api.AttachmentLaunch{Socket: l.cfg.IncusUserSocket, Spec: a.spec}, nil
 }
 func (l *lifecycle) releaseAttachment(token string) {
 	l.mu.Lock()

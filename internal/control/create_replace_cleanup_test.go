@@ -16,7 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func replacementCleanupIntent(t *testing.T, old api.Operation, image string) *CreateReplacementCleanup {
+func replacementCleanupIntent(t *testing.T, old api.Operation, image string) *api.CreateReplacementCleanup {
 	t.Helper()
 	public, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -27,10 +27,10 @@ func replacementCleanupIntent(t *testing.T, old api.Operation, image string) *Cr
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(key.Marshal())
-	identity := func(inode uint64, mode uint32, links uint64) ReplacementLocalIdentity {
-		return ReplacementLocalIdentity{Device: 1, Inode: inode, Mode: mode, Links: links}
+	identity := func(inode uint64, mode uint32, links uint64) api.ReplacementLocalIdentity {
+		return api.ReplacementLocalIdentity{Device: 1, Inode: inode, Mode: mode, Links: links}
 	}
-	return &CreateReplacementCleanup{OldUUID: old.SessionUUID, OldOperationID: old.ID, OldImageFingerprint: image, KeyFingerprint: hex.EncodeToString(sum[:]),
+	return &api.CreateReplacementCleanup{OldUUID: old.SessionUUID, OldOperationID: old.ID, OldImageFingerprint: image, KeyFingerprint: hex.EncodeToString(sum[:]),
 		KeyDirectory: identity(1, 040700, 2), Key: identity(2, 0100600, 1), EndpointPrefix: identity(3, 040700, 3), EndpointDirectory: identity(4, 040755, 2), GitSocket: identity(5, 0140666, 1), SessionSocket: identity(6, 0140666, 1)}
 }
 

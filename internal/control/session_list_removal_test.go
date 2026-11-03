@@ -101,23 +101,22 @@ func TestSessionListConcurrentCompletionSkipsOnlyAbsentRecord(t *testing.T) {
 				return nil
 			}}
 			h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
-			result, rpcErr := h(context.Background(), "session.list", json.RawMessage(fmt.Sprintf(`{"v":1,"limit":%d}`, limit)))
+			page, rpcErr := callMethod(t, context.Background(), h, api.SessionList, api.SessionListRequest{Limit: limit})
 			if rpcErr != nil || !removed {
-				t.Fatalf("concurrent completion failed list: %+v %v", result, rpcErr)
+				t.Fatalf("concurrent completion failed list: %+v %v", page, rpcErr)
 			}
-			page := result.(map[string]any)
-			views := page["sessions"].([]api.SessionView)
-			if len(views) != limit-1 || page["next"] != ids[limit-1] {
+			views := page.Sessions
+			if len(views) != limit-1 || page.Next != ids[limit-1] {
 				t.Fatalf("filtered page lost raw cursor: %+v", page)
 			}
 			if limit == 2 && (views[0].UUID != ids[1] || views[0].Condition != "stopped") {
 				t.Fatalf("retained sibling missing: %+v", views)
 			}
-			result, rpcErr = h(context.Background(), "session.list", json.RawMessage(fmt.Sprintf(`{"v":1,"limit":2,"after":%q}`, page["next"])))
+			next, rpcErr := callMethod(t, context.Background(), h, api.SessionList, api.SessionListRequest{Limit: 2, After: page.Next})
 			if rpcErr != nil {
 				t.Fatal(rpcErr)
 			}
-			following := result.(map[string]any)["sessions"].([]api.SessionView)
+			following := next.Sessions
 			if len(following) != 3-limit || following[len(following)-1].UUID != ids[2] {
 				t.Fatalf("following page lost surviving record: %+v", following)
 			}
@@ -134,7 +133,7 @@ func TestSessionListPreservesSurvivingMissingAuthorityAndOtherErrors(t *testing.
 				life.inspectErr = ErrConflict
 			}
 			h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
-			result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"v":1,"limit":1}`))
+			result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"limit":1}`))
 			if rpcErr == nil || result != nil {
 				t.Fatalf("surviving record error hidden: %+v %+v", result, rpcErr)
 			}
@@ -153,7 +152,7 @@ func TestSessionListDoesNotHideNonNotFoundErrorAfterRemoval(t *testing.T) {
 	life := removingSessionListLife{statusLife: statusLife{s}, inspectErr: ErrConflict,
 		before: func(ctx context.Context, id string) error { return completeListRemoval(ctx, s, op) }}
 	h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
-	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"v":1,"limit":1}`))
+	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"limit":1}`))
 	if result != nil || rpcErr == nil || rpcErr.Kind != "busy" {
 		t.Fatalf("non-not-found error hidden by absent record: %+v %+v", result, rpcErr)
 	}
@@ -168,7 +167,7 @@ func TestSessionListPreservesStatusStorageError(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := NewHandler(HandlerConfig{Store: s, Lifecycle: statusLife{s}})
-	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"v":1,"limit":1}`))
+	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"limit":1}`))
 	if result != nil || rpcErr == nil || rpcErr.Kind != "unavailable" {
 		t.Fatalf("status storage failure hidden: %+v %+v", result, rpcErr)
 	}

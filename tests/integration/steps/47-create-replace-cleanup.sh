@@ -53,7 +53,7 @@ on_error() {
       <<< "$preview" | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
-  timeout 5 p api "$socket" operation.list '{"v":1,"limit":20}' >&2 || true
+  timeout 5 p api "$socket" operation.list '{"limit":20}' >&2 || true
   tail -c 2048 "$step_dir/daemon.err" >&2 || true
 }
 trap cleanup EXIT
@@ -78,7 +78,7 @@ expect_error() {
     return 1
   fi
   if ! jq -e --arg kind "$kind" --argjson code "$code" \
-    '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+    '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
      .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
     <<< "$response" >/dev/null; then
     jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
@@ -92,9 +92,9 @@ expect_error() {
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
-inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{v:1,id:$id}')"; }
-inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
-branches() { rpc project.branches "$(jq -nc --arg project "$1" '{v:1,project:$project,limit:8}')"; }
+inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"; }
+inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
+branches() { rpc project.branches "$(jq -nc --arg project "$1" '{project:$project,limit:8}')"; }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+170))
   while ((SECONDS < deadline)); do
@@ -231,9 +231,8 @@ host_git=$(command -v git)
 mkdir -m 0700 "$step_dir/bin"
 printf 'release\n' > "$step_dir/release"
 start_daemon
-rpc system.capabilities | jq -e '.result.available |
-  index("session.create.replace.preview")!=null and index("session.create.replace.confirm")!=null' >/dev/null
-created=$(rpc project.create '{"v":1,"key":"project","project":"replacement"}')
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
+created=$(rpc project.create '{"key":"project","project":"replacement"}')
 sibling=$(session_uuid "$created")
 sessions+=("$sibling")
 release_on_running "$sibling" "$(operation_id "$created")"
@@ -255,12 +254,12 @@ exec_p "$sibling" /run/current-system/sw/bin/bash -c 'printf dummy-private > /ho
 preview_replace() { rpc session.create.replace.preview "$1"; }
 confirmation_params() {
   jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg token "$2" \
-    '{v:1,old_uuid:$uuid,key:$key,confirmation_token:$token}'
+    '{old_uuid:$uuid,key:$key,confirmation_token:$token}'
 }
 confirm_replace() { rpc session.create.replace.confirm "$(confirmation_params "$1" "$2")"; }
 preview_params() {
   jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg branch "$2" --arg choice "$3" --arg source "$4" \
-    '{v:1,old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
+    '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
 assert_old_effects_absent() {
@@ -276,7 +275,7 @@ assert_old_effects_absent() {
 # Fail the native pinned-image read after principal registration but before
 # the durable native dispatch gate. Production evidence must prove no attempt.
 printf '%s\n' "$sibling" > "$step_dir/image-fault"
-old_request='{"v":1,"key":"old-key-endpoint","project":"replacement","branch":"work","choice":"existing"}'
+old_request='{"key":"old-key-endpoint","project":"replacement","branch":"work","choice":"existing"}'
 created=$(rpc session.create "$old_request")
 old_uuid=$(session_uuid "$created")
 old_id=$(operation_id "$created")
@@ -368,7 +367,7 @@ test -d "$endpoint_prefix/$old_uuid"
 test ! -e "$state/session_keys/$new_uuid"
 test ! -e "$endpoint_prefix/$new_uuid"
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
-expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{v:1,id:$id}')"
+expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$new_id"
 stop_process "$daemon_pid"
@@ -395,7 +394,7 @@ test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$ne
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 inc delete "$competing"
 competing=
-rpc operation.retry "$(jq -nc --arg id "$new_id" '{v:1,id:$id}')" | jq -e --arg id "$new_id" '.result.operation.id==$id' >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$new_id" '{id:$id}')" | jq -e --arg id "$new_id" '.result.operation.id==$id' >/dev/null
 release_on_running "$new_uuid" "$new_id"
 completed=$(wait_operation "$new_id" completed)
 wait_ready "$new_uuid"
@@ -411,14 +410,14 @@ daemon_pid=
 start_daemon
 test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
-expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{v:1,id:$id}')"
+expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 assert_old_effects_absent
 test "$(sha256sum "$state/session_keys/$new_uuid" | cut -d' ' -f1)" = "$new_key"
 test "$(sha256sum "$state/session_keys/$sibling" | cut -d' ' -f1)" = "$key_before"
 test "$(exec_p "$sibling" cat /home/p/replacement-private)" = dummy-private
 test "$(exec_p "$sibling" cat /workspace/sibling-dirty)" = dirty
 test "$("$host_git" -C "$repo" rev-parse refs/heads/main)" = "$first"
-rpc session.list '{"v":1,"limit":8}' | jq -e '.result.sessions | length==2 and all(.[];.registry_state=="established")' >/dev/null
-rpc operation.list '{"v":1,"limit":20}' | jq -e '.result.operations | [.[]|select(.kind=="session.create")]|length==2' >/dev/null
+rpc session.list '{"limit":8}' | jq -e '.result.sessions | length==2 and all(.[];.registry_state=="established")' >/dev/null
+rpc operation.list '{"limit":20}' | jq -e '.result.operations | [.[]|select(.kind=="session.create")]|length==2' >/dev/null
 inc list --format json | jq -e --arg old "p-$old_uuid" --arg new "p-$new_uuid" 'all(.[];.name!=$old) and ([.[]|select(.name==$new)]|length==1)' >/dev/null
 echo P_CREATE_REPLACE_CLEANUP_PASS

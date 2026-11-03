@@ -110,33 +110,32 @@ func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line
 			reply.Error = errorRPC(-32004, "unavailable", "session is unavailable")
 		} else {
 			switch req.Method {
-			case "session.identity", "session.capabilities":
-				var p struct {
-					V int `json:"v"`
-				}
-				if strictjson.Decode(req.Params, &p) != nil || p.V != 1 {
+			case api.SessionIdentity.Name, api.SessionCapabilities.Name:
+				var p api.SessionRPCRequest
+				if strictjson.Decode(req.Params, &p) != nil || p.Validate() != nil {
 					reply.Error = errorRPC(-32602, "invalid_params", "params must be {\"v\":1}")
-				} else if req.Method == "session.identity" {
-					reply.Result = map[string]any{"v": 1, "uuid": session.UUID, "branch": session.Branch}
+				} else if req.Method == api.SessionIdentity.Name {
+					reply.Result = api.SessionIdentityResult{V: api.SessionRPCVersion, UUID: session.UUID, Branch: session.Branch}
 				} else {
 					policy, policyErr := ParseStoredProjectPolicy(session.Policy)
 					if policyErr != nil {
 						reply.Error = errorRPC(-32603, "internal", "session policy is unavailable")
 					} else {
-						mounts := make([]map[string]any, 0, len(policy.FilesystemMounts))
+						mounts := make([]api.SessionMount, 0, len(policy.FilesystemMounts))
 						for _, grant := range policy.FilesystemMounts {
-							mounts = append(mounts, map[string]any{"name": grant.Name, "target": "/mnt/p/" + grant.Name, "type": grant.Type, "access": grant.Access, "executable": grant.Executable})
+							mounts = append(mounts, api.SessionMount{Name: grant.Name, Target: "/mnt/p/" + grant.Name, Type: grant.Type, Access: grant.Access, Executable: grant.Executable})
 						}
-						reply.Result = map[string]any{"v": 1, "uuid": session.UUID, "branch": session.Branch, "policy_sha256": session.PolicySHA256, "effective_capabilities": map[string]any{"network": policy.Network, "filesystem_mounts": mounts, "source_git": true, "status_report": true}}
+						reply.Result = api.SessionCapabilitiesResult{V: api.SessionRPCVersion, UUID: session.UUID, Branch: session.Branch, PolicySHA256: session.PolicySHA256,
+							EffectiveCapabilities: api.EffectiveCapabilities{Network: policy.Network, FilesystemMounts: mounts, SourceGit: true, StatusReport: true}}
 					}
 				}
-			case "status.report":
+			case api.StatusReportMethod.Name:
 				if req.HasID {
 					reply.Error = errorRPC(-32600, "invalid_request", "status.report must be a notification")
 					break
 				}
-				var report StatusReport
-				if strictjson.Decode(req.Params, &report) != nil || !report.Valid() {
+				var report api.StatusReport
+				if strictjson.Decode(req.Params, &report) != nil || report.Validate() != nil {
 					return nil, nil
 				}
 				value, changed, e := store.RecordStatusWithCommit(ctx, uuid, report, onCommitted)

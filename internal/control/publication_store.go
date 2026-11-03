@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"strings"
 	"time"
 
@@ -21,25 +22,6 @@ type PublicationRequest struct {
 	Source            string `json:"source"`
 	SourceOID         string `json:"source_oid"`
 	DestinationRef    string `json:"destination_ref"`
-}
-
-type PublicationPreview struct {
-	Project        string `json:"project"`
-	URL            string `json:"url"`
-	SourceKind     string `json:"source_kind"`
-	Source         string `json:"source"`
-	SourceRef      string `json:"source_ref"`
-	SourceOID      string `json:"source_oid"`
-	DestinationRef string `json:"destination_ref"`
-	DestinationOID string `json:"destination_oid,omitempty"`
-	Relation       string `json:"relation"`
-	// Runtime workspace divergence is not currently observable here.
-	WorkspaceStatus string `json:"workspace_status"`
-}
-
-type PublicationResult struct {
-	Preview PublicationPreview `json:"preview"`
-	Status  string             `json:"status"`
 }
 
 func validPublicationRequest(r PublicationRequest) bool {
@@ -118,25 +100,25 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (st
 
 // PublicationRecord returns a stable answer for a repeated key. An attempted
 // push without a committed answer is unknown; it must never be sent again.
-func (s *Store) PublicationRecord(ctx context.Context, r PublicationRequest) (PublicationResult, string, error) {
+func (s *Store) PublicationRecord(ctx context.Context, r PublicationRequest) (api.Publication, string, error) {
 	if e := s.checkRetiredKey(ctx, r.Key); e != nil {
-		return PublicationResult{}, "", e
+		return api.Publication{}, "", e
 	}
 	var project, originURL, kind, source, oid, dest, status, raw string
 	err := s.db.QueryRowContext(ctx, `SELECT project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,result_json FROM publication_requests WHERE idempotency_key=?`, r.Key).Scan(&project, &originURL, &kind, &source, &oid, &dest, &status, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return PublicationResult{}, "", nil
+		return api.Publication{}, "", nil
 	}
 	if err != nil {
-		return PublicationResult{}, "", err
+		return api.Publication{}, "", err
 	}
 	if originURL != r.ExpectedOriginURL || project != r.Project || kind != r.Kind || source != r.Source || oid != r.SourceOID || dest != r.DestinationRef {
-		return PublicationResult{}, "", ErrConflict
+		return api.Publication{}, "", ErrConflict
 	}
-	var result PublicationResult
+	var result api.Publication
 	if raw != "" {
 		if err = json.Unmarshal([]byte(raw), &result); err != nil {
-			return PublicationResult{}, "", err
+			return api.Publication{}, "", err
 		}
 	}
 	if status == "attempted" {
@@ -145,13 +127,13 @@ func (s *Store) PublicationRecord(ctx context.Context, r PublicationRequest) (Pu
 	return result, status, nil
 }
 
-func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (PublicationResult, string, error) {
+func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (api.Publication, string, error) {
 	if !validPublicationRequest(r) || r.Key == "" || len(r.Key) > 128 {
-		return PublicationResult{}, "", ErrInvalid
+		return api.Publication{}, "", ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return PublicationResult{}, "", err
+		return api.Publication{}, "", err
 	}
 	defer tx.Rollback()
 	var existing int
@@ -159,22 +141,22 @@ func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (P
 		column := "idempotency_key"
 		err = tx.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE `+column+`=?`, r.Key).Scan(&existing)
 		if err == nil {
-			return PublicationResult{}, "", ErrConflict
+			return api.Publication{}, "", ErrConflict
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return PublicationResult{}, "", err
+			return api.Publication{}, "", err
 		}
 	}
 	var project, originURL, kind, source, oid, dest, status, raw string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,result_json FROM publication_requests WHERE idempotency_key=?`, r.Key).Scan(&project, &originURL, &kind, &source, &oid, &dest, &status, &raw)
 	if err == nil {
 		if originURL != r.ExpectedOriginURL || project != r.Project || kind != r.Kind || source != r.Source || oid != r.SourceOID || dest != r.DestinationRef {
-			return PublicationResult{}, "", ErrConflict
+			return api.Publication{}, "", ErrConflict
 		}
-		var result PublicationResult
+		var result api.Publication
 		if raw != "" {
 			if err = json.Unmarshal([]byte(raw), &result); err != nil {
-				return PublicationResult{}, "", err
+				return api.Publication{}, "", err
 			}
 		}
 		if status == "attempted" {
@@ -183,19 +165,19 @@ func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (P
 		return result, status, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return PublicationResult{}, "", err
+		return api.Publication{}, "", err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO publication_requests(idempotency_key,project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,created_at) VALUES(?,?,?,?,?,?,?,'prepared',?)`, r.Key, r.Project, r.ExpectedOriginURL, r.Kind, r.Source, r.SourceOID, r.DestinationRef, time.Now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
-		return PublicationResult{}, "", classifyWrite(err)
+		return api.Publication{}, "", classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
-		return PublicationResult{}, "", err
+		return api.Publication{}, "", err
 	}
-	return PublicationResult{}, "prepared", nil
+	return api.Publication{}, "prepared", nil
 }
 
-func (s *Store) UpdatePublication(ctx context.Context, key, from, to string, result PublicationResult) error {
+func (s *Store) UpdatePublication(ctx context.Context, key, from, to string, result api.Publication) error {
 	raw, err := json.Marshal(result)
 	if err != nil {
 		return err

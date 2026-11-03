@@ -6,21 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lgvo/p.ai/internal/api"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/plugin"
 )
-
-// OriginState is the current association and its last completed observation.
-// Refs are returned only by the paged source method.
-type OriginState struct {
-	Project    string `json:"project"`
-	URL        string `json:"url,omitempty"`
-	Status     string `json:"status"`
-	ObservedAt string `json:"observed_at,omitempty"`
-	RefCount   int    `json:"ref_count"`
-	Diagnostic string `json:"diagnostic,omitempty"`
-}
 
 type OriginChange struct {
 	Key         string `json:"key"`
@@ -38,80 +28,80 @@ func validOriginChange(c OriginChange) bool {
 
 // CompletedOriginChange reads a committed response without acquiring Git or
 // plugin authority. A repeated key never reevaluates current origin policy.
-func (s *Store) CompletedOriginChange(ctx context.Context, c OriginChange) (OriginState, bool, error) {
+func (s *Store) CompletedOriginChange(ctx context.Context, c OriginChange) (api.OriginState, bool, error) {
 	if !validOriginChange(c) {
-		return OriginState{}, false, ErrInvalid
+		return api.OriginState{}, false, ErrInvalid
 	}
 	if err := s.CheckLifecycleKeyConflict(ctx, c.Key); err != nil {
-		return OriginState{}, false, err
+		return api.OriginState{}, false, err
 	}
 	var project, kind, old, next, status, resultJSON string
 	err := s.db.QueryRowContext(ctx, `SELECT project_path,kind,expected_url,proposed_url,status,result_json FROM origin_requests WHERE idempotency_key=?`, c.Key).Scan(&project, &kind, &old, &next, &status, &resultJSON)
 	if errors.Is(err, sql.ErrNoRows) {
-		return OriginState{}, false, nil
+		return api.OriginState{}, false, nil
 	}
 	if err != nil {
-		return OriginState{}, false, err
+		return api.OriginState{}, false, err
 	}
 	if project != c.Project || kind != c.Kind || old != c.ExpectedURL || next != c.ProposedURL {
-		return OriginState{}, false, ErrConflict
+		return api.OriginState{}, false, ErrConflict
 	}
 	if status != "completed" {
-		return OriginState{}, false, nil
+		return api.OriginState{}, false, nil
 	}
-	var result OriginState
+	var result api.OriginState
 	if err = json.Unmarshal([]byte(resultJSON), &result); err != nil {
-		return OriginState{}, false, err
+		return api.OriginState{}, false, err
 	}
 	return result, true, nil
 }
 
 // PrepareOriginChange durably binds an idempotency key before external contact.
 // Completed keys replay without invoking the origin transport.
-func (s *Store) PrepareOriginChange(ctx context.Context, c OriginChange) (bool, OriginState, error) {
+func (s *Store) PrepareOriginChange(ctx context.Context, c OriginChange) (bool, api.OriginState, error) {
 	if !validOriginChange(c) {
-		return false, OriginState{}, ErrInvalid
+		return false, api.OriginState{}, ErrInvalid
 	}
 	if err := s.CheckLifecycleKeyConflict(ctx, c.Key); err != nil {
-		return false, OriginState{}, err
+		return false, api.OriginState{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return false, OriginState{}, err
+		return false, api.OriginState{}, err
 	}
 	defer tx.Rollback()
 	var project, kind, old, next, status, resultJSON string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,kind,expected_url,proposed_url,status,result_json FROM origin_requests WHERE idempotency_key=?`, c.Key).Scan(&project, &kind, &old, &next, &status, &resultJSON)
 	if err == nil {
 		if project != c.Project || kind != c.Kind || old != c.ExpectedURL || next != c.ProposedURL {
-			return false, OriginState{}, ErrConflict
+			return false, api.OriginState{}, ErrConflict
 		}
 		if status == "completed" {
-			var result OriginState
+			var result api.OriginState
 			if err = json.Unmarshal([]byte(resultJSON), &result); err != nil {
-				return false, OriginState{}, err
+				return false, api.OriginState{}, err
 			}
 			return true, result, nil
 		}
-		return false, OriginState{}, nil
+		return false, api.OriginState{}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return false, OriginState{}, err
+		return false, api.OriginState{}, err
 	}
 	var state string
 	if err = tx.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, c.Project).Scan(&state); errors.Is(err, sql.ErrNoRows) {
-		return false, OriginState{}, ErrNotFound
+		return false, api.OriginState{}, ErrNotFound
 	} else if err != nil {
-		return false, OriginState{}, err
+		return false, api.OriginState{}, err
 	}
 	if state != "active" {
-		return false, OriginState{}, ErrConflict
+		return false, api.OriginState{}, ErrConflict
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO origin_requests(idempotency_key,project_path,kind,expected_url,proposed_url,status,created_at) VALUES(?,?,?,?,?,'prepared',?)`, c.Key, c.Project, c.Kind, c.ExpectedURL, c.ProposedURL, time.Now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
-		return false, OriginState{}, classifyWrite(err)
+		return false, api.OriginState{}, classifyWrite(err)
 	}
-	return false, OriginState{}, tx.Commit()
+	return false, api.OriginState{}, tx.Commit()
 }
 
 func (s *Store) CheckLifecycleKeyConflict(ctx context.Context, key string) error {
@@ -175,11 +165,11 @@ func (s *Store) CommitOriginChange(ctx context.Context, c OriginChange, refs []p
 		return ErrConflict
 	}
 	completedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	result := OriginState{Project: c.Project, Status: "local-only"}
+	result := api.OriginState{Project: c.Project, Status: "local-only"}
 	if c.Kind == "remove" {
 		_, err = tx.ExecContext(ctx, `DELETE FROM project_origins WHERE project_path=?`, c.Project)
 	} else {
-		result = OriginState{Project: c.Project, URL: c.ProposedURL, Status: "fresh", ObservedAt: completedAt, RefCount: len(refs)}
+		result = api.OriginState{Project: c.Project, URL: c.ProposedURL, Status: "fresh", ObservedAt: completedAt, RefCount: len(refs)}
 		_, err = tx.ExecContext(ctx, `INSERT INTO project_origins(project_path,url,current_status,observed_at,refs_json,diagnostic) VALUES(?,?,'fresh',?,?,'') ON CONFLICT(project_path) DO UPDATE SET url=excluded.url,current_status='fresh',observed_at=excluded.observed_at,refs_json=excluded.refs_json,diagnostic=''`, c.Project, c.ProposedURL, completedAt, string(encoded))
 	}
 	if err != nil {
@@ -210,33 +200,33 @@ func encodeOriginRefs(refs []plugin.GitOriginRef) ([]byte, error) {
 	return json.Marshal(refs)
 }
 
-func (s *Store) Origin(ctx context.Context, project string) (OriginState, []plugin.GitOriginRef, error) {
+func (s *Store) Origin(ctx context.Context, project string) (api.OriginState, []plugin.GitOriginRef, error) {
 	if !validProject(project) {
-		return OriginState{}, nil, ErrInvalid
+		return api.OriginState{}, nil, ErrInvalid
 	}
 	var registry string
 	err := s.db.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, project).Scan(&registry)
 	if errors.Is(err, sql.ErrNoRows) {
-		return OriginState{}, nil, ErrNotFound
+		return api.OriginState{}, nil, ErrNotFound
 	}
 	if err != nil {
-		return OriginState{}, nil, err
+		return api.OriginState{}, nil, err
 	}
 	if registry != "active" {
-		return OriginState{}, nil, ErrConflict
+		return api.OriginState{}, nil, ErrConflict
 	}
-	state := OriginState{Project: project, Status: "local-only"}
+	state := api.OriginState{Project: project, Status: "local-only"}
 	var raw string
 	err = s.db.QueryRowContext(ctx, `SELECT url,current_status,observed_at,refs_json,diagnostic FROM project_origins WHERE project_path=?`, project).Scan(&state.URL, &state.Status, &state.ObservedAt, &raw, &state.Diagnostic)
 	if errors.Is(err, sql.ErrNoRows) {
 		return state, []plugin.GitOriginRef{}, nil
 	}
 	if err != nil {
-		return OriginState{}, nil, err
+		return api.OriginState{}, nil, err
 	}
 	var refs []plugin.GitOriginRef
 	if err = json.Unmarshal([]byte(raw), &refs); err != nil {
-		return OriginState{}, nil, fmt.Errorf("stored origin observation: %w", err)
+		return api.OriginState{}, nil, fmt.Errorf("stored origin observation: %w", err)
 	}
 	state.RefCount = len(refs)
 	return state, refs, nil

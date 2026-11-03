@@ -59,10 +59,10 @@ func run(args []string) error {
 		return printJSON(struct {
 			Version      string       `json:"version"`
 			GoVersion    string       `json:"go_version"`
-			ControlAPI   int          `json:"control_api_version"`
+			ControlAPI   string       `json:"control_protocol"`
 			PluginAPI    string       `json:"plugin_api_version"`
 			Dependencies []dependency `json:"dependencies"`
-		}{buildVersion, runtime.Version(), 1, plugin.APIVersion, deps})
+		}{buildVersion, runtime.Version(), api.Protocol, plugin.APIVersion, deps})
 	}
 	if len(args) == 1 && args[0] == "git-hook" {
 		return gitservice.RunPreReceiveHook(context.Background(), os.Stdin)
@@ -116,7 +116,7 @@ func run(args []string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		response, err := api.Call(ctx, socket, method, params)
+		response, err := api.CallRaw(ctx, socket, method, params)
 		if err != nil {
 			_ = printJSON(map[string]any{"error": map[string]any{"kind": "transport", "message": err.Error()}})
 			return errAPIExit

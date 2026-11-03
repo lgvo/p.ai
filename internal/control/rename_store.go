@@ -34,10 +34,7 @@ type RenameEvidence struct {
 	Generation        string `json:"generation"`
 }
 
-func ValidRenameRequest(r RenameRequest) bool {
-	return len(r.Key) >= 1 && len(r.Key) <= 128 && validUUID(r.UUID) && validBranch(r.NewBranch) &&
-		validOID(r.ExpectedOldTip) && r.ExpectedOldTip != "0000000000000000000000000000000000000000"
-}
+func ValidRenameRequest(r RenameRequest) bool { return api.SessionRenameRequest(r).Validate() == nil }
 
 func validRenameEvidence(e RenameEvidence) bool {
 	return validProject(e.Project) && validBranch(e.OldBranch) && validBranch(e.NewBranch) && e.OldBranch != e.NewBranch &&

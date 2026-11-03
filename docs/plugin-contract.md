@@ -495,8 +495,9 @@ The NixOS distribution ships all six first-party packages under
 `share/p/plugins` beside its `bin/p`: Incus runtime, tmux host, Git source,
 Nix environment, file-log handler and Codex adapter. Executable packages
 include their compiled WASI modules and only declared package files.
-`p version` reports the P, Go, control/plugin API versions and linked module
-versions as JSON.
+`p version` reports the P and Go versions, the control protocol
+(`control_protocol`, such as `p.control/v2`), the plugin API version and the
+linked module versions as JSON.
 
 `p plugins defaults /absolute/private/events.ndjson [absolute-catalog-path]`
 returns a `p.activation/v1` selection with each validated package's digest and

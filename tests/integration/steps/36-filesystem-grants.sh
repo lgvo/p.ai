@@ -123,7 +123,7 @@ start_daemon() {
 wait_operation() {
   local id="$1" result status deadline=$((SECONDS+150))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = superseded; then
@@ -137,7 +137,7 @@ wait_operation() {
 wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
   while ((SECONDS < deadline)); do
-    if rpc session.inspect "$(jq -nc --arg uuid "$id" '{v:1,uuid:$uuid}')" |
+    if rpc session.inspect "$(jq -nc --arg uuid "$id" '{uuid:$uuid}')" |
       jq -e '.result.session.session_condition=="ready"' >/dev/null; then return; fi
     sleep 0.3
   done
@@ -147,15 +147,15 @@ wait_ready() {
 discard_owned() {
   local id="$1" preview token confirmed op
   preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$id" \
-    '{v:1,uuid:$uuid,kind:"discard"}')")
+    '{uuid:$uuid,kind:"discard"}')")
   token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$preview")
   confirmed=$(rpc session.discard "$(jq -nc --arg uuid "$id" --arg token "$token" \
-    '{v:1,key:"grant-discard",uuid:$uuid,confirmation_token:$token}')")
+    '{key:"grant-discard",uuid:$uuid,confirmation_token:$token}')")
   op=$(jq -er '.result.operation.id | select(length==36)' <<< "$confirmed")
   wait_operation "$op"
 }
 start_daemon
-created_a=$(rpc project.create '{"v":1,"key":"grant-a-bootstrap","project":"grant-a"}')
+created_a=$(rpc project.create '{"key":"grant-a-bootstrap","project":"grant-a"}')
 op_a=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_a")
 uuid_a=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_a")
 wait_operation "$op_a"
@@ -186,7 +186,7 @@ guest_a /run/current-system/sw/bin/git config user.email p@example.invalid
 guest_a /run/current-system/sw/bin/bash -c \
   'printf main > tracked; git add tracked; git commit -qm main; git push origin HEAD:main'
 
-created_b=$(rpc project.create '{"v":1,"key":"grant-b-bootstrap","project":"grant-b"}')
+created_b=$(rpc project.create '{"key":"grant-b-bootstrap","project":"grant-b"}')
 op_b=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$op_b"
@@ -198,19 +198,19 @@ test "$(cat "$grant_root/ro/readme")" = read-only
 test "$(cat "$grant_root/rw/guest-file")" = guest-write
 test -f "$grant_root/notice"
 
-created_a2=$(rpc session.create '{"v":1,"key":"grant-a-recreate","project":"grant-a","branch":"main","choice":"existing"}')
+created_a2=$(rpc session.create '{"key":"grant-a-recreate","project":"grant-a","branch":"main","choice":"existing"}')
 op_a2=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_a2")
 uuid_a2=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_a2")
 wait_operation "$op_a2"
 wait_ready "$uuid_a2"
-rpc session.stop "$(jq -nc --arg uuid "$uuid_a2" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$uuid_a2" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 mv -- "$grant_root/ro" "$grant_root/ro-old"
 mkdir -m 0755 "$grant_root/ro"
 printf replacement > "$grant_root/ro/readme"
-rpc session.inspect "$(jq -nc --arg uuid "$uuid_a2" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid_a2" '{uuid:$uuid}')" |
   jq -e '.result.session.policy_condition=="invalid"' >/dev/null
-if rpc session.start "$(jq -nc --arg uuid "$uuid_a2" '{v:1,uuid:$uuid}')" > "$step_dir/swapped-start.out" 2>&1; then
+if rpc session.start "$(jq -nc --arg uuid "$uuid_a2" '{uuid:$uuid}')" > "$step_dir/swapped-start.out" 2>&1; then
   echo 'Start accepted swapped grant source' >&2
   exit 1
 fi

@@ -109,7 +109,7 @@ start_daemon() {
 wait_completed() {
  local id="$1" deadline=$((SECONDS+120)) response
  while ((SECONDS<deadline)); do
-  response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+  response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
   if jq -e '.result.operation.status=="completed"' <<< "$response" >/dev/null; then return; fi
   if jq -e '.result.operation.status=="blocked" or .result.operation.status=="failed"' <<< "$response" >/dev/null; then jq -c '.result.operation|{status,phase,diagnostic}' <<< "$response" >&2; return 1; fi
   sleep 0.2
@@ -118,10 +118,10 @@ wait_completed() {
 }
 start_daemon
 expect_failure 'daemon stopped' p plugins remove "$step_dir/offline.json" "$event_digest"
-create=$(rpc project.create '{"v":1,"key":"managed-bootstrap","project":"managed-plugins"}')
+create=$(rpc project.create '{"key":"managed-bootstrap","project":"managed-plugins"}')
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$create")
 wait_completed "$(jq -er '.result.operation.id' <<< "$create")"
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 printf 'managed-private-dummy\n' > "$step_dir/private"
 printf 'managed-credential-dummy\n' > "$step_dir/credential"
 inc file push "$step_dir/private" "p-$uuid/home/p/managed-private" --uid 1000 --gid 1000 --mode 0600
@@ -141,7 +141,7 @@ cp "$step_dir/events.json" "$step_dir/old-events.json"
 jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path:$log,max_bytes:1048576}]}' "$step_dir/update.json" > "$step_dir/events.next.json"
 mv "$step_dir/events.next.json" "$step_dir/events.json"
 start_daemon
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 stop_daemon
 p plugins remove "$step_dir/host.json" "$event_digest" | jq -e '.status=="removed" and .new_invocations=="disabled"' >/dev/null
 p plugins remove "$step_dir/host.json" "$event_digest" | jq -e '.status=="removed"' >/dev/null

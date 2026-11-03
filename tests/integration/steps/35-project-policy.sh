@@ -98,7 +98,7 @@ start_daemon() {
 wait_operation() {
   local id="$1" result status deadline=$((SECONDS+150))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = superseded; then
@@ -109,7 +109,7 @@ wait_operation() {
   echo "operation $id did not complete" >&2
   return 1
 }
-inspect() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
+inspect() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
 wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
   while ((SECONDS < deadline)); do
@@ -125,16 +125,16 @@ update_config() {
   mv -- "$step_dir/host.next" "$step_dir/host.json"
 }
 start_daemon
-if rpc project.create '{"v":1,"key":"unconfigured-project","project":"policy-c"}' > "$step_dir/unconfigured.out" 2>&1; then
+if rpc project.create '{"key":"unconfigured-project","project":"policy-c"}' > "$step_dir/unconfigured.out" 2>&1; then
   echo 'unconfigured exact project accepted' >&2
   exit 1
 fi
-created_a=$(rpc project.create '{"v":1,"key":"policy-a-bootstrap","project":"policy-a"}')
+created_a=$(rpc project.create '{"key":"policy-a-bootstrap","project":"policy-a"}')
 op_a=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_a")
 uuid_a=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_a")
 wait_operation "$op_a"
 wait_ready "$uuid_a"
-created_b=$(rpc project.create '{"v":1,"key":"policy-b-bootstrap","project":"policy-b"}')
+created_b=$(rpc project.create '{"key":"policy-b-bootstrap","project":"policy-b"}')
 op_b=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$op_b"
@@ -158,7 +158,7 @@ inspect "$uuid_a" | jq -e --arg old "$old_sha" '
   .result.session | .policy_sha256==$old and .policy_condition=="outdated"' >/dev/null
 inspect "$uuid_b" | jq -e '.result.session.policy_condition=="current"' >/dev/null
 test "$(inc file pull "p-$uuid_a/etc/p/session.json" -)" = "$old_runtime_config"
-created_new=$(rpc session.create '{"v":1,"key":"policy-a-new","project":"policy-a","branch":"work","choice":"new","source":"refs/heads/main"}')
+created_new=$(rpc session.create '{"key":"policy-a-new","project":"policy-a","branch":"work","choice":"new","source":"refs/heads/main"}')
 new_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_new")
 uuid_new=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_new")
 wait_operation "$new_op"
@@ -169,7 +169,7 @@ inc file pull "p-$uuid_new/etc/p/session.json" - |
   jq -e '.command==["/run/current-system/sw/bin/bash","-l"]' >/dev/null
 test "$(inc exec "p-$uuid_new" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/git rev-parse HEAD)" = "$main_oid"
-rpc session.stop "$(jq -nc --arg uuid "$uuid_a" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$uuid_a" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 stop_daemon
 update_config 'del(.runtime.project_policies["policy-a"])'
@@ -177,7 +177,7 @@ start_daemon
 inspect "$uuid_a" | jq -e '.result.session.policy_condition=="invalid"' >/dev/null
 inspect "$uuid_new" | jq -e '.result.session.policy_condition=="invalid"' >/dev/null
 inspect "$uuid_b" | jq -e '.result.session.policy_condition=="current"' >/dev/null
-if rpc session.start "$(jq -nc --arg uuid "$uuid_a" '{v:1,uuid:$uuid}')" > "$step_dir/invalid-start.out" 2>&1; then
+if rpc session.start "$(jq -nc --arg uuid "$uuid_a" '{uuid:$uuid}')" > "$step_dir/invalid-start.out" 2>&1; then
   echo 'Start accepted missing trusted project policy' >&2
   exit 1
 fi

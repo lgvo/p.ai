@@ -63,8 +63,9 @@ control-plane network.
 The daemon exposes newline-delimited JSON-RPC 2.0 over a Unix socket. One line
 is one request, response, or notification. Long operations return an operation
 ID and publish phase updates; arbitrary stdout is never multiplexed into JSON.
-The [local control API reference](control-api.md) fixes the currently
-implemented v1 request, response, method, error, and host configuration schemas.
+The [local control API reference](control-api.md) fixes the current control
+protocol, `p.control/v2`, which each connection agrees with `system.hello`, and
+its request, response, method, error, and host configuration schemas.
 
 ### Host RPC audience
 

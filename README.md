@@ -567,8 +567,8 @@ After applying your NixOS configuration, use the service account for CLI calls:
 ```sh
 sudo systemctl start p.service
 sudo --preserve-env=P_SOCKET -u p p api system.health
-sudo --preserve-env=P_SOCKET -u p p api system.capabilities
-sudo --preserve-env=P_SOCKET -u p p api project.list '{"v":1,"limit":20}'
+sudo --preserve-env=P_SOCKET -u p p api system.hello
+sudo --preserve-env=P_SOCKET -u p p api project.list '{"limit":20}'
 sudo journalctl -u p.service -n 30 --no-pager
 ```
 

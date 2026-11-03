@@ -24,7 +24,7 @@ spec.loader.exec_module(observer)
 # An explicit contract coverage gate: a removed UI request fails a test even
 # if a recognisable heading still appears. New TUI methods must join this set.
 REQUIRED_METHODS = {
-    "system.capabilities", "project.list", "session.list", "operation.list",
+    "system.hello", "project.list", "session.list", "operation.list",
     "project.branches", "project.retained_branches", "origin.refresh", "origin.sources",
     "project.create", "session.create", "session.inspect", "session.start", "session.stop",
     "session.rename", "session.removal.preview",
@@ -97,14 +97,17 @@ class MockTUITests(unittest.TestCase):
         self.tmp.cleanup()
 
     def rpc(self, rpc_method, **params):
+        # A connection agrees the protocol with system.hello before its request.
         with socket.socket(socket.AF_UNIX) as client:
             client.settimeout(5)
             client.connect(self.sock)
-            client.sendall(json.dumps({"jsonrpc": "2.0", "id": 1, "method": rpc_method,
-                                       "params": {"v": 1, **params}}).encode() + b"\n")
             with client.makefile("rb") as stream:
-                reply = json.loads(stream.readline())
-        self.assertNotIn("error", reply, reply)
+                for request_id, method, body in ((0, "system.hello", {"protocol": "p.control/v2"}),
+                                                 (1, rpc_method, params)):
+                    client.sendall(json.dumps({"jsonrpc": "2.0", "id": request_id, "method": method,
+                                               "params": body}).encode() + b"\n")
+                    reply = json.loads(stream.readline())
+                    self.assertNotIn("error", reply, reply)
         return reply["result"]
 
     def screen(self):
@@ -391,7 +394,7 @@ class MockTUITests(unittest.TestCase):
                 else:
                     self.assertIn("Delete removes this branch from P's repository", self.screen())
                 previews = [c for c in self.rpc("mock.inspect")["calls"] if c["method"] == "session.removal.preview"]
-                self.assertEqual(previews[-1]["params"], {"v": 1, "uuid": sid, "kind": kind})
+                self.assertEqual(previews[-1]["params"], {"uuid": sid, "kind": kind})
                 self.key("Ggg")
                 self.key("n", "Enter open")
                 self.assertIn(sid, self.rpc("mock.inspect")["sessions"])
@@ -513,10 +516,14 @@ class MockTUITests(unittest.TestCase):
 
     def test_zz_all_tui_rpc_actions_covered(self):
         # Fail when production starts issuing an unrepresented socket method.
-        source = "\n".join((ROOT / "internal" / "tui" / file).read_text()
-                           for file in ("model.go", "workflows.go", "client.go"))
-        production = set(re.findall(r'"((?:system|project|session|origin|operation|workspace)\.[a-z_.]+)"', source))
-        production.discard("session.service")  # HasPrefix classification, not an RPC
+        # The TUI calls methods through internal/api's typed values, such as
+        # api.SessionList; map each one it names to its method name.
+        names = dict(re.findall(r'^\s*(\w+)\s*=\s*Method\[[^\]]*\]\{"([a-z_.]+)"\}',
+                                (ROOT / "internal" / "api" / "method.go").read_text(), re.M))
+        source = "\n".join(path.read_text() for path in (ROOT / "internal" / "tui").glob("*.go")
+                           if not path.name.endswith("_test.go"))
+        production = {names[name] for name in re.findall(r'\bapi\.(\w+)', source) if name in names}
+        self.assertIn("session.list", production, "The method scan no longer finds the TUI's calls")
         self.assertFalse(production - REQUIRED_METHODS, "Update the action matrix for new TUI methods: " + str(production - REQUIRED_METHODS))
         self.assertFalse(REQUIRED_METHODS - self.methods, "Missing socket coverage: " + str(REQUIRED_METHODS - self.methods))
 

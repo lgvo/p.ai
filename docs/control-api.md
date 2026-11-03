@@ -1,7 +1,9 @@
-# Local control API v1 foundation
+# Local control API
 
 This reference specifies the implemented host control connection and private
-per-session RPC methods.
+per-session RPC methods. The host connection speaks the control protocol
+`p.control/v2`, which each connection agrees once with
+[`system.hello`](#connection-agreement).
 [Communication boundaries](communication-boundaries.md#control-rpc) owns the
 audience and channel boundary. Runtime configuration enables the creation,
 inspection, Start, Stop, and attachment subset described below.
@@ -37,7 +39,7 @@ capability, WASI command runtime, and exact `git.project` grant. The approved
 package digest is checked during loading and again at each invocation. Changes
 to the activation file take effect after daemon restart. `listen` is a numeric
 loopback TCP address with an explicit port; port `0` asks the OS for a free
-loopback port and the actual endpoint appears in `system.capabilities`.
+loopback port and `system.inspect` reports the actual endpoint.
 
 The state directory holds persistent `git_server_key` and `git_client_key`
 Ed25519 private files at mode `0600`. The daemon registers the latter as its
@@ -236,18 +238,29 @@ connection are admitted. Requests have a 30-second deadline. The daemon
 closes idle connections after two minutes and closes active connections on
 shutdown.
 
-System methods take exactly `{"v":1}` as `params`. Read-only project methods
-take the bounded parameters below. Requests need a
+Every request carries a `params` object. Each method has one request type and
+one result type in `internal/api`: `api.Methods()` in
+`internal/api/method.go` lists every method with both types, and each request
+type's `Validate` in `internal/api/requests.go` states that method's bounds,
+even where two methods take the same fields. The daemon decodes `params`
+strictly into the method's request type and then runs `Validate`; an unknown
+or duplicate field or a value out of bounds answers `invalid_params`. No
+request or result carries a version, so a `v` field is an unknown field.
+`system.health` and `system.inspect` take `{}`; the other methods take the
+parameters below. Requests need a
 string or integer `id`; duplicate in-flight IDs on one connection are refused.
 An absent `id` is a notification, which receives no response. One response is
 sent for each valid request, with the same ID, `jsonrpc:"2.0"`, and exactly one
 of `result` or `error`. Responses may arrive out of order. JSON object keys
 must be unique at every depth.
 
-The CLI `p api [socket-path] <method> [json-params]` sends one request with
-`{"v":1}` by default and writes the full JSON response envelope to stdout.
-An RPC error exits nonzero. A connection failure writes a JSON object with
-`error.kind:"transport"` and exits nonzero.
+The CLI `p api [socket-path] <method> [json-params]` connects, sends
+`system.hello` itself, then sends one request and writes that request's full
+JSON response envelope to stdout; the envelope's `id` is `2`. `json-params`
+defaults to `{}`, or to `{"protocol":"p.control/v2"}` for `system.hello`, so
+`p api system.hello` prints the daemon's hello result. An RPC error exits
+nonzero. A connection failure, including a daemon that refuses `p api`'s own
+hello, writes a JSON object with `error.kind:"transport"` and exits nonzero.
 
 The host client commands `p api`, `p tui`, and `p attach` select their control
 socket in this order: an explicit positional socket argument, a nonempty
@@ -259,6 +272,61 @@ owner-run daemon in another state directory, export
 commands. The NixOS service module configures this variable for its declared
 state directory. Socket selection does not change the same-owner access rule
 or the daemon's private socket permissions.
+
+## Connection agreement
+
+The first request on every host control connection must be `system.hello`.
+It agrees the control protocol for the rest of the connection and reports what
+this daemon serves:
+
+```text
+→ {"jsonrpc":"2.0","id":1,"method":"system.hello","params":{"protocol":"p.control/v2"}}
+← {"jsonrpc":"2.0","id":1,"result":{"protocol":"p.control/v2","build_version":"development","instance_id":"<instance UUID>","capabilities":["git","runtime","services"]}}
+```
+
+| Result field | Meaning |
+|---|---|
+| `protocol` | The agreed protocol, `p.control/v2`. |
+| `build_version` | The daemon's build version; `development` unless set at link time. |
+| `instance_id` | The instance's durable UUID. |
+| `capabilities` | The parts of the daemon that host configuration enabled, in the order of the table below. Without Git it is `[]`. |
+
+| Capability | Present when | Methods it serves |
+|---|---|---|
+| `git` | The host configuration has a `git` object | `project.list`, `project.branches`, `project.retained_branches` and the six `origin.` methods |
+| `runtime` | The host configuration also has a `runtime` object, which requires `git` | Project and session creation; session inspection, listing, Start, Stop, attachment, removal and rename; operations; failed-creation replacement and cleanup; retained-branch rename and deletion; project deletion; the attachment helper's methods |
+| `services` | `runtime` is present; the daemon always serves project services with a runtime | `session.services`, `session.service.action` and `session.service.journal` |
+
+Every daemon serves `system.hello`, `system.health`, `system.inspect` and
+`rpc.cancel`. The protocol, not the configuration, fixes which methods exist:
+`api.Methods()` names the capability that serves each one. A method whose
+capability is not configured answers `unavailable`/`-32004` whatever its
+params, with a message naming the capability, such as `runtime capability is
+not configured`. A name outside the protocol answers `method_not_found`.
+
+The connection follows these rules:
+
+- **Hello first.** Until a hello succeeds, any other request answers
+  `invalid_request` with reason `hello_required`:
+  `{"code":-32600,"kind":"invalid_request","message":"send system.hello first","data":{"reason":"hello_required"}}`.
+  A notification before a hello, including a hello without an `id`, is
+  ignored. Errors in the line or its envelope (framing, parse, the `jsonrpc`
+  version, the request ID, missing `params`) are answered with or without a
+  hello, because the daemon checks them first.
+- **One protocol.** A hello naming another protocol answers
+  `unsupported_version` with reason `protocol` and `supported`, the protocols
+  the daemon speaks:
+  `{"code":-32002,"kind":"unsupported_version","message":"protocol is not supported","data":{"reason":"protocol","supported":["p.control/v2"]}}`.
+  A hello whose params are not exactly `{"protocol":"…"}` with a 1 to 64 byte
+  value, such as `{}` or `{"v":1}`, answers `invalid_params`.
+- **Pipelining.** The daemon answers the hello before it reads the next line,
+  so a client may write the hello and its first request together.
+- **Repeats.** A repeated hello on the same connection is answered again.
+
+The TUI and `p attach` connect with `api.Dial`, which sends the hello; the
+attachment helper sends its own hello on its lease connection. These clients
+call each method through `api.Do`, which runs the request's `Validate` before
+sending. Only `p api` sends untyped params, through `api.CallRaw`.
 
 ## Private session RPC
 
@@ -278,6 +346,9 @@ limits. Recreating a session listener preserves its UUID admission limit.
 Object keys must be unique, and methods reject unknown parameter fields.
 Requests use a string
 or integer `id`; notifications omit `id` and receive no response.
+Session RPC has no `system.hello`: it keeps its per-request version, and every
+request and result carries `"v":1`. Whether it adopts the
+[connection agreement](#connection-agreement) is left to the plugin contract.
 
 | Method | Params | Result |
 |---|---|---|
@@ -303,45 +374,46 @@ owns when an accepted report replaces or clears the durable value.
 
 ## Implemented methods
 
-| Method | v1 result fields | Meaning |
+| Method | Result fields | Meaning |
 |---|---|---|
-| `system.hello` | `v`, `protocol`, `build_version`, `instance_id` | Durable instance UUID and protocol `p.control/v1`; build version is `development` unless set at link time. |
-| `system.health` | `v`, `control_state` | `ready` means the SQLite control store responded. It makes no Git, Incus, systemd, or plugin readiness claim. |
-| `system.capabilities` | `v`, `available`, `lifecycle`, optional `git` | Lists only implemented methods; lifecycle is `unavailable` without runtime configuration and `partial` with it. Configured `git` contains actual listener endpoint, SSH URL template, server public key, known-hosts entry, host client public key/key path, and selected plugin ID/digest. |
-| `system.inspect` | `v`, `projects`, `sessions`, `operations`, optional `git` | Counts persisted control records and, when configured, reports the same Git connection details. Counts are not reconciled runtime or Git status. |
+| `system.hello` | `protocol`, `build_version`, `instance_id`, `capabilities` | Agrees protocol `p.control/v2` for the connection and reports the configured capabilities; see [connection agreement](#connection-agreement). |
+| `system.health` | `control_state` | `ready` means the SQLite control store responded. It makes no Git, Incus, systemd, or plugin readiness claim. |
+| `system.inspect` | `projects`, `sessions`, `operations`, optional `git` | Counts persisted control records. Counts are not reconciled runtime or Git status. With Git configured, `git` contains the actual listener endpoint, SSH URL template, server public key, known-hosts entry, host client public key and key path, and selected plugin ID and digest. |
 
 With trusted Git configuration, two more read-only methods are available:
 
 | Method | Params | Result | Meaning |
 |---|---|---|---|
-| `project.list` | `{"v":1,"limit":1..100,"after":"optional/project"}` | `v`, `projects` (`path`, `registry_state`), `next` | Lists registered projects in bytewise path order. `next` is empty at the end. |
-| `project.branches` | `{"v":1,"project":"project/path","limit":1..8,"after":"optional/refs/heads/name"}` | `v`, `project`, `refs` (`ref`, `oid`), `next` | Lists user-visible branches of an active registered project through the selected source-Git package and real Git. `next` is empty at the end. |
+| `project.list` | `{"limit":1..100,"after":"optional/project"}` | `projects` (`path`, `registry_state`), `next` | Lists registered projects in bytewise path order. `next` is empty at the end. |
+| `project.branches` | `{"project":"project/path","limit":1..8,"after":"optional/refs/heads/name"}` | `project`, `refs` (`ref`, `oid`), `next` | Lists user-visible branches of an active registered project through the selected source-Git package and real Git. `next` is empty at the end. |
 
-`rpc.cancel` takes `{"v":1,"id":<request-id>}`. It cancels a pending request
+`rpc.cancel` takes `{"id":<request-id>}`. It cancels a pending request
 on the same connection. As a notification it has no reply. As a request it
-returns `{"v":1,"cancel_requested":true}`; this only acknowledges the
+returns `{"cancel_requested":true}`; this only acknowledges the
 request to cancel, including when the target already finished. A cancelled
 target replies with `error.kind:"cancelled"` if it was still running.
 
 With trusted Git configuration, active projects also support explicit origin
-association and observation. These methods are available even when runtime
-configuration is absent. Every request uses version 1 and rejects unknown or
-duplicate fields.
+association and observation. The origin methods and
+`project.retained_branches` need only the `git` capability, so they are
+available even when runtime configuration is absent. The retained-branch
+rename and deletion and the project deletion methods in this table need the
+`runtime` capability. Every request rejects unknown or duplicate fields.
 
 | Method | Params | Result |
 |---|---|---|
-| `origin.change` | `{"v":1,"key":"idempotency-key","project":"team/app","kind":"set","expected_url":"","url":"ssh://host/repo"}`; use `kind:"remove"`, the current `expected_url`, and omit `url` to remove | `v`, `origin` state. A set contacts the proposed origin before commit; remove makes the project local-only. The old URL is an exact compare-and-swap precondition. |
-| `origin.refresh` | `{"v":1,"project":"team/app"}` | `v`, current `origin` state after contact. Failed contact returns `status:"unknown"` and retains the prior completed observation as stale presentation data. |
-| `origin.inspect` | Same as refresh | `v`, current `origin` state without contact. |
-| `origin.sources` | `{"v":1,"project":"team/app","after":"optional-ref","limit":1..16}` | `v`, `project`, `origin_url`, `status`, `observation_status`, `observed_at`, `refs` (`ref`, `oid`, `commit_oid`), `next`. Refs are bytewise ordered and paged; `next` is empty at the end. |
-| `origin.publication.preview` | `{"v":1,"project":"team/app","expected_origin_url":"ssh://host/repo","kind":"session","source":"session-UUID","source_oid":"<exact P tip>","destination_ref":"refs/heads/main"}`; `kind:"retained"` uses a P branch name in `source` | `v`, `preview` with project, origin URL, source kind/identity/ref/OID, destination ref and observed OID or absence, relation, and `workspace_status:"unknown"`. This contacts the origin afresh. |
-| `origin.publish` | Same source fields as preview, plus `"key":"idempotency-key"` | `v`, `publication` with the preview and `status` (`created`, `advanced`, `satisfied`, `refused`, or `outcome_unknown`). This performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. |
-| `project.retained_branches` | `{"v":1,"project":"team/app","after":"optional-full-P-head-ref","limit":1..8}` | `v`, `branches` with `branch`, full `ref`, and tip `oid`, plus `next`. The cursor traverses P Git refs, so a page may be empty while `next` is nonempty if its refs are assigned to live sessions. |
-| `project.retained.rename` | `{"v":1,"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `v`, `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key conflict. |
-| `project.retained.delete.preview` | `{"v":1,"project":"team/app","branch":"saved"}` | `v`, `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
-| `project.retained.delete.confirm` | `{"v":1,"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `v`, `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs conflict. |
-| `project.delete.preview` | `{"v":1,"project":"team/app","acknowledge_missing":[]}` | `v`, aggregate `preview` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, exact credentials/repository/cache identities, preserved external mounts, warnings, token and expiry. It contacts no origin. |
-| `project.delete.confirm` | `{"v":1,"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | `v`, durable `operation` (`kind:"project.delete"`), returned at once. A fresh preview must match the reviewed one before atomic authority closure. Completed exact confirmation replays without deleting again. |
+| `origin.change` | `{"key":"idempotency-key","project":"team/app","kind":"set","expected_url":"","url":"ssh://host/repo"}`; use `kind:"remove"`, the current `expected_url`, and omit `url` to remove | `origin` state. A set contacts the proposed origin before commit; remove makes the project local-only. The old URL is an exact compare-and-swap precondition. |
+| `origin.refresh` | `{"project":"team/app"}` | current `origin` state after contact. Failed contact returns `status:"unknown"` and retains the prior completed observation as stale presentation data. |
+| `origin.inspect` | Same as refresh | current `origin` state without contact. |
+| `origin.sources` | `{"project":"team/app","after":"optional-ref","limit":1..16}` | `project`, `origin_url`, `status`, `observation_status`, `observed_at`, `refs` (`ref`, `oid`, `commit_oid`), `next`. Refs are bytewise ordered and paged; `next` is empty at the end. |
+| `origin.publication.preview` | `{"project":"team/app","expected_origin_url":"ssh://host/repo","kind":"session","source":"session-UUID","source_oid":"<exact P tip>","destination_ref":"refs/heads/main"}`; `kind:"retained"` uses a P branch name in `source` | `preview` with project, origin URL, source kind/identity/ref/OID, destination ref and observed OID or absence, relation, and `workspace_status:"unknown"`. This contacts the origin afresh. |
+| `origin.publish` | Same source fields as preview, plus `"key":"idempotency-key"` | `publication` with the preview and `status` (`created`, `advanced`, `satisfied`, `refused`, or `outcome_unknown`). This performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. |
+| `project.retained_branches` | `{"project":"team/app","after":"optional-full-P-head-ref","limit":1..8}` | `branches` with `branch`, full `ref`, and tip `oid`, plus `next`. The cursor traverses P Git refs, so a page may be empty while `next` is nonempty if its refs are assigned to live sessions. |
+| `project.retained.rename` | `{"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key conflict. |
+| `project.retained.delete.preview` | `{"project":"team/app","branch":"saved"}` | `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
+| `project.retained.delete.confirm` | `{"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs conflict. |
+| `project.delete.preview` | `{"project":"team/app","acknowledge_missing":[]}` | aggregate `preview` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, exact credentials/repository/cache identities, preserved external mounts, warnings, token and expiry. It contacts no origin. |
+| `project.delete.confirm` | `{"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | durable `operation` (`kind:"project.delete"`), returned at once. A fresh preview must match the reviewed one before atomic authority closure. Completed exact confirmation replays without deleting again. |
 
 An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
 or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
@@ -400,20 +472,20 @@ failed-create cleanup followed by a separate Create.
 
 | Method | Params | Result |
 |---|---|---|
-| `project.create` | `{"v":1,"key":"idempotency-key","project":"team/app"}`; optionally include `"url":"ssh://host/repo"` for origin mode | `v`, `operation`; blank mode reserves unborn `main`. Origin mode contacts the URL before committing the project and observation; an empty origin also reserves unborn `main`. |
-| `session.create` | `{"v":1,"key":"idempotency-key","project":"team/app","branch":"work","choice":"existing"}` or `choice:"new"` with `source:"refs/heads/main"` or a committed object ID; origin mode uses `choice:"new"`, `origin_ref:"refs/heads/main"` or a tag, and `expected_commit_oid:"<observed commit>"` with no `source` | `v`, `operation`; origin mode requires a fresh observation and fetch, then captures the exact commit and origin identity for Retry. Blank session creation is unavailable. |
-| `session.create.replace.preview` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","project":"team/app","branch":"work","choice":"existing"}`; a failed local new-branch creation also permits `choice:"new"` with a local `source` branch or committed OID and an absent target | `v`, `preview` with old immutable request/operation/UUID/source/policy/image, `old_branch` and `new_branch` observations, new request/source/policy/image/plugin selection, provisional resource facts, `eligible`, and `unsafe_reasons`. Eligible previews also return `confirmation_token` and `expires_at`. |
-| `session.create.replace.confirm` | `{"v":1,"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | `v`, new `session.create` operation; an exact accepted key/token replays after restart. |
-| `session.create.cleanup.preview` | `{"v":1,"uuid":"blocked-session-UUID"}` | `v`, `preview` with the old immutable request and evidence digest, assigned ref, image, tracked builder state, provisional resources, `external_mounts:"preserved"`, `shared_images:"preserved"`, eligibility and reasons; an eligible preview includes a two-minute confirmation token. |
-| `session.create.cleanup.confirm` | `{"v":1,"uuid":"blocked-session-UUID","key":"cleanup-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | `v`, one `session.create.cleanup` operation on the old UUID; exact accepted key/token replay works during cleanup and after restart. |
-| `operation.inspect` | `{"v":1,"id":"operation-UUID"}` | `v`, `operation` with status, phase, bounded diagnostic, and immutable evidence. |
-| `operation.retry` | Same as inspect | `v`, `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
-| `operation.list` | `{"v":1,"limit":1..20,"after":"optional-operation-UUID"}` | `v`, concise operation summaries (without request/evidence), `next` in bytewise ID order. |
-| `session.inspect` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
-| `session.list` | `{"v":1,"limit":1..8,"after":"optional-session-UUID"}` | `v`, `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
-| `session.start` | `{"v":1,"uuid":"session-UUID"}` | `v`, `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused as `busy` by that watcher. |
-| `session.stop` | Same as Start | `v`, `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments return `busy`. |
-| `session.attach` | Same as Start | `v`, `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
+| `project.create` | `{"key":"idempotency-key","project":"team/app"}`; optionally include `"url":"ssh://host/repo"` for origin mode | `operation`; blank mode reserves unborn `main`. Origin mode contacts the URL before committing the project and observation; an empty origin also reserves unborn `main`. |
+| `session.create` | `{"key":"idempotency-key","project":"team/app","branch":"work","choice":"existing"}` or `choice:"new"` with `source:"refs/heads/main"` or a committed object ID; origin mode uses `choice:"new"`, `origin_ref:"refs/heads/main"` or a tag, and `expected_commit_oid:"<observed commit>"` with no `source` | `operation`; origin mode requires a fresh observation and fetch, then captures the exact commit and origin identity for Retry. Blank session creation is unavailable. |
+| `session.create.replace.preview` | `{"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","project":"team/app","branch":"work","choice":"existing"}`; a failed local new-branch creation also permits `choice:"new"` with a local `source` branch or committed OID and an absent target | `preview` with old immutable request/operation/UUID/source/policy/image, `old_branch` and `new_branch` observations, new request/source/policy/image/plugin selection, provisional resource facts, `eligible`, and `unsafe_reasons`. Eligible previews also return `confirmation_token` and `expires_at`. |
+| `session.create.replace.confirm` | `{"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | new `session.create` operation; an exact accepted key/token replays after restart. |
+| `session.create.cleanup.preview` | `{"uuid":"blocked-session-UUID"}` | `preview` with the old immutable request and evidence digest, assigned ref, image, tracked builder state, provisional resources, `external_mounts:"preserved"`, `shared_images:"preserved"`, eligibility and reasons; an eligible preview includes a two-minute confirmation token. |
+| `session.create.cleanup.confirm` | `{"uuid":"blocked-session-UUID","key":"cleanup-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | one `session.create.cleanup` operation on the old UUID; exact accepted key/token replay works during cleanup and after restart. |
+| `operation.inspect` | `{"id":"operation-UUID"}` | `operation` with status, phase, bounded diagnostic, and immutable evidence. |
+| `operation.retry` | Same as inspect | `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
+| `operation.list` | `{"limit":1..20,"after":"optional-operation-UUID"}` | concise operation summaries (without request/evidence), `next` in bytewise ID order. |
+| `session.inspect` | `{"uuid":"session-UUID"}` | `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
+| `session.list` | `{"limit":1..8,"after":"optional-session-UUID"}` | `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
+| `session.start` | `{"uuid":"session-UUID"}` | `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused as `busy` by that watcher. |
+| `session.stop` | Same as Start | `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments return `busy`. |
+| `session.attach` | Same as Start | `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
 
 Session listing reads a complete registry page before inspecting its sessions.
 An inspection reporting a missing record is omitted only after confirming that
@@ -557,7 +629,7 @@ releases the assignment for a separate corrected `session.create` with a new
 key and UUID. The superseded original Create remains inspectable and exact
 replay cannot schedule its worker.
 
-`session.create.cleanup.preview` takes only `{"v":1,"uuid":"session-UUID"}`;
+`session.create.cleanup.preview` takes only `{"uuid":"session-UUID"}`;
 P selects the path from the creator's state. A creator blocked at an early
 phase takes the early path above. Any other creator takes the narrow stopped
 assembled path, which requires a blocked, committed, `assembly-ready` local
@@ -625,14 +697,15 @@ readiness is unresolved.
 
 ## Project services
 
-The production terminal browser adds these host-only methods. Each request uses
-`v:1` and a session `uuid`. Private session RPC does not expose them.
+The production terminal browser adds these host-only methods, served with the
+`services` capability. Each request takes a session `uuid`. Private session RPC
+does not expose them.
 
 | Method | Additional params | Result |
 |---|---|---|
-| `session.services` | None | `v`, `uuid`, `observed_at`, optional `services` array with `unit`, `description`, `active_state`, `sub_state`; an omitted array means no units observed. |
-| `session.service.action` | `unit`, `action:"start"`, `"stop"` or `"restart"` | `v`, `uuid`, `unit`, `observed_at`; inspect inventory for subsequent state. |
-| `session.service.journal` | `unit` | `v`, `uuid`, `unit`, optional `journal` (omitted when empty), optional `journal_truncated`, `observed_at`. |
+| `session.services` | None | `uuid`, `observed_at`, optional `services` array with `unit`, `description`, `active_state`, `sub_state`; an omitted array means no units observed. |
+| `session.service.action` | `unit`, `action:"start"`, `"stop"` or `"restart"` | `uuid`, `unit`, `observed_at`; inspect inventory for subsequent state. |
+| `session.service.journal` | `unit` | `uuid`, `unit`, optional `journal` (omitted when empty), optional `journal_truncated`, `observed_at`. |
 
 Only session-user `p-project-*.service` names are admitted. No host/system unit,
 P infrastructure unit, arbitrary command, credential path, journal path, native
@@ -670,7 +743,7 @@ passed focused tests, retained review, and selected VM30; see
 session or authorize removal by itself. Call it with:
 
 ```json
-{"v":1,"uuid":"session-UUID","kind":"discard"}
+{"uuid":"session-UUID","kind":"discard"}
 ```
 
 Use `kind:"delete"` to include branch-loss evidence. P does not inspect the
@@ -691,7 +764,7 @@ produces a refusal without a token or newly accepted action. The proof is
 repeated before the authority commit and final row removal, including after a
 present-runtime deletion.
 
-The result is `{"v":1,"preview":{...}}`. The preview identifies the session,
+The result is `{"preview":{...}}`. The preview identifies the session,
 project, assigned ref and tip, policy, runtime identity or missing state, a
 short-lived `confirmation_token`, and `expires_at`; the token expires after two
 minutes. A present runtime has `runtime.condition:"present"`, `incus_uuid`,
@@ -709,8 +782,8 @@ selected VM31 and Delete passed selected VM32, using dummy Codex credential
 files without authentication.
 
 `session.discard` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns `{"v":1,"operation":{...}}`. It accepts only a Discard preview.
+`{"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
+and returns `{"operation":{...}}`. It accepts only a Discard preview.
 Before the removal commit point, a changed assigned tip, a replaced container
 (changed Incus UUID or generation) or a reappearing missing runtime
 fails the operation at `stale`, releases its guard, and leaves the branch and
@@ -728,8 +801,8 @@ stop/delete stays guarded and blocked for investigation; P does not retry a
 name-targeted request against a possible replacement.
 
 `session.delete` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
-and returns `{"v":1,"operation":{...}}`. It accepts only a Delete preview.
+`{"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
+and returns `{"operation":{...}}`. It accepts only a Delete preview.
 The same pre-commit stale checks apply, and a changed `branch_loss` review is
 also stale. The exact runtime, endpoint, and key cleanup is the same. After
 runtime absence, it removes only the assigned P branch through an
@@ -739,8 +812,8 @@ uncertain branch effect stays guarded for investigation. The same key and
 request replay the durable operation.
 
 `session.rename` accepts
-`{"v":1,"key":"idempotency-key","uuid":"session-UUID","new_branch":"renamed","expected_old_tip":"<40-hex P commit>"}`
-and returns `{"v":1,"operation":{...}}`. The established session must be
+`{"key":"idempotency-key","uuid":"session-UUID","new_branch":"renamed","expected_old_tip":"<40-hex P commit>"}`
+and returns `{"operation":{...}}`. The established session must be
 stopped, with the exact nonempty assigned P tip, an ordinary local Git branch,
 and its exact stopped runtime; a session in any other status returns `busy`.
 The new branch must pass Git validation and be absent in P and the local
@@ -814,10 +887,16 @@ runtime WASI capability and native checks approve the fixed
 The CLI transfers the token to a separate temporary `p attach-helper` process
 through an inherited private socket; the token never enters argv.
 
-The daemon admits `attachment.claim` only from a Unix peer running the exact
+The helper opens its own connection and agrees the protocol with
+`system.hello` before claiming. The daemon admits `attachment.claim` only from
+a Unix peer running the exact
 same executable in its fixed helper mode. The dedicated connection can then
-call only `attachment.confirm` and `attachment.ping`; ordinary API callers
-cannot assert presence. Claim returns the native launch details privately.
+call only `attachment.confirm` and `attachment.ping`; any other method except
+`rpc.cancel`, including another hello, answers `busy`. Ordinary API callers
+cannot assert presence. Claim takes `{"token":"…"}` and returns the native
+launch details privately as `socket` and `spec`. `attachment.confirm` takes
+`{"operation":"/1.0/operations/<UUID>"}`, `attachment.ping` takes `{}`, and
+both return `{}`.
 Confirmation follows successful native PTY establishment, and repeats current
 ownership, readiness, and fixed asset checks. Tokens cannot be replayed or
 reconfirmed. The daemon permits at most eight pending/active attachments per
@@ -842,12 +921,26 @@ and unattended reduction remain owned by [session observability](session-observa
 
 ## Errors and current capability boundary
 
-Errors have `{ "code": integer, "kind": string, "message": string }`.
+Errors have `{ "code": integer, "kind": string, "message": string }` and an
+optional `data` object.
 Messages are bounded and contain no raw database diagnostics. The supported
 kind/code pairs are `parse_error`/`-32700`, `invalid_request`/`-32600`,
 `method_not_found`/`-32601`, `invalid_params`/`-32602`, `internal`/`-32603`,
 `cancelled`/`-32001`, `unsupported_version`/`-32002`, `busy`/`-32003`, and
 `unavailable`/`-32004`. Invalid request IDs are returned as JSON `null`.
+
+`data` is present when an error has a reason a client acts on. Its `reason`
+names that reason, and `supported` lists the protocols the daemon speaks.
+Two reasons exist, both from the
+[connection agreement](#connection-agreement):
+
+| `data.reason` | Error | Meaning |
+|---|---|---|
+| `hello_required` | `invalid_request`/`-32600` | The connection sent a request before a successful `system.hello`. |
+| `protocol` | `unsupported_version`/`-32002` | The hello named a protocol the daemon does not speak; `data.supported` lists the ones it does. |
+
+`unsupported_version` without `data` means the request's `jsonrpc` member is
+not `"2.0"`.
 
 A request whose handling fails unexpectedly, because the daemon's code panics,
 answers `internal`/`-32603`; a notification gets no response. The daemon logs
@@ -863,8 +956,9 @@ succeeds. The [runtime contract](runtime-isolation.md#incus-boundary)
 owns capacity accounting.
 
 Without trusted runtime configuration, lifecycle mutations and inspection
-remain unavailable. Other methods under `project.`, `session.`, `origin.`,
-`runtime.`, and `status.` still return `unavailable` unless listed above.
+remain unavailable: each method of the protocol whose capability is not
+configured answers `unavailable` naming that capability, and any other name
+answers `method_not_found`.
 P has no session repair methods; [session lifecycle](session-lifecycle.md#inconsistent-sessions)
 describes what to do instead. Branch/upstream mismatch correction is manual,
 with P rechecking on the next attempt. Abandonment and its associated

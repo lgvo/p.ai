@@ -422,9 +422,9 @@ First inspect the immutable failure and review the entire preview:
 ```sh
 socket=/path/to/state/control.sock
 old_uuid=OLD_SESSION_UUID
-p api "$socket" operation.inspect '{"v":1,"id":"OLD_CREATE_OPERATION_UUID"}'
+p api "$socket" operation.inspect '{"id":"OLD_CREATE_OPERATION_UUID"}'
 p api "$socket" session.create.cleanup.preview \
-  "$(jq -nc --arg uuid "$old_uuid" '{v:1,uuid:$uuid}')" > cleanup-preview.json
+  "$(jq -nc --arg uuid "$old_uuid" '{uuid:$uuid}')" > cleanup-preview.json
 jq '.result.preview' cleanup-preview.json
 ```
 
@@ -438,11 +438,11 @@ confirmation with a fresh cleanup key, then poll its returned operation ID:
 token=$(jq -er '.result.preview.confirmation_token' cleanup-preview.json)
 p api "$socket" session.create.cleanup.confirm \
   "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" \
-      '{v:1,uuid:$uuid,key:"reviewed-cleanup-1",confirmation_token:$token}')"
-p api "$socket" operation.inspect '{"v":1,"id":"CLEANUP_OPERATION_UUID"}'
+      '{uuid:$uuid,key:"reviewed-cleanup-1",confirmation_token:$token}')"
+p api "$socket" operation.inspect '{"id":"CLEANUP_OPERATION_UUID"}'
 # If accepted cleanup blocks, inspect its diagnostic, correct the observed
 # condition, and resume this same intent:
-p api "$socket" operation.retry '{"v":1,"id":"CLEANUP_OPERATION_UUID"}'
+p api "$socket" operation.retry '{"id":"CLEANUP_OPERATION_UUID"}'
 ```
 
 Unconsumed tokens expire after two minutes or daemon restart; obtain and review
@@ -471,7 +471,7 @@ then submit a new immutable request. For example, after updating `work`:
 
 ```sh
 p api "$socket" session.create \
-  '{"v":1,"key":"corrected-create-1","project":"team/app","branch":"work","choice":"existing"}'
+  '{"key":"corrected-create-1","project":"team/app","branch":"work","choice":"existing"}'
 ```
 
 This new request captures the current committed source and policy and receives

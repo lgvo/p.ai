@@ -53,7 +53,7 @@ on_error() {
       <<< "$preview" | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
-  timeout 5 p api "$socket" operation.list '{"v":1,"limit":20}' >&2 || true
+  timeout 5 p api "$socket" operation.list '{"limit":20}' >&2 || true
   tail -c 2048 "$step_dir/daemon.err" >&2 || true
 }
 trap cleanup EXIT
@@ -78,7 +78,7 @@ expect_error() {
     return 1
   fi
   if ! jq -e --arg kind "$kind" --argjson code "$code" \
-    '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+    '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
      .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
     <<< "$response" >/dev/null; then
     jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
@@ -92,9 +92,9 @@ expect_error() {
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
-inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{v:1,id:$id}')"; }
-inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
-branches() { rpc project.branches "$(jq -nc --arg project "$1" '{v:1,project:$project,limit:8}')"; }
+inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"; }
+inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
+branches() { rpc project.branches "$(jq -nc --arg project "$1" '{project:$project,limit:8}')"; }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+170))
   while ((SECONDS < deadline)); do
@@ -231,7 +231,7 @@ if test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify &&
  read -r uuid < "$fixture/cleanup-arm"
  # Read the standard public operation view while the worker is outside its
  # SQLite transaction. The pause requires an already durable cleanup phase.
- if "$p_binary" api "$fixture/state/control.sock" operation.list '{"v":1,"limit":20}' |  "$jq_binary" -e --arg uuid "$uuid" '.result.operations | any(.[];
+ if "$p_binary" api "$fixture/state/control.sock" operation.list '{"limit":20}' |  "$jq_binary" -e --arg uuid "$uuid" '.result.operations | any(.[];
   .kind=="session.create.cleanup" and .session_uuid==$uuid and .phase=="local-complete" and .status=="running")' >/dev/null; then
   : > "$fixture/cleanup-paused"
   for ((attempt=0; attempt<800; attempt++)); do
@@ -246,10 +246,8 @@ WRAPPER
 chmod 0700 "$step_dir/bin/git"
 printf 'release\n' > "$step_dir/release"
 start_daemon
-rpc system.capabilities | jq -e '.result.available |
-  index("session.create.replace.preview")!=null and index("session.create.replace.confirm")!=null and
-  index("session.create.cleanup.preview")!=null and index("session.create.cleanup.confirm")!=null' >/dev/null
-created=$(rpc project.create '{"v":1,"key":"project","project":"replacement"}')
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
+created=$(rpc project.create '{"key":"project","project":"replacement"}')
 sibling=$(session_uuid "$created")
 sessions+=("$sibling")
 release_on_running "$sibling" "$(operation_id "$created")"
@@ -271,7 +269,7 @@ exec_p "$sibling" /run/current-system/sw/bin/bash -c 'printf dummy-private > /ho
 preview_replace() { rpc session.create.replace.preview "$1"; }
 preview_params() {
   jq -nc --arg uuid "$old_uuid" --arg key "$1" --arg branch "$2" --arg choice "$3" --arg source "$4" \
-    '{v:1,old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
+    '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
 assert_old_effects_absent() {
@@ -290,7 +288,7 @@ blob=$("$host_git" -C "$repo" hash-object -w "$step_dir/flake.nix")
 tree=$(printf '100644 blob %s\tflake.nix\n' "$blob" | "$host_git" -C "$repo" mktree)
 bad_tip=$("$host_git" -C "$repo" commit-tree "$tree" -p "$first" -m invalid-immutable-Nix)
 "$host_git" -C "$repo" update-ref refs/heads/work "$bad_tip"
-old_request='{"v":1,"key":"bad-nix","project":"replacement","branch":"work","choice":"existing"}'
+old_request='{"key":"bad-nix","project":"replacement","branch":"work","choice":"existing"}'
 created=$(rpc session.create "$old_request")
 old_uuid=$(session_uuid "$created")
 old_id=$(operation_id "$created")
@@ -307,8 +305,8 @@ images_before=$(inc image list --format json | jq -c '[.[].fingerprint]|sort')
 preview=$(preview_replace "$(preview_params corrected work existing '')")
 jq -e '.result.preview | .eligible==false and (has("confirmation_token")|not)' <<< "$preview" >/dev/null
 "$host_git" -C "$repo" update-ref refs/heads/work "$bad_tip" "$second"
-cleanup_preview() { rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$old_uuid" '{v:1,uuid:$uuid}')"; }
-cleanup_params() { jq -nc --arg uuid "$old_uuid" --arg token "$1" '{v:1,uuid:$uuid,key:"cleanup-bad-nix",confirmation_token:$token}'; }
+cleanup_preview() { rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$old_uuid" '{uuid:$uuid}')"; }
+cleanup_params() { jq -nc --arg uuid "$old_uuid" --arg token "$1" '{uuid:$uuid,key:"cleanup-bad-nix",confirmation_token:$token}'; }
 preview=$(cleanup_preview)
 jq -e --arg oid "$bad_tip" '.result.preview | .eligible==true and
  .assigned_branch.oid==$oid and .environment_builder=={cycle:1,state:"absent"} and
@@ -361,7 +359,7 @@ if test "$old_replay_status" -ne 0; then
  exit 1
 fi
 test "$(operation_id "$old_replay")" = "$old_id"
-expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{v:1,id:$id}')"
+expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 stop_process "$daemon_pid"
 daemon_pid=
 # Inject a read-only unavailable native observation after the durable crash.
@@ -388,7 +386,7 @@ inc init "$fingerprint" "$competing" --profile default \
   --config security.nesting=false --config "user.p.session_uuid=$old_uuid"
 identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
 rm "$step_dir/cleanup-unavailable"
-rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{v:1,id:$id}')" | jq -e --arg id "$cleanup_id" '.result.operation.id==$id' >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{id:$id}')" | jq -e --arg id "$cleanup_id" '.result.operation.id==$id' >/dev/null
 blocked=$(wait_operation "$cleanup_id" blocked)
 jq -e '.result.operation | .phase=="local-complete" and .evidence.local_complete==true' <<< "$blocked" >/dev/null
 inspect_session "$old_uuid" | jq -e '.result.session.registry_state=="removing"' >/dev/null
@@ -397,15 +395,15 @@ test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uu
 test "$(operation_id "$(rpc session.create.cleanup.confirm "$(cleanup_params "$token")")")" = "$cleanup_id"
 inc delete "$competing"
 competing=
-rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{v:1,id:$id}')" | jq -e --arg id "$cleanup_id" '.result.operation.id==$id' >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{id:$id}')" | jq -e --arg id "$cleanup_id" '.result.operation.id==$id' >/dev/null
 wait_operation "$cleanup_id" completed >/dev/null
-rpc session.list '{"v":1,"limit":8}' | jq -e --arg uuid "$old_uuid" '.result.sessions|all(.[];.uuid!=$uuid)' >/dev/null
+rpc session.list '{"limit":8}' | jq -e --arg uuid "$old_uuid" '.result.sessions|all(.[];.uuid!=$uuid)' >/dev/null
 assert_old_effects_absent
 test "$("$host_git" -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
 test "$(inc image list --format json | jq -c '[.[].fingerprint]|sort')" = "$images_before"
 # The next Create is explicit, separate, and captures the corrected commit.
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$bad_tip"
-next_request='{"v":1,"key":"corrected-create","project":"replacement","branch":"work","choice":"existing"}'
+next_request='{"key":"corrected-create","project":"replacement","branch":"work","choice":"existing"}'
 created=$(rpc session.create "$next_request")
 new_uuid=$(session_uuid "$created")
 new_id=$(operation_id "$created")
@@ -430,5 +428,5 @@ test "$(exec_p "$sibling" cat /workspace/sibling-dirty)" = dirty
 test "$(exec_p "$sibling" cat /home/p/.config/p-fixture/credential)" = fixture-credential
 test "$("$host_git" -C "$repo" rev-parse refs/heads/main)" = "$first"
 test "$(inc image list --format json | jq -c '[.[].fingerprint]|sort')" = "$images_before"
-rpc session.list '{"v":1,"limit":8}' | jq -e '.result.sessions|length==2 and all(.[];.registry_state=="established")' >/dev/null
+rpc session.list '{"limit":8}' | jq -e '.result.sessions|length==2 and all(.[];.registry_state=="established")' >/dev/null
 echo P_FAILED_CREATE_CLEANUP_PASS

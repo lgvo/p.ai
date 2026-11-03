@@ -26,11 +26,11 @@ if ! test -e "$bundle"; then
 fi
 source_commit=$(git bundle list-heads "$bundle" HEAD | cut -d ' ' -f 1)
 test -n "$source_commit"
-created=$(rpc project.create "$(jq -nc --arg key "${P_LAB_KEY:-p-lab-repository-v1}" --arg project "$project" '{v:1,key:$key,project:$project}')")
+created=$(rpc project.create "$(jq -nc --arg key "${P_LAB_KEY:-p-lab-repository-v1}" --arg project "$project" '{key:$key,project:$project}')")
 operation=$(jq -er '.result.operation.id' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
 while :; do
-  observed=$(rpc operation.inspect "$(jq -nc --arg id "$operation" '{v:1,id:$id}')")
+  observed=$(rpc operation.inspect "$(jq -nc --arg id "$operation" '{id:$id}')")
   status=$(jq -er '.result.operation.status' <<< "$observed")
   if test "$status" = completed; then break; fi
   if test "$status" = blocked || test "$status" = failed || ((SECONDS >= deadline)); then
@@ -39,8 +39,8 @@ while :; do
   fi
   sleep 1
 done
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
-until rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+until rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null; do
   if ((SECONDS >= deadline)); then echo 'Repository session did not become ready.' >&2; exit 1; fi
   sleep 1

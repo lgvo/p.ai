@@ -19,7 +19,7 @@ func projectDeleteAbsent(r control.ProjectDeleteResource) bool {
 
 // Absence observed after an issued DELETE can recover only through the full
 // authoritative absence proof; a present issued target never grants redispatch.
-func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, review control.RemovalRuntimePreview, actual runtimeincus.Observation) string {
+func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, review api.RemovalRuntimePreview, actual runtimeincus.Observation) string {
 	if !actual.Exists {
 		return "prove-absence"
 	}

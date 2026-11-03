@@ -141,7 +141,7 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 	return f
 }
 func (f *nativeFixture) launch() api.AttachmentLaunch {
-	return api.AttachmentLaunch{V: 1, Socket: f.socket, Spec: plugin.AttachSpec{Project: "p-test", Instance: testInstance, Argv: []string{"/usr/libexec/p/attach"}}}
+	return api.AttachmentLaunch{Socket: f.socket, Spec: plugin.AttachSpec{Project: "p-test", Instance: testInstance, Argv: []string{"/usr/libexec/p/attach"}}}
 }
 func await(t *testing.T, ch <-chan struct{}, name string) {
 	t.Helper()
@@ -222,8 +222,13 @@ func newLeaseFixture(t *testing.T, launch api.AttachmentLaunch, gates ...<-chan 
 			if json.Unmarshal(reader.Bytes(), &req) != nil {
 				return
 			}
-			var result any = map[string]int{"v": 1}
+			var result any = api.AttachmentResult{}
 			switch req.Method {
+			case "system.hello":
+				if req.Params["protocol"] != api.Protocol {
+					return
+				}
+				result = api.HelloResult{Protocol: api.Protocol, Capabilities: []api.Capability{}}
 			case "attachment.claim":
 				if req.Params["token"] != strings.Repeat("a", 64) {
 					return
@@ -240,7 +245,12 @@ func newLeaseFixture(t *testing.T, launch api.AttachmentLaunch, gates ...<-chan 
 			default:
 				return
 			}
-			if json.NewEncoder(conn).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result}) != nil {
+			reply := struct {
+				JSONRPC string `json:"jsonrpc"`
+				ID      int    `json:"id"`
+				Result  any    `json:"result"`
+			}{"2.0", req.ID, result}
+			if json.NewEncoder(conn).Encode(reply) != nil {
 				return
 			}
 		}
@@ -340,9 +350,15 @@ func TestLeaseReaderDetectsIdleEOF(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		c, e := listener.Accept()
-		if e == nil {
-			c.Close()
+		if e != nil {
+			return
 		}
+		// Agree the protocol, then go idle and close.
+		hello := bufio.NewScanner(c)
+		if hello.Scan() {
+			c.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocol":"` + api.Protocol + `","build_version":"","instance_id":"","capabilities":[]}}` + "\n"))
+		}
+		c.Close()
 	}()
 	rpc, err := dialLease(context.Background(), listener.Addr().String())
 	if err != nil {

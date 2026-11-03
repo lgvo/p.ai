@@ -1,45 +1,74 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
-func callFixture(t *testing.T, f *fixture, method string, p object) (json.RawMessage, *attachmentLease) {
-	t.Helper()
-	p["v"] = 1
-	raw, _ := json.Marshal(p)
-	lease := &attachmentLease{}
-	result, err := f.handle(context.Background(), method, raw, lease)
+// The tests call one connection's handler as ServeConn does once the
+// connection agreed the protocol, with params as a client sends them.
+
+// send calls method with raw JSON params.
+func send(ctx context.Context, h control.Handler, method, params string) (json.RawMessage, *api.RPCError) {
+	result, err := h(ctx, method, json.RawMessage(params))
 	if err != nil {
-		t.Fatalf("%s: %+v", method, err)
+		return nil, err
 	}
-	return result.(json.RawMessage), lease
+	return result.(json.RawMessage), nil
 }
+
+// do calls m with req and decodes its result as strictly as a client does.
+func do[Req api.Request, Res any](t *testing.T, h control.Handler, m api.Method[Req, Res], req Req) Res {
+	t.Helper()
+	params, _ := json.Marshal(req)
+	raw, err := send(context.Background(), h, m.Name, string(params))
+	if err != nil {
+		t.Fatalf("%s: %+v", m.Name, err)
+	}
+	var result Res
+	if err := strictjson.Decode(raw, &result); err != nil {
+		t.Fatalf("%s result %s: %v", m.Name, raw, err)
+	}
+	return result
+}
+
+// refusal calls m with req and returns the error it answers, nil for a
+// result.
+func refusal[Req api.Request, Res any](h control.Handler, m api.Method[Req, Res], req Req) *api.RPCError {
+	params, _ := json.Marshal(req)
+	_, err := send(context.Background(), h, m.Name, string(params))
+	return err
+}
+
+func connect(f *fixture) control.Handler { return f.handler(&connection{}) }
+
+func sessionID(f *fixture, project, branch string) string {
+	for id, s := range f.sessions {
+		if s.Project == project && s.Branch == branch {
+			return id
+		}
+	}
+	return ""
+}
+
 func TestFixtureInventoryUsesUniqueBoundedPagesAndClosedParams(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
+	h := connect(f)
 	seen := map[string]bool{}
 	after := ""
 	pages := 0
 	for {
-		raw, _ := callFixture(t, f, "session.list", object{"limit": 8, "after": after})
-		var page struct {
-			Sessions []struct {
-				UUID string `json:"uuid"`
-			} `json:"sessions"`
-			Next string `json:"next"`
-		}
-		if err := json.Unmarshal(raw, &page); err != nil {
-			t.Fatal(err)
-		}
+		page := do(t, h, api.SessionList, api.SessionListRequest{Limit: 8, After: after})
 		if len(page.Sessions) > 8 {
 			t.Fatal("unbounded page")
 		}
@@ -61,90 +90,111 @@ func TestFixtureInventoryUsesUniqueBoundedPagesAndClosedParams(t *testing.T) {
 	if len(seen) != 120 || pages != 15 {
 		t.Fatalf("inventory=%d pages=%d", len(seen), pages)
 	}
-	for _, raw := range []string{`{"v":1,"limit":8,"aftr":""}`, `{"v":1,"limit":"8"}`, `{"v":1,"v":1}`, `{"v":2}`} {
-		_, err := f.handle(context.Background(), "session.list", json.RawMessage(raw), &attachmentLease{})
-		if err == nil {
-			t.Fatalf("accepted invalid request %s", raw)
+	for _, raw := range []string{`{"limit":8,"aftr":""}`, `{"limit":"8"}`, `{"limit":8,"limit":8}`, `{"v":1,"limit":8}`, `{"limit":9}`} {
+		if _, err := send(context.Background(), h, "session.list", raw); err == nil || err.Kind != "invalid_params" {
+			t.Fatalf("invalid request %s: %+v", raw, err)
 		}
 	}
 }
-func TestFixtureCreationIdempotencyAndSourceFreshness(t *testing.T) {
-	f := newFixture(t.TempDir(), "small")
-	p := object{"key": "create", "project": "forge", "branch": "feat/new", "choice": "new", "source": tip}
-	first, _ := callFixture(t, f, "session.create", p)
-	second, _ := callFixture(t, f, "session.create", p)
-	if string(first) != string(second) || len(f.sessions) != 5 {
-		t.Fatal("creation replay duplicated intent")
+
+func TestFixtureRetainedBranchesPageByFullRef(t *testing.T) {
+	f := newFixture(t.TempDir(), "portfolio")
+	h := connect(f)
+	branches := []string{}
+	after := ""
+	for pages := 0; ; pages++ {
+		if pages == 8 {
+			t.Fatal("retained branch pages do not end")
+		}
+		page := do(t, h, api.ProjectRetainedBranches, api.ProjectRetainedBranchesRequest{Project: "forge", Limit: 8, After: after})
+		for _, b := range page.Branches {
+			if b.Ref != "refs/heads/"+b.Branch || b.OID != tip {
+				t.Fatalf("retained branch %+v", b)
+			}
+			branches = append(branches, b.Branch)
+		}
+		if page.Next == "" {
+			break
+		}
+		// The cursor is a full ref, which the request's Validate requires.
+		after = page.Next
 	}
-	p = object{"v": 1, "key": "stale", "project": "forge", "branch": "feat/stale", "choice": "new", "origin_ref": "refs/heads/main", "expected_commit_oid": tip, "expected_origin_url": "https://wrong.invalid"}
-	raw, _ := json.Marshal(p)
-	_, err := f.handle(context.Background(), "session.create", raw, &attachmentLease{})
-	if err == nil || len(f.sessions) != 5 {
-		t.Fatal("stale origin accepted")
+	if len(branches) != 32 || branches[0] != "retained/00" || branches[31] != "retained/31" {
+		t.Fatalf("retained branches %v", branches)
+	}
+	if _, err := send(context.Background(), h, "project.retained_branches", `{"project":"forge","limit":8,"after":"retained/07"}`); err == nil || err.Kind != "invalid_params" {
+		t.Fatalf("branch name cursor: %+v", err)
 	}
 }
+
+func TestFixtureCreationIdempotencyAndSourceFreshness(t *testing.T) {
+	f := newFixture(t.TempDir(), "small")
+	h := connect(f)
+	create := api.SessionCreateRequest{Key: "create", Project: "forge", Branch: "feat/new", Choice: "new", Source: tip}
+	first := do(t, h, api.SessionCreate, create)
+	second := do(t, h, api.SessionCreate, create)
+	if !reflect.DeepEqual(first, second) || len(f.sessions) != 5 {
+		t.Fatal("creation replay duplicated intent")
+	}
+	create.Branch = "feat/other"
+	if err := refusal(h, api.SessionCreate, create); err == nil || err.Kind != "conflict" || len(f.sessions) != 5 {
+		t.Fatalf("key reused for another intent: %+v", err)
+	}
+	for _, stale := range []api.SessionCreateRequest{
+		{Key: "stale-origin", Project: "forge", Branch: "feat/stale", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: tip, ExpectedOriginURL: "https://wrong.invalid"},
+		{Key: "stale-source", Project: "forge", Branch: "feat/stale", Choice: "new", Source: strings.Repeat("1", 40)},
+	} {
+		if err := refusal(h, api.SessionCreate, stale); err == nil || err.Kind != "conflict" || len(f.sessions) != 5 {
+			t.Fatalf("stale source %s accepted: %+v", stale.Key, err)
+		}
+	}
+}
+
 func TestFixtureRemovalPreviewBindsKindSessionAndExpiry(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
+	h := connect(f)
 	id := sessionID(f, "atlas", "feat/ui")
-	for _, review := range []preview{{UUID: id, Kind: "discard", Expires: time.Now().Add(-time.Second)}, {UUID: id, Kind: "delete", Expires: time.Now().Add(time.Minute)}, {UUID: "other", Kind: "discard", Expires: time.Now().Add(time.Minute)}} {
-		f.previews["token"] = review
-		_, err := f.handle(context.Background(), "session.discard", json.RawMessage(`{"v":1,"key":"remove","uuid":"`+id+`","confirmation_token":"token"}`), &attachmentLease{})
-		if err == nil {
-			t.Fatal("invalid preview accepted")
+	other := sessionID(f, "atlas", "fix/cache")
+	token := strings.Repeat("c", 32)
+	for _, review := range []preview{{UUID: id, Kind: "discard", Expires: time.Now().Add(-time.Second)}, {UUID: id, Kind: "delete", Expires: time.Now().Add(time.Minute)}, {UUID: other, Kind: "discard", Expires: time.Now().Add(time.Minute)}} {
+		f.previews[token] = review
+		if err := refusal(h, api.SessionDiscard, api.SessionDiscardRequest{Key: "remove", UUID: id, ConfirmationToken: token}); err == nil || err.Kind != "conflict" {
+			t.Fatalf("invalid preview %+v: %+v", review, err)
 		}
 		if _, ok := f.sessions[id]; !ok {
 			t.Fatal("invalid review removed session")
 		}
 	}
 }
-func sessionID(f *fixture, project, branch string) string {
-	for id, s := range f.sessions {
-		if s.Project == project && s.Branch == branch {
-			return id
-		}
-	}
-	return ""
-}
-func decodePreview(t *testing.T, data json.RawMessage) control.RemovalPreview {
-	t.Helper()
-	var response struct {
-		V       int                    `json:"v"`
-		Preview control.RemovalPreview `json:"preview"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&response); err != nil {
-		t.Fatal(err)
-	}
-	return response.Preview
-}
+
 func TestFixtureRemovalPreviewMatchesPublicShapeAndSeparatesBranchLoss(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
+	h := connect(f)
 	id := sessionID(f, "atlas", "feat/ui")
 	for _, kind := range []string{"discard", "delete"} {
-		data, _ := callFixture(t, f, "session.removal.preview", object{"uuid": id, "kind": kind})
-		p := decodePreview(t, data)
+		p := do(t, h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: id, Kind: kind}).Preview
 		if p.Runtime.Condition != "present" || p.Runtime.InstanceName != "p-"+id || !p.Runtime.RuntimeDataLost || p.Runtime.OriginalStatus != "Stopped" || p.AssignedTip != tip || p.AssignedRefMissing {
 			t.Fatalf("runtime review shape differs from public contract: %+v", p)
 		}
 		if (p.BranchLoss != nil) != (kind == "delete") {
 			t.Fatal("branch loss applies only to Delete")
 		}
-		if p.BranchLoss != nil && p.BranchLoss.Origin != nil {
-			t.Fatal("session Delete preview reads the origin")
+		if p.BranchLoss != nil && (p.BranchLoss.Origin != nil || !slices.Contains(p.BranchLoss.PRefs, api.PRef{Name: "refs/heads/feat/ui", OID: tip})) {
+			t.Fatalf("session Delete preview reads the origin or misses its ref: %+v", p.BranchLoss)
 		}
 	}
 }
+
 func TestFixtureRemovesARunningUnattachedSessionAndRefusesAnAttachedOne(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
 	f.native = &nativeServer{tmux: filepath.Join(t.TempDir(), "tmux.sock")}
+	h := connect(f)
 	running := sessionID(f, "forge", "fix/token-refresh")
-	data, _ := callFixture(t, f, "session.removal.preview", object{"uuid": running, "kind": "discard"})
-	p := decodePreview(t, data)
+	p := do(t, h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: running, Kind: "discard"}).Preview
 	if p.Runtime.OriginalStatus != "Running" {
 		t.Fatalf("running session previewed as %q", p.Runtime.OriginalStatus)
 	}
-	callFixture(t, f, "session.discard", object{"key": "discard", "uuid": running, "confirmation_token": p.ConfirmationToken})
+	do(t, h, api.SessionDiscard, api.SessionDiscardRequest{Key: "discard", UUID: running, ConfirmationToken: p.ConfirmationToken})
 	if _, ok := f.sessions[running]; ok {
 		t.Fatal("running session survived its confirmed Discard")
 	}
@@ -155,94 +205,156 @@ func TestFixtureRemovesARunningUnattachedSessionAndRefusesAnAttachedOne(t *testi
 	s := f.sessions[attached]
 	s.AttachedCount = 1
 	f.sessions[attached] = s
-	_, err := f.handle(context.Background(), "session.removal.preview", json.RawMessage(`{"v":1,"uuid":"`+attached+`","kind":"delete"}`), &attachmentLease{})
-	if err == nil || err.Kind != "busy" {
+	if err := refusal(h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: attached, Kind: "delete"}); err == nil || err.Kind != "busy" {
 		t.Fatalf("attached session preview: %+v", err)
 	}
 }
+
 func TestFixtureRenameRefusesARunningSessionAsBusy(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
 	id := sessionID(f, "forge", "fix/token-refresh")
-	_, err := f.handle(context.Background(), "session.rename", json.RawMessage(`{"v":1,"key":"rename","uuid":"`+id+`","new_branch":"feat/renamed","expected_old_tip":"`+tip+`"}`), &attachmentLease{})
+	err := refusal(connect(f), api.SessionRename, api.SessionRenameRequest{Key: "rename", UUID: id, NewBranch: "feat/renamed", ExpectedOldTip: tip})
 	if err == nil || err.Kind != "busy" || f.sessions[id].Branch != "fix/token-refresh" {
 		t.Fatalf("running session rename: %+v", err)
 	}
 }
+
 func TestFixtureHasNoLossInspection(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
+	h := connect(f)
 	id := sessionID(f, "forge", "fix/token-refresh")
-	_, err := f.handle(context.Background(), "workspace.loss.inspect", json.RawMessage(`{"v":1,"key":"inspect","uuid":"`+id+`"}`), &attachmentLease{})
-	if err == nil || err.Kind != "method_not_found" {
+	if _, err := send(context.Background(), h, "workspace.loss.inspect", `{"key":"inspect","uuid":"`+id+`"}`); err == nil || err.Kind != "method_not_found" {
 		t.Fatalf("loss inspection: %+v", err)
 	}
-	_, err = f.handle(context.Background(), "session.removal.preview", json.RawMessage(`{"v":1,"uuid":"`+id+`","kind":"discard","loss_operation_id":"inspect"}`), &attachmentLease{})
-	if err == nil || err.Kind != "invalid_params" {
+	if _, err := send(context.Background(), h, "session.removal.preview", `{"uuid":"`+id+`","kind":"discard","loss_operation_id":"inspect"}`); err == nil || err.Kind != "invalid_params" {
 		t.Fatalf("preview with a loss operation: %+v", err)
 	}
-	raw, _ := callFixture(t, f, "system.capabilities", object{})
-	if strings.Contains(string(raw), "workspace.loss.inspect") {
-		t.Fatal("capabilities list loss inspection")
+	hello, rpcErr := send(context.Background(), h, "system.hello", `{"protocol":"`+api.Protocol+`"}`)
+	if rpcErr != nil || strings.Contains(string(hello), "workspace.loss.inspect") {
+		t.Fatalf("hello lists loss inspection: %s %+v", hello, rpcErr)
+	}
+	for _, m := range api.Methods() {
+		if m.Name == "workspace.loss.inspect" {
+			t.Fatal("the protocol has loss inspection")
+		}
 	}
 }
+
+func TestFixtureHelloReportsEveryCapability(t *testing.T) {
+	hello := do(t, connect(newFixture(t.TempDir(), "small")), api.SystemHello, api.HelloRequest{Protocol: api.Protocol})
+	want := []api.Capability{api.CapabilityGit, api.CapabilityRuntime, api.CapabilityServices}
+	if hello.Protocol != api.Protocol || !api.ValidUUID(hello.InstanceID) || !reflect.DeepEqual(hello.Capabilities, want) {
+		t.Fatalf("hello %+v", hello)
+	}
+}
+
+// The fixture serves the protocol methods its clients call and its own two
+// methods; every other name answers method_not_found.
+func TestFixtureServesOnlyProtocolAndFixtureMethods(t *testing.T) {
+	served := map[string]bool{mockInspect.Name: true, mockConfigure.Name: true}
+	for _, m := range []string{"system.hello", "system.health", "project.list", "session.list", "operation.list",
+		"project.branches", "project.retained_branches", "origin.refresh", "origin.sources", "project.create",
+		"session.create", "session.inspect", "session.start", "session.stop", "session.rename",
+		"session.removal.preview", "session.discard", "session.delete", "operation.inspect", "operation.retry",
+		"session.services", "session.service.action", "session.service.journal", "session.attach",
+		"attachment.claim", "attachment.confirm", "attachment.ping"} {
+		served[m] = true
+	}
+	known := map[string]bool{mockInspect.Name: true, mockConfigure.Name: true}
+	for _, m := range api.Methods() {
+		known[m.Name] = true
+	}
+	f := newFixture(t.TempDir(), "small")
+	table := control.NewMethodTable()
+	f.register(table, &attachmentLease{})
+	for name := range known {
+		if table.Registered(name) != served[name] {
+			t.Errorf("%s registered %v, want %v", name, table.Registered(name), served[name])
+		}
+	}
+	for name := range served {
+		if !known[name] {
+			t.Errorf("%s is outside the protocol", name)
+		}
+	}
+	h := connect(f)
+	for _, name := range []string{"system.capabilities", "system.inspect", "session.identity", "status.report", "mock.reset", "workspace.loss.inspect"} {
+		if _, err := send(context.Background(), h, name, `{}`); err == nil || err.Kind != "method_not_found" {
+			t.Errorf("%s: %+v", name, err)
+		}
+	}
+}
+
 func TestFixturePendingAttachmentIsSingleUseAndExpires(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
-	var id string
-	for _, s := range f.sessions {
-		id = s.UUID
-		break
-	}
-	f.tokens[strings.Repeat("a", 64)] = pending{UUID: id, Expires: time.Now().Add(-time.Second)}
-	_, err := f.handle(context.Background(), "attachment.claim", json.RawMessage(`{"v":1,"token":"`+strings.Repeat("a", 64)+`"}`), &attachmentLease{})
-	if err == nil {
+	id := sessionID(f, "forge", "feat/device-login")
+	expired := strings.Repeat("a", 64)
+	f.tokens[expired] = pending{UUID: id, Expires: time.Now().Add(-time.Second)}
+	if err := refusal(connect(f), api.AttachmentClaim, api.AttachmentClaimRequest{Token: expired}); err == nil {
 		t.Fatal("expired token accepted")
 	}
-	data, _ := callFixture(t, f, "session.attach", object{"uuid": id})
-	var response struct {
-		Token string `json:"token"`
-	}
-	_ = json.Unmarshal(data, &response)
-	_, lease := callFixture(t, f, "attachment.claim", object{"token": response.Token})
-	if lease.UUID != id {
+	attachment := do(t, connect(f), api.SessionAttach, api.SessionAttachRequest{UUID: id})
+	c := &connection{}
+	do(t, f.handler(c), api.AttachmentClaim, api.AttachmentClaimRequest{Token: attachment.Token})
+	if c.lease.UUID != id {
 		t.Fatal("wrong lease")
 	}
-	_, err = f.handle(context.Background(), "attachment.claim", json.RawMessage(`{"v":1,"token":"`+response.Token+`"}`), &attachmentLease{})
-	if err == nil {
+	if err := refusal(connect(f), api.AttachmentClaim, api.AttachmentClaimRequest{Token: attachment.Token}); err == nil {
 		t.Fatal("token replay accepted")
 	}
 }
+
 func TestFixtureCancelledDelayDoesNotMutate(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
-	f.faults["project.create"] = fault{DelayMS: 5000}
+	f.faults["project.create"] = fault{Method: "project.create", DelayMS: 5000}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := f.handle(ctx, "project.create", json.RawMessage(`{"v":1,"key":"cancel","project":"new"}`), &attachmentLease{})
-	if err == nil || f.projects["new"].Path != "" {
-		t.Fatal("cancelled request mutated fixture")
+	_, err := send(ctx, connect(f), "project.create", `{"key":"cancel","project":"new"}`)
+	if err == nil || err.Kind != "cancelled" || f.projects["new"].Path != "" {
+		t.Fatalf("cancelled request mutated fixture: %+v", err)
 	}
 }
 
 func TestServiceEmptyFaultHasClosedRPCSchemaAndIsOneObservation(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
-	var id string
-	for uuid, s := range f.sessions {
-		if s.Condition == "ready" {
-			id = uuid
-			break
-		}
+	h := connect(f)
+	id := sessionID(f, "forge", "feat/device-login")
+	do(t, h, mockConfigure, fault{Method: "session.services", ServicesEmpty: true})
+	result := do(t, h, api.SessionServices, api.SessionServicesRequest{UUID: id})
+	if result.UUID != id || len(result.Services) != 0 {
+		t.Fatalf("empty observation: %+v", result)
 	}
-	callFixture(t, f, "mock.configure", object{"method": "session.services", "services_empty": true})
-	raw, _ := callFixture(t, f, "session.services", object{"uuid": id})
-	var result api.ServiceResult
-	if err := json.Unmarshal(raw, &result); err != nil || result.UUID != id || len(result.Services) != 0 {
-		t.Fatalf("empty observation: %s %v", raw, err)
-	}
-	raw, _ = callFixture(t, f, "session.services", object{"uuid": id})
-	if err := json.Unmarshal(raw, &result); err != nil || len(result.Services) != 3 {
+	if result = do(t, h, api.SessionServices, api.SessionServicesRequest{UUID: id}); len(result.Services) != 3 {
 		t.Fatal("fault changed underlying inventory")
 	}
-	for _, body := range []string{`{"v":1,"method":"session.services","services_empty":"true"}`, `{"v":1,"method":"session.services","services_empt":true}`} {
-		if _, err := f.handle(context.Background(), "mock.configure", json.RawMessage(body), &attachmentLease{}); err == nil {
-			t.Fatal("accepted malformed fixture setting")
+	for _, body := range []string{`{"method":"session.services","services_empty":"true"}`, `{"method":"session.services","services_empt":true}`,
+		`{"method":"session.services","delay_ms":5001}`, `{"method":""}`, `{"v":1,"method":"session.services"}`} {
+		if _, err := send(context.Background(), h, "mock.configure", body); err == nil || err.Kind != "invalid_params" {
+			t.Fatalf("accepted malformed fixture setting %s: %+v", body, err)
 		}
+	}
+}
+
+// A connection's hello is recorded with its calls, unless the connection only
+// inspects or configures the fixture.
+func TestFixtureRecordsClientCallsButNotItsOwnInspection(t *testing.T) {
+	f := newFixture(t.TempDir(), "small")
+	hello := `{"protocol":"` + api.Protocol + `"}`
+	for _, method := range []string{"mock.inspect", "session.list", ""} {
+		c := &connection{}
+		h := f.handler(c)
+		if _, err := send(context.Background(), h, "system.hello", hello); err != nil {
+			t.Fatal(err)
+		}
+		if method == "mock.inspect" {
+			send(context.Background(), h, method, `{}`)
+		} else if method == "session.list" {
+			send(context.Background(), h, method, `{"limit":8}`)
+		}
+		f.release(c)
+	}
+	want := []call{{"system.hello", json.RawMessage(hello)}, {"session.list", json.RawMessage(`{"limit":8}`)}, {"system.hello", json.RawMessage(hello)}}
+	if !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("calls %+v", f.calls)
 	}
 }

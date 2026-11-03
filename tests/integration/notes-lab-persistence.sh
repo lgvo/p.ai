@@ -6,7 +6,7 @@ record="$HOME/.local/state/p-notes-lab-check.json"
 export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 rpc() { timeout 150 p api "$@"; }
 inc() { timeout 60 incus --force-local --project user-1000 "$@"; }
-params() { jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}'; }
+params() { jq -nc --arg uuid "$uuid" '{uuid:$uuid}'; }
 guest() {
   inc exec --force-noninteractive --disable-stdin "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
     --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh \
@@ -15,7 +15,7 @@ guest() {
 }
 action() {
   rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg unit "p-project-notes-$1.service" --arg action "$2" \
-    '{v:1,uuid:$uuid,unit:$unit,action:$action}')" >/dev/null
+    '{uuid:$uuid,unit:$unit,action:$action}')" >/dev/null
 }
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 wait_ready() {
@@ -34,7 +34,7 @@ setup() {
 case "${1-}" in
   prepare)
     test ! -e "$record"
-    created=$(rpc project.create '{"v":1,"key":"notes-lab-persistence","project":"notes-persistence"}')
+    created=$(rpc project.create '{"key":"notes-lab-persistence","project":"notes-persistence"}')
     uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
     wait_ready
     guest bash -euc 'mkdir -p examples/notes; cp -R /etc/p-notes-example/. examples/notes; chmod -R u+w examples/notes; git add examples/notes; git -c user.name=P -c user.email=p@example.invalid commit -qm notes; git push origin HEAD:main'
@@ -71,7 +71,7 @@ case "${1-}" in
     action db start
     test "$(sql 'SELECT count(*) FROM notes')" = 2
     test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 1
-    rpc project.branches '{"v":1,"project":"notes-persistence","limit":8}' \
+    rpc project.branches '{"project":"notes-persistence","limit":8}' \
       | jq -e --arg oid "$(jq -er '.pushed' "$record")" '.result.refs|any(.ref=="refs/heads/main" and .oid==$oid)' >/dev/null
     action web start
     action worker start

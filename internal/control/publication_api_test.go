@@ -35,15 +35,15 @@ func (f *fakePublication) Observe(context.Context, string) ([]plugin.GitOriginRe
 	}
 	return []plugin.GitOriginRef{}, f.failure
 }
-func (f *fakePublication) PreviewPublication(_ context.Context, ref, oid, dest string) (PublicationPreview, error) {
-	return PublicationPreview{Project: "app", URL: "ssh://host/repo", SourceRef: ref, SourceOID: oid, DestinationRef: dest, Relation: f.relation}, nil
+func (f *fakePublication) PreviewPublication(_ context.Context, ref, oid, dest string) (api.PublicationPreview, error) {
+	return api.PublicationPreview{Project: "app", URL: "ssh://host/repo", SourceRef: ref, SourceOID: oid, DestinationRef: dest, Relation: f.relation}, nil
 }
-func (f *fakePublication) PublishPublication(_ context.Context, p PublicationPreview) (PublicationResult, error) {
+func (f *fakePublication) PublishPublication(_ context.Context, p api.PublicationPreview) (api.Publication, error) {
 	if f.publishError != nil {
-		return PublicationResult{}, f.publishError
+		return api.Publication{}, f.publishError
 	}
 	f.pushes++
-	return PublicationResult{Preview: p, Status: f.status}, nil
+	return api.Publication{Preview: p, Status: f.status}, nil
 }
 
 func TestPublicationPrestartFailureCanRetrySameKey(t *testing.T) {
@@ -131,7 +131,7 @@ func TestPublicationAttemptReplayUnknownAndRefusal(t *testing.T) {
 	if _, status, err := s.PreparePublication(ctx, r); err != nil || status != "prepared" {
 		t.Fatalf("prepare: %s %v", status, err)
 	}
-	p := PublicationResult{Preview: PublicationPreview{Project: r.Project, SourceOID: r.SourceOID, DestinationRef: r.DestinationRef}, Status: "outcome_unknown"}
+	p := api.Publication{Preview: api.PublicationPreview{Project: r.Project, SourceOID: r.SourceOID, DestinationRef: r.DestinationRef}, Status: "outcome_unknown"}
 	if err := s.UpdatePublication(ctx, r.Key, "prepared", "attempted", p); err != nil {
 		t.Fatal(err)
 	}
@@ -187,18 +187,14 @@ func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 	s, f, a, r := publicationFixture(t)
 	ctx := context.Background()
 	a.Git = fixtureGitReader{}
-	handler := NewHandler(HandlerConfig{Store: s, Git: a.Git, GitInfo: &GitInfo{}, Origins: &a})
-	request := func(method, body string) (map[string]any, *api.RPCError) {
+	handler := NewHandler(HandlerConfig{Store: s, Git: a.Git, GitInfo: &api.GitInfo{}, Origins: &a})
+	request := func(method, body string) (any, *api.RPCError) {
 		t.Helper()
-		result, e := handler(ctx, method, json.RawMessage(body))
-		if e != nil {
-			return nil, e
-		}
-		return result.(map[string]any), nil
+		return handler(ctx, method, json.RawMessage(body))
 	}
-	body := `{"v":1,"expected_origin_url":"ssh://host/repo","project":"app","kind":"session","source":"` + r.Source + `","source_oid":"` + r.SourceOID + `","destination_ref":"refs/heads/main"}`
+	body := `{"expected_origin_url":"ssh://host/repo","project":"app","kind":"session","source":"` + r.Source + `","source_oid":"` + r.SourceOID + `","destination_ref":"refs/heads/main"}`
 	result, e := request("origin.publication.preview", body)
-	if e != nil || result["preview"].(PublicationPreview).SourceRef != "refs/heads/work" {
+	if e != nil || result.(api.PublicationPreviewResult).Preview.SourceRef != "refs/heads/work" {
 		t.Fatalf("preview: %v %v", result, e)
 	}
 	if _, e = request("origin.publish", strings.TrimSuffix(body, "}")+`,"key":"once"}`); e != nil || f.pushes != 1 {
@@ -210,8 +206,8 @@ func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 	if _, e = request("origin.publish", strings.TrimSuffix(body, "}")+`,"key":"once","SOURCE":"wrong"}`); e == nil || e.Kind != "invalid_params" {
 		t.Fatalf("case-variant field accepted: %v", e)
 	}
-	page, e := request("project.retained_branches", `{"v":1,"project":"app","limit":8}`)
-	if e != nil || len(page["branches"].([]RetainedBranch)) != 1 {
+	page, e := callMethod(t, ctx, handler, api.ProjectRetainedBranches, api.ProjectRetainedBranchesRequest{Project: "app", Limit: 8})
+	if e != nil || len(page.Branches) != 1 {
 		t.Fatalf("retained page: %v %v", page, e)
 	}
 	// The fixture Git ref is main, which has no live owner. Assign it and
@@ -219,8 +215,8 @@ func TestPublicationRPCAndRetainedBranchPage(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `UPDATE sessions SET branch='main' WHERE uuid=?`, r.Source); err != nil {
 		t.Fatal(err)
 	}
-	page, e = request("project.retained_branches", `{"v":1,"project":"app","limit":8}`)
-	if e != nil || len(page["branches"].([]RetainedBranch)) != 0 {
+	page, e = callMethod(t, ctx, handler, api.ProjectRetainedBranches, api.ProjectRetainedBranchesRequest{Project: "app", Limit: 8})
+	if e != nil || len(page.Branches) != 0 {
 		t.Fatalf("assigned page: %v %v", page, e)
 	}
 }
@@ -296,9 +292,10 @@ func TestPublicationCompletedReplayKeepsOriginalIdentity(t *testing.T) {
 
 func TestPublicationRPCRequiresOriginIdentity(t *testing.T) {
 	_, _, _, r := publicationFixture(t)
-	body, _ := json.Marshal(map[string]any{"v": 1, "key": r.Key, "project": r.Project, "kind": r.Kind, "source": r.Source, "source_oid": r.SourceOID, "destination_ref": r.DestinationRef})
-	if _, err := publicationRequestParams(body, true); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("missing origin identity accepted: %v", err)
+	body, _ := json.Marshal(map[string]any{"key": r.Key, "project": r.Project, "kind": r.Kind, "source": r.Source, "source_oid": r.SourceOID, "destination_ref": r.DestinationRef})
+	h := NewHandler(HandlerConfig{Origins: &OriginAPI{Runner: &fakePublication{}}})
+	if _, rpcErr := h(context.Background(), api.OriginPublish.Name, body); rpcErr == nil || rpcErr.Kind != "invalid_params" {
+		t.Fatalf("missing origin identity accepted: %+v", rpcErr)
 	}
 }
 

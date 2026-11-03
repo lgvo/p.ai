@@ -19,9 +19,7 @@ type RetainedRenameRequest struct {
 }
 
 func ValidRetainedRenameRequest(r RetainedRenameRequest) bool {
-	return len(r.Key) > 0 && len(r.Key) <= 128 && validProject(r.Project) && validBranch(r.OldBranch) &&
-		validBranch(r.NewBranch) && r.OldBranch != r.NewBranch && validOID(r.ExpectedOldTip) &&
-		r.ExpectedOldTip != "0000000000000000000000000000000000000000"
+	return api.ProjectRetainedRenameRequest(r).Validate() == nil
 }
 
 // BeginRetainedRename binds two unassigned names to one immutable, inspected

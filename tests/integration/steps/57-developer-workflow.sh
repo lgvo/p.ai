@@ -33,7 +33,7 @@ rpc() {
   return "${status:-1}"
  done
 }
-params() { jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}'; }
+params() { jq -nc --arg uuid "$uuid" '{uuid:$uuid}'; }
 guest() {
  inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
   --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh \
@@ -43,7 +43,7 @@ guest() {
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 action() {
  rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg unit "p-project-notes-$1.service" --arg action "$2" \
-  '{v:1,uuid:$uuid,unit:$unit,action:$action}')" >/dev/null
+  '{uuid:$uuid,unit:$unit,action:$action}')" >/dev/null
 }
 wait_health() {
  local deadline=$((SECONDS+45))
@@ -54,7 +54,7 @@ wait_health() {
 wait_completed() {
  local id=$1 result status deadline=$((SECONDS+160))
  while ((SECONDS<deadline)); do
-  result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+  result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
   status=$(jq -er '.result.operation.status' <<< "$result")
   if test "$status" = completed; then return; fi
   if test "$status" = failed || test "$status" = blocked; then printf '%s\n' "$result" >&2; return 1; fi
@@ -129,10 +129,10 @@ remove_session() {
  local kind=$1 key=$2 response token
  stop_session
  response=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$kind" \
-  '{v:1,uuid:$uuid,kind:$kind}')")
+  '{uuid:$uuid,kind:$kind}')")
  token=$(jq -er '.result.preview.confirmation_token' <<< "$response")
  response=$(rpc "session.$kind" "$(jq -nc --arg uuid "$uuid" --arg key "$key" --arg token "$token" \
-  '{v:1,uuid:$uuid,key:$key,confirmation_token:$token}')")
+  '{uuid:$uuid,key:$key,confirmation_token:$token}')")
  op=$(jq -er '.result.operation.id' <<< "$response")
  wait_completed "$op"
  inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
@@ -157,7 +157,7 @@ trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 service_control start
 wait_health
-created=$(rpc project.create '{"v":1,"key":"notes57-bootstrap","project":"notes57"}')
+created=$(rpc project.create '{"key":"notes57-bootstrap","project":"notes57"}')
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
 uuid_a=$uuid
 op=$(jq -er '.result.operation.id' <<< "$created")
@@ -173,7 +173,7 @@ test "$empty_status" -eq 0 || test "$empty_status" -eq 1
 jq -e '.==[]' <<< "$empty_units" >/dev/null
 printf 'P_NOTES_EMPTY_SERVICES_PASS native-exit=%s\n' "$empty_status"
 # An unborn bootstrap has no committed source for another stream.
-if refused=$(rpc session.create '{"v":1,"key":"notes57-unborn","project":"notes57","branch":"too-soon","choice":"new","source":"refs/heads/main"}'); then
+if refused=$(rpc session.create '{"key":"notes57-unborn","project":"notes57","branch":"too-soon","choice":"new","source":"refs/heads/main"}'); then
  echo 'accepted another stream before the first commit' >&2; exit 1
 fi
 jq -e 'has("error") and (has("result")|not)' <<< "$refused" >/dev/null
@@ -204,10 +204,10 @@ action worker start
 wait_sql 'SELECT word_count FROM notes WHERE id=1' 4
 # Real unit-specific journals via the public interface.
 for unit in db web worker; do
- rpc session.service.journal "$(jq -nc --arg uuid "$uuid" --arg unit "p-project-notes-$unit.service" '{v:1,uuid:$uuid,unit:$unit}')" \
+ rpc session.service.journal "$(jq -nc --arg uuid "$uuid" --arg unit "p-project-notes-$unit.service" '{uuid:$uuid,unit:$unit}')" \
   | jq -e '.result.journal|length>0' >/dev/null
 done
-rpc session.service.journal "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid,unit:"p-project-notes-worker.service"}')" \
+rpc session.service.journal "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,unit:"p-project-notes-worker.service"}')" \
  | jq -e '.result.journal|contains("processed job=")' >/dev/null
 # Kill the actual worker service and inspect its failed state alongside active web.
 guest systemctl --user kill --signal=KILL --kill-whom=main p-project-notes-worker.service
@@ -277,7 +277,7 @@ action worker start
 # Exact committed source excludes the source session's private home/unpushed work.
 guest bash -euc 'printf private-A > /home/p/notes-private; printf dirty-A > notes-dirty; printf local-only > local-only; git add local-only; git commit -qm local-only'
 local_oid=$(guest git rev-parse HEAD)
-created=$(rpc session.create '{"v":1,"key":"notes57-feature","project":"notes57","branch":"feature-notes","choice":"new","source":"refs/heads/main"}')
+created=$(rpc session.create '{"key":"notes57-feature","project":"notes57","branch":"feature-notes","choice":"new","source":"refs/heads/main"}')
 uuid_b=$(jq -er '.result.operation.session_uuid' <<< "$created")
 op=$(jq -er '.result.operation.id' <<< "$created")
 wait_completed "$op"
@@ -299,7 +299,7 @@ test "$(sql 'SELECT count(*) FROM notes')" = 2
 uuid=$uuid_b
 test "$(sql 'SELECT count(*) FROM notes')" = 1
 test "$(sql "SELECT count(*) FROM information_schema.columns WHERE table_name='notes' AND column_name='session_a_label'")" = 0
-if refused=$(rpc session.create '{"v":1,"key":"notes57-duplicate-branch","project":"notes57","branch":"feature-notes","choice":"existing"}'); then exit 1; fi
+if refused=$(rpc session.create '{"key":"notes57-duplicate-branch","project":"notes57","branch":"feature-notes","choice":"existing"}'); then exit 1; fi
 jq -e 'has("error")' <<< "$refused" >/dev/null
 
 # Stop/start preserves local/dirty/private/database/unit state but ends old processes.
@@ -335,7 +335,7 @@ test "$(guest git rev-parse HEAD)" = "$local_oid"
 # Rename needs the session stopped; it retains UUID/data and adjusts the
 # ordinary branch/upstream.
 uuid=$uuid_b
-rename_params=$(jq -nc --arg uuid "$uuid" --arg oid "$sample_oid" '{v:1,key:"notes57-rename",uuid:$uuid,new_branch:"retained-notes",expected_old_tip:$oid}')
+rename_params=$(jq -nc --arg uuid "$uuid" --arg oid "$sample_oid" '{key:"notes57-rename",uuid:$uuid,new_branch:"retained-notes",expected_old_tip:$oid}')
 if refused=$(rpc session.rename "$rename_params"); then
  echo 'renamed a running session' >&2; exit 1
 fi
@@ -355,9 +355,9 @@ test "$(sql 'SELECT count(*) FROM notes')" = 1
 # Discard keeps the pushed source, then existing-branch assignment has fresh state.
 old_b=$uuid_b
 remove_session discard notes57-discard
-rpc project.retained_branches '{"v":1,"project":"notes57","limit":8}' | jq -e --arg oid "$sample_oid" \
+rpc project.retained_branches '{"project":"notes57","limit":8}' | jq -e --arg oid "$sample_oid" \
  '.result.branches|any(.branch=="retained-notes" and .oid==$oid)' >/dev/null
-created=$(rpc session.create '{"v":1,"key":"notes57-existing","project":"notes57","branch":"retained-notes","choice":"existing"}')
+created=$(rpc session.create '{"key":"notes57-existing","project":"notes57","branch":"retained-notes","choice":"existing"}')
 uuid_b=$(jq -er '.result.operation.session_uuid' <<< "$created")
 op=$(jq -er '.result.operation.id' <<< "$created")
 wait_completed "$op"
@@ -370,10 +370,10 @@ setup
 test "$(sql 'SELECT count(*) FROM notes')" = 0
 test "$(sql 'SELECT count(*) FROM jobs')" = 0
 remove_session delete notes57-delete
-rpc project.branches '{"v":1,"project":"notes57","limit":8}' | jq -e '.result.refs|all(.ref!="refs/heads/retained-notes")' >/dev/null
+rpc project.branches '{"project":"notes57","limit":8}' | jq -e '.result.refs|all(.ref!="refs/heads/retained-notes")' >/dev/null
 uuid_b=
 # A sibling project/database must survive the reviewed aggregate deletion.
-created=$(rpc project.create '{"v":1,"key":"notes57-sibling-project","project":"notes57-sibling"}')
+created=$(rpc project.create '{"key":"notes57-sibling-project","project":"notes57-sibling"}')
 uuid_sibling=$(jq -er '.result.operation.session_uuid' <<< "$created")
 op=$(jq -er '.result.operation.id' <<< "$created")
 wait_completed "$op"
@@ -389,9 +389,9 @@ wait_sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL' 0
 uuid=$uuid_a
 test "$(sql 'SELECT count(*) FROM notes')" = 3
 stop_session
-review=$(rpc project.delete.preview '{"v":1,"project":"notes57"}')
+review=$(rpc project.delete.preview '{"project":"notes57"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"notes57-project-delete",project:"notes57",confirmation_token:$token}')")
+removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"notes57-project-delete",project:"notes57",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
@@ -400,9 +400,9 @@ uuid=$uuid_sibling
 test "$(sql 'SELECT body FROM notes')" = 'sibling survives'
 guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 stop_session
-review=$(rpc project.delete.preview '{"v":1,"project":"notes57-sibling"}')
+review=$(rpc project.delete.preview '{"project":"notes57-sibling"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"notes57-sibling-project-delete",project:"notes57-sibling",confirmation_token:$token}')")
+removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"notes57-sibling-project-delete",project:"notes57-sibling",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

@@ -235,7 +235,7 @@ func (m Model) View() tea.View {
 		start := min(m.reviewOffset, max(0, len(lines)-m.capacity()))
 		lines = lines[start:min(len(lines), start+m.capacity())]
 		commands := "Enter create, boot and enter · j/k/Pg scroll · q/Esc back"
-		if m.confirmMethod == "project.create" {
+		if m.confirm.method == api.ProjectCreate.Name {
 			commands = "Enter create project · j/k/Pg scroll · q/Esc back"
 		}
 		content = m.textPage("Create · policy review", lines, width, commands)

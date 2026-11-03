@@ -67,7 +67,7 @@ func (m *Model) syncSelectedServices(msg tea.Msg) tea.Cmd {
 		switch {
 		case s.Condition != "ready":
 			o.state = "not running"
-		case !m.data.capabilities["session.services"]:
+		case !m.data.hello.Has(api.CapabilityServices):
 			o.state = "unavailable"
 		default:
 			o.state = "loading"
@@ -93,8 +93,8 @@ func (m *Model) readSelectedServices(v selectedServiceDue) tea.Cmd {
 	id, generation, client := o.uuid, o.generation, m.client
 	return func() tea.Msg {
 		defer cancel()
-		r, err := request[api.ServiceResult](ctx, client, "session.services", params{"v": 1, "uuid": id})
-		if err == nil && (r.V != 1 || r.UUID != id) {
+		r, err := api.Do(ctx, client, api.SessionServices, api.SessionServicesRequest{UUID: id})
+		if err == nil && r.UUID != id {
 			err = fmt.Errorf("invalid service observation")
 		}
 		return selectedServiceDone{generation, id, r, err}

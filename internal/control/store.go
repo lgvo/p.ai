@@ -49,16 +49,9 @@ type Session struct {
 	PolicySHA256 string          `json:"policy_sha256"`
 }
 
-type ReserveSessionRequest struct {
-	Key               string `json:"key"`
-	Project           string `json:"project"`
-	Branch            string `json:"branch"`
-	Choice            string `json:"choice"`
-	Source            string `json:"source,omitempty"`
-	OriginRef         string `json:"origin_ref,omitempty"`
-	ExpectedCommitOID string `json:"expected_commit_oid,omitempty"`
-	ExpectedOriginURL string `json:"expected_origin_url,omitempty"`
-}
+// ReserveSessionRequest is the session.create request, which the store
+// reserves and keeps as the creation's request.
+type ReserveSessionRequest = api.SessionCreateRequest
 
 // schemaSQL creates the control state on a fresh database.
 //
@@ -281,39 +274,9 @@ func normalizedObject(data json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(value)
 }
 
-func validProject(path string) bool {
-	if len(path) == 0 || len(path) > 255 || strings.HasPrefix(path, "/") || strings.HasSuffix(path, "/") {
-		return false
-	}
-	for _, c := range strings.Split(path, "/") {
-		if c == "" || c == "." || c == ".." || len(c) > 100 {
-			return false
-		}
-		for _, r := range c {
-			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
-				return false
-			}
-		}
-	}
-	return true
-}
+func validProject(path string) bool { return api.ValidProject(path) }
 
-func validBranch(branch string) bool {
-	if len(branch) == 0 || len(branch) > 200 || strings.HasSuffix(branch, ".lock") || strings.Contains(branch, "..") || strings.Contains(branch, "@{") {
-		return false
-	}
-	for _, c := range strings.Split(branch, "/") {
-		if c == "" || strings.HasPrefix(c, ".") || strings.HasSuffix(c, ".") || strings.HasSuffix(c, ".lock") {
-			return false
-		}
-		for _, r := range c {
-			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
-				return false
-			}
-		}
-	}
-	return true
-}
+func validBranch(branch string) bool { return api.ValidBranch(branch) }
 
 // CreateProject records registry and normalized trusted policy together. Git
 // creation is not exposed until its cross-authority workflow is implemented.

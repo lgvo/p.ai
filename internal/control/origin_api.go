@@ -8,7 +8,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
-	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 type OriginObserver interface {
@@ -25,21 +24,21 @@ type OriginAPI struct {
 	Git    GitReader
 }
 
-func (a OriginAPI) Change(ctx context.Context, c OriginChange) (OriginState, error) {
+func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.OriginState, error) {
 	if !validOriginChange(c) {
-		return OriginState{}, ErrInvalid
+		return api.OriginState{}, ErrInvalid
 	}
 	if replay, completed, err := a.Store.CompletedOriginChange(ctx, c); err != nil {
-		return OriginState{}, err
+		return api.OriginState{}, err
 	} else if completed {
 		return replay, nil
 	}
 	if c.Kind == "set" {
 		if err := a.Runner.ValidateURL(c.ProposedURL); err != nil {
-			return OriginState{}, ErrInvalid
+			return api.OriginState{}, ErrInvalid
 		}
 	}
-	var state OriginState
+	var state api.OriginState
 	err := a.Runner.WithOrigin(ctx, c.Project, func(observer OriginObserver) error {
 		completed, replay, err := a.Store.PrepareOriginChange(ctx, c)
 		if err != nil {
@@ -67,11 +66,11 @@ func (a OriginAPI) Change(ctx context.Context, c OriginChange) (OriginState, err
 	return state, err
 }
 
-func (a OriginAPI) Refresh(ctx context.Context, project string) (OriginState, error) {
+func (a OriginAPI) Refresh(ctx context.Context, project string) (api.OriginState, error) {
 	if !validProject(project) {
-		return OriginState{}, ErrInvalid
+		return api.OriginState{}, ErrInvalid
 	}
-	var state OriginState
+	var state api.OriginState
 	err := a.Runner.WithOrigin(ctx, project, func(observer OriginObserver) error {
 		current, _, e := a.Store.Origin(ctx, project)
 		if e != nil {
@@ -99,71 +98,27 @@ func (a OriginAPI) Refresh(ctx context.Context, project string) (OriginState, er
 	return state, err
 }
 
-// addOriginMethods adds origin association, observation and publication.
-func addOriginMethods(t *methodTable, origins OriginAPI) {
-	t.add("origin.change", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-		var p struct {
-			V           int    `json:"v"`
-			Key         string `json:"key"`
-			Project     string `json:"project"`
-			Kind        string `json:"kind"`
-			ExpectedURL string `json:"expected_url"`
-			URL         string `json:"url"`
-		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 {
-			return nil, errorRPC(-32602, "invalid_params", "invalid origin.change request")
-		}
-		c := OriginChange{Key: p.Key, Project: p.Project, Kind: p.Kind, ExpectedURL: p.ExpectedURL, ProposedURL: p.URL}
-		if !validOriginChange(c) {
-			return nil, errorRPC(-32602, "invalid_params", "invalid origin.change request")
-		}
-		state, e := origins.Change(ctx, c)
-		if e != nil {
-			return nil, lifecycleRPC(e)
-		}
-		return map[string]any{"v": 1, "origin": state}, nil
+// addOriginMethods serves origin association, observation and publication.
+func addOriginMethods(t *MethodTable, origins OriginAPI) {
+	Register(t, api.OriginChange, func(ctx context.Context, r api.OriginChangeRequest) (api.OriginResult, error) {
+		state, e := origins.Change(ctx, OriginChange{Key: r.Key, Project: r.Project, Kind: r.Kind, ExpectedURL: r.ExpectedURL, ProposedURL: r.URL})
+		return api.OriginResult{Origin: state}, e
 	})
-	observe := func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-		var p struct {
-			V       int    `json:"v"`
-			Project string `json:"project"`
-		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) {
-			return nil, errorRPC(-32602, "invalid_params", "invalid origin project")
-		}
-		var state OriginState
-		var e error
-		if method == "origin.refresh" {
-			state, e = origins.Refresh(ctx, p.Project)
-		} else {
-			state, _, e = origins.Store.Origin(ctx, p.Project)
-		}
+	Register(t, api.OriginRefresh, func(ctx context.Context, r api.OriginRefreshRequest) (api.OriginResult, error) {
+		state, e := origins.Refresh(ctx, r.Project)
+		return api.OriginResult{Origin: state}, e
+	})
+	Register(t, api.OriginInspect, func(ctx context.Context, r api.OriginInspectRequest) (api.OriginResult, error) {
+		state, _, e := origins.Store.Origin(ctx, r.Project)
+		return api.OriginResult{Origin: state}, e
+	})
+	Register(t, api.OriginSources, func(ctx context.Context, r api.OriginSourcesRequest) (api.OriginSourcesResult, error) {
+		state, refs, e := origins.Store.Origin(ctx, r.Project)
 		if e != nil {
-			return nil, lifecycleRPC(e)
+			return api.OriginSourcesResult{}, e
 		}
-		return map[string]any{"v": 1, "origin": state}, nil
-	}
-	t.add("origin.refresh", observe)
-	t.add("origin.inspect", observe)
-	t.add("origin.sources", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-		var p struct {
-			V       int    `json:"v"`
-			Project string `json:"project"`
-			After   string `json:"after"`
-			Limit   int    `json:"limit"`
-		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 16 || p.After != "" && !plugin.ValidGitOriginRef(p.After) {
-			return nil, errorRPC(-32602, "invalid_params", "invalid origin source page")
-		}
-		state, refs, e := origins.Store.Origin(ctx, p.Project)
-		if e != nil {
-			return nil, lifecycleRPC(e)
-		}
-		start := sort.Search(len(refs), func(i int) bool { return refs[i].Ref > p.After })
-		end := start + p.Limit
-		if end > len(refs) {
-			end = len(refs)
-		}
+		start := sort.Search(len(refs), func(i int) bool { return refs[i].Ref > r.After })
+		end := min(start+r.Limit, len(refs))
 		presentation := "none"
 		if state.Status == "fresh" {
 			presentation = "fresh"
@@ -182,31 +137,23 @@ func addOriginMethods(t *methodTable, origins OriginAPI) {
 			if start+count < len(refs) {
 				next = page[len(page)-1].Ref
 			}
-			result := map[string]any{"v": 1, "project": p.Project, "origin_url": state.URL, "status": state.Status, "observation_status": presentation, "observed_at": state.ObservedAt, "refs": page, "next": next}
+			result := api.OriginSourcesResult{Project: r.Project, OriginURL: state.URL, Status: state.Status, ObservationStatus: presentation, ObservedAt: state.ObservedAt, Refs: page, Next: next}
 			encoded, err := json.Marshal(result)
 			if err != nil {
-				return nil, errorRPC(-32603, "internal", "origin source page cannot be encoded")
+				return api.OriginSourcesResult{}, errorRPC(-32603, "internal", "origin source page cannot be encoded")
 			}
 			if len(encoded) <= lifecyclePageResultCeiling {
 				return result, nil
 			}
 		}
-		return nil, errorRPC(-32603, "internal", "single origin source exceeds frame limit")
+		return api.OriginSourcesResult{}, errorRPC(-32603, "internal", "single origin source exceeds frame limit")
 	})
 	if _, ok := origins.Runner.(PublicationRunner); ok {
-		publication := func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			return publicationHandler(ctx, method, params, origins)
-		}
-		t.add("origin.publication.preview", publication)
-		t.add("origin.publish", publication)
-	} else {
-		t.unavailable("origin.publication.preview", "origin.publish")
+		addPublicationMethods(t, origins)
 	}
 	if origins.Git != nil {
-		t.add("project.retained_branches", func(ctx context.Context, _ string, params json.RawMessage) (any, *api.RPCError) {
-			return retainedBranchesHandler(ctx, params, origins)
+		Register(t, api.ProjectRetainedBranches, func(ctx context.Context, r api.ProjectRetainedBranchesRequest) (api.RetainedBranchesResult, error) {
+			return retainedBranches(ctx, r, origins)
 		})
-	} else {
-		t.unavailable("project.retained_branches")
 	}
 }

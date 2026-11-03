@@ -116,42 +116,40 @@ func TestOriginSourcePagesAndStrictRPC(t *testing.T) {
 	f := &fakeOriginRunner{refs: refs}
 	origins := OriginAPI{Store: s, Runner: f}
 	handler := NewHandler(HandlerConfig{Store: s, Origins: &origins})
-	_, e := handler(ctx, "origin.change", json.RawMessage(`{"v":1,"key":"a","project":"app","kind":"set","url":"ssh://host/a","extra":1}`))
+	_, e := handler(ctx, "origin.change", json.RawMessage(`{"key":"a","project":"app","kind":"set","url":"ssh://host/a","extra":1}`))
 	if e == nil || e.Kind != "invalid_params" {
 		t.Fatalf("unknown field: %+v", e)
 	}
-	_, e = handler(ctx, "origin.change", json.RawMessage(`{"v":1,"v":1,"key":"a","project":"app","kind":"set","url":"ssh://host/a"}`))
+	_, e = handler(ctx, "origin.change", json.RawMessage(`{"key":"a","key":"a","project":"app","kind":"set","url":"ssh://host/a"}`))
 	if e == nil || e.Kind != "invalid_params" {
 		t.Fatalf("duplicate field: %+v", e)
 	}
 	for _, bad := range []string{
-		`{"V":2,"v":1,"key":"a","project":"app","kind":"set","url":"ssh://host/a"}`,
-		`{"v":1,"Key":"a","project":"app","kind":"set","url":"ssh://host/a"}`,
-		`{"v":1,"key":"a","Project":"app","kind":"set","url":"ssh://host/a"}`,
-		`{"v":1,"key":"a","project":"app","kind":"set","URL":"ssh://host/a"}`,
+		`{"V":2,"key":"a","project":"app","kind":"set","url":"ssh://host/a"}`,
+		`{"Key":"a","project":"app","kind":"set","url":"ssh://host/a"}`,
+		`{"key":"a","Project":"app","kind":"set","url":"ssh://host/a"}`,
+		`{"key":"a","project":"app","kind":"set","URL":"ssh://host/a"}`,
 	} {
 		if _, e = handler(ctx, "origin.change", json.RawMessage(bad)); e == nil || e.Kind != "invalid_params" {
 			t.Fatalf("inexact field accepted: %s %+v", bad, e)
 		}
 	}
-	if _, e = handler(ctx, "origin.change", json.RawMessage(`{"v":1,"key":"a","project":"app","kind":"set","url":"ssh://host/a"}`)); e != nil {
+	if _, e = handler(ctx, "origin.change", json.RawMessage(`{"key":"a","project":"app","kind":"set","url":"ssh://host/a"}`)); e != nil {
 		t.Fatal(e)
 	}
 	after := ""
 	seen := 0
 	for {
-		raw, _ := json.Marshal(map[string]any{"v": 1, "project": "app", "after": after, "limit": 16})
-		out, e := handler(ctx, "origin.sources", raw)
+		page, e := callMethod(t, ctx, handler, api.OriginSources, api.OriginSourcesRequest{Project: "app", After: after, Limit: 16})
 		if e != nil {
 			t.Fatal(e)
 		}
-		page := out.(map[string]any)
 		encoded, _ := json.Marshal(rpcResponse{JSONRPC: "2.0", ID: json.RawMessage(`"` + strings.Repeat(`\u0000`, 128) + `"`), Result: page})
 		if len(encoded)+1 > api.MaxFrameBytes {
 			t.Fatalf("page exceeds frame: %d", len(encoded))
 		}
-		seen += len(page["refs"].([]plugin.GitOriginRef))
-		after = page["next"].(string)
+		seen += len(page.Refs)
+		after = page.Next
 		if after == "" {
 			break
 		}

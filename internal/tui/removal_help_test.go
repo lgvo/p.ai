@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -10,24 +9,35 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
+// removalRequestOf is the session and token a discard or delete request sends.
+func removalRequestOf(p any) (string, string) {
+	switch r := p.(type) {
+	case api.SessionDiscardRequest:
+		return r.UUID, r.ConfirmationToken
+	case api.SessionDeleteRequest:
+		return r.UUID, r.ConfirmationToken
+	}
+	return "", ""
+}
+
 func removalHelpFixture(t *testing.T, key string) (Model, *fakeClient, tea.Cmd) {
 	t.Helper()
 	kind := "discard"
 	if key == "X" {
 		kind = "delete"
 	}
-	f := &fakeClient{fn: func(method string, p params) (any, error) {
+	f := &fakeClient{fn: func(method string, p any) (any, error) {
 		switch method {
 		case "session.removal.preview":
-			if p["uuid"] != "stopped" || p["kind"] != kind || len(p) != 3 {
+			if p != (api.SessionRemovalPreviewRequest{UUID: stoppedID, Kind: kind}) {
 				t.Fatalf("preview changed captured removal: %+v", p)
 			}
-			return map[string]any{"preview": map[string]any{"session_uuid": "stopped", "kind": kind, "confirmation_token": "captured-token", "runtime": map[string]any{"condition": "present", "runtime_data_lost": true}}}, nil
+			return map[string]any{"preview": map[string]any{"session_uuid": stoppedID, "kind": kind, "confirmation_token": reviewToken, "runtime": map[string]any{"condition": "present", "runtime_data_lost": true}}}, nil
 		case "session." + kind:
-			if p["uuid"] != "stopped" || p["confirmation_token"] != "captured-token" {
+			if uuid, token := removalRequestOf(p); uuid != stoppedID || token != reviewToken {
 				t.Fatalf("mutation lost captured review: %+v", p)
 			}
-			return map[string]any{"operation": api.Operation{ID: "removal", Kind: method, SessionUUID: "stopped", Status: "running"}}, nil
+			return map[string]any{"operation": api.Operation{ID: "removal", Kind: method, SessionUUID: stoppedID, Status: "running"}}, nil
 		default:
 			t.Fatalf("unexpected call %s", method)
 			return nil, nil
@@ -35,7 +45,7 @@ func removalHelpFixture(t *testing.T, key string) (Model, *fakeClient, tea.Cmd) 
 	}}
 	m := fixture()
 	m.client = f
-	m.selected = "stopped"
+	m.selected = stoppedID
 	m.restoreSelection()
 	m, cmd := press(m, key)
 	if cmd == nil || m.page != "progress" || m.removal == nil {
@@ -62,8 +72,11 @@ func finishRemovalHelp(t *testing.T, m Model, cmd tea.Cmd) Model {
 		m = updated.(Model)
 		cmd = next
 	}
-	if cmd != nil || m.page != "review" || m.confirmParams["uuid"] != "stopped" || m.confirmParams["confirmation_token"] != "captured-token" {
-		t.Fatalf("workflow stranded: page%s working%v pending%s review%+v notice%s", m.page, m.working, m.pendingMethod, m.confirmParams, m.notice)
+	if cmd != nil || m.page != "review" {
+		t.Fatalf("workflow stranded: page%s working%v pending%s notice%s", m.page, m.working, m.pendingMethod, m.notice)
+	}
+	if uuid, token := removalConfirmOf(t, m.confirm); uuid != stoppedID || token != reviewToken {
+		t.Fatalf("review lost its capture: %s %s", uuid, token)
 	}
 	return m
 }
@@ -124,7 +137,7 @@ func TestRemovalHelpPreservesThePendingPreviewRead(t *testing.T) {
 				if cmd != nil || m.page != "review" {
 					t.Fatal("Enter authorized removal")
 				}
-				m.selected = "running" // Review remains bound to the captured identity.
+				m.selected = runningID // Review remains bound to the captured identity.
 				m, cmd = press(m, "y")
 				if cmd == nil {
 					t.Fatal("explicit confirmation did not submit")
@@ -211,11 +224,11 @@ func TestRemovalHelpRefusesForeignPreview(t *testing.T) {
 	m, _, reply := removalHelpPreview(t, "d")
 	m, _ = press(m, "?")
 	m, _ = press(m, "esc")
-	reply.raw = json.RawMessage(`{"preview":{"session_uuid":"other","kind":"discard","confirmation_token":"token","runtime":{"condition":"present","runtime_data_lost":true}}}`)
+	reply.result = api.RemovalPreviewResult{Preview: api.RemovalPreview{SessionUUID: "other", Kind: "discard", ConfirmationToken: "token", Runtime: api.RemovalRuntimePreview{Condition: "present", RuntimeDataLost: true}}}
 	updated, cmd := m.Update(reply)
 	m = updated.(Model)
-	if cmd != nil || m.page != "progress" || m.confirmMethod != "" {
-		t.Fatalf("foreign preview adopted: page%s confirmation%s", m.page, m.confirmMethod)
+	if cmd != nil || m.page != "progress" || m.confirm.method != "" {
+		t.Fatalf("foreign preview adopted: page%s confirmation%s", m.page, m.confirm.method)
 	}
 	if m.notice == "" {
 		t.Fatal("foreign identity refusal unexplained")

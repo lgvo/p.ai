@@ -55,7 +55,7 @@ on_error() {
   printf 'P_MISSING_REF_REMOVAL_FAIL line=%s status=%s\n' "$2" "$1" >&2
   local id
   for id in "${op_ids[@]}"; do
-    rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')" 2>/dev/null |
+    rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')" 2>/dev/null |
       jq -cr '.result.operation | {id,kind,status,phase,diagnostic:(.diagnostic // "")[:512]}' >&2 || true
   done
   tail -c 3072 "$step_dir/daemon.err" >&2 || true
@@ -114,7 +114,7 @@ operation_id() { jq -er '.result.operation.id | select(length==36)' <<< "$1"; }
 wait_operation() {
   local id="$1" response status deadline=$((SECONDS+180))
   while ((SECONDS < deadline)); do
-    response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$response")
     if test "$status" = completed; then printf '%s\n' "$response"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = superseded || test "$status" = unknown; then
@@ -128,7 +128,7 @@ wait_operation() {
 wait_ready() {
   local target="$1" deadline=$((SECONDS+90))
   while ((SECONDS < deadline)); do
-    if rpc session.inspect "$(jq -nc --arg uuid "$target" '{v:1,uuid:$uuid}')" |
+    if rpc session.inspect "$(jq -nc --arg uuid "$target" '{uuid:$uuid}')" |
       jq -e '.result.session.session_condition=="ready"' >/dev/null; then return; fi
     sleep 0.3
   done
@@ -162,8 +162,8 @@ delete_p_ref() {
 # lost.
 assert_missing_ref_previews() {
   local target="$1" branch="$2"
-  discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$target" '{v:1,uuid:$uuid,kind:"discard"}')")
-  delete_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$target" '{v:1,uuid:$uuid,kind:"delete"}')")
+  discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$target" '{uuid:$uuid,kind:"discard"}')")
+  delete_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$target" '{uuid:$uuid,kind:"delete"}')")
   for preview in "$discard_preview" "$delete_preview"; do
     jq -e --arg uuid "$target" --arg branch "$branch" '
       .result.preview | .session_uuid==$uuid and .project=="missing-ref-removal" and
@@ -187,18 +187,18 @@ assert_removed() {
   inc list "^p-$target$" --format json | jq -e 'length==0' >/dev/null
   test ! -e "$state/session_keys/$target"
   test ! -e "$endpoint_prefix/$target"
-  expect_refusal session.inspect "$(jq -nc --arg uuid "$target" '{v:1,uuid:$uuid}')" unavailable
-  rpc session.list '{"v":1,"limit":8}' | jq -e --arg old "$target" \
+  expect_refusal session.inspect "$(jq -nc --arg uuid "$target" '{uuid:$uuid}')" unavailable
+  rpc session.list '{"limit":8}' | jq -e --arg old "$target" \
     '.result.sessions | all(.[]; .uuid!=$old)' >/dev/null
   if bare_ref "$branch" > "$step_dir/removed-ref.out" 2>&1; then echo 'removal left a P ref' >&2; return 1; fi
-  rpc project.branches '{"v":1,"project":"missing-ref-removal","limit":8}' |
+  rpc project.branches '{"project":"missing-ref-removal","limit":8}' |
     jq -e --arg ref "refs/heads/$branch" '.result.refs | all(.[]; .ref!=$ref)' >/dev/null
-  rpc project.retained_branches '{"v":1,"project":"missing-ref-removal","limit":8}' |
+  rpc project.retained_branches '{"project":"missing-ref-removal","limit":8}' |
     jq -e --arg branch "$branch" '.result.branches | all(.[]; .branch!=$branch)' >/dev/null
 }
 
 start_daemon
-created=$(rpc project.create '{"v":1,"key":"missing-ref-bootstrap","project":"missing-ref-removal"}')
+created=$(rpc project.create '{"key":"missing-ref-bootstrap","project":"missing-ref-removal"}')
 create_op=$(operation_id "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 op_ids+=("$create_op")
@@ -212,7 +212,7 @@ tip=$(guest "$uuid" git rev-parse HEAD)
 create_on() {
   local key="$1" branch="$2" response op
   response=$(rpc session.create "$(jq -nc --arg key "$key" --arg branch "$branch" \
-    '{v:1,key:$key,project:"missing-ref-removal",branch:$branch,choice:"new",source:"refs/heads/main"}')")
+    '{key:$key,project:"missing-ref-removal",branch:$branch,choice:"new",source:"refs/heads/main"}')")
   op=$(operation_id "$response")
   new_uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$response")
   op_ids+=("$op")
@@ -241,7 +241,7 @@ delete_p_ref main "$uuid"
 assert_missing_ref_previews "$uuid" main
 token=$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")
 removed=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{v:1,key:"missing-ref-discard",uuid:$uuid,confirmation_token:$token}')")
+  '{key:"missing-ref-discard",uuid:$uuid,confirmation_token:$token}')")
 discard_op=$(operation_id "$removed")
 op_ids+=("$discard_op")
 discarded=$(wait_operation "$discard_op")
@@ -257,7 +257,7 @@ delete_p_ref doomed "$doomed_uuid"
 assert_missing_ref_previews "$doomed_uuid" doomed
 token=$(jq -er '.result.preview.confirmation_token' <<< "$delete_preview")
 removed=$(rpc session.delete "$(jq -nc --arg uuid "$doomed_uuid" --arg token "$token" \
-  '{v:1,key:"missing-ref-delete",uuid:$uuid,confirmation_token:$token}')")
+  '{key:"missing-ref-delete",uuid:$uuid,confirmation_token:$token}')")
 delete_op=$(operation_id "$removed")
 op_ids+=("$delete_op")
 deleted=$(wait_operation "$delete_op")
@@ -267,10 +267,10 @@ assert_removed "$doomed_uuid" doomed
 doomed_uuid=
 
 # The sibling is untouched; the retained commit survives on its branch.
-rpc project.branches '{"v":1,"project":"missing-ref-removal","limit":8}' |
+rpc project.branches '{"project":"missing-ref-removal","limit":8}' |
   jq -e --arg tip "$tip" '.result.refs | length==1 and
     .[0].ref=="refs/heads/keep" and .[0].oid==$tip' >/dev/null
-rpc project.retained_branches '{"v":1,"project":"missing-ref-removal","limit":8}' |
+rpc project.retained_branches '{"project":"missing-ref-removal","limit":8}' |
   jq -e '.result.branches==[]' >/dev/null
 test "$(guest "$sibling_uuid" cat /home/p/.codex/auth.json)" = sibling-dummy
 test "$(sha256sum "$state/session_keys/$sibling_uuid" | cut -d' ' -f1)" = "$sibling_key_digest"
@@ -278,7 +278,7 @@ inc list "^p-$sibling_uuid$" --format json | jq -e 'length==1 and .[0].status=="
 
 # Delete or discard, then create replaces the former missing-ref repair: a
 # new session on the freed branch name starts from the committed work.
-created=$(rpc session.create '{"v":1,"key":"missing-ref-recreate","project":"missing-ref-removal","branch":"main","choice":"new","source":"refs/heads/keep"}')
+created=$(rpc session.create '{"key":"missing-ref-recreate","project":"missing-ref-removal","branch":"main","choice":"new","source":"refs/heads/keep"}')
 recreate_op=$(operation_id "$created")
 fresh_uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 op_ids+=("$recreate_op")
@@ -295,7 +295,7 @@ guest "$fresh_uuid" /run/current-system/sw/bin/bash -c \
   'printf recreated > tracked; git add tracked; git commit -qm recreated; git push origin HEAD:main'
 recreated_tip=$(guest "$fresh_uuid" git rev-parse HEAD)
 test "$(bare_ref main)" = "$recreated_tip"
-rpc project.branches '{"v":1,"project":"missing-ref-removal","limit":8}' |
+rpc project.branches '{"project":"missing-ref-removal","limit":8}' |
   jq -e --arg tip "$tip" --arg main "$recreated_tip" '.result.refs | length==2 and
     any(.[]; .ref=="refs/heads/main" and .oid==$main) and
     any(.[]; .ref=="refs/heads/keep" and .oid==$tip)' >/dev/null

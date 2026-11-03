@@ -53,7 +53,7 @@ cleanup() {
 on_error() {
   printf 'P_DELETE_LIFECYCLE_FAIL line=%s status=%s\n' "$2" "$1" >&2
   for op in "${op_ids[@]}"; do
-    rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')" 2>/dev/null |
+    rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" 2>/dev/null |
       jq -cr '.result.operation | {id,status,phase,diagnostic:(.diagnostic // "")[:512]}' >&2 || true
   done
   tail -c 1024 "$step_dir/source-effects" >&2 || true
@@ -139,16 +139,15 @@ start_daemon() {
   return 1
 }
 start_daemon
-rpc system.capabilities | jq -e '.result.available |
-  (index("session.removal.preview") != null and index("session.delete") != null)' >/dev/null
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
 
-created=$(rpc project.create '{"v":1,"key":"delete-bootstrap","project":"delete-lifecycle"}')
+created=$(rpc project.create '{"key":"delete-bootstrap","project":"delete-lifecycle"}')
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 wait_operation() {
   local id="$1" want="$2" result status deadline=$((SECONDS+150))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$want"; then printf '%s\n' "$result"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = completed; then
@@ -162,11 +161,11 @@ wait_operation() {
 wait_operation "$create_op" completed >/dev/null
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
-  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e '.result.session.session_condition=="ready"' >/dev/null; then break; fi
   sleep 0.3
 done
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 
 
@@ -183,13 +182,13 @@ source_running() {
 }
 preview_delete() {
   delete_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-    '{v:1,uuid:$uuid,kind:"delete"}')")
+    '{uuid:$uuid,kind:"delete"}')")
   delete_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$delete_preview")
 }
 delete_confirm() {
   local key="$1" token="$2"
   rpc session.delete "$(jq -nc --arg key "$key" --arg uuid "$uuid" --arg token "$token" \
-    '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')"
+    '{key:$key,uuid:$uuid,confirmation_token:$token}')"
 }
 
 guest /run/current-system/sw/bin/git config user.name P
@@ -197,7 +196,7 @@ guest /run/current-system/sw/bin/git config user.email p@example.invalid
 guest /run/current-system/sw/bin/bash -c \
   'printf base > tracked; git add tracked; git commit -qm base; git push origin HEAD:main'
 base_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-created_b=$(rpc session.create '{"v":1,"key":"delete-sibling","project":"delete-lifecycle","branch":"sibling","choice":"new","source":"refs/heads/main"}')
+created_b=$(rpc session.create '{"key":"delete-sibling","project":"delete-lifecycle","branch":"sibling","choice":"new","source":"refs/heads/main"}')
 create_b_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$create_b_op" completed >/dev/null
@@ -244,7 +243,7 @@ test -f "$state/session_keys/$uuid"
 test -S "$endpoint_prefix/$uuid/git.sock"
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/main | cut -f1)" = "$final_oid"
 expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$stale_token" \
-  '{v:1,key:"delete-stale-reused",uuid:$uuid,confirmation_token:$token}')" busy
+  '{key:"delete-stale-reused",uuid:$uuid,confirmation_token:$token}')" busy
 preview_delete
 fresh_token=$delete_token
 jq -e --arg final "$final_oid" --arg unique "$unique_oid" --arg base "$base_oid" '
@@ -255,10 +254,10 @@ jq -e --arg final "$final_oid" --arg unique "$unique_oid" --arg base "$base_oid"
 ' <<< "$delete_preview" >/dev/null
 # A Discard review cannot be used as a Delete authorization.
 discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{v:1,uuid:$uuid,kind:"discard"}')")
+  '{uuid:$uuid,kind:"discard"}')")
 discard_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$discard_preview")
 expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
-  '{v:1,key:"delete-wrong-action",uuid:$uuid,confirmation_token:$token}')" busy
+  '{key:"delete-wrong-action",uuid:$uuid,confirmation_token:$token}')" busy
 # P stops the running, unattached session itself, then deletes it.
 printf 'p-%s\n' "$uuid" > "$step_dir/removal-arm"
 completed_response=$(delete_confirm delete-confirmed "$fresh_token")
@@ -267,7 +266,7 @@ op_ids+=("$delete_op")
 pause_deadline=$((SECONDS+40))
 while test ! -f "$step_dir/stop-paused" && ((SECONDS < pause_deadline)); do sleep 0.1; done
 test -f "$step_dir/stop-paused"
-rpc operation.inspect "$(jq -nc --arg id "$delete_op" '{v:1,id:$id}')" |
+rpc operation.inspect "$(jq -nc --arg id "$delete_op" '{id:$id}')" |
   jq -e '.result.operation | .status=="running" and .phase=="stop-issued" and .committed==true' >/dev/null
 source_running
 touch "$step_dir/stop-release"
@@ -282,18 +281,18 @@ test "$(jq -er '.result.operation.id' <<< "$replayed")" = "$delete_op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test ! -e "$endpoint_prefix/$uuid"
 test ! -e "$state/session_keys/$uuid"
-expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" unavailable
-expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" unavailable
-rpc project.branches '{"v":1,"project":"delete-lifecycle","limit":8}' |
+expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
+expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
+rpc project.branches '{"project":"delete-lifecycle","limit":8}' |
   jq -e --arg base "$base_oid" '.result.refs | length==1 and
     .[0].ref=="refs/heads/sibling" and .[0].oid==$base' >/dev/null
-rpc project.retained_branches '{"v":1,"project":"delete-lifecycle","limit":8}' |
+rpc project.retained_branches '{"project":"delete-lifecycle","limit":8}' |
   jq -e '.result.branches==[]' >/dev/null
 inc list "^p-$uuid_b$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
 test -f "$state/session_keys/$uuid_b"
 test "$(inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = sibling-dummy
-rpc session.inspect "$(jq -nc --arg uuid "$uuid_b" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid_b" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 # No login occurred. Only A's dummy private home/key was removed by public Delete.
 echo P_DELETE_LIFECYCLE_PASS

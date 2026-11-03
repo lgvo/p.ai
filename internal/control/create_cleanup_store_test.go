@@ -53,7 +53,8 @@ func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.
 		old.Evidence = raw
 	}
 	old.Status, old.Phase, old.Committed = "blocked", "branch-assigned", true
-	review := CreateCleanupPreview{UUID: old.SessionUUID, OldOperationID: old.ID, OldRequest: req, OldPhase: old.Phase, OldEvidenceSHA256: digest(old.Evidence), PolicySHA256: session.PolicySHA256, AssignedBranch: CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: ev.CapturedOID}, ImageFingerprint: image, EnvironmentBuilder: ev.EnvironmentBuilder, Eligible: true, UnsafeReasons: []string{}, ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}
+	builder, _ := json.Marshal(ev.EnvironmentBuilder)
+	review := api.CreateCleanupPreview{UUID: old.SessionUUID, OldOperationID: old.ID, OldRequest: req, OldPhase: old.Phase, OldEvidenceSHA256: digest(old.Evidence), PolicySHA256: session.PolicySHA256, AssignedBranch: api.CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: ev.CapturedOID}, ImageFingerprint: image, EnvironmentBuilder: builder, Eligible: true, UnsafeReasons: []string{}, ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}
 	return s, dir, old, CreateCleanupEvidence{Review: review, InstanceUUID: "11111111-1111-4111-8111-111111111111"}
 }
 func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *testing.T) {

@@ -14,9 +14,9 @@ type createCleanupRPCProbe struct {
 	calls int
 }
 
-func (p *createCleanupRPCProbe) PreviewCreateCleanup(_ context.Context, uuid string) (CreateCleanupPreview, error) {
+func (p *createCleanupRPCProbe) PreviewCreateCleanup(_ context.Context, uuid string) (api.CreateCleanupPreview, error) {
 	p.calls++
-	return CreateCleanupPreview{UUID: uuid, Eligible: true}, nil
+	return api.CreateCleanupPreview{UUID: uuid, Eligible: true}, nil
 }
 func (p *createCleanupRPCProbe) ConfirmCreateCleanup(_ context.Context, uuid, key, token string) (api.Operation, error) {
 	p.calls++
@@ -28,12 +28,12 @@ func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	ctx := context.Background()
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	token := strings.Repeat("a", 32)
-	for _, raw := range []string{`{"v":2,"uuid":"` + uuid + `"}`, `{"v":1,"uuid":"bad"}`, `{"v":1,"uuid":"` + uuid + `","force":true}`, `{"v":1,"uuid":"` + uuid + `","uuid":"` + uuid + `"}`, `{"v":1,"uuid":"` + uuid + `","loss_operation_id":"` + uuid + `"}`} {
+	for _, raw := range []string{`{"v":1,"uuid":"` + uuid + `"}`, `{"uuid":"bad"}`, `{"uuid":"` + uuid + `","force":true}`, `{"uuid":"` + uuid + `","uuid":"` + uuid + `"}`, `{"uuid":"` + uuid + `","loss_operation_id":"` + uuid + `"}`} {
 		if _, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
 			t.Fatal("unsafe preview admitted")
 		}
 	}
-	for _, raw := range []string{`{"v":1,"uuid":"` + uuid + `","key":"cleanup","confirmation_token":"short"}`, `{"v":1,"uuid":"` + uuid + `","key":"cleanup","confirmation_token":"` + token + `","force":true}`} {
+	for _, raw := range []string{`{"uuid":"` + uuid + `","key":"cleanup","confirmation_token":"short"}`, `{"uuid":"` + uuid + `","key":"cleanup","confirmation_token":"` + token + `","force":true}`} {
 		if _, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
 			t.Fatal("unsafe confirm admitted")
 		}
@@ -41,10 +41,10 @@ func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	if p.calls != 0 {
 		t.Fatal("invalid request reached lifecycle")
 	}
-	if result, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`"}`)); e != nil || !result.(map[string]any)["preview"].(CreateCleanupPreview).Eligible {
+	if result, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(`{"uuid":"`+uuid+`"}`)); e != nil || !result.(api.CreateCleanupPreviewResult).Preview.Eligible {
 		t.Fatal("preview route")
 	}
-	if result, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","key":"cleanup","confirmation_token":"`+token+`"}`)); e != nil || result.(map[string]any)["operation"].(api.Operation).Kind != "session.create.cleanup" {
+	if result, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(`{"uuid":"`+uuid+`","key":"cleanup","confirmation_token":"`+token+`"}`)); e != nil || result.(api.OperationResult).Operation.Kind != "session.create.cleanup" {
 		t.Fatal("confirmation route")
 	}
 }

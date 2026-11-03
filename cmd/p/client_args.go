@@ -27,7 +27,11 @@ func apiArguments(args []string) (string, string, json.RawMessage, error) {
 	if err != nil {
 		return "", "", nil, err
 	}
-	params := json.RawMessage(`{"v":1}`)
+	params := json.RawMessage(`{}`)
+	if args[0] == api.SystemHello.Name {
+		// p api agrees the protocol itself; a repeated hello names it again.
+		params = json.RawMessage(`{"protocol":"` + api.Protocol + `"}`)
+	}
 	if len(args) == 2 {
 		params = json.RawMessage(args[1])
 	}

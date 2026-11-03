@@ -50,7 +50,7 @@ trap 'on_error "$?" "$LINENO"' ERR
 
 p version > "$step_dir/version.json"
 jq -e '.version=="0.1.0-dev" and .go_version=="go1.26.7" and
-  .control_api_version==1 and .plugin_api_version=="1.0" and
+  .control_protocol=="p.control/v2" and .plugin_api_version=="1.0" and
   any(.dependencies[]; .path=="modernc.org/sqlite" and .version=="v1.39.1") and
   any(.dependencies[]; .path=="github.com/tetratelabs/wazero" and .version=="v1.12.0")' \
   "$step_dir/version.json" >/dev/null
@@ -114,7 +114,7 @@ start_daemon() {
 wait_operation() {
   local id="$1" response status deadline=$((SECONDS+300))
   while ((SECONDS < deadline)); do
-    response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$response")
     if test "$status" = completed; then printf '%s\n' "$response"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = unknown; then
@@ -127,14 +127,14 @@ wait_operation() {
 wait_ready() {
   local target="$1" deadline=$((SECONDS+90))
   while ((SECONDS < deadline)); do
-    if rpc session.inspect "$(jq -nc --arg uuid "$target" '{v:1,uuid:$uuid}')" |
+    if rpc session.inspect "$(jq -nc --arg uuid "$target" '{uuid:$uuid}')" |
       jq -e '.result.session.session_condition=="ready"' >/dev/null; then return; fi
     sleep 0.3
   done
   return 1
 }
 start_daemon
-created=$(rpc project.create '{"v":1,"key":"distribution-bootstrap","project":"bundled-distribution"}')
+created=$(rpc project.create '{"key":"distribution-bootstrap","project":"bundled-distribution"}')
 boot_uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 sessions+=("$boot_uuid")
 wait_operation "$(jq -er '.result.operation.id' <<< "$created")" >/dev/null
@@ -157,7 +157,7 @@ guest "$boot_uuid" git config user.name P
 guest "$boot_uuid" git config user.email p@example.invalid
 guest "$boot_uuid" /run/current-system/sw/bin/bash -c 'printf "retained source\n" > source.txt; git add source.txt; git commit -qm initial; git push origin HEAD:main'
 oid=$(guest "$boot_uuid" git rev-parse HEAD)
-created=$(rpc session.create '{"v":1,"key":"distribution-committed","project":"bundled-distribution","branch":"composed","choice":"new","source":"refs/heads/main"}')
+created=$(rpc session.create '{"key":"distribution-committed","project":"bundled-distribution","branch":"composed","choice":"new","source":"refs/heads/main"}')
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 sessions+=("$uuid")
 result=$(wait_operation "$(jq -er '.result.operation.id' <<< "$created")")
@@ -167,38 +167,38 @@ jq -e --arg digest "$environment_digest" --arg oid "$oid" '.result.operation.evi
   .captured_oid==$oid and .environment_state!=null and (.environment_state.flake_present // false)==false and
   (.environment_state.key // "")==""' <<< "$result" >/dev/null
 wait_ready "$uuid"
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e --arg oid "$oid" --arg image "$image" '.result.session.environment |
     .commit_oid==$oid and .selection=="base" and .cache=="none" and .image_fingerprint==$image' >/dev/null
 test "$(guest "$uuid" git rev-parse HEAD)" = "$oid"
 guest "$uuid" /run/current-system/sw/bin/test -x /usr/libexec/p/codex-adapter
 # Adapter data is an explicit event fixture, not authenticated Codex execution.
-prior_sequence=$(rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+prior_sequence=$(rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -er '.result.session.latest_unattended_condition.receive_sequence // 0')
 notify='{"type":"agent-turn-complete","thread-id":"b5f6c1c2-1111-2222-3333-444455556666","turn-id":"turn-1","cwd":"/workspace","input-messages":[],"last-assistant-message":"DUMMY FIXTURE"}'
 guest "$uuid" /usr/libexec/p/codex-adapter notify "$notify"
 deadline=$((SECONDS+10))
 while ((SECONDS < deadline)); do
-  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e --argjson prior "$prior_sequence" '.result.session.latest_unattended_condition |
       .condition=="idle" and .source=="codex/thread/b5f6c1c2-1111-2222-3333-444455556666" and
       .reason=="turn complete" and .adapter=="codex" and .adapter_version=="0.151.0" and
       .receive_sequence>$prior' >/dev/null; then break; fi
   sleep 0.2
 done
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e --argjson prior "$prior_sequence" '.result.session.latest_unattended_condition |
     .condition=="idle" and .source=="codex/thread/b5f6c1c2-1111-2222-3333-444455556666" and
     .reason=="turn complete" and .adapter=="codex" and .adapter_version=="0.151.0" and
     .receive_sequence>$prior' >/dev/null
 echo P_BUNDLED_CODEX_EVENT_FIXTURE_PASS
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 stop_daemon
 start_daemon
 repo_hash=$(printf %s bundled-distribution | sha256sum | cut -d' ' -f1)
 test "$(GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git --git-dir="$state/repositories/$repo_hash.git" rev-parse refs/heads/main)" = "$oid"
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 wait_ready "$uuid"
 test "$(guest "$uuid" git rev-parse HEAD)" = "$oid"
 jq -se --arg uuid "$uuid" 'any(.[]; .schema=="p.event/v1" and .session==$uuid and .kind=="session.condition_changed")' "$log_file" >/dev/null

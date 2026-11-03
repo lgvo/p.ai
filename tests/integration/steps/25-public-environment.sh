@@ -52,7 +52,7 @@ on_error() {
   printf 'P_PUBLIC_ENVIRONMENT_FAIL line=%s status=%s\n' "$2" "$1" >&2
   for id in "${op_ids[@]:-}"; do
     if test -n "$id"; then
-      rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')" 2>/dev/null |
+      rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')" 2>/dev/null |
         jq -cr '.result.operation | {id,status,phase,diagnostic:(.diagnostic // "")[:512]}' >&2 || true
     fi
   done
@@ -120,8 +120,8 @@ p_instance=$(rpc system.hello | jq -er '.result.instance_id | select(length==36)
 
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
-inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{v:1,id:$id}')"; }
-inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
+inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"; }
+inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+300))
   while ((SECONDS < deadline)); do
@@ -160,7 +160,7 @@ wait_guest_file() {
 create_branch() {
   local key="$1" branch="$2" source="${3:-refs/heads/main}" response
   response=$(rpc session.create "$(jq -nc --arg key "$key" --arg branch "$branch" --arg source "$source" \
-    '{v:1,key:$key,project:"public-environment",branch:$branch,choice:"new",source:$source}')")
+    '{key:$key,project:"public-environment",branch:$branch,choice:"new",source:$source}')")
   new_op=$(operation_id "$response")
   new_uuid=$(session_uuid "$response")
   op_ids+=("$new_op")
@@ -169,10 +169,10 @@ create_branch() {
 discard_owned() {
   local uuid="$1" suffix="$2" preview token reply discard_op
   preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-    '{v:1,uuid:$uuid,kind:"discard"}')")
+    '{uuid:$uuid,kind:"discard"}')")
   token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$preview")
   reply=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg key "discard-$suffix" --arg token "$token" \
-    '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')")
+    '{key:$key,uuid:$uuid,confirmation_token:$token}')")
   discard_op=$(operation_id "$reply")
   op_ids+=("$discard_op")
   wait_operation "$discard_op" completed >/dev/null
@@ -181,7 +181,7 @@ discard_owned() {
 }
 
 op_ids=()
-bootstrap=$(rpc project.create '{"v":1,"key":"public-environment-bootstrap","project":"public-environment"}')
+bootstrap=$(rpc project.create '{"key":"public-environment-bootstrap","project":"public-environment"}')
 boot_op=$(operation_id "$bootstrap")
 boot_uuid=$(session_uuid "$bootstrap")
 op_ids+=("$boot_op")
@@ -300,9 +300,9 @@ test "${private_path#/nix/store/}" != "$private_path"
 if exec_p "$b_uuid" nix path-info "$private_path" > "$step_dir/unexpected.out" 2>/dev/null; then
   echo 'private Nix store object crossed session roots' >&2; exit 1
 fi
-rpc session.stop "$(jq -nc --arg uuid "$a_uuid" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$a_uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$a_uuid" '{v:1,uuid:$uuid}')" >/dev/null
+rpc session.start "$(jq -nc --arg uuid "$a_uuid" '{uuid:$uuid}')" >/dev/null
 wait_ready "$a_uuid" >/dev/null
 test "$(exec_p "$a_uuid" cat /home/p/hook-count)" = 2
 exec_p "$a_uuid" nix path-info "$private_path" >/dev/null
@@ -379,7 +379,7 @@ fi
 discard_owned "$c_uuid" c-before-defaults
 discard_owned "$a_uuid" a-before-defaults
 discard_owned "$b_uuid" b-before-defaults
-recreated=$(rpc session.create '{"v":1,"key":"public-environment-recreate-main","project":"public-environment","branch":"main","choice":"existing"}')
+recreated=$(rpc session.create '{"key":"public-environment-recreate-main","project":"public-environment","branch":"main","choice":"existing"}')
 boot_op=$(operation_id "$recreated")
 boot_uuid=$(session_uuid "$recreated")
 op_ids+=("$boot_op")
@@ -410,7 +410,7 @@ exec_p "$boot_uuid" git add flake.nix
 exec_p "$boot_uuid" git commit -qm absent-default
 exec_p "$boot_uuid" git push origin HEAD:main
 absent_oid=$(exec_p "$boot_uuid" git rev-parse HEAD)
-rpc operation.retry "$(jq -nc --arg id "$invalid_op" '{v:1,id:$id}')" >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$invalid_op" '{id:$id}')" >/dev/null
 retried=$(wait_operation "$invalid_op" blocked)
 jq -e --arg oid "$invalid_oid" '.result.operation |
   (.diagnostic | contains("present default devShell invalid")) and .evidence.captured_oid==$oid' \

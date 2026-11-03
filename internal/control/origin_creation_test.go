@@ -203,35 +203,35 @@ func TestOriginCreationRPCStrictInputs(t *testing.T) {
 		_, e := h(context.Background(), method, json.RawMessage(params))
 		return e
 	}
-	if e := call("project.create", `{"v":1,"key":"a","project":"app","url":"ssh://host/repo"}`); e != nil {
+	if e := call("project.create", `{"key":"a","project":"app","url":"ssh://host/repo"}`); e != nil {
 		t.Fatal(e)
 	}
 	if life.project.URL != "ssh://host/repo" {
 		t.Fatalf("URL lost: %+v", life.project)
 	}
 	for _, input := range []string{
-		`{"v":1,"key":"a","project":"app","url":"ssh://host/repo","extra":1}`,
-		`{"v":1,"key":"a","project":"app","url":"a","url":"b"}`,
+		`{"key":"a","project":"app","url":"ssh://host/repo","extra":1}`,
+		`{"key":"a","project":"app","url":"a","url":"b"}`,
 	} {
 		if e := call("project.create", input); e == nil || e.Kind != "invalid_params" {
 			t.Fatalf("accepted %s: %+v", input, e)
 		}
 	}
 	oid := strings.Repeat("a", 40)
-	if e := call("session.create", `{"v":1,"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/tags/v1","expected_commit_oid":"`+oid+`"}`); e != nil {
+	if e := call("session.create", `{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/tags/v1","expected_commit_oid":"`+oid+`"}`); e != nil {
 		t.Fatal(e)
 	}
 	if life.session.OriginRef != "refs/tags/v1" || life.session.ExpectedCommitOID != oid {
 		t.Fatalf("source lost: %+v", life.session)
 	}
-	if e := call("session.create", `{"v":1,"key":"reviewed","project":"app","branch":"reviewed","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"`+oid+`","expected_origin_url":"ssh://reviewed.example/repo"}`); e != nil || life.session.ExpectedOriginURL != "ssh://reviewed.example/repo" {
+	if e := call("session.create", `{"key":"reviewed","project":"app","branch":"reviewed","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"`+oid+`","expected_origin_url":"ssh://reviewed.example/repo"}`); e != nil || life.session.ExpectedOriginURL != "ssh://reviewed.example/repo" {
 		t.Fatalf("reviewed origin lost: %+v", e)
 	}
 	for _, input := range []string{
-		`{"v":1,"key":"b","project":"app","branch":"work","choice":"existing","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `"}`,
-		`{"v":1,"key":"b","project":"app","branch":"work","choice":"new","source":"refs/heads/main","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `"}`,
-		`{"v":1,"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"bad"}`,
-		`{"v":1,"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `","extra":1}`,
+		`{"key":"b","project":"app","branch":"work","choice":"existing","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `"}`,
+		`{"key":"b","project":"app","branch":"work","choice":"new","source":"refs/heads/main","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `"}`,
+		`{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"bad"}`,
+		`{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `","extra":1}`,
 	} {
 		if e := call("session.create", input); e == nil || e.Kind != "invalid_params" {
 			t.Fatalf("accepted %s: %+v", input, e)

@@ -126,11 +126,11 @@ start_daemon() {
   echo 'event daemon did not become ready' >&2
   return 1
 }
-inspect() { rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')"; }
+inspect() { rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"; }
 wait_operation() {
   local id="$1" result status deadline=$((SECONDS+160))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
     if test "$status" = blocked; then echo "operation blocked: $result" >&2; return 1; fi
@@ -205,7 +205,7 @@ assert_envelopes() {
 
 start_daemon
 instance_id=$(rpc system.hello | jq -er '.result.instance_id')
-result=$(rpc project.create '{"v":1,"key":"events-project","project":"events-project"}')
+result=$(rpc project.create '{"key":"events-project","project":"events-project"}')
 op=$(jq -er '.result.operation.id' <<< "$result")
 uuid=$(jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$result")
 wait_operation "$op"
@@ -307,7 +307,7 @@ wait_event session.policy_changed policy_condition current
 # reports a fixed diagnostic and the normal Stop still reaches authoritative state.
 mv "$log_file" "$step_dir/events-before-failure.ndjson"
 mkdir -m 0700 "$log_file"
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 inspect | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 deadline=$((SECONDS+10))
@@ -327,7 +327,7 @@ mv "$step_dir/events-before-failure.ndjson" "$log_file"
 # A package changed after activation is refused on the next daemon event.
 count_before_tamper=$(event_count)
 printf '\n' >> "$event_package/plugin.json"
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="starting"' >/dev/null
 wait_condition ready
 sleep 3
@@ -347,9 +347,9 @@ jq --arg path "$step_dir/filter-events.json" \
   "$step_dir/host.json" > "$step_dir/host.next.json"
 mv "$step_dir/host.next.json" "$step_dir/host.json"
 start_daemon
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="starting"' >/dev/null
 wait_condition ready
 deadline=$((SECONDS+30))

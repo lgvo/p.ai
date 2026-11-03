@@ -18,7 +18,7 @@ import (
 )
 
 type createReplacePreviewState struct {
-	Preview control.CreateReplacePreview
+	Preview api.CreateReplacePreview
 	Expiry  time.Time
 }
 
@@ -27,9 +27,9 @@ type localReplacementSource interface {
 	CaptureLocalSource(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error)
 }
 
-func observeCreateReplacementSources(ctx context.Context, git localReplacementSource, old, req control.ReserveSessionRequest, oldOID string) (control.CreateReplaceBranch, control.CreateReplaceBranch, string, error) {
-	oldBranch := control.CreateReplaceBranch{Ref: "refs/heads/" + old.Branch}
-	target := control.CreateReplaceBranch{Ref: "refs/heads/" + req.Branch}
+func observeCreateReplacementSources(ctx context.Context, git localReplacementSource, old, req control.ReserveSessionRequest, oldOID string) (api.CreateReplaceBranch, api.CreateReplaceBranch, string, error) {
+	oldBranch := api.CreateReplaceBranch{Ref: "refs/heads/" + old.Branch}
+	target := api.CreateReplaceBranch{Ref: "refs/heads/" + req.Branch}
 	oid, exists, err := git.InspectBranchRef(ctx, old.Project, old.Branch)
 	if err != nil {
 		return oldBranch, target, "", err
@@ -61,7 +61,7 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 }
 
 // createReplaceEffects reviews only local resources, with full native absence.
-func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, s control.Session) (*control.CreateReplacementCleanup, error) {
+func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, s control.Session) (*api.CreateReplacementCleanup, error) {
 	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" {
 		return nil, control.ErrConflict
 	}
@@ -79,7 +79,7 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 	if err != nil {
 		return nil, err
 	}
-	var cleanup *control.CreateReplacementCleanup
+	var cleanup *api.CreateReplacementCleanup
 	if op.Phase == "principals-ready" {
 		active, e := l.store.IsSessionGitPrincipalActive(ctx, s.UUID)
 		if !found || !active || e != nil || l.store.CheckCreateReplacementPrincipal(ctx, s.UUID, s.Project, fp) != nil {
@@ -108,10 +108,22 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 	return cleanup, err
 }
 
-func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (control.CreateReplacePreview, error) {
-	p := control.CreateReplacePreview{OldUUID: oldUUID, NewRequest: req, UnsafeReasons: []string{},
-		Provisional: control.CreateReplaceResources{RuntimeLocal: "unavailable"}, NewImageFingerprint: l.cfg.BaseImageFingerprint,
-		NewSelection: l.selection(), NewEnvironment: l.environmentIntent()}
+// recordedFact is the JSON of a record that a preview shows as recorded; a
+// nil record stays absent. The records are plain strings and numbers, which
+// always encode.
+func recordedFact[T any](record *T) json.RawMessage {
+	if record == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(record)
+	return raw
+}
+
+func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (api.CreateReplacePreview, error) {
+	selection := l.selection()
+	p := api.CreateReplacePreview{OldUUID: oldUUID, NewRequest: req, UnsafeReasons: []string{},
+		Provisional: api.CreateReplaceResources{RuntimeLocal: "unavailable"}, NewImageFingerprint: l.cfg.BaseImageFingerprint,
+		NewSelection: recordedFact(&selection), NewEnvironment: recordedFact(l.environmentIntent())}
 	unsafe := func(reason string) { p.UnsafeReasons = append(p.UnsafeReasons, reason) }
 	if !control.ValidSessionCreateRequest(req) {
 		return p, control.ErrInvalid
@@ -200,10 +212,10 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 	return p, nil
 }
 
-func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (control.CreateReplacePreview, error) {
+func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (api.CreateReplacePreview, error) {
 	release, err := l.lockSession(ctx, oldUUID)
 	if err != nil {
-		return control.CreateReplacePreview{}, err
+		return api.CreateReplacePreview{}, err
 	}
 	defer release()
 	p, err := l.createReplaceFacts(ctx, oldUUID, req)
@@ -212,14 +224,14 @@ func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, re
 	}
 	var token [16]byte
 	if _, err = rand.Read(token[:]); err != nil {
-		return control.CreateReplacePreview{}, err
+		return api.CreateReplacePreview{}, err
 	}
 	expiry := time.Now().Add(2 * time.Minute)
 	p.ConfirmationToken = hex.EncodeToString(token[:])
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
-	encoded, err := json.Marshal(map[string]any{"v": 1, "preview": p})
+	encoded, err := json.Marshal(api.CreateReplacePreviewResult{Preview: p})
 	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
-		return control.CreateReplacePreview{}, control.ErrConflict
+		return api.CreateReplacePreview{}, control.ErrConflict
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -232,7 +244,7 @@ func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, re
 		}
 	}
 	if len(l.createReplacePreviews) >= 128 {
-		return control.CreateReplacePreview{}, control.ErrConflict
+		return api.CreateReplacePreview{}, control.ErrConflict
 	}
 	l.createReplacePreviews[p.ConfirmationToken] = createReplacePreviewState{Preview: p, Expiry: expiry}
 	return p, nil

@@ -14,7 +14,7 @@ import (
 // reviewAssembledCleanupRuntime binds the creator's exact stopped container.
 // P does not look inside it: the review states that it and everything in it
 // is lost.
-func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session control.Session, creator api.Operation) (*control.RemovalRuntimePreview, error) {
+func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session control.Session, creator api.Operation) (*api.RemovalRuntimePreview, error) {
 	source, err := l.runtimeSession(ctx, session)
 	if err != nil {
 		return nil, err
@@ -26,7 +26,7 @@ func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session c
 	if err = l.runtime.CheckAssembledCreationSource(ctx, source, creator.ID, observed.IncusUUID, observed.Generation); err != nil {
 		return nil, err
 	}
-	return &control.RemovalRuntimePreview{Condition: "present", IncusProject: l.cfg.IncusProject, InstanceName: "p-" + session.UUID,
+	return &api.RemovalRuntimePreview{Condition: "present", IncusProject: l.cfg.IncusProject, InstanceName: "p-" + session.UUID,
 		IncusUUID: observed.IncusUUID, Generation: observed.Generation, ImageFingerprint: source.ImageFingerprint, OriginalStatus: "Stopped",
 		RuntimeDataLost: true}, nil
 }

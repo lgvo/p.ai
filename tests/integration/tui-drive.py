@@ -46,7 +46,7 @@ def observe_process(args, *, timeout, text=False):
 
 def rpc(method, **params):
     response = observe_process(
-        ["p", "api", socket, method, json.dumps({"v": 1, **params})],
+        ["p", "api", socket, method, json.dumps(params)],
         text=True, timeout=40,
     )
     envelope = json.loads(response.stdout)

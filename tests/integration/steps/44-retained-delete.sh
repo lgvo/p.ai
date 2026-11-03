@@ -76,7 +76,7 @@ on_error() {
       <<< "$preview" 2>/dev/null | head -c 2048 >&2 || true
     printf '\n' >&2
   fi
-  if result=$(timeout 5 p api "$socket" operation.list '{"v":1,"limit":20}' 2>/dev/null); then
+  if result=$(timeout 5 p api "$socket" operation.list '{"limit":20}' 2>/dev/null); then
     jq -cr '.result.operations[]? | {id,session_uuid,status,phase,diagnostic:((.diagnostic // "")[:400])}' \
       <<< "$result" >&2 || true
   fi
@@ -107,7 +107,7 @@ expect_error() {
     return 1
   fi
   if ! jq -e --arg kind "$kind" --argjson code "$code" \
-    '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+    '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
      .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
     <<< "$response" >/dev/null; then
     jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
@@ -121,9 +121,9 @@ expect_error() {
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
-inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{v:1,id:$id}')"; }
-inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
-branches() { rpc project.branches "$(jq -nc --arg project "$1" '{v:1,project:$project,limit:8}')"; }
+inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"; }
+inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
+branches() { rpc project.branches "$(jq -nc --arg project "$1" '{project:$project,limit:8}')"; }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+170))
   while ((SECONDS < deadline)); do
@@ -267,14 +267,12 @@ CONFIG
 full_url=pdev@origin-fixture:full.git
 printf 'release\n' > "$step_dir/release"
 start_daemon
-rpc system.capabilities | jq -e '.result.available |
-  index("origin.publication.preview")!=null and index("origin.publish")!=null and
-  index("project.retained_branches")!=null' >/dev/null
+rpc system.hello | jq -e '.result.capabilities | index("git") != null' >/dev/null
 created=$(rpc project.create "$(jq -nc --arg url "$full_url" \
-  '{v:1,key:"create-project",project:"publication",url:$url}')")
+  '{key:"create-project",project:"publication",url:$url}')")
 wait_operation "$(operation_id "$created")" completed >/dev/null
 created=$(rpc session.create "$(jq -nc --arg oid "$first" \
-  '{v:1,key:"create-session",project:"publication",branch:"work",choice:"new",
+  '{key:"create-session",project:"publication",branch:"work",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid}')")
 uuid=$(session_uuid "$created")
 id=$(operation_id "$created")
@@ -295,7 +293,7 @@ test "$(git -C "$repo" rev-parse refs/heads/work)" = "$source"
 # has its own destructive-lifecycle gate; this only tests listing/publication.
 git -C "$repo" update-ref refs/heads/a-retained "$source"
 git -C "$repo" update-ref refs/heads/z-retained "$source"
-retained() { rpc project.retained_branches "$(jq -nc --arg after "$1" '{v:1,project:"publication",after:$after,limit:1}')"; }
+retained() { rpc project.retained_branches "$(jq -nc --arg after "$1" '{project:"publication",after:$after,limit:1}')"; }
 retained '' | jq -e --arg oid "$source" '.result |
   .branches==[{branch:"a-retained",ref:"refs/heads/a-retained",oid:$oid}] and .next=="refs/heads/a-retained"' >/dev/null
 retained refs/heads/a-retained | jq -e '.result | .branches==[] and .next=="refs/heads/work"' >/dev/null
@@ -313,15 +311,14 @@ work_before=$(git -C "$repo" rev-parse refs/heads/work)
 key_before=$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)
 exec_p "$uuid" /run/current-system/sw/bin/bash -c 'printf dummy-private > /home/p/delete-private; chmod 0600 /home/p/delete-private'
 preview_delete() {
-  rpc project.retained.delete.preview "$(jq -nc --arg branch "$1" '{v:1,project:"publication",branch:$branch}')"
+  rpc project.retained.delete.preview "$(jq -nc --arg branch "$1" '{project:"publication",branch:$branch}')"
 }
 confirm_delete() {
   rpc project.retained.delete.confirm "$(jq -nc --arg key "$1" --arg branch "$2" --arg token "$3" \
-    '{v:1,key:$key,project:"publication",branch:$branch,confirmation_token:$token}')"
+    '{key:$key,project:"publication",branch:$branch,confirmation_token:$token}')"
 }
-capabilities=$(rpc system.capabilities)
-jq -e '.result.available | index("project.retained.delete.preview")!=null and index("project.retained.delete.confirm")!=null' <<< "$capabilities" >/dev/null
-expect_error busy project.retained.delete.preview '{"v":1,"project":"publication","branch":"work"}'
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
+expect_error busy project.retained.delete.preview '{"project":"publication","branch":"work"}'
 preview=$(preview_delete a-retained)
 jq -e --arg tip "$unique" --arg base "$source" --arg url "$full_url" '
   .result.preview | .project=="publication" and .branch=="a-retained" and
@@ -339,7 +336,7 @@ jq -e --arg tip "$unique" --arg base "$source" --arg url "$full_url" '
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 # A changed origin observation invalidates the exact reviewed loss facts.
 git -C "$full" update-ref refs/heads/extra "$first" 0000000000000000000000000000000000000000
-expect_error busy project.retained.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"stale-origin",project:"publication",branch:"a-retained",confirmation_token:$token}')"
+expect_error busy project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-origin",project:"publication",branch:"a-retained",confirmation_token:$token}')"
 test "$(git -C "$repo" rev-parse refs/heads/a-retained)" = "$unique"
 git -C "$full" update-ref -d refs/heads/extra "$first"
 test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$origin_before"
@@ -347,7 +344,7 @@ test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$or
 preview=$(preview_delete a-retained)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 git -C "$repo" update-ref refs/heads/a-retained "$source" "$unique"
-expect_error busy project.retained.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"stale-tip",project:"publication",branch:"a-retained",confirmation_token:$token}')"
+expect_error busy project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-tip",project:"publication",branch:"a-retained",confirmation_token:$token}')"
 test "$(git -C "$repo" rev-parse refs/heads/a-retained)" = "$source"
 git -C "$repo" update-ref refs/heads/a-retained "$unique" "$source"
 
@@ -368,13 +365,13 @@ test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_before"
 test "$(exec_p "$uuid" cat /home/p/delete-private)" = dummy-private
 test "$(exec_p "$uuid" git rev-parse HEAD)" = "$unpushed"
 inspect_session "$uuid" | jq -e --arg uuid "$uuid" '.result.session | .uuid==$uuid and .branch=="work" and .registry_state=="established"' >/dev/null
-rpc project.retained_branches '{"v":1,"project":"publication","limit":8}' |
+rpc project.retained_branches '{"project":"publication","limit":8}' |
   jq -e '.result.branches | any(.[]; .branch=="z-retained") and all(.[]; .branch!="a-retained")' >/dev/null
 test "$(operation_id "$(confirm_delete delete-retained a-retained "$token")")" = "$delete_id"
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-rpc operation.inspect "$(jq -nc --arg id "$delete_id" '{v:1,id:$id}')" |
+rpc operation.inspect "$(jq -nc --arg id "$delete_id" '{id:$id}')" |
   jq -e '.result.operation | .status=="completed" and .phase=="completed"' >/dev/null
 test "$(operation_id "$(confirm_delete delete-retained a-retained "$token")")" = "$delete_id"
 test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$origin_before"

@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -17,23 +16,22 @@ type observedServicesClient struct {
 	err      error
 }
 
-func (c *observedServicesClient) Call(ctx context.Context, method string, p any) (json.RawMessage, error) {
+func (c *observedServicesClient) Call(ctx context.Context, method string, p, result any) error {
 	c.calls++
 	c.contexts = append(c.contexts, ctx)
 	if method != "session.services" {
 		panic(method)
 	}
 	if c.err != nil {
-		return nil, c.err
+		return c.err
 	}
-	result := c.result
-	result.V = 1
-	result.UUID = p.(params)["uuid"].(string)
-	return json.Marshal(result)
+	*result.(*api.ServiceResult) = c.result
+	result.(*api.ServiceResult).UUID = p.(api.SessionServicesRequest).UUID
+	return nil
 }
 func serviceModel() Model {
 	m := fixture()
-	m.data.capabilities = map[string]bool{"session.services": true}
+	m.data.hello = hello(api.CapabilityServices)
 	return m
 }
 
@@ -120,14 +118,14 @@ func TestServicePageObservationUpdatesBrowserAndMalformedReplyIsRejected(t *test
 	m := serviceModel()
 	m.contextSession, _ = m.selectedSession()
 	m.navigate("services")
-	m.observeSelectedServices(api.ServiceResult{V: 1, UUID: m.contextSession.UUID, Services: []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "inactive", SubState: "dead"}}})
+	m.observeSelectedServices(api.ServiceResult{UUID: m.contextSession.UUID, Services: []api.ProjectService{{Unit: "p-project-api.service", ActiveState: "inactive", SubState: "dead"}}})
 	m.back()
 	m.syncSelectedServices(nil)
 	if m.selectedServices.state != "observed" || m.selectedServices.units[0].ActiveState != "inactive" {
 		t.Fatal("Back discarded successful page observation")
 	}
 	// Reject a transport returning another session's body.
-	bad := &fakeClient{fn: func(string, params) (any, error) { return api.ServiceResult{V: 1, UUID: "wrong"}, nil }}
+	bad := &fakeClient{fn: func(string, any) (any, error) { return api.ServiceResult{UUID: "wrong"}, nil }}
 	m.client = bad
 	m.selectedServices.state = "loading"
 	cmd := m.readSelectedServices(selectedServiceDue{m.selectedServices.generation})

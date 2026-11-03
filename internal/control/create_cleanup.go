@@ -61,34 +61,13 @@ func SafeCreateCleanupPhase(op api.Operation) bool {
 	return op.Phase == "source-ready" && !op.Committed || (op.Phase == "branch-assigned" || op.Phase == "principals-ready") && op.Committed
 }
 
-type CreateCleanupPreview struct {
-	UUID               string                 `json:"uuid"`
-	OldOperationID     string                 `json:"old_operation_id"`
-	OldRequest         ReserveSessionRequest  `json:"old_request"`
-	OldPhase           string                 `json:"old_phase"`
-	OldEvidenceSHA256  string                 `json:"old_evidence_sha256"`
-	OldRequestSHA256   string                 `json:"old_request_sha256,omitempty"`
-	PolicySHA256       string                 `json:"policy_sha256"`
-	AssignedBranch     CreateReplaceBranch    `json:"assigned_branch"`
-	ImageFingerprint   string                 `json:"image_fingerprint"`
-	EnvironmentBuilder *CreationBuilderState  `json:"environment_builder,omitempty"`
-	Provisional        CreateReplaceResources `json:"provisional"`
-	ExternalMounts     string                 `json:"external_mounts"`
-	SharedImages       string                 `json:"shared_images"`
-	Runtime            *RemovalRuntimePreview `json:"runtime,omitempty"`
-	LossWarnings       []string               `json:"loss_warnings,omitempty"`
-	Eligible           bool                   `json:"eligible"`
-	UnsafeReasons      []string               `json:"unsafe_reasons"`
-	ConfirmationToken  string                 `json:"confirmation_token,omitempty"`
-	ExpiresAt          string                 `json:"expires_at,omitempty"`
-}
 type CreateCleanupEvidence struct {
-	Review        CreateCleanupPreview `json:"review"`
-	InstanceUUID  string               `json:"instance_uuid"`
-	LocalComplete bool                 `json:"local_complete,omitempty"`
-	RuntimeAbsent bool                 `json:"runtime_absent,omitempty"`
+	Review        api.CreateCleanupPreview `json:"review"`
+	InstanceUUID  string                   `json:"instance_uuid"`
+	LocalComplete bool                     `json:"local_complete,omitempty"`
+	RuntimeAbsent bool                     `json:"runtime_absent,omitempty"`
 }
 type CreateCleanupAPI interface {
-	PreviewCreateCleanup(context.Context, string) (CreateCleanupPreview, error)
+	PreviewCreateCleanup(context.Context, string) (api.CreateCleanupPreview, error)
 	ConfirmCreateCleanup(context.Context, string, string, string) (api.Operation, error)
 }

@@ -19,7 +19,7 @@ type CreateReplaceIntent struct {
 	NewPolicySHA256   string
 	TokenSHA256       string
 	ExpiresAt         string
-	Cleanup           *CreateReplacementCleanup
+	Cleanup           *api.CreateReplacementCleanup
 	New               ReserveSessionRequest
 }
 

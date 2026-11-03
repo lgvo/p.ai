@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/lgvo/p.ai/internal/api"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ type gitCapability struct {
 	backend  *gitservice.Backend
 	prepared *gitservice.PreparedServer
 	listener net.Listener
-	info     *control.GitInfo
+	info     *api.GitInfo
 	source   plugin.Active
 }
 
@@ -84,7 +85,7 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 		return nil, err
 	}
 	endpoint := net.JoinHostPort(host, port)
-	info := &control.GitInfo{
+	info := &api.GitInfo{
 		Endpoint:        endpoint,
 		URLTemplate:     "ssh://git@" + endpoint + "/{project}",
 		HostPublicKey:   strings.TrimSpace(string(ssh.MarshalAuthorizedKey(serverPub))),

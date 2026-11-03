@@ -4,45 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
-
-type StatusReport struct {
-	V              int    `json:"v"`
-	Source         string `json:"source"`
-	Condition      string `json:"condition"`
-	Reason         string `json:"reason"`
-	Adapter        string `json:"adapter"`
-	AdapterVersion string `json:"adapter_version"`
-}
 
 type statusRate struct {
 	secondStart time.Time
 	secondCount int
 	minuteStart time.Time
 	minuteCount int
-}
-
-func (r StatusReport) Valid() bool {
-	if r.V != 1 || len(r.Source) > 128 || len(r.Reason) > 256 || len(r.Adapter) == 0 || len(r.Adapter) > 128 || len(r.AdapterVersion) == 0 || len(r.AdapterVersion) > 64 {
-		return false
-	}
-	switch r.Condition {
-	case "running", "attention", "idle", "failed", "unknown":
-	default:
-		return false
-	}
-	for _, s := range []string{r.Source, r.Reason, r.Adapter, r.AdapterVersion} {
-		if !utf8.ValidString(s) || strings.IndexFunc(s, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
-			return false
-		}
-	}
-	return true
 }
 
 // AllowSessionAttempt budgets all private RPC lines before parsing or SQLite
@@ -70,14 +41,14 @@ func (s *Store) AllowSessionAttempt(id string) bool {
 
 // RecordStatus serializes receiving, rate control, and attachment transitions.
 // Its boolean indicates a committed unattended change eligible for event delivery.
-func (s *Store) RecordStatus(ctx context.Context, id string, report StatusReport) (api.UnattendedCondition, bool, error) {
+func (s *Store) RecordStatus(ctx context.Context, id string, report api.StatusReport) (api.UnattendedCondition, bool, error) {
 	return s.RecordStatusWithCommit(ctx, id, report, nil)
 }
 
 // RecordStatusWithCommit invokes a nonblocking callback while statusMu still
 // orders this committed report against attachment transitions and other reports.
-func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report StatusReport, onCommitted func(api.UnattendedCondition)) (api.UnattendedCondition, bool, error) {
-	if len(id) != 36 || !report.Valid() {
+func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report api.StatusReport, onCommitted func(api.UnattendedCondition)) (api.UnattendedCondition, bool, error) {
+	if len(id) != 36 || report.Validate() != nil {
 		return api.UnattendedCondition{}, false, ErrInvalid
 	}
 	s.statusMu.Lock()

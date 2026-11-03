@@ -48,7 +48,7 @@ def observe_process(argv):
 
 
 def observe():
-    command = observe_process(["p", "api", socket, "session.inspect", json.dumps({"v": 1, "uuid": uuid})])
+    command = observe_process(["p", "api", socket, "session.inspect", json.dumps({"uuid": uuid})])
     result = json.loads(command.stdout)
     if command.returncode:
         if result.get("error", {}).get("kind") == "busy":

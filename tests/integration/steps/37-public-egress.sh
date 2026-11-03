@@ -160,7 +160,7 @@ start_daemon() {
 wait_operation() {
   local id="$1" result status deadline=$((SECONDS+150))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = superseded; then
@@ -171,7 +171,7 @@ wait_operation() {
   echo "operation $id did not complete" >&2
   return 1
 }
-inspect() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
+inspect() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
 wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
   while ((SECONDS < deadline)); do
@@ -197,17 +197,17 @@ jq --arg nft "$P_TEST_NFT_BINARY" --arg proof "$P_TEST_NETWORK_PROOF_BINARY" '
 ' "$step_dir/host.json" > "$step_dir/host.next"
 mv -- "$step_dir/host.next" "$step_dir/host.json"
 start_daemon
-created_a=$(rpc project.create '{"v":1,"key":"egress-a-bootstrap","project":"policy-a"}')
+created_a=$(rpc project.create '{"key":"egress-a-bootstrap","project":"policy-a"}')
 op_a=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_a")
 uuid_a=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_a")
 wait_operation "$op_a"
 wait_ready "$uuid_a"
-created_b=$(rpc project.create '{"v":1,"key":"egress-b-bootstrap","project":"policy-b"}')
+created_b=$(rpc project.create '{"key":"egress-b-bootstrap","project":"policy-b"}')
 op_b=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$op_b"
 wait_ready "$uuid_b"
-created_c=$(rpc project.create '{"v":1,"key":"egress-c-bootstrap","project":"policy-c"}')
+created_c=$(rpc project.create '{"key":"egress-c-bootstrap","project":"policy-c"}')
 op_c=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_c")
 uuid_new=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_c")
 wait_operation "$op_c"

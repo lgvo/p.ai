@@ -123,7 +123,7 @@ CONFIG
     [[ $ref == refs/heads/* && $expected =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'expected an exact branch ref and object ID'
     remote=$(git ls-remote pdev@notes-review-origin:full.git "$ref" | awk -v ref="$ref" '$2==ref {print $1}')
     local_remote=$(git -C "$state/full.git" rev-parse --verify "$ref")
-    source=$(timeout 30 p api project.branches "$(jq -nc --arg project "$project" '{v:1,project:$project,limit:8}')" \
+    source=$(timeout 30 p api project.branches "$(jq -nc --arg project "$project" '{project:$project,limit:8}')" \
       | jq -er --arg ref "$ref" '.result.refs[] | select(.ref==$ref) | .oid')
     test "$remote" = "$expected" && test "$local_remote" = "$expected" && test "$source" = "$expected" \
       || fail 'published remote or canonical source differs from the exact expected OID'

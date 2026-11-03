@@ -75,7 +75,7 @@ From the guest shell:
 
 ```sh
 p api system.health            # JSON API, as the daemon's owning account
-p api session.list '{"v":1,"limit":8}'
+p api session.list '{"limit":8}'
 p tui                          # open the TUI
 p tui --snapshot               # render a live frame without interaction
 p-demo-poweroff                # clean shutdown, retaining all demo state

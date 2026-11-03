@@ -15,8 +15,8 @@ import (
 
 // These tests state what the control-API handler answers, built the way the
 // daemon builds it: the Git base handler, the lifecycle layer and the origin
-// layer. They pin method availability, advertisement, parameter checks,
-// routing to the lifecycle and the error mapping.
+// layer. They pin method availability, the configured capabilities, parameter
+// checks, routing to the lifecycle and the error mapping.
 
 const (
 	surfaceUUID  = "11111111-2222-3333-4444-555555555555"
@@ -62,10 +62,10 @@ func (l coreLife) StopSession(_ context.Context, id string) (api.SessionView, er
 type fullLife struct{ coreLife }
 
 func (l fullLife) SessionServices(_ context.Context, id, unit, action string) (api.ServiceResult, error) {
-	return api.ServiceResult{V: 1, UUID: id, Unit: unit, ObservedAt: "now"}, l.record("SessionServices %s %s %s", id, unit, action)
+	return api.ServiceResult{UUID: id, Unit: unit, ObservedAt: "now"}, l.record("SessionServices %s %s %s", id, unit, action)
 }
 func (l fullLife) AttachSession(_ context.Context, id string) (api.PendingAttachment, error) {
-	return api.PendingAttachment{V: 1, Token: "pending"}, l.record("AttachSession %s", id)
+	return api.PendingAttachment{Token: "pending"}, l.record("AttachSession %s", id)
 }
 func (l fullLife) ClaimAttachment(_ context.Context, token string, _ *Connection) (api.AttachmentLaunch, error) {
 	return api.AttachmentLaunch{}, l.record("ClaimAttachment %s", token)
@@ -73,8 +73,8 @@ func (l fullLife) ClaimAttachment(_ context.Context, token string, _ *Connection
 func (l fullLife) ConfirmAttachment(_ context.Context, _ *Connection, operation string) error {
 	return l.record("ConfirmAttachment %s", operation)
 }
-func (l fullLife) PreviewRemoval(_ context.Context, r RemovalPreviewRequest) (RemovalPreview, error) {
-	return RemovalPreview{}, l.record("PreviewRemoval %+v", r)
+func (l fullLife) PreviewRemoval(_ context.Context, r RemovalPreviewRequest) (api.RemovalPreview, error) {
+	return api.RemovalPreview{}, l.record("PreviewRemoval %+v", r)
 }
 func (l fullLife) DiscardSession(_ context.Context, r DiscardConfirmRequest) (api.Operation, error) {
 	return api.Operation{ID: "discard"}, l.record("DiscardSession %+v", r)
@@ -88,26 +88,26 @@ func (l fullLife) RenameSession(_ context.Context, r RenameRequest) (api.Operati
 func (l fullLife) RenameRetainedBranch(_ context.Context, r RetainedRenameRequest) (api.Operation, error) {
 	return api.Operation{ID: "retained-rename"}, l.record("RenameRetainedBranch %+v", r)
 }
-func (l fullLife) PreviewProjectDelete(_ context.Context, r ProjectDeletePreviewRequest) (ProjectDeletePreview, error) {
-	return ProjectDeletePreview{}, l.record("PreviewProjectDelete %+v", r)
+func (l fullLife) PreviewProjectDelete(_ context.Context, r ProjectDeletePreviewRequest) (api.ProjectDeletionPreview, error) {
+	return api.ProjectDeletionPreview{}, l.record("PreviewProjectDelete %+v", r)
 }
 func (l fullLife) ConfirmProjectDelete(_ context.Context, r ProjectDeleteConfirmRequest) (api.Operation, error) {
 	return api.Operation{ID: "project-delete"}, l.record("ConfirmProjectDelete %+v", r)
 }
-func (l fullLife) PreviewRetainedDelete(_ context.Context, project, branch string) (RetainedDeletePreview, error) {
-	return RetainedDeletePreview{}, l.record("PreviewRetainedDelete %s %s", project, branch)
+func (l fullLife) PreviewRetainedDelete(_ context.Context, project, branch string) (api.RetainedDeletePreview, error) {
+	return api.RetainedDeletePreview{}, l.record("PreviewRetainedDelete %s %s", project, branch)
 }
 func (l fullLife) ConfirmRetainedDelete(_ context.Context, key, project, branch, token string) (api.Operation, error) {
 	return api.Operation{ID: "retained-delete"}, l.record("ConfirmRetainedDelete %s %s %s %s", key, project, branch, token)
 }
-func (l fullLife) PreviewCreateReplace(_ context.Context, old string, r ReserveSessionRequest) (CreateReplacePreview, error) {
-	return CreateReplacePreview{}, l.record("PreviewCreateReplace %s %+v", old, r)
+func (l fullLife) PreviewCreateReplace(_ context.Context, old string, r ReserveSessionRequest) (api.CreateReplacePreview, error) {
+	return api.CreateReplacePreview{}, l.record("PreviewCreateReplace %s %+v", old, r)
 }
 func (l fullLife) ConfirmCreateReplace(_ context.Context, old, key, token string) (api.Operation, error) {
 	return api.Operation{ID: "replace"}, l.record("ConfirmCreateReplace %s %s %s", old, key, token)
 }
-func (l fullLife) PreviewCreateCleanup(_ context.Context, id string) (CreateCleanupPreview, error) {
-	return CreateCleanupPreview{}, l.record("PreviewCreateCleanup %s", id)
+func (l fullLife) PreviewCreateCleanup(_ context.Context, id string) (api.CreateCleanupPreview, error) {
+	return api.CreateCleanupPreview{}, l.record("PreviewCreateCleanup %s", id)
 }
 func (l fullLife) ConfirmCreateCleanup(_ context.Context, id, key, token string) (api.Operation, error) {
 	return api.Operation{ID: "cleanup"}, l.record("ConfirmCreateCleanup %s %s %s", id, key, token)
@@ -149,7 +149,7 @@ func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI) (Handler, *Sto
 	if !git {
 		return NewHandler(HandlerConfig{Store: store}), store
 	}
-	return NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &GitInfo{Endpoint: "127.0.0.1:2222"}, Lifecycle: life,
+	return NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &api.GitInfo{Endpoint: "127.0.0.1:2222"}, Lifecycle: life,
 		Origins: &OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}}), store
 }
 
@@ -174,50 +174,83 @@ func surfaceConnectionContext(dedicated bool) context.Context {
 	return context.WithValue(context.Background(), connectionKey{}, &Connection{dedicated: dedicated})
 }
 
-func TestCapabilitiesListEachConfigurationInOrder(t *testing.T) {
-	system := []string{"system.hello", "system.health", "system.capabilities", "system.inspect"}
-	git := append(append([]string{}, system...), "project.list", "project.branches")
-	core := []string{"project.create", "session.create", "session.inspect", "session.list", "session.start", "session.stop", "operation.inspect", "operation.list", "operation.retry"}
-	origin := []string{"origin.change", "origin.refresh", "origin.inspect", "origin.sources", "origin.publication.preview", "origin.publish", "project.retained_branches"}
-	optional := []string{
-		"session.services", "session.service.journal", "session.service.action",
-		"session.attach",
-		"session.removal.preview", "session.discard", "session.delete",
-		"session.rename", "project.retained.rename",
-		"project.delete.preview", "project.delete.confirm",
-		"project.retained.delete.preview", "project.retained.delete.confirm",
-		"session.create.replace.preview", "session.create.replace.confirm",
-		"session.create.cleanup.preview", "session.create.cleanup.confirm",
-	}
+func TestHelloReportsEachConfiguration(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		config    surfaceConfig
-		available []string
-		lifecycle string
-		git       bool
+		name         string
+		config       surfaceConfig
+		capabilities []api.Capability
 	}{
-		{"state only", surfaceStateOnly, system, "unavailable", false},
-		{"git", surfaceGit, append(append([]string{}, git...), origin...), "unavailable", true},
-		{"core lifecycle", surfaceCoreLifecycle, append(append(append([]string{}, git...), core...), origin...), "partial", true},
-		{"full lifecycle", surfaceFullLifecycle, append(append(append(append([]string{}, git...), core...), optional...), origin...), "partial", true},
+		{"state only", surfaceStateOnly, []api.Capability{}},
+		{"git", surfaceGit, []api.Capability{api.CapabilityGit}},
+		{"core lifecycle", surfaceCoreLifecycle, []api.Capability{api.CapabilityGit, api.CapabilityRuntime}},
+		{"full lifecycle", surfaceFullLifecycle, []api.Capability{api.CapabilityGit, api.CapabilityRuntime, api.CapabilityServices}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, _ := surfaceHandler(t, test.config)
-			result, rpcErr := surfaceCall(t, h, context.Background(), "system.capabilities", `{"v":1}`)
+			hello, rpcErr := callMethod(t, context.Background(), h, api.SystemHello, api.HelloRequest{Protocol: api.Protocol})
 			if rpcErr != nil {
 				t.Fatal(rpcErr)
 			}
-			var available []string
-			for _, method := range result["available"].([]any) {
-				available = append(available, method.(string))
+			if !reflect.DeepEqual(hello.Capabilities, test.capabilities) || hello.Protocol != api.Protocol || hello.BuildVersion != BuildVersion || !api.ValidUUID(hello.InstanceID) {
+				t.Errorf("hello %+v, want capabilities %q", hello, test.capabilities)
 			}
-			if !reflect.DeepEqual(available, test.available) {
-				t.Errorf("available:\n got %q\nwant %q", available, test.available)
-			}
-			if result["lifecycle"] != test.lifecycle || (result["git"] != nil) != test.git || result["v"] != float64(1) {
-				t.Errorf("capability facts: %v", result)
+			inspect, rpcErr := callMethod(t, context.Background(), h, api.SystemInspect, api.SystemInspectRequest{})
+			if rpcErr != nil || (inspect.Git != nil) != (test.config != surfaceStateOnly) {
+				t.Errorf("inspect %+v %+v", inspect, rpcErr)
 			}
 		})
+	}
+}
+
+// Every method of the protocol is answered in every configuration: served
+// when its capability is configured, or refused as not configured, naming the
+// capability, whatever its params.
+func TestEveryProtocolMethodIsServedOrNotConfigured(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		config     surfaceConfig
+		configured map[api.Capability]bool
+	}{
+		{"state only", surfaceStateOnly, map[api.Capability]bool{"": true}},
+		{"git", surfaceGit, map[api.Capability]bool{"": true, api.CapabilityGit: true}},
+		{"full lifecycle", surfaceFullLifecycle, map[api.Capability]bool{"": true, api.CapabilityGit: true, api.CapabilityRuntime: true, api.CapabilityServices: true}},
+	} {
+		h, _ := surfaceHandler(t, test.config)
+		for _, m := range api.Methods() {
+			if m.Connection {
+				continue
+			}
+			_, rpcErr := h(surfaceConnectionContext(false), m.Name, json.RawMessage(`{"unknown":1}`))
+			notConfigured := api.RPCError{Code: -32004, Kind: "unavailable", Message: string(m.Capability) + " capability is not configured"}
+			switch {
+			case test.configured[m.Capability] && (rpcErr == nil || *rpcErr != (api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid " + m.Name + " params"})):
+				t.Errorf("%s: %s answered %+v, want its params refused", test.name, m.Name, rpcErr)
+			case !test.configured[m.Capability] && (rpcErr == nil || *rpcErr != notConfigured):
+				t.Errorf("%s: %s answered %+v, want %+v", test.name, m.Name, rpcErr, notConfigured)
+			}
+		}
+	}
+}
+
+func TestTheTableRegistersExactlyTheProtocol(t *testing.T) {
+	store, _ := openTestStore(t)
+	for _, life := range []LifecycleAPI{nil, coreLife{&surfaceCalls{}}, fullLife{coreLife{&surfaceCalls{}}}} {
+		c := HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &api.GitInfo{}, Lifecycle: life,
+			Origins: &OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}}
+		table := newMethodTable(c)
+		want := map[string]bool{}
+		for _, m := range api.Methods() {
+			if !m.Connection {
+				want[m.Name] = true
+			}
+		}
+		got := map[string]bool{}
+		for name := range table.handlers {
+			got[name] = true
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("registered %v, want %v", got, want)
+		}
 	}
 }
 
@@ -230,33 +263,33 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		keys     []string
 		identity string
 	}{
-		{"project.create", `{"v":1,"key":"k","project":"team/app","url":"ssh://host/repo"}`, "CreateProject {Key:k Project:team/app URL:ssh://host/repo}", []string{"operation", "v"}, "created-project"},
-		{"session.create", `{"v":1,"key":"k","project":"team/app","branch":"work","choice":"existing"}`, "CreateSession {Key:k Project:team/app Branch:work Choice:existing Source: OriginRef: ExpectedCommitOID: ExpectedOriginURL:}", []string{"operation", "v"}, "created-session"},
-		{"session.create", `{"v":1,"key":"k","project":"team/app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `","expected_origin_url":"ssh://host/repo"}`, "CreateSession {Key:k Project:team/app Branch:work Choice:new Source: OriginRef:refs/heads/main ExpectedCommitOID:" + oid + " ExpectedOriginURL:ssh://host/repo}", []string{"operation", "v"}, "created-session"},
-		{"session.create.cleanup.preview", `{"v":1,"uuid":"` + uuid + `"}`, "PreviewCreateCleanup " + uuid, []string{"preview", "v"}, ""},
-		{"session.create.cleanup.confirm", `{"v":1,"uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateCleanup " + uuid + " k " + token, []string{"operation", "v"}, "cleanup"},
-		{"session.create.replace.preview", `{"v":1,"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"new","source":"refs/heads/main"}`, "PreviewCreateReplace " + uuid + " {Key:k Project:team/app Branch:work Choice:new Source:refs/heads/main OriginRef: ExpectedCommitOID: ExpectedOriginURL:}", []string{"preview", "v"}, ""},
-		{"session.create.replace.confirm", `{"v":1,"old_uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateReplace " + uuid + " k " + token, []string{"operation", "v"}, "replace"},
-		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"discard"}`, "PreviewRemoval {UUID:" + uuid + " Kind:discard AcknowledgeMissingRuntime:false}", []string{"preview", "v"}, ""},
-		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"delete","acknowledge_missing_runtime":true}`, "PreviewRemoval {UUID:" + uuid + " Kind:delete AcknowledgeMissingRuntime:true}", []string{"preview", "v"}, ""},
-		{"session.discard", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "DiscardSession {Key:k UUID:" + uuid + " ConfirmationToken:" + token + "}", []string{"operation", "v"}, "discard"},
-		{"session.delete", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "DeleteSession {Key:k UUID:" + uuid + " ConfirmationToken:" + token + "}", []string{"operation", "v"}, "delete"},
-		{"session.rename", `{"v":1,"key":"k","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + oid + `"}`, "RenameSession {Key:k UUID:" + uuid + " NewBranch:next ExpectedOldTip:" + oid + "}", []string{"operation", "v"}, "rename"},
-		{"project.retained.rename", `{"v":1,"key":"k","project":"team/app","old_branch":"old","new_branch":"new","expected_old_tip":"` + oid + `"}`, "RenameRetainedBranch {Key:k Project:team/app OldBranch:old NewBranch:new ExpectedOldTip:" + oid + "}", []string{"operation", "v"}, "retained-rename"},
-		{"project.delete.preview", `{"v":1,"project":"team/app","acknowledge_missing":["` + uuid2 + `"]}`, "PreviewProjectDelete {Project:team/app AcknowledgeMissing:[" + uuid2 + "]}", []string{"preview", "v"}, ""},
-		{"project.delete.confirm", `{"v":1,"key":"k","project":"team/app","confirmation_token":"` + token + `"}`, "ConfirmProjectDelete {Key:k Project:team/app ConfirmationToken:" + token + "}", []string{"operation", "v"}, "project-delete"},
-		{"project.retained.delete.preview", `{"v":1,"project":"team/app","branch":"saved"}`, "PreviewRetainedDelete team/app saved", []string{"preview", "v"}, ""},
-		{"project.retained.delete.confirm", `{"v":1,"key":"k","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`, "ConfirmRetainedDelete k team/app saved " + token, []string{"operation", "v"}, "retained-delete"},
-		{"operation.retry", `{"v":1,"id":"op-1"}`, "Retry op-1", []string{"operation", "v"}, "op-1"},
-		{"session.inspect", `{"v":1,"uuid":"` + uuid + `"}`, "InspectSession " + uuid, []string{"session", "v"}, uuid},
-		{"session.start", `{"v":1,"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"session", "v"}, uuid},
-		{"session.stop", `{"v":1,"uuid":"` + uuid + `"}`, "StopSession " + uuid, []string{"session", "v"}, uuid},
-		{"session.services", `{"v":1,"uuid":"` + uuid + `"}`, "SessionServices " + uuid + "  list", []string{"observed_at", "uuid", "v"}, ""},
-		{"session.service.journal", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`, "SessionServices " + uuid + " " + surfaceUnit + " journal", []string{"observed_at", "unit", "uuid", "v"}, ""},
-		{"session.service.action", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"restart"}`, "SessionServices " + uuid + " " + surfaceUnit + " restart", []string{"observed_at", "unit", "uuid", "v"}, ""},
-		{"session.attach", `{"v":1,"uuid":"` + uuid + `"}`, "AttachSession " + uuid, []string{"expires_at", "spec", "token", "v"}, ""},
-		{"attachment.confirm", `{"v":1,"operation":"/1.0/operations/` + uuid + `"}`, "ConfirmAttachment /1.0/operations/" + uuid, []string{"v"}, ""},
-		{"attachment.ping", `{"v":1}`, "", []string{"v"}, ""},
+		{"project.create", `{"key":"k","project":"team/app","url":"ssh://host/repo"}`, "CreateProject {Key:k Project:team/app URL:ssh://host/repo}", []string{"operation"}, "created-project"},
+		{"session.create", `{"key":"k","project":"team/app","branch":"work","choice":"existing"}`, "CreateSession {Key:k Project:team/app Branch:work Choice:existing Source: OriginRef: ExpectedCommitOID: ExpectedOriginURL:}", []string{"operation"}, "created-session"},
+		{"session.create", `{"key":"k","project":"team/app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `","expected_origin_url":"ssh://host/repo"}`, "CreateSession {Key:k Project:team/app Branch:work Choice:new Source: OriginRef:refs/heads/main ExpectedCommitOID:" + oid + " ExpectedOriginURL:ssh://host/repo}", []string{"operation"}, "created-session"},
+		{"session.create.cleanup.preview", `{"uuid":"` + uuid + `"}`, "PreviewCreateCleanup " + uuid, []string{"preview"}, ""},
+		{"session.create.cleanup.confirm", `{"uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateCleanup " + uuid + " k " + token, []string{"operation"}, "cleanup"},
+		{"session.create.replace.preview", `{"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"new","source":"refs/heads/main"}`, "PreviewCreateReplace " + uuid + " {Key:k Project:team/app Branch:work Choice:new Source:refs/heads/main OriginRef: ExpectedCommitOID: ExpectedOriginURL:}", []string{"preview"}, ""},
+		{"session.create.replace.confirm", `{"old_uuid":"` + uuid + `","key":"k","confirmation_token":"` + token + `"}`, "ConfirmCreateReplace " + uuid + " k " + token, []string{"operation"}, "replace"},
+		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"discard"}`, "PreviewRemoval {UUID:" + uuid + " Kind:discard AcknowledgeMissingRuntime:false}", []string{"preview"}, ""},
+		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"delete","acknowledge_missing_runtime":true}`, "PreviewRemoval {UUID:" + uuid + " Kind:delete AcknowledgeMissingRuntime:true}", []string{"preview"}, ""},
+		{"session.discard", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "DiscardSession {Key:k UUID:" + uuid + " ConfirmationToken:" + token + "}", []string{"operation"}, "discard"},
+		{"session.delete", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"` + token + `"}`, "DeleteSession {Key:k UUID:" + uuid + " ConfirmationToken:" + token + "}", []string{"operation"}, "delete"},
+		{"session.rename", `{"key":"k","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + oid + `"}`, "RenameSession {Key:k UUID:" + uuid + " NewBranch:next ExpectedOldTip:" + oid + "}", []string{"operation"}, "rename"},
+		{"project.retained.rename", `{"key":"k","project":"team/app","old_branch":"old","new_branch":"new","expected_old_tip":"` + oid + `"}`, "RenameRetainedBranch {Key:k Project:team/app OldBranch:old NewBranch:new ExpectedOldTip:" + oid + "}", []string{"operation"}, "retained-rename"},
+		{"project.delete.preview", `{"project":"team/app","acknowledge_missing":["` + uuid2 + `"]}`, "PreviewProjectDelete {Project:team/app AcknowledgeMissing:[" + uuid2 + "]}", []string{"preview"}, ""},
+		{"project.delete.confirm", `{"key":"k","project":"team/app","confirmation_token":"` + token + `"}`, "ConfirmProjectDelete {Key:k Project:team/app ConfirmationToken:" + token + "}", []string{"operation"}, "project-delete"},
+		{"project.retained.delete.preview", `{"project":"team/app","branch":"saved"}`, "PreviewRetainedDelete team/app saved", []string{"preview"}, ""},
+		{"project.retained.delete.confirm", `{"key":"k","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`, "ConfirmRetainedDelete k team/app saved " + token, []string{"operation"}, "retained-delete"},
+		{"operation.retry", `{"id":"op-1"}`, "Retry op-1", []string{"operation"}, "op-1"},
+		{"session.inspect", `{"uuid":"` + uuid + `"}`, "InspectSession " + uuid, []string{"session"}, uuid},
+		{"session.start", `{"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"session"}, uuid},
+		{"session.stop", `{"uuid":"` + uuid + `"}`, "StopSession " + uuid, []string{"session"}, uuid},
+		{"session.services", `{"uuid":"` + uuid + `"}`, "SessionServices " + uuid + "  list", []string{"observed_at", "uuid"}, ""},
+		{"session.service.journal", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`, "SessionServices " + uuid + " " + surfaceUnit + " journal", []string{"observed_at", "unit", "uuid"}, ""},
+		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"restart"}`, "SessionServices " + uuid + " " + surfaceUnit + " restart", []string{"observed_at", "unit", "uuid"}, ""},
+		{"session.attach", `{"uuid":"` + uuid + `"}`, "AttachSession " + uuid, []string{"expires_at", "spec", "token"}, ""},
+		{"attachment.confirm", `{"operation":"/1.0/operations/` + uuid + `"}`, "ConfirmAttachment /1.0/operations/" + uuid, nil, ""},
+		{"attachment.ping", `{}`, "", nil, ""},
 	} {
 		t.Run(test.method+" "+test.call, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
@@ -292,41 +325,46 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 	uuid, token := surfaceUUID, surfaceToken
 	for _, test := range []struct{ method, params string }{
-		{"project.create", `{"v":1,"key":"k","project":"team/app","extra":1}`},
-		{"project.create", `{"v":2,"key":"k","project":"team/app"}`},
-		{"project.create", `{"v":1,"key":"","project":"team/app"}`},
-		{"project.create", `{"v":1,"key":"k","project":"/abs"}`},
-		{"session.create", `{"v":1,"key":"k","project":"team/app","branch":"work","choice":"existing","source":"refs/heads/main"}`},
-		{"session.create", `{"v":1,"key":"k","project":"team/app","branch":"work..x","choice":"existing"}`},
-		{"session.create.cleanup.preview", `{"v":1,"uuid":"short"}`},
-		{"session.create.cleanup.preview", `{"v":1,"uuid":"` + uuid + `","loss_operation_id":"` + uuid + `"}`},
-		{"session.create.cleanup.confirm", `{"v":1,"uuid":"` + uuid + `","key":"k","confirmation_token":"ABCDEF0123456789abcdef0123456789"}`},
-		{"session.create.replace.preview", `{"v":1,"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"maybe"}`},
-		{"session.create.replace.confirm", `{"v":1,"old_uuid":"` + uuid + `","key":"","confirmation_token":"` + token + `"}`},
-		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + uuid + `"}`},
-		{"session.removal.preview", `{"v":1,"uuid":"` + uuid + `","kind":"stop"}`},
-		{"session.discard", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
-		{"session.delete", `{"v":1,"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
-		{"session.rename", `{"v":1,"key":"k","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"0000000000000000000000000000000000000000"}`},
-		{"project.retained.rename", `{"v":1,"key":"k","project":"team/app","old_branch":"same","new_branch":"same","expected_old_tip":"` + surfaceOID + `"}`},
-		{"project.delete.preview", `{"v":1,"project":"team/app","loss_operations":{}}`},
-		{"project.delete.preview", `{"v":1,"project":"team/app","acknowledge_missing":["bad"]}`},
-		{"project.delete.confirm", `{"v":1,"key":"k","project":"team/app","confirmation_token":"short"}`},
-		{"project.retained.delete.preview", `{"v":1,"project":"team/app","branch":".hidden"}`},
-		{"project.retained.delete.confirm", `{"v":1,"key":"","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`},
-		{"operation.inspect", `{"v":1,"id":""}`},
-		{"operation.retry", `{"v":1}`},
-		{"operation.list", `{"v":1,"limit":21}`},
-		{"session.list", `{"v":1,"limit":9}`},
-		{"session.inspect", `{"v":1,"uuid":"bad"}`},
-		{"session.start", `{"v":1}`},
-		{"session.stop", `{"v":1,"uuid":"` + uuid + `","extra":1}`},
-		{"session.services", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`},
-		{"session.service.journal", `{"v":1,"uuid":"` + uuid + `","unit":"sshd.service"}`},
-		{"session.service.action", `{"v":1,"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"reload"}`},
-		{"session.attach", `{"v":1,"uuid":"bad"}`},
-		{"attachment.confirm", `{"v":1,"operation":"/1.0/operations/short"}`},
-		{"attachment.ping", `{"v":1,"operation":"/1.0/operations/` + uuid + `"}`},
+		{"project.create", `{"key":"k","project":"team/app","extra":1}`},
+		{"project.create", `{"v":1,"key":"k","project":"team/app"}`},
+		{"project.create", `{"key":"","project":"team/app"}`},
+		{"project.create", `{"key":"k","project":"/abs"}`},
+		{"session.create", `{"key":"k","project":"team/app","branch":"work","choice":"existing","source":"refs/heads/main"}`},
+		{"session.create", `{"key":"k","project":"team/app","branch":"work..x","choice":"existing"}`},
+		{"session.create.cleanup.preview", `{"uuid":"short"}`},
+		{"session.create.cleanup.preview", `{"uuid":"` + uuid + `","loss_operation_id":"` + uuid + `"}`},
+		{"session.create.cleanup.confirm", `{"uuid":"` + uuid + `","key":"k","confirmation_token":"ABCDEF0123456789abcdef0123456789"}`},
+		{"session.create.replace.preview", `{"old_uuid":"` + uuid + `","key":"k","project":"team/app","branch":"work","choice":"maybe"}`},
+		{"session.create.replace.confirm", `{"old_uuid":"` + uuid + `","key":"","confirmation_token":"` + token + `"}`},
+		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + uuid + `"}`},
+		{"session.removal.preview", `{"uuid":"` + uuid + `","kind":"stop"}`},
+		{"session.discard", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
+		{"session.delete", `{"key":"k","uuid":"` + uuid + `","confirmation_token":"short"}`},
+		{"session.rename", `{"key":"k","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"0000000000000000000000000000000000000000"}`},
+		{"project.retained.rename", `{"key":"k","project":"team/app","old_branch":"same","new_branch":"same","expected_old_tip":"` + surfaceOID + `"}`},
+		{"project.delete.preview", `{"project":"team/app","loss_operations":{}}`},
+		{"project.delete.preview", `{"project":"team/app","acknowledge_missing":["bad"]}`},
+		{"project.delete.confirm", `{"key":"k","project":"team/app","confirmation_token":"short"}`},
+		{"project.retained.delete.preview", `{"project":"team/app","branch":".hidden"}`},
+		{"project.retained.delete.confirm", `{"key":"","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`},
+		{"operation.inspect", `{"id":""}`},
+		{"operation.retry", `{}`},
+		{"operation.list", `{"limit":21}`},
+		{"session.list", `{"limit":9}`},
+		{"session.inspect", `{"uuid":"bad"}`},
+		{"session.start", `{}`},
+		{"session.stop", `{"uuid":"` + uuid + `","extra":1}`},
+		{"session.services", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `"}`},
+		{"session.service.journal", `{"uuid":"` + uuid + `","unit":"sshd.service"}`},
+		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"reload"}`},
+		{"session.service.action", `{"uuid":"` + uuid + `","action":"list"}`},
+		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"journal"}`},
+		{"system.health", `null`},
+		{"system.inspect", `[]`},
+		{"attachment.ping", `null`},
+		{"session.attach", `{"uuid":"bad"}`},
+		{"attachment.confirm", `{"operation":"/1.0/operations/short"}`},
+		{"attachment.ping", `{"operation":"/1.0/operations/` + uuid + `"}`},
 	} {
 		t.Run(test.method+" "+test.params, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
@@ -349,10 +387,10 @@ func TestAttachmentHelperMethodsNeedTheirConnection(t *testing.T) {
 		method string
 		params string
 	}{
-		{"attach without a connection", context.Background(), "session.attach", `{"v":1,"uuid":"` + surfaceUUID + `"}`},
-		{"confirm on an ordinary connection", surfaceConnectionContext(false), "attachment.confirm", `{"v":1,"operation":"/1.0/operations/` + surfaceUUID + `"}`},
-		{"ping on an ordinary connection", surfaceConnectionContext(false), "attachment.ping", `{"v":1}`},
-		{"claim from a process that is not the helper", surfaceConnectionContext(false), "attachment.claim", `{"v":1,"token":"` + strings.Repeat("a", 64) + `"}`},
+		{"attach without a connection", context.Background(), "session.attach", `{"uuid":"` + surfaceUUID + `"}`},
+		{"confirm on an ordinary connection", surfaceConnectionContext(false), "attachment.confirm", `{"operation":"/1.0/operations/` + surfaceUUID + `"}`},
+		{"ping on an ordinary connection", surfaceConnectionContext(false), "attachment.ping", `{}`},
+		{"claim from a process that is not the helper", surfaceConnectionContext(false), "attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `"}`},
 	} {
 		_, rpcErr := surfaceCall(t, h, test.ctx, test.method, test.params)
 		if rpcErr == nil || rpcErr.Code != -32602 || rpcErr.Kind != "invalid_params" {
@@ -369,8 +407,8 @@ func TestStoreBackedLifecycleReads(t *testing.T) {
 	for _, test := range []struct {
 		method, params, want string
 	}{
-		{"operation.list", `{"v":1,"limit":20}`, `{"next":"","operations":[],"v":1}`},
-		{"session.list", `{"v":1,"limit":8}`, `{"next":"","sessions":[],"v":1}`},
+		{"operation.list", `{"limit":20}`, `{"operations":[],"next":""}`},
+		{"session.list", `{"limit":8}`, `{"sessions":[],"next":""}`},
 	} {
 		result, rpcErr := h(context.Background(), test.method, json.RawMessage(test.params))
 		if rpcErr != nil {
@@ -381,7 +419,7 @@ func TestStoreBackedLifecycleReads(t *testing.T) {
 			t.Errorf("%s: %s, want %s", test.method, encoded, test.want)
 		}
 	}
-	_, rpcErr := h(context.Background(), "operation.inspect", json.RawMessage(`{"v":1,"id":"missing"}`))
+	_, rpcErr := h(context.Background(), "operation.inspect", json.RawMessage(`{"id":"missing"}`))
 	if rpcErr == nil || *rpcErr != (api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}) {
 		t.Errorf("missing operation: %+v", rpcErr)
 	}
@@ -419,12 +457,12 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 	for _, test := range []struct {
 		method, params, want string
 	}{
-		{"operation.inspect", `{"v":1,"id":"op-b"}`, `{"operation":{"id":"op-b","idempotency_key":"key-op-b","kind":"session.rename","project":"team/app","session_uuid":"` + surfaceUUID +
-			`","request":{"key":"k"},"status":"blocked","phase":"stale","committed":true,"evidence":{"e":1},"diagnostic":"` + long + `","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"},"v":1}`},
+		{"operation.inspect", `{"id":"op-b"}`, `{"operation":{"id":"op-b","idempotency_key":"key-op-b","kind":"session.rename","project":"team/app","session_uuid":"` + surfaceUUID +
+			`","request":{"key":"k"},"status":"blocked","phase":"stale","committed":true,"evidence":{"e":1},"diagnostic":"` + long + `","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}}`},
 		// Summaries keep 512 diagnostic bytes for Rename and 256 for others.
-		{"operation.list", `{"v":1,"limit":2}`, `{"next":"op-b","operations":[` + summary("op-a", "project.retained.rename", "", "completed", "completed", "") + "," +
-			summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long[:512]) + `],"v":1}`},
-		{"operation.list", `{"v":1,"limit":2,"after":"op-b"}`, `{"next":"","operations":[` + summary("op-c", "session.discard", surfaceUUID2, "running", "reserved", long[:256]) + `],"v":1}`},
+		{"operation.list", `{"limit":2}`, `{"operations":[` + summary("op-a", "project.retained.rename", "", "completed", "completed", "") + "," +
+			summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long[:512]) + `],"next":"op-b"}`},
+		{"operation.list", `{"limit":2,"after":"op-b"}`, `{"operations":[` + summary("op-c", "session.discard", surfaceUUID2, "running", "reserved", long[:256]) + `],"next":""}`},
 	} {
 		result, rpcErr := h(context.Background(), test.method, json.RawMessage(test.params))
 		if rpcErr != nil {
@@ -438,10 +476,10 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 }
 
 func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
-	discard := `{"v":1,"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
-	projectPreview := `{"v":1,"project":"team/app"}`
-	projectConfirm := `{"v":1,"key":"k","project":"team/app","confirmation_token":"` + surfaceToken + `"}`
-	services := `{"v":1,"uuid":"` + surfaceUUID + `"}`
+	discard := `{"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
+	projectPreview := `{"project":"team/app"}`
+	projectConfirm := `{"key":"k","project":"team/app","confirmation_token":"` + surfaceToken + `"}`
+	services := `{"uuid":"` + surfaceUUID + `"}`
 	long := strings.Repeat("x", 1000)
 	for _, test := range []struct {
 		name, method, params string
@@ -477,45 +515,42 @@ func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
 }
 
 func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
-	notImplemented := api.RPCError{Code: -32004, Kind: "unavailable", Message: "capability is not implemented"}
-	notFound := api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}
-	badParams := api.RPCError{Code: -32602, Kind: "invalid_params", Message: `params must be {"v":1}`}
+	notConfigured := func(capability string) api.RPCError {
+		return api.RPCError{Code: -32004, Kind: "unavailable", Message: capability + " capability is not configured"}
+	}
 	unknown := api.RPCError{Code: -32601, Kind: "method_not_found", Message: "method is unknown"}
-	discard := `{"v":1,"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
+	discard := `{"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
 	for _, test := range []struct {
 		name           string
 		config         surfaceConfig
 		method, params string
 		want           api.RPCError
 	}{
-		{"unknown method", surfaceStateOnly, "nope", `{"v":1}`, unknown},
-		{"unknown method with other params", surfaceStateOnly, "nope", `{"v":1,"x":1}`, badParams},
-		{"known prefix without capability", surfaceStateOnly, "session.create", `{"v":1}`, notImplemented},
-		{"origin prefix without capability", surfaceStateOnly, "origin.inspect", `{"v":1}`, notImplemented},
-		{"runtime prefix", surfaceStateOnly, "runtime.inspect", `{"v":1}`, notImplemented},
-		{"status prefix", surfaceStateOnly, "status.report", `{"v":1}`, notImplemented},
-		{"lifecycle params without capability", surfaceStateOnly, "session.discard", discard, badParams},
-		{"project list without Git", surfaceStateOnly, "project.list", `{"v":1,"limit":1}`, api.RPCError{Code: -32004, Kind: "unavailable", Message: "Git capability is not configured"}},
-		{"lifecycle without runtime", surfaceGit, "session.create", `{"v":1}`, notImplemented},
-		{"attachment without runtime", surfaceGit, "attachment.ping", `{"v":1}`, unknown},
-		{"system method rejects params", surfaceGit, "system.hello", `{"v":1,"x":1}`, badParams},
-		{"discard without its API", surfaceCoreLifecycle, "session.discard", discard, notFound},
-		{"services without their API", surfaceCoreLifecycle, "session.services", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
-		{"attach without its API", surfaceCoreLifecycle, "session.attach", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
-		{"removed cache list", surfaceFullLifecycle, "environment.cache.list", `{"v":1}`, unknown},
-		{"removed cache preview", surfaceFullLifecycle, "environment.cache.preview", `{"v":1}`, unknown},
-		{"removed cache collection", surfaceFullLifecycle, "environment.cache.collect", `{"v":1}`, unknown},
-		{"removed workspace inspection", surfaceFullLifecycle, "workspace.inspect", `{"v":1}`, unknown},
-		{"cleanup without its API", surfaceCoreLifecycle, "session.create.cleanup.preview", `{"v":1,"uuid":"` + surfaceUUID + `"}`, notFound},
-		{"removed session.repair.preview", surfaceFullLifecycle, "session.repair.preview", `{"v":1}`, notImplemented},
-		{"removed session.repair.confirm", surfaceFullLifecycle, "session.repair.confirm", `{"v":1}`, notImplemented},
-		{"removed session.repair.prepare", surfaceFullLifecycle, "session.repair.prepare", `{"v":1}`, notImplemented},
-		{"removed session.ref.repair.preview", surfaceFullLifecycle, "session.ref.repair.preview", `{"v":1}`, notImplemented},
-		{"removed session.ref.repair.confirm", surfaceFullLifecycle, "session.ref.repair.confirm", `{"v":1}`, notImplemented},
-		{"removed session.principal.repair.preview", surfaceFullLifecycle, "session.principal.repair.preview", `{"v":1}`, notImplemented},
-		{"removed session.principal.repair.confirm", surfaceFullLifecycle, "session.principal.repair.confirm", `{"v":1}`, notImplemented},
-		{"removed session.record.repair.preview", surfaceFullLifecycle, "session.record.repair.preview", `{"v":1}`, notImplemented},
-		{"removed session.record.repair.confirm", surfaceFullLifecycle, "session.record.repair.confirm", `{"v":1}`, notImplemented},
+		{"unknown method", surfaceStateOnly, "nope", `{}`, unknown},
+		{"unknown method with other params", surfaceStateOnly, "nope", `{"x":1}`, unknown},
+		{"lifecycle without runtime", surfaceStateOnly, "session.create", `{}`, notConfigured("runtime")},
+		{"origin without Git", surfaceStateOnly, "origin.inspect", `{}`, notConfigured("git")},
+		{"name outside the protocol", surfaceStateOnly, "runtime.inspect", `{}`, unknown},
+		{"session RPC method on the control socket", surfaceStateOnly, "status.report", `{"v":1}`, unknown},
+		{"lifecycle params without runtime", surfaceStateOnly, "session.discard", discard, notConfigured("runtime")},
+		{"project list without Git", surfaceStateOnly, "project.list", `{"limit":1}`, notConfigured("git")},
+		{"lifecycle with Git only", surfaceGit, "session.create", `{}`, notConfigured("runtime")},
+		{"attachment without runtime", surfaceGit, "attachment.ping", `{}`, notConfigured("runtime")},
+		{"system method rejects params", surfaceGit, "system.hello", `{"protocol":"p.control/v2","x":1}`, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid system.hello params"}},
+		{"system method rejects the old version field", surfaceGit, "system.health", `{"v":1}`, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid system.health params"}},
+		{"removed capabilities", surfaceGit, "system.capabilities", `{}`, unknown},
+		{"discard without its API", surfaceCoreLifecycle, "session.discard", discard, notConfigured("runtime")},
+		{"services without their API", surfaceCoreLifecycle, "session.services", `{"uuid":"` + surfaceUUID + `"}`, notConfigured("services")},
+		{"attach without its API", surfaceCoreLifecycle, "session.attach", `{"uuid":"` + surfaceUUID + `"}`, notConfigured("runtime")},
+		{"removed cache list", surfaceFullLifecycle, "environment.cache.list", `{}`, unknown},
+		{"removed cache preview", surfaceFullLifecycle, "environment.cache.preview", `{}`, unknown},
+		{"removed cache collection", surfaceFullLifecycle, "environment.cache.collect", `{}`, unknown},
+		{"removed workspace inspection", surfaceFullLifecycle, "workspace.inspect", `{}`, unknown},
+		{"cleanup without its API", surfaceCoreLifecycle, "session.create.cleanup.preview", `{"uuid":"` + surfaceUUID + `"}`, notConfigured("runtime")},
+		{"removed session.repair.preview", surfaceFullLifecycle, "session.repair.preview", `{}`, unknown},
+		{"removed session.repair.confirm", surfaceFullLifecycle, "session.repair.confirm", `{}`, unknown},
+		{"removed session.ref.repair.preview", surfaceFullLifecycle, "session.ref.repair.preview", `{}`, unknown},
+		{"removed session.record.repair.confirm", surfaceFullLifecycle, "session.record.repair.confirm", `{}`, unknown},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, calls := surfaceHandler(t, test.config)

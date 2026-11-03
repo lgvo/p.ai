@@ -51,20 +51,36 @@ start_control_daemon
 test "$(stat -c '%a' "$state_dir")" = 700
 test "$(stat -c '%a' "$socket")" = 600
 test -f "$state_dir/control.sqlite"
-identity=$(p api "$socket" system.hello | jq -er '.result.instance_id')
+hello=$(p api "$socket" system.hello)
+identity=$(jq -er '.result.instance_id' <<< "$hello")
 test -n "$identity"
-p api "$socket" system.capabilities | jq -e '.result.lifecycle == "unavailable" and (.result.available | index("system.hello")) != null' >/dev/null
-expect_rpc_error unavailable session.create '{"v":1}'
-expect_rpc_error method_not_found not.a.method '{"v":1}'
-expect_rpc_error invalid_params system.hello '{"v":2}'
+# No Git or runtime is configured, so the hello names no capability.
+jq -e '.result.protocol == "p.control/v2" and .result.capabilities == []' <<< "$hello" >/dev/null
+expect_rpc_error unavailable session.create '{}'
+expect_rpc_error method_not_found not.a.method '{}'
+expect_rpc_error invalid_params system.hello '{}'
+expect_rpc_error unsupported_version system.hello '{"protocol":"p.control/v1"}'
+jq -e '.error.data.supported == ["p.control/v2"]' <<< "$response" >/dev/null
 p api "$socket" system.inspect | jq -e '.result.projects == 0 and .result.sessions == 0 and .result.operations == 0' >/dev/null
 
+raw_hello='{"jsonrpc":"2.0","id":1,"method":"system.hello","params":{"protocol":"p.control/v2"}}'
+raw_health='{"jsonrpc":"2.0","id":2,"method":"system.health","params":{}}'
 raw_response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":' | timeout 3 socat - "UNIX-CONNECT:$socket")
 jq -e '.error.kind == "parse_error"' <<< "$raw_response" >/dev/null
-raw_response=$(printf '%s\n' '{"jsonrpc":"9.0","id":2,"method":"system.hello","params":{"v":1}}' | timeout 3 socat - "UNIX-CONNECT:$socket")
+raw_response=$(printf '%s\n' '{"jsonrpc":"9.0","id":2,"method":"system.hello","params":{"protocol":"p.control/v2"}}' | timeout 3 socat - "UNIX-CONNECT:$socket")
 jq -e '.error.kind == "unsupported_version"' <<< "$raw_response" >/dev/null
-raw_response=$(printf '%s\n' '{"jsonrpc":"2.0","id":true,"method":"system.hello","params":{"v":1}}' | timeout 3 socat - "UNIX-CONNECT:$socket")
+raw_response=$(printf '%s\n' '{"jsonrpc":"2.0","id":true,"method":"system.hello","params":{"protocol":"p.control/v2"}}' | timeout 3 socat - "UNIX-CONNECT:$socket")
 jq -e '.error.kind == "invalid_request" and .id == null' <<< "$raw_response" >/dev/null
+# Every connection agrees the protocol before anything else.
+raw_response=$(printf '%s\n' "$raw_health" | timeout 3 socat - "UNIX-CONNECT:$socket")
+jq -e '.id == 2 and .error.kind == "invalid_request" and .error.data.reason == "hello_required"' <<< "$raw_response" >/dev/null
+# A hello and a request written together are both answered, in order. The
+# input stays open briefly because closing it ends the connection, which
+# cancels a request still in flight.
+raw_response=$({ printf '%s\n%s\n' "$raw_hello" "$raw_health"; sleep 1; } | timeout 3 socat - "UNIX-CONNECT:$socket")
+jq -se --arg identity "$identity" 'length == 2 and
+  (.[0] | .id == 1 and .result.protocol == "p.control/v2" and .result.instance_id == $identity) and
+  (.[1] | .id == 2 and .result.control_state == "ready")' <<< "$raw_response" >/dev/null
 
 if timeout 5 p daemon "$config" > "$control_dir/second.out" 2> "$control_dir/second.err"; then
   echo "second daemon unexpectedly acquired the state directory" >&2

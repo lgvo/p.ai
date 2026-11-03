@@ -52,7 +52,7 @@ type nativeChannel struct {
 var operationPath = regexp.MustCompile(`^/1\.0/operations/[0-9a-f-]{36}$`)
 
 func newNative(launch api.AttachmentLaunch) (*nativeChannel, error) {
-	if launch.V != 1 || launch.Socket == "" || launch.Spec.Project == "" || !regexp.MustCompile(`^p-[0-9a-f-]{36}$`).MatchString(launch.Spec.Instance) || len(launch.Spec.Argv) != 1 || launch.Spec.Argv[0] != "/usr/libexec/p/attach" {
+	if launch.Socket == "" || launch.Spec.Project == "" || !regexp.MustCompile(`^p-[0-9a-f-]{36}$`).MatchString(launch.Spec.Instance) || len(launch.Spec.Argv) != 1 || launch.Spec.Argv[0] != "/usr/libexec/p/attach" {
 		return nil, errors.New("invalid fixed attachment launch")
 	}
 	n := &nativeChannel{socket: launch.Socket, project: launch.Spec.Project, controlDone: make(chan struct{}), observerDone: make(chan struct{})}

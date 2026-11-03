@@ -78,12 +78,12 @@ func TestDetailsDisclosureActionsAndBack(t *testing.T) {
 
 func TestBrowserResizeKeepsIdentityAndSelectionVisible(t *testing.T) {
 	m := fixture()
-	m.selected = "running"
+	m.selected = runningID
 	m.restoreSelection()
 	for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}, {120, 35}} {
 		next, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		m = next.(Model)
-		if m.selected != "running" || !strings.Contains(ansi.Strip(m.View().Content), "feature") {
+		if m.selected != runningID || !strings.Contains(ansi.Strip(m.View().Content), "feature") {
 			t.Fatal("resize lost selected stream")
 		}
 	}

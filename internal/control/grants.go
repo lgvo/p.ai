@@ -3,6 +3,7 @@ package control
 import (
 	"errors"
 	"fmt"
+	"github.com/lgvo/p.ai/internal/api"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,6 +23,20 @@ type FilesystemGrant struct {
 	Access         string          `json:"access"`
 	Executable     bool            `json:"executable"`
 	SourceIdentity *SourceIdentity `json:"source_identity,omitempty"`
+}
+
+// GrantViews returns grants as previews show them.
+func GrantViews(grants []FilesystemGrant) []api.FilesystemGrant {
+	views := make([]api.FilesystemGrant, 0, len(grants))
+	for _, g := range grants {
+		view := api.FilesystemGrant{Name: g.Name, Source: g.Source, Type: g.Type, Access: g.Access, Executable: g.Executable}
+		if g.SourceIdentity != nil {
+			view.SourceIdentity = &api.GrantSourceIdentity{Device: g.SourceIdentity.Device, Inode: g.SourceIdentity.Inode,
+				OwnerUID: g.SourceIdentity.OwnerUID, OwnerGID: g.SourceIdentity.OwnerGID}
+		}
+		views = append(views, view)
+	}
+	return views
 }
 
 type SourceIdentity struct {

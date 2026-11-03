@@ -125,8 +125,10 @@ func parseRPCReply(output []byte) (map[string]any, bool, error) {
 	if json.Unmarshal(fields["jsonrpc"], &version) != nil || version != "2.0" {
 		return nil, false, errors.New("invalid jsonrpc version")
 	}
+	// p api agrees the protocol with its own system.hello (id 1) before it
+	// sends the request it prints (id 2).
 	var id int
-	if json.Unmarshal(fields["id"], &id) != nil || id != 1 {
+	if json.Unmarshal(fields["id"], &id) != nil || id != 2 {
 		return nil, false, errors.New("invalid response id")
 	}
 	result, hasResult := fields["result"]
@@ -263,7 +265,7 @@ func (f *fixture) wait(limit time.Duration, what string, condition func() (bool,
 }
 
 func (f *fixture) create(key string) (string, error) {
-	response, err := f.result("project.create", map[string]any{"v": 1, "key": key, "project": key})
+	response, err := f.result("project.create", map[string]any{"key": key, "project": key})
 	if err != nil {
 		return "", err
 	}
@@ -278,7 +280,7 @@ func (f *fixture) create(key string) (string, error) {
 	}
 	f.sessions = append(f.sessions, uuid)
 	err = f.wait(170*time.Second, "create "+uuid, func() (bool, error) {
-		result, err := f.result("operation.inspect", map[string]any{"v": 1, "id": id})
+		result, err := f.result("operation.inspect", map[string]any{"id": id})
 		if err != nil {
 			return false, err
 		}
@@ -298,7 +300,7 @@ func (f *fixture) create(key string) (string, error) {
 }
 
 func (f *fixture) inspect(uuid string) (map[string]any, error) {
-	result, err := f.result("session.inspect", map[string]any{"v": 1, "uuid": uuid})
+	result, err := f.result("session.inspect", map[string]any{"uuid": uuid})
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +344,7 @@ func (f *fixture) presence(uuid string, count int, latest any) error {
 
 func (f *fixture) listPresence(uuid string, count int) error {
 	// This fixture creates two sessions, so one allowed page covers both.
-	result, err := f.result("session.list", map[string]any{"v": 1, "limit": 8})
+	result, err := f.result("session.list", map[string]any{"limit": 8})
 	if err != nil {
 		return err
 	}
@@ -443,7 +445,7 @@ func (f *fixture) pending(uuid string) (string, error) {
 }
 
 func (f *fixture) pendingWithExpiry(uuid string) (string, time.Time, error) {
-	result, err := f.result("session.attach", map[string]any{"v": 1, "uuid": uuid})
+	result, err := f.result("session.attach", map[string]any{"uuid": uuid})
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -460,7 +462,7 @@ func (f *fixture) pendingWithExpiry(uuid string) (string, time.Time, error) {
 }
 
 func (f *fixture) stopBusy(uuid string) error {
-	reply, err := f.rpc("session.stop", map[string]any{"v": 1, "uuid": uuid})
+	reply, err := f.rpc("session.stop", map[string]any{"uuid": uuid})
 	if err != nil {
 		return err
 	}
@@ -533,9 +535,9 @@ func (f *fixture) run() (runErr error) {
 		return err
 	}
 	for _, method := range []string{"attachment.claim", "attachment.confirm"} {
-		params := map[string]any{"v": 1, "token": failedToken}
+		params := map[string]any{"token": failedToken}
 		if method == "attachment.confirm" {
-			params = map[string]any{"v": 1, "operation": "/1.0/operations/00000000-0000-0000-0000-000000000000"}
+			params = map[string]any{"operation": "/1.0/operations/00000000-0000-0000-0000-000000000000"}
 		}
 		reply, e := f.rpc(method, params)
 		if e != nil {
@@ -810,10 +812,10 @@ func (f *fixture) run() (runErr error) {
 
 	f.stage = "stop and start"
 	// Ordinary Stop/Start changes the guest host, yet durable workspace remains.
-	if _, err = f.result("session.stop", map[string]any{"v": 1, "uuid": a}); err != nil {
+	if _, err = f.result("session.stop", map[string]any{"uuid": a}); err != nil {
 		return err
 	}
-	if _, err = f.result("session.start", map[string]any{"v": 1, "uuid": a}); err != nil {
+	if _, err = f.result("session.start", map[string]any{"uuid": a}); err != nil {
 		return err
 	}
 	if err = f.waitReady(a); err != nil {

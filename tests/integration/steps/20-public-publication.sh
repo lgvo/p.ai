@@ -57,7 +57,7 @@ cleanup() {
 on_error() {
   printf 'P_PUBLIC_PUBLICATION_FAIL line=%s status=%s\n' "$2" "$1" >&2
   local result
-  if result=$(timeout 5 p api "$socket" operation.list '{"v":1,"limit":20}' 2>/dev/null); then
+  if result=$(timeout 5 p api "$socket" operation.list '{"limit":20}' 2>/dev/null); then
     jq -cr '.result.operations[]? | {id,session_uuid,status,phase,diagnostic:((.diagnostic // "")[:400])}' \
       <<< "$result" >&2 || true
   fi
@@ -83,15 +83,15 @@ expect_error() {
     return 1
   fi
   jq -e --arg kind "$kind" --argjson code "$code" \
-    '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+    '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
      .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
     <<< "$response" >/dev/null
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
-inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{v:1,id:$id}')"; }
-inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
-branches() { rpc project.branches "$(jq -nc --arg project "$1" '{v:1,project:$project,limit:8}')"; }
+inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"; }
+inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
+branches() { rpc project.branches "$(jq -nc --arg project "$1" '{project:$project,limit:8}')"; }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+170))
   while ((SECONDS < deadline)); do
@@ -236,14 +236,12 @@ full_url=pdev@origin-fixture:full.git
 empty_url=pdev@origin-fixture:empty.git
 printf 'release\n' > "$step_dir/release"
 start_daemon
-rpc system.capabilities | jq -e '.result.available |
-  index("origin.publication.preview")!=null and index("origin.publish")!=null and
-  index("project.retained_branches")!=null' >/dev/null
+rpc system.hello | jq -e '.result.capabilities | index("git") != null' >/dev/null
 created=$(rpc project.create "$(jq -nc --arg url "$full_url" \
-  '{v:1,key:"create-project",project:"publication",url:$url}')")
+  '{key:"create-project",project:"publication",url:$url}')")
 wait_operation "$(operation_id "$created")" completed >/dev/null
 created=$(rpc session.create "$(jq -nc --arg oid "$first" \
-  '{v:1,key:"create-session",project:"publication",branch:"work",choice:"new",
+  '{key:"create-session",project:"publication",branch:"work",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid}')")
 uuid=$(session_uuid "$created")
 id=$(operation_id "$created")
@@ -265,7 +263,7 @@ test "$(git -C "$repo" rev-parse refs/heads/work)" = "$source"
 git -C "$repo" update-ref refs/heads/a-retained "$source"
 git -C "$repo" update-ref refs/heads/z-retained "$source"
 refs_before=$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)')
-retained() { rpc project.retained_branches "$(jq -nc --arg after "$1" '{v:1,project:"publication",after:$after,limit:1}')"; }
+retained() { rpc project.retained_branches "$(jq -nc --arg after "$1" '{project:"publication",after:$after,limit:1}')"; }
 retained '' | jq -e --arg oid "$source" '.result |
   .branches==[{branch:"a-retained",ref:"refs/heads/a-retained",oid:$oid}] and .next=="refs/heads/a-retained"' >/dev/null
 retained refs/heads/a-retained | jq -e '.result | .branches==[] and .next=="refs/heads/work"' >/dev/null
@@ -276,13 +274,13 @@ request() {
   local key="$1" kind="$2" owner="$3" destination="$4" url="${5:-$full_url}"
   jq -nc --arg key "$key" --arg kind "$kind" --arg owner "$owner" --arg dest "$destination" \
     --arg url "$url" --arg oid "$source" \
-    '{v:1,project:"publication",expected_origin_url:$url,kind:$kind,source:$owner,
+    '{project:"publication",expected_origin_url:$url,kind:$kind,source:$owner,
       source_oid:$oid,destination_ref:$dest} + (if $key=="" then {} else {key:$key} end)'
 }
 receive_count() { grep -c '^receive-pack ' "$trace" || true; }
 change() {
   rpc origin.change "$(jq -nc --arg key "$1" --arg old "$2" --arg url "$3" \
-    '{v:1,key:$key,project:"publication",kind:"set",expected_url:$old,url:$url}')"
+    '{key:$key,project:"publication",kind:"set",expected_url:$old,url:$url}')"
 }
 preview_request=$(request '' session "$uuid" refs/heads/main)
 trace_before=$(wc -l < "$trace")

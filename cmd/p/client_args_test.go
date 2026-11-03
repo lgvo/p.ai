@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/lgvo/p.ai/internal/api"
 	"net"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 func TestAPIArgumentsUseStandardInstance(t *testing.T) {
 	t.Setenv("P_SOCKET", "")
 	socket, method, params, err := apiArguments([]string{"system.health"})
-	if err != nil || socket != "/var/lib/p/control.sock" || method != "system.health" || string(params) != `{"v":1}` {
+	if err != nil || socket != "/var/lib/p/control.sock" || method != "system.health" || string(params) != `{}` {
 		t.Fatalf("default API arguments: %q %q %s %v", socket, method, params, err)
 	}
 }
@@ -27,6 +28,9 @@ func TestAPIArgumentsRejectMissingMethod(t *testing.T) {
 	}
 }
 
+// fixtureSession is the session UUID the attach commands name.
+const fixtureSession = "00000000-0000-4000-8000-000000000001"
+
 // Verify routing and framing through each command, including snapshot flags
 // without a positional socket and legacy explicit arguments overriding P_SOCKET.
 func TestClientCommandsUseConfiguredSocket(t *testing.T) {
@@ -36,13 +40,13 @@ func TestClientCommandsUseConfiguredSocket(t *testing.T) {
 		args         func(string) []string
 	}{
 		{name: "api", method: "system.health", args: func(string) []string { return []string{"api", "system.health"} }},
-		{name: "api params", method: "system.health", args: func(string) []string { return []string{"api", "system.health", `{"v":1}`} }},
+		{name: "api params", method: "system.health", args: func(string) []string { return []string{"api", "system.health", `{}`} }},
 		{name: "api explicit", method: "system.health", explicit: true, args: func(s string) []string { return []string{"api", s, "system.health"} }},
-		{name: "api explicit params", method: "system.health", explicit: true, args: func(s string) []string { return []string{"api", s, "system.health", `{"v":1}`} }},
-		{name: "tui snapshot", method: "system.capabilities", args: func(string) []string { return []string{"tui", "--snapshot", "--width", "80", "--height", "24"} }},
-		{name: "tui explicit", method: "system.capabilities", explicit: true, args: func(s string) []string { return []string{"tui", s, "--snapshot"} }},
-		{name: "attach", method: "session.attach", args: func(string) []string { return []string{"attach", "fixture-session"} }},
-		{name: "attach explicit", method: "session.attach", explicit: true, args: func(s string) []string { return []string{"attach", s, "fixture-session"} }},
+		{name: "api explicit params", method: "system.health", explicit: true, args: func(s string) []string { return []string{"api", s, "system.health", `{}`} }},
+		{name: "tui snapshot", method: "system.hello", args: func(string) []string { return []string{"tui", "--snapshot", "--width", "80", "--height", "24"} }},
+		{name: "tui explicit", method: "system.hello", explicit: true, args: func(s string) []string { return []string{"tui", s, "--snapshot"} }},
+		{name: "attach", method: "session.attach", args: func(string) []string { return []string{"attach", fixtureSession} }},
+		{name: "attach explicit", method: "session.attach", explicit: true, args: func(s string) []string { return []string{"attach", s, fixtureSession} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			socket := filepath.Join(t.TempDir(), "control.sock")
@@ -65,39 +69,50 @@ func TestClientCommandsUseConfiguredSocket(t *testing.T) {
 				}
 				defer conn.Close()
 				conn.SetDeadline(time.Now().Add(5 * time.Second))
-				var request struct {
-					JSONRPC string          `json:"jsonrpc"`
-					ID      int             `json:"id"`
-					Method  string          `json:"method"`
-					Params  json.RawMessage `json:"params"`
-				}
-				if err := json.NewDecoder(conn).Decode(&request); err != nil {
-					served <- err
-					return
-				}
-				if request.JSONRPC != "2.0" || request.Method != test.method {
-					served <- fmt.Errorf("unexpected request: %+v", request)
-					return
-				}
-				reply := map[string]any{"jsonrpc": "2.0", "id": request.ID}
-				if test.method == "session.attach" {
-					var params struct {
-						V    int    `json:"v"`
-						UUID string `json:"uuid"`
+				decoder, encoder := json.NewDecoder(conn), json.NewEncoder(conn)
+				// Every connection agrees the protocol first; the snapshot then
+				// asks for the hello again to read the capabilities.
+				for agreed := false; ; agreed = true {
+					var request struct {
+						JSONRPC string          `json:"jsonrpc"`
+						ID      int             `json:"id"`
+						Method  string          `json:"method"`
+						Params  json.RawMessage `json:"params"`
 					}
-					if err := json.Unmarshal(request.Params, &params); err != nil || params.V != 1 || params.UUID != "fixture-session" {
-						served <- fmt.Errorf("wrong attach params: %s", request.Params)
+					if err := decoder.Decode(&request); err != nil {
+						served <- err
 						return
 					}
-					reply["error"] = map[string]any{"code": -32003, "kind": "busy", "message": "fixture refused attach"}
-				} else {
-					if string(request.Params) != `{"v":1}` {
-						served <- fmt.Errorf("wrong params: %s", request.Params)
+					if request.JSONRPC != "2.0" || !agreed && request.Method != "system.hello" || agreed && request.Method != test.method {
+						served <- fmt.Errorf("unexpected request: %+v", request)
 						return
 					}
-					reply["result"] = map[string]any{"v": 1, "available": []string{}}
+					reply := map[string]any{"jsonrpc": "2.0", "id": request.ID}
+					switch {
+					case request.Method == "system.hello":
+						if string(request.Params) != `{"protocol":"`+api.Protocol+`"}` {
+							served <- fmt.Errorf("wrong hello params: %s", request.Params)
+							return
+						}
+						reply["result"] = api.HelloResult{Protocol: api.Protocol, Capabilities: []api.Capability{}}
+					case test.method == "session.attach":
+						if string(request.Params) != `{"uuid":"`+fixtureSession+`"}` {
+							served <- fmt.Errorf("wrong attach params: %s", request.Params)
+							return
+						}
+						reply["error"] = map[string]any{"code": -32003, "kind": "busy", "message": "fixture refused attach"}
+					default:
+						if string(request.Params) != `{}` {
+							served <- fmt.Errorf("wrong params: %s", request.Params)
+							return
+						}
+						reply["result"] = api.HealthResult{ControlState: "ready"}
+					}
+					if err := encoder.Encode(reply); err != nil || agreed {
+						served <- err
+						return
+					}
 				}
-				served <- json.NewEncoder(conn).Encode(reply)
 			}()
 			err = run(test.args(socket))
 			if test.method == "session.attach" {

@@ -21,46 +21,46 @@ func TestConfiguredReadOnlyProjectMethods(t *testing.T) {
 	if err := store.CreateProject(ctx, "team/app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &GitInfo{Endpoint: "127.0.0.1:2222"}})
+	handler := NewHandler(HandlerConfig{Store: store, Git: fixtureGitReader{}, GitInfo: &api.GitInfo{Endpoint: "127.0.0.1:2222"}})
 	for _, test := range []struct {
 		method, params string
 		wantError      bool
 	}{
-		{"project.list", `{"v":1,"limit":10}`, false},
-		{"project.branches", `{"v":1,"project":"team/app","limit":8}`, false},
-		{"project.list", `{"v":1,"limit":101}`, true},
-		{"project.branches", `{"v":1,"project":"team/app","limit":9}`, true},
-		{"project.branches", `{"v":1,"project":"missing","limit":8}`, true},
-		{"project.branches", `{"v":1,"project":"team/app","limit":8,"extra":1}`, true},
+		{"project.list", `{"limit":10}`, false},
+		{"project.branches", `{"project":"team/app","limit":8}`, false},
+		{"project.list", `{"limit":101}`, true},
+		{"project.branches", `{"project":"team/app","limit":9}`, true},
+		{"project.branches", `{"project":"missing","limit":8}`, true},
+		{"project.branches", `{"project":"team/app","limit":8,"extra":1}`, true},
 	} {
 		result, rpcErr := handler(ctx, test.method, json.RawMessage(test.params))
 		if (rpcErr != nil) != test.wantError || (rpcErr == nil && result == nil) {
 			t.Fatalf("%s %s: result=%v error=%v", test.method, test.params, result, rpcErr)
 		}
 	}
-	projectsResult, rpcErr := handler(ctx, "project.list", json.RawMessage(`{"v":1,"limit":1}`))
+	projectsResult, rpcErr := handler(ctx, "project.list", json.RawMessage(`{"limit":1}`))
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	projects := projectsResult.(map[string]any)["projects"].([]api.ProjectSummary)
+	projects := projectsResult.(api.ProjectListResult).Projects
 	if len(projects) != 1 || projects[0].Path != "team/app" {
 		t.Fatalf("unexpected projects: %#v", projects)
 	}
-	branchesResult, rpcErr := handler(ctx, "project.branches", json.RawMessage(`{"v":1,"project":"team/app","limit":8}`))
+	branchesResult, rpcErr := handler(ctx, "project.branches", json.RawMessage(`{"project":"team/app","limit":8}`))
 	if rpcErr != nil {
 		t.Fatal(rpcErr)
 	}
-	refs := branchesResult.(map[string]any)["refs"].([]plugin.GitRef)
+	refs := branchesResult.(api.ProjectBranchesResult).Refs
 	if len(refs) != 1 || refs[0].Ref != "refs/heads/main" {
 		t.Fatalf("unexpected refs: %#v", refs)
 	}
-	result, rpcErr := handler(ctx, "system.capabilities", json.RawMessage(`{"v":1}`))
-	if rpcErr != nil {
-		t.Fatal(rpcErr)
+	hello, rpcErr := callMethod(t, ctx, handler, api.SystemHello, api.HelloRequest{Protocol: api.Protocol})
+	if rpcErr != nil || !hello.Has(api.CapabilityGit) {
+		t.Fatalf("missing configured Git capability: %+v %+v", hello, rpcErr)
 	}
-	encoded, _ := json.Marshal(result)
-	if !json.Valid(encoded) || result.(map[string]any)["git"] == nil {
-		t.Fatal("missing configured Git capability")
+	inspect, rpcErr := callMethod(t, ctx, handler, api.SystemInspect, api.SystemInspectRequest{})
+	if rpcErr != nil || inspect.Git == nil || inspect.Git.Endpoint != "127.0.0.1:2222" {
+		t.Fatalf("missing Git connection details: %+v %+v", inspect, rpcErr)
 	}
 }
 

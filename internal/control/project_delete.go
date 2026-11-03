@@ -7,7 +7,7 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
-// ProjectDeletePreview is one bounded whole-project loss review. Sessions must
+// api.ProjectDeletionPreview is one bounded whole-project loss review. Sessions must
 // already be stopped/detached; unknown native effects are never removal grants.
 type ProjectDeletePreviewRequest struct {
 	Project            string   `json:"project"`
@@ -22,28 +22,6 @@ type ProjectDeleteRequest struct {
 	Key         string `json:"key"`
 	Project     string `json:"project"`
 	TokenSHA256 string `json:"token_sha256"`
-}
-type ProjectDeleteSession struct {
-	Session   Session                  `json:"session"`
-	Condition string                   `json:"condition"`
-	Runtime   RemovalRuntimePreview    `json:"runtime"`
-	Local     CreateReplacementCleanup `json:"credentials"`
-}
-type ProjectDeletePreview struct {
-	Project             string                       `json:"project"`
-	Outcome             string                       `json:"outcome"`
-	StateSHA256         string                       `json:"state_sha256"`
-	ProjectPolicySHA256 string                       `json:"project_policy_sha256"`
-	ExternalMounts      []FilesystemGrant            `json:"external_mounts_preserved"`
-	Sessions            []ProjectDeleteSession       `json:"sessions"`
-	Attachments         []string                     `json:"attachments"`
-	BranchLoss          *RemovalBranchLoss           `json:"branch_loss"`
-	Images              []EnvironmentCollectionClaim `json:"cache_images"`
-	Repository          ReplacementLocalIdentity     `json:"repository_identity"`
-	RepositoryParent    ReplacementLocalIdentity     `json:"repository_parent_identity"`
-	Warnings            []string                     `json:"warnings"`
-	ConfirmationToken   string                       `json:"confirmation_token"`
-	ExpiresAt           string                       `json:"expires_at"`
 }
 type ProjectDeleteResource struct {
 	Kind         string `json:"kind"`
@@ -61,14 +39,14 @@ type ProjectDeleteEvidence struct {
 	IncusProject     string                       `json:"incus_project"`
 	StateSHA256      string                       `json:"state_sha256"`
 	ReviewSHA256     string                       `json:"review_sha256"`
-	Sessions         []ProjectDeleteSession       `json:"sessions"`
+	Sessions         []api.ProjectDeleteSession   `json:"sessions"`
 	Images           []EnvironmentCollectionClaim `json:"images"`
-	Repository       ReplacementLocalIdentity     `json:"repository_identity"`
-	RepositoryParent ReplacementLocalIdentity     `json:"repository_parent_identity"`
+	Repository       api.ReplacementLocalIdentity `json:"repository_identity"`
+	RepositoryParent api.ReplacementLocalIdentity `json:"repository_parent_identity"`
 	Resources        []ProjectDeleteResource      `json:"resources"`
 }
 type ProjectDeleteAPI interface {
-	PreviewProjectDelete(context.Context, ProjectDeletePreviewRequest) (ProjectDeletePreview, error)
+	PreviewProjectDelete(context.Context, ProjectDeletePreviewRequest) (api.ProjectDeletionPreview, error)
 	ConfirmProjectDelete(context.Context, ProjectDeleteConfirmRequest) (api.Operation, error)
 }
 

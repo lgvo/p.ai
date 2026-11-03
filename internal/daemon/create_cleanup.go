@@ -18,11 +18,11 @@ import (
 )
 
 type createCleanupPreviewState struct {
-	Preview control.CreateCleanupPreview
+	Preview api.CreateCleanupPreview
 	Expiry  time.Time
 }
 
-func (l *lifecycle) reviewCreateCleanupLocal(ctx context.Context, op api.Operation, s control.Session) (*control.CreateReplacementCleanup, error) {
+func (l *lifecycle) reviewCreateCleanupLocal(ctx context.Context, op api.Operation, s control.Session) (*api.CreateReplacementCleanup, error) {
 	fp, found, err := l.store.SessionGitPrincipal(ctx, s.UUID)
 	if err != nil {
 		return nil, err
@@ -68,15 +68,15 @@ func checkCreateCleanupLocalAbsent(state string, endpoints *endpointManager, uui
 	}
 	return nil
 }
-func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, p control.CreateCleanupPreview, instance string) error {
+func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, p api.CreateCleanupPreview, instance string) error {
 	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: instance, SessionUUID: p.UUID, ProjectPath: p.OldRequest.Project, ContractVersion: "1", ImageFingerprint: p.ImageFingerprint}, p.OldOperationID)
 }
 
 // createCleanupFacts reviews the cleanup of a failed creation. A creator
 // blocked before its runtime was initialized takes the early path; any later
 // creator takes the assembled path, which removes its exact stopped container.
-func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (control.CreateCleanupPreview, error) {
-	p := control.CreateCleanupPreview{UUID: uuid, UnsafeReasons: []string{}, ExternalMounts: "preserved", SharedImages: "preserved", Provisional: control.CreateReplaceResources{RuntimeLocal: "unavailable"}}
+func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (api.CreateCleanupPreview, error) {
+	p := api.CreateCleanupPreview{UUID: uuid, UnsafeReasons: []string{}, ExternalMounts: "preserved", SharedImages: "preserved", Provisional: api.CreateReplaceResources{RuntimeLocal: "unavailable"}}
 	unsafe := func(reason string) { p.UnsafeReasons = append(p.UnsafeReasons, reason) }
 	op, err := l.store.CreationForSession(ctx, uuid)
 	if err != nil {
@@ -91,7 +91,7 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (contro
 		return p, control.ErrConflict
 	}
 	p.OldOperationID, p.OldPhase, p.OldEvidenceSHA256 = op.ID, op.Phase, hexDigest(op.Evidence)
-	p.PolicySHA256, p.ImageFingerprint, p.EnvironmentBuilder = s.PolicySHA256, ev.ImageFingerprint, ev.EnvironmentBuilder
+	p.PolicySHA256, p.ImageFingerprint, p.EnvironmentBuilder = s.PolicySHA256, ev.ImageFingerprint, recordedFact(ev.EnvironmentBuilder)
 	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" || p.OldRequest.Project != s.Project || p.OldRequest.Branch != s.Branch || ev.PolicySHA256 != s.PolicySHA256 {
 		unsafe("blocked_local_creation_required")
 	}
@@ -113,7 +113,7 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (contro
 		unsafe("creation_worker_or_attachment_active")
 	}
 	oid, exists, e := l.git.backend.InspectBranchRef(ctx, s.Project, s.Branch)
-	p.AssignedBranch = control.CreateReplaceBranch{Ref: "refs/heads/" + s.Branch, Observed: e == nil, Exists: exists, OID: oid}
+	p.AssignedBranch = api.CreateReplaceBranch{Ref: "refs/heads/" + s.Branch, Observed: e == nil, Exists: exists, OID: oid}
 	if e != nil || !exists {
 		unsafe("assigned_P_ref_unavailable")
 	}
@@ -153,10 +153,10 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (contro
 	return p, nil
 }
 func hexDigest(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
-func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (control.CreateCleanupPreview, error) {
+func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (api.CreateCleanupPreview, error) {
 	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
-		return control.CreateCleanupPreview{}, err
+		return api.CreateCleanupPreview{}, err
 	}
 	defer release()
 	p, err := l.createCleanupFacts(ctx, uuid)
@@ -172,7 +172,7 @@ func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (cont
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
 	encoded, e := json.Marshal(p)
 	if e != nil || len(encoded) > api.MaxFrameBytes-1024 {
-		return control.CreateCleanupPreview{}, errors.New("cleanup preview exceeded bound")
+		return api.CreateCleanupPreview{}, errors.New("cleanup preview exceeded bound")
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -185,7 +185,7 @@ func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (cont
 		}
 	}
 	if len(l.createCleanupPreviews) >= 128 {
-		return control.CreateCleanupPreview{}, control.ErrConflict
+		return api.CreateCleanupPreview{}, control.ErrConflict
 	}
 	l.createCleanupPreviews[p.ConfirmationToken] = createCleanupPreviewState{p, expiry}
 	return p, nil

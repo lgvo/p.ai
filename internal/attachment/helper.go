@@ -72,8 +72,8 @@ func runHelper(c *carrier) (resultErr error) {
 		return err
 	}
 	defer rpc.fail()
-	var launch api.AttachmentLaunch
-	if err = rpc.call(scope, "attachment.claim", map[string]any{"v": 1, "token": init.Token}, &launch); err != nil {
+	launch, err := api.Do(scope, rpc, api.AttachmentClaim, api.AttachmentClaimRequest{Token: init.Token})
+	if err != nil {
 		return err
 	}
 	leaseCtx, stopMonitor := context.WithCancel(context.Background())
@@ -141,7 +141,7 @@ func runHelper(c *carrier) (resultErr error) {
 		return errors.New("attachment completion observer ended before confirmation")
 	default:
 	}
-	if err = rpc.call(leaseCtx, "attachment.confirm", map[string]any{"v": 1, "operation": n.operation}, nil); err != nil {
+	if _, err = api.Do(leaseCtx, rpc, api.AttachmentConfirm, api.AttachmentConfirmRequest{Operation: n.operation}); err != nil {
 		return err
 	}
 	select {

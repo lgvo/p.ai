@@ -3,8 +3,6 @@ package control
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"net"
 	"os"
 	"strconv"
@@ -12,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 type AttachmentAPI interface {
@@ -70,63 +67,48 @@ func (c *Connection) takeRelease() func() {
 	c.release = nil
 	return release
 }
-func attachmentHandler(ctx context.Context, method string, params json.RawMessage, life AttachmentAPI) (any, *api.RPCError) {
-	conn, _ := ctx.Value(connectionKey{}).(*Connection)
-	if conn == nil {
-		return nil, lifecycleRPC(ErrInvalid)
+
+// addAttachmentMethods serves session.attach and the attachment helper's
+// methods. Only the trusted helper may claim a token, and only the connection
+// that claimed it may confirm and ping; such a connection may call nothing else.
+func addAttachmentMethods(t *MethodTable, life AttachmentAPI) {
+	connection := func(ctx context.Context) (*Connection, error) {
+		conn, _ := ctx.Value(connectionKey{}).(*Connection)
+		if conn == nil {
+			return nil, ErrInvalid
+		}
+		return conn, nil
 	}
-	switch method {
-	case "session.attach":
-		var p struct {
-			V    int    `json:"v"`
-			UUID string `json:"uuid"`
+	Register(t, api.SessionAttach, func(ctx context.Context, r api.SessionAttachRequest) (api.PendingAttachment, error) {
+		if _, err := connection(ctx); err != nil {
+			return api.PendingAttachment{}, err
 		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.UUID) != 36 {
-			return nil, lifecycleRPC(ErrInvalid)
-		}
-		result, err := life.AttachSession(ctx, p.UUID)
+		return life.AttachSession(ctx, r.UUID)
+	})
+	Register(t, api.AttachmentClaim, func(ctx context.Context, r api.AttachmentClaimRequest) (api.AttachmentLaunch, error) {
+		conn, err := connection(ctx)
 		if err != nil {
-			return nil, lifecycleRPC(err)
+			return api.AttachmentLaunch{}, err
 		}
-		return result, nil
-	case "attachment.claim":
 		if !conn.trustedHelper() {
-			return nil, lifecycleRPC(ErrInvalid)
+			return api.AttachmentLaunch{}, ErrInvalid
 		}
-		var p struct {
-			V     int    `json:"v"`
-			Token string `json:"token"`
+		return life.ClaimAttachment(ctx, r.Token, conn)
+	})
+	Register(t, api.AttachmentConfirm, func(ctx context.Context, r api.AttachmentConfirmRequest) (api.AttachmentResult, error) {
+		conn, err := connection(ctx)
+		if err != nil || !conn.dedicatedAttachment() {
+			return api.AttachmentResult{}, ErrInvalid
 		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Token) != 64 {
-			return nil, lifecycleRPC(ErrInvalid)
+		return api.AttachmentResult{}, life.ConfirmAttachment(ctx, conn, r.Operation)
+	})
+	Register(t, api.AttachmentPing, func(ctx context.Context, _ api.AttachmentPingRequest) (api.AttachmentResult, error) {
+		conn, err := connection(ctx)
+		if err != nil || !conn.dedicatedAttachment() {
+			return api.AttachmentResult{}, ErrInvalid
 		}
-		result, err := life.ClaimAttachment(ctx, p.Token, conn)
-		if err != nil {
-			return nil, lifecycleRPC(err)
-		}
-		return result, nil
-	case "attachment.confirm", "attachment.ping":
-		var p struct {
-			V         int    `json:"v"`
-			Operation string `json:"operation,omitempty"`
-		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 || !conn.dedicatedAttachment() {
-			return nil, lifecycleRPC(ErrInvalid)
-		}
-		if method == "attachment.confirm" {
-			if len(p.Operation) != len("/1.0/operations/")+36 {
-				return nil, lifecycleRPC(ErrInvalid)
-			}
-			if err := life.ConfirmAttachment(ctx, conn, p.Operation); err != nil {
-				return nil, lifecycleRPC(err)
-			}
-		}
-		if method == "attachment.ping" && p.Operation != "" {
-			return nil, lifecycleRPC(ErrInvalid)
-		}
-		return map[string]any{"v": 1}, nil
-	}
-	return nil, lifecycleRPC(errors.New("unknown attachment method"))
+		return api.AttachmentResult{}, nil
+	})
 }
 
 // Only the fixed helper mode of this exact running executable may redeem an

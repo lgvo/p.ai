@@ -3,19 +3,11 @@ package control
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"strings"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/strictjson"
 )
-
-type RetainedBranch struct {
-	Branch string `json:"branch"`
-	Ref    string `json:"ref"`
-	OID    string `json:"oid"`
-}
 
 func (s *Store) IsRetainedBranch(ctx context.Context, project, branch string) (bool, error) {
 	if !validProject(project) || !validBranch(branch) {
@@ -39,41 +31,33 @@ func (s *Store) IsRetainedBranch(ctx context.Context, project, branch string) (b
 	return false, err
 }
 
-// retainedBranchesHandler answers project.retained_branches; origins.Git is configured.
-func retainedBranchesHandler(ctx context.Context, params json.RawMessage, origins OriginAPI) (any, *api.RPCError) {
-	var p struct {
-		V       int    `json:"v"`
-		Project string `json:"project"`
-		After   string `json:"after"`
-		Limit   int    `json:"limit"`
-	}
-	if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 || p.After != "" && (!strings.HasPrefix(p.After, "refs/heads/") || !validBranch(strings.TrimPrefix(p.After, "refs/heads/"))) {
-		return nil, errorRPC(-32602, "invalid_params", "invalid retained branch page")
-	}
-	active, err := origins.Store.HasActiveProject(ctx, p.Project)
+// retainedBranches answers project.retained_branches; origins.Git is
+// configured.
+func retainedBranches(ctx context.Context, r api.ProjectRetainedBranchesRequest, origins OriginAPI) (api.RetainedBranchesResult, error) {
+	active, err := origins.Store.HasActiveProject(ctx, r.Project)
 	if err != nil {
-		return nil, lifecycleRPC(err)
+		return api.RetainedBranchesResult{}, err
 	}
 	if !active {
-		return nil, lifecycleRPC(ErrNotFound)
+		return api.RetainedBranchesResult{}, ErrNotFound
 	}
-	refs, next, err := origins.Git.ListRefsPage(ctx, p.Project, p.After, p.Limit)
+	refs, next, err := origins.Git.ListRefsPage(ctx, r.Project, r.After, r.Limit)
 	if err != nil {
-		return nil, lifecycleRPC(err)
+		return api.RetainedBranchesResult{}, err
 	}
-	branches := make([]RetainedBranch, 0, len(refs))
+	branches := make([]api.RetainedBranch, 0, len(refs))
 	for _, ref := range refs {
 		name := strings.TrimPrefix(ref.Ref, "refs/heads/")
-		retained, e := origins.Store.IsRetainedBranch(ctx, p.Project, name)
+		retained, e := origins.Store.IsRetainedBranch(ctx, r.Project, name)
 		if e != nil {
-			return nil, lifecycleRPC(e)
+			return api.RetainedBranchesResult{}, e
 		}
 		if retained {
-			branches = append(branches, RetainedBranch{Branch: name, Ref: ref.Ref, OID: ref.OID})
+			branches = append(branches, api.RetainedBranch{Branch: name, Ref: ref.Ref, OID: ref.OID})
 		}
 	}
-	if branches == nil {
-		branches = []RetainedBranch{}
-	}
-	return boundedLifecyclePage("branches", branches, next, func(v RetainedBranch) string { return v.Ref })
+	return boundedPage(branches, next, func(v api.RetainedBranch) string { return v.Ref },
+		func(branches []api.RetainedBranch, next string) api.RetainedBranchesResult {
+			return api.RetainedBranchesResult{Branches: branches, Next: next}
+		})
 }

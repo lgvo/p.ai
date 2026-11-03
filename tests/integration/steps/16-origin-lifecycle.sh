@@ -65,7 +65,7 @@ expect_error() {
     return 1
   fi
   jq -e --arg kind "$kind" --argjson code "$code" \
-    '.jsonrpc == "2.0" and .id == 1 and (has("result") | not) and
+    '.jsonrpc == "2.0" and .id==2 and (has("result") | not) and
      .error.kind == $kind and .error.code == $code and
      (.error.message | type == "string" and length > 0)' <<< "$response" >/dev/null
 }
@@ -73,14 +73,14 @@ change() {
   local key="$1" project="$2" kind="$3" expected="$4" url="${5:-}"
   rpc origin.change "$(jq -nc --arg key "$key" --arg project "$project" --arg kind "$kind" \
     --arg expected "$expected" --arg url "$url" \
-    '{v:1,key:$key,project:$project,kind:$kind,expected_url:$expected} +
+    '{key:$key,project:$project,kind:$kind,expected_url:$expected} +
      (if $kind == "set" then {url:$url} else {} end)')"
 }
-inspect() { rpc origin.inspect "$(jq -nc --arg project "$1" '{v:1,project:$project}')"; }
-refresh() { rpc origin.refresh "$(jq -nc --arg project "$1" '{v:1,project:$project}')"; }
+inspect() { rpc origin.inspect "$(jq -nc --arg project "$1" '{project:$project}')"; }
+refresh() { rpc origin.refresh "$(jq -nc --arg project "$1" '{project:$project}')"; }
 sources() {
   rpc origin.sources "$(jq -nc --arg project "$1" --arg after "$2" --argjson limit "$3" \
-    '{v:1,project:$project,after:$after,limit:$limit}')"
+    '{project:$project,after:$after,limit:$limit}')"
 }
 start_daemon() {
   p daemon "$config" > "$step_dir/daemon.out" 2> "$step_dir/daemon.err" &
@@ -180,12 +180,12 @@ bad_url=pdev@origin-unreachable:full.git
 jq -n --arg state "$state" --arg activation "$activation" --arg id "$plugin_id" \
   '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$activation,source_plugin_id:$id,listen:"127.0.0.1:0"}}' > "$config"
 start_daemon
-rpc system.capabilities | jq -e '.result.available | index("origin.change") != null and index("origin.sources") != null' >/dev/null
+rpc system.hello | jq -e '.result.capabilities | index("git") != null' >/dev/null
 inspect app | jq -e '.result.origin | .status == "local-only" and .ref_count == 0 and (has("url") | not)' >/dev/null
 trace_before=$(wc -l < "$step_dir/origin.trace")
 refresh app | jq -e '.result.origin.status == "local-only"' >/dev/null
 test "$(wc -l < "$step_dir/origin.trace")" = "$trace_before"
-expect_error unavailable origin.change "$(jq -nc --arg url "$bad_url" '{v:1,key:"initial-failure",project:"app",kind:"set",expected_url:"",url:$url}')"
+expect_error unavailable origin.change "$(jq -nc --arg url "$bad_url" '{key:"initial-failure",project:"app",kind:"set",expected_url:"",url:$url}')"
 inspect app | jq -e '.result.origin.status == "local-only"' >/dev/null
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 
@@ -202,9 +202,9 @@ jq -e --arg oid "$first" \
 sources app refs/heads/zzz 1 | jq -e --arg oid "$first" --arg tag "$tag_oid" \
   '.result | .refs == [{ref:"refs/tags/v1",oid:$tag,commit_oid:$oid}] and .next == ""' >/dev/null
 full_sources=$(sources app '' 16 | jq -c '.result.refs')
-expect_error busy origin.change "$(jq -nc --arg url "$empty_url" '{v:1,key:"stale-cas",project:"app",kind:"set",expected_url:"",url:$url}')"
+expect_error busy origin.change "$(jq -nc --arg url "$empty_url" '{key:"stale-cas",project:"app",kind:"set",expected_url:"",url:$url}')"
 expect_error unavailable origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
-  '{v:1,key:"failed-replacement",project:"app",kind:"set",expected_url:$old,url:$url}')"
+  '{key:"failed-replacement",project:"app",kind:"set",expected_url:$old,url:$url}')"
 test "$(inspect app | jq -c '.result.origin')" = "$(jq -c '.result.origin' <<< "$set_result")"
 test "$(sources app '' 16 | jq -c '.result.refs')" = "$full_sources"
 
@@ -226,7 +226,7 @@ trace_before=$(wc -l < "$step_dir/origin.trace")
 test "$(change replace-empty app set "$full_url" "$empty_url" | jq -c '.result.origin')" = "$(jq -c '.result.origin' <<< "$replacement")"
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 expect_error busy origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
-  '{v:1,key:"replace-empty",project:"app",kind:"set",expected_url:$old,url:$url}')"
+  '{key:"replace-empty",project:"app",kind:"set",expected_url:$old,url:$url}')"
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
@@ -244,10 +244,10 @@ test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 
 # Strict decoding includes alias spellings, duplicate keys, and extra fields.
 expect_error invalid_params origin.change "$(jq -nc --arg url "$full_url" \
-  '{v:1,key:"case-alias",project:"app",kind:"set",expected_url:"",URL:$url}')"
-expect_error invalid_params origin.change '{"v":1,"v":1,"key":"bad","project":"app","kind":"remove","expected_url":""}'
-expect_error invalid_params origin.refresh '{"v":1,"Project":"app"}'
-expect_error invalid_params origin.inspect '{"v":1,"project":"app","extra":true}'
-expect_error invalid_params origin.sources '{"v":1,"project":"app","limit":17}'
-expect_error invalid_params origin.sources '{"v":1,"project":"app","limit":1,"after":"refs/heads/../bad"}'
+  '{key:"case-alias",project:"app",kind:"set",expected_url:"",URL:$url}')"
+expect_error invalid_params origin.change '{"key":"bad","key":"bad","project":"app","kind":"remove","expected_url":""}'
+expect_error invalid_params origin.refresh '{"Project":"app"}'
+expect_error invalid_params origin.inspect '{"project":"app","extra":true}'
+expect_error invalid_params origin.sources '{"project":"app","limit":17}'
+expect_error invalid_params origin.sources '{"project":"app","limit":1,"after":"refs/heads/../bad"}'
 echo P_ORIGIN_LIFECYCLE_PASS

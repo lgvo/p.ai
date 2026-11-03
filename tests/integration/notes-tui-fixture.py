@@ -36,7 +36,7 @@ def guest(*args):
 def rpc(method, **params):
     deadline = time.monotonic() + 40
     while True:
-        result = command(["p", "api", args.socket, method, json.dumps({"v": 1, **params})], check=False)
+        result = command(["p", "api", args.socket, method, json.dumps(params)], check=False)
         response = json.loads(result.stdout)
         if result.returncode == 0:
             return response["result"]

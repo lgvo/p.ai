@@ -6,14 +6,20 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestCreationReviewEnterUsesPinnedRequestOnceAndBackIgnoresReply(t *testing.T) {
+	oid := strings.Repeat("a", 40)
 	for _, method := range []string{"project.create", "session.create"} {
 		for _, failed := range []bool{false, true} {
 			t.Run(method+map[bool]string{false: "/success", true: "/error"}[failed], func(t *testing.T) {
-				f := &fakeClient{fn: func(got string, p params) (any, error) {
-					if got != method || p["project"] != "reviewed" || p["key"] != "pinned" || method == "project.create" && p["url"] != "ssh://reviewed" || method == "session.create" && (p["branch"] != "topic" || p["expected_commit_oid"] != "tip" || p["expected_origin_url"] != "ssh://reviewed") {
+				f := &fakeClient{fn: func(got string, p any) (any, error) {
+					want := any(api.ProjectCreateRequest{Key: "pinned", Project: "reviewed", URL: "ssh://reviewed"})
+					if method == "session.create" {
+						want = api.SessionCreateRequest{Key: "pinned", Project: "reviewed", Branch: "topic", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: oid, ExpectedOriginURL: "ssh://reviewed"}
+					}
+					if got != method || p != want {
 						t.Fatalf("creation request changed: %s %+v", got, p)
 					}
 					if failed {
@@ -23,18 +29,16 @@ func TestCreationReviewEnterUsesPinnedRequestOnceAndBackIgnoresReply(t *testing.
 				}}
 				m := fixture()
 				m.client = f
-				m.creation = params{"v": 1, "project": "reviewed", "key": "pinned"}
+				m.creation = creationDraft{project: "reviewed", key: "pinned"}
 				if method == "project.create" {
-					m.creation["url"] = "ssh://reviewed"
+					m.creation.url = "ssh://reviewed"
 				} else {
-					m.creation["choice"] = "new"
-					m.creation["branch"] = "topic"
-					m.creation["origin_ref"] = "refs/heads/main"
-					m.creation["expected_commit_oid"] = "tip"
-					m.creation["expected_origin_url"] = "ssh://reviewed"
+					m.creation.choice = "new"
+					m.creation.branch = "topic"
+					m.creation.source = sourceSelection{originRef: "refs/heads/main", expectedCommitOID: oid, expectedOriginURL: "ssh://reviewed"}
 				}
 				m.confirmCreation(method)
-				m.creation["project"] = "changed after review"
+				m.creation.project = "changed after review"
 				for _, key := range []string{"y", "n"} {
 					next, cmd := press(m, key)
 					m = next
@@ -65,7 +69,7 @@ func TestCreationReviewEnterUsesPinnedRequestOnceAndBackIgnoresReply(t *testing.
 func TestCreationReviewBackPreservesEditableInputs(t *testing.T) {
 	for _, kind := range []string{"project", "new", "existing"} {
 		m := fixture()
-		m.creation = params{"project": "app", "key": "key", "choice": kind, "branch": "topic", "url": "ssh://example/repo"}
+		m.creation = creationDraft{project: "app", key: "key", choice: kind, branch: "topic", url: "ssh://example/repo"}
 		method := "session.create"
 		if kind == "project" {
 			method = "project.create"
@@ -86,7 +90,7 @@ func TestCreationReviewScrollableWithoutConfirmationFraming(t *testing.T) {
 	for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}} {
 		m := fixture()
 		m.width, m.height = size[0], size[1]
-		m.creation = params{"project": "app", "branch": "topic", "key": "key"}
+		m.creation = creationDraft{project: "app", branch: "topic", key: "key"}
 		m.sourceReview = strings.Repeat("Long source description. ", 80) + "SOURCE_END"
 		m.confirmCreation("session.create")
 		m, _ = press(m, "G")

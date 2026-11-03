@@ -26,7 +26,7 @@ expect_busy() {
   local method="$1" params="$2" response status=0
   response=$(rpc "$method" "$params") || status=$?
   test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
     .error.code== -32003 and .error.kind=="busy" and
     (.error.message|type=="string" and length>0)' <<< "$response" >/dev/null
 }
@@ -69,7 +69,7 @@ diagnose_session() {
   # Whitelist public state and confined identity; never dump config, keys or
   # process environment. Each read has its own deadline and bounded output.
   if timeout 15 p api "$socket" session.inspect \
-    "$(jq -nc --arg uuid "$id" '{v:1,uuid:$uuid}')" > "$output" 2>/dev/null; then
+    "$(jq -nc --arg uuid "$id" '{uuid:$uuid}')" > "$output" 2>/dev/null; then
     jq -c '.result.session | {uuid,registry_state,session_condition,policy_condition,
       diagnostic:(.diagnostic // "")[:2048]}' "$output" >&2 || true
   else
@@ -166,7 +166,7 @@ start_daemon() {
 wait_operation() {
   local id="$1" expected="${2:-completed}" result status deadline=$((SECONDS+150))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = superseded; then
@@ -181,7 +181,7 @@ wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
   readiness_session="$id"
   while ((SECONDS < deadline)); do
-    if rpc session.inspect "$(jq -nc --arg uuid "$id" '{v:1,uuid:$uuid}')" |
+    if rpc session.inspect "$(jq -nc --arg uuid "$id" '{uuid:$uuid}')" |
       jq -e '.result.session.session_condition=="ready"' >/dev/null; then
       readiness_session=
       return
@@ -215,7 +215,7 @@ exec "$host_git" "$@"
 WRAPPER
 chmod 0700 "$step_dir/bin/git"
 start_daemon
-created=$(rpc project.create '{"v":1,"key":"removal-bootstrap","project":"missing-runtime-removal"}')
+created=$(rpc project.create '{"key":"removal-bootstrap","project":"missing-runtime-removal"}')
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 wait_operation "$create_op" >/dev/null
@@ -225,7 +225,7 @@ guest /run/current-system/sw/bin/git config user.email p@example.invalid
 guest /run/current-system/sw/bin/bash -c \
   'printf retained > tracked; git add tracked; git commit -qm retained; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-created_b=$(rpc session.create '{"v":1,"key":"removal-sibling","project":"missing-runtime-removal","branch":"sibling","choice":"new","source":"refs/heads/main"}')
+created_b=$(rpc session.create '{"key":"removal-sibling","project":"missing-runtime-removal","branch":"sibling","choice":"new","source":"refs/heads/main"}')
 create_b_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$create_b_op" >/dev/null
@@ -241,22 +241,22 @@ inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/
 
 # An external rename leaves the same UUID elsewhere in the confined project.
 # Missing deterministic name must not yield permission to duplicate/adopt it.
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 renamed="p-renamed-$uuid"
 inc rename "p-$uuid" "$renamed"
 renamed_identity=$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')
 for removal_kind in discard delete; do
   expect_busy session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
-    '{v:1,uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')"
+    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')"
 done
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test "$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$renamed_identity"
 inc rename "$renamed" "p-$uuid"
 renamed=
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 wait_ready "$uuid"
 test "$(guest /run/current-system/sw/bin/cat lost-local)" = lost-local
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = lost-dummy
@@ -265,15 +265,15 @@ test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = lost-d
 # silently recreate it or disturb B.
 inc delete --force "p-$uuid"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
-if start_reply=$(rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" 2> "$step_dir/start-missing.err"); then
+if start_reply=$(rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" 2> "$step_dir/start-missing.err"); then
   jq -e '.result.session.session_condition=="missing"' <<< "$start_reply" >/dev/null
 fi
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{v:1,uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
+  '{uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
 discard_token=$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")
 delete_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{v:1,uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
+  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
 delete_token=$(jq -er '.result.preview.confirmation_token' <<< "$delete_preview")
 # A competing UUID identity appearing after preview invalidates admission.
 # The fixture owns this stopped dummy instance and removes it explicitly.
@@ -283,17 +283,17 @@ inc init "$base_image" "$competing" --profile default \
   --config security.nesting=false --config "user.p.session_uuid=$uuid"
 competing_identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
 expect_busy session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
-  '{v:1,key:"discard-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
+  '{key:"discard-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
 expect_busy session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$delete_token" \
-  '{v:1,key:"delete-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
+  '{key:"delete-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
 for removal_kind in discard delete; do
   expect_busy session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
-    '{v:1,uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')"
+    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')"
 done
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
-rpc operation.list '{"v":1,"limit":20}' | jq -e '.result.operations |
+rpc operation.list '{"limit":20}' | jq -e '.result.operations |
   all(.[]; .idempotency_key!="discard-stale-runtime" and .idempotency_key!="delete-stale-runtime")' >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$competing_identity"
@@ -302,34 +302,34 @@ competing=
 # Genuine absence remains eligible for both explicit removal outcomes.
 discard_uuid=$uuid
 preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{v:1,uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
+  '{uuid:$uuid,kind:"discard",acknowledge_missing_runtime:true}')")
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 removed=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{v:1,key:"missing-discard",uuid:$uuid,confirmation_token:$token}')")
+  '{key:"missing-discard",uuid:$uuid,confirmation_token:$token}')")
 wait_operation "$(jq -er '.result.operation.id' <<< "$removed")" >/dev/null
 test ! -e "$state/session_keys/$discard_uuid"
 test ! -e "$endpoint_prefix/$discard_uuid"
-rpc session.list '{"v":1,"limit":8}' | jq -e --arg old "$discard_uuid" \
+rpc session.list '{"limit":8}' | jq -e --arg old "$discard_uuid" \
   '.result.sessions | all(.[];.uuid!=$old)' >/dev/null
-rpc project.branches '{"v":1,"project":"missing-runtime-removal","limit":8}' |
+rpc project.branches '{"project":"missing-runtime-removal","limit":8}' |
   jq -e --arg tip "$main_oid" '.result.refs | any(.[];.ref=="refs/heads/main" and .oid==$tip)' >/dev/null
-created=$(rpc session.create '{"v":1,"key":"missing-delete-create","project":"missing-runtime-removal","branch":"main","choice":"existing"}')
+created=$(rpc session.create '{"key":"missing-delete-create","project":"missing-runtime-removal","branch":"main","choice":"existing"}')
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
 test "$uuid" != "$discard_uuid"
 wait_operation "$(jq -er '.result.operation.id' <<< "$created")" >/dev/null
 wait_ready "$uuid"
 inc delete --force "p-$uuid"
 preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-  '{v:1,uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
+  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 printf '%s\n' "$uuid" > "$step_dir/delete-read-arm"
 removed=$(rpc session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$token" \
-  '{v:1,key:"missing-delete",uuid:$uuid,confirmation_token:$token}')")
+  '{key:"missing-delete",uuid:$uuid,confirmation_token:$token}')")
 delete_op=$(jq -er '.result.operation.id' <<< "$removed")
 pause_deadline=$((SECONDS+40))
 while test ! -f "$step_dir/delete-read-paused" && ((SECONDS < pause_deadline)); do sleep 0.1; done
 test -f "$step_dir/delete-read-paused"
-rpc operation.inspect "$(jq -nc --arg id "$delete_op" '{v:1,id:$id}')" |
+rpc operation.inspect "$(jq -nc --arg id "$delete_op" '{id:$id}')" |
   jq -e '.result.operation | .status=="running" and .phase=="secrets-absent" and .committed==true' >/dev/null
 stop_daemon
 competing="p-recovery-$uuid"
@@ -342,25 +342,25 @@ touch "$step_dir/delete-read-release"
 start_daemon
 blocked=$(wait_operation "$delete_op" blocked)
 jq -e '.result.operation | .phase=="secrets-absent" and .committed==true' <<< "$blocked" >/dev/null
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="removing"' >/dev/null
-rpc project.branches '{"v":1,"project":"missing-runtime-removal","limit":8}' |
+rpc project.branches '{"project":"missing-runtime-removal","limit":8}' |
   jq -e --arg tip "$main_oid" '.result.refs | any(.[];.ref=="refs/heads/main" and .oid==$tip)' >/dev/null
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$competing_identity"
 inc delete "$competing"
 competing=
-rpc operation.retry "$(jq -nc --arg id "$delete_op" '{v:1,id:$id}')" |
+rpc operation.retry "$(jq -nc --arg id "$delete_op" '{id:$id}')" |
   jq -e --arg id "$delete_op" '.result.operation.id==$id' >/dev/null
 wait_operation "$delete_op" >/dev/null
 test ! -e "$state/session_keys/$uuid"
 test ! -e "$endpoint_prefix/$uuid"
-rpc project.branches '{"v":1,"project":"missing-runtime-removal","limit":8}' |
+rpc project.branches '{"project":"missing-runtime-removal","limit":8}' |
   jq -e --arg tip "$main_oid" '.result.refs | length==1 and .[0].ref=="refs/heads/sibling" and .[0].oid==$tip' >/dev/null
 test "$(inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = sibling-dummy
 stop_daemon
 start_daemon
-rpc session.list '{"v":1,"limit":8}' | jq -e --arg sibling "$uuid_b" \
+rpc session.list '{"limit":8}' | jq -e --arg sibling "$uuid_b" \
   '.result.sessions | length==1 and .[0].uuid==$sibling and .[0].registry_state=="established"' >/dev/null
 test ! -e "$endpoint_prefix/$discard_uuid"
 test ! -e "$endpoint_prefix/$uuid"

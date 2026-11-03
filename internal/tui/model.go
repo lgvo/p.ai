@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,10 +22,12 @@ type loaded struct {
 	err  error
 }
 type tick struct{}
+
+// actionDone is the reply to a daemonCall: result has the call's result type.
 type actionDone struct {
 	epoch  int
 	method string
-	raw    json.RawMessage
+	result any
 	err    error
 }
 type attached struct{ err error }
@@ -49,7 +50,7 @@ type Model struct {
 	themeMode                          ThemeMode
 	darkBackground                     bool
 	styles                             styles
-	client                             Client
+	client                             api.Caller
 	socket                             string
 	data                               inventory
 	width, height                      int
@@ -72,8 +73,7 @@ type Model struct {
 	journalOffset, pan                 int
 	find                               string
 	finding, follow                    bool
-	confirmMethod                      string
-	confirmParams                      params
+	confirm                            daemonCall
 	review                             string
 	reviewOffset                       int
 	operation                          api.Operation
@@ -81,10 +81,10 @@ type Model struct {
 	attachOnComplete                   bool
 	form                               string
 	input                              string
-	creation                           params
+	creation                           creationDraft
 	choices                            []row
 	sources                            []row
-	sourceParams                       map[string]params
+	sourceParams                       map[string]sourceSelection
 	choiceQuery                        string
 	choiceSearching                    bool
 	name                               string
@@ -100,12 +100,12 @@ type Model struct {
 	attachmentScreen                   *attachmentScreen
 }
 
-func New(c Client, socket string) Model {
+func New(c api.Caller, socket string) Model {
 	return NewWithTheme(c, socket, PrototypeTheme(), ThemeAuto)
 }
 
 // NewWithTheme is the injection seam for a future configured theme.
-func NewWithTheme(c Client, socket string, theme Theme, mode ThemeMode) Model {
+func NewWithTheme(c api.Caller, socket string, theme Theme, mode ThemeMode) Model {
 	dark := mode != ThemeLight
 	return Model{client: c, socket: socket, theme: theme, themeMode: mode, darkBackground: dark, styles: theme.styles(dark), width: 80, height: 24, page: "sessions", refreshing: true, lastInteraction: map[string]time.Time{}}
 }
@@ -124,20 +124,14 @@ func (m Model) refresh() tea.Cmd {
 		return loaded{v, e}
 	}
 }
-func (m Model) call(method string, p params) tea.Cmd {
+func (m Model) run(call daemonCall) tea.Cmd {
 	epoch := m.epoch
 	c := m.client
 	return func() tea.Msg {
 		ctx, cancel := callContext()
 		defer cancel()
-		var raw json.RawMessage
-		var e error
-		if method == "creation.branches" {
-			raw, e = creationBranches(ctx, c, p["project"].(string))
-		} else {
-			raw, e = c.Call(ctx, method, p)
-		}
-		return actionDone{epoch, method, raw, e}
+		result, e := call.run(ctx, c)
+		return actionDone{epoch, call.method, result, e}
 	}
 }
 func (m *Model) navigate(page string) {
@@ -386,11 +380,11 @@ func (m Model) projectCounts(project string) [4]int {
 	}
 	return counts
 }
-func (m *Model) begin(method string, p params) tea.Cmd {
+func (m *Model) begin(call daemonCall) tea.Cmd {
 	m.working = true
-	m.pendingMethod = method
+	m.pendingMethod = call.method
 	m.notice = ""
-	return m.call(method, p)
+	return m.run(call)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -446,15 +440,15 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			switch m.page {
 			case "progress":
 				if m.operationID != "" && m.operation.Status != "completed" {
-					cmds = append(cmds, m.begin("operation.inspect", params{"v": 1, "id": m.operationID}))
+					cmds = append(cmds, m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: m.operationID})))
 				} else if m.removal == nil && m.contextSession.UUID != "" && (m.contextSession.Condition == "starting" || m.attachOnComplete) {
-					cmds = append(cmds, m.begin("session.inspect", params{"v": 1, "uuid": m.contextSession.UUID}))
+					cmds = append(cmds, m.begin(callOf(api.SessionInspect, api.SessionInspectRequest{UUID: m.contextSession.UUID})))
 				}
 			case "services":
-				cmds = append(cmds, m.begin("session.services", params{"v": 1, "uuid": m.contextSession.UUID}))
+				cmds = append(cmds, m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID})))
 			case "journal":
 				if m.follow {
-					cmds = append(cmds, m.begin("session.service.journal", params{"v": 1, "uuid": m.contextSession.UUID, "unit": m.serviceUnit}))
+					cmds = append(cmds, m.begin(callOf(api.SessionServiceJournal, api.SessionServiceJournalRequest{UUID: m.contextSession.UUID, Unit: m.serviceUnit})))
 				}
 			}
 		}
@@ -525,7 +519,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			} else if m.form == "project-url" {
 				m.navigate("form")
 				m.form = "project-name"
-				m.input = m.creation["project"].(string)
+				m.input = m.creation.project
 			} else {
 				m.navigate("sessions")
 				m.restoreSelection()
@@ -603,7 +597,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if m.working {
 				return nil
 			}
-			return m.begin(m.confirmMethod, m.confirmParams)
+			return m.begin(m.confirm)
 		}
 		m.scroll(key, &m.reviewOffset)
 		return nil
@@ -614,7 +608,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if m.working {
 				return nil
 			}
-			return m.begin(m.confirmMethod, m.confirmParams)
+			return m.begin(m.confirm)
 		case "n", "N", "enter":
 			return m.back()
 		default:
@@ -628,7 +622,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if m.working {
 				return nil
 			}
-			return m.begin(m.confirmMethod, m.confirmParams)
+			return m.begin(m.confirm)
 		case "n", "N":
 			return m.back()
 		default:
@@ -668,7 +662,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.helpBranchProject = ""
 		if m.working && m.pendingMethod == "creation.branches" {
 			if m.page == "create" && m.form == "branch" {
-				m.helpBranchProject, _ = m.creation["project"].(string)
+				m.helpBranchProject = m.creation.project
 			} else if m.page == "retained" {
 				m.helpBranchProject = m.contextSession.Project
 			}
@@ -713,7 +707,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.services = nil
 			m.servicesFresh = false
 			m.navigate("services")
-			return m.begin("session.services", params{"v": 1, "uuid": m.contextSession.UUID})
+			return m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID}))
 		}
 	case "sessions":
 		s, ok := m.selectedSession()
@@ -726,7 +720,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		case "O":
 			m.navigate("operations")
 		case "c":
-			m.creation = params{"v": 1, "key": newKey()}
+			m.creation = creationDraft{key: newKey()}
 			m.choices = []row{{id: "\x00new-project", label: "Create a new project"}}
 			for _, p := range m.data.projects {
 				if p.Registry == "active" {
@@ -747,8 +741,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				return nil
 			}
 			m.contextSession = s
-			m.confirmMethod = "session.stop"
-			m.confirmParams = params{"v": 1, "uuid": s.UUID}
+			m.confirm = callOf(api.SessionStop, api.SessionStopRequest{UUID: s.UUID})
 			m.review = "Stop " + s.Project + " / " + s.Branch + "?\nUUID: " + s.UUID + "\nProcesses end; files and identity remain.\nAll attachments must be detached."
 			m.navigate("confirm")
 		case "D":
@@ -767,7 +760,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				m.services = nil
 				m.servicesFresh = false
 				m.navigate("services")
-				return m.begin("session.services", params{"v": 1, "uuid": s.UUID})
+				return m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: s.UUID}))
 			}
 		case "p":
 			if ok {
@@ -778,7 +771,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if ok {
 				m.contextSession = s
 				m.navigate("retained")
-				return m.begin("creation.branches", params{"project": s.Project})
+				return m.begin(creationBranchesCall(s.Project))
 			}
 		case "R":
 			if ok && s.Condition != "stopped" {
@@ -818,7 +811,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.attachOnComplete = false
 			m.navigate("progress")
 			m.removal = &removalIntent{UUID: s.UUID, Kind: kind}
-			return m.begin("session.removal.preview", params{"v": 1, "uuid": s.UUID, "kind": kind})
+			return m.begin(callOf(api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: s.UUID, Kind: kind}))
 		case "r":
 			if !m.refreshing {
 				m.refreshing = true
@@ -880,11 +873,11 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.navigate("progress")
 			m.operationID = r.id
 			m.attachOnComplete = false
-			return m.begin("operation.inspect", params{"v": 1, "id": r.id})
+			return m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: r.id}))
 		}
 	case "progress":
 		if key == "r" && m.operationID != "" && !m.working {
-			return m.begin("operation.retry", params{"v": 1, "id": m.operationID})
+			return m.begin(callOf(api.OperationRetry, api.OperationRetryRequest{ID: m.operationID}))
 		}
 	}
 	return nil
@@ -1017,29 +1010,29 @@ func (m *Model) back() tea.Cmd {
 			m.navigate("create")
 			m.form = "branch"
 			m.choices = nil
-			return m.begin("creation.branches", params{"project": m.creation["project"]})
+			return m.begin(creationBranchesCall(m.creation.project))
 		default:
 			m.navigate("sessions")
 			m.restoreSelection()
 		}
 		return nil
 	}
-	if m.page == "creation-review" && m.confirmMethod == "session.create" {
-		if m.creation["choice"] == "new" {
+	if m.page == "creation-review" && m.confirm.method == api.SessionCreate.Name {
+		if m.creation.choice == "new" {
 			m.navigate("form")
 			m.form = "branch-name"
-			m.input = m.creation["branch"].(string)
+			m.input = m.creation.branch
 		} else {
 			m.navigate("create")
 			m.form = "branch"
-			return m.begin("creation.branches", params{"project": m.creation["project"]})
+			return m.begin(creationBranchesCall(m.creation.project))
 		}
 		return nil
 	}
-	if m.page == "creation-review" && m.confirmMethod == "project.create" {
+	if m.page == "creation-review" && m.confirm.method == api.ProjectCreate.Name {
 		m.navigate("form")
 		m.form = "project-url"
-		m.input, _ = m.creation["url"].(string)
+		m.input = m.creation.url
 		return nil
 	}
 	if m.page == "journal" {
@@ -1054,7 +1047,7 @@ func (m *Model) back() tea.Cmd {
 				break
 			}
 		}
-		return m.begin("session.services", params{"v": 1, "uuid": m.contextSession.UUID})
+		return m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID}))
 	}
 	if m.page == "help" {
 		page := m.returnPage
@@ -1108,7 +1101,7 @@ func (m *Model) back() tea.Cmd {
 			// Help invalidated the old response. Restart only its branch read,
 			// bound to the same project; never replay a mutation on return.
 			m.choices = nil
-			return m.begin("creation.branches", params{"project": branchProject})
+			return m.begin(creationBranchesCall(branchProject))
 		}
 		return nil
 	}
@@ -1129,7 +1122,7 @@ func (m *Model) enterSession() tea.Cmd {
 	m.attachOnComplete = true
 	m.operationID = ""
 	m.navigate("progress")
-	return m.begin("session.start", params{"v": 1, "uuid": m.contextSession.UUID})
+	return m.begin(callOf(api.SessionStart, api.SessionStartRequest{UUID: m.contextSession.UUID}))
 }
 func (m *Model) launchAttachment() tea.Cmd {
 	executable, err := os.Executable()
@@ -1152,11 +1145,11 @@ func newKey() string {
 }
 
 // Snapshot uses the same live transport and renderer without an input terminal.
-func Snapshot(ctx context.Context, c Client, socket, page, id string, width, height int) (string, error) {
+func Snapshot(ctx context.Context, c api.Caller, socket, page, id string, width, height int) (string, error) {
 	return snapshotWithTheme(ctx, c, socket, page, id, width, height, PrototypeTheme(), ThemeAuto)
 }
 
-func snapshotWithTheme(ctx context.Context, c Client, socket, page, id string, width, height int, theme Theme, mode ThemeMode) (string, error) {
+func snapshotWithTheme(ctx context.Context, c api.Caller, socket, page, id string, width, height int, theme Theme, mode ThemeMode) (string, error) {
 	m := NewWithTheme(c, socket, theme, mode)
 	v, err := loadInventory(ctx, c)
 	if err != nil {
@@ -1182,13 +1175,13 @@ func snapshotWithTheme(ctx context.Context, c Client, socket, page, id string, w
 		m.selectedServices.condition = s.Condition
 		if s.Condition != "ready" {
 			m.selectedServices.state = "not running"
-		} else if !v.capabilities["session.services"] {
+		} else if !v.hello.Has(api.CapabilityServices) {
 			m.selectedServices.state = "unavailable"
 		} else {
 			readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			r, e := request[api.ServiceResult](readCtx, c, "session.services", params{"v": 1, "uuid": s.UUID})
+			r, e := api.Do(readCtx, c, api.SessionServices, api.SessionServicesRequest{UUID: s.UUID})
 			cancel()
-			if e != nil || r.V != 1 || r.UUID != s.UUID {
+			if e != nil || r.UUID != s.UUID {
 				m.selectedServices.state = "unavailable"
 			} else {
 				m.selectedServices.state = "observed"
@@ -1205,7 +1198,7 @@ func snapshotWithTheme(ctx context.Context, c Client, socket, page, id string, w
 		m.page = page
 		switch page {
 		case "services":
-			r, e := request[api.ServiceResult](ctx, c, "session.services", params{"v": 1, "uuid": id})
+			r, e := api.Do(ctx, c, api.SessionServices, api.SessionServicesRequest{UUID: id})
 			if e != nil {
 				return "", e
 			}

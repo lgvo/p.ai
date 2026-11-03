@@ -22,6 +22,9 @@ type leaseRPC struct {
 	responses chan []byte
 }
 
+// dialLease connects to the control socket and agrees the protocol. The
+// connection then becomes the attachment's lease: losing it ends the
+// attachment.
 func dialLease(ctx context.Context, socket string) (*leaseRPC, error) {
 	c, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "unix", socket)
 	if err != nil {
@@ -43,14 +46,20 @@ func dialLease(ctx context.Context, socket string) (*leaseRPC, error) {
 			}
 		}
 	}()
+	if _, err := api.Do(ctx, r, api.SystemHello, api.HelloRequest{Protocol: api.Protocol}); err != nil {
+		r.fail()
+		return nil, err
+	}
 	return r, nil
 }
 func (r *leaseRPC) fail() { r.once.Do(func() { close(r.lost); r.conn.Close() }) }
-func (r *leaseRPC) call(ctx context.Context, method string, params, dest any) error {
+
+// Call implements api.Caller: one request at a time on the lease connection.
+func (r *leaseRPC) Call(ctx context.Context, method string, params, result any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	timeout := 10 * time.Second
-	if method == "attachment.confirm" {
+	if method == api.AttachmentConfirm.Name {
 		timeout = 35 * time.Second
 	}
 	deadline := time.Now().Add(timeout)
@@ -59,7 +68,13 @@ func (r *leaseRPC) call(ctx context.Context, method string, params, dest any) er
 	}
 	r.conn.SetWriteDeadline(deadline)
 	r.sequence++
-	if err := json.NewEncoder(r.conn).Encode(map[string]any{"jsonrpc": "2.0", "id": r.sequence, "method": method, "params": params}); err != nil {
+	request := struct {
+		JSONRPC string `json:"jsonrpc"`
+		ID      int    `json:"id"`
+		Method  string `json:"method"`
+		Params  any    `json:"params"`
+	}{"2.0", r.sequence, method, params}
+	if err := json.NewEncoder(r.conn).Encode(request); err != nil {
 		r.fail()
 		return err
 	}
@@ -90,10 +105,7 @@ func (r *leaseRPC) call(ctx context.Context, method string, params, dest any) er
 	if reply.Error != nil {
 		return errors.New(reply.Error.Message)
 	}
-	if dest != nil {
-		return json.Unmarshal(reply.Result, dest)
-	}
-	return nil
+	return json.Unmarshal(reply.Result, result)
 }
 func (r *leaseRPC) monitor(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
@@ -105,7 +117,7 @@ func (r *leaseRPC) monitor(ctx context.Context) {
 		case <-r.lost:
 			return
 		case <-ticker.C:
-			if r.call(ctx, "attachment.ping", map[string]int{"v": 1}, nil) != nil {
+			if _, err := api.Do(ctx, r, api.AttachmentPing, api.AttachmentPingRequest{}); err != nil {
 				r.fail()
 				return
 			}

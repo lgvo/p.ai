@@ -62,7 +62,7 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 	if err != nil || !after.Exists || after.IncusUUID != before.IncusUUID || after.Generation != before.Generation || after.Status != "Running" {
 		return result, errors.New("runtime identity changed during service observation/action")
 	}
-	result = api.ServiceResult{V: 1, UUID: s.SessionUUID, Unit: unit, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	result = api.ServiceResult{UUID: s.SessionUUID, Unit: unit, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if action == "journal" {
 		// Keep the RPC bounded even for long journal messages. This is a tail.
 		if len(raw) > 16000 {

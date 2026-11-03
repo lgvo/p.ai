@@ -6,7 +6,7 @@ export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 record="$HOME/.local/state/p-lab-public-check.json"
 rpc() { timeout 30 p api "$@"; }
 uuid=$(jq -er '.session_uuid' /var/lib/p-demo/lab-notes.json)
-params=$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')
+params=$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')
 guest() {
   timeout 60 incus --force-local --project user-1000 exec \
     --force-noninteractive --disable-stdin "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
@@ -16,8 +16,8 @@ guest() {
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 systemctl is-active --quiet p-lab-repository p-lab-notes
 test -e /var/lib/p-demo/lab-notes-ready
-rpc project.list '{"v":1,"limit":8}' | jq -e '.result.projects | length==2 and any(.path=="p-ai") and any(.path=="notes")' >/dev/null
-rpc session.list '{"v":1,"limit":8}' | jq -e --arg uuid "$uuid" \
+rpc project.list '{"limit":8}' | jq -e '.result.projects | length==2 and any(.path=="p-ai") and any(.path=="notes")' >/dev/null
+rpc session.list '{"limit":8}' | jq -e --arg uuid "$uuid" \
   '.result.sessions | length==2 and any(.project=="p-ai" and .branch=="main") and any(.uuid==$uuid and .project=="notes" and .branch=="main")' >/dev/null
 case "${1-}" in
   prepare) test ! -e "$record" ;;

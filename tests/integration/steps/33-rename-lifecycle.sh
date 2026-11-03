@@ -24,7 +24,7 @@ expect_busy() {
   local method="$1" params="$2" response status=0
   response=$(rpc "$method" "$params") || status=$?
   test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
     .error.code== -32003 and .error.kind=="busy" and
     (.error.message|type=="string" and length>0)' <<< "$response" >/dev/null
 }
@@ -113,7 +113,7 @@ start_daemon() {
 wait_operation() {
   local id="$1" want="$2" result status deadline=$((SECONDS+150))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$want"; then printf '%s\n' "$result"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = completed; then
@@ -127,7 +127,7 @@ wait_operation() {
 wait_ready() {
   local deadline=$((SECONDS+80))
   while ((SECONDS < deadline)); do
-    if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+    if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
       jq -e '.result.session.session_condition=="ready"' >/dev/null; then return; fi
     sleep 0.3
   done
@@ -135,17 +135,17 @@ wait_ready() {
   return 1
 }
 stop_session() {
-  rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e '.result.session.session_condition=="stopped"' >/dev/null
   inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
 }
 start_session() {
-  rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+  rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
   wait_ready
 }
 start_daemon
-rpc system.capabilities | jq -e '.result.available | index("session.rename") != null' >/dev/null
-created=$(rpc project.create '{"v":1,"key":"rename-bootstrap","project":"rename-lifecycle"}')
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
+created=$(rpc project.create '{"key":"rename-bootstrap","project":"rename-lifecycle"}')
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 wait_operation "$create_op" completed >/dev/null
@@ -174,7 +174,7 @@ guest /run/current-system/sw/bin/git config user.email p@example.invalid
 guest /run/current-system/sw/bin/bash -c \
   'printf base > tracked; git add tracked; git commit -qm base; git push origin HEAD:main'
 base_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-created_b=$(rpc session.create '{"v":1,"key":"rename-sibling","project":"rename-lifecycle","branch":"sibling","choice":"new","source":"refs/heads/main"}')
+created_b=$(rpc session.create '{"key":"rename-sibling","project":"rename-lifecycle","branch":"sibling","choice":"new","source":"refs/heads/main"}')
 create_b_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$create_b_op" completed >/dev/null
@@ -200,11 +200,11 @@ assert_unrenamed() {
   test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename
   # shellcheck disable=SC2016 # The loop expands inside the guest shell.
   guest /run/current-system/sw/bin/bash -c 'test ! -e .git/refs/heads/renamed; for backup in .git/p-rename-*.json; do test ! -e "$backup"; done'
-  rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
+  rpc project.branches '{"project":"rename-lifecycle","limit":8}' |
     jq -e --arg base "$base_oid" '.result.refs | length==2 and
       any(.[]; .ref=="refs/heads/main" and .oid==$base) and
       any(.[]; .ref=="refs/heads/sibling" and .oid==$base)' >/dev/null
-  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e '.result.session.branch=="main" and .result.session.registry_state=="established"' >/dev/null
 }
 
@@ -212,8 +212,8 @@ assert_unrenamed() {
 # and its branch, P ref and workspace stay as they were.
 running_config=$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)
 expect_busy session.rename "$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" \
-  '{v:1,key:"rename-running",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')"
-rpc operation.list '{"v":1,"limit":20}' | jq -e '.result.operations |
+  '{key:"rename-running",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')"
+rpc operation.list '{"limit":20}' | jq -e '.result.operations |
   all(.[]; .idempotency_key!="rename-running")' >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
 assert_unrenamed "$running_config" main
@@ -227,7 +227,7 @@ assert_mismatch_refusal() {
   before_branch=$(guest /run/current-system/sw/bin/git branch --show-current)
   stop_session
   result=$(rpc session.rename "$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" --arg key "$key" \
-    '{v:1,key:$key,uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')")
+    '{key:$key,uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')")
   op=$(jq -er '.result.operation.id' <<< "$result")
   result=$(wait_operation "$op" failed)
   printf 'P_RENAME_MISMATCH_OBSERVED %s\n' "$(jq -c '.result.operation | {status,phase,diagnostic}' <<< "$result")"
@@ -251,13 +251,13 @@ test "$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut 
 # leaves the session stopped.
 stop_session
 request=$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" \
-  '{v:1,key:"rename-confirmed",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')
+  '{key:"rename-confirmed",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')
 renamed=$(rpc session.rename "$request")
 rename_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$renamed")
 done_op=$(wait_operation "$rename_op" completed)
 jq -e '.result.operation | .kind=="session.rename" and .status=="completed" and .committed==true' <<< "$done_op" >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.branch=="renamed" and .result.session.session_condition=="stopped"' >/dev/null
 start_session
 test "$(guest /run/current-system/sw/bin/git branch --show-current)" = renamed
@@ -273,7 +273,7 @@ guest /run/current-system/sw/bin/bash -c 'test ! -e .git/refs/heads/main; for ba
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
 test -S "$endpoint_prefix/$uuid/git.sock"
 echo P_RENAME_MISMATCH_MANUAL_CORRECTION_PASS
-rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
+rpc project.branches '{"project":"rename-lifecycle","limit":8}' |
   jq -e --arg base "$base_oid" '.result.refs | length==2 and
     any(.[]; .ref=="refs/heads/renamed" and .oid==$base) and
     any(.[]; .ref=="refs/heads/sibling" and .oid==$base)' >/dev/null
@@ -282,7 +282,7 @@ if guest /run/current-system/sw/bin/git push origin HEAD:main > "$step_dir/old-p
   echo 'old assigned branch accepted a push after Rename' >&2
   exit 1
 fi
-rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
+rpc project.branches '{"project":"rename-lifecycle","limit":8}' |
   jq -e --arg ahead "$ahead_oid" '.result.refs |
     any(.[]; .ref=="refs/heads/renamed" and .oid==$ahead) and
     all(.[]; .ref!="refs/heads/main")' >/dev/null
@@ -292,13 +292,13 @@ stop_daemon
 start_daemon
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
-  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e '.result.session.session_condition=="ready" and .result.session.branch=="renamed"' >/dev/null; then
     break
   fi
   sleep 0.3
 done
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready" and .result.session.branch=="renamed"' >/dev/null
 guest /run/current-system/sw/bin/git push origin HEAD:renamed
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename

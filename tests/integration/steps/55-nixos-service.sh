@@ -33,7 +33,7 @@ cleanup() {
 on_error() {
  printf 'P_NIXOS_SERVICE_FAIL line=%s status=%s\n' "$2" "$1" >&2
  service_control diagnostic >&2 || true
- if test -n "$op"; then rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')" >&2 || true; fi
+ if test -n "$op"; then rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" >&2 || true; fi
 }
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
@@ -49,7 +49,7 @@ wait_health() {
 wait_completed() {
  local id="$1" response status deadline=$((SECONDS+150))
  while ((SECONDS<deadline)); do
-  response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+  response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
   status=$(jq -er '.result.operation.status' <<< "$response")
   if test "$status" = completed; then return; fi
   if test "$status" = blocked || test "$status" = failed; then jq -c '.result.operation|{id,status,phase,diagnostic}' <<< "$response" >&2; return 1; fi
@@ -60,7 +60,7 @@ wait_completed() {
 wait_ready() {
  local deadline=$((SECONDS+40))
  while ((SECONDS<deadline)); do
-  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
    jq -e '.result.session.session_condition=="ready"' >/dev/null; then return; fi
   sleep 0.2
  done
@@ -69,7 +69,7 @@ wait_ready() {
 stop_when_idle() {
  local response status deadline=$((SECONDS+40))
  while ((SECONDS<deadline)); do
-  if response=$(timeout 150 p api "$socket" session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')"); then
+  if response=$(timeout 150 p api "$socket" session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"); then
    jq -e '.result.session.session_condition=="stopped"' <<< "$response" >/dev/null
    return
   else
@@ -94,8 +94,8 @@ test "$(stat -c '%a:%u:%h' "$state/host.json")" = "600:$(id -u):1"
 test "$(stat -c '%a:%u' "$state/activation.json")" = "600:$(id -u)"
 p plugins activate "$state/activation.json" | jq -e 'length==6' >/dev/null
 activation_sha=$(sha256sum "$state/activation.json" | cut -d ' ' -f1)
-rpc system.capabilities | jq -e '.result.available|index("project.create")!=null and index("project.delete.confirm")!=null' >/dev/null
-created=$(rpc project.create '{"v":1,"key":"nixos-service55-create","project":"nixos-service55"}')
+rpc system.hello | jq -e '.result.capabilities|index("runtime")!=null' >/dev/null
+created=$(rpc project.create '{"key":"nixos-service55-create","project":"nixos-service55"}')
 op=$(jq -er '.result.operation.id' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
 wait_completed "$op"
@@ -117,16 +117,16 @@ test "$(sha256sum "$state/activation.json" | cut -d ' ' -f1)" = "$activation_sha
 stop_when_idle
 service_control restart
 wait_health
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 wait_ready
 test "$(guest git rev-parse HEAD)" = "$tip"
 test "$(guest cat /home/p/service-private)" = dummy-private
 test "$(guest cat /home/p/service-credential)" = dummy-credential
 stop_when_idle
-review=$(rpc project.delete.preview '{"v":1,"project":"nixos-service55"}')
+review=$(rpc project.delete.preview '{"project":"nixos-service55"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"service55-delete",project:"nixos-service55",confirmation_token:$token}')")
+removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"service55-delete",project:"nixos-service55",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

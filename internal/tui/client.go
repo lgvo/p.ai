@@ -3,7 +3,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,108 +10,116 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
-type Client interface {
-	Call(context.Context, string, any) (json.RawMessage, error)
-}
+// SocketClient opens one connection per call; each connection agrees the
+// protocol before its call.
 type SocketClient struct{ Socket string }
 
-func (c SocketClient) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return nil, err
-	}
-	reply, err := api.Call(ctx, c.Socket, method, raw)
-	if err != nil {
-		return nil, fmt.Errorf("connection unavailable: %w (an accepted operation may still continue)", err)
-	}
-	var envelope struct {
-		Result json.RawMessage `json:"result"`
-		Error  *api.RPCError   `json:"error"`
-	}
-	if err = json.Unmarshal(reply, &envelope); err != nil {
-		return nil, err
-	}
-	if envelope.Error != nil {
-		return nil, fmt.Errorf("%s: %s", envelope.Error.Kind, envelope.Error.Message)
-	}
-	if len(envelope.Result) == 0 {
-		return nil, errors.New("missing daemon result")
-	}
-	return envelope.Result, nil
-}
-
-func request[T any](ctx context.Context, c Client, method string, params any) (T, error) {
-	var result T
-	raw, err := c.Call(ctx, method, params)
+// Call implements api.Caller. An error the daemon answers keeps its kind and
+// message; any other failure says that the connection failed.
+func (c SocketClient) Call(ctx context.Context, method string, params, result any) error {
+	conn, err := api.Dial(ctx, c.Socket)
 	if err == nil {
-		err = json.Unmarshal(raw, &result)
+		defer conn.Close()
+		err = conn.Call(ctx, method, params, result)
 	}
-	return result, err
+	var rpcErr *api.RPCError
+	if err != nil && !errors.As(err, &rpcErr) {
+		return fmt.Errorf("connection unavailable: %w (an accepted operation may still continue)", err)
+	}
+	return err
 }
 
-type params = map[string]any
+// daemonCall is one call the model starts with begin. method names it for the
+// pages that wait on it; creation.branches is the TUI's own sequence of reads.
+type daemonCall struct {
+	method string
+	run    func(context.Context, api.Caller) (any, error)
+}
+
+// callOf calls m with req; its result is m's result type.
+func callOf[Req api.Request, Res any](m api.Method[Req, Res], req Req) daemonCall {
+	return daemonCall{m.Name, func(ctx context.Context, c api.Caller) (any, error) { return api.Do(ctx, c, m, req) }}
+}
+
+// resultOf is the result of a call that callOf made for m. The type assertion
+// cannot fail when accept handles each method's reply with its own method.
+func resultOf[Req api.Request, Res any](v actionDone, _ api.Method[Req, Res]) Res {
+	return v.result.(Res)
+}
+
 type inventory struct {
-	projects     []api.ProjectSummary
-	sessions     []api.SessionView
-	operations   []api.OperationSummary
-	capabilities map[string]bool
+	projects   []api.ProjectSummary
+	sessions   []api.SessionView
+	operations []api.OperationSummary
+	hello      api.HelloResult
 }
 
-func loadInventory(ctx context.Context, c Client) (inventory, error) {
+// inventoryLimit bounds the records the TUI keeps; inventoryPages bounds the
+// pages of each list.
+const (
+	inventoryLimit = 4096
+	inventoryPages = 512
+)
+
+func loadInventory(ctx context.Context, c api.Caller) (inventory, error) {
 	var result inventory
-	caps, err := request[struct {
-		Available []string `json:"available"`
-	}](ctx, c, "system.capabilities", params{"v": 1})
+	hello, err := api.Do(ctx, c, api.SystemHello, api.HelloRequest{Protocol: api.Protocol})
 	if err != nil {
 		return result, err
 	}
-	result.capabilities = map[string]bool{}
-	for _, m := range caps.Available {
-		result.capabilities[m] = true
-	}
-	for _, spec := range []struct {
-		method, field string
-		limit         int
-	}{{"project.list", "projects", 100}, {"session.list", "sessions", 8}, {"operation.list", "operations", 20}} {
-		if !result.capabilities[spec.method] {
-			continue
+	result.hello = hello
+	records := 0
+	if hello.Has(api.CapabilityGit) {
+		result.projects, err = pages(ctx, c, api.ProjectList, &records,
+			func(after string) api.ProjectListRequest { return api.ProjectListRequest{Limit: 100, After: after} },
+			func(r api.ProjectListResult) ([]api.ProjectSummary, string) { return r.Projects, r.Next })
+		if err != nil {
+			return result, err
 		}
-		after := ""
-		seen := map[string]bool{}
-		for page := 0; page < 512; page++ {
-			raw, e := c.Call(ctx, spec.method, params{"v": 1, "limit": spec.limit, "after": after})
-			if e != nil {
-				return result, e
-			}
-			var body struct {
-				Projects   []api.ProjectSummary   `json:"projects"`
-				Sessions   []api.SessionView      `json:"sessions"`
-				Operations []api.OperationSummary `json:"operations"`
-				Next       string                 `json:"next"`
-			}
-			if e = json.Unmarshal(raw, &body); e != nil {
-				return result, e
-			}
-			result.projects = append(result.projects, body.Projects...)
-			result.sessions = append(result.sessions, body.Sessions...)
-			result.operations = append(result.operations, body.Operations...)
-			if len(result.projects)+len(result.sessions)+len(result.operations) > 4096 {
-				return result, errors.New("inventory exceeds 4096 records; use paginated CLI")
-			}
-			if body.Next == "" {
-				break
-			}
-			if seen[body.Next] || body.Next == after {
-				return result, errors.New("daemon returned a repeated pagination cursor")
-			}
-			seen[body.Next] = true
-			after = body.Next
-			if page == 511 {
-				return result, errors.New("inventory pagination exceeds bound")
-			}
+	}
+	if hello.Has(api.CapabilityRuntime) {
+		result.sessions, err = pages(ctx, c, api.SessionList, &records,
+			func(after string) api.SessionListRequest { return api.SessionListRequest{Limit: 8, After: after} },
+			func(r api.SessionListResult) ([]api.SessionView, string) { return r.Sessions, r.Next })
+		if err != nil {
+			return result, err
+		}
+		result.operations, err = pages(ctx, c, api.OperationList, &records,
+			func(after string) api.OperationListRequest { return api.OperationListRequest{Limit: 20, After: after} },
+			func(r api.OperationListResult) ([]api.OperationSummary, string) { return r.Operations, r.Next })
+		if err != nil {
+			return result, err
 		}
 	}
 	return result, nil
+}
+
+// pages reads every page of m, counting the records into *records.
+func pages[Req api.Request, Res, T any](ctx context.Context, c api.Caller, m api.Method[Req, Res], records *int, page func(after string) Req, items func(Res) ([]T, string)) ([]T, error) {
+	var all []T
+	after := ""
+	seen := map[string]bool{}
+	for i := 0; i < inventoryPages; i++ {
+		r, err := api.Do(ctx, c, m, page(after))
+		if err != nil {
+			return all, err
+		}
+		values, next := items(r)
+		all = append(all, values...)
+		*records += len(values)
+		if *records > inventoryLimit {
+			return all, errors.New("inventory exceeds 4096 records; use paginated CLI")
+		}
+		if next == "" {
+			return all, nil
+		}
+		if seen[next] || next == after {
+			return all, errors.New("daemon returned a repeated pagination cursor")
+		}
+		seen[next] = true
+		after = next
+	}
+	return all, errors.New("inventory pagination exceeds bound")
 }
 
 func callContext() (context.Context, context.CancelFunc) {

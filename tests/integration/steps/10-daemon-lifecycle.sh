@@ -50,13 +50,13 @@ on_error() {
   # Public operation summaries identify the failing phase without exposing
   # request or evidence payloads from operation.inspect.
   local operations id detail
-  if operations=$(timeout 5 p api "$socket" operation.list '{"v":1,"limit":20}' 2>/dev/null); then
+  if operations=$(timeout 5 p api "$socket" operation.list '{"limit":20}' 2>/dev/null); then
     jq -cr '.result.operations[]? | {id,session_uuid,status,phase,
       diagnostic: ((.diagnostic // "")[:512])}' <<< "$operations" >&2 || true
   fi
   for id in "${retry_id:-}" "${main_id:-}" "${work_id:-}"; do
     if test -n "$id" && detail=$(timeout 5 p api "$socket" operation.inspect \
-      "$(jq -nc --arg id "$id" '{v:1,id:$id}')" 2>/dev/null); then
+      "$(jq -nc --arg id "$id" '{id:$id}')" 2>/dev/null); then
       jq -cr '.result.operation | {id,session_uuid,status,phase,
         diagnostic: ((.diagnostic // "")[:512])}' <<< "$detail" >&2 || true
     fi
@@ -154,10 +154,10 @@ session_uuid() {
   jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"
 }
 inspect_operation() {
-  rpc operation.inspect "$(jq -nc --arg id "$1" '{v:1,id:$id}')"
+  rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"
 }
 inspect_session() {
-  rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"
+  rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"
 }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+160))
@@ -227,19 +227,19 @@ check_session() {
   local result
   result=$(wait_condition "$1" ready)
   jq -e --arg uuid "$1" --arg project "$2" --arg branch "$3" \
-    '.result.v==1 and .result.session.uuid==$uuid and .result.session.project==$project and
+    '.result.session.uuid==$uuid and .result.session.project==$project and
      .result.session.branch==$branch and .result.session.registry_state=="established" and
      .result.session.policy_condition=="current" and .result.session.session_condition=="ready" and
      (.result.session.policy_sha256|type=="string" and length==64)' <<< "$result" >/dev/null
 }
 check_identity() {
-  test "$(rpc system.hello | jq -er '.result.instance_id | select(type=="string" and length==36)')" = "$instance_id"
-  local result
-  result=$(rpc system.capabilities)
+  local hello result
+  hello=$(rpc system.hello)
+  test "$(jq -er '.result.instance_id | select(type=="string" and length==36)' <<< "$hello")" = "$instance_id"
+  jq -e '.result.capabilities | index("git")!=null and index("runtime")!=null' <<< "$hello" >/dev/null
+  result=$(rpc system.inspect)
   jq -e --arg server "$server_key" --arg client "$client_key" \
-    '.result.lifecycle=="partial" and .result.git.host_public_key==$server and
-     .result.git.client_public_key==$client and
-     (.result.available|index("project.create")!=null and index("session.stop")!=null)' \
+    '.result.git.host_public_key==$server and .result.git.client_public_key==$client' \
     <<< "$result" >/dev/null
   test "$(stat -c '%d:%i' "$endpoint_prefix/$main_uuid")" = "$main_endpoint_inode"
   test "$(stat -c '%d:%i' "$endpoint_prefix/$work_uuid")" = "$work_endpoint_inode"
@@ -249,20 +249,19 @@ check_identity() {
 
 printf 'release\n' > "$step_dir/release"
 start_daemon
-instance_id=$(rpc system.hello | jq -er '.result.instance_id | select(type=="string" and length==36)')
-capabilities=$(rpc system.capabilities)
-server_key=$(jq -er '.result.git.host_public_key | select(type=="string" and length>0)' <<< "$capabilities")
-client_key=$(jq -er '.result.git.client_public_key | select(type=="string" and length>0)' <<< "$capabilities")
-jq -e '.result.lifecycle=="partial" and
-  (.result.available|index("project.create")!=null and index("operation.retry")!=null)' \
-  <<< "$capabilities" >/dev/null
+hello=$(rpc system.hello)
+instance_id=$(jq -er '.result.instance_id | select(type=="string" and length==36)' <<< "$hello")
+jq -e '.result.capabilities | index("git")!=null and index("runtime")!=null' <<< "$hello" >/dev/null
+inspected=$(rpc system.inspect)
+server_key=$(jq -er '.result.git.host_public_key | select(type=="string" and length>0)' <<< "$inspected")
+client_key=$(jq -er '.result.git.client_public_key | select(type=="string" and length>0)' <<< "$inspected")
 
 # A file at the selected bare-repository path blocks Git initialization before
 # any session runtime work. Removing it permits exact public operation.retry.
 if ! test -d "$state/repositories"; then mkdir -m 0700 "$state/repositories"; fi
 obstacle="$state/repositories/$(printf %s retry-project | sha256sum | cut -d' ' -f1).git"
 printf 'blocked\n' > "$obstacle"
-retry_request='{"v":1,"key":"lifecycle-retry","project":"retry-project"}'
+retry_request='{"key":"lifecycle-retry","project":"retry-project"}'
 retry_created=$(rpc project.create "$retry_request")
 retry_id=$(operation_id "$retry_created")
 retry_uuid=$(session_uuid "$retry_created")
@@ -273,10 +272,10 @@ jq -e '.result.operation.phase=="repo-pending" and .result.operation.committed==
   <<< "$retry_blocked" >/dev/null
 test "$(inc list --format json | jq --arg uuid "$retry_uuid" '[.[]|select(.name==("p-"+$uuid))]|length')" -eq 0
 test "$(rpc project.create "$retry_request" | jq -er '.result.operation.id')" = "$retry_id"
-expect_busy project.create '{"v":1,"key":"lifecycle-retry","project":"different"}'
+expect_busy project.create '{"key":"lifecycle-retry","project":"different"}'
 rm "$obstacle"
 obstacle=
-retry_response=$(rpc operation.retry "$(jq -nc --arg id "$retry_id" '{v:1,id:$id}')")
+retry_response=$(rpc operation.retry "$(jq -nc --arg id "$retry_id" '{id:$id}')")
 test "$(operation_id "$retry_response")" = "$retry_id"
 test "$(session_uuid "$retry_response")" = "$retry_uuid"
 release_on_running "$retry_uuid" "$retry_id"
@@ -286,12 +285,12 @@ jq -e --arg uuid "$retry_uuid" '.result.operation.session_uuid==$uuid and
   <<< "$retry_done" >/dev/null
 check_session "$retry_uuid" retry-project main
 test "$(inc list --format json | jq --arg uuid "$retry_uuid" '[.[]|select(.name==("p-"+$uuid))]|length')" -eq 1
-rpc project.branches '{"v":1,"project":"retry-project","limit":8}' |
+rpc project.branches '{"project":"retry-project","limit":8}' |
   jq -e '.result.refs==[] and .result.next==""' >/dev/null
 
 # Blank creation reserves unborn main. The first commit comes from the actual
 # guest Git workspace and its assigned SSH principal.
-project_request='{"v":1,"key":"lifecycle-main","project":"lifecycle"}'
+project_request='{"key":"lifecycle-main","project":"lifecycle"}'
 main_created=$(rpc project.create "$project_request")
 main_id=$(operation_id "$main_created")
 main_uuid=$(session_uuid "$main_created")
@@ -300,15 +299,15 @@ release_on_running "$main_uuid" "$main_id"
 wait_operation "$main_id" completed >/dev/null
 check_session "$main_uuid" lifecycle main
 test "$(rpc project.create "$project_request" | jq -er '.result.operation.id')" = "$main_id"
-expect_busy project.create '{"v":1,"key":"lifecycle-main","project":"other"}'
+expect_busy project.create '{"key":"lifecycle-main","project":"other"}'
 test "$(exec_p "$main_uuid" git symbolic-ref -q HEAD)" = refs/heads/main
 if exec_p "$main_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out" 2> "$step_dir/refused.err"; then
   echo 'blank project received an artificial commit' >&2
   exit 1
 fi
-rpc project.branches '{"v":1,"project":"lifecycle","limit":8}' |
+rpc project.branches '{"project":"lifecycle","limit":8}' |
   jq -e '.result.refs==[] and .result.next==""' >/dev/null
-expect_unavailable session.create '{"v":1,"key":"before-first-commit","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
+expect_unavailable session.create '{"key":"before-first-commit","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
 exec_p "$main_uuid" git config user.name P
 exec_p "$main_uuid" git config user.email p@example.invalid
 exec_p "$main_uuid" sh -c 'printf "first\n" > README'
@@ -316,10 +315,10 @@ exec_p "$main_uuid" git add README
 exec_p "$main_uuid" git commit -qm first
 exec_p "$main_uuid" git push origin HEAD:main
 main_oid=$(exec_p "$main_uuid" git rev-parse HEAD)
-rpc project.branches '{"v":1,"project":"lifecycle","limit":8}' |
+rpc project.branches '{"project":"lifecycle","limit":8}' |
   jq -e --arg oid "$main_oid" '.result.refs==[{"ref":"refs/heads/main","oid":$oid}]' >/dev/null
 
-work_request='{"v":1,"key":"lifecycle-work","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
+work_request='{"key":"lifecycle-work","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
 work_created=$(rpc session.create "$work_request")
 work_id=$(operation_id "$work_created")
 work_uuid=$(session_uuid "$work_created")
@@ -333,13 +332,13 @@ test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$main_oid"
 test "$(exec_p "$work_uuid" git symbolic-ref -q HEAD)" = refs/heads/work
 test "$(exec_p "$work_uuid" cat README)" = first
 test "$(session_uuid "$(rpc session.create "$work_request")")" = "$work_uuid"
-expect_busy session.create '{"v":1,"key":"lifecycle-work","project":"lifecycle","branch":"other","choice":"new","source":"refs/heads/main"}'
-expect_busy session.create '{"v":1,"key":"assigned-branch","project":"lifecycle","branch":"work","choice":"existing"}'
-rpc operation.list '{"v":1,"limit":20}' | jq -e --arg id "$work_id" \
+expect_busy session.create '{"key":"lifecycle-work","project":"lifecycle","branch":"other","choice":"new","source":"refs/heads/main"}'
+expect_busy session.create '{"key":"assigned-branch","project":"lifecycle","branch":"work","choice":"existing"}'
+rpc operation.list '{"limit":20}' | jq -e --arg id "$work_id" \
   '.result.operations|any(.[]; .id==$id and .status=="completed")' >/dev/null
-rpc session.list '{"v":1,"limit":8}' | jq -e --arg uuid "$work_uuid" \
+rpc session.list '{"limit":8}' | jq -e --arg uuid "$work_uuid" \
   '.result.sessions|any(.[]; .uuid==$uuid and .session_condition=="ready")' >/dev/null
-rpc project.branches '{"v":1,"project":"lifecycle","limit":8}' |
+rpc project.branches '{"project":"lifecycle","limit":8}' |
   jq -e --arg oid "$main_oid" \
     '.result.refs==[{"ref":"refs/heads/main","oid":$oid},{"ref":"refs/heads/work","oid":$oid}] and .result.next==""' >/dev/null
 rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==3 and .result.operations==3' >/dev/null
@@ -357,11 +356,11 @@ store_path=$(exec_p "$work_uuid" nix-store --add /workspace/README)
 key_hash=$(inc file pull "p-$work_uuid/etc/p/git/identity" - | sha256sum | cut -d' ' -f1)
 main_endpoint_inode=$(stat -c '%d:%i' "$endpoint_prefix/$main_uuid")
 work_endpoint_inode=$(stat -c '%d:%i' "$endpoint_prefix/$work_uuid")
-rpc session.stop "$(jq -nc --arg uuid "$work_uuid" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 inc list "p-$work_uuid" --format json | jq -e --arg name "p-$work_uuid" \
   'any(.[]; .name==$name and .status=="Stopped")' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{v:1,uuid:$uuid}')" |
+rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="starting"' >/dev/null
 wait_condition "$work_uuid" ready >/dev/null
 test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$local_oid"
@@ -389,10 +388,10 @@ test "$(exec_p "$work_uuid" git ls-remote origin refs/heads/main | cut -f1)" = "
 
 # A registered private session key must block Start rather than silently
 # rotate. Restore the same key, then exercise ordinary Start recovery.
-rpc session.stop "$(jq -nc --arg uuid "$work_uuid" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 mv "$state/session_keys/$work_uuid" "$step_dir/work-key.saved"
-if rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{v:1,uuid:$uuid}')" \
+if rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" \
   > "$step_dir/unexpected.out" 2> "$step_dir/refused.err"; then
   echo 'Start accepted a missing registered key' >&2
   exit 1
@@ -406,14 +405,14 @@ test "$(sha256sum "$state/session_keys/$work_uuid" | cut -d' ' -f1)" = "$key_has
 # Remove the host gate while stopped, so the same trusted unit fails to
 # activate. The watcher must stop the guest and publish a bounded diagnostic.
 inc file delete "p-$work_uuid/etc/p/test-release"
-rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{v:1,uuid:$uuid}')" |
+rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="starting"' >/dev/null
 failed_start=$(wait_condition "$work_uuid" stopped)
 jq -e '.result.session.diagnostic|type=="string" and length>0 and length<=1024' \
   <<< "$failed_start" >/dev/null
 inc list "p-$work_uuid" --format json | jq -e --arg name "p-$work_uuid" \
   'any(.[]; .name==$name and .status=="Stopped")' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{v:1,uuid:$uuid}')" |
+rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="starting"' >/dev/null
 release_on_running "$work_uuid"
 wait_condition "$work_uuid" ready >/dev/null

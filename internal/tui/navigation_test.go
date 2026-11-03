@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"encoding/json"
 	"errors"
+	"github.com/lgvo/p.ai/internal/plugin"
 	"strings"
 	"testing"
 
@@ -95,9 +95,26 @@ func TestProgressExplainsPendingSourcePreparation(t *testing.T) {
 	}
 }
 
+// projectOf is the project a branch read asks about.
+func projectOf(t *testing.T, p any) string {
+	t.Helper()
+	switch r := p.(type) {
+	case api.ProjectBranchesRequest:
+		return r.Project
+	case api.ProjectRetainedBranchesRequest:
+		return r.Project
+	case api.OriginRefreshRequest:
+		return r.Project
+	case api.OriginSourcesRequest:
+		return r.Project
+	}
+	t.Fatalf("not a branch read: %T", p)
+	return ""
+}
+
 func TestBlockedOperationRetryKeyResumesCapturedRequest(t *testing.T) {
-	client := &fakeClient{fn: func(method string, p params) (any, error) {
-		if method != "operation.retry" || p["id"] != "blocked" {
+	client := &fakeClient{fn: func(method string, p any) (any, error) {
+		if method != "operation.retry" || p != (api.OperationRetryRequest{ID: "blocked"}) {
 			t.Fatalf("wrong resumable request: %s %+v", method, p)
 		}
 		return map[string]any{"operation": api.Operation{ID: "blocked", Kind: "session.create", Status: "running"}}, nil
@@ -153,7 +170,7 @@ func TestBranchObservationClampsShrinkingChoices(t *testing.T) {
 			m.form = "branch"
 			m.choices = []row{{id: "a"}, {id: "b"}, {id: "c"}, {id: "d"}}
 			m.cursor = 3
-			updated, _ := m.Update(actionDone{epoch: m.epoch, method: "creation.branches", raw: json.RawMessage(`{"Retained":[{"branch":"remaining","oid":"tip"}]}`)})
+			updated, _ := m.Update(actionDone{epoch: m.epoch, method: "creation.branches", result: branchInventory{Retained: []api.RetainedBranch{{Branch: "remaining", OID: "tip"}}}})
 			m = updated.(Model)
 			if m.cursor < 0 || m.cursor >= len(m.rows()) || m.rows()[m.cursor].id != "remaining" {
 				t.Fatalf("branch result left invalid selection: %d %+v", m.cursor, m.rows())
@@ -165,13 +182,13 @@ func TestBranchObservationClampsShrinkingChoices(t *testing.T) {
 func TestCreationBackRejectsDelayedBranchResults(t *testing.T) {
 	for _, lateError := range []bool{false, true} {
 		t.Run(map[bool]string{false: "success", true: "error"}[lateError], func(t *testing.T) {
-			f := &fakeClient{fn: func(method string, p params) (any, error) {
-				project := p["project"].(string)
+			f := &fakeClient{fn: func(method string, p any) (any, error) {
+				project := projectOf(t, p)
 				switch method {
 				case "project.branches":
-					return map[string]any{"refs": []ref{{Ref: "refs/heads/main", OID: "tip"}}}, nil
+					return api.ProjectBranchesResult{Refs: []plugin.GitRef{{Ref: "refs/heads/main", OID: "tip"}}}, nil
 				case "project.retained_branches":
-					return map[string]any{"branches": []ref{{Branch: project + "-branch", OID: "tip"}}}, nil
+					return api.RetainedBranchesResult{Branches: []api.RetainedBranch{{Branch: project + "-branch", OID: "tip"}}}, nil
 				case "origin.refresh":
 					return map[string]any{"origin": map[string]string{"status": "unknown"}}, nil
 				default:
@@ -205,7 +222,7 @@ func TestCreationBackRejectsDelayedBranchResults(t *testing.T) {
 			m, _ = press(m, "j")
 			m, _ = press(m, "j")
 			m, second := press(m, "enter")
-			if second == nil || m.creation["project"] != "b" {
+			if second == nil || m.creation.project != "b" {
 				t.Fatal("Back left a branch masquerading as a project")
 			}
 			updated, cmd = m.Update(old)
@@ -217,8 +234,8 @@ func TestCreationBackRejectsDelayedBranchResults(t *testing.T) {
 			m = updated.(Model)
 			m, _ = press(m, "j")
 			m, _ = press(m, "enter")
-			if m.page != "creation-review" || m.confirmParams["project"] != "b" || m.confirmParams["branch"] != "b-branch" {
-				t.Fatalf("new project was not kept bound: %+v", m.confirmParams)
+			if r := requestOf[api.SessionCreateRequest](t, m.confirm); m.page != "creation-review" || r.Project != "b" || r.Branch != "b-branch" {
+				t.Fatalf("new project was not kept bound: %+v", r)
 			}
 		})
 	}
@@ -228,15 +245,15 @@ func TestHelpRestartsInterruptedBranchRead(t *testing.T) {
 	for _, page := range []string{"create", "retained"} {
 		for _, failed := range []bool{false, true} {
 			t.Run(page+"/"+map[bool]string{false: "success", true: "error"}[failed], func(t *testing.T) {
-				f := &fakeClient{fn: func(method string, p params) (any, error) {
-					if p["project"] != "app" {
+				f := &fakeClient{fn: func(method string, p any) (any, error) {
+					if projectOf(t, p) != "app" {
 						t.Fatalf("read changed project: %+v", p)
 					}
 					switch method {
 					case "project.branches":
 						return map[string]any{}, nil
 					case "project.retained_branches":
-						return map[string]any{"branches": []ref{{Branch: "retained", OID: "tip"}}}, nil
+						return api.RetainedBranchesResult{Branches: []api.RetainedBranch{{Branch: "retained", OID: "tip"}}}, nil
 					case "origin.refresh":
 						return map[string]any{"origin": map[string]string{"status": "unknown"}}, nil
 					default:
@@ -262,7 +279,7 @@ func TestHelpRestartsInterruptedBranchRead(t *testing.T) {
 					t.Fatal("branch read did not start")
 				}
 				old := cmd().(actionDone)
-				old.raw = json.RawMessage(`{"Retained":[{"branch":"obsolete","oid":"old"}]}`)
+				old.result = branchInventory{Retained: []api.RetainedBranch{{Branch: "obsolete", OID: "old"}}}
 				m, _ = press(m, "?")
 				if m.page != "help" {
 					t.Fatal("Help did not open")
@@ -315,7 +332,7 @@ func TestHelpRestartsInterruptedBranchRead(t *testing.T) {
 func TestHelpReturnDoesNotReplayMutation(t *testing.T) {
 	m := fixture()
 	m.navigate("progress")
-	m.begin("session.create", params{"project": "app"})
+	m.begin(callOf(api.SessionCreate, api.SessionCreateRequest{Project: "app"}))
 	m, _ = press(m, "?")
 	m, cmd := press(m, "esc")
 	if cmd != nil || m.page != "progress" || m.working || m.pendingMethod != "" {
@@ -325,10 +342,10 @@ func TestHelpReturnDoesNotReplayMutation(t *testing.T) {
 
 func TestRepeatedHelpKeepsInterruptedReadContext(t *testing.T) {
 	m := fixture()
-	m.creation = params{"project": "app"}
+	m.creation = creationDraft{project: "app"}
 	m.navigate("create")
 	m.form = "branch"
-	m.begin("creation.branches", params{"project": "app"})
+	m.begin(creationBranchesCall("app"))
 	m, _ = press(m, "?")
 	m, _ = press(m, "?")
 	m, cmd := press(m, "esc")

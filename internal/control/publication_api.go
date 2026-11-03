@@ -2,19 +2,16 @@ package control
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
-	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 type PublicationScope interface {
 	Observe(context.Context, string) ([]plugin.GitOriginRef, error)
-	PreviewPublication(context.Context, string, string, string) (PublicationPreview, error)
-	PublishPublication(context.Context, PublicationPreview) (PublicationResult, error)
+	PreviewPublication(context.Context, string, string, string) (api.PublicationPreview, error)
+	PublishPublication(context.Context, api.PublicationPreview) (api.Publication, error)
 }
 type PublicationRunner interface {
 	WithPublication(context.Context, string, func(PublicationScope) error) error
@@ -22,15 +19,15 @@ type PublicationRunner interface {
 
 // PreviewPublication always contacts the currently configured origin. The
 // caller supplies the captured P tip so confirmation can bind to exact work.
-func (a OriginAPI) PreviewPublication(ctx context.Context, r PublicationRequest) (PublicationPreview, error) {
+func (a OriginAPI) PreviewPublication(ctx context.Context, r PublicationRequest) (api.PublicationPreview, error) {
 	if !validPublicationRequest(r) {
-		return PublicationPreview{}, ErrInvalid
+		return api.PublicationPreview{}, ErrInvalid
 	}
 	runner, ok := a.Runner.(PublicationRunner)
 	if !ok {
-		return PublicationPreview{}, ErrNotFound
+		return api.PublicationPreview{}, ErrNotFound
 	}
-	var preview PublicationPreview
+	var preview api.PublicationPreview
 	err := runner.WithPublication(ctx, r.Project, func(scope PublicationScope) error {
 		if err := a.Store.lockGitAuthority(ctx); err != nil {
 			return err
@@ -86,18 +83,18 @@ func (a OriginAPI) observeForPublication(ctx context.Context, scope PublicationS
 
 // PublishPublication marks the key attempted before invoking the external push.
 // A crash after that boundary replays outcome_unknown without another contact.
-func (a OriginAPI) PublishPublication(ctx context.Context, r PublicationRequest) (PublicationResult, error) {
+func (a OriginAPI) PublishPublication(ctx context.Context, r PublicationRequest) (api.Publication, error) {
 	if !validPublicationRequest(r) || r.Key == "" || len(r.Key) > 128 {
-		return PublicationResult{}, ErrInvalid
+		return api.Publication{}, ErrInvalid
 	}
 	if result, status, err := a.Store.PublicationRecord(ctx, r); err != nil || status == "completed" || status == "attempted" {
 		return result, err
 	}
 	runner, ok := a.Runner.(PublicationRunner)
 	if !ok {
-		return PublicationResult{}, ErrNotFound
+		return api.Publication{}, ErrNotFound
 	}
-	var result PublicationResult
+	var result api.Publication
 	err := runner.WithPublication(ctx, r.Project, func(scope PublicationScope) error {
 		if err := a.Store.lockGitAuthority(ctx); err != nil {
 			return err
@@ -164,41 +161,14 @@ func (a OriginAPI) PublishPublication(ctx context.Context, r PublicationRequest)
 	return result, err
 }
 
-func publicationRequestParams(params json.RawMessage, publish bool) (PublicationRequest, error) {
-	var p struct {
-		ExpectedOriginURL string `json:"expected_origin_url"`
-		V                 int    `json:"v"`
-		Key               string `json:"key"`
-		Project           string `json:"project"`
-		Kind              string `json:"kind"`
-		Source            string `json:"source"`
-		SourceOID         string `json:"source_oid"`
-		DestinationRef    string `json:"destination_ref"`
-	}
-	if strictjson.Decode(params, &p) != nil || p.V != 1 || !validPublicationRequest(PublicationRequest{ExpectedOriginURL: p.ExpectedOriginURL, Project: p.Project, Kind: p.Kind, Source: p.Source, SourceOID: p.SourceOID, DestinationRef: p.DestinationRef}) || publish && (p.Key == "" || len(p.Key) > 128) || !publish && p.Key != "" {
-		return PublicationRequest{}, ErrInvalid
-	}
-	return PublicationRequest{ExpectedOriginURL: p.ExpectedOriginURL, Key: p.Key, Project: p.Project, Kind: p.Kind, Source: p.Source, SourceOID: p.SourceOID, DestinationRef: p.DestinationRef}, nil
-}
-
-func publicationHandler(ctx context.Context, method string, params json.RawMessage, origins OriginAPI) (any, *api.RPCError) {
-	r, err := publicationRequestParams(params, method == "origin.publish")
-	if err != nil {
-		return nil, errorRPC(-32602, "invalid_params", "invalid publication request")
-	}
-	if !strings.HasPrefix(r.DestinationRef, "refs/heads/") {
-		return nil, errorRPC(-32602, "invalid_params", "destination must be a branch")
-	}
-	if method == "origin.publication.preview" {
-		p, e := origins.PreviewPublication(ctx, r)
-		if e != nil {
-			return nil, lifecycleRPC(e)
-		}
-		return map[string]any{"v": 1, "preview": p}, nil
-	}
-	result, e := origins.PublishPublication(ctx, r)
-	if e != nil {
-		return nil, lifecycleRPC(e)
-	}
-	return map[string]any{"v": 1, "publication": result}, nil
+// addPublicationMethods serves origin.publication.preview and origin.publish.
+func addPublicationMethods(t *MethodTable, origins OriginAPI) {
+	Register(t, api.OriginPublicationPreview, func(ctx context.Context, r api.OriginPublicationPreviewRequest) (api.PublicationPreviewResult, error) {
+		preview, e := origins.PreviewPublication(ctx, PublicationRequest{ExpectedOriginURL: r.ExpectedOriginURL, Project: r.Project, Kind: r.Kind, Source: r.Source, SourceOID: r.SourceOID, DestinationRef: r.DestinationRef})
+		return api.PublicationPreviewResult{Preview: preview}, e
+	})
+	Register(t, api.OriginPublish, func(ctx context.Context, r api.OriginPublishRequest) (api.OriginPublishResult, error) {
+		publication, e := origins.PublishPublication(ctx, PublicationRequest(r))
+		return api.OriginPublishResult{Publication: publication}, e
+	})
 }

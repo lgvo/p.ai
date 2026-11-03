@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -16,23 +15,23 @@ import (
 // CreationEvidence is immutable selection data made under the Git authority
 // lock. It is stored before an absent-ref CAS or runtime side effect.
 type CreationEvidence struct {
-	CapturedOID            string                    `json:"captured_oid,omitempty"`
-	BranchExisted          bool                      `json:"branch_existed"`
-	ImageFingerprint       string                    `json:"image_fingerprint"`
-	PolicySHA256           string                    `json:"policy_sha256"`
-	EnvironmentBuilder     *CreationBuilderState     `json:"environment_builder,omitempty"`
-	RuntimeInitState       string                    `json:"runtime_init_state,omitempty"`
-	RefCASIntent           bool                      `json:"ref_cas_intent,omitempty"`
-	Selection              CreationSelection         `json:"selection"`
-	OriginURL              string                    `json:"origin_url,omitempty"`
-	OriginRef              string                    `json:"origin_ref,omitempty"`
-	BuilderTreeOID         string                    `json:"builder_tree_oid,omitempty"`
-	Environment            *EnvironmentIntent        `json:"environment,omitempty"`
-	EnvironmentState       *EnvironmentState         `json:"environment_state,omitempty"`
-	SupersedesOperationID  string                    `json:"supersedes_operation_id,omitempty"`
-	SupersedesUUID         string                    `json:"supersedes_uuid,omitempty"`
-	ReplacementCleanup     *CreateReplacementCleanup `json:"replacement_cleanup,omitempty"`
-	ReplacementTokenSHA256 string                    `json:"replacement_token_sha256,omitempty"`
+	CapturedOID            string                        `json:"captured_oid,omitempty"`
+	BranchExisted          bool                          `json:"branch_existed"`
+	ImageFingerprint       string                        `json:"image_fingerprint"`
+	PolicySHA256           string                        `json:"policy_sha256"`
+	EnvironmentBuilder     *CreationBuilderState         `json:"environment_builder,omitempty"`
+	RuntimeInitState       string                        `json:"runtime_init_state,omitempty"`
+	RefCASIntent           bool                          `json:"ref_cas_intent,omitempty"`
+	Selection              CreationSelection             `json:"selection"`
+	OriginURL              string                        `json:"origin_url,omitempty"`
+	OriginRef              string                        `json:"origin_ref,omitempty"`
+	BuilderTreeOID         string                        `json:"builder_tree_oid,omitempty"`
+	Environment            *EnvironmentIntent            `json:"environment,omitempty"`
+	EnvironmentState       *EnvironmentState             `json:"environment_state,omitempty"`
+	SupersedesOperationID  string                        `json:"supersedes_operation_id,omitempty"`
+	SupersedesUUID         string                        `json:"supersedes_uuid,omitempty"`
+	ReplacementCleanup     *api.CreateReplacementCleanup `json:"replacement_cleanup,omitempty"`
+	ReplacementTokenSHA256 string                        `json:"replacement_token_sha256,omitempty"`
 }
 
 // EnvironmentIntent is selected by the trusted host before reservation and
@@ -94,12 +93,7 @@ type CapturedSource struct {
 	OriginRef string
 }
 
-func ValidSessionCreateRequest(req ReserveSessionRequest) bool {
-	return len(req.Key) >= 1 && len(req.Key) <= 128 && validProject(req.Project) && validBranch(req.Branch) && len(req.ExpectedOriginURL) <= 2048 && (req.ExpectedOriginURL == "" || req.OriginRef != "") &&
-		((req.Choice == "existing" && req.Source == "" && req.OriginRef == "" && req.ExpectedCommitOID == "") ||
-			(req.Choice == "new" && req.OriginRef == "" && req.ExpectedCommitOID == "" && req.Source != "" && len(req.Source) <= 255) ||
-			(req.Choice == "new" && req.Source == "" && plugin.ValidGitOriginRef(req.OriginRef) && validOID(req.ExpectedCommitOID)))
-}
+func ValidSessionCreateRequest(req ReserveSessionRequest) bool { return req.Validate() == nil }
 
 // BeginSessionCreate compares the original request before calling capture. The
 // callback runs while receive-pack leases are excluded, so its observation and
@@ -272,28 +266,8 @@ func (s *Store) CheckOriginKeyConflict(ctx context.Context, key string) error {
 	return err
 }
 
-func validFingerprint(s string) bool {
-	if len(s) != 64 {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
-}
-func validOID(s string) bool {
-	if len(s) != 40 && len(s) != 64 {
-		return false
-	}
-	for _, c := range s {
-		if c < '0' || c > '9' && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return strings.Trim(s, "0") != ""
-}
+func validFingerprint(s string) bool { return api.ValidFingerprint(s) }
+func validOID(s string) bool         { return api.ValidOID(s) }
 
 type BlankProjectRequest struct {
 	Key     string `json:"key"`

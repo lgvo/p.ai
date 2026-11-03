@@ -52,7 +52,7 @@ cleanup() {
 on_error() {
   printf 'P_DISCARD_LIFECYCLE_FAIL line=%s status=%s\n' "$2" "$1" >&2
   for op in "${op_ids[@]}"; do
-    rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')" 2>/dev/null |
+    rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" 2>/dev/null |
       jq -cr '.result.operation | {id,status,phase,diagnostic:(.diagnostic // "")[:512]}' >&2 || true
   done
   tail -c 1024 "$step_dir/source-effects" >&2 || true
@@ -138,16 +138,15 @@ start_daemon() {
   return 1
 }
 start_daemon
-rpc system.capabilities | jq -e '.result.available |
-  (index("session.removal.preview") != null and index("session.discard") != null)' >/dev/null
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
 
-created=$(rpc project.create '{"v":1,"key":"discard-bootstrap","project":"discard-lifecycle"}')
+created=$(rpc project.create '{"key":"discard-bootstrap","project":"discard-lifecycle"}')
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 wait_operation() {
   local id="$1" want="$2" result status deadline=$((SECONDS+150))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$want"; then printf '%s\n' "$result"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = completed; then
@@ -161,11 +160,11 @@ wait_operation() {
 wait_operation "$create_op" completed >/dev/null
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
-  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e '.result.session.session_condition=="ready"' >/dev/null; then break; fi
   sleep 0.3
 done
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 
 
@@ -182,7 +181,7 @@ source_running() {
 }
 preview_discard() {
   discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
-    '{v:1,uuid:$uuid,kind:"discard"}')")
+    '{uuid:$uuid,kind:"discard"}')")
   discard_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$discard_preview")
 }
 
@@ -191,7 +190,7 @@ guest /run/current-system/sw/bin/git config user.email p@example.invalid
 guest /run/current-system/sw/bin/bash -c \
   'printf base > tracked; git add tracked; git commit -qm base; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
-created_b=$(rpc session.create '{"v":1,"key":"discard-sibling","project":"discard-lifecycle","branch":"sibling","choice":"new","source":"refs/heads/main"}')
+created_b=$(rpc session.create '{"key":"discard-sibling","project":"discard-lifecycle","branch":"sibling","choice":"new","source":"refs/heads/main"}')
 create_b_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 wait_operation "$create_b_op" completed >/dev/null
@@ -227,7 +226,7 @@ main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
 discard() {
   local key="$1" token="$2"
   rpc session.discard "$(jq -nc --arg key "$key" --arg uuid "$uuid" --arg token "$token" \
-    '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')"
+    '{key:$key,uuid:$uuid,confirmation_token:$token}')"
 }
 stale_response=$(discard discard-stale "$stale_token")
 stale_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$stale_response")
@@ -243,11 +242,11 @@ test -f "$state/session_keys/$uuid_b"
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/main | cut -f1)" = "$main_oid"
 test -S "$endpoint_prefix/$uuid/git.sock"
 test -S "$endpoint_prefix/$uuid/session.sock"
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
 inc list "^p-$uuid_b$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
 expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$stale_token" \
-  '{v:1,key:"discard-stale-reused",uuid:$uuid,confirmation_token:$token}')" busy
+  '{key:"discard-stale-reused",uuid:$uuid,confirmation_token:$token}')" busy
 # A real push proves the stale path released the P ref guard and Git principal.
 guest /run/current-system/sw/bin/bash -c 'printf after-stale > tracked; git add tracked; git commit -qm after-stale; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
@@ -265,7 +264,7 @@ op_ids+=("$discard_op")
 pause_deadline=$((SECONDS+40))
 while test ! -f "$step_dir/stop-paused" && ((SECONDS < pause_deadline)); do sleep 0.1; done
 test -f "$step_dir/stop-paused"
-rpc operation.inspect "$(jq -nc --arg id "$discard_op" '{v:1,id:$id}')" |
+rpc operation.inspect "$(jq -nc --arg id "$discard_op" '{id:$id}')" |
   jq -e '.result.operation | .status=="running" and .phase=="stop-issued" and .committed==true' >/dev/null
 source_running
 touch "$step_dir/stop-release"
@@ -281,15 +280,15 @@ inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test ! -e "$endpoint_prefix/$uuid"
 test ! -e "$state/session_keys/$uuid"
 test -f "$state/session_keys/$uuid_b"
-expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" unavailable
-expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" unavailable
-rpc project.retained_branches '{"v":1,"project":"discard-lifecycle","limit":8}' |
+expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
+expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
+rpc project.retained_branches '{"project":"discard-lifecycle","limit":8}' |
   jq -e --arg oid "$main_oid" '.result.branches | length==1 and
     .[0].branch=="main" and .[0].oid==$oid' >/dev/null
 inc list "^p-$uuid_b$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
 test "$(inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = sibling-dummy
-rpc session.inspect "$(jq -nc --arg uuid "$uuid_b" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid_b" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 # The old dummy was inside the removed runtime's private home; no host copy
 # or new runtime was created. This is fixture cleanup evidence, not login.

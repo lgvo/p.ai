@@ -43,20 +43,20 @@ func reportLine(condition string) []byte {
 }
 
 func TestStatusReportPrintableBounds(t *testing.T) {
-	base := StatusReport{V: 1, Condition: "idle", Adapter: "codex", AdapterVersion: "1"}
-	if !base.Valid() {
+	base := api.StatusReport{V: 1, Condition: "idle", Adapter: "codex", AdapterVersion: "1"}
+	if base.Validate() != nil {
 		t.Fatal("optional source rejected")
 	}
-	for _, mutate := range []func(*StatusReport){
-		func(r *StatusReport) { r.Source = strings.Repeat("s", 129) },
-		func(r *StatusReport) { r.Reason = strings.Repeat("r", 257) },
-		func(r *StatusReport) { r.Reason = "\x1b[31m" },
-		func(r *StatusReport) { r.Reason = "\u202e" },
-		func(r *StatusReport) { r.Source = string([]byte{0xff}) },
+	for _, mutate := range []func(*api.StatusReport){
+		func(r *api.StatusReport) { r.Source = strings.Repeat("s", 129) },
+		func(r *api.StatusReport) { r.Reason = strings.Repeat("r", 257) },
+		func(r *api.StatusReport) { r.Reason = "\x1b[31m" },
+		func(r *api.StatusReport) { r.Reason = "\u202e" },
+		func(r *api.StatusReport) { r.Source = string([]byte{0xff}) },
 	} {
 		v := base
 		mutate(&v)
-		if v.Valid() {
+		if v.Validate() == nil {
 			t.Fatalf("invalid report accepted: %+v", v)
 		}
 	}
@@ -119,7 +119,7 @@ func TestStatusReducerAttachmentAndReceiveOrder(t *testing.T) {
 	s, id := statusFixture(t)
 	ctx := context.Background()
 	report := func(condition string) (api.UnattendedCondition, bool, error) {
-		return s.RecordStatus(ctx, id, StatusReport{V: 1, Source: "codex/main", Condition: condition, Adapter: "codex", AdapterVersion: "1"})
+		return s.RecordStatus(ctx, id, api.StatusReport{V: 1, Source: "codex/main", Condition: condition, Adapter: "codex", AdapterVersion: "1"})
 	}
 	first, changed, err := report("attention")
 	if err != nil || !changed {
@@ -159,7 +159,7 @@ func TestStatusReducerAttachmentAndReceiveOrder(t *testing.T) {
 func TestCommittedStatusAndAttachmentCallbacksKeepReducerOrder(t *testing.T) {
 	s, id := statusFixture(t)
 	ctx := context.Background()
-	report := StatusReport{V: 1, Condition: "attention", Adapter: "codex", AdapterVersion: "1"}
+	report := api.StatusReport{V: 1, Condition: "attention", Adapter: "codex", AdapterVersion: "1"}
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	ordered := make(chan string, 5)
@@ -248,7 +248,7 @@ func TestCommittedStatusAndAttachmentCallbacksKeepReducerOrder(t *testing.T) {
 func TestStatusReducerRateAndDurability(t *testing.T) {
 	s, id := statusFixture(t)
 	ctx := context.Background()
-	report := StatusReport{V: 1, Source: "codex/main", Condition: "idle", Adapter: "codex", AdapterVersion: "1"}
+	report := api.StatusReport{V: 1, Source: "codex/main", Condition: "idle", Adapter: "codex", AdapterVersion: "1"}
 	for i := 0; i < 20; i++ {
 		if _, _, err := s.RecordStatus(ctx, id, report); err != nil {
 			t.Fatal(err)
@@ -286,7 +286,7 @@ func TestStatusConcurrentReportsHaveUniqueSequence(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			v, changed, err := s.RecordStatus(context.Background(), id, StatusReport{V: 1, Source: "codex/main", Condition: "running", Adapter: "codex", AdapterVersion: "1"})
+			v, changed, err := s.RecordStatus(context.Background(), id, api.StatusReport{V: 1, Source: "codex/main", Condition: "running", Adapter: "codex", AdapterVersion: "1"})
 			if err == nil && changed {
 				seq <- v.ReceiveSequence
 			}
@@ -316,7 +316,7 @@ func TestStatusReportRacingFirstAttachmentCannotLeaveStaleValue(t *testing.T) {
 		defer wg.Done()
 		<-start
 		for i := 0; i < 10; i++ {
-			_, _, _ = s.RecordStatus(ctx, id, StatusReport{V: 1, Source: "codex/main", Condition: "attention", Adapter: "codex", AdapterVersion: "1"})
+			_, _, _ = s.RecordStatus(ctx, id, api.StatusReport{V: 1, Source: "codex/main", Condition: "attention", Adapter: "codex", AdapterVersion: "1"})
 		}
 	}()
 	go func() { defer wg.Done(); <-start; _, _, _, _ = s.ConfirmAttachment(ctx, id) }()
@@ -359,14 +359,14 @@ func (l statusLife) InspectSession(ctx context.Context, id string) (api.SessionV
 func TestHostInspectAndListProjectFourFacts(t *testing.T) {
 	s, id := statusFixture(t)
 	ctx := context.Background()
-	_, changed, err := s.RecordStatus(ctx, id, StatusReport{V: 1, Source: "codex/main", Condition: "attention", Adapter: "codex", AdapterVersion: "1"})
+	_, changed, err := s.RecordStatus(ctx, id, api.StatusReport{V: 1, Source: "codex/main", Condition: "attention", Adapter: "codex", AdapterVersion: "1"})
 	if err != nil || !changed {
 		t.Fatal(err)
 	}
 	h := NewHandler(HandlerConfig{Store: s, Lifecycle: statusLife{s}})
 	for _, call := range []struct{ method, params string }{
-		{"session.inspect", fmt.Sprintf(`{"v":1,"uuid":%q}`, id)},
-		{"session.list", `{"v":1,"limit":8}`},
+		{"session.inspect", fmt.Sprintf(`{"uuid":%q}`, id)},
+		{"session.list", `{"limit":8}`},
 	} {
 		result, rpcErr := h(ctx, call.method, json.RawMessage(call.params))
 		if rpcErr != nil {

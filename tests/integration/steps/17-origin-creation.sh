@@ -57,13 +57,13 @@ cleanup() {
 on_error() {
   printf 'P_ORIGIN_CREATION_FAIL line=%s status=%s\n' "$2" "$1" >&2
   local result id
-  if result=$(timeout 5 p api "$socket" operation.list '{"v":1,"limit":20}' 2>/dev/null); then
+  if result=$(timeout 5 p api "$socket" operation.list '{"limit":20}' 2>/dev/null); then
     jq -cr '.result.operations[]? | {id,session_uuid,status,phase,diagnostic:((.diagnostic // "")[:400])}' \
       <<< "$result" >&2 || true
   fi
   for id in "${failed_id:-}" "${full_id:-}" "${empty_id:-}" "${branch_id:-}" "${tag_id:-}" "${existing_id:-}"; do
     if test -n "$id" && result=$(timeout 5 p api "$socket" operation.inspect \
-      "$(jq -nc --arg id "$id" '{v:1,id:$id}')" 2>/dev/null); then
+      "$(jq -nc --arg id "$id" '{id:$id}')" 2>/dev/null); then
       jq -cr '.result.operation | {id,session_uuid,status,phase,diagnostic:((.diagnostic // "")[:400])}' \
         <<< "$result" >&2 || true
     fi
@@ -90,7 +90,7 @@ expect_error() {
     return 1
   fi
   if ! jq -e --arg kind "$kind" --argjson code "$code" \
-    '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+    '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
      .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
     <<< "$response" >/dev/null; then
     printf 'unexpected %s response, expected %s: %.2048s\n' "$method" "$kind" "$response" >&2
@@ -99,7 +99,7 @@ expect_error() {
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
-inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{v:1,id:$id}')"; }
+inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"; }
 # An origin project has no session until contact establishes an empty origin.
 # Observe the asynchronous assignment before trying to release its host gate.
 wait_bootstrap_uuid() {
@@ -117,9 +117,9 @@ wait_bootstrap_uuid() {
   echo "empty-origin bootstrap was not assigned: $id" >&2
   return 1
 }
-inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{v:1,uuid:$uuid}')"; }
-branches() { rpc project.branches "$(jq -nc --arg project "$1" '{v:1,project:$project,limit:8}')"; }
-sources() { rpc origin.sources "$(jq -nc --arg project "$1" '{v:1,project:$project,limit:16}')"; }
+inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
+branches() { rpc project.branches "$(jq -nc --arg project "$1" '{project:$project,limit:8}')"; }
+sources() { rpc origin.sources "$(jq -nc --arg project "$1" '{project:$project,limit:16}')"; }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+170))
   while ((SECONDS < deadline)); do
@@ -142,7 +142,7 @@ retry_until_completed() {
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then printf '%s\n' "$result"; return; fi
     if test "$status" = blocked; then
-      test "$(rpc operation.retry "$(jq -nc --arg id "$id" '{v:1,id:$id}')" |
+      test "$(rpc operation.retry "$(jq -nc --arg id "$id" '{id:$id}')" |
         jq -er '.result.operation.id')" = "$id"
     fi
     sleep 0.4
@@ -297,31 +297,31 @@ full_url=pdev@origin-later:full.git
 empty_url=ssh://pdev@origin-fixture/empty.git
 printf 'release\n' > "$step_dir/release"
 start_daemon
-rpc system.capabilities | jq -e '.result.available | index("project.create")!=null and index("session.create")!=null' >/dev/null
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
 
 # The unavailable URL leaves a durable blocked request but no visible project.
-full_request=$(jq -nc --arg url "$full_url" '{v:1,key:"origin-full",project:"origin-full",url:$url}')
+full_request=$(jq -nc --arg url "$full_url" '{key:"origin-full",project:"origin-full",url:$url}')
 failed=$(rpc project.create "$full_request")
 failed_id=$(operation_id "$failed")
 test "$(jq -r '.result.operation.session_uuid // ""' <<< "$failed")" = ''
 wait_operation "$failed_id" blocked | jq -e \
   '.result.operation.phase=="repo-pending" and .result.operation.committed==false and
    (.result.operation.diagnostic|length>0)' >/dev/null
-rpc project.list '{"v":1,"limit":100}' | jq -e '.result.projects==[]' >/dev/null
-expect_error busy project.create '{"v":1,"key":"origin-full","project":"other"}'
+rpc project.list '{"limit":100}' | jq -e '.result.projects==[]' >/dev/null
+expect_error busy project.create '{"key":"origin-full","project":"other"}'
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
 test "$(inspect_operation "$failed_id" | jq -er '.result.operation.status')" = blocked
 write_ssh_config "$port" "$fixture_ssh/id_origin"
-retry=$(rpc operation.retry "$(jq -nc --arg id "$failed_id" '{v:1,id:$id}')")
+retry=$(rpc operation.retry "$(jq -nc --arg id "$failed_id" '{id:$id}')")
 test "$(operation_id "$retry")" = "$failed_id"
 full_id="$failed_id"
 retry_until_completed "$full_id" | jq -e \
   '.result.operation.phase=="established" and .result.operation.committed==true and
    (.result.operation.session_uuid // "")==""' >/dev/null
-rpc project.list '{"v":1,"limit":100}' | jq -e '.result.projects==[{path:"origin-full",registry_state:"active"}]' >/dev/null
-rpc origin.inspect '{"v":1,"project":"origin-full"}' | jq -e --arg url "$full_url" \
+rpc project.list '{"limit":100}' | jq -e '.result.projects==[{path:"origin-full",registry_state:"active"}]' >/dev/null
+rpc origin.inspect '{"project":"origin-full"}' | jq -e --arg url "$full_url" \
   '.result.origin | .url==$url and .status=="fresh" and .ref_count==2' >/dev/null
 sources origin-full | jq -e --arg first "$first" --arg tag "$tag_oid" \
   '.result.refs==[{ref:"refs/heads/main",oid:$first,commit_oid:$first},
@@ -332,14 +332,14 @@ test "$(rpc project.create "$full_request" | jq -er '.result.operation.id')" = "
 # A moved ref rejects the observed OID before a UUID or branch is reserved.
 git -C "$full" update-ref refs/heads/main "$second"
 stale_request=$(jq -nc --arg oid "$first" \
-  '{v:1,key:"stale-source",project:"origin-full",branch:"stale",choice:"new",
+  '{key:"stale-source",project:"origin-full",branch:"stale",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid}')
 expect_error busy session.create "$stale_request"
 expect_error busy session.create "$(jq -nc --arg oid "$first" \
-  '{v:1,key:"missing-source",project:"origin-full",branch:"missing",choice:"new",
+  '{key:"missing-source",project:"origin-full",branch:"missing",choice:"new",
     origin_ref:"refs/heads/absent",expected_commit_oid:$oid}')"
 expect_error busy session.create "$(jq -nc --arg oid "$second" \
-  '{v:1,key:"changed-reviewed-origin",project:"origin-full",branch:"review-refused",choice:"new",
+  '{key:"changed-reviewed-origin",project:"origin-full",branch:"review-refused",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid,expected_origin_url:"ssh://changed.invalid/repo"}')"
 rpc system.inspect | jq -e '.result.sessions==0 and .result.operations==1' >/dev/null
 branches origin-full | jq -e '.result.refs==[]' >/dev/null
@@ -347,7 +347,7 @@ branches origin-full | jq -e '.result.refs==[]' >/dev/null
 # Capture the moved branch. The gated host makes this operation durably blocked
 # after source capture, so restart and Retry exercise the recorded evidence.
 branch_request=$(jq -nc --arg oid "$second" --arg url "$full_url" \
-  '{v:1,key:"branch-source",project:"origin-full",branch:"from-main",choice:"new",
+  '{key:"branch-source",project:"origin-full",branch:"from-main",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid,expected_origin_url:$url}')
 branch_created=$(rpc session.create "$branch_request")
 branch_id=$(operation_id "$branch_created")
@@ -365,7 +365,7 @@ branches origin-full | jq -e --arg oid "$second" \
 # Empty-origin creation gets exactly one unborn-main bootstrap grant and no
 # artificial commit. Its first guest push creates the only main ref.
 write_ssh_config "$port" "$fixture_ssh/id_origin"
-empty_request=$(jq -nc --arg url "$empty_url" '{v:1,key:"origin-empty",project:"origin-empty",url:$url}')
+empty_request=$(jq -nc --arg url "$empty_url" '{key:"origin-empty",project:"origin-empty",url:$url}')
 empty_created=$(rpc project.create "$empty_request")
 empty_id=$(operation_id "$empty_created")
 empty_uuid=$(wait_bootstrap_uuid "$empty_id")
@@ -375,9 +375,9 @@ wait_operation "$empty_id" completed >/dev/null
 wait_ready "$empty_uuid"
 test "$(rpc project.create "$empty_request" | jq -er '.result.operation.session_uuid')" = "$empty_uuid"
 expect_error busy project.create "$(jq -nc --arg url "$empty_url" \
-  '{v:1,key:"second-empty-bootstrap",project:"origin-empty",url:$url}')"
+  '{key:"second-empty-bootstrap",project:"origin-empty",url:$url}')"
 rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==2 and .result.operations==3' >/dev/null
-rpc origin.inspect '{"v":1,"project":"origin-empty"}' | jq -e --arg url "$empty_url" \
+rpc origin.inspect '{"project":"origin-empty"}' | jq -e --arg url "$empty_url" \
   '.result.origin | .url==$url and .status=="fresh" and .ref_count==0' >/dev/null
 branches origin-empty | jq -e '.result.refs==[]' >/dev/null
 test "$(exec_p "$empty_uuid" git symbolic-ref -q HEAD)" = refs/heads/main
@@ -385,7 +385,7 @@ if exec_p "$empty_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out"
   echo 'empty origin gained an artificial root commit' >&2
   exit 1
 fi
-expect_error unavailable session.create '{"v":1,"key":"before-first-push","project":"origin-empty","branch":"early","choice":"new","source":"refs/heads/main"}'
+expect_error unavailable session.create '{"key":"before-first-push","project":"origin-empty","branch":"early","choice":"new","source":"refs/heads/main"}'
 rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==2 and .result.operations==3' >/dev/null
 branches origin-empty | jq -e '.result.refs==[]' >/dev/null
 exec_p "$empty_uuid" git config user.name P
@@ -402,7 +402,7 @@ test "$(git -C "$empty" for-each-ref --format='%(refname)' | wc -l)" -eq 0
 # An annotated tag captures its peeled commit, while its tag object remains
 # only in the origin observation. The P repository has only assigned branches.
 tag_request=$(jq -nc --arg oid "$first" \
-  '{v:1,key:"tag-source",project:"origin-full",branch:"from-tag",choice:"new",
+  '{key:"tag-source",project:"origin-full",branch:"from-tag",choice:"new",
     origin_ref:"refs/tags/v1",expected_commit_oid:$oid}')
 tag_created=$(rpc session.create "$tag_request")
 tag_id=$(operation_id "$tag_created")
@@ -429,11 +429,11 @@ fi
 # Origin replacement does not rewrite the captured source. Once credentials
 # disappear, an exact replay and Retry still use the same operation and OID.
 replacement=$(rpc origin.change "$(jq -nc --arg old "$full_url" --arg url "$empty_url" \
-  '{v:1,key:"replace-after-capture",project:"origin-full",kind:"set",expected_url:$old,url:$url}')")
+  '{key:"replace-after-capture",project:"origin-full",kind:"set",expected_url:$old,url:$url}')")
 jq -e --arg url "$empty_url" '.result.origin | .url==$url and .status=="fresh" and .ref_count==0' \
   <<< "$replacement" >/dev/null
 expect_error busy session.create "$(jq -nc --arg oid "$first" \
-  '{v:1,key:"after-replacement",project:"origin-full",branch:"new-after",choice:"new",
+  '{key:"after-replacement",project:"origin-full",branch:"new-after",choice:"new",
     origin_ref:"refs/tags/v1",expected_commit_oid:$oid}')"
 write_ssh_config 1 "$step_dir/missing-key"
 trace_before=$(wc -l < "$step_dir/origin.trace")
@@ -443,7 +443,7 @@ start_daemon
 test "$(rpc session.create "$branch_request" | jq -er '.result.operation.id')" = "$branch_id"
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 rpc system.inspect | jq -e '.result.sessions==3 and .result.operations==4' >/dev/null
-retry=$(rpc operation.retry "$(jq -nc --arg id "$branch_id" '{v:1,id:$id}')")
+retry=$(rpc operation.retry "$(jq -nc --arg id "$branch_id" '{id:$id}')")
 test "$(operation_id "$retry")" = "$branch_id"
 release_on_running "$branch_uuid" "$branch_id"
 wait_operation "$branch_id" completed | jq -e --arg oid "$second" --arg url "$full_url" \
@@ -453,7 +453,7 @@ test "$(exec_p "$branch_uuid" git rev-parse HEAD)" = "$second"
 test "$(exec_p "$branch_uuid" git symbolic-ref -q HEAD)" = refs/heads/from-main
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 expect_error busy session.create "$(jq -nc --arg oid "$first" \
-  '{v:1,key:"branch-source",project:"origin-full",branch:"from-main",choice:"new",
+  '{key:"branch-source",project:"origin-full",branch:"from-main",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid}')"
 
 # The runtime sees only its P remote. Host origin authority never enters the
@@ -505,7 +505,7 @@ mv "$step_dir/host-next.json" "$step_dir/host.json"
 start_daemon
 write_ssh_config "$port" "$fixture_ssh/id_origin"
 existing_project=$(rpc project.create "$(jq -nc --arg url "$full_url" \
-  '{v:1,key:"existing-project",project:"origin-full",url:$url}')")
+  '{key:"existing-project",project:"origin-full",url:$url}')")
 wait_operation "$(operation_id "$existing_project")" completed | jq -e \
   '(.result.operation.session_uuid // "")==""' >/dev/null
 repo="$state/repositories/$(printf %s origin-full | sha256sum | cut -d' ' -f1).git"
@@ -515,7 +515,7 @@ git -C "$repo" fetch --quiet --no-tags "$prior_repo" refs/heads/from-tag
 # existing-branch path. It selects P's committed tip without origin contact.
 git -C "$repo" update-ref refs/heads/retained "$first"
 trace_before=$(wc -l < "$step_dir/origin.trace")
-existing_request='{"v":1,"key":"existing-p-ref","project":"origin-full","branch":"retained","choice":"existing"}'
+existing_request='{"key":"existing-p-ref","project":"origin-full","branch":"retained","choice":"existing"}'
 existing_created=$(rpc session.create "$existing_request")
 existing_id=$(operation_id "$existing_created")
 existing_uuid=$(session_uuid "$existing_created")

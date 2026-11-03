@@ -22,8 +22,8 @@ on_error() {
  printf 'P_LIVE_TUI_FAIL line=%s status=%s\n' "$2" "$1" >&2
  service_control diagnostic >&2 || true
  if test -n "$uuid"; then
-  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >&2 || true
-  rpc session.services "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >&2 || true
+  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >&2 || true
+  rpc session.services "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >&2 || true
   guest /usr/libexec/p/systemctl --user --no-pager show p-project-demo.service \
    --property=ActiveState,SubState,MainPID,Result >&2 || true
  fi
@@ -47,7 +47,7 @@ if test "$observed_marker" != native-terminal; then
  printf 'Unexpected native terminal marker: %q\n' "$observed_marker" >&2
  exit 1
 fi
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -e '.result.session.session_condition=="ready" and .result.session.attached_count==0' >/dev/null
 
 # A newly installed inactive user unit must appear without inventing its state.
@@ -61,13 +61,13 @@ ExecStart=/run/current-system/sw/bin/bash -c "echo P_TUI_PROJECT_JOURNAL; exec /
 UNIT
  systemctl --user daemon-reload
 '
-rpc session.services "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.services "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -e '.result.services|any(.unit=="p-project-demo.service")' >/dev/null
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" services "$socket" "$step_dir/uuid"
 
 # Infrastructure names and free-form native actions never reach the manager.
 for unit in p-interactive.service p-session.target sshd.service ../p-project-demo.service; do
- if output=$(rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg unit "$unit" '{v:1,uuid:$uuid,unit:$unit,action:"stop"}')"); then
+ if output=$(rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg unit "$unit" '{uuid:$uuid,unit:$unit,action:"stop"}')"); then
   echo "accepted infrastructure unit $unit" >&2; exit 1
  fi
  jq -e '.error.kind=="invalid_params" and (has("result")|not)' <<< "$output" >/dev/null
@@ -75,15 +75,15 @@ done
 inc list "^p-$uuid$" --format json |
  jq -e 'length==1 and .[0].expanded_config["security.idmap.isolated"]=="true" and .[0].expanded_config["security.nesting"]=="false" and ([.[0].expanded_devices[]|select(.type=="nic")]|length)==0' >/dev/null
 
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" remove "$socket" "$step_dir/uuid"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
-preview=$(rpc project.delete.preview '{"v":1,"project":"tui56"}')
+preview=$(rpc project.delete.preview '{"project":"tui56"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"tui56-final-delete",project:"tui56",confirmation_token:$token}')")
+removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"tui56-final-delete",project:"tui56",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 deadline=$((SECONDS+100))
-while ! rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')" | jq -e '.result.operation.status=="completed"' >/dev/null; do
+while ! rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" | jq -e '.result.operation.status=="completed"' >/dev/null; do
  test "$SECONDS" -lt "$deadline"; sleep 0.2
 done
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

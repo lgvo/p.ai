@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -38,8 +39,11 @@ func TestOrdinaryHostProcessCannotClaimOrConfirmPresence(t *testing.T) {
 	}
 	ctx := context.WithValue(context.Background(), connectionKey{}, c)
 	// A nil implementation is intentional: denial must happen before lifecycle.
-	for method, params := range map[string]string{"attachment.claim": `{"v":1,"token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "attachment.confirm": `{"v":1}`} {
-		if _, err := attachmentHandler(ctx, method, json.RawMessage(params), nil); err == nil {
+	table := NewMethodTable()
+	addAttachmentMethods(table, nil)
+	h := table.Handler()
+	for method, params := range map[string]string{"attachment.claim": `{"token":"` + strings.Repeat("a", 64) + `"}`, "attachment.confirm": `{"operation":"/1.0/operations/` + strings.Repeat("a", 36) + `"}`} {
+		if _, err := h(ctx, method, json.RawMessage(params)); err == nil {
 			t.Fatal("presence assertion accepted", method)
 		}
 	}

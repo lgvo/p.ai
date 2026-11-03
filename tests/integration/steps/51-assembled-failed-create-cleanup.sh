@@ -61,7 +61,7 @@ cleanup() {
 on_error() {
   printf 'P_ASSEMBLED_FAILED_CREATE_CLEANUP_FAIL line=%s status=%s\n' "$2" "$1" >&2
   for op in "${op_ids[@]}"; do
-    rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')" 2>/dev/null |
+    rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" 2>/dev/null |
       jq -cr '.result.operation | {id,status,phase,diagnostic:(.diagnostic // "")[:512]}' >&2 || true
   done
   tail -c 3072 "$step_dir/daemon.err" >&2 || true
@@ -150,7 +150,7 @@ set -euo pipefail
 # test can move the assigned branch after the confirmation was accepted.
 if test -f "$fixture/stale-arm" && test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify && test "$5" = --quiet && test "$6" = refs/heads/work; then
  read -r session_uuid < "$fixture/stale-arm"
- if "$p_binary" api "$fixture/state/control.sock" operation.list '{"v":1,"limit":20}' |
+ if "$p_binary" api "$fixture/state/control.sock" operation.list '{"limit":20}' |
  "$jq_binary" -e --arg uuid "$session_uuid" '.result.operations|any(.[];.kind=="session.create.cleanup" and .session_uuid==$uuid and .phase=="validated" and .status=="running")' >/dev/null; then
   : > "$fixture/stale-paused"
   for ((attempt=0;attempt<800;attempt++)); do
@@ -162,7 +162,7 @@ if test -f "$fixture/stale-arm" && test "$#" -eq 6 && test "$3" = show-ref && te
 fi
 if test -f "$fixture/completion-arm" && test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify && test "$5" = --quiet && test "$6" = refs/heads/work; then
  read -r cleanup_id < "$fixture/completion-arm"
- if "$p_binary" api "$fixture/state/control.sock" operation.inspect "$("$jq_binary" -nc --arg id "$cleanup_id" '{v:1,id:$id}')" |
+ if "$p_binary" api "$fixture/state/control.sock" operation.inspect "$("$jq_binary" -nc --arg id "$cleanup_id" '{id:$id}')" |
  "$jq_binary" -e '.result.operation.kind=="session.create.cleanup" and .result.operation.phase=="local-complete" and .result.operation.status=="running"' >/dev/null; then
   : > "$fixture/completion-paused"
   for ((attempt=0;attempt<800;attempt++)); do
@@ -176,13 +176,18 @@ exec "$host_git" "$@"
 GIT_WRAPPER
 chmod 0700 "$step_dir/bin/git"
 start_daemon
-rpc system.capabilities | jq -e '.result.available | index("session.create.cleanup.preview") != null and
- index("session.create.cleanup.confirm") != null and index("workspace.loss.inspect") == null' >/dev/null
+rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
+# Loss inspection is not part of the protocol.
+if loss=$(rpc workspace.loss.inspect '{}' 2> "$step_dir/api.err"); then
+  echo 'workspace.loss.inspect unexpectedly answered' >&2
+  exit 1
+fi
+jq -e '.error.kind=="method_not_found"' <<< "$loss" >/dev/null
 
 wait_operation() {
   local id="$1" want="$2" result status deadline=$((SECONDS+170))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$want"; then printf '%s\n' "$result"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = completed; then
@@ -198,17 +203,17 @@ expect_busy() {
   local method="$1" params="$2" response status=0
   response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
   test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
     .error.kind=="busy" and .error.code == -32003' <<< "$response" >/dev/null
 }
 expect_invalid() {
   local method="$1" params="$2" response status=0
   response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
   test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
     .error.kind=="invalid_params" and .error.code == -32602' <<< "$response" >/dev/null
 }
-inspect_creator() { rpc operation.inspect "$(jq -nc --arg id "$creator" '{v:1,id:$id}')"; }
+inspect_creator() { rpc operation.inspect "$(jq -nc --arg id "$creator" '{id:$id}')"; }
 assert_source() {
   inc list "^p-$uuid$" --format json | jq -e --arg native "$native_uuid" --arg generation "$generation" \
     'length==1 and .[0].status=="Stopped" and
@@ -218,7 +223,7 @@ assert_source() {
   inspect_creator | jq -e --arg uuid "$uuid" --arg oid "$tip" \
     '.result.operation | .session_uuid==$uuid and .status=="blocked" and .phase=="assembly-ready" and
      .evidence.runtime_init_state=="attempted" and .evidence.captured_oid==$oid' >/dev/null
-  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e --arg uuid "$uuid" '.result.session | .uuid==$uuid and .branch=="work" and .registry_state=="creating"' >/dev/null
   test ! -e "$step_dir/source-effects"
   test "$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
@@ -236,7 +241,7 @@ assert_source() {
 
 # Establish and commit source with a working host first. The failed creator
 # uses the same selected asset packages and a newly captured false command.
-created=$(rpc project.create '{"v":1,"key":"bootstrap","project":"failed-create-loss"}')
+created=$(rpc project.create '{"key":"bootstrap","project":"failed-create-loss"}')
 uuid=$(jq -er '.result.operation.session_uuid|select(length==36)' <<< "$created")
 bootstrap=$(jq -er '.result.operation.id|select(length==36)' <<< "$created")
 wait_operation "$bootstrap" completed >/dev/null
@@ -252,7 +257,7 @@ stop_daemon
 jq '.runtime.project_policy.command=["/run/current-system/sw/bin/false"]' "$step_dir/host.json" > "$step_dir/host-failed.json"
 mv "$step_dir/host-failed.json" "$step_dir/host.json"
 start_daemon
-request='{"v":1,"key":"failed-startup","project":"failed-create-loss","branch":"work","choice":"new","source":"refs/heads/main"}'
+request='{"key":"failed-startup","project":"failed-create-loss","branch":"work","choice":"new","source":"refs/heads/main"}'
 created=$(rpc session.create "$request")
 uuid=$(jq -er '.result.operation.session_uuid|select(length==36)' <<< "$created")
 creator=$(jq -er '.result.operation.id|select(length==36)' <<< "$created")
@@ -289,10 +294,10 @@ key_before=$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)
 printf 'p-%s\n' "$uuid" > "$step_dir/protect-source"
 assert_source
 preview_cleanup() {
-  rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')"
+  rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"
 }
 confirm_params() {
-  jq -nc --arg uuid "$uuid" --arg key "$1" --arg token "$2" '{v:1,uuid:$uuid,key:$key,confirmation_token:$token}'
+  jq -nc --arg uuid "$uuid" --arg key "$1" --arg token "$2" '{uuid:$uuid,key:$key,confirmation_token:$token}'
 }
 assert_retained() {
   test "$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)')" = "$refs_before"
@@ -311,7 +316,7 @@ assert_old_effects_absent() {
 }
 images_before=$(inc image list --format json | jq -c '[.[].fingerprint]|sort')
 # The removed loss inspection parameter is refused by strict decoding.
-expect_invalid session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid,loss_operation_id:$uuid}')"
+expect_invalid session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,loss_operation_id:$uuid}')"
 # P picks the assembled path itself and names the exact stopped container,
 # stating it and everything in it lost without looking inside.
 preview=$(preview_cleanup)
@@ -346,7 +351,7 @@ op_ids+=("$stale_id")
 deadline=$((SECONDS+100))
 while test ! -f "$step_dir/stale-paused" && ((SECONDS<deadline)); do sleep 0.1; done
 test -f "$step_dir/stale-paused"
-rpc operation.inspect "$(jq -nc --arg id "$stale_id" '{v:1,id:$id}')" |
+rpc operation.inspect "$(jq -nc --arg id "$stale_id" '{id:$id}')" |
  jq -e '.result.operation | .status=="running" and .phase=="validated" and .committed==false' >/dev/null
 git -C "$repo" update-ref refs/heads/work "$moved" "$tip"
 touch "$step_dir/stale-release"
@@ -356,7 +361,7 @@ jq -e '.result.operation | .phase=="stale" and .committed==false and
 rm "$step_dir/stale-arm"
 git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
 assert_source
-expect_busy operation.retry "$(jq -nc --arg id "$stale_id" '{v:1,id:$id}')"
+expect_busy operation.retry "$(jq -nc --arg id "$stale_id" '{id:$id}')"
 # A new preview, token and key are the supported settled-stale recovery
 # procedure. The same original identity is retained.
 preview=$(preview_cleanup)
@@ -382,13 +387,13 @@ params=$(confirm_params cleanup-reviewed "$token")
 deadline=$((SECONDS+100))
 while test ! -f "$step_dir/completion-paused" && ((SECONDS<deadline)); do sleep 0.1; done
 test -f "$step_dir/completion-paused"
-rpc operation.inspect "$(jq -nc --arg id "$cleanup_id" '{v:1,id:$id}')" |
+rpc operation.inspect "$(jq -nc --arg id "$cleanup_id" '{id:$id}')" |
  jq -e '.result.operation | .status=="running" and .phase=="local-complete" and .committed==true and
  .evidence.runtime_absent==true and .evidence.local_complete==true' >/dev/null
 inspect_creator | jq -e '.result.operation | .status=="superseded" and .phase=="superseded"' >/dev/null
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -e '.result.session.registry_state=="removing"' >/dev/null
-expect_busy operation.retry "$(jq -nc --arg id "$creator" '{v:1,id:$id}')"
+expect_busy operation.retry "$(jq -nc --arg id "$creator" '{id:$id}')"
 replayed=$(rpc session.create "$request")
 jq -e --arg id "$creator" '.result.operation.id==$id and .result.operation.status=="superseded"' <<< "$replayed" >/dev/null
 assert_old_effects_absent
@@ -405,13 +410,13 @@ blocked=$(wait_operation "$cleanup_id" blocked)
 jq -e '.result.operation | .phase=="local-complete" and .committed==true and
  .evidence.runtime_absent==true and .evidence.local_complete==true' <<< "$blocked" >/dev/null
 test "$(cat "$step_dir/native-unavailable-seen")" = "p-$uuid"
-rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -e '.result.session.registry_state=="removing"' >/dev/null
 assert_old_effects_absent
 assert_retained
 replayed=$(rpc session.create.cleanup.confirm "$params")
 jq -e --arg id "$cleanup_id" '.result.operation.id==$id' <<< "$replayed" >/dev/null
-expect_busy operation.retry "$(jq -nc --arg id "$creator" '{v:1,id:$id}')"
+expect_busy operation.retry "$(jq -nc --arg id "$creator" '{id:$id}')"
 printf 'P_ASSEMBLED_CLEANUP_NATIVE_UNAVAILABLE_PRESERVED\n'
 # A newly competing session UUID blocks exact absence recovery. It is fixture
 # machinery: cleanup must retain it and never adopt/delete by its name.
@@ -420,17 +425,17 @@ inc init "$base" "$competing" --profile default --config security.idmap.isolated
  --config security.privileged=false --config security.nesting=false --config "user.p.session_uuid=$uuid"
 competing_uuid=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
 rm "$step_dir/native-unavailable"
-rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{v:1,id:$id}')" >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{id:$id}')" >/dev/null
 wait_operation "$cleanup_id" blocked >/dev/null
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$competing_uuid"
 assert_retained
 inc delete "$competing"
 competing=
-rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{v:1,id:$id}')" >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$cleanup_id" '{id:$id}')" >/dev/null
 wait_operation "$cleanup_id" completed >/dev/null
 assert_old_effects_absent
 assert_retained
-rpc session.list '{"v":1,"limit":8}' | jq -e --arg uuid "$uuid" '.result.sessions|all(.[];.uuid!=$uuid)' >/dev/null
+rpc session.list '{"limit":8}' | jq -e --arg uuid "$uuid" '.result.sessions|all(.[];.uuid!=$uuid)' >/dev/null
 test "$(cat "$step_dir/source-effects")" = "delete p-$uuid"
 # Corrected Create is explicit and separate, claims the retained branch, and
 # obtains a new UUID. No old Create replay may reinitialize its source.
@@ -440,12 +445,12 @@ mv "$step_dir/host-corrected.json" "$step_dir/host.json"
 start_daemon
 replayed=$(rpc session.create "$request")
 jq -e --arg id "$creator" '.result.operation.id==$id and .result.operation.status=="superseded"' <<< "$replayed" >/dev/null
-created=$(rpc session.create '{"v":1,"key":"corrected-create","project":"failed-create-loss","branch":"work","choice":"existing"}')
+created=$(rpc session.create '{"key":"corrected-create","project":"failed-create-loss","branch":"work","choice":"existing"}')
 next_uuid=$(jq -er '.result.operation.session_uuid|select(length==36)' <<< "$created")
 next_id=$(jq -er '.result.operation.id|select(length==36)' <<< "$created")
 test "$next_uuid" != "$uuid"
 wait_operation "$next_id" completed >/dev/null
-rpc session.inspect "$(jq -nc --arg uuid "$next_uuid" '{v:1,uuid:$uuid}')" |
+rpc session.inspect "$(jq -nc --arg uuid "$next_uuid" '{uuid:$uuid}')" |
  jq -e '.result.session.registry_state=="established" and .result.session.session_condition=="ready"' >/dev/null
 assert_old_effects_absent
 assert_retained

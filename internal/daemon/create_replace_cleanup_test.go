@@ -3,20 +3,20 @@ package daemon
 import (
 	"context"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 )
 
 const replacementOldUUID = "550e8400-e29b-41d4-a716-446655440000"
 const replacementOtherUUID = "11111111-1111-4111-8111-111111111111"
 
-func replacementLocalFixture(t *testing.T) (string, *endpointManager, *control.CreateReplacementCleanup) {
+func replacementLocalFixture(t *testing.T) (string, *endpointManager, *api.CreateReplacementCleanup) {
 	t.Helper()
 	state := t.TempDir()
 	if err := os.Mkdir(filepath.Join(state, "session_keys"), 0700); err != nil {

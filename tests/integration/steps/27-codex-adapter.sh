@@ -96,13 +96,13 @@ while ((SECONDS < deadline)); do
 done
 test -S "$socket"
 
-created=$(rpc project.create '{"v":1,"key":"codex-bootstrap","project":"codex-adapter"}')
+created=$(rpc project.create '{"key":"codex-bootstrap","project":"codex-adapter"}')
 op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
-inspect() { rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')"; }
+inspect() { rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"; }
 deadline=$((SECONDS+150))
 while ((SECONDS < deadline)); do
-  result=$(rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')")
+  result=$(rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')")
   status=$(jq -er '.result.operation.status' <<< "$result")
   if test "$status" = completed; then break; fi
   if test "$status" = blocked; then echo "Codex creation blocked: $result" >&2; exit 1; fi
@@ -153,13 +153,13 @@ grep -q '^notify = \["/usr/libexec/p/codex-adapter", "notify"\]$' "$step_dir/con
 
 # A second selected private root must not inherit A's session-local dummy
 # credential file. Both roots still use the same host-selected asset policy.
-created_b=$(rpc project.create '{"v":1,"key":"codex-bootstrap-b","project":"codex-adapter-b"}')
+created_b=$(rpc project.create '{"key":"codex-bootstrap-b","project":"codex-adapter-b"}')
 op_b=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 test "$uuid_b" != "$uuid"
 deadline=$((SECONDS+150))
 while ((SECONDS < deadline)); do
-  result_b=$(rpc operation.inspect "$(jq -nc --arg id "$op_b" '{v:1,id:$id}')")
+  result_b=$(rpc operation.inspect "$(jq -nc --arg id "$op_b" '{id:$id}')")
   status_b=$(jq -er '.result.operation.status' <<< "$result_b")
   if test "$status_b" = completed; then break; fi
   if test "$status_b" = blocked; then echo "Codex B creation blocked: $result_b" >&2; exit 1; fi
@@ -231,9 +231,9 @@ hook_event Stop "$step_dir/event.json"
 emit_hook "$step_dir/event.json"
 test "$(inspect | jq -er '.result.session.latest_unattended_condition.receive_sequence')" = "$prior_sequence"
 
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
   if inspect | jq -e '.result.session.session_condition=="ready"' >/dev/null; then break; fi

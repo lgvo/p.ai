@@ -65,7 +65,7 @@ cleanup() {
 }
 on_error() {
  printf 'P_PROJECT_DELETE_FAIL line=%s status=%s\n' "$2" "$1" >&2
- for op in "${op_ids[@]}"; do rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')" 2>/dev/null |
+ for op in "${op_ids[@]}"; do rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" 2>/dev/null |
   jq -cr '.result.operation|{id,status,phase,diagnostic,evidence}' >&2 || true; done
  tail -c 3072 "$step_dir/daemon.err" >&2 || true
 }
@@ -152,11 +152,17 @@ start_daemon() {
   return 1
 }
 start_daemon
-rpc system.capabilities | jq -e '.result.available|index("project.delete.preview")!=null and index("project.delete.confirm")!=null and index("workspace.loss.inspect")==null' >/dev/null
+rpc system.hello | jq -e '.result.capabilities|index("runtime")!=null' >/dev/null
+# Loss inspection is not part of the protocol.
+if loss=$(rpc workspace.loss.inspect '{}' 2> "$step_dir/api.err"); then
+ echo 'workspace.loss.inspect unexpectedly answered' >&2
+ exit 1
+fi
+jq -e '.error.kind=="method_not_found"' <<< "$loss" >/dev/null
 wait_operation() {
  local id="$1" want="$2" result status deadline=$((SECONDS+190))
  while ((SECONDS<deadline)); do
-  result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{v:1,id:$id}')")
+  result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
   status=$(jq -er '.result.operation.status' <<< "$result")
   if test "$status" = "$want"; then printf '%s\n' "$result"; return; fi
   if test "$status" = blocked || test "$status" = failed || test "$status" = completed; then jq -c '.result.operation|{id,status,phase,diagnostic}' <<< "$result" >&2; return 1; fi
@@ -185,17 +191,17 @@ expect_invalid() {
  fi
 }
 preview() {
- rpc project.delete.preview '{"v":1,"project":"bulk-delete"}'
+ rpc project.delete.preview '{"project":"bulk-delete"}'
 }
 assert_project_active() {
- rpc project.list '{"v":1,"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="active")' >/dev/null
+ rpc project.list '{"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="active")' >/dev/null
  for uuid in "$main" "$work"; do
-  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | jq -e '.result.session.registry_state=="established" and .result.session.session_condition=="stopped"' >/dev/null
+  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.registry_state=="established" and .result.session.session_condition=="stopped"' >/dev/null
   test -f "$state/session_keys/$uuid"
  done
  test -d "$repo"
 }
-created=$(rpc project.create '{"v":1,"key":"bulk-bootstrap","project":"bulk-delete"}')
+created=$(rpc project.create '{"key":"bulk-bootstrap","project":"bulk-delete"}')
 main=$(jq -er '.result.operation.session_uuid' <<< "$created")
 bootstrap=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$bootstrap")
@@ -230,19 +236,19 @@ guest "$main" /run/current-system/sw/bin/git add tracked .gitignore
 guest "$main" /run/current-system/sw/bin/git -c user.name=P -c user.email=p@example.invalid commit -qm source
 guest "$main" /run/current-system/sw/bin/git push origin HEAD:refs/heads/main
 tip=$(guest "$main" /run/current-system/sw/bin/git rev-parse HEAD)
-created=$(rpc session.create '{"v":1,"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}')
+created=$(rpc session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}')
 work=$(jq -er '.result.operation.session_uuid' <<< "$created")
 work_creator=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$work_creator")
 wait_operation "$work_creator" completed >/dev/null
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
- view=$(rpc session.inspect "$(jq -nc --arg uuid "$work" '{v:1,uuid:$uuid}')")
+ view=$(rpc session.inspect "$(jq -nc --arg uuid "$work" '{uuid:$uuid}')")
  cache_image=$(jq -er '.result.session.environment|select(.cache=="miss")|.image_fingerprint|select(length==64)' <<< "$view")
  test "$cache_image" != "$base"
  inc image list --format json | jq -e --arg image "$cache_image" \
   'any(.fingerprint==$image and .properties["p.project_path"]=="bulk-delete")' >/dev/null
 fi
-created=$(rpc project.create '{"v":1,"key":"unrelated-bootstrap","project":"bulk-other"}')
+created=$(rpc project.create '{"key":"unrelated-bootstrap","project":"bulk-other"}')
 unrelated=$(jq -er '.result.operation.session_uuid' <<< "$created")
 other_creator=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$other_creator")
@@ -250,9 +256,9 @@ wait_operation "$other_creator" completed >/dev/null
 guest "$unrelated" /run/current-system/sw/bin/bash -c 'printf unrelated-private > /home/p/p-bulk-other'
 # Project deletion does not stop sessions: a running session refuses the review.
 inc list "^p-$work$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
-expect_busy project.delete.preview '{"v":1,"project":"bulk-delete"}'
+expect_busy project.delete.preview '{"project":"bulk-delete"}'
 for uuid in "$main" "$work"; do
- rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+ rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
  printf 'private-%s\n' "$uuid" > "$step_dir/private-$uuid"
  printf 'dummy-credential-%s\n' "$uuid" > "$step_dir/dummy-$uuid"
  inc file push "$step_dir/private-$uuid" "p-$uuid/home/p/p-bulk-private" --uid 1000 --gid 1000 --mode 0600
@@ -266,13 +272,13 @@ other_repo="$state/repositories/$other_repo_name.git"
 other_key=$(sha256sum "$state/session_keys/$unrelated" | cut -d' ' -f1)
 git -C "$repo" update-ref refs/heads/retained "$tip"
 # The removed loss inspection parameter is refused by strict decoding.
-expect_invalid project.delete.preview '{"v":1,"project":"bulk-delete","loss_operations":{}}'
+expect_invalid project.delete.preview '{"project":"bulk-delete","loss_operations":{}}'
 review=$(preview)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 jq -e --arg main "$main" --arg work "$work" '.result.preview|.outcome=="delete_project_and_all_p_data" and (.sessions|length)==2 and ([.sessions[].session.uuid]|sort)==([$main,$work]|sort) and .attachments==[] and (.branch_loss.p_refs|length)==3 and (.branch_loss.commits_losing_p_reachability|length)==1 and (.branch_loss|has("origin")|not) and (.sessions|all(.runtime|.condition=="present" and .original_status=="Stopped" and .runtime_data_lost==true and .incus_project=="user-1000" and (.incus_uuid|length)>0 and (.generation|length)>0 and (.image_fingerprint|length)==64 and (has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at")|not))) and (.warnings|any(contains("private"))) and (.warnings|any(contains("credentials")))' <<< "$review" >/dev/null
 # A new retained ref changes aggregate review and refuses before retirement.
 git -C "$repo" update-ref refs/heads/changed-after-preview "$tip"
-expect_busy project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"stale-ref",project:"bulk-delete",confirmation_token:$token}')"
+expect_busy project.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-ref",project:"bulk-delete",confirmation_token:$token}')"
 assert_project_active
 for uuid in "$main" "$work"; do
  rm -f -- "$step_dir/pulled"
@@ -298,7 +304,7 @@ printf 'p-%s\n' "$second" > "$step_dir/confirmed-second"
 : > "$step_dir/outage-arm"
 # Confirmation returns its operation at once (within p api's ten-second
 # deadline); the deletion runs afterwards.
-confirmed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')")
+confirmed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')")
 jq -e '.result.operation|.kind=="project.delete" and .status=="running" and .phase=="ensure-absent" and .committed==true' <<< "$confirmed" >/dev/null
 deletion=$(jq -er '.result.operation.id' <<< "$confirmed")
 op_ids+=("$deletion")
@@ -311,11 +317,11 @@ test -f "$state/session_keys/$second"
 test -d "$repo"
 stop_daemon
 start_daemon
-rpc project.list '{"v":1,"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="deleting")' >/dev/null
-for uuid in "$main" "$work"; do rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | jq -e '.result.session.registry_state=="removing"' >/dev/null; done
-expect_busy session.create '{"v":1,"key":"closed-new","project":"bulk-delete","branch":"closed","choice":"new","source":"refs/heads/main"}'
-expect_busy session.start "$(jq -nc --arg uuid "$second" '{v:1,uuid:$uuid}')"
-rpc session.create '{"v":1,"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}' | jq -e '.result.operation.status=="completed"' >/dev/null
+rpc project.list '{"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="deleting")' >/dev/null
+for uuid in "$main" "$work"; do rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.registry_state=="removing"' >/dev/null; done
+expect_busy session.create '{"key":"closed-new","project":"bulk-delete","branch":"closed","choice":"new","source":"refs/heads/main"}'
+expect_busy session.start "$(jq -nc --arg uuid "$second" '{uuid:$uuid}')"
+rpc session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}' | jq -e '.result.operation.status=="completed"' >/dev/null
 # Explicit fixture competing name; the original exact runtime is parked and
 # preserved. Neither fixture mutation is performed by P's deletion worker.
 parked="p-bulk-parked-$second"
@@ -323,7 +329,7 @@ inc move "p-$second" "$parked"
 competing="p-$second"
 inc init "$base" "$competing" --profile default --config security.idmap.isolated=true --config security.nesting=false
 rm -f -- "$step_dir/native-unavailable" "$step_dir/outage-arm"
-rpc operation.retry "$(jq -nc --arg id "$deletion" '{v:1,id:$id}')" >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$deletion" '{id:$id}')" >/dev/null
 wait_operation "$deletion" blocked >/dev/null
 inc list "^$competing$" --format json | jq -e 'length==1' >/dev/null
 inc list "^$parked$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
@@ -333,9 +339,9 @@ inc delete "$competing"
 competing=
 inc move "$parked" "p-$second"
 parked=
-rpc operation.retry "$(jq -nc --arg id "$deletion" '{v:1,id:$id}')" >/dev/null
+rpc operation.retry "$(jq -nc --arg id "$deletion" '{id:$id}')" >/dev/null
 wait_operation "$deletion" completed >/dev/null
-rpc project.list '{"v":1,"limit":100}' | jq -e '(.result.projects|any(.path=="bulk-delete")|not) and (.result.projects|any(.path=="bulk-other" and .registry_state=="active"))' >/dev/null
+rpc project.list '{"limit":100}' | jq -e '(.result.projects|any(.path=="bulk-delete")|not) and (.result.projects|any(.path=="bulk-other" and .registry_state=="active"))' >/dev/null
 for uuid in "$main" "$work"; do
  inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
  test ! -e "$state/session_keys/$uuid"
@@ -350,9 +356,9 @@ test -d "$other_repo"
 test "$(sha256sum "$state/session_keys/$unrelated" | cut -d' ' -f1)" = "$other_key"
 test "$(guest "$unrelated" /run/current-system/sw/bin/cat /home/p/p-bulk-other)" = unrelated-private
 inc image list --format json | jq -e --arg base "$base" 'any(.fingerprint==$base)' >/dev/null
-expect_busy project.create '{"v":1,"key":"bulk-bootstrap","project":"bulk-delete"}'
-expect_busy session.create '{"v":1,"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}'
-rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')" | jq -e --arg id "$deletion" '.result.operation.id==$id and .result.operation.status=="completed"' >/dev/null
+expect_busy project.create '{"key":"bulk-bootstrap","project":"bulk-delete"}'
+expect_busy session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}'
+rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')" | jq -e --arg id "$deletion" '.result.operation.id==$id and .result.operation.status=="completed"' >/dev/null
 test "$(wc -l < "$step_dir/source-effects")" -eq 2
 test "$(awk '$1!="delete"{n++} END{print n+0}' "$step_dir/source-effects")" -eq 0
 # No native resource of the deleted project remains.

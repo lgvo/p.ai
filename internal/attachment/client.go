@@ -2,7 +2,6 @@ package attachment
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -20,22 +19,20 @@ import (
 // Client requests the decision, transfers the secret on an inherited private
 // socket, and carries terminal bytes. It has no native Incus authority.
 func Client(ctx context.Context, socket, id string) error {
-	params, _ := json.Marshal(map[string]any{"v": 1, "uuid": id})
-	response, err := api.Call(ctx, socket, "session.attach", params)
+	control, err := api.Dial(ctx, socket)
 	if err != nil {
 		return err
 	}
-	var reply struct {
-		Result api.PendingAttachment `json:"result"`
-		Error  *api.RPCError         `json:"error"`
+	pending, err := api.Do(ctx, control, api.SessionAttach, api.SessionAttachRequest{UUID: id})
+	control.Close()
+	if err != nil {
+		var rpcErr *api.RPCError
+		if errors.As(err, &rpcErr) {
+			return errors.New(rpcErr.Message)
+		}
+		return err
 	}
-	if json.Unmarshal(response, &reply) != nil {
-		return errors.New("invalid attach response")
-	}
-	if reply.Error != nil {
-		return errors.New(reply.Error.Message)
-	}
-	if reply.Result.V != 1 || len(reply.Result.Token) != 64 || !time.Now().Before(reply.Result.ExpiresAt) {
+	if len(pending.Token) != 64 || !time.Now().Before(pending.ExpiresAt) {
 		return errors.New("invalid pending attachment")
 	}
 	pair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
@@ -76,7 +73,7 @@ func Client(ctx context.Context, socket, id string) error {
 		}
 		defer term.Restore(os.Stdin.Fd(), old)
 	}
-	if err = c.writeJSON(carrierInit, initiation{Socket: socket, Token: reply.Result.Token, Width: width, Height: height}); err != nil {
+	if err = c.writeJSON(carrierInit, initiation{Socket: socket, Token: pending.Token, Width: width, Height: height}); err != nil {
 		return err
 	}
 	inputDone := make(chan error, 1)

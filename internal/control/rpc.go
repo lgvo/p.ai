@@ -14,8 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -46,68 +44,114 @@ type GitReader interface {
 	ListRefsPage(context.Context, string, string, int) ([]plugin.GitRef, string, error)
 }
 
-type GitInfo struct {
-	Endpoint        string `json:"endpoint"`
-	URLTemplate     string `json:"url_template"`
-	HostPublicKey   string `json:"host_public_key"`
-	KnownHosts      string `json:"known_hosts"`
-	ClientPublicKey string `json:"client_public_key"`
-	ClientKeyPath   string `json:"client_key_path"`
-	SourcePluginID  string `json:"source_plugin_id"`
-	SourceSHA256    string `json:"source_sha256"`
-}
-
 func errorRPC(code int, kind, message string) *api.RPCError {
 	return &api.RPCError{Code: code, Kind: kind, Message: message}
 }
 
-// Handler answers one control-API request; method tells table entries that
-// share a handler apart.
+// Handler answers one control-API request. The connection dispatches the
+// method name and raw params to it.
 type Handler func(context.Context, string, json.RawMessage) (any, *api.RPCError)
 
 // HandlerConfig names what trusted configuration enabled. Git, the lifecycle
-// and origins stay nil until configured; each adds its methods to the surface.
+// and origins stay nil until configured; each serves its methods.
 type HandlerConfig struct {
 	Store     *Store
 	Git       GitReader
-	GitInfo   *GitInfo
+	GitInfo   *api.GitInfo
 	Lifecycle LifecycleAPI
 	Origins   *OriginAPI
 }
 
-// methodTable is the control-API surface of one configured daemon. Dispatch and
-// system.capabilities both read it, in the order methods were added.
-type methodTable struct {
-	handlers   map[string]Handler
-	advertised []string
+// MethodTable maps each method of the protocol to its handler.
+type MethodTable struct {
+	handlers map[string]Handler
 }
 
-// add dispatches name to h and advertises it.
-func (t *methodTable) add(name string, h Handler) {
-	t.handlers[name] = h
-	t.advertised = append(t.advertised, name)
+func NewMethodTable() *MethodTable { return &MethodTable{handlers: map[string]Handler{}} }
+
+// Register serves m with h. The dispatch decodes the params into m's request
+// type with strict JSON, runs its Validate, calls h and encodes its result.
+// h returns an *api.RPCError to answer a specific error; any other error is
+// mapped as a lifecycle error.
+func Register[Req api.Request, Res any](t *MethodTable, m api.Method[Req, Res], h func(context.Context, Req) (Res, error)) {
+	t.handlers[m.Name] = func(ctx context.Context, _ string, params json.RawMessage) (any, *api.RPCError) {
+		var req Req
+		if !isObject(params) || strictjson.Decode(params, &req) != nil {
+			return nil, errorRPC(-32602, "invalid_params", "invalid "+m.Name+" params")
+		}
+		if err := req.Validate(); err != nil {
+			return nil, errorRPC(-32602, "invalid_params", err.Error())
+		}
+		res, err := h(ctx, req)
+		if err != nil {
+			var rpcErr *api.RPCError
+			if errors.As(err, &rpcErr) {
+				return nil, rpcErr
+			}
+			return nil, lifecycleRPC(err)
+		}
+		return res, nil
+	}
 }
 
-// addHidden dispatches name to h without advertising it.
-func (t *methodTable) addHidden(name string, h Handler) { t.handlers[name] = h }
+// isObject reports whether params is a JSON object; strict decoding also
+// accepts null for a struct.
+func isObject(params json.RawMessage) bool {
+	trimmed := bytes.TrimLeft(params, " \t\r\n")
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
 
-// unavailable dispatches names whose capability is configured but whose
-// implementation is absent; they answer that the record is unavailable.
-func (t *methodTable) unavailable(names ...string) {
-	for _, name := range names {
-		t.handlers[name] = func(context.Context, string, json.RawMessage) (any, *api.RPCError) {
-			return nil, lifecycleRPC(ErrNotFound)
+// Handler dispatches to the registered handlers; any other name answers
+// method_not_found.
+func (t *MethodTable) Handler() Handler {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
+		if h, ok := t.handlers[method]; ok {
+			return h(ctx, method, params)
+		}
+		return nil, errorRPC(-32601, "method_not_found", "method is unknown")
+	}
+}
+
+// Registered reports whether name has a handler.
+func (t *MethodTable) Registered(name string) bool {
+	_, ok := t.handlers[name]
+	return ok
+}
+
+// registerNotConfigured answers every method of the protocol that has no
+// handler: its capability is not configured.
+func (t *MethodTable) registerNotConfigured() {
+	for _, m := range api.Methods() {
+		if m.Connection || t.Registered(m.Name) {
+			continue
+		}
+		message := string(m.Capability) + " capability is not configured"
+		t.handlers[m.Name] = func(context.Context, string, json.RawMessage) (any, *api.RPCError) {
+			return nil, errorRPC(-32004, "unavailable", message)
 		}
 	}
 }
 
-// NewHandler builds the control-API surface for one configuration. It exposes
-// only facts the current binary can establish: a method is dispatched only
-// when the capability that owns it is configured.
-func NewHandler(c HandlerConfig) Handler {
-	t := &methodTable{handlers: map[string]Handler{}}
+// NewHandler builds the control-API surface for one configuration. Every
+// method of the protocol is answered; a method whose capability is not
+// configured, or whose optional lifecycle interface is missing, answers that
+// its capability is not configured.
+func NewHandler(c HandlerConfig) Handler { return newMethodTable(c).Handler() }
+
+func newMethodTable(c HandlerConfig) *MethodTable {
+	t := NewMethodTable()
 	git := c.Git != nil && c.GitInfo != nil
-	addSystemMethods(t, c, git)
+	capabilities := []api.Capability{}
+	if git {
+		capabilities = append(capabilities, api.CapabilityGit)
+	}
+	if c.Lifecycle != nil {
+		capabilities = append(capabilities, api.CapabilityRuntime)
+		if _, ok := c.Lifecycle.(ServiceAPI); ok {
+			capabilities = append(capabilities, api.CapabilityServices)
+		}
+	}
+	addSystemMethods(t, c, capabilities)
 	if git {
 		addProjectReads(t, c.Store, c.Git)
 	}
@@ -117,134 +161,68 @@ func NewHandler(c HandlerConfig) Handler {
 	if c.Origins != nil {
 		addOriginMethods(t, *c.Origins)
 	}
-	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-		if h, ok := t.handlers[method]; ok {
-			return h(ctx, method, params)
-		}
-		return unconfiguredMethod(method, params)
-	}
+	t.registerNotConfigured()
+	return t
 }
 
-// exactVersionParams accepts only {"v":1}.
-func exactVersionParams(params json.RawMessage) *api.RPCError {
-	var p struct {
-		V int `json:"v"`
-	}
-	if err := strictjson.Decode(params, &p); err != nil || p.V != 1 {
-		return errorRPC(-32602, "invalid_params", "params must be {\"v\":1}")
-	}
-	return nil
-}
-
-// systemMethod answers after checking that params are exactly {"v":1}.
-func systemMethod(answer func(context.Context) (any, *api.RPCError)) Handler {
-	return func(ctx context.Context, _ string, params json.RawMessage) (any, *api.RPCError) {
-		if rpcErr := exactVersionParams(params); rpcErr != nil {
-			return nil, rpcErr
-		}
-		return answer(ctx)
-	}
-}
-
-func addSystemMethods(t *methodTable, c HandlerConfig, git bool) {
+func addSystemMethods(t *MethodTable, c HandlerConfig, capabilities []api.Capability) {
 	store := c.Store
-	t.add("system.hello", systemMethod(func(ctx context.Context) (any, *api.RPCError) {
+	var git *api.GitInfo
+	if c.Git != nil {
+		git = c.GitInfo
+	}
+	// ServeConn checks the protocol before it dispatches system.hello.
+	Register(t, api.SystemHello, func(ctx context.Context, _ api.HelloRequest) (api.HelloResult, error) {
 		id, err := store.InstanceID(ctx)
 		if err != nil {
-			return nil, internalRPC(err)
+			return api.HelloResult{}, internalRPC(err)
 		}
-		return map[string]any{"v": 1, "protocol": api.ProtocolVersion, "build_version": BuildVersion, "instance_id": id}, nil
-	}))
-	t.add("system.health", systemMethod(func(ctx context.Context) (any, *api.RPCError) {
+		return api.HelloResult{Protocol: api.Protocol, BuildVersion: BuildVersion, InstanceID: id,
+			Capabilities: append([]api.Capability{}, capabilities...)}, nil
+	})
+	Register(t, api.SystemHealth, func(ctx context.Context, _ api.HealthRequest) (api.HealthResult, error) {
 		if err := store.Ping(ctx); err != nil {
-			return nil, internalRPC(err)
+			return api.HealthResult{}, internalRPC(err)
 		}
-		return map[string]any{"v": 1, "control_state": "ready"}, nil
-	}))
-	t.add("system.capabilities", systemMethod(func(context.Context) (any, *api.RPCError) {
-		result := map[string]any{"v": 1, "available": append([]string(nil), t.advertised...), "lifecycle": "unavailable"}
-		if c.Lifecycle != nil {
-			result["lifecycle"] = "partial"
-		}
-		if git {
-			result["git"] = c.GitInfo
-		}
-		return result, nil
-	}))
-	t.add("system.inspect", systemMethod(func(ctx context.Context) (any, *api.RPCError) {
+		return api.HealthResult{ControlState: "ready"}, nil
+	})
+	Register(t, api.SystemInspect, func(ctx context.Context, _ api.SystemInspectRequest) (api.SystemInspectResult, error) {
 		projects, sessions, operations, err := store.Count(ctx)
 		if err != nil {
-			return nil, internalRPC(err)
+			return api.SystemInspectResult{}, internalRPC(err)
 		}
-		result := map[string]any{"v": 1, "projects": projects, "sessions": sessions, "operations": operations}
-		if git {
-			result["git"] = c.GitInfo
-		}
-		return result, nil
-	}))
+		return api.SystemInspectResult{Projects: projects, Sessions: sessions, Operations: operations, Git: git}, nil
+	})
 }
 
-func addProjectReads(t *methodTable, store *Store, git GitReader) {
-	t.add("project.list", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-		var p struct {
-			V     int    `json:"v"`
-			After string `json:"after"`
-			Limit int    `json:"limit"`
-		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 || p.Limit < 1 || p.Limit > 100 || p.After != "" && !validProject(p.After) {
-			return nil, errorRPC(-32602, "invalid_params", "project.list requires v=1 and limit 1..100")
-		}
-		projects, next, err := store.ListProjects(ctx, p.After, p.Limit)
+func addProjectReads(t *MethodTable, store *Store, git GitReader) {
+	Register(t, api.ProjectList, func(ctx context.Context, r api.ProjectListRequest) (api.ProjectListResult, error) {
+		projects, next, err := store.ListProjects(ctx, r.After, r.Limit)
 		if err != nil {
-			return nil, internalRPC(err)
+			return api.ProjectListResult{}, internalRPC(err)
 		}
 		if projects == nil {
 			projects = []api.ProjectSummary{}
 		}
-		return map[string]any{"v": 1, "projects": projects, "next": next}, nil
+		return api.ProjectListResult{Projects: projects, Next: next}, nil
 	})
-	t.add("project.branches", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-		var p struct {
-			V       int    `json:"v"`
-			Project string `json:"project"`
-			After   string `json:"after"`
-			Limit   int    `json:"limit"`
-		}
-		if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || p.Limit < 1 || p.Limit > 8 || p.After != "" && (!strings.HasPrefix(p.After, "refs/heads/") || !validBranch(strings.TrimPrefix(p.After, "refs/heads/"))) {
-			return nil, errorRPC(-32602, "invalid_params", "project.branches requires v=1, project, and limit 1..8")
-		}
-		active, err := store.HasActiveProject(ctx, p.Project)
+	Register(t, api.ProjectBranches, func(ctx context.Context, r api.ProjectBranchesRequest) (api.ProjectBranchesResult, error) {
+		active, err := store.HasActiveProject(ctx, r.Project)
 		if err != nil {
-			return nil, internalRPC(err)
+			return api.ProjectBranchesResult{}, internalRPC(err)
 		}
 		if !active {
-			return nil, errorRPC(-32004, "unavailable", "project is unavailable")
+			return api.ProjectBranchesResult{}, errorRPC(-32004, "unavailable", "project is unavailable")
 		}
-		refs, next, err := git.ListRefsPage(ctx, p.Project, p.After, p.Limit)
+		refs, next, err := git.ListRefsPage(ctx, r.Project, r.After, r.Limit)
 		if err != nil {
-			return nil, errorRPC(-32004, "unavailable", "Git refs are unavailable")
+			return api.ProjectBranchesResult{}, errorRPC(-32004, "unavailable", "Git refs are unavailable")
 		}
 		if refs == nil {
 			refs = []plugin.GitRef{}
 		}
-		return map[string]any{"v": 1, "project": p.Project, "refs": refs, "next": next}, nil
+		return api.ProjectBranchesResult{Project: r.Project, Refs: refs, Next: next}, nil
 	})
-}
-
-// unconfiguredMethod answers a method that no configured capability provides.
-func unconfiguredMethod(method string, params json.RawMessage) (any, *api.RPCError) {
-	if method == "project.list" || method == "project.branches" {
-		return nil, errorRPC(-32004, "unavailable", "Git capability is not configured")
-	}
-	if rpcErr := exactVersionParams(params); rpcErr != nil {
-		return nil, rpcErr
-	}
-	for _, prefix := range []string{"project.", "session.", "origin.", "runtime.", "status."} {
-		if strings.HasPrefix(method, prefix) {
-			return nil, errorRPC(-32004, "unavailable", "capability is not implemented")
-		}
-	}
-	return nil, errorRPC(-32601, "method_not_found", "method is unknown")
 }
 
 func internalRPC(err error) *api.RPCError {
@@ -252,34 +230,6 @@ func internalRPC(err error) *api.RPCError {
 		return errorRPC(-32001, "cancelled", "request cancelled or timed out")
 	}
 	return errorRPC(-32603, "internal", "control state is unavailable")
-}
-
-func canonicalID(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return "", errors.New("missing id")
-	}
-	var value any
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	if err := dec.Decode(&value); err != nil {
-		return "", err
-	}
-	switch v := value.(type) {
-	case string:
-		if len(v) > 128 {
-			return "", errors.New("id is too long")
-		}
-		encoded, _ := json.Marshal(v)
-		return string(encoded), nil
-	case json.Number:
-		n, err := v.Int64()
-		if err != nil {
-			return "", errors.New("id must be an integer")
-		}
-		return strconv.FormatInt(n, 10), nil
-	default:
-		return "", errors.New("id must be a string or integer")
-	}
 }
 
 func parseRequest(line []byte) (rpcRequest, *api.RPCError) {
@@ -324,7 +274,7 @@ func parseRequest(line []byte) (rpcRequest, *api.RPCError) {
 	if raw, ok := fields["id"]; ok {
 		request.HasID = true
 		request.ID = raw
-		if _, err := canonicalID(request.ID); err != nil {
+		if _, err := api.CanonicalID(request.ID); err != nil {
 			request.ID = nil
 			return request, errorRPC(-32600, "invalid_request", err.Error())
 		}
@@ -338,7 +288,7 @@ func parseRequest(line []byte) (rpcRequest, *api.RPCError) {
 	}
 	request.Params = fields["params"]
 	if len(request.Params) == 0 {
-		return request, errorRPC(-32602, "invalid_params", "params with v=1 are required")
+		return request, errorRPC(-32602, "invalid_params", "params are required")
 	}
 	return request, nil
 }
@@ -409,9 +359,11 @@ func ServeWithHandler(ctx context.Context, stateDir string, handler Handler) err
 var randRead = rand.Read
 
 // ServeConn handles independent requests concurrently so a cancellation
-// notification can interrupt a pending request on the same stream. A panic
-// while serving a request answers it internal and is logged with its stack;
-// the connection and the daemon keep serving.
+// notification can interrupt a pending request on the same stream. The first
+// request must be system.hello, which agrees the protocol for the connection;
+// any other request before it is refused with hello_required. A panic while
+// serving a request answers it internal and is logged with its stack; the
+// connection and the daemon keep serving.
 func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 	peerPID, peerUID := connectionPeer(conn)
 	owner := &Connection{peerPID: peerPID, peerUID: peerUID}
@@ -437,6 +389,27 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		_ = json.NewEncoder(conn).Encode(rpcResponse{JSONRPC: "2.0", ID: id, Result: result, Error: rpcErr})
 	}
+	// agreed is set by a successful system.hello. Only the read loop, which
+	// answers the hello inline, reads or writes it.
+	agreed := false
+	hello := func(request rpcRequest) (any, *api.RPCError) {
+		if owner.dedicatedAttachment() {
+			return nil, lifecycleRPC(ErrConflict)
+		}
+		var p api.HelloRequest
+		if !isObject(request.Params) || strictjson.Decode(request.Params, &p) != nil || p.Validate() != nil {
+			return nil, errorRPC(-32602, "invalid_params", "system.hello requires a protocol")
+		}
+		if p.Protocol != api.Protocol {
+			return nil, &api.RPCError{Code: -32002, Kind: "unsupported_version", Message: "protocol is not supported",
+				Data: &api.ErrorData{Reason: api.ReasonProtocol, Supported: []string{api.Protocol}}}
+		}
+		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+		defer cancel()
+		result, rpcErr := envelope(handler(ctx, request.Method, request.Params))
+		agreed = agreed || rpcErr == nil
+		return result, rpcErr
+	}
 	serveFrame := func(line []byte) {
 		var request rpcRequest
 		notification := false
@@ -456,30 +429,42 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		notification = !request.HasID
 		var key string
 		if request.HasID {
-			key, _ = canonicalID(request.ID)
+			key, _ = api.CanonicalID(request.ID)
 			if _, duplicated := active.Load(key); duplicated {
 				write(json.RawMessage("null"), nil, errorRPC(-32600, "invalid_request", "duplicate in-flight id"))
 				return
 			}
 		}
-		if request.Method == "rpc.cancel" {
-			var p struct {
-				V  int             `json:"v"`
-				ID json.RawMessage `json:"id"`
+		if request.Method == api.SystemHello.Name {
+			if request.HasID {
+				// Answered before the next line is read, so a client may send its
+				// first request together with the hello.
+				result, rpcErr := hello(request)
+				write(request.ID, result, rpcErr)
 			}
-			decodeErr := strictjson.Decode(request.Params, &p)
-			cancelKey, idErr := canonicalID(p.ID)
-			if decodeErr != nil || p.V != 1 || idErr != nil {
+			return
+		}
+		if !agreed {
+			if request.HasID {
+				write(request.ID, nil, &api.RPCError{Code: -32600, Kind: "invalid_request", Message: "send system.hello first",
+					Data: &api.ErrorData{Reason: api.ReasonHelloRequired}})
+			}
+			return
+		}
+		if request.Method == api.RPCCancel.Name {
+			var p api.CancelRequest
+			if !isObject(request.Params) || strictjson.Decode(request.Params, &p) != nil || p.Validate() != nil {
 				if request.HasID {
-					write(request.ID, nil, errorRPC(-32602, "invalid_params", "cancel requires v and id"))
+					write(request.ID, nil, errorRPC(-32602, "invalid_params", "rpc.cancel requires the id of a request"))
 				}
 				return
 			}
+			cancelKey, _ := api.CanonicalID(p.ID)
 			if cancel, ok := active.Load(cancelKey); ok {
 				cancel.(context.CancelFunc)()
 			}
 			if request.HasID {
-				write(request.ID, map[string]any{"v": 1, "cancel_requested": true}, nil)
+				write(request.ID, api.CancelResult{CancelRequested: true}, nil)
 			}
 			return
 		}
@@ -516,11 +501,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 			} else {
 				result, rpcErr = handler(ctx, request.Method, request.Params)
 			}
-			if result != nil && rpcErr != nil {
-				result, rpcErr = nil, errorRPC(-32603, "internal", "method returned conflicting result and error")
-			} else if result == nil && rpcErr == nil {
-				rpcErr = errorRPC(-32603, "internal", "method returned no result")
-			}
+			result, rpcErr = envelope(result, rpcErr)
 			if ctx.Err() != nil {
 				result, rpcErr = nil, internalRPC(ctx.Err())
 			}
@@ -542,6 +523,17 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 	active.Range(func(_, value any) bool { value.(context.CancelFunc)(); return true })
 	conn.Close()
 	pending.Wait()
+}
+
+// envelope keeps exactly one of a handler's result and error.
+func envelope(result any, rpcErr *api.RPCError) (any, *api.RPCError) {
+	if result != nil && rpcErr != nil {
+		return nil, errorRPC(-32603, "internal", "method returned conflicting result and error")
+	}
+	if result == nil && rpcErr == nil {
+		return nil, errorRPC(-32603, "internal", "method returned no result")
+	}
+	return result, rpcErr
 }
 
 // replyID is the id a response carries: the request's, or null when the

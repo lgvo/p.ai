@@ -204,10 +204,10 @@ Use one of these configurations, then check the instance:
 
 ```bash
 p version
-api system.health '{"v":1}'
-api system.capabilities '{"v":1}'
-api project.list '{"v":1,"limit":20}'
-api session.list '{"v":1,"limit":8}'
+api system.health
+api system.hello
+api project.list '{"limit":20}'
+api session.list '{"limit":8}'
 ```
 
 The examples are separate tasks, not one script to run from top to bottom.
@@ -216,9 +216,14 @@ key only when replaying the same intent.
 
 Responses are JSON-RPC envelopes: successful values are under `result`; an
 error is under `error` and the CLI exits unsuccessfully. `system.health` checks
-the control state, not whether every container is ready. Capabilities describe
-the methods enabled by this instance's configuration; the lifecycle capability
-label `partial` is not a report that your session failed.
+the control state, not whether every container is ready. `system.hello` lists
+under `result.capabilities` what this instance's configuration enables: `git`
+for project lists, origins and retained branches; `runtime` for creating
+projects and sessions, the session lifecycle and operations; and `services`
+for project services. A method whose capability is missing answers
+`unavailable`; see the [connection agreement](control-api.md#connection-agreement).
+`p api` agrees the protocol with the daemon itself, so params never carry a
+version.
 
 Lists are paginated. Follow `result.next` by supplying it as `after` with the
 same method. Session pages have at most eight entries. A retained-branch page
@@ -234,10 +239,10 @@ use. This example starts an empty, local-only project:
 PROJECT=demo
 KEY=demo-create-1
 CREATE=$(api project.create "$(jq -nc --arg project "$PROJECT" --arg key "$KEY" \
-  '{v:1,key:$key,project:$project}')")
+  '{key:$key,project:$project}')")
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
 SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{v:1,id:$id}')"
+api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
 ```
 
 Creation continues in the daemon after the request returns. Repeat the last
@@ -253,7 +258,7 @@ changing parameters under an existing key is refused.
 Once creation completes, inspect the session and enter it:
 
 ```bash
-api session.inspect "$(jq -nc --arg uuid "$SESSION" '{v:1,uuid:$uuid}')"
+api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
 attach "$SESSION"
 ```
 
@@ -287,10 +292,10 @@ source. Run this on the host after detaching:
 
 ```bash
 CREATE=$(api session.create "$(jq -nc --arg project "$PROJECT" \
-  '{v:1,key:"demo-feature-1",project:$project,branch:"feature",choice:"new",source:"refs/heads/main"}')")
+  '{key:"demo-feature-1",project:$project,branch:"feature",choice:"new",source:"refs/heads/main"}')")
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
 FEATURE_SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{v:1,id:$id}')"
+api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
 ```
 
 Wait for completion as before, then `attach "$FEATURE_SESSION"`. This session
@@ -302,9 +307,9 @@ To resume a branch left behind by Discard, list retained branches and use
 
 ```bash
 api project.retained_branches "$(jq -nc --arg project "$PROJECT" \
-  '{v:1,project:$project,limit:8}')"
+  '{project:$project,limit:8}')"
 api session.create "$(jq -nc --arg project "$PROJECT" \
-  '{v:1,key:"demo-resume-feature-1",project:$project,branch:"feature",choice:"existing"}')"
+  '{key:"demo-resume-feature-1",project:$project,branch:"feature",choice:"existing"}')"
 ```
 
 This produces a new UUID and a fresh private home. It recovers the retained
@@ -317,17 +322,17 @@ that origin before committing the project. A nonempty origin does not create a
 session automatically: choose a source after observing it.
 
 ```bash
-CREATE=$(api project.create '{"v":1,"key":"app-create-1","project":"app","url":"ssh://git.example.com/team/app.git"}')
+CREATE=$(api project.create '{"key":"app-create-1","project":"app","url":"ssh://git.example.com/team/app.git"}')
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{v:1,id:$id}')"
+api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
 ```
 
 Replace the example URL before creating. Wait for the operation to complete
 before discovering its sources:
 
 ```bash
-api origin.refresh '{"v":1,"project":"app"}'
-api origin.sources '{"v":1,"project":"app","limit":16}'
+api origin.refresh '{"project":"app"}'
+api origin.sources '{"project":"app","limit":16}'
 ```
 
 For a new session, supply
@@ -340,10 +345,10 @@ reviewing the fresh `main` observation:
 ```bash
 ORIGIN_COMMIT=replace-with-observed-main-commit_oid
 CREATE=$(api session.create "$(jq -nc --arg commit "$ORIGIN_COMMIT" \
-  '{v:1,key:"app-work-1",project:"app",branch:"work",choice:"new",origin_ref:"refs/heads/main",expected_commit_oid:$commit}')")
+  '{key:"app-work-1",project:"app",branch:"work",choice:"new",origin_ref:"refs/heads/main",expected_commit_oid:$commit}')")
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
 APP_SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{v:1,id:$id}')"
+api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
 ```
 
 Wait for completion and check readiness before `attach "$APP_SESSION"`. See the
@@ -361,8 +366,8 @@ attach "$SESSION"
 To stop, detach all attachments first. On the host:
 
 ```bash
-api session.stop "$(jq -nc --arg uuid "$SESSION" '{v:1,uuid:$uuid}')"
-api session.inspect "$(jq -nc --arg uuid "$SESSION" '{v:1,uuid:$uuid}')"
+api session.stop "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
+api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
 ```
 
 Expect `session_condition: "stopped"`. A pending or confirmed attachment causes
@@ -371,8 +376,8 @@ Stop to return `busy`; it does not silently evict another terminal.
 When ready to work again:
 
 ```bash
-api session.start "$(jq -nc --arg uuid "$SESSION" '{v:1,uuid:$uuid}')"
-api session.inspect "$(jq -nc --arg uuid "$SESSION" '{v:1,uuid:$uuid}')"
+api session.start "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
+api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
 ```
 
 Start may initially report `starting`. Repeat inspection until `ready`, or
@@ -415,8 +420,8 @@ First commit and push your workspace changes to P. Then review the project's
 external origin and the exact retained branch tip on the host:
 
 ```bash
-api origin.inspect "$(jq -nc --arg project "$PROJECT" '{v:1,project:$project}')"
-api project.branches "$(jq -nc --arg project "$PROJECT" '{v:1,project:$project,limit:8}')"
+api origin.inspect "$(jq -nc --arg project "$PROJECT" '{project:$project}')"
+api project.branches "$(jq -nc --arg project "$PROJECT" '{project:$project,limit:8}')"
 ```
 
 A local-only project needs an explicit origin association before publication;
@@ -433,7 +438,7 @@ SOURCE_OID=replace-with-reviewed-P-commit-OID
 DESTINATION=refs/heads/feature
 PUBLICATION=$(jq -nc --arg project "$PROJECT" --arg url "$ORIGIN_URL" \
   --arg session "$SESSION" --arg oid "$SOURCE_OID" --arg dest "$DESTINATION" \
-  '{v:1,project:$project,expected_origin_url:$url,kind:"session",source:$session,source_oid:$oid,destination_ref:$dest}')
+  '{project:$project,expected_origin_url:$url,kind:"session",source:$session,source_oid:$oid,destination_ref:$dest}')
 api origin.publication.preview "$PUBLICATION"
 ```
 
@@ -462,7 +467,7 @@ UUID and private files. Detach and Stop the session first: Rename returns
 
 ```bash
 api session.rename "$(jq -nc --arg uuid "$SESSION" --arg tip "$SOURCE_OID" \
-  '{v:1,key:"demo-rename-1",uuid:$uuid,new_branch:"feature-renamed",expected_old_tip:$tip}')"
+  '{key:"demo-rename-1",uuid:$uuid,new_branch:"feature-renamed",expected_old_tip:$tip}')"
 ```
 
 Read a fresh tip before using this example; the publication variable may now
@@ -493,7 +498,7 @@ as part of the removal. Choose the UUID carefully and request a preview:
 ```bash
 ACTION=discard  # Set delete only when you also intend to remove the P branch.
 PREVIEW=$(api session.removal.preview "$(jq -nc --arg uuid "$SESSION" \
-  --arg kind "$ACTION" '{v:1,uuid:$uuid,kind:$kind}')")
+  --arg kind "$ACTION" '{uuid:$uuid,kind:$kind}')")
 jq '.result.preview' <<< "$PREVIEW"
 ```
 
@@ -514,9 +519,9 @@ Only after deciding to authorize the displayed removal:
 TOKEN=$(jq -er '.result.preview.confirmation_token' <<< "$PREVIEW")
 REMOVE=$(api "session.$ACTION" "$(jq -nc --arg uuid "$SESSION" \
   --arg token "$TOKEN" --arg key "demo-$ACTION-1" \
-  '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')")
+  '{key:$key,uuid:$uuid,confirmation_token:$token}')")
 REMOVE_OPERATION=$(jq -er '.result.operation.id' <<< "$REMOVE")
-api operation.inspect "$(jq -nc --arg id "$REMOVE_OPERATION" '{v:1,id:$id}')"
+api operation.inspect "$(jq -nc --arg id "$REMOVE_OPERATION" '{id:$id}')"
 ```
 
 Inspect until complete. Acceptance of a confirmation is not proof that cleanup
@@ -556,7 +561,7 @@ action. A transport timeout does not prove the daemon abandoned an operation.
 Retry example:
 
 ```bash
-api operation.retry "$(jq -nc --arg id "$OPERATION" '{v:1,id:$id}')"
+api operation.retry "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
 ```
 
 Replacement and cleanup are bounded capabilities, not universal recovery, and

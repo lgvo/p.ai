@@ -16,19 +16,19 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func replacementLocalIdentity(path string) (control.ReplacementLocalIdentity, error) {
+func replacementLocalIdentity(path string) (api.ReplacementLocalIdentity, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return control.ReplacementLocalIdentity{}, err
+		return api.ReplacementLocalIdentity{}, err
 	}
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || st.Uid != uint32(os.Geteuid()) {
-		return control.ReplacementLocalIdentity{}, control.ErrConflict
+		return api.ReplacementLocalIdentity{}, control.ErrConflict
 	}
-	return control.ReplacementLocalIdentity{Device: uint64(st.Dev), Inode: st.Ino, UID: st.Uid, Mode: st.Mode, Links: uint64(st.Nlink)}, nil
+	return api.ReplacementLocalIdentity{Device: uint64(st.Dev), Inode: st.Ino, UID: st.Uid, Mode: st.Mode, Links: uint64(st.Nlink)}, nil
 }
 
-func matchReplacementLocal(path string, approved control.ReplacementLocalIdentity, allowAbsent bool) error {
+func matchReplacementLocal(path string, approved api.ReplacementLocalIdentity, allowAbsent bool) error {
 	got, err := replacementLocalIdentity(path)
 	if allowAbsent && errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -45,7 +45,7 @@ func matchReplacementLocal(path string, approved control.ReplacementLocalIdentit
 }
 
 // readReplacementKey never creates/rotates a missing key and never follows it.
-func readReplacementKey(path string, identity control.ReplacementLocalIdentity) (string, error) {
+func readReplacementKey(path string, identity api.ReplacementLocalIdentity) (string, error) {
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return "", err
@@ -72,8 +72,8 @@ func readReplacementKey(path string, identity control.ReplacementLocalIdentity) 
 	return gitservice.Fingerprint(signer.PublicKey()), nil
 }
 
-func reviewReplacementLocal(stateDir string, m *endpointManager, uuid, op, image, principal string) (*control.CreateReplacementCleanup, error) {
-	c := &control.CreateReplacementCleanup{OldUUID: uuid, OldOperationID: op, OldImageFingerprint: image, KeyFingerprint: principal}
+func reviewReplacementLocal(stateDir string, m *endpointManager, uuid, op, image, principal string) (*api.CreateReplacementCleanup, error) {
+	c := &api.CreateReplacementCleanup{OldUUID: uuid, OldOperationID: op, OldImageFingerprint: image, KeyFingerprint: principal}
 	var err error
 	c.KeyDirectory, err = replacementLocalIdentity(sessionKeysDir(stateDir))
 	if err != nil {
@@ -115,7 +115,7 @@ func reviewReplacementLocal(stateDir string, m *endpointManager, uuid, op, image
 	return c, nil
 }
 
-func checkReplacementEndpointsLocked(m *endpointManager, c *control.CreateReplacementCleanup, allowAbsent bool) error {
+func checkReplacementEndpointsLocked(m *endpointManager, c *api.CreateReplacementCleanup, allowAbsent bool) error {
 	if err := matchReplacementLocal(m.prefix, c.EndpointPrefix, false); err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func checkReplacementEndpointsLocked(m *endpointManager, c *control.CreateReplac
 			return control.ErrConflict
 		}
 	}
-	for name, i := range map[string]control.ReplacementLocalIdentity{"git.sock": c.GitSocket, "session.sock": c.SessionSocket} {
+	for name, i := range map[string]api.ReplacementLocalIdentity{"git.sock": c.GitSocket, "session.sock": c.SessionSocket} {
 		if err := matchReplacementLocal(filepath.Join(dir, name), i, allowAbsent); err != nil {
 			return err
 		}
@@ -143,7 +143,7 @@ func checkReplacementEndpointsLocked(m *endpointManager, c *control.CreateReplac
 	return nil
 }
 
-func checkReplacementKey(stateDir string, c *control.CreateReplacementCleanup, allowAbsent bool) error {
+func checkReplacementKey(stateDir string, c *api.CreateReplacementCleanup, allowAbsent bool) error {
 	dir := sessionKeysDir(stateDir)
 	if err := matchReplacementLocal(dir, c.KeyDirectory, false); err != nil {
 		return err
@@ -165,7 +165,7 @@ func checkReplacementKey(stateDir string, c *control.CreateReplacementCleanup, a
 // cleanupReplacementLocal repeats the native proof at each recovery boundary.
 // Missing approved entries can only be accepted after durable confirmation.
 // Native objects and Git refs are never changed here.
-func cleanupReplacementLocal(ctx context.Context, stateDir string, m *endpointManager, c *control.CreateReplacementCleanup, prove func(context.Context) error) error {
+func cleanupReplacementLocal(ctx context.Context, stateDir string, m *endpointManager, c *api.CreateReplacementCleanup, prove func(context.Context) error) error {
 	if c == nil || !c.Valid() || c.Completed {
 		return control.ErrConflict
 	}

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"github.com/lgvo/p.ai/internal/api"
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/control"
@@ -9,9 +10,9 @@ import (
 
 func TestProjectDeleteCompletionPurgesOnlyRelatedReviewEvidence(t *testing.T) {
 	l := &lifecycle{
-		projectDeletePreviews: map[string]projectDeletePreviewState{"old": {Preview: control.ProjectDeletePreview{Project: "bulk"}}, "other": {Preview: control.ProjectDeletePreview{Project: "other"}}},
-		removalPreviews:       map[string]removalPreviewState{"old": {Preview: control.RemovalPreview{Project: "bulk"}}, "other": {Preview: control.RemovalPreview{Project: "other"}}},
-		createCleanupPreviews: map[string]createCleanupPreviewState{"old": {Preview: control.CreateCleanupPreview{OldRequest: control.ReserveSessionRequest{Project: "bulk"}}}},
+		projectDeletePreviews: map[string]projectDeletePreviewState{"old": {Preview: api.ProjectDeletionPreview{Project: "bulk"}}, "other": {Preview: api.ProjectDeletionPreview{Project: "other"}}},
+		removalPreviews:       map[string]removalPreviewState{"old": {Preview: api.RemovalPreview{Project: "bulk"}}, "other": {Preview: api.RemovalPreview{Project: "other"}}},
+		createCleanupPreviews: map[string]createCleanupPreviewState{"old": {Preview: api.CreateCleanupPreview{OldRequest: control.ReserveSessionRequest{Project: "bulk"}}}},
 		changedPolicies:       map[string]bool{"bulk": true, "other": true},
 	}
 	l.forgetProjectDeletePreviews("bulk")
@@ -24,7 +25,7 @@ func TestProjectDeleteCompletionPurgesOnlyRelatedReviewEvidence(t *testing.T) {
 }
 
 func TestProjectDeleteIssuedCrashRequiresPositiveAbsenceAndNeverRedispatches(t *testing.T) {
-	review := control.RemovalRuntimePreview{Condition: "present", InstanceName: "p-reviewed", IncusUUID: "original", Generation: "generation", ImageFingerprint: "image", OriginalStatus: "Stopped"}
+	review := api.RemovalRuntimePreview{Condition: "present", InstanceName: "p-reviewed", IncusUUID: "original", Generation: "generation", ImageFingerprint: "image", OriginalStatus: "Stopped"}
 	actual := runtimeincus.Observation{Exists: true, Name: review.InstanceName, Status: "Stopped", IncusUUID: review.IncusUUID, Generation: review.Generation, Fingerprint: review.ImageFingerprint}
 	resource := control.ProjectDeleteResource{Kind: "runtime", ID: "reviewed", Status: "remaining"}
 	if decision := projectDeleteRuntimeDecision(resource, review, actual); decision != "delete-exact" {

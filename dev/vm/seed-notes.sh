@@ -17,7 +17,7 @@ guest() {
     --env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus -- "$@"
 }
 # A source seed may have finished before an interrupted service setup.
-params=$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')
+params=$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')
 observed=$(timeout 20 p api session.inspect "$params")
 if test "$(jq -er '.result.session.session_condition' <<< "$observed")" = stopped; then
   timeout 20 p api session.start "$params" >/dev/null

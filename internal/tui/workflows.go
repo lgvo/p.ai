@@ -2,9 +2,9 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/lgvo/p.ai/internal/plugin"
 	"strings"
 	"time"
 
@@ -12,87 +12,133 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
-type ref struct {
-	Ref       string `json:"ref"`
-	OID       string `json:"oid"`
-	CommitOID string `json:"commit_oid"`
-	Branch    string `json:"branch"`
-}
+// branchInventory is what session creation and the retained-branch page show
+// for one project: P's branches, the retained ones among them, and the
+// origin's refs when the origin observation is fresh.
 type branchInventory struct {
-	Refs             []ref
-	Retained         []ref
-	Origin           []ref
+	Refs             []plugin.GitRef
+	Retained         []api.RetainedBranch
+	Origin           []plugin.GitOriginRef
 	OriginURL        string
 	OriginDiagnostic string
 }
 
-func creationBranches(ctx context.Context, c Client, project string) (json.RawMessage, error) {
-	var out branchInventory
-	for _, method := range []string{"project.branches", "project.retained_branches"} {
-		after := ""
-		seen := map[string]bool{}
-		for i := 0; i < 128; i++ {
-			r, e := request[struct {
-				Refs     []ref  `json:"refs"`
-				Branches []ref  `json:"branches"`
-				Next     string `json:"next"`
-			}](ctx, c, method, params{"v": 1, "project": project, "limit": 8, "after": after})
-			if e != nil {
-				return nil, e
-			}
-			out.Refs = append(out.Refs, r.Refs...)
-			out.Retained = append(out.Retained, r.Branches...)
-			if r.Next == "" {
-				break
-			}
-			if seen[r.Next] || r.Next == after || i == 127 {
-				return nil, errors.New("branch pagination exceeds bounds or repeats")
-			}
-			seen[r.Next] = true
-			after = r.Next
+// branchPages bounds the pages of each branch list.
+const branchPages = 128
+
+var (
+	errRepeatedCursor = errors.New("repeated pagination cursor")
+	errPageBound      = errors.New("pagination exceeds bound")
+)
+
+// pageThrough reads the pages of m from the first, at most maxPages of them,
+// and refuses a repeated cursor.
+func pageThrough[Req api.Request, Res, T any](ctx context.Context, c api.Caller, m api.Method[Req, Res], maxPages int, page func(after string) Req, items func(Res) ([]T, string)) ([]T, error) {
+	var all []T
+	after := ""
+	seen := map[string]bool{}
+	for i := 0; i < maxPages; i++ {
+		r, err := api.Do(ctx, c, m, page(after))
+		if err != nil {
+			return all, err
 		}
+		values, next := items(r)
+		all = append(all, values...)
+		if next == "" {
+			return all, nil
+		}
+		if seen[next] || next == after {
+			return all, errRepeatedCursor
+		}
+		seen[next] = true
+		after = next
 	}
-	state, e := request[struct {
-		Origin struct {
-			Status string `json:"status"`
-			URL    string `json:"url"`
-		} `json:"origin"`
-	}](ctx, c, "origin.refresh", params{"v": 1, "project": project})
+	return all, errPageBound
+}
+
+func creationBranches(ctx context.Context, c api.Caller, project string) (branchInventory, error) {
+	var out branchInventory
+	var err error
+	out.Refs, err = pageThrough(ctx, c, api.ProjectBranches, branchPages,
+		func(after string) api.ProjectBranchesRequest {
+			return api.ProjectBranchesRequest{Project: project, Limit: 8, After: after}
+		},
+		func(r api.ProjectBranchesResult) ([]plugin.GitRef, string) { return r.Refs, r.Next })
+	if err == nil {
+		out.Retained, err = pageThrough(ctx, c, api.ProjectRetainedBranches, branchPages,
+			func(after string) api.ProjectRetainedBranchesRequest {
+				return api.ProjectRetainedBranchesRequest{Project: project, Limit: 8, After: after}
+			},
+			func(r api.RetainedBranchesResult) ([]api.RetainedBranch, string) { return r.Branches, r.Next })
+	}
+	if errors.Is(err, errRepeatedCursor) || errors.Is(err, errPageBound) {
+		return out, errors.New("branch pagination exceeds bounds or repeats")
+	}
+	if err != nil {
+		return out, err
+	}
+	state, e := api.Do(ctx, c, api.OriginRefresh, api.OriginRefreshRequest{Project: project})
 	if e != nil {
 		out.OriginDiagnostic = "Origin observation unavailable; local P sources remain available."
 	} else if state.Origin.Status == "fresh" {
-		after := ""
-		seen := map[string]bool{}
-		for i := 0; i < 128; i++ {
-			r, e := request[struct {
-				Refs      []ref  `json:"refs"`
-				Next      string `json:"next"`
-				Status    string `json:"status"`
-				OriginURL string `json:"origin_url"`
-			}](ctx, c, "origin.sources", params{"v": 1, "project": project, "limit": 16, "after": after})
-			if e != nil {
-				return nil, e
-			}
-			if r.Status != "fresh" {
-				out.Origin = nil
-				out.OriginDiagnostic = "Origin observation is stale; refresh before selecting it."
-				break
-			}
-			out.Origin = append(out.Origin, r.Refs...)
-			out.OriginURL = r.OriginURL
-			if r.Next == "" {
-				break
-			}
-			if seen[r.Next] || r.Next == after || i == 127 {
-				return nil, errors.New("origin pagination exceeds bounds or repeats")
-			}
-			seen[r.Next] = true
-			after = r.Next
+		stale := false
+		out.Origin, err = pageThrough(ctx, c, api.OriginSources, branchPages,
+			func(after string) api.OriginSourcesRequest {
+				return api.OriginSourcesRequest{Project: project, Limit: 16, After: after}
+			},
+			func(r api.OriginSourcesResult) ([]plugin.GitOriginRef, string) {
+				if r.Status != "fresh" {
+					stale = true
+					return nil, ""
+				}
+				out.OriginURL = r.OriginURL
+				return r.Refs, r.Next
+			})
+		if errors.Is(err, errRepeatedCursor) || errors.Is(err, errPageBound) {
+			return out, errors.New("origin pagination exceeds bounds or repeats")
+		}
+		if err != nil {
+			return out, err
+		}
+		if stale {
+			out.Origin = nil
+			out.OriginDiagnostic = "Origin observation is stale; refresh before selecting it."
 		}
 	} else if state.Origin.Status == "unknown" {
 		out.OriginDiagnostic = "Origin observation unavailable; stale sources cannot be selected."
 	}
-	return json.Marshal(out)
+	return out, nil
+}
+
+// creationBranchesCall reads the branch inventory of project.
+func creationBranchesCall(project string) daemonCall {
+	return daemonCall{"creation.branches", func(ctx context.Context, c api.Caller) (any, error) {
+		return creationBranches(ctx, c, project)
+	}}
+}
+
+// creationDraft is the project or session that the creation pages build.
+type creationDraft struct {
+	key, project string
+	// url is the origin of a new project; empty for a local-only project.
+	url            string
+	branch, choice string
+	source         sourceSelection
+}
+
+// sourceSelection is the commit a new branch starts from: a P commit, or an
+// origin ref at the commit and URL the user reviewed.
+type sourceSelection struct {
+	source, originRef, expectedCommitOID, expectedOriginURL string
+}
+
+func (d creationDraft) projectCreate() api.ProjectCreateRequest {
+	return api.ProjectCreateRequest{Key: d.key, Project: d.project, URL: d.url}
+}
+
+func (d creationDraft) sessionCreate() api.SessionCreateRequest {
+	return api.SessionCreateRequest{Key: d.key, Project: d.project, Branch: d.branch, Choice: d.choice,
+		Source: d.source.source, OriginRef: d.source.originRef, ExpectedCommitOID: d.source.expectedCommitOID, ExpectedOriginURL: d.source.expectedOriginURL}
 }
 
 func (m *Model) choose(r row) tea.Cmd {
@@ -107,11 +153,11 @@ func (m *Model) choose(r row) tea.Cmd {
 			m.navigate("form")
 			return nil
 		}
-		m.creation = params{"v": 1, "key": newKey(), "project": r.id}
+		m.creation = creationDraft{key: newKey(), project: r.id}
 		m.navigate("create")
 		m.form = "branch"
 		m.choices = nil
-		return m.begin("creation.branches", params{"project": r.id})
+		return m.begin(creationBranchesCall(r.id))
 	case "branch":
 		if r.id == "\x00new-branch" {
 			m.navigate("create")
@@ -119,22 +165,12 @@ func (m *Model) choose(r row) tea.Cmd {
 			m.choices = m.sources
 			return nil
 		}
-		m.creation["choice"] = "existing"
-		m.creation["branch"] = r.id
+		m.creation.choice, m.creation.branch, m.creation.source = "existing", r.id, sourceSelection{}
 		m.sourceReview = "Existing retained P branch: " + r.id + "\nObserved tip: " + r.detail
-		delete(m.creation, "source")
-		delete(m.creation, "origin_ref")
-		delete(m.creation, "expected_commit_oid")
-		delete(m.creation, "expected_origin_url")
-		m.confirmCreation("session.create")
+		m.confirmCreation(api.SessionCreate.Name)
 	case "source":
-		for _, k := range []string{"source", "origin_ref", "expected_commit_oid", "expected_origin_url"} {
-			delete(m.creation, k)
-		}
-		for k, v := range m.sourceParams[r.id] {
-			m.creation[k] = v
-		}
-		m.creation["choice"] = "new"
+		m.creation.source = m.sourceParams[r.id]
+		m.creation.choice = "new"
 		m.sourceReview = "Source: " + r.label + "\nCommit: " + r.detail
 		if strings.HasPrefix(r.id, "origin:") {
 			m.sourceReview += "\nExternal origin: " + m.sourceOriginURL
@@ -147,31 +183,24 @@ func (m *Model) choose(r row) tea.Cmd {
 }
 
 func (m *Model) confirmCreation(method string) {
-	m.confirmMethod = method
-	m.confirmParams = cloneParams(m.creation)
-	branch, _ := m.creation["branch"].(string)
-	if method == "project.create" {
+	m.confirm = callOf(api.SessionCreate, m.creation.sessionCreate())
+	branch := m.creation.branch
+	if method == api.ProjectCreate.Name {
+		m.confirm = callOf(api.ProjectCreate, m.creation.projectCreate())
 		branch = "main (only for an empty project/origin)"
 	}
-	m.review = fmt.Sprintf("Create %s / %s?\n\nPolicy: current trusted project configuration.\nThe daemon captures it at acceptance; this is not a grant editor.\nNew session gets a private workspace and home.\n\nRequest key: %s", m.creation["project"], branch, m.creation["key"])
-	if method == "session.create" {
+	m.review = fmt.Sprintf("Create %s / %s?\n\nPolicy: current trusted project configuration.\nThe daemon captures it at acceptance; this is not a grant editor.\nNew session gets a private workspace and home.\n\nRequest key: %s", m.creation.project, branch, m.creation.key)
+	if method == api.SessionCreate.Name {
 		m.review += "\n\n" + m.sourceReview
-	} else if url, ok := m.creation["url"].(string); ok {
-		m.review += "\nExternal origin: " + url
+	} else if m.creation.url != "" {
+		m.review += "\nExternal origin: " + m.creation.url
 	} else {
 		m.review += "\nLocal-only empty project; no source commit yet."
 	}
-	if method == "project.create" {
+	if method == api.ProjectCreate.Name {
 		m.review += "\nAn empty project/origin boots and enters main; a nonempty origin creates the project only."
 	}
 	m.navigate("creation-review")
-}
-func cloneParams(p params) params {
-	out := params{}
-	for k, v := range p {
-		out[k] = v
-	}
-	return out
 }
 
 func (m *Model) submitForm() tea.Cmd {
@@ -184,31 +213,27 @@ func (m *Model) submitForm() tea.Cmd {
 			m.notice = "Enter a project path."
 			return nil
 		}
-		m.creation["project"] = m.input
+		m.creation.project = m.input
 		m.navigate("form")
 		m.form = "project-url"
 		m.input = ""
 	case "project-url":
-		if m.input != "" {
-			m.creation["url"] = m.input
-		} else {
-			delete(m.creation, "url")
-		}
-		m.confirmCreation("project.create")
+		m.creation.url = m.input
+		m.confirmCreation(api.ProjectCreate.Name)
 	case "branch-name":
 		if strings.TrimSpace(m.input) == "" {
 			m.notice = "Enter a new branch name."
 			return nil
 		}
-		m.creation["branch"] = m.input
-		m.confirmCreation("session.create")
+		m.creation.branch = m.input
+		m.confirmCreation(api.SessionCreate.Name)
 	case "rename":
 		if strings.TrimSpace(m.input) == "" {
 			m.notice = "Enter the new branch name."
 			return nil
 		}
 		m.name = m.input
-		return m.begin("creation.branches", params{"project": m.contextSession.Project})
+		return m.begin(creationBranchesCall(m.contextSession.Project))
 	}
 	return nil
 }
@@ -216,11 +241,7 @@ func (m *Model) submitForm() tea.Cmd {
 func (m *Model) accept(v actionDone) tea.Cmd {
 	switch v.method {
 	case "creation.branches":
-		var b branchInventory
-		if e := json.Unmarshal(v.raw, &b); e != nil {
-			m.notice = e.Error()
-			return nil
-		}
+		b := v.result.(branchInventory)
 		if m.page == "form" && m.form == "rename" {
 			tip := ""
 			for _, r := range b.Refs {
@@ -232,8 +253,7 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 				m.notice = "Assigned P branch has no committed tip; Rename unavailable."
 				return nil
 			}
-			m.confirmMethod = "session.rename"
-			m.confirmParams = params{"v": 1, "key": newKey(), "uuid": m.contextSession.UUID, "new_branch": m.name, "expected_old_tip": tip}
+			m.confirm = callOf(api.SessionRename, api.SessionRenameRequest{Key: newKey(), UUID: m.contextSession.UUID, NewBranch: m.name, ExpectedOldTip: tip})
 			m.review = "Rename " + m.contextSession.Project + " / " + m.contextSession.Branch + " to " + m.name + "?\nUUID: " + m.contextSession.UUID + "\nP tip: " + tip + "\nPrivate files and UUID remain; external origin is unchanged."
 			m.navigate("confirm")
 			return nil
@@ -248,11 +268,11 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.choices = append([]row{{id: "\x00new-branch", label: "Create new branch"}}, m.choices...)
 		m.sources = nil
 		m.sourceOriginURL = b.OriginURL
-		m.sourceParams = map[string]params{}
+		m.sourceParams = map[string]sourceSelection{}
 		for _, r := range b.Refs {
 			id := "local:" + r.Ref
 			m.sources = append(m.sources, row{id: id, label: "P · " + r.Ref, detail: r.OID})
-			m.sourceParams[id] = params{"source": r.OID}
+			m.sourceParams[id] = sourceSelection{source: r.OID}
 		}
 		for _, r := range b.Origin {
 			if r.CommitOID == "" {
@@ -260,71 +280,49 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			}
 			id := "origin:" + r.Ref
 			m.sources = append(m.sources, row{id: id, label: "External origin · " + r.Ref, detail: r.CommitOID})
-			m.sourceParams[id] = params{"origin_ref": r.Ref, "expected_commit_oid": r.CommitOID, "expected_origin_url": b.OriginURL}
+			m.sourceParams[id] = sourceSelection{originRef: r.Ref, expectedCommitOID: r.CommitOID, expectedOriginURL: b.OriginURL}
 		}
 		m.notice = b.OriginDiagnostic
-	case "project.create", "session.create", "session.rename", "session.discard", "session.delete", "operation.retry":
-		var r struct {
-			Operation api.Operation `json:"operation"`
-		}
-		if e := json.Unmarshal(v.raw, &r); e != nil {
-			m.notice = e.Error()
-			return nil
-		}
-		m.operation = r.Operation
-		m.operationID = r.Operation.ID
-		m.attachOnComplete = v.method == "session.create" || v.method == "project.create"
+	case api.ProjectCreate.Name, api.SessionCreate.Name, api.SessionRename.Name, api.SessionDiscard.Name, api.SessionDelete.Name, api.OperationRetry.Name:
+		op := operationOf(v)
+		m.operation = op
+		m.operationID = op.ID
+		m.attachOnComplete = v.method == api.SessionCreate.Name || v.method == api.ProjectCreate.Name
 		m.navigate("progress")
-		return m.begin("operation.inspect", params{"v": 1, "id": m.operationID})
-	case "operation.inspect":
-		var r struct {
-			Operation api.Operation `json:"operation"`
-		}
-		if e := json.Unmarshal(v.raw, &r); e != nil {
-			m.notice = e.Error()
-			return nil
-		}
+		return m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: m.operationID}))
+	case api.OperationInspect.Name:
+		r := resultOf(v, api.OperationInspect)
 		m.operation = r.Operation
 		if r.Operation.Status == "completed" {
 			if m.attachOnComplete && r.Operation.SessionUUID != "" {
 				m.contextSession.UUID = r.Operation.SessionUUID
 				m.operationID = ""
-				return m.begin("session.inspect", params{"v": 1, "uuid": r.Operation.SessionUUID})
+				return m.begin(callOf(api.SessionInspect, api.SessionInspectRequest{UUID: r.Operation.SessionUUID}))
 			}
 			m.attachOnComplete = false
 			m.notice = "Operation completed. Back returns to sessions."
 			m.refreshing = true
 			return m.refresh()
 		}
-	case "session.removal.preview":
-		var r struct {
-			Preview json.RawMessage `json:"preview"`
-		}
-		if e := json.Unmarshal(v.raw, &r); e != nil {
-			m.notice = e.Error()
-			return nil
-		}
-		var p removalPreview
-		if e := json.Unmarshal(r.Preview, &p); e != nil || p.ConfirmationToken == "" || m.removal == nil || p.SessionUUID != m.removal.UUID || p.Kind != m.removal.Kind || !p.Runtime.RuntimeDataLost {
+	case api.SessionRemovalPreview.Name:
+		p := resultOf(v, api.SessionRemovalPreview).Preview
+		if p.ConfirmationToken == "" || m.removal == nil || p.SessionUUID != m.removal.UUID || p.Kind != m.removal.Kind || !p.Runtime.RuntimeDataLost {
 			m.notice = "No valid removal confirmation returned."
 			return nil
 		}
-		m.review = p.review()
+		m.review = removalReview(p)
 		m.reviewOffset = 0
-		m.confirmMethod = "session." + m.removal.Kind
-		m.confirmParams = params{"v": 1, "key": newKey(), "uuid": m.removal.UUID, "confirmation_token": p.ConfirmationToken}
+		if m.removal.Kind == "delete" {
+			m.confirm = callOf(api.SessionDelete, api.SessionDeleteRequest{Key: newKey(), UUID: m.removal.UUID, ConfirmationToken: p.ConfirmationToken})
+		} else {
+			m.confirm = callOf(api.SessionDiscard, api.SessionDiscardRequest{Key: newKey(), UUID: m.removal.UUID, ConfirmationToken: p.ConfirmationToken})
+		}
 		m.removal = nil
 		m.navigate("review")
-	case "session.start", "session.inspect", "session.stop":
-		var r struct {
-			Session api.SessionView `json:"session"`
-		}
-		if e := json.Unmarshal(v.raw, &r); e != nil {
-			m.notice = e.Error()
-			return nil
-		}
+	case api.SessionStart.Name, api.SessionInspect.Name, api.SessionStop.Name:
+		r := sessionOf(v)
 		m.contextSession = r.Session
-		if v.method == "session.stop" {
+		if v.method == api.SessionStop.Name {
 			m.lastInteraction[r.Session.UUID] = time.Now()
 			m.attachOnComplete = false
 			m.operationID = ""
@@ -340,9 +338,9 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.attachOnComplete = false
 			m.notice = "Session is " + r.Session.Condition + ": " + r.Session.Diagnostic
 		}
-	case "session.services":
-		var r api.ServiceResult
-		if e := json.Unmarshal(v.raw, &r); e != nil || r.V != 1 || r.UUID != m.contextSession.UUID {
+	case api.SessionServices.Name:
+		r := resultOf(v, api.SessionServices)
+		if r.UUID != m.contextSession.UUID {
 			m.notice = "Invalid service observation; queued request was not issued."
 			m.servicesFresh = false
 			m.queuedService = nil
@@ -373,14 +371,10 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			}
 			m.notice = "Queued service request was not issued: its session/unit is no longer observed."
 		}
-	case "session.service.action":
-		return m.begin("session.services", params{"v": 1, "uuid": m.contextSession.UUID})
-	case "session.service.journal":
-		var r api.ServiceResult
-		if e := json.Unmarshal(v.raw, &r); e != nil {
-			m.notice = e.Error()
-			return nil
-		}
+	case api.SessionServiceAction.Name:
+		return m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID}))
+	case api.SessionServiceJournal.Name:
+		r := resultOf(v, api.SessionServiceJournal)
 		m.journal = strings.Split(strings.TrimSuffix(r.Journal, "\n"), "\n")
 		if m.follow {
 			m.journalOffset = max(0, len(m.journal)-m.capacity())
@@ -390,31 +384,39 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 	return nil
 }
 
-// removalPreview holds the session.removal.preview facts the review states.
-type removalPreview struct {
-	Kind               string `json:"kind"`
-	SessionUUID        string `json:"session_uuid"`
-	Project            string `json:"project"`
-	Branch             string `json:"branch"`
-	AssignedRef        string `json:"assigned_ref"`
-	AssignedTip        string `json:"assigned_tip"`
-	AssignedRefMissing bool   `json:"assigned_ref_missing"`
-	Runtime            struct {
-		IncusProject    string `json:"incus_project"`
-		InstanceName    string `json:"instance_name"`
-		OriginalStatus  string `json:"original_status"`
-		RuntimeDataLost bool   `json:"runtime_data_lost"`
-	} `json:"runtime"`
-	BranchLoss *struct {
-		CommitsLosingPReachability []string `json:"commits_losing_p_reachability"`
-	} `json:"branch_loss"`
-	ConfirmationToken string `json:"confirmation_token"`
-	ExpiresAt         string `json:"expires_at"`
+// operationOf is the operation that a change returned.
+func operationOf(v actionDone) api.Operation {
+	switch v.method {
+	case api.ProjectCreate.Name:
+		return resultOf(v, api.ProjectCreate).Operation
+	case api.SessionCreate.Name:
+		return resultOf(v, api.SessionCreate).Operation
+	case api.SessionRename.Name:
+		return resultOf(v, api.SessionRename).Operation
+	case api.SessionDiscard.Name:
+		return resultOf(v, api.SessionDiscard).Operation
+	case api.SessionDelete.Name:
+		return resultOf(v, api.SessionDelete).Operation
+	default:
+		return resultOf(v, api.OperationRetry).Operation
+	}
 }
 
-// review states the loss by category. P does not look inside the container,
-// so the review names what it holds instead of listing it.
-func (p removalPreview) review() string {
+// sessionOf is the session that start, stop or inspect returned.
+func sessionOf(v actionDone) api.SessionResult {
+	switch v.method {
+	case api.SessionStart.Name:
+		return resultOf(v, api.SessionStart)
+	case api.SessionStop.Name:
+		return resultOf(v, api.SessionStop)
+	default:
+		return resultOf(v, api.SessionInspect)
+	}
+}
+
+// removalReview states the loss by category. P does not look inside the
+// container, so the review names what it holds instead of listing it.
+func removalReview(p api.RemovalPreview) string {
 	action := "Discard"
 	if p.Kind == "delete" {
 		action = "Delete"
@@ -468,7 +470,7 @@ func (m *Model) dispatchService(intent serviceIntent) tea.Cmd {
 		m.journalOffset, m.pan = 0, 0
 		m.follow = true
 		m.find = ""
-		return m.begin("session.service.journal", params{"v": 1, "uuid": intent.UUID, "unit": intent.Unit})
+		return m.begin(callOf(api.SessionServiceJournal, api.SessionServiceJournalRequest{UUID: intent.UUID, Unit: intent.Unit}))
 	}
-	return m.begin("session.service.action", params{"v": 1, "uuid": intent.UUID, "unit": intent.Unit, "action": intent.Action})
+	return m.begin(callOf(api.SessionServiceAction, api.SessionServiceActionRequest{UUID: intent.UUID, Unit: intent.Unit, Action: intent.Action}))
 }

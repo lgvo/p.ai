@@ -161,7 +161,7 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	}
 	for i, s := range sessions {
 		ps := ev.Sessions[i]
-		if !reflect.DeepEqual(s, ps.Session) || ps.Local.Completed || s.Project != req.Project {
+		if !reflect.DeepEqual(api.SessionRecord(s), ps.Session) || ps.Local.Completed || s.Project != req.Project {
 			return api.Operation{}, ErrConflict
 		}
 		var matching, total int
@@ -328,7 +328,7 @@ func (s *Store) ValidateProjectDeleteAuthority(ctx context.Context, op api.Opera
 		actual, e := s.GetSession(ctx, ps.Session.UUID)
 		expected := ps.Session
 		expected.Registry = "removing"
-		if e != nil || !reflect.DeepEqual(actual, expected) {
+		if e != nil || !reflect.DeepEqual(api.SessionRecord(actual), expected) {
 			return ErrConflict
 		}
 	}
