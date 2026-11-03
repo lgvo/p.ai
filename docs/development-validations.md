@@ -107,15 +107,15 @@ work may use a fixture image.
 
 **Validate:** A daemon restart does not strand runtimes on a stale Unix socket
 inode. Test the mounted per-session endpoint directory, socket recreation,
-identity binding, reconnect, loss of pending tokens and confirmed live leases,
-structured Incus attachment, multiple clients where supported, and the direct
-local Unix client path. Prove that a failed channel establishment or
-expired token never increments attachment presence or clears unattended
-status, while successful confirmation performs both. Prove the trusted helper
-retains the confirmed lease until channel teardown completes while the daemon
-is reachable. If daemon restart removes the lease first, teardown must begin
-immediately and that helper must establish no new lease/channel until it
-finishes. Verify that no existing-channel registration is accepted.
+identity binding, reconnect, loss of pending tokens and live leases, the
+terminal the daemon relays from the runtime driver, multiple clients where
+supported, and the direct local Unix client path. Prove that a terminal that
+failed to open or an expired token never increments attachment presence or
+clears unattended status, while a claim that opened the terminal performs
+both. Prove the daemon keeps the lease until the runtime driver proves the
+terminal ended. A daemon restart must end the relayed terminal, and the helper
+must claim nothing again. Verify that no existing-terminal registration is
+accepted.
 
 Kill the ordinary client and helper with SIGKILL and sever local terminal
 pipes. Every case must remove only the affected temporary attachment while
@@ -400,7 +400,8 @@ The recipes supply pinned Go, tmux, Python, pyte, Pillow, and fonts through
 daemon. The launcher owns a private `/tmp/p-tui.*` directory and tmux socket;
 normal quit, Ctrl-C, or termination cleans up its server and files. Every run
 starts fresh. Enter reaches a local tmux shell through the production attachment
-helper and a mock native HTTP/WebSocket endpoint. Ctrl-B then d detaches; tmux
+helper and control's terminal relay, which carries a tmux client the fixture
+attaches in a PTY. Ctrl-B then d detaches; tmux
 survives detach, and workspace files survive mock Stop/Start within one run.
 This shell runs as the local user, with a disposable home and workspace; it
 does not provide the VM's isolation. Project services and their journals are
@@ -418,7 +419,7 @@ and are excluded from production capabilities.
 | Movement: j/k, arrows, pages, Ctrl-B/F/U/D, Home/End, gg/G | Production terminal decoder, selection/page changes, first/last retained branches |
 | P project scope; / search | Scope, branch/report matching, empty matches, backspace, cancel and clearing search/scope |
 | A reports; p policy; b branches; ? help; r refresh | Actual production inspection pages, complete paginated branch inventory, help return and socket inventory refresh |
-| Enter session | Start, production attachment claim/confirmation, real tmux command output, resize, detach, re-entry, presence teardown and workspace retention |
+| Enter session | Start, production attachment claim and relay, real tmux command output, resize, detach, re-entry, presence teardown and workspace retention |
 | s Stop | Default No and explicit decline issue no Stop; confirmation changes fixture condition; subsequent Start retains files |
 | c Create | Project creation, new branch from P source, captured external origin, retained-branch resume; assigned identity, source params, the created session named before entry, and automatic attachment |
 | R Rename | Literal q/g/G in forms, editing/cancel, reviewed rename preserving UUID and changing assigned ref |

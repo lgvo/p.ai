@@ -75,28 +75,31 @@ not change a ready session's condition.
 
 ### Attachment presence
 
-`attached_count > 0` means at least one trusted host helper currently owns a
-confirmed live attachment lease. Zero means the session is unattended. A
+`attached_count > 0` means the daemon holds at least one attachment lease: a
+terminal it opened through the runtime driver for a claim, whose end the
+driver has not yet proven or settled. Zero means the session is unattended. A
 request, pending token, terminal process, or tmux client observed without its
 lease is not presence.
 
 An attach request creates a short-lived, one-use pending token bound to the
-session and authenticated host request and returns it with the structured
-`AttachSpec`. The client transfers the token over private control input to the
-trusted helper. After establishing the Incus PTY and fixed attach command, the
-helper confirms the token on its dedicated attachment RPC connection. Only
-then does the daemon promote it to an active connection-owned lease and
-increment `attached_count`.
+session and authenticated host request and returns only that token. The client
+transfers the token over private control input to the trusted helper, which
+claims it on its own control connection. The daemon opens the terminal on the
+fixed attach command through the runtime driver, increments
+`attached_count`, and relays the terminal over that connection
+([session lifecycle](session-lifecycle.md#attach-and-detach)).
 
-Failure to launch, token expiry, or RPC closure before confirmation removes
-pending state without changing presence. While the daemon remains reachable,
-the helper keeps its confirmed lease until temporary-client teardown finishes.
-Client crash, SIGKILL, attachment-transport loss, or client-machine loss starts
-teardown without client cooperation. Daemon-restart lease loss starts teardown
-immediately; pending tokens and leases are not restored or re-registered.
-Teardown preserves the systemd-owned persistent interactive host.
+A failed terminal open or token expiry removes pending state without changing
+presence. Client crash, SIGKILL, carrier or helper loss, or client-machine loss
+closes the helper's connection, and the daemon closes the terminal without
+client cooperation. The daemon keeps the lease until the runtime driver proves
+the attached process ended. A terminal that ended unproven, because the driver
+failed, keeps its presence until the driver settles it as ended or the session
+stops. A daemon restart ends attachments; pending tokens and leases are not
+restored or re-registered. Teardown preserves the systemd-owned persistent
+interactive host.
 
-The confirmed transition from zero to one attachment clears
+The transition from zero to one attachment clears
 `latest_unattended_condition`. Additional simultaneous attachments do not
 clear anything again.
 
@@ -303,8 +306,8 @@ of agent processes or conversation history. Every presentation preserves these m
   unattended condition, and immutable policy snapshot/digest.
 - Incus plus current systemd unit state restore session condition; there is no
   custom startup-readiness marker to replay.
-- Pending attachment tokens and active leases disappear on daemon restart.
-  Helpers tear down temporary clients, while the persistent host survives.
+- Pending attachment tokens and active leases disappear on daemon restart, and
+  their terminals end, while the persistent host survives.
 - A missing hook or adapter leaves the semantic field empty.
 - Duplicate reports are harmless last-write-wins inputs; daemon receive order
   resolves arrival.

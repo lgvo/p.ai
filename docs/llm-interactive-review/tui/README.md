@@ -94,6 +94,26 @@ changed removal run shows the current review
 [action record](tui-fixes/actions.ndjson) keeps the LLM's choices apart from
 the passing TUI gate. This is mock/socket evidence only.
 
+## Terminal relayed by the daemon — 2026-11-03
+
+The [attach-relay checkpoint](attach-relay/checkpoint.json) records the review
+of the terminal handoff after the daemon took over relaying the terminal from
+the helper (migration step M5). The LLM ran the same actions on the
+production TUI built from the base revision and from the changed tree, each
+against a fresh small mock: Enter on a running session, a command, a resize to
+80×24, `stty size`, Ctrl-B d, re-entry and a second detach. The
+[entry](attach-relay/after-0002-enter.png) shows the tmux pane with no browser
+residue 50 ms after Enter, the [command](attach-relay/after-0004-command.png)
+and the [resized pane](attach-relay/after-0006-stty.png) match the
+[unchanged product](attach-relay/before-0006-stty.png), and
+[detach](attach-relay/after-0007-detach-early.png) and
+[re-entry](attach-relay/after-0010-reentered.png) behave as before. Every
+captured frame's cells and cursor are identical between the builds, and the
+session counted one attachment while attached and none after detach. No defect
+was found. The [action record](attach-relay/actions.ndjson) keeps the LLM's
+choices apart from the passing 29-test TUI gate. This is mock/socket evidence;
+the Incus driver's terminal is checked by the VM scenarios.
+
 ## Session image facts — 2026-11-02
 
 The [commit-image checkpoint](commit-image/checkpoint.json) records the review

@@ -446,11 +446,13 @@ var randRead = rand.Read
 // request must be system.hello, which agrees the protocol for the connection;
 // any other request before it is refused with hello_required. A panic while
 // serving a request answers it internal and is logged with its stack; the
-// connection and the daemon keep serving.
+// connection and the daemon keep serving. Like the hello, attachment.claim is
+// answered before the next line is read, and only when no other request is in
+// flight; once it opened a terminal, the connection stops carrying requests
+// and carries that terminal until either side ends.
 func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 	peerPID, peerUID := connectionPeer(conn)
 	owner := &Connection{peerPID: peerPID, peerUID: peerUID}
-	defer owner.close()
 	parent = context.WithValue(parent, connectionKey{}, owner)
 	defer conn.Close()
 	finished := make(chan struct{})
@@ -462,6 +464,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		case <-finished:
 		}
 	}()
+	reader := bufio.NewReaderSize(conn, api.MaxFrameBytes+1)
 	var writes sync.Mutex
 	var active sync.Map // canonical JSON ID -> context.CancelFunc
 	var pending sync.WaitGroup
@@ -476,9 +479,6 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 	// answers the hello inline, reads or writes it.
 	agreed := false
 	hello := func(request rpcRequest) (any, *api.Error) {
-		if owner.dedicatedAttachment() {
-			return nil, api.NewError(api.KindInvalidRequest, api.ReasonConnection)
-		}
 		var p api.HelloRequest
 		if answer := decodeParams(request.Params, &p); answer != nil {
 			return nil, answer
@@ -494,6 +494,46 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		result, rpcErr := envelope(handler(ctx, request.Method, request.Params))
 		agreed = agreed || rpcErr == nil
 		return result, rpcErr
+	}
+	// relayed is the terminal a claim opened; once it is set, the read loop
+	// ends and the connection carries it.
+	var relayed Terminal
+	claim := func(request rpcRequest) {
+		var result any
+		var rpcErr *api.Error
+		if len(semaphore) > 0 {
+			rpcErr = api.NewError(api.KindRetry, api.ReasonTooManyRequests)
+		} else {
+			ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+			defer cancel()
+			ctx = context.WithValue(ctx, requestIDKey{}, string(request.ID))
+			stopWatch := watchHangup(conn, reader, cancel)
+			// A panicking claim still stops and joins the watch before the
+			// read loop reads again, and closes any terminal it opened.
+			defer func() {
+				if value := recover(); value != nil {
+					stopWatch()
+					if terminal := owner.takeTerminal(); terminal != nil {
+						closeTerminal(terminal)
+					}
+					panic(value)
+				}
+			}()
+			result, rpcErr = envelope(handler(ctx, request.Method, request.Params))
+			stopWatch()
+			if ctx.Err() != nil {
+				// A terminal opened for a helper that left, or after the
+				// deadline, is closed below and never relayed.
+				result, rpcErr = nil, answerError(ctx, ctx.Err())
+			}
+		}
+		terminal := owner.takeTerminal()
+		if terminal != nil && rpcErr != nil {
+			closeTerminal(terminal)
+			terminal = nil
+		}
+		write(request.ID, result, rpcErr)
+		relayed = terminal
 	}
 	serveFrame := func(line []byte) {
 		var request rpcRequest
@@ -532,6 +572,12 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		if !agreed {
 			if request.HasID {
 				write(request.ID, nil, api.NewError(api.KindInvalidRequest, api.ReasonHelloRequired))
+			}
+			return
+		}
+		if request.Method == api.AttachmentClaim.Name {
+			if request.HasID {
+				claim(request)
 			}
 			return
 		}
@@ -579,14 +625,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 					write(request.ID, nil, panicRPC("control", request.Method, request.ID, value))
 				}
 			}()
-			var result any
-			var rpcErr *api.Error
-			if owner.dedicatedAttachment() && request.Method != api.AttachmentConfirm.Name && request.Method != api.AttachmentPing.Name {
-				rpcErr = api.NewError(api.KindInvalidRequest, api.ReasonConnection)
-			} else {
-				result, rpcErr = handler(ctx, request.Method, request.Params)
-			}
-			result, rpcErr = envelope(result, rpcErr)
+			result, rpcErr := envelope(handler(ctx, request.Method, request.Params))
 			if rpcErr != nil && ctx.Err() != nil {
 				// A result the handler returned is sent; an error once the
 				// context ended is the context's.
@@ -595,7 +634,6 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 			write(request.ID, result, rpcErr)
 		}(request)
 	}
-	reader := bufio.NewReaderSize(conn, api.MaxFrameBytes+1)
 	for {
 		conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
 		line, err := api.ReadFrame(reader)
@@ -606,6 +644,10 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 			break
 		}
 		serveFrame(line)
+		if relayed != nil {
+			relayTerminal(conn, reader, relayed)
+			break
+		}
 	}
 	active.Range(func(_, value any) bool { value.(context.CancelFunc)(); return true })
 	conn.Close()

@@ -18,8 +18,8 @@ import (
 
 // Client carries a pending attachment that session.attach granted on the
 // control socket: it transfers the token to the attachment helper on an
-// inherited private socket, and carries terminal bytes. It has no native
-// Incus authority.
+// inherited private socket, and carries terminal bytes. It has no runtime
+// authority.
 func Client(ctx context.Context, socket string, pending api.PendingAttachment) error {
 	if len(pending.Token) != 64 || !time.Now().Before(pending.ExpiresAt) {
 		return errors.New("invalid pending attachment")
@@ -37,7 +37,7 @@ func Client(ctx context.Context, socket string, pending api.PendingAttachment) e
 		return err
 	}
 	defer conn.Close()
-	c := &carrier{Conn: conn}
+	c := api.NewFrameConn(conn, nil)
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -62,7 +62,7 @@ func Client(ctx context.Context, socket string, pending api.PendingAttachment) e
 		}
 		defer term.Restore(os.Stdin.Fd(), old)
 	}
-	if err = c.writeJSON(carrierInit, initiation{Socket: socket, Token: pending.Token, Width: width, Height: height}); err != nil {
+	if err = c.WriteJSON(api.FrameInit, initiation{Socket: socket, Token: pending.Token, Width: width, Height: height}); err != nil {
 		return err
 	}
 	inputDone := make(chan error, 1)
@@ -71,7 +71,7 @@ func Client(ctx context.Context, socket string, pending api.PendingAttachment) e
 		for {
 			n, e := os.Stdin.Read(buffer)
 			if n > 0 {
-				if w := c.write(carrierInput, buffer[:n]); w != nil {
+				if w := c.WriteFrame(api.FrameInput, buffer[:n]); w != nil {
 					inputDone <- w
 					return
 				}
@@ -85,20 +85,20 @@ func Client(ctx context.Context, socket string, pending api.PendingAttachment) e
 	outputDone := make(chan error, 1)
 	go func() {
 		for {
-			frame, e := c.read()
+			frame, e := c.ReadFrame()
 			if e != nil {
 				outputDone <- e
 				return
 			}
-			switch frame.kind {
-			case carrierReady:
-			case carrierOutput:
-				if _, e = os.Stdout.Write(frame.data); e != nil {
+			switch frame.Kind {
+			case api.FrameReady:
+			case api.FrameOutput:
+				if _, e = os.Stdout.Write(frame.Data); e != nil {
 					outputDone <- e
 					return
 				}
-			case carrierError:
-				outputDone <- errors.New(string(frame.data))
+			case api.FrameError:
+				outputDone <- errors.New(string(frame.Data))
 				return
 			default:
 				outputDone <- errors.New("invalid helper carrier frame")
@@ -131,7 +131,7 @@ func Client(ctx context.Context, socket string, pending api.PendingAttachment) e
 		case <-resize:
 			if w, h, e := term.GetSize(os.Stdin.Fd()); e == nil {
 				w, h = attachmentSize(w, h)
-				if e = c.writeJSON(carrierResize, size{w, h}); e != nil {
+				if e = c.WriteJSON(api.FrameResize, api.TerminalSize{Width: w, Height: h}); e != nil {
 					return e
 				}
 			}
@@ -140,7 +140,7 @@ func Client(ctx context.Context, socket string, pending api.PendingAttachment) e
 }
 
 // A PTY can report zero dimensions when its parent has no terminal, or while
-// its window is minimized. The helper and Incus require usable dimensions.
+// its window is minimized. A terminal requires usable dimensions.
 func attachmentSize(width, height int) (int, int) {
 	if width < 1 || width > 65535 {
 		width = 80

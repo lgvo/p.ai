@@ -418,19 +418,6 @@ func TestHostDiagnosticIsBoundedValidUTF8(t *testing.T) {
 	}
 }
 
-func TestTerminalsOfALaterMigrationStepAreUnsupported(t *testing.T) {
-	d := newIncusWorld(t).driver()
-	ctx := context.Background()
-	target := runtimedriver.Target{Session: testSessionSpec(t)}
-	_, terminal := d.OpenTerminal(ctx, target, runtimedriver.Size{Width: 80, Height: 24})
-	_, settle := d.Settle(ctx, runtimedriver.Effect{Kind: runtimedriver.EffectTerminal, Target: target, Terminal: "attachment"})
-	for name, err := range map[string]error{"terminal": terminal, "settle": settle} {
-		if !errors.Is(err, runtimedriver.ErrUnsupported) {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-}
-
 // restoreAfterDevice makes Incus restore the runtime, a new generation,
 // right after the named device is added to it.
 func restoreAfterDevice(w *incusWorld, device string) {

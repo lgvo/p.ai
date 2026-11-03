@@ -27,7 +27,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"golang.org/x/crypto/ssh"
 )
@@ -37,7 +39,9 @@ import (
 // instances. Each instance's files are served over a private Unix socket the
 // way Incus's file and SFTP endpoints serve them, and `incus exec` gets the
 // replies of the guest's systemd: the session host's unit and journal, and
-// the session user's project services.
+// the session user's project services. The same socket serves the
+// interactive execs of the attach program that terminals open, with their
+// operations and websockets.
 //
 // Tests and fixtures change the world directly, as an administrator, a crash
 // or the guest would: through the instance's fields, under mu.
@@ -69,8 +73,16 @@ type incusWorld struct {
 	// hang the request unanswered until the next restart, as when the
 	// driver dies waiting for the answer.
 	write func(f *guestFile) (land, hang bool)
-	// operations are the Incus operations the project lists.
+	// operations are the Incus operations the project lists, besides the
+	// execs.
 	operations []worldOperation
+	// execs are the interactive execs Incus runs or ran, by operation ID,
+	// listed among the operations until they expire. holdExec, when set,
+	// keeps Incus from starting an exec whose websockets connected until it
+	// closes; execExits makes the attach program exit as it starts.
+	execs     map[string]*worldExec
+	holdExec  chan struct{}
+	execExits bool
 	// endpointErr and grantErr fail the host checks of the session's
 	// endpoint directory and grant sources.
 	endpointErr, grantErr error
@@ -87,12 +99,14 @@ type incusWorld struct {
 	initialized, transitions map[string]int
 	deletedWhileRunning      map[string]bool
 	incarnations             int
+	operationIDs             int
 	exitOne                  error
 }
 
 // worldOperation is an Incus operation as `incus operation list` shows it:
-// its status code and the resources it acts on.
+// its ID, status code and the resources it acts on.
 type worldOperation struct {
+	ID         string              `json:"id,omitempty"`
 	StatusCode int                 `json:"status_code"`
 	Resources  map[string][]string `json:"resources"`
 }
@@ -143,7 +157,7 @@ const worldHostReady = "active/running/success"
 func newIncusWorld(t *testing.T) *incusWorld {
 	t.Helper()
 	w := &incusWorld{t: t, initialized: map[string]int{}, transitions: map[string]int{}, deletedWhileRunning: map[string]bool{}, containerLimit: "8",
-		restarted: make(chan struct{})}
+		restarted: make(chan struct{}), execs: map[string]*worldExec{}}
 	w.addImage(builderImageJSON{Fingerprint: testImage, Type: "container", Architecture: "x86_64", Size: 4096, Properties: map[string]string{"os": "NixOS"}},
 		map[string]guestFile{"/": {typ: "directory", uid: 0, gid: 0, mode: 0755}})
 	w.socket, w.stopServing = w.serve()
@@ -152,13 +166,22 @@ func newIncusWorld(t *testing.T) *incusWorld {
 
 // restart serves Incus on a new socket and closes the old one, so that a
 // driver made before it reaches nothing any more: its commands name the old
-// socket, and its file requests find no server. What the old driver left
-// waiting is released only then.
+// socket, its file requests find no server, and the channels of its
+// terminals drop while their execs run on. What the old driver left waiting
+// is released only then.
+//
+// The channels drop first: a dead driver loses its witnesses and channels
+// together. The old driver lives on in the test, and it hangs up a terminal
+// whose witness it lost; once its channel dropped, that hang-up reaches
+// nothing and cannot end the exec.
 func (w *incusWorld) restart() {
 	socket, stop := w.serve()
 	w.mu.Lock()
 	old, restarted := w.stopServing, w.restarted
 	w.socket, w.stopServing, w.restarted = socket, stop, make(chan struct{})
+	for _, e := range w.execs {
+		e.drop()
+	}
 	w.mu.Unlock()
 	old()
 	close(restarted)
@@ -312,7 +335,12 @@ func (w *incusWorld) command(args []string) ([]byte, error) {
 		}
 		return json.Marshal(images)
 	case slices.Equal(args, []string{"operation", "list", "--format", "json"}):
-		return json.Marshal(append([]worldOperation{}, w.operations...))
+		operations := append([]worldOperation{}, w.operations...)
+		for _, id := range slices.Sorted(maps.Keys(w.execs)) {
+			e := w.execs[id]
+			operations = append(operations, worldOperation{ID: id, StatusCode: e.status, Resources: e.resources()})
+		}
+		return json.Marshal(operations)
 	case len(args) == 3 && args[0] == "list" && args[1] == "--format":
 		listing, err := w.list("")
 		if w.partialList {
@@ -458,6 +486,14 @@ func (w *incusWorld) setStatus(name, status string) error {
 	if status == "Running" && in.failNextStart != "" {
 		in.boot, in.journal, in.failNextStart = "failed/failed/exit-code", in.failNextStart, ""
 	}
+	if status == "Stopped" {
+		// Stopping the container kills every program an exec runs in it.
+		for _, e := range w.execs {
+			if e.instance == name {
+				e.exit(137)
+			}
+		}
+	}
 	return nil
 }
 
@@ -595,8 +631,8 @@ func (u *worldUnit) settle() {
 	}
 }
 
-// serve answers Incus's file and SFTP endpoints of every instance on a new
-// private Unix socket, until stop.
+// serve answers Incus's file, SFTP and exec endpoints of every instance, and
+// the operations of its execs, on a new private Unix socket, until stop.
 func (w *incusWorld) serve() (socket string, stop func()) {
 	// A socket path holds at most 107 bytes, too few for a test's own
 	// temporary directory.
@@ -610,15 +646,24 @@ func (w *incusWorld) serve() (socket string, stop func()) {
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	files := regexp.MustCompile(`^/1\.0/instances/([^/]+)/(files|sftp)$`)
+	endpoint := regexp.MustCompile(`^/1\.0/instances/([^/]+)/(files|sftp|exec)$`)
+	operation := regexp.MustCompile(`^/1\.0/operations/([0-9a-f-]{36})(/wait|/websocket)?$`)
 	server := &http.Server{Handler: http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		match := files.FindStringSubmatch(r.URL.Path)
+		if op := operation.FindStringSubmatch(r.URL.Path); op != nil && r.URL.Query().Get("project") == "user-1000" {
+			w.serveOperation(rw, r, op[1], op[2])
+			return
+		}
+		match := endpoint.FindStringSubmatch(r.URL.Path)
 		if match == nil || r.URL.Query().Get("project") != "user-1000" {
-			w.t.Errorf("unconfined file request %s %s", r.Method, r.URL)
+			w.t.Errorf("unconfined request %s %s", r.Method, r.URL)
 			rw.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if match[2] == "sftp" {
+		switch match[2] {
+		case "exec":
+			w.serveExec(rw, r, match[1])
+			return
+		case "sftp":
 			w.serveSFTP(rw, match[1])
 			return
 		}
@@ -917,4 +962,441 @@ func testAsset(role string, mode uint32, data []byte) runtimedriver.Asset {
 // testGrant is a read-only directory grant under the host's grant ceiling.
 func testGrant() runtimedriver.Grant {
 	return runtimedriver.Grant{Name: "data", Source: "/var/lib/p-vm/grants/team/data", Type: "directory", Access: "read-only", Device: 7, Inode: 11, OwnerUID: 1000, OwnerGID: 1000}
+}
+
+// worldExec is an interactive exec of the attach program: its Incus
+// operation, the size of its PTY, and the guest's ends of its data and
+// control websockets. Incus starts it once both websockets are connected.
+// Its fields are guarded by the world's lock, except writes to data, which
+// writing serializes.
+type worldExec struct {
+	id, instance string
+	secrets      map[string]string // each websocket's secret, by fd: "0" and "control"
+	size         runtimedriver.Size
+	// status is the operation's status code, 103 until Incus finished the
+	// exec; ret is the attach program's exit status once it exited.
+	// finished closes once the status is final, and lost to break the
+	// waits on it.
+	status, ret    int
+	finished, lost chan struct{}
+	data, control  *websocket.Conn
+	writing        sync.Mutex
+	// started is set once Incus started the exec, exited once the attach
+	// program exited, and clientGone once the client's side of the data
+	// channel ended.
+	started, exited, clientGone bool
+	dropped                     bool        // the channel dropped while the exec runs on
+	pongs                       chan string // the pongs Incus read on control
+	input                       *worldStream
+}
+
+func (e *worldExec) resources() map[string][]string {
+	return map[string][]string{"instances": {"/1.0/instances/" + e.instance + "?project=user-1000"}}
+}
+
+// operation is the exec's operation as Incus shows it.
+func (e *worldExec) operation() map[string]any {
+	return map[string]any{"id": e.id, "class": "websocket", "status_code": e.status, "resources": e.resources(), "metadata": map[string]any{"return": e.ret}}
+}
+
+// exit ends the attach program with ret, as Incus sees it: the output ends
+// with a text frame and Incus closes the control channel. Incus finishes
+// the exec's operation only once its data channel ended on both sides: at
+// once when the client's side already ended or the exec never started,
+// otherwise when the client closes it. Called with the world's lock held.
+func (e *worldExec) exit(ret int) {
+	if e.exited || e.status != 103 {
+		return
+	}
+	e.exited, e.ret = true, ret
+	if !e.dropped {
+		if e.data != nil {
+			e.writing.Lock()
+			_ = e.data.WriteMessage(websocket.TextMessage, nil)
+			e.writing.Unlock()
+		}
+		if e.control != nil {
+			_ = e.control.Close()
+		}
+	}
+	if !e.started || e.clientGone {
+		e.finish()
+	}
+}
+
+// finish completes the exec's operation and closes what is left of its
+// channel. Called with the world's lock held.
+func (e *worldExec) finish() {
+	if e.status != 103 {
+		return
+	}
+	e.closeChannel()
+	e.status = 200
+	close(e.finished)
+}
+
+// drop closes the channel of a running exec, which runs on. Called with the
+// world's lock held.
+func (e *worldExec) drop() {
+	if e.status == 103 && !e.dropped {
+		e.dropped = true
+		e.closeChannel()
+	}
+}
+
+func (e *worldExec) closeChannel() {
+	for _, c := range []*websocket.Conn{e.data, e.control} {
+		if c != nil {
+			_ = c.Close()
+		}
+	}
+	e.input.close()
+}
+
+// incusError answers a request with Incus's error response.
+func incusError(rw http.ResponseWriter, code int, text string) {
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(code)
+	_ = json.NewEncoder(rw).Encode(map[string]any{"type": "error", "error": text, "error_code": code})
+}
+
+// serveExec creates an exec of the attach program as Incus does for an
+// interactive exec that waits for its websockets: an async websocket
+// operation with a secret for each.
+func (w *incusWorld) serveExec(rw http.ResponseWriter, r *http.Request, instance string) {
+	var body struct {
+		Command     []string          `json:"command"`
+		Wait        bool              `json:"wait-for-websocket"`
+		Interactive bool              `json:"interactive"`
+		Width       int               `json:"width"`
+		Height      int               `json:"height"`
+		Environment map[string]string `json:"environment"`
+	}
+	if r.Method != http.MethodPost || json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body) != nil || !slices.Equal(body.Command, []string{"/usr/libexec/p/attach"}) ||
+		!body.Wait || !body.Interactive || !maps.Equal(body.Environment, map[string]string{"TERM": "xterm-256color"}) {
+		w.t.Errorf("unexpected exec request %s %s", r.Method, r.URL)
+		incusError(rw, http.StatusBadRequest, "unexpected exec request")
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if in := w.instance(instance); in == nil || in.status != "Running" {
+		incusError(rw, http.StatusBadRequest, "Instance is not running")
+		return
+	}
+	w.operationIDs++
+	e := &worldExec{id: fmt.Sprintf("%08x-0000-4000-9000-%012x", w.operationIDs, w.operationIDs), instance: instance,
+		secrets: map[string]string{"0": rand.Text(), "control": rand.Text()}, size: runtimedriver.Size{Width: body.Width, Height: body.Height},
+		status: 103, finished: make(chan struct{}), lost: make(chan struct{}), pongs: make(chan string, 4), input: newWorldStream()}
+	w.execs[e.id] = e
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusAccepted)
+	operation := e.operation()
+	operation["metadata"] = map[string]any{"command": body.Command, "interactive": true, "fds": e.secrets}
+	_ = json.NewEncoder(rw).Encode(map[string]any{"type": "async", "status": "Operation created", "status_code": 100, "operation": "/1.0/operations/" + e.id, "metadata": operation})
+}
+
+// serveOperation answers the operation of an exec: a read of it, a wait for
+// its end, or one of its websockets.
+func (w *incusWorld) serveOperation(rw http.ResponseWriter, r *http.Request, id, part string) {
+	w.mu.Lock()
+	e, restarted := w.execs[id], w.restarted
+	w.mu.Unlock()
+	if e == nil {
+		incusError(rw, http.StatusNotFound, "Operation not found")
+		return
+	}
+	switch part {
+	case "":
+		w.mu.Lock()
+		operation := e.operation()
+		w.mu.Unlock()
+		_ = json.NewEncoder(rw).Encode(map[string]any{"type": "sync", "status": "Success", "status_code": 200, "metadata": operation})
+	case "/wait":
+		// Incus captures the operation and flushes the headers before it
+		// waits.
+		rw.Header().Set("Content-Type", "application/json")
+		rw.WriteHeader(http.StatusOK)
+		rw.(http.Flusher).Flush()
+		select {
+		case <-e.finished:
+		case <-e.lost:
+			_, _ = rw.Write([]byte("{"))
+			return
+		case <-r.Context().Done():
+			return
+		case <-restarted:
+			return
+		}
+		w.mu.Lock()
+		operation := e.operation()
+		w.mu.Unlock()
+		_ = json.NewEncoder(rw).Encode(map[string]any{"type": "sync", "status": "Success", "status_code": 200, "metadata": operation})
+	case "/websocket":
+		w.connectExec(rw, r, e)
+	}
+}
+
+// connectExec connects the websocket of the exec that its secret names.
+// Once both are connected, Incus starts the exec, unless holdExec holds it.
+func (w *incusWorld) connectExec(rw http.ResponseWriter, r *http.Request, e *worldExec) {
+	secret := r.URL.Query().Get("secret")
+	w.mu.Lock()
+	fd := ""
+	for name, s := range e.secrets {
+		if s == secret {
+			fd = name
+		}
+	}
+	free := fd == "0" && e.data == nil || fd == "control" && e.control == nil
+	running := e.status == 103
+	w.mu.Unlock()
+	if !free || !running {
+		incusError(rw, http.StatusForbidden, "Permission denied")
+		return
+	}
+	conn, err := (&websocket.Upgrader{}).Upgrade(rw, r, nil)
+	if err != nil {
+		return
+	}
+	w.mu.Lock()
+	if fd == "0" {
+		e.data = conn
+	} else {
+		e.control = conn
+	}
+	start := e.data != nil && e.control != nil
+	hold, exits := w.holdExec, w.execExits
+	w.mu.Unlock()
+	if start {
+		go w.runExec(e, hold, exits)
+	}
+}
+
+// runExec runs the attach program: Incus mirrors the data websocket to its
+// PTY and only now reads the control websocket, applying resizes in order
+// and answering pings. When the client closes the channel, the attach
+// program gets the hang-up and exits, unless the channel dropped; the end of
+// the client's data side lets Incus finish an exec whose program exited.
+func (w *incusWorld) runExec(e *worldExec, hold chan struct{}, exits bool) {
+	if hold != nil {
+		<-hold
+	}
+	w.mu.Lock()
+	if e.status != 103 {
+		w.mu.Unlock()
+		return
+	}
+	e.started = true
+	w.mu.Unlock()
+	hangUp := func() {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if !e.dropped {
+			e.exit(129)
+		}
+	}
+	dataEnded := func() {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		e.clientGone = true
+		if e.exited {
+			e.finish()
+		} else if !e.dropped {
+			e.exit(129)
+		}
+	}
+	e.control.SetPongHandler(func(data string) error {
+		select {
+		case e.pongs <- data:
+		default:
+		}
+		return nil
+	})
+	go func() {
+		defer hangUp()
+		for {
+			_, raw, err := e.control.ReadMessage()
+			if err != nil {
+				return
+			}
+			var message struct {
+				Command string            `json:"command"`
+				Args    map[string]string `json:"args"`
+			}
+			if json.Unmarshal(raw, &message) != nil || message.Command != "window-resize" {
+				w.t.Errorf("unexpected control message %s", raw)
+				continue
+			}
+			width, e1 := strconv.Atoi(message.Args["width"])
+			height, e2 := strconv.Atoi(message.Args["height"])
+			if e1 != nil || e2 != nil {
+				w.t.Errorf("unexpected resize %s", raw)
+				continue
+			}
+			w.mu.Lock()
+			e.size = runtimedriver.Size{Width: width, Height: height}
+			w.mu.Unlock()
+		}
+	}()
+	if exits {
+		w.mu.Lock()
+		e.exit(1)
+		w.mu.Unlock()
+	}
+	defer dataEnded()
+	for {
+		kind, raw, err := e.data.ReadMessage()
+		if err != nil || kind == websocket.TextMessage {
+			return
+		}
+		e.input.write(raw)
+	}
+}
+
+// withSessionHostLinks gives the base image the fixed links of P's image to
+// the session host's unit and attach program, through root-owned
+// directories, as a terminal checks them.
+func (w *incusWorld) withSessionHostLinks() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	files := w.images[0].files
+	for _, dir := range []string{"/etc", "/etc/systemd", "/etc/systemd/system", "/usr", "/usr/libexec", "/usr/libexec/p"} {
+		files[dir] = guestFile{typ: "directory", mode: 0755}
+	}
+	files["/etc/systemd/system/p-interactive.service"] = guestFile{typ: "symlink", mode: 0777, data: []byte("/etc/p/assets/p-interactive.service")}
+	files["/usr/libexec/p/attach"] = guestFile{typ: "symlink", mode: 0777, data: []byte("/etc/p/assets/p-attach")}
+}
+
+// guest is the attach program's side of the exec of the operation id.
+func (w *incusWorld) guest(id string) *worldGuest {
+	w.t.Helper()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	e := w.execs[id]
+	if e == nil {
+		w.t.Fatalf("no exec %s", id)
+	}
+	return &worldGuest{w: w, e: e}
+}
+
+// worldGuest is the attach program's side of an exec: Read returns what the
+// client wrote, and what Write writes the client reads.
+type worldGuest struct {
+	w *incusWorld
+	e *worldExec
+}
+
+func (g *worldGuest) Read(p []byte) (int, error) { return g.e.input.Read(p) }
+
+func (g *worldGuest) Write(p []byte) (int, error) {
+	g.e.writing.Lock()
+	defer g.e.writing.Unlock()
+	if err := g.e.data.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// Size is the PTY's size once Incus applied every resize sent before the
+// call: Incus reads control messages in order, so a pong to a ping sent now
+// comes after them.
+func (g *worldGuest) Size() runtimedriver.Size {
+	ping := rand.Text()
+	if g.e.control.WriteControl(websocket.PingMessage, []byte(ping), time.Now().Add(5*time.Second)) == nil {
+		timeout := time.After(5 * time.Second)
+	wait:
+		for {
+			select {
+			case pong := <-g.e.pongs:
+				if pong == ping {
+					break wait
+				}
+			case <-timeout:
+				g.w.t.Error("the client never answered the guest's ping")
+				break wait
+			}
+		}
+	}
+	g.w.mu.Lock()
+	defer g.w.mu.Unlock()
+	return g.e.size
+}
+
+// EndProcess makes the attach program exit.
+func (g *worldGuest) EndProcess() {
+	g.w.mu.Lock()
+	defer g.w.mu.Unlock()
+	g.e.exit(0)
+}
+
+// DropChannel drops the exec's websockets while the attach program runs on.
+func (g *worldGuest) DropChannel() {
+	g.w.mu.Lock()
+	defer g.w.mu.Unlock()
+	g.e.drop()
+}
+
+// LoseWitness breaks every wait on the exec's operation, as a connection to
+// Incus that fails.
+func (g *worldGuest) LoseWitness() {
+	g.w.mu.Lock()
+	defer g.w.mu.Unlock()
+	close(g.e.lost)
+}
+
+// Expire removes the exec's operation from Incus, as Incus forgets a
+// finished operation after a while.
+func (g *worldGuest) Expire() {
+	g.w.mu.Lock()
+	defer g.w.mu.Unlock()
+	delete(g.w.execs, g.e.id)
+}
+
+// Status is the status code of the exec's operation.
+func (g *worldGuest) Status() int {
+	g.w.mu.Lock()
+	defer g.w.mu.Unlock()
+	return g.e.status
+}
+
+// worldStream is what a client wrote to a PTY. Writes never wait; a read
+// waits for data or for the stream to close, then returns io.EOF.
+type worldStream struct {
+	mu     sync.Mutex
+	more   *sync.Cond
+	buf    bytes.Buffer
+	closed bool
+}
+
+func newWorldStream() *worldStream {
+	s := &worldStream{}
+	s.more = sync.NewCond(&s.mu)
+	return s
+}
+
+func (s *worldStream) write(p []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.buf.Write(p)
+	s.more.Broadcast()
+}
+
+func (s *worldStream) Read(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for s.buf.Len() == 0 && !s.closed {
+		s.more.Wait()
+	}
+	if s.buf.Len() == 0 {
+		return 0, io.EOF
+	}
+	return s.buf.Read(p)
+}
+
+func (s *worldStream) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	s.more.Broadcast()
 }

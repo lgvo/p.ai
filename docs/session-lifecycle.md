@@ -47,7 +47,8 @@ A session spans authorities with different failure behavior:
 - Incus owns instances, runtime operations, writable roots, and commit images;
 - P's Git authorization and activated external-service plugins own their
   provider-specific credentials; and
-- live RPC connections own attachment presence.
+- the running daemon owns attachment presence through the leases on the
+  terminals it relays.
 
 No transaction can atomically commit across all of them. P persists workflow
 intent when an ordered change crosses authorities. A mutation owned by one
@@ -139,7 +140,7 @@ the assigned branch's current tip remain the source authority.
 | P Git write permission | P Git authorization using current SQLite assignment | records principal and revocation state |
 | Post-MVP external-service principal validity | Configured service | records only the protected binding and cleanup state required by its plugin contract |
 | Interactive-host readiness and failure | `p-interactive.service` and persistent system journal | records only bounded operation/last-start diagnostics |
-| Pending/confirmed attachment presence | Live host RPC connection | not persisted |
+| Pending attachments and attachment presence | The running daemon's pending tokens and terminal leases; the runtime driver's completion witness ends a lease | not persisted |
 | Agent condition | Session observability reducer | stores only its defined latest unattended value |
 
 Reconciliation never replaces a fresh authority query with a cached SQLite
@@ -209,9 +210,9 @@ manufacture session/agent condition.
 The same idempotency key with the same request returns the existing operation.
 Reusing it with different input is rejected.
 
-Attach and detach are the live exception: the RPC connection and its pending
-token or confirmed lease provide their identity, so P does not journal them as
-durable operations.
+Attach and detach are the live exception: the pending token and the daemon's
+lease on the relayed terminal provide their identity, so P does not journal
+them as durable operations.
 
 ## Concurrency
 
@@ -232,9 +233,9 @@ operation is incomplete:
 |---|---|
 | Start or attach | Refused during create completion, rename, or removal. |
 | Rename | Refused unless the session is stopped, and during start, stop, or removal. |
-| Stop | Refused during create completion, rename, or removal. |
+| Stop | Refused during create completion, rename, or removal, and while an attachment is pending or attached ([Stop](#stop)). |
 | Publish | Refused unless the session is established and its branch assignment is stable. |
-| Discard/delete | Refused during any other mutation and while a pending or confirmed attachment exists. A running session is accepted; P stops it as part of the removal. |
+| Discard/delete | Refused during any other mutation and while an attachment is pending or holds a lease, including one whose terminal's end is not yet proven. A running session is accepted; P stops it as part of the removal. |
 
 Git ref guards are independent from lifecycle locks. During rename and removal,
 the P Git server rejects updates to affected refs even from the otherwise valid
@@ -579,41 +580,50 @@ start.
 
 ## Attach and detach
 
-Attach is a host RPC decision followed by client-side execution of a structured
-`AttachSpec`; terminal bytes do not pass through lifecycle JSON-RPC.
+Attach is a host RPC decision followed by a terminal that the daemon opens
+through the runtime driver and relays to the trusted host attachment helper;
+terminal bytes do not pass through lifecycle JSON-RPC.
 
-The daemon, client, and trusted host attachment helper perform a two-stage
-handshake:
+The daemon, client, and helper perform a two-stage handshake. The daemon:
 
 1. verifies an established session with no conflicting operation;
-2. starts it when stopped and waits for `p-interactive.service` readiness;
-3. freshly verifies the systemd unit, trusted fixed attach command, and current
-   Incus ownership;
-4. asks the Incus backend for the fixed attachment argv;
-5. creates a short-lived, one-use pending token bound to the session and
-   authenticated host request and returns that token plus the structured spec;
-6. the client invokes the trusted helper locally or through client-initiated
+2. requires it ready; it starts nothing, so the client starts a stopped session
+   and waits for its start operation first, as `p attach` does;
+3. checks through the runtime driver that the runtime runs complete with its
+   host ready;
+4. creates a short-lived, one-use pending token bound to the session and
+   authenticated host request and returns only that token;
+5. the client invokes the trusted helper locally or through client-initiated
    SSH and transfers the token through its private control stream, never argv;
-7. the helper opens the dedicated attachment RPC connection, establishes the
-   interactive channel, and confirms the token on that connection; and
-8. the daemon atomically promotes it to an active lease owned by the helper
-   connection, increments confirmed attachment presence, and clears the latest
-   unattended condition only on the confirmed zero-to-one transition.
+6. the helper opens its own control connection and claims the token with the
+   client terminal's size;
+7. the daemon locks and checks the session again and has the runtime driver
+   open a terminal on the fixed attach command (`OpenTerminal`), whose
+   completion witness the driver arms before the attach starts; and
+8. the daemon increments attachment presence, clears the latest unattended
+   condition only on the zero-to-one transition, answers the claim, and from
+   then on relays the terminal over the claim's connection.
 
-A failed start or spec construction creates no token. A failed channel launch,
-expired token, or connection closure before confirmation removes pending state.
-None of those failures increments attachment presence, suppresses agent events,
-or clears unattended status. Multiple confirmed attachments are allowed when
-the interactive host supports them.
+A failed readiness check creates no token. A failed terminal open, an
+expired token, or a helper that hangs up while its terminal opens removes the
+pending state. None of those failures increments attachment presence,
+suppresses agent events, or clears unattended status. A terminal the claim
+opened, or whose failed open the runtime driver cannot prove ended, keeps the
+attachment's lease until its end is proven or settled, or the session stops.
+Multiple attachments are allowed when the interactive host supports them.
 
-The trusted helper owns both the confirmed lease and the interactive channel;
-the ordinary client is not relied upon for cleanup. On client exit, SIGKILL,
-attachment-transport loss, or client-machine loss, the helper/transport binding
-tears down the channel. While the daemon remains reachable, the helper retains
-the confirmed lease until teardown completes and closes it afterward. If the
-daemon restarts or the lease connection disappears first, the helper begins
-teardown immediately and establishes no new lease or channel until teardown
-finishes. MVP cannot re-register an existing channel.
+The runtime driver owns the native channel and its witness; the daemon owns
+the token, the lease and the relay; the helper only carries bytes and has no
+runtime authority. The ordinary client is not relied upon for cleanup: on
+client exit, SIGKILL, carrier or helper loss, or client-machine loss, the
+helper's connection closes and the daemon closes the terminal. The daemon keeps
+the lease, and the attachment's presence, until the witness proves the attached
+process ended. If the runtime driver fails while the daemon stays up, the
+terminal ends unproven: the helper tears down, input and resizes stop and are
+not replayed, and the lease stays, so discard and delete stay refused. That
+lease ends when the driver settles the terminal as ended, which the daemon asks
+every few seconds, or when the session [stops](#stop). A daemon restart ends
+attachments. MVP cannot re-register an existing terminal.
 
 Teardown ends only that temporary attach client. The systemd-owned persistent
 host and configured command remain alive, so detach and session switching do
@@ -707,11 +717,17 @@ retains:
 - session Git principal and selected plugin bindings; and
 - latest unattended agent condition.
 
-It terminates runtime processes, including tmux and interactive agents. A
-pending or confirmed attachment makes ordinary stop fail with an attachment
-diagnostic; the pending token expires quickly, while an active user must detach
-first. This prevents one client from unexpectedly closing another client's
-terminal.
+It terminates runtime processes, including tmux and interactive agents. An
+attachment that is pending, opening its terminal, or attached refuses a stop
+with `conflict`, reason `attachment_active`; the pending token expires quickly,
+while an active user must detach first. This prevents one client from
+unexpectedly closing another client's terminal.
+
+An attachment whose terminal ended unproven, because the runtime driver failed,
+does not refuse Stop: no client holds that terminal any more. A Stop that leaves
+the runtime stopped, or that finds it already stopped, ends that attachment's
+lease and presence, since stopping ends any process the attachment left. Otherwise a lease that the driver never
+settles would refuse Stop, discard and delete for as long as the daemon runs.
 
 Stop waits until the guest can take a graceful shutdown, requests one from
 Incus, and stops the instance by force if it is still running after Incus's
@@ -735,9 +751,9 @@ which states what they lose, and a separate run carries out that plan. P does
 not look inside the container to state the loss: it does not read the
 workspace, activate the environment, run the shell hook, prepare the
 interactive host, or execute repository-controlled commands. A running session
-needs no Stop first; P stops it as part of the removal. A pending or confirmed
-attachment refuses the plan with `attachment_active`, so there is no change
-tag to run.
+needs no Stop first; P stops it as part of the removal. An attachment that is
+pending or holds a lease, including one whose terminal's end is not yet proven,
+refuses the plan with `attachment_active`, so there is no change tag to run.
 
 ### Runtime-local loss
 
@@ -1003,7 +1019,7 @@ owns the release rule and its mechanics.
 |---|---|---|---|
 | Create | Existing P branch assigned, new branch created and assigned, or unborn bootstrap reserved | Cancel/clean reservation when safe; preserve pre-existing branch | Retain one blocked request; Retry cleans verified partial resources and reconstructs the same immutable request; changed input explicitly supersedes it with a new creation |
 | Start | None; the `session.start` operation records the request | Nothing to undo: Incus/systemd own the start | The worker starts the runtime and waits for `p-interactive.service`; success completes the operation once ready, failure records it failed with the diagnostic and returns the container to stopped, and another Start records a new operation |
-| Attach | Pending token confirmed and promoted | Expire pending token without presence/status clear | Helper retains the lease through teardown while reachable; lease loss starts immediate transport-bound teardown before that helper can attach again |
+| Attach | Pending token claimed and its terminal opened | Expire pending token without presence/status clear | The daemon keeps the lease until the runtime driver proves the terminal ended, settles it as ended, or the session stops; a daemon restart ends it with no re-registration |
 | Rename | New P ref created | Release reservation and retain old mapping | Complete forward to new ref under guards |
 | Stop | None; the `session.stop` operation records the request | Nothing to undo: Incus owns the stop | The worker stops the runtime; the operation completes once it is stopped, or fails with the diagnostic |
 | Discard | Runtime removal committed | Revalidate or cancel without loss | Complete runtime/credential cleanup; retain branch |
@@ -1026,10 +1042,11 @@ same concepts:
 - a risky change's plan and change tag; and
 - retry, cleanup, or removal actions permitted by the current facts.
 
-Attach returns a short-lived one-use pending token and structured `AttachSpec`.
-The trusted host helper redeems it on a dedicated attachment RPC connection;
-confirmation promotes that connection to the active lease, which the helper
-retains until channel teardown completes while the daemon remains reachable.
+Attach returns a short-lived one-use pending token and no runtime details. The
+trusted host helper claims it on its own control connection; the daemon opens
+the terminal, counts the attachment, and relays the terminal over that
+connection, keeping the lease until the terminal's end is proven
+([attach and detach](#attach-and-detach)).
 
 The TUI does not implement lifecycle rules. It presents daemon-provided plans
 and invokes the same RPC surface available to `p api`.
@@ -1078,8 +1095,9 @@ The lifecycle design is implemented when integration tests prove:
    projects and rejects collisions in one project;
 4. start preserves writable runtime state but does not claim process or tmux
    continuity across stop;
-5. failed attachment before confirmation does not increment presence or clear
-   unattended status, while confirmation performs both atomically;
+5. an attachment whose terminal failed to open does not increment presence or
+   clear unattended status, while a claim that opened it performs both
+   atomically;
 6. rename of a stopped session preserves UUID, workspace files, local-ahead
    commits, and credentials while changing both Git refs safely, and rename
    refuses a running session;
@@ -1094,12 +1112,13 @@ The lifecycle design is implemented when integration tests prove:
     operation state and authorization restrictions retained; when it returns,
     Retry/reconciliation resume only confirmed work without duplicates or
     adoption of unfamiliar machinery;
-11. daemon restart drops pending attachment tokens and active leases; each
-    helper finishes temporary-client teardown while systemd preserves the
-    persistent host, and operation reconciliation resumes;
+11. daemon restart drops pending attachment tokens and active leases and ends
+    their terminals, while systemd preserves the persistent host, and
+    operation reconciliation resumes;
 12. abrupt client death or transport loss ends only its temporary attach
-    client, while a reachable daemon retains attachment presence until teardown
-    completes;
+    client, while the daemon retains attachment presence until the runtime
+    driver proves that client ended; a runtime driver failure keeps the
+    presence until the driver settles the terminal or the session stops;
 13. no automatic cleanup deletes a branch, runtime, or orphan record based only
     on age;
 14. activation or persistent-host failure leaves the container stopped with a

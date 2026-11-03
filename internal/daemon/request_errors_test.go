@@ -9,7 +9,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
@@ -98,16 +97,14 @@ func TestSessionNotEstablishedOrInvalidPolicyRefusesStart(t *testing.T) {
 func TestAttachmentRefusals(t *testing.T) {
 	ctx := context.Background()
 	l := &lifecycle{}
-	_, err := l.ClaimAttachment(ctx, strings.Repeat("b", 64), &control.Connection{})
-	requireRefusal(t, err, api.KindPreconditionFailed, api.ReasonExpired, "")
-	err = l.ConfirmAttachment(ctx, &control.Connection{}, "/1.0/operations/11111111-1111-1111-1111-111111111111")
+	_, err := l.ClaimAttachment(ctx, strings.Repeat("b", 64), runtimedriver.Size{Width: 80, Height: 24})
 	requireRefusal(t, err, api.KindPreconditionFailed, api.ReasonExpired, "")
 	for range maxSessionAttachments {
-		if _, err = l.reserveAttachment("full", plugin.AttachSpec{}); err != nil {
+		if _, err = l.reserveAttachment("full"); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, err = l.reserveAttachment("full", plugin.AttachSpec{})
+	_, err = l.reserveAttachment("full")
 	requireRefusal(t, err, api.KindCapacity, api.ReasonAttachmentCapacity, "")
 	for condition, want := range map[string]api.ErrorKind{"stopped": api.KindConflict, "missing": api.KindConflict, "unreachable": api.KindFailed} {
 		var refusal *control.Refusal

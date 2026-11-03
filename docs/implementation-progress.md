@@ -1,5 +1,40 @@
 # MVP implementation progress
 
+## Terminals relayed by the daemon — 2026-11-03
+
+Migration step M5 of the runtime driver: the runtime driver opens the
+session's terminal (`OpenTerminal`), and the daemon relays it to the
+attachment helper over the helper's control connection, so the helper keeps
+only the client side and has no Incus access. `attachment.claim` now carries
+the terminal size and opens the terminal; `attachment.confirm`,
+`attachment.ping`, the attach spec and the helper's Incus code are gone. The
+daemon keeps an attachment's lease until the driver proves its terminal ended;
+a terminal that ended unproven keeps the lease until the driver settles it or
+the session stops, and such a lease does not refuse Stop.
+
+**LLM experience review (mock socket).** Tested on base revision 785de06 and
+the uncommitted change, each with a fresh small fixture at 120×35 and 80×24.
+The intended experience is unchanged: Enter takes over the terminal with the
+session's tmux, Ctrl-B d detaches back to the browser, and re-entry shows the
+same pane. The LLM ran the same entry, command, resize, `stty size`, detach,
+re-entry and detach on both builds and read the rendered frames between
+actions, including frames 50 ms after Enter and after Ctrl-B d. Every captured
+frame's cells and cursor are identical between the builds; the session counted
+one attachment while attached and none after detach. No defect was found. The
+prototype's simulated terminal and Ctrl+B popup remain outside implemented
+scope, as before. Evidence:
+[attach-relay checkpoint](llm-interactive-review/tui/attach-relay/checkpoint.json).
+That review ran before the change moved onto steps 3 to 5, where `p attach`
+starts the session and waits for it before it attaches; it was not repeated
+on that base.
+
+**Component and integration checks.** `go test ./internal/... ./cmd/...
+./tests/...` passed, including the new relay tests in internal/control,
+internal/attachment and internal/daemon and the fixture's
+`TestFixtureClaimAttachesARealTerminalOnce`. `just tui-tests` passed all 29
+cases (8 terminal, 9 observer, 12 mock). The VM scenarios that reach the Incus
+terminal (12, 13 and 56) are run by the integration gate, not by this review.
+
 ## Third TUI review fixes — 2026-11-03
 
 This change fixes the two observations the second TUI fixes left open. After a

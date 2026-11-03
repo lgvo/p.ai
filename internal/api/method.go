@@ -80,8 +80,6 @@ var (
 	SessionCreateReplace  = Method[SessionCreateReplaceRequest, ChangeResult[CreateReplaceDetails]]{"session.create.replace"}
 	SessionCreateCleanup  = Method[SessionCreateCleanupRequest, ChangeResult[CreateCleanupDetails]]{"session.create.cleanup"}
 	AttachmentClaim       = Method[AttachmentClaimRequest, AttachmentLaunch]{"attachment.claim"}
-	AttachmentConfirm     = Method[AttachmentConfirmRequest, AttachmentResult]{"attachment.confirm"}
-	AttachmentPing        = Method[AttachmentPingRequest, AttachmentResult]{"attachment.ping"}
 
 	SessionServices      = Method[SessionServicesRequest, SessionServicesResult]{"session.services"}
 	SessionServiceAction = Method[SessionServiceActionRequest, SessionServiceActionResult]{"session.service.action"}
@@ -126,8 +124,6 @@ func Methods() []MethodInfo {
 		info(SessionCreateReplace, CapabilityRuntime),
 		info(SessionCreateCleanup, CapabilityRuntime),
 		info(AttachmentClaim, CapabilityRuntime),
-		info(AttachmentConfirm, CapabilityRuntime),
-		info(AttachmentPing, CapabilityRuntime),
 		info(SessionServices, CapabilityServices),
 		info(SessionServiceAction, CapabilityServices),
 		info(SessionServiceLogs, CapabilityServices),

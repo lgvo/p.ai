@@ -299,6 +299,20 @@ type HostError struct{ Diagnostic string }
 
 func (e *HostError) Error() string { return e.Diagnostic }
 
+// UnendedTerminal is OpenTerminal's error when the attach had begun but the
+// terminal could not be opened and its end was not proven. It names the
+// terminal so core keeps its guard until Settle of the terminal effect
+// answers Applied, and it is an ErrUnknownOutcome.
+type UnendedTerminal struct {
+	ID  string
+	Err error
+}
+
+func (e *UnendedTerminal) Error() string {
+	return "terminal " + e.ID + " did not open and its end is unproven: " + e.Err.Error()
+}
+func (e *UnendedTerminal) Unwrap() []error { return []error{ErrUnknownOutcome, e.Err} }
+
 // MaxObjects bounds an inventory, and so the capacity a scope may state.
 const MaxObjects = 64
 

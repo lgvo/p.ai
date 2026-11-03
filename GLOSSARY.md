@@ -15,14 +15,15 @@ The one Git branch assigned to a session while that session exists.
 
 ### Attachment
 
-A temporary terminal channel from one client to a session's persistent
-interactive host.
+A temporary terminal from one client to a session's persistent interactive
+host, which the runtime driver opens and the daemon relays.
 
 - **Boundaries:** It is not the persistent host and does not own container
   lifetime.
-- **Rules:** Only a confirmed helper-owned lease contributes to
-  `attached_count`. Detach, switching, or transport loss ends the attachment
-  without stopping the host.
+- **Rules:** An attachment counts in `attached_count` from the claim that
+  opened its terminal until the runtime driver proves or settles the
+  terminal's end, or the session stops. Detach, switching, or transport loss
+  ends the attachment without stopping the host.
 
 ### Bootstrap session
 

@@ -373,9 +373,10 @@ deletion. Host fetch and explicit publication against origin use the user's
 normal OpenSSH credentials, not P session credentials.
 
 The control API is newline-delimited JSON-RPC 2.0 over Unix sockets. MVP
-clients connect directly to the local Unix socket. Attachment uses a separate
-validated argv path through a trusted host helper that binds lease, terminal
-carrier, and channel lifetime. A client-initiated SSH-to-Unix transport is
+clients connect directly to the local Unix socket. For an attachment, a trusted
+host helper claims a one-use token on its own control connection, and the
+daemon relays over that connection the terminal it opens through the runtime
+driver on a fixed attach command. A client-initiated SSH-to-Unix transport is
 post-MVP; the daemon never initiates SSH or returns a shell string.
 
 Git carries commits, objects, and refs. RPC carries lifecycle, configuration,

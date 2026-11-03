@@ -260,35 +260,6 @@ func TestRPCHandlerPanicAnswersInternalAndConnectionKeepsServing(t *testing.T) {
 	}
 }
 
-func TestRPCConnectionCloseSurvivesPanickingRelease(t *testing.T) {
-	client, server := net.Pipe()
-	done := make(chan struct{})
-	go func() {
-		ServeConn(context.Background(), server, withHello(func(ctx context.Context, _ string, _ json.RawMessage) (any, *api.Error) {
-			if err := ctx.Value(connectionKey{}).(*Connection).Own(func() { panic("release bug") }); err != nil {
-				return nil, answerError(ctx, err)
-			}
-			return api.AttachmentResult{}, nil
-		}))
-		close(done)
-	}()
-	reader := bufio.NewReader(client)
-	agree(t, client, reader)
-	if _, err := client.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"attachment.claim","params":{}}` + "\n")); err != nil {
-		t.Fatal(err)
-	}
-	client.SetReadDeadline(time.Now().Add(2 * time.Second))
-	if line, err := reader.ReadBytes('\n'); err != nil || !strings.Contains(string(line), `"result"`) {
-		t.Fatalf("claim: %s %v", line, err)
-	}
-	client.Close()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("connection teardown did not finish after its release panicked")
-	}
-}
-
 func TestClientCallsPrivateSocket(t *testing.T) {
 	store, dir := openTestStore(t)
 	ctx, cancel := context.WithCancel(context.Background())

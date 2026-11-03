@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // These tests state what the control-API handler answers, built the way the
@@ -78,11 +79,8 @@ func (l fullLife) SessionServiceLogs(_ context.Context, id, name string) (api.Se
 func (l fullLife) AttachSession(_ context.Context, id string) (api.PendingAttachment, error) {
 	return api.PendingAttachment{Token: "pending"}, l.record("AttachSession %s", id)
 }
-func (l fullLife) ClaimAttachment(_ context.Context, token string, _ *Connection) (api.AttachmentLaunch, error) {
-	return api.AttachmentLaunch{}, l.record("ClaimAttachment %s", token)
-}
-func (l fullLife) ConfirmAttachment(_ context.Context, _ *Connection, operation string) error {
-	return l.record("ConfirmAttachment %s", operation)
+func (l fullLife) ClaimAttachment(_ context.Context, token string, size runtimedriver.Size) (Terminal, error) {
+	return nil, l.record("ClaimAttachment %s %+v", token, size)
 }
 func (l fullLife) DiscardSession(_ context.Context, id string, r api.ChangeRequest) (api.ChangeResult[api.RemovalDetails], error) {
 	return changeAnswer[api.RemovalDetails](r, "discard"), l.record("DiscardSession %s %+v", id, r)
@@ -191,8 +189,8 @@ func surfaceCall(t *testing.T, h Handler, ctx context.Context, method, params st
 	return decoded, nil
 }
 
-func surfaceConnectionContext(dedicated bool) context.Context {
-	return context.WithValue(context.Background(), connectionKey{}, &Connection{dedicated: dedicated})
+func surfaceConnectionContext() context.Context {
+	return context.WithValue(context.Background(), connectionKey{}, &Connection{})
 }
 
 func TestHelloReportsEachConfiguration(t *testing.T) {
@@ -243,7 +241,7 @@ func TestEveryProtocolMethodIsServedOrNotConfigured(t *testing.T) {
 			if m.Connection {
 				continue
 			}
-			_, rpcErr := h(surfaceConnectionContext(false), m.Name, json.RawMessage(`{"unknown":1}`))
+			_, rpcErr := h(surfaceConnectionContext(), m.Name, json.RawMessage(`{"unknown":1}`))
 			notConfigured := api.NewError(api.KindNotConfigured, string(m.Capability))
 			switch {
 			case test.configured[m.Capability] && !reflect.DeepEqual(rpcErr, api.InvalidParam("unknown")):
@@ -312,13 +310,11 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		{"session.services", `{"uuid":"` + uuid + `"}`, "SessionServices " + uuid, []string{"observed_at", "services", "uuid"}, ""},
 		{"session.service.logs", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `"}`, "SessionServiceLogs " + uuid + " " + surfaceUnit, []string{"name", "observed_at", "uuid"}, ""},
 		{"session.service.action", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `","action":"restart"}`, "SessionServiceAction " + uuid + " " + surfaceUnit + " restart", []string{"name", "observed_at", "uuid"}, ""},
-		{"session.attach", `{"uuid":"` + uuid + `"}`, "AttachSession " + uuid, []string{"expires_at", "spec", "token"}, ""},
-		{"attachment.confirm", `{"operation":"/1.0/operations/` + uuid + `"}`, "ConfirmAttachment /1.0/operations/" + uuid, nil, ""},
-		{"attachment.ping", `{}`, "", nil, ""},
+		{"session.attach", `{"uuid":"` + uuid + `"}`, "AttachSession " + uuid, []string{"expires_at", "token"}, ""},
 	} {
 		t.Run(test.method+" "+test.call, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
-			result, rpcErr := surfaceCall(t, h, surfaceConnectionContext(true), test.method, test.params)
+			result, rpcErr := surfaceCall(t, h, surfaceConnectionContext(), test.method, test.params)
 			if rpcErr != nil {
 				t.Fatalf("refused: %+v", rpcErr)
 			}
@@ -412,14 +408,15 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		{"session.service.action", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `","action":"logs"}`},
 		{"system.health", `null`},
 		{"system.inspect", `[]`},
-		{"attachment.ping", `null`},
+		{"attachment.claim", `null`},
 		{"session.attach", `{"uuid":"bad"}`},
-		{"attachment.confirm", `{"operation":"/1.0/operations/short"}`},
-		{"attachment.ping", `{"operation":"/1.0/operations/` + uuid + `"}`},
+		{"attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `"}`},
+		{"attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `","width":0,"height":24}`},
+		{"attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `","width":80,"height":24,"operation":"/1.0/operations/` + uuid + `"}`},
 	} {
 		t.Run(test.method+" "+test.params, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
-			_, rpcErr := surfaceCall(t, h, surfaceConnectionContext(true), test.method, test.params)
+			_, rpcErr := surfaceCall(t, h, surfaceConnectionContext(), test.method, test.params)
 			if rpcErr == nil || rpcErr.Code != -32602 || rpcErr.Kind() != "invalid" {
 				t.Fatalf("answer %+v, want invalid_params", rpcErr)
 			}
@@ -468,9 +465,8 @@ func TestAttachmentHelperMethodsNeedTheirConnection(t *testing.T) {
 		params string
 	}{
 		{"attach without a connection", context.Background(), "session.attach", `{"uuid":"` + surfaceUUID + `"}`},
-		{"confirm on an ordinary connection", surfaceConnectionContext(false), "attachment.confirm", `{"operation":"/1.0/operations/` + surfaceUUID + `"}`},
-		{"ping on an ordinary connection", surfaceConnectionContext(false), "attachment.ping", `{}`},
-		{"claim from a process that is not the helper", surfaceConnectionContext(false), "attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `"}`},
+		{"claim without a connection", context.Background(), "attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `","width":80,"height":24}`},
+		{"claim from a process that is not the helper", surfaceConnectionContext(), "attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `","width":80,"height":24}`},
 	} {
 		_, rpcErr := surfaceCall(t, h, test.ctx, test.method, test.params)
 		if want := api.NewError(api.KindInvalidRequest, api.ReasonConnection); !reflect.DeepEqual(rpcErr, want) {
@@ -639,7 +635,7 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		{"lifecycle params without runtime", surfaceStateOnly, "session.discard", discard, notConfigured("runtime")},
 		{"project list without Git", surfaceStateOnly, "project.list", `{"limit":1}`, notConfigured("git")},
 		{"lifecycle with Git only", surfaceGit, "session.create", `{}`, notConfigured("runtime")},
-		{"attachment without runtime", surfaceGit, "attachment.ping", `{}`, notConfigured("runtime")},
+		{"attachment without runtime", surfaceGit, "attachment.claim", `{}`, notConfigured("runtime")},
 		{"system method rejects params", surfaceGit, "system.hello", `{"protocol":"p.control/v2","x":1}`, api.InvalidParam("x")},
 		{"system method rejects the old version field", surfaceGit, "system.health", `{"v":1}`, api.InvalidParam("v")},
 		{"removed capabilities", surfaceGit, "system.capabilities", `{}`, unknown},
@@ -669,7 +665,7 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, calls := surfaceHandler(t, test.config)
-			_, rpcErr := surfaceCall(t, h, surfaceConnectionContext(true), test.method, test.params)
+			_, rpcErr := surfaceCall(t, h, surfaceConnectionContext(), test.method, test.params)
 			if !reflect.DeepEqual(rpcErr, test.want) {
 				t.Fatalf("answer %v, want %v", rpcErr, test.want)
 			}

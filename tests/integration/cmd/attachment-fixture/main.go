@@ -1,5 +1,6 @@
-// attachment-fixture exercises the actual host CLI, Incus terminal channel,
-// and selected persistent tmux host inside the disposable product VM.
+// attachment-fixture exercises the actual host CLI and helper, the daemon's
+// relay of the Incus driver's terminal, and the selected persistent tmux host
+// inside the disposable product VM.
 package main
 
 import (
@@ -553,7 +554,7 @@ func (f *fixture) run() (runErr error) {
 	}
 
 	// A pending decision and a dead carrier have no presence effect. A normal
-	// host API process cannot use the helper-only claim or confirm methods.
+	// host API process cannot use the helper-only claim.
 	f.stage = "pending and dead carrier"
 	failedToken, err := f.pending(a)
 	if err != nil {
@@ -562,18 +563,12 @@ func (f *fixture) run() (runErr error) {
 	if err = f.stopBusy(a); err != nil {
 		return err
 	}
-	for _, method := range []string{"attachment.claim", "attachment.confirm"} {
-		params := map[string]any{"token": failedToken}
-		if method == "attachment.confirm" {
-			params = map[string]any{"operation": "/1.0/operations/00000000-0000-0000-0000-000000000000"}
-		}
-		reply, e := f.rpc(method, params)
-		if e != nil {
-			return e
-		}
-		if reply["error"] == nil {
-			return fmt.Errorf("ordinary RPC fabricated %s: %v", method, reply)
-		}
+	reply, err := f.rpc("attachment.claim", map[string]any{"token": failedToken, "width": 80, "height": 24})
+	if err != nil {
+		return err
+	}
+	if reply["error"] == nil {
+		return fmt.Errorf("ordinary RPC fabricated attachment.claim: %v", reply)
 	}
 	if err = f.presence(a, 0, "attention"); err != nil {
 		return err
@@ -588,8 +583,9 @@ func (f *fixture) run() (runErr error) {
 		return err
 	}
 
-	// The one-use helper handshake is real, including native PTY establishment.
-	f.stage = "manual confirmation and replay"
+	// The one-use helper claim is real, including the terminal the daemon
+	// opens through the Incus driver.
+	f.stage = "manual claim and replay"
 	goodToken, err := f.pending(a)
 	if err != nil {
 		return err
@@ -768,8 +764,8 @@ func (f *fixture) run() (runErr error) {
 		return err
 	}
 
-	// Restart invalidates an active lease. The helper begins native teardown;
-	// it cannot renew the old channel on the recreated socket.
+	// Restart ends an active attachment: its relay connection closes, and the
+	// helper ends without claiming again on the recreated socket.
 	f.stage = "graceful daemon restart"
 	live, err := f.openTerminal(a)
 	if err != nil {
@@ -1090,7 +1086,7 @@ func (h *helper) close() error {
 	case <-time.After(15 * time.Second):
 		_ = h.cmd.Process.Kill()
 		<-h.done
-		return errors.New("attachment helper did not finish native teardown")
+		return errors.New("attachment helper did not end")
 	}
 }
 

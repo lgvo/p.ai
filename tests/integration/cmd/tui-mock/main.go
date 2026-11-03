@@ -1,8 +1,8 @@
 // tui-mock is a disposable, stateful development fixture. It serves the
 // methods of the control protocol that the production TUI and attachment
 // helper call, with the protocol's own request and result types (internal/api)
-// and control's method table and connection handling; the production TUI has
-// no fixture-specific code.
+// and control's method table, connection handling and terminal relay; the
+// production TUI has no fixture-specific code.
 package main
 
 import (
@@ -82,15 +82,10 @@ type pending struct {
 	UUID    string
 	Expires time.Time
 }
-type attachmentLease struct {
-	UUID      string
-	Confirmed bool
-}
 
-// connection is one client connection: its attachment lease and the
-// system.hello requests it sent that are not recorded yet.
+// connection is one client connection: the system.hello requests it sent
+// that are not recorded yet.
 type connection struct {
-	lease attachmentLease
 	// hellos are recorded with the connection's next call, or when it closes.
 	// A call of the fixture's own methods drops them, so a connection that
 	// only inspects or configures the fixture leaves no calls behind.
@@ -110,7 +105,7 @@ type fixture struct {
 	keys     map[string]string
 	calls    []call
 	faults   map[string]fault
-	native   *nativeServer
+	tmux     *tmuxHost
 }
 
 const (
@@ -216,8 +211,7 @@ func page[T any](values []T, after string, limit int, id func(T) string) ([]T, s
 }
 
 // serve answers one connection with control's connection handling. When the
-// connection closes, its unrecorded hellos are recorded and its confirmed
-// attachment ends.
+// connection closes, its unrecorded hellos are recorded.
 func (f *fixture) serve(ctx context.Context, conn net.Conn) {
 	c := &connection{}
 	defer f.release(c)
@@ -228,10 +222,6 @@ func (f *fixture) release(c *connection) {
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, c.hellos...)
 	c.hellos = nil
-	if s, ok := f.sessions[c.lease.UUID]; ok && c.lease.Confirmed && s.AttachedCount > 0 {
-		s.AttachedCount--
-		f.sessions[c.lease.UUID] = s
-	}
 }
 
 // faultKey carries a call's configured fault to its handler.
@@ -244,7 +234,7 @@ type faultKey struct{}
 // races a mutation.
 func (f *fixture) handler(c *connection) control.Handler {
 	t := control.NewMethodTable()
-	f.register(t, &c.lease)
+	f.register(t)
 	dispatch := t.Handler()
 	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.Error) {
 		f.mu.Lock()
@@ -293,9 +283,8 @@ func (f *fixture) record(c *connection, method string, params json.RawMessage) {
 
 // register serves through t the fixture's own methods and the protocol's
 // methods that the production TUI and attachment helper call; any other name
-// answers method_not_found. Every handler runs under f.mu. lease is the
-// connection's attachment lease.
-func (f *fixture) register(t *control.MethodTable, lease *attachmentLease) {
+// answers method_not_found. Every handler runs under f.mu.
+func (f *fixture) register(t *control.MethodTable) {
 	control.Register(t, mockInspect, func(context.Context, mockInspectRequest) (mockInspectResult, error) {
 		return mockInspectResult{Projects: f.projects, Sessions: f.sessions, Operations: f.ops, Services: f.services, Refs: f.refs, Calls: f.calls}, nil
 	})
@@ -313,7 +302,7 @@ func (f *fixture) register(t *control.MethodTable, lease *attachmentLease) {
 	f.registerReads(t)
 	f.registerLifecycle(t)
 	f.registerServices(t)
-	f.registerAttachment(t, lease)
+	f.registerAttachment(t)
 }
 
 func (f *fixture) registerReads(t *control.MethodTable) {
@@ -570,7 +559,7 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 		if s.Condition == "stopped" {
 			return api.SessionChangeResult{Session: &s}, nil
 		}
-		f.native.stopSession(s.UUID)
+		f.tmux.stopSession(s.UUID)
 		s.Condition = "stopped"
 		f.sessions[s.UUID] = s
 		return api.SessionChangeResult{Changed: true, Operation: f.sessionChange(api.SessionStop.Name, s, r)}, nil
@@ -643,7 +632,7 @@ func (f *fixture) removal(action, id string, req api.ChangeRequest) control.Chan
 			if err != nil {
 				return api.Operation{}, err
 			}
-			f.native.stopSession(id)
+			f.tmux.stopSession(id)
 			delete(f.sessions, id)
 			delete(f.services, id)
 			if action == "delete" {
@@ -716,10 +705,12 @@ func (f *fixture) units(id, unit string) ([]api.ProjectService, int, error) {
 	return services, -1, nil
 }
 
-func (f *fixture) registerAttachment(t *control.MethodTable, lease *attachmentLease) {
-	spec := func(id string) plugin.AttachSpec {
-		return plugin.AttachSpec{Project: "p-mock", Instance: "p-" + id, Argv: []string{"/usr/libexec/p/attach"}}
-	}
+// registerAttachment serves session.attach and the helper's claim, which
+// attaches a tmux client to the session's tmux session. The attachment counts
+// in the session's presence, clearing its unattended report, until the
+// client exits: when the user detaches, or when the relay closes it because
+// the helper went.
+func (f *fixture) registerAttachment(t *control.MethodTable) {
 	control.Register(t, api.SessionAttach, func(_ context.Context, r api.SessionAttachRequest) (api.PendingAttachment, error) {
 		s, err := f.session(r.UUID)
 		if err != nil {
@@ -731,34 +722,33 @@ func (f *fixture) registerAttachment(t *control.MethodTable, lease *attachmentLe
 		token := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
 		expires := time.Now().Add(time.Minute)
 		f.tokens[token] = pending{UUID: s.UUID, Expires: expires}
-		return api.PendingAttachment{Token: token, ExpiresAt: expires, Spec: spec(s.UUID)}, nil
+		return api.PendingAttachment{Token: token, ExpiresAt: expires}, nil
 	})
-	control.Register(t, api.AttachmentClaim, func(_ context.Context, r api.AttachmentClaimRequest) (api.AttachmentLaunch, error) {
+	control.RegisterClaim(t, func(_ context.Context, r api.AttachmentClaimRequest) (control.Terminal, error) {
 		claimed := f.tokens[r.Token]
 		id := claimed.UUID
-		if id == "" || f.sessions[id].Condition != "ready" || time.Now().After(claimed.Expires) || lease.UUID != "" {
-			return api.AttachmentLaunch{}, mockError(api.KindPreconditionFailed, api.ReasonExpired, "")
+		if id == "" || f.sessions[id].Condition != "ready" || time.Now().After(claimed.Expires) {
+			return nil, mockError(api.KindPreconditionFailed, api.ReasonExpired, "")
 		}
 		delete(f.tokens, r.Token)
-		lease.UUID = id
-		return api.AttachmentLaunch{Socket: filepath.Join(f.dir, "native.sock"), Spec: spec(id)}, nil
-	})
-	control.Register(t, api.AttachmentConfirm, func(_ context.Context, r api.AttachmentConfirmRequest) (api.AttachmentResult, error) {
-		s, ok := f.sessions[lease.UUID]
-		if !ok || lease.Confirmed || !f.native.running(r.Operation, lease.UUID) {
-			return api.AttachmentResult{}, mockError(api.KindPreconditionFailed, api.ReasonExpired, "")
+		client, err := f.tmux.attach(id, r.Width, r.Height)
+		if err != nil {
+			return nil, mockError(api.KindFailed, api.ReasonRuntime, "")
 		}
+		s := f.sessions[id]
 		s.AttachedCount++
-		lease.Confirmed = true
 		s.LatestUnattendedCondition = nil
-		f.sessions[s.UUID] = s
-		return api.AttachmentResult{}, nil
-	})
-	control.Register(t, api.AttachmentPing, func(context.Context, api.AttachmentPingRequest) (api.AttachmentResult, error) {
-		if lease.UUID == "" {
-			return api.AttachmentResult{}, mockError(api.KindInvalidRequest, api.ReasonConnection, "")
-		}
-		return api.AttachmentResult{}, nil
+		f.sessions[id] = s
+		go func() {
+			<-client.done
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if s, ok := f.sessions[id]; ok && s.AttachedCount > 0 {
+				s.AttachedCount--
+				f.sessions[id] = s
+			}
+		}()
+		return client, nil
 	})
 }
 
@@ -787,11 +777,11 @@ func runFixture(parent context.Context, dir, dataset string) error {
 	defer cancel()
 	f := newFixture(dir, dataset)
 	var err error
-	f.native, err = newNative(dir)
+	f.tmux, err = newTmuxHost(dir)
 	if err != nil {
 		return err
 	}
-	defer f.native.close()
+	defer f.tmux.close()
 	listener, err := net.Listen("unix", filepath.Join(dir, "control.sock"))
 	if err != nil {
 		return err

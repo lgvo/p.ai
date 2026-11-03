@@ -1,0 +1,28 @@
+{"op": "start", "label": "start", "wait": 1.5, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1793713990.9074695, "bytes": 6418, "run": "before"}
+{"op": "send", "label": "enter", "wait": 0.05, "text": "\r", "hex": null, "frame": "0002-enter", "timestamp": 1793713997.118407, "bytes": 9013, "run": "before"}
+{"op": "observe", "label": "attached", "wait": 1.5, "frame": "0003-attached", "timestamp": 1793713999.4263103, "bytes": 9013, "run": "before"}
+{"op": "send", "label": "command", "wait": 0.6, "text": "printf 'P_%s_OK\\n' REVIEW\r", "hex": null, "frame": "0004-command", "timestamp": 1793714010.9602542, "bytes": 9167, "run": "before"}
+{"op": "resize", "label": "resize-80x24", "wait": 0.6, "cols": 80, "rows": 24, "frame": "0005-resize-80x24", "timestamp": 1793714012.6296632, "bytes": 9533, "run": "before"}
+{"op": "send", "label": "stty", "wait": 0.6, "text": "stty size\r", "hex": null, "frame": "0006-stty", "timestamp": 1793714014.3334582, "bytes": 9567, "run": "before"}
+{"op": "send", "label": "detach-early", "wait": 0.05, "text": null, "hex": "0264", "frame": "0007-detach-early", "timestamp": 1793714015.4850926, "bytes": 12901, "run": "before"}
+{"op": "observe", "label": "detached", "wait": 1.0, "frame": "0008-detached", "timestamp": 1793714017.317864, "bytes": 13067, "run": "before"}
+{"op": "send", "label": "reenter-early", "wait": 0.05, "text": "\r", "hex": null, "frame": "0009-reenter-early", "timestamp": 1793714018.4498613, "bytes": 14945, "run": "before"}
+{"op": "observe", "label": "reentered", "wait": 1.0, "frame": "0010-reentered", "timestamp": 1793714020.5667028, "bytes": 14945, "run": "before"}
+{"op": "send", "label": "detached-again", "wait": 1.0, "text": null, "hex": "0264", "frame": "0011-detached-again", "timestamp": 1793714022.5447686, "bytes": 18445, "run": "before"}
+{"op": "resize", "label": "browser-120x35", "wait": 0.8, "cols": 120, "rows": 35, "frame": "0012-browser-120x35", "timestamp": 1793714024.4980342, "bytes": 24423, "run": "before"}
+{"op": "send", "label": "quit", "wait": 1.0, "text": "q", "hex": null, "frame": "0013-quit", "timestamp": 1793714030.5163155, "bytes": 25232, "run": "before"}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "0014-close", "timestamp": 1793714031.3267388, "bytes": 25232, "run": "before"}
+{"op": "start", "label": "start", "wait": 1.5, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1793714039.3346362, "bytes": 6418, "run": "after"}
+{"op": "send", "label": "enter", "wait": 0.05, "text": "\r", "hex": null, "frame": "0002-enter", "timestamp": 1793714040.2809453, "bytes": 8242, "run": "after"}
+{"op": "observe", "label": "attached", "wait": 1.5, "frame": "0003-attached", "timestamp": 1793714042.601319, "bytes": 8242, "run": "after"}
+{"op": "send", "label": "command", "wait": 0.6, "text": "printf 'P_%s_OK\\n' REVIEW\r", "hex": null, "frame": "0004-command", "timestamp": 1793714049.315582, "bytes": 8396, "run": "after"}
+{"op": "resize", "label": "resize-80x24", "wait": 0.6, "cols": 80, "rows": 24, "frame": "0005-resize-80x24", "timestamp": 1793714050.7386105, "bytes": 8762, "run": "after"}
+{"op": "send", "label": "stty", "wait": 0.6, "text": "stty size\r", "hex": null, "frame": "0006-stty", "timestamp": 1793714052.1157923, "bytes": 8796, "run": "after"}
+{"op": "send", "label": "detach-early", "wait": 0.05, "text": null, "hex": "0264", "frame": "0007-detach-early", "timestamp": 1793714052.9736035, "bytes": 12130, "run": "after"}
+{"op": "observe", "label": "detached", "wait": 1.0, "frame": "0008-detached", "timestamp": 1793714054.798763, "bytes": 12296, "run": "after"}
+{"op": "send", "label": "reenter-early", "wait": 0.05, "text": "\r", "hex": null, "frame": "0009-reenter-early", "timestamp": 1793714055.653739, "bytes": 14174, "run": "after"}
+{"op": "observe", "label": "reentered", "wait": 1.0, "frame": "0010-reentered", "timestamp": 1793714057.4909718, "bytes": 14174, "run": "after"}
+{"op": "send", "label": "detached-again", "wait": 1.0, "text": null, "hex": "0264", "frame": "0011-detached-again", "timestamp": 1793714059.3002462, "bytes": 17674, "run": "after"}
+{"op": "resize", "label": "browser-120x35", "wait": 0.8, "cols": 120, "rows": 35, "frame": "0012-browser-120x35", "timestamp": 1793714060.9760244, "bytes": 23652, "run": "after"}
+{"op": "send", "label": "quit", "wait": 1.0, "text": "q", "hex": null, "frame": "0013-quit", "timestamp": 1793714080.1084688, "bytes": 26003, "run": "after"}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "0014-close", "timestamp": 1793714080.9439595, "bytes": 26003, "run": "after"}

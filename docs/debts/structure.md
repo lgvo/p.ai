@@ -2,11 +2,10 @@
 
 ## Lifecycle workers depend on concrete runtime, store and Git types
 
-- Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
-- Problem: Workers call the concrete `*control.Store` and `*gitCapability`, and attachment
-  a concrete `*runtimeincus.Backend` (3 methods, 3 calls), so no worker can run against a
-  stand-in store or Git service.
-- Evidence: daemon statement coverage is 64.5% (2026-11-03); the removal and rename workers
+- Where: internal/daemon `lifecycle` (fields `store`, `git`)
+- Problem: Workers call the concrete `*control.Store` and `*gitCapability`, so no worker
+  can run against a stand-in store or Git service.
+- Evidence: daemon statement coverage is 65.8% (2026-11-03); the removal and rename workers
   run in unit tests only over a real SQLite store and a real Git repository, and
   `processRetainedDelete` is at 0%.
 - Risk: a store or Git failure in a recovery branch is checked only where a real store or
@@ -15,7 +14,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 16 cases:
+- Added 2026-11-01, updated 2026-11-03, 17 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -92,6 +91,9 @@
   - 2026-11-03: "step 9 S4: the commit export through the source driver" moved the image
     build's bundle onto `git.driver`'s `Export`; the image step's unit tests run it on the
     bundled driver over a real repository. Only P's SSH endpoint still uses gitservice.
+  - 2026-11-03: "the daemon relays terminals" moved attachment to the driver's
+    `OpenTerminal`, so no worker calls the Incus backend any more and the `runtime` field
+    is gone; the store and Git half of this entry remains.
 
 ## Long worker functions
 
@@ -187,7 +189,7 @@
 
 - Where: internal/runtimeincus (driver_services.go, driver_workspace.go, builder.go,
   builder_nix.go, host_observe.go, attach.go, builder_architecture.go, assembly.go,
-  sftp_stat.go, graceful_stop.go) and internal/attachment incus.go
+  sftp_stat.go, graceful_stop.go, driver_terminal.go)
 - Problem: The `incus exec` argument lists and the HTTP-over-socket clients are written
   separately, each with its own environment and limits.
 - Evidence: listed while mapping the adapters on 2026-11-01.
@@ -196,7 +198,7 @@
 - Fix when: the next change to how P reaches Incus.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
   step 8 consolidates only the instance inventory).
-- Added 2026-11-01, updated 2026-11-03, 6 cases:
+- Added 2026-11-01, updated 2026-11-03, 7 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
   - 2026-11-02: "deletions without inspection" deleted workspace_git.go and
     workspace_helper.go with the workspace helpers, and their exec and file-API clients.
@@ -216,6 +218,9 @@
     workspace operations over the stopped instance's file API that add SFTP REMOVE, RMDIR
     and a directory listing on `openIncusSFTP`, and generalized `writeSFTPRequest`; no new
     client, and consolidation stays outside the step.
+  - 2026-11-03: "the daemon relays terminals" moved the attach exec's HTTP-over-socket and
+    websocket client from internal/attachment into runtimeincus driver_terminal.go, still
+    hand-built; internal/attachment no longer reaches Incus.
 
 ## Trusted configuration and the RPC server live in the store package
 

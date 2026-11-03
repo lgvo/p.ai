@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-03",
+  "base_revision": "785de06",
+  "state": "uncommitted M5 change on rework-lane-b (the daemon relays terminals; the helper loses Incus access); the Incus driver's OpenTerminal changing concurrently in the same tree",
+  "setup": "before: p and tui-mock built from git archive of base_revision; after: p and tui-mock built from the working tree. Each run: a fresh small-dataset fixture and production p tui at 120x35 under tests/integration/tui-observe.py",
+  "dimensions": [
+    [
+      120,
+      35
+    ],
+    [
+      80,
+      24
+    ]
+  ],
+  "intended_experience": "Unchanged by M5: Enter on a running session takes over the terminal with the session's tmux; Ctrl-B d detaches back to the browser with the session still running; re-entry shows the same tmux session. The prototype's simulated terminal and Ctrl+B popup remain outside implemented scope, as before.",
+  "navigated": "forge / feat/device-login: Enter, observe; printf command; resize to 80x24; stty size; Ctrl-B d (frame 50 ms after and 1 s after); Enter again (50 ms and 1 s); Ctrl-B d; resize to 120x35; quit. The same actions on both builds.",
+  "review_result": "passed: every captured frame's cells and cursor are identical between the builds (only timestamps, byte counts and the binary path differ). Entry shows the tmux pane with no browser residue at 50 ms; the command runs; the pane follows the resize (stty size 23 80); detach returns to the browser with the session running and unattended; re-entry shows the same pane and history; attached_count was 1 while attached and 0 after detach (session.inspect). No defect found.",
+  "tests": {
+    "tui_gate": "just tui-tests passed: 8 terminal, 9 observer, 12 mock cases, including test_03 attachment/resize/detach/re-entry and test_08 TERM while attached",
+    "component": "go test ./tests/integration/cmd/tui-mock/ passed, including TestFixtureClaimAttachesARealTerminalOnce through control's relay"
+  },
+  "boundary": "mock socket and local tmux through the production client, helper and control relay; the Incus driver's terminal and native teardown need the VM scenarios 12, 13 and 56, which the coordinator runs",
+  "raw_capture_destination": "session scratchpad (not retained)",
+  "sha256": {
+    "before p": "dfc54df292114f398750c3e83417bea780e22e94a2668658885c3a8b9d2f56e8",
+    "before tui-mock server": "183d68dbdccc648ec0e4470a0a4d34440a1f17f7dfff61f21336b5725fb16f8f",
+    "after p": "721be9d8e3df837f890c53eb44ee5bbc77d87b3bf50508a052ef398a90c82546",
+    "after tui-mock server": "c5cd057bf4787b329976b95f652f4c448b1db3c321fef3280b4ee9fe9c8f1b39"
+  },
+  "artifacts": {
+    "after-0002-enter.png": "66ffb7079b4049cbd05346d15e5a03eb2ff7f77a844b241313dbb02ad4eb5011",
+    "after-0004-command.png": "ab9bb2571feb51cd5162e7e89915b36dc517a5cd2279b1dbd8503cdc7b5f5f95",
+    "after-0006-stty.png": "3cf51c0ef229b0d50d60a6981e5a89b66f0a9010c1f38bdc63c766cb2f27f384",
+    "after-0007-detach-early.png": "3ed219f6ba7c1136c0405dc09f1a7d72ff72d9de9d027de49f497661a9c74e31",
+    "after-0010-reentered.png": "3cf51c0ef229b0d50d60a6981e5a89b66f0a9010c1f38bdc63c766cb2f27f384",
+    "after-0012-browser-120x35.png": "fd388962b6c71a1b79572c023990b2861f0a129b872a87c5123cb254d4dffb76",
+    "before-0002-enter.png": "66ffb7079b4049cbd05346d15e5a03eb2ff7f77a844b241313dbb02ad4eb5011",
+    "before-0004-command.png": "ab9bb2571feb51cd5162e7e89915b36dc517a5cd2279b1dbd8503cdc7b5f5f95",
+    "before-0006-stty.png": "3cf51c0ef229b0d50d60a6981e5a89b66f0a9010c1f38bdc63c766cb2f27f384",
+    "before-0007-detach-early.png": "3ed219f6ba7c1136c0405dc09f1a7d72ff72d9de9d027de49f497661a9c74e31",
+    "before-0010-reentered.png": "3cf51c0ef229b0d50d60a6981e5a89b66f0a9010c1f38bdc63c766cb2f27f384",
+    "actions.ndjson": "176918a6a3af3452db8a6f54a4b5f58856519fdbc70ee506926496398c0fa162"
+  }
+}

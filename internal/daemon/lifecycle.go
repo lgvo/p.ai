@@ -24,42 +24,42 @@ import (
 )
 
 type lifecycle struct {
-	store            *control.Store
-	cfg              control.RuntimeConfig
-	incus            runtimeincus.DriverConfig // the Incus driver's own settings from cfg.Driver
-	git              *gitCapability
-	runtime          *runtimeincus.Backend // attachment's backend calls, until terminals move into the driver
-	driver           runtimedriver.Driver
-	hostPlan         plugin.AssetPlan
-	sourcePlan       plugin.AssetPlan
-	agentPlan        *plugin.AssetPlan
-	endpoints        *endpointManager
-	instanceID       string
-	ctx              context.Context
-	mu               sync.Mutex
-	working          map[string]bool
-	gitOnly          bool // no runtime: only kinds marked withoutRuntime run
-	origins          *control.OriginAPI
-	onlyRunning      map[string]bool // queued resumptions: run only while still running
-	pending          []string
-	queueSlots       chan struct{}
-	sessionLocks     map[string]chan struct{}
-	sessionReads     map[string]*readsInFlight
-	holdMu           sync.Mutex
-	holds            map[string][]heldSession // what each operation's worker holds
-	holders          map[string]string        // the operation whose worker holds each session
-	waitMu           sync.Mutex
-	waiters          map[string]map[chan struct{}]bool // operation.wait calls, by operation
-	confinementCheck func(context.Context) error       // the driver's Check before a policy decision
-	attachments      map[string]*attachment
-	onAttachment     func(context.Context, string, int, bool)
-	events           *eventDelivery
-	eventMu          sync.Mutex
-	observed         map[string]observedFacts
-	eventContexts    map[string]eventContext
-	changedPolicies  map[string]bool
-	commitLocks      map[string]chan struct{}
-	releases         map[string]bool // projects whose image release runs; true asks for another run
+	store                  *control.Store
+	cfg                    control.RuntimeConfig
+	incus                  runtimeincus.DriverConfig // the Incus driver's own settings from cfg.Driver
+	git                    *gitCapability
+	driver                 runtimedriver.Driver
+	hostPlan               plugin.AssetPlan
+	sourcePlan             plugin.AssetPlan
+	agentPlan              *plugin.AssetPlan
+	endpoints              *endpointManager
+	instanceID             string
+	ctx                    context.Context
+	mu                     sync.Mutex
+	working                map[string]bool
+	gitOnly                bool // no runtime: only kinds marked withoutRuntime run
+	origins                *control.OriginAPI
+	onlyRunning            map[string]bool // queued resumptions: run only while still running
+	pending                []string
+	queueSlots             chan struct{}
+	sessionLocks           map[string]chan struct{}
+	sessionReads           map[string]*readsInFlight
+	holdMu                 sync.Mutex
+	holds                  map[string][]heldSession // what each operation's worker holds
+	holders                map[string]string        // the operation whose worker holds each session
+	waitMu                 sync.Mutex
+	waiters                map[string]map[chan struct{}]bool // operation.wait calls, by operation
+	confinementCheck       func(context.Context) error       // the driver's Check before a policy decision
+	attachments            map[string]*attachment
+	terminalSettleInterval time.Duration // 0 is defaultTerminalSettleInterval
+	onAttachment           func(context.Context, string, int, bool)
+	events                 *eventDelivery
+	eventMu                sync.Mutex
+	observed               map[string]observedFacts
+	eventContexts          map[string]eventContext
+	changedPolicies        map[string]bool
+	commitLocks            map[string]chan struct{}
+	releases               map[string]bool // projects whose image release runs; true asks for another run
 }
 
 // The control-API surface dispatches each lifecycle method only to an
@@ -159,7 +159,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, runtime: runtime, driver: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, driver: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -1767,10 +1767,12 @@ func startableRuntime(id string, observed runtimedriver.Observation) error {
 }
 
 // admitStop checks what a stop needs before it is recorded: an established
-// session with no pending or confirmed attachment, and its complete runtime.
-// A stopped session needs no stop: its view comes back instead.
+// session whose attachments, if any, all ended unproven, and its complete
+// runtime. Stopping the runtime ends whatever such a terminal's process left,
+// and so its lease. A stopped session needs no stop: its view comes back
+// instead, and such leases end.
 func (l *lifecycle) admitStop(ctx context.Context, id string) (*api.SessionView, error) {
-	if l.hasAttachment(id) {
+	if l.hasLiveAttachment(id) {
 		return nil, control.Conflict(api.ReasonAttachmentActive, api.TargetSession(id))
 	}
 	s, err := l.store.GetSession(ctx, id)
@@ -1794,6 +1796,7 @@ func (l *lifecycle) admitStop(ctx context.Context, id string) (*api.SessionView,
 	case !observed.Complete:
 		return nil, control.Failed(api.ReasonRuntime, errors.New("session runtime is incomplete"))
 	case observed.State == runtimedriver.StateStopped:
+		l.endUnprovenLeases(id)
 		view, e := l.InspectSession(ctx, id)
 		return &view, e
 	}
@@ -1845,7 +1848,10 @@ func (l *lifecycle) runSessionChange(ctx context.Context, op api.Operation) erro
 		return err
 	}
 	if op.Kind == control.KindSessionStop {
-		_, err = l.driver.Stop(ctx, spec)
+		stopped, err := l.driver.Stop(ctx, spec)
+		if err == nil && stopped.State == runtimedriver.StateStopped {
+			l.endUnprovenLeases(s.UUID)
+		}
 		return control.Failed(api.ReasonRuntime, err)
 	}
 	observed, err := l.driver.Inspect(ctx, spec)

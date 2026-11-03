@@ -110,49 +110,67 @@ func (l *lifecycle) onServices(ctx context.Context, id string, change bool, call
 	if err = l.admitSessionWork(ctx, id, ""); err != nil {
 		return err
 	}
-	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
+	target, err := l.readyTarget(ctx, id)
 	if err != nil {
 		return err
 	}
-	spec, err := l.sessionSpec(ctx, s)
-	if err != nil {
-		return err
-	}
-	notReady := &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonSessionNotRunning, Target: api.TargetSession(id),
-		Cause: fmt.Errorf("%w: project services require a ready session", control.ErrConflict)}
-	observed, err := l.driver.Inspect(ctx, spec)
-	if err != nil {
-		return control.Failed(api.ReasonRuntime, err)
-	}
-	switch {
-	case observed.State != runtimedriver.StateAbsent && !observed.Complete:
-		return control.Failed(api.ReasonRuntime, errors.New("session runtime is incomplete"))
-	case observed.Host.Unknown:
-		return control.Failed(api.ReasonRuntime, errors.New("the session host cannot be read"))
-	case observed.State != runtimedriver.StateRunning || !observed.Host.Ready || observed.Incarnation == "":
-		return notReady
-	}
-	return servicesRefusal(id, notReady, call(ctx, runtimedriver.Target{Session: spec, At: observed.Incarnation}))
+	return servicesRefusal(id, call(ctx, target))
 }
 
 // servicesRefusal is the answer to a services call of session id that the
 // driver refused with err: a service the session does not have is not found,
-// a session host no longer ready is notReady, a driver without project
-// services has them not configured, and a service manager that refused or
-// could not be reached failed with reason services. Anything else failed in
-// the runtime.
-func servicesRefusal(id string, notReady, err error) error {
+// a session host no longer ready is refused as not running, a driver without
+// project services has them not configured, and a service manager that
+// refused or could not be reached failed with reason services. Anything else
+// failed in the runtime.
+func servicesRefusal(id string, err error) error {
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, runtimedriver.ErrNoService):
 		return &control.Refusal{Kind: api.KindNotFound, Reason: api.ReasonService, Target: api.TargetSession(id), Cause: fmt.Errorf("%w: %w", control.ErrNotFound, err)}
 	case errors.Is(err, runtimedriver.ErrNotReady):
-		return notReady
+		return hostNotReady(id)
 	case errors.Is(err, runtimedriver.ErrUnsupported):
 		return control.NotConfigured(api.ReasonServices)
 	case errors.Is(err, runtimedriver.ErrUnavailable):
 		return control.Failed(api.ReasonServices, err)
 	}
 	return control.Failed(api.ReasonRuntime, err)
+}
+
+// readyTarget is the runtime of session id at its current incarnation, for a
+// call that needs its host: the session is established with a usable policy,
+// and its runtime runs complete with its host ready. A runtime that is not
+// running with a ready host is refused as not running; one whose host cannot
+// be read, or that is incomplete, failed.
+func (l *lifecycle) readyTarget(ctx context.Context, id string) (runtimedriver.Target, error) {
+	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
+	if err != nil {
+		return runtimedriver.Target{}, err
+	}
+	spec, err := l.sessionSpec(ctx, s)
+	if err != nil {
+		return runtimedriver.Target{}, err
+	}
+	observed, err := l.driver.Inspect(ctx, spec)
+	if err != nil {
+		return runtimedriver.Target{}, control.Failed(api.ReasonRuntime, err)
+	}
+	switch {
+	case observed.State != runtimedriver.StateAbsent && !observed.Complete:
+		return runtimedriver.Target{}, control.Failed(api.ReasonRuntime, errors.New("session runtime is incomplete"))
+	case observed.Host.Unknown:
+		return runtimedriver.Target{}, control.Failed(api.ReasonRuntime, errors.New("the session host cannot be read"))
+	case observed.State != runtimedriver.StateRunning || !observed.Host.Ready || observed.Incarnation == "":
+		return runtimedriver.Target{}, hostNotReady(id)
+	}
+	return runtimedriver.Target{Session: spec, At: observed.Incarnation}, nil
+}
+
+// hostNotReady refuses a call that needs session id's host while the host is
+// not ready.
+func hostNotReady(id string) error {
+	return &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonSessionNotRunning, Target: api.TargetSession(id),
+		Cause: fmt.Errorf("%w: the session's host is not ready", control.ErrConflict)}
 }

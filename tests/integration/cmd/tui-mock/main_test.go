@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -178,7 +180,7 @@ func TestFixtureChangesRecordWhatTheirCallerNamed(t *testing.T) {
 // tag, a changed state, and the tag of another kind or session are refused.
 func TestFixtureRemovalRunsOnlyItsOwnPlan(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
-	f.native = &nativeServer{tmux: filepath.Join(t.TempDir(), "tmux.sock")}
+	f.tmux = &tmuxHost{socket: filepath.Join(t.TempDir(), "tmux.sock")}
 	h := connect(f)
 	id := sessionID(f, "atlas", "feat/ui")
 	other := sessionID(f, "atlas", "fix/cache")
@@ -255,7 +257,7 @@ func TestFixtureRemovalPlanMatchesPublicShapeAndSeparatesBranchLoss(t *testing.T
 
 func TestFixtureRemovesARunningUnattachedSessionAndRefusesAnAttachedOne(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
-	f.native = &nativeServer{tmux: filepath.Join(t.TempDir(), "tmux.sock")}
+	f.tmux = &tmuxHost{socket: filepath.Join(t.TempDir(), "tmux.sock")}
 	h := connect(f)
 	running := sessionID(f, "forge", "fix/token-refresh")
 	plan := do(t, h, api.SessionDiscard, api.SessionDiscardRequest{UUID: running})
@@ -333,7 +335,7 @@ func TestFixtureServesOnlyProtocolAndFixtureMethods(t *testing.T) {
 		"session.create", "session.inspect", "session.start", "session.stop", "session.rename",
 		"session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
 		"session.services", "session.service.action", "session.service.logs", "session.attach",
-		"attachment.claim", "attachment.confirm", "attachment.ping"} {
+		"attachment.claim"} {
 		served[m] = true
 	}
 	known := map[string]bool{mockInspect.Name: true, mockConfigure.Name: true}
@@ -342,7 +344,7 @@ func TestFixtureServesOnlyProtocolAndFixtureMethods(t *testing.T) {
 	}
 	f := newFixture(t.TempDir(), "small")
 	table := control.NewMethodTable()
-	f.register(table, &attachmentLease{})
+	f.register(table)
 	for name := range known {
 		if table.Registered(name) != served[name] {
 			t.Errorf("%s registered %v, want %v", name, table.Registered(name), served[name])
@@ -361,22 +363,88 @@ func TestFixtureServesOnlyProtocolAndFixtureMethods(t *testing.T) {
 	}
 }
 
-func TestFixturePendingAttachmentIsSingleUseAndExpires(t *testing.T) {
-	f := newFixture(t.TempDir(), "small")
+// The fixture's claim attaches a real tmux client, which control's relay
+// carries; the attachment counts in the session's presence until the client
+// exits. A token is used once and expires.
+func TestFixtureClaimAttachesARealTerminalOnce(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "p-mock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	f := newFixture(dir, "small")
+	if f.tmux, err = newTmuxHost(dir); err != nil {
+		t.Skip("tmux unavailable:", err)
+	}
+	t.Cleanup(f.tmux.close)
+	listener, err := net.Listen("unix", filepath.Join(dir, "control.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go f.serve(ctx, conn)
+		}
+	}()
+	claim := func(token string) (*api.Conn, error) {
+		c, err := api.Dial(ctx, filepath.Join(dir, "control.sock"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = api.Do(ctx, c, api.AttachmentClaim, api.AttachmentClaimRequest{Token: token, Width: 80, Height: 24})
+		return c, err
+	}
+	attached := func() int {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.sessions[sessionID(f, "forge", "feat/device-login")].AttachedCount
+	}
 	id := sessionID(f, "forge", "feat/device-login")
 	expired := strings.Repeat("a", 64)
+	f.mu.Lock()
 	f.tokens[expired] = pending{UUID: id, Expires: time.Now().Add(-time.Second)}
-	if err := refusal(connect(f), api.AttachmentClaim, api.AttachmentClaimRequest{Token: expired}); err == nil {
+	f.mu.Unlock()
+	if c, err := claim(expired); err == nil {
+		c.Close()
 		t.Fatal("expired token accepted")
 	}
 	attachment := do(t, connect(f), api.SessionAttach, api.SessionAttachRequest{UUID: id})
-	c := &connection{}
-	do(t, f.handler(c), api.AttachmentClaim, api.AttachmentClaimRequest{Token: attachment.Token})
-	if c.lease.UUID != id {
-		t.Fatal("wrong lease")
+	c, err := claim(attachment.Token)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := refusal(connect(f), api.AttachmentClaim, api.AttachmentClaimRequest{Token: attachment.Token}); err == nil {
+	if attached() != 1 {
+		t.Fatalf("attached count %d", attached())
+	}
+	terminal := c.Frames()
+	if err = terminal.WriteFrame(api.FrameInput, []byte("printf 'P_%s_OK\\n' MOCK\r")); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	for !strings.Contains(output.String(), "P_MOCK_OK") {
+		terminal.SetReadDeadline(time.Now().Add(5 * time.Second))
+		frame, err := terminal.ReadFrame()
+		if err != nil || frame.Kind != api.FrameOutput {
+			t.Fatalf("terminal frame %+v %v after %q", frame, err, output.String())
+		}
+		output.Write(frame.Data)
+	}
+	if replay, err := claim(attachment.Token); err == nil {
+		replay.Close()
 		t.Fatal("token replay accepted")
+	}
+	c.Close()
+	for deadline := time.Now().Add(5 * time.Second); attached() != 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the attachment outlived its connection")
+		}
 	}
 }
 

@@ -21,7 +21,6 @@ func TestRequestBounds(t *testing.T) {
 	publish := OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "retained", Source: "saved", SourceOID: oid, DestinationRef: "refs/heads/main"}
 	choices := CreationChoices{Project: "team/app", Branch: "work", Choice: "existing"}
 	key := strings.Repeat("k", 128)
-	operation := "/1.0/operations/" + uuid
 	create := SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "existing"}
 	for _, test := range []struct {
 		name  string
@@ -102,10 +101,11 @@ func TestRequestBounds(t *testing.T) {
 		{"service logs of a name at the bound", SessionServiceLogsRequest{UUID: uuid, Name: strings.Repeat("a", 128)}, true},
 		{"service logs of a name over the bound", SessionServiceLogsRequest{UUID: uuid, Name: strings.Repeat("a", 129)}, false},
 		{"service logs of a name that is not UTF-8", SessionServiceLogsRequest{UUID: uuid, Name: "p-project-\xff"}, false},
-		{"claim", AttachmentClaimRequest{Token: strings.Repeat("a", 64)}, true},
-		{"claim with a short token", AttachmentClaimRequest{Token: token}, false},
-		{"confirm", AttachmentConfirmRequest{Operation: operation}, true},
-		{"confirm a short operation", AttachmentConfirmRequest{Operation: "/1.0/operations/short"}, false},
+		{"claim", AttachmentClaimRequest{Token: strings.Repeat("a", 64), Width: 80, Height: 24}, true},
+		{"claim at the largest size", AttachmentClaimRequest{Token: strings.Repeat("a", 64), Width: 65535, Height: 65535}, true},
+		{"claim with a short token", AttachmentClaimRequest{Token: token, Width: 80, Height: 24}, false},
+		{"claim without a size", AttachmentClaimRequest{Token: strings.Repeat("a", 64)}, false},
+		{"claim wider than a terminal can be", AttachmentClaimRequest{Token: strings.Repeat("a", 64), Width: 65536, Height: 24}, false},
 		{"session RPC", SessionRPCRequest{V: SessionRPCVersion}, true},
 		{"session RPC of another version", SessionRPCRequest{V: 2}, false},
 		{"status report", StatusReport{V: SessionRPCVersion, Condition: "idle", Adapter: "codex", AdapterVersion: "1"}, true},

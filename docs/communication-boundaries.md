@@ -37,7 +37,7 @@ channels.
 | Origin Git | configured SSH refresh and explicit publication | P registry, runtime state, P-private policy |
 | Host RPC | lifecycle, configuration, status, subscriptions | source trees or arbitrary command execution |
 | Session RPC | identity, capabilities, latest agent condition, narrow act-on-self calls | other sessions, publication, host control |
-| Attachment | one validated interactive argv and terminal byte stream | lifecycle API or source transfer |
+| Attachment | one fixed attach entrypoint's terminal byte stream, relayed by the daemon | lifecycle API, source transfer, or runtime authority |
 | Bifrost HTTP (post-MVP) | approved model discovery and inference under a mandatory virtual key | P lifecycle; not an MVP session channel |
 | Incus builder | a Git bundle of one source commit, bounded Nix capabilities, commit-image publication | ambient host authority or session identity |
 | Event handler | typed, versioned reduced P events | source contents, credentials, or source-of-truth state |
@@ -461,30 +461,40 @@ remain undefined until that feature enters implementation scope.
 
 ## Attachment
 
-Attachment is an RPC decision followed by client-side execution:
+Attachment is an RPC decision followed by a terminal that the daemon relays:
 
 1. the client calls the attach method;
 2. the daemon validates or starts the runtime as allowed;
-3. the daemon verifies systemd reports `p-interactive.service` active and
-   resolves the fixed in-container `/usr/libexec/p/attach` entrypoint;
-4. the Incus backend wraps that fixed entrypoint into a structured
-   `AttachSpec` for that runtime;
-5. the daemon returns the spec with a short-lived, one-use pending attachment
-   token;
-6. the local client invokes the trusted host helper directly and transfers the
+3. the daemon checks through the runtime driver that the session's runtime
+   runs complete with its host ready;
+4. the daemon returns a short-lived, one-use pending attachment token and no
+   runtime details;
+5. the local client invokes the trusted host helper directly and transfers the
    token over private control input rather than argv;
-7. the helper opens a dedicated attachment RPC connection, establishes the
-   interactive channel, and confirms the token on that connection;
-8. the daemon promotes it to a helper-owned attachment lease; and
-9. the helper retains the lease until channel teardown completes whenever the
-   daemon remains reachable, then closes it.
+6. the helper opens its own control connection and claims the token with the
+   client terminal's size;
+7. the daemon checks the session again, has the runtime driver open a terminal
+   (`OpenTerminal`) on the fixed in-container `/usr/libexec/p/attach`
+   entrypoint, counts the attachment in the session's presence, and answers
+   the claim;
+8. the claim's connection then carries the terminal: the daemon relays its
+   output to the helper and the helper's input and resizes to it; and
+9. the daemon keeps the attachment's lease until the runtime driver proves
+   that the attached process ended.
 
-A failed channel establishment or expired pending token never increments
-attachment presence or clears unattended status. Only confirmation does so.
-The helper binds the channel to both lease and client carrier independently of
-client cooperation. Client crash/SIGKILL or carrier closure
-starts teardown. If daemon restart removes the lease first, the helper tears
-down that temporary channel. No MVP RPC re-registers an existing channel.
+The runtime driver owns the native channel and its completion witness; the
+daemon owns the token, the lease and the relay; the helper carries bytes
+between the client and the daemon and has no runtime or Incus authority.
+
+A failed terminal open or expired pending token never increments attachment
+presence or clears unattended status. Only a claim that opened the terminal
+does so. Client crash/SIGKILL or carrier closure ends the helper, which closes
+its connection; the daemon then closes the terminal. If the runtime driver
+fails while the daemon stays up, its terminals end without that proof: the
+helper tears down, input and resizes stop and are not replayed, and the lease
+stays, so discard and delete stay refused until the driver settles the
+terminal as ended (`Settle`) or the session stops. A daemon restart ends
+attachments. No MVP RPC re-registers an existing terminal.
 
 The fixed attach program connects the terminal to the persistent host selected
 by trusted image/project configuration; tmux is the default. Attachment loss,
@@ -559,7 +569,7 @@ route is mounted into a session.
 | Origin refresh | interrupted refresh leaves current state unknown; the next explicit operation refreshes again |
 | Origin publish | idempotent ensure operation; report failure or unknown outcome and wait for explicit retry |
 | Start | idempotently ensure the systemd session target is active; on failed activation preserve diagnostics and stop the container |
-| Attachment | the helper retains a reachable lease through teardown; client/carrier/lease loss triggers transport-bound teardown, and daemon-restart lease loss permits no new helper channel before completion |
+| Attachment | the daemon keeps the lease until the runtime driver proves the terminal ended, settles it as ended, or the session stops; client, carrier or helper loss closes the terminal; a daemon restart ends attachments with no re-registration |
 
 RPC and status payloads carry explicit version fields. Git protocol behavior is
 Git's; P versions its ref-policy implementation and stored operation schema.
@@ -573,7 +583,8 @@ MVP includes local Unix RPC for the Linux client, P Git over SSH,
 session-scoped Git principals, read-only host Git access, committed-state
 session creation, transactional branch rename, SSH origin refresh, explicit
 fast-forward-only origin publication, per-session status sockets,
-systemd-defined host readiness, structured pending-to-confirmed attachment,
+systemd-defined host readiness, pending-to-claimed attachment relayed by the
+daemon,
 the Codex status adapter with session-local authentication, and the local
 NDJSON event handler.
 

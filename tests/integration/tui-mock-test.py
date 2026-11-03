@@ -29,7 +29,7 @@ REQUIRED_METHODS = {
     "project.create", "session.create", "session.inspect", "session.start", "session.stop",
     "session.rename", "session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
     "session.services", "session.service.action", "session.service.logs",
-    "session.attach", "attachment.claim", "attachment.confirm",
+    "session.attach", "attachment.claim",
 }
 
 

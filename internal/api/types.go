@@ -295,22 +295,16 @@ type UnattendedCondition struct {
 // Results of the attachment methods.
 
 // PendingAttachment is a one-use, short-lived token that the attachment
-// helper claims, and the fixed native target it attaches to.
+// helper claims.
 type PendingAttachment struct {
-	Token     string            `json:"token"`
-	ExpiresAt time.Time         `json:"expires_at"`
-	Spec      plugin.AttachSpec `json:"spec"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
-// AttachmentLaunch is sent only to the trusted host helper on its dedicated
-// connection. It cannot be selected or amended by the ordinary client.
-type AttachmentLaunch struct {
-	Socket string            `json:"socket"`
-	Spec   plugin.AttachSpec `json:"spec"`
-}
-
-// AttachmentResult acknowledges attachment.confirm and attachment.ping.
-type AttachmentResult struct{}
+// AttachmentLaunch answers attachment.claim, only to the trusted host helper:
+// the session's terminal is open, and the rest of the connection carries it
+// in terminal frames.
+type AttachmentLaunch struct{}
 
 // Results of the project services methods.
 

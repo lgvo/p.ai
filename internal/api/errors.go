@@ -84,12 +84,12 @@ const (
 	ReasonImageBuildFailed    = "image_build_failed"    // building the image of the session's source commit failed; the diagnostic says why
 	// retry
 	ReasonSessionHeld     = "session_held"      // another request or a running operation holds the session
-	ReasonTooManyRequests = "too_many_requests" // the connection has 16 requests in flight
+	ReasonTooManyRequests = "too_many_requests" // the connection has 16 requests in flight, or any when it claims an attachment
 	ReasonDeadline        = "deadline"          // the daemon's 30-second deadline passed
 	ReasonRefsMoved       = "refs_moved"        // P's refs moved while the daemon read them
 	ReasonProjectHeld     = "project_held"      // another request or a running operation holds the project
 	// conflict
-	ReasonAttachmentActive       = "attachment_active"        // a terminal is attached or an attachment is pending
+	ReasonAttachmentActive       = "attachment_active"        // a terminal is attached or its end is unproven, or an attachment is pending
 	ReasonSessionNotEstablished  = "session_not_established"  // the session is being created, removed or was never created
 	ReasonSessionNotStopped      = "session_not_stopped"      // the change requires a stopped session
 	ReasonSessionNotRunning      = "session_not_running"      // the request requires a running session

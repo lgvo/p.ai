@@ -15,11 +15,11 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimedriver/conformance"
 )
 
-// The Incus driver implements every group but terminals and images in this
-// migration step; later steps add those.
+// The Incus driver implements every group but images in this migration
+// step; a later step adds it.
 func TestConformance(t *testing.T) {
 	conformance.Run(t, []conformance.Group{conformance.Sessions, conformance.Recovery, conformance.Deletion, conformance.Inventory,
-		conformance.Workspace, conformance.Services}, newIncusFixture)
+		conformance.Workspace, conformance.Terminals, conformance.Services}, newIncusFixture)
 }
 
 // incusFixture is the Incus driver over a stubbed Incus whose host has the
@@ -35,14 +35,16 @@ type incusFixture struct {
 func newIncusFixture(t *testing.T) conformance.Fixture {
 	w := newIncusWorld(t)
 	w.public = testEgressSubstrate()
-	// The session's image holds its workspace, as a commit image does, and
-	// the session user's home.
+	// The session's image holds its workspace, as a commit image does, the
+	// session user's home, and the links to the session host's unit and
+	// attach program.
 	for _, dir := range []string{guestWorkspace, "/home", "/home/p"} {
 		w.images[0].files[dir] = guestFile{typ: "directory", uid: 1000, gid: 1000, mode: 0755}
 	}
-	interval := settleInterval
-	settleInterval = time.Millisecond
-	t.Cleanup(func() { settleInterval = interval })
+	w.withSessionHostLinks()
+	interval, endWait := settleInterval, terminalEndWait
+	settleInterval, terminalEndWait = time.Millisecond, 500*time.Millisecond
+	t.Cleanup(func() { settleInterval, terminalEndWait = interval, endWait })
 	return &incusFixture{t: t, world: w, driver: w.driver()}
 }
 
@@ -76,7 +78,7 @@ func (f *incusFixture) Recovery() conformance.RecoveryControls   { return f }
 func (f *incusFixture) Deletion() conformance.DeletionControls   { return f }
 func (f *incusFixture) Inventory() conformance.InventoryControls { return f }
 func (f *incusFixture) Workspace() conformance.WorkspaceControls { return f }
-func (f *incusFixture) Terminals() conformance.TerminalControls  { return nil }
+func (f *incusFixture) Terminals() conformance.TerminalControls  { return f }
 func (f *incusFixture) Services() conformance.ServiceControls    { return f }
 func (f *incusFixture) Images() conformance.ImageControls        { return nil }
 
@@ -375,6 +377,11 @@ func (f *incusFixture) SetRoot(r runtimedriver.Ref, uid, gid int, mode uint32) {
 		in.files[guestWorkspace] = guestFile{typ: "directory", uid: uid, gid: gid, mode: int(mode)}
 	})
 }
+
+// Terminals.
+
+// Guest is the attach program's side of the exec the terminal ID names.
+func (f *incusFixture) Guest(id string) conformance.GuestTerminal { return f.world.guest(id) }
 
 // Services.
 

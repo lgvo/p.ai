@@ -78,9 +78,7 @@ func stateOf(status string) runtimedriver.State {
 func (d *Driver) Check(ctx context.Context) error { return d.backend.CheckConfinement(ctx) }
 
 // NativeSession reads a session spec into the backend's session. Its labels
-// must be exactly its project, whose repository its workspace clones. The
-// daemon uses it for the backend calls that later migration steps move into
-// the driver.
+// must be exactly its project, whose repository its workspace clones.
 func (b *Backend) NativeSession(s runtimedriver.Session) (Session, error) {
 	if s.Ref.Kind != runtimedriver.KindSession || !uuidPattern.MatchString(s.Ref.ID) {
 		return Session{}, errors.New("invalid session reference")
@@ -498,9 +496,4 @@ func (d *Driver) HostLog(ctx context.Context, t runtimedriver.Target) (string, e
 		return "", err
 	}
 	return host.Diagnostic, nil
-}
-
-// OpenTerminal comes in migration step M5.
-func (d *Driver) OpenTerminal(context.Context, runtimedriver.Target, runtimedriver.Size) (runtimedriver.Terminal, error) {
-	return nil, runtimedriver.ErrUnsupported
 }

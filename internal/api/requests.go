@@ -591,35 +591,21 @@ func ValidServiceName(name string) bool {
 		strings.IndexFunc(name, func(r rune) bool { return !unicode.IsPrint(r) }) < 0
 }
 
-// AttachmentClaimRequest redeems a pending attachment's token. Only the
-// trusted attachment helper may send it.
+// AttachmentClaimRequest redeems a pending attachment's token and opens its
+// terminal at the client's size. Only the trusted attachment helper may send
+// it.
 type AttachmentClaimRequest struct {
-	Token string `json:"token"`
+	Token  string `json:"token"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 }
 
 func (r AttachmentClaimRequest) Validate() error {
 	if len(r.Token) != 64 {
 		return invalid("token")
 	}
-	return nil
+	return TerminalSize{Width: r.Width, Height: r.Height}.Validate()
 }
-
-// AttachmentConfirmRequest names the native exec operation that runs the
-// claimed attachment.
-type AttachmentConfirmRequest struct {
-	Operation string `json:"operation"`
-}
-
-func (r AttachmentConfirmRequest) Validate() error {
-	if len(r.Operation) != len("/1.0/operations/")+36 {
-		return invalid("operation")
-	}
-	return nil
-}
-
-type AttachmentPingRequest struct{}
-
-func (AttachmentPingRequest) Validate() error { return nil }
 
 // SessionRPCRequest is the params of session.identity and
 // session.capabilities on the private session socket.

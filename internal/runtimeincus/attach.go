@@ -3,91 +3,70 @@ package runtimeincus
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"path"
-	"regexp"
+	"slices"
 	"strings"
-	"time"
 
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
-// AttachmentFailure carries a fixed diagnostic code for the trusted host log.
-// Native transport errors and guest content stay out of that log and the RPC.
-type AttachmentFailure struct {
-	Code string
-	Err  error
+// attachmentError refuses a terminal with a fixed diagnostic code. Native
+// transport errors and guest content stay out of its text.
+type attachmentError struct {
+	code string
+	err  error
 }
 
-func (e *AttachmentFailure) Error() string { return "attachment verification failed: " + e.Code }
-func (e *AttachmentFailure) Unwrap() error { return e.Err }
+func (e *attachmentError) Error() string { return "attachment verification failed: " + e.code }
+func (e *attachmentError) Unwrap() error { return e.err }
 
 func attachmentFailure(code string, err error) error {
-	return &AttachmentFailure{Code: code, Err: err}
+	return &attachmentError{code: code, err: err}
 }
 
-// AttachSpec freshly checks ownership, host readiness, and the pinned trusted
-// unit/adapter files. No repository or caller data becomes executable argv.
-func (b *Backend) AttachSpec(ctx context.Context, s Session, plan plugin.AssetPlan) (plugin.AttachSpec, error) {
-	var zero plugin.AttachSpec
-	h, err := b.ObserveHost(ctx, s)
-	if err != nil {
-		return zero, attachmentFailure("initial-host-observation", err)
-	}
-	if !h.Exists || h.Status != "Running" || !h.Ready {
-		return zero, attachmentFailure("host-not-ready", errors.New("interactive host is not ready"))
-	}
-	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(s)}
-	if err = verifyAttachAssets(ctx, attachmentFileAPI{api}, plan); err != nil {
-		return zero, err
-	}
-	// Inspect again after the asset reads; it checks current Incus ownership.
-	if final, e := b.ObserveHost(ctx, s); e != nil || !final.Ready {
-		if e == nil {
-			e = errors.New("host changed during attachment verification")
-		}
-		err = e
-		return zero, attachmentFailure("final-host-observation", err)
-	}
-	return plugin.AttachSpec{Project: b.config.Project, Instance: b.name(s), Argv: []string{"/usr/libexec/p/attach"}}, nil
+// attachLinks are the image's fixed links a terminal relies on, by asset
+// role: the session host's unit and its attach program.
+var attachLinks = []struct{ role, link string }{
+	{"p-interactive.service", "/etc/systemd/system/p-interactive.service"},
+	{"p-attach", attachProgram},
 }
 
-func verifyAttachAssets(ctx context.Context, api fileAPI, plan plugin.AssetPlan) error {
-	for _, role := range []string{"p-interactive.service", "p-attach"} {
-		var expected *plugin.AssetFile
-		for i := range plan.Files {
-			if plan.Files[i].Role == role {
-				expected = &plan.Files[i]
-			}
+// verifyAttachAssets checks that each of the image's attach links
+// resolves, through root-owned paths only, to the session's asset of its
+// role, installed unchanged.
+func verifyAttachAssets(ctx context.Context, api fileAPI, assets []runtimedriver.Asset) error {
+	for _, l := range attachLinks {
+		i := slices.IndexFunc(assets, func(a runtimedriver.Asset) bool { return a.Role == l.role })
+		if i < 0 {
+			return attachmentFailure(l.role+":asset-missing", errors.New("required host asset missing"))
 		}
-		if expected == nil {
-			return attachmentFailure(role+":plan-missing", errors.New("required host asset missing"))
+		want, err := assetInstall(l.role, assets[i].Mode, assets[i].Data, assets[i].SHA256)
+		if err != nil {
+			return attachmentFailure(l.role+":asset-invalid", err)
 		}
-		f, resolved, e := resolveTrustedGuestFile(ctx, api, expected.Destination)
-		if e != nil {
-			var failure *AttachmentFailure
-			if errors.As(e, &failure) {
-				return attachmentFailure(role+":"+failure.Code, e)
+		f, resolved, err := resolveTrustedGuestFile(ctx, api, l.link)
+		if err != nil {
+			var failure *attachmentError
+			if errors.As(err, &failure) {
+				return attachmentFailure(l.role+":"+failure.code, err)
 			}
-			return attachmentFailure(role+":file-api", e)
+			return attachmentFailure(l.role+":file-api", err)
 		}
 		for _, check := range []struct {
 			ok   bool
 			code string
 		}{
-			{resolved == "/etc/p/assets/"+role, "destination"},
+			{resolved == want.path, "destination"},
 			{f.typ == "file", "type"},
 			{f.uid == 0 && f.gid == 0, "owner"},
-			{f.mode == int(expected.Mode), "mode"},
-			{bytes.Equal(f.data, expected.Data), "content"},
+			{f.mode == want.file.mode, "mode"},
+			{bytes.Equal(f.data, want.file.data), "content"},
 		} {
 			if !check.ok {
-				return attachmentFailure(role+":"+check.code, errors.New("fixed host asset changed; repair required"))
+				return attachmentFailure(l.role+":"+check.code, errors.New("fixed host asset changed; repair required"))
 			}
 		}
 	}
@@ -184,61 +163,4 @@ func (a attachmentFileAPI) get(ctx context.Context, name string) (guestFile, boo
 	}
 	meta.data = data
 	return meta, true, nil
-}
-
-// ValidateAttachmentOperation repeats the live-channel check at the final
-// daemon promotion boundary, after potentially slow readiness/asset reads.
-func (b *Backend) ValidateAttachmentOperation(ctx context.Context, s Session, operation string) error {
-	if !regexp.MustCompile(`^/1\.0/operations/[0-9a-f-]{36}$`).MatchString(operation) {
-		return errors.New("invalid attachment operation")
-	}
-	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "unix", b.config.UserSocket)
-	}}
-	defer transport.CloseIdleConnections()
-	u := url.URL{Scheme: "http", Host: "incus", Path: operation}
-	q := u.Query()
-	q.Set("project", b.config.Project)
-	u.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return err
-	}
-	client := &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("Incus redirect refused") }}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 65537))
-	if err != nil {
-		return err
-	}
-	var result struct {
-		Type     string `json:"type"`
-		Metadata struct {
-			Class      string              `json:"class"`
-			StatusCode int                 `json:"status_code"`
-			Resources  map[string][]string `json:"resources"`
-			Metadata   struct {
-				Command     []string `json:"command"`
-				Interactive bool     `json:"interactive"`
-			} `json:"metadata"`
-		} `json:"metadata"`
-	}
-	if resp.StatusCode != http.StatusOK || len(raw) > 65536 || json.Unmarshal(raw, &result) != nil || result.Type != "sync" || result.Metadata.Class != "websocket" || result.Metadata.StatusCode != 103 {
-		return errors.New("attachment operation is not running")
-	}
-	if !result.Metadata.Metadata.Interactive || len(result.Metadata.Metadata.Command) != 1 || result.Metadata.Metadata.Command[0] != "/usr/libexec/p/attach" {
-		return errors.New("attachment operation command changed")
-	}
-	instances := result.Metadata.Resources["instances"]
-	if len(instances) != 1 {
-		return errors.New("attachment operation scope changed")
-	}
-	resource, err := url.Parse(instances[0])
-	if err != nil || resource.IsAbs() || resource.Host != "" || resource.Path != "/1.0/instances/"+b.name(s) || resource.Query().Get("project") != "" && resource.Query().Get("project") != b.config.Project {
-		return errors.New("attachment operation belongs to another runtime")
-	}
-	return nil
 }

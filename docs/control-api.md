@@ -245,7 +245,7 @@ its remaining queue; at most that one call can remain in flight. Its final file
 effect may be unknown. Full queues, handler failures, and shutdown drop events
 without changing committed session or operation state. There is no replay or
 retry after restart.
-Committed status reports and confirmed attachment transitions enter the queue
+Committed status reports and attachment presence transitions enter the queue
 in reducer order. The queue is best effort and may drop either event when full.
 
 `endpoint_prefix` is daemon-owned mode `0700`. Each session receives one direct
@@ -374,7 +374,7 @@ this daemon serves:
 | Capability | Present when | Methods it serves |
 |---|---|---|
 | `git` | The host configuration has a `git` object | `project.list`, `project.branches`, `project.retained_branches`, the five `origin.` methods, and the operation methods `operation.inspect`, `operation.list`, `operation.wait` and `operation.retry` |
-| `runtime` | The host configuration also has a `runtime` object, which requires `git` | Project and session creation; session inspection, listing, Start, Stop, attachment, removal and rename; failed-creation replacement and cleanup; retained-branch rename and deletion; project deletion; the attachment helper's methods |
+| `runtime` | The host configuration also has a `runtime` object, which requires `git` | Project and session creation; session inspection, listing, Start, Stop, attachment, removal and rename; failed-creation replacement and cleanup; retained-branch rename and deletion; project deletion; the attachment helper's claim |
 | `services` | `runtime` is present; the daemon always serves project services with a runtime | `session.services`, `session.service.action` and `session.service.logs` |
 
 Every daemon serves `system.hello`, `system.health`, `system.inspect` and
@@ -405,7 +405,8 @@ The connection follows these rules:
 - **Repeats.** A repeated hello on the same connection is answered again.
 
 The TUI and the task commands connect with `api.Dial`, which sends the hello;
-the attachment helper sends its own hello on its lease connection. These clients
+the attachment helper does too, on the connection that then carries its
+terminal. These clients
 call each method through `api.Do`, which runs the request's `Validate` before
 sending. Only `p api` sends untyped params, through `api.CallRaw`.
 
@@ -600,8 +601,8 @@ a dry run returns their plan and change tag, and a run with `key` and
 | `session.inspect` | `{"uuid":"session-UUID"}` | `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
 | `session.list` | `{"limit":1..8,"after":"optional-session-UUID"}` | `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
 | `session.start` | `{"uuid":"session-UUID"}` | `changed`, with `operation` or `session`: a new `session.start` operation (`changed:true`), which completes once the session host is ready or fails with the runtime's `reason` and `diagnostic`; the unfinished start of the session (`changed:false`); or, for a session already ready, its view and nothing recorded (`changed:false`). See [Start and stop](#start-and-stop). |
-| `session.stop` | Same as Start | The same shape: a new `session.stop` operation, which completes once the runtime is stopped; the unfinished stop; or, for a stopped session, its view. The runtime filesystem is retained. Pending or confirmed attachments answer `conflict` with reason `attachment_active`. |
-| `session.attach` | Same as Start | `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`, for a ready session. It starts nothing: a session that is not ready answers `conflict` with reason `session_not_running`, and one with an unfinished start `retry` naming it. Start the session and wait for its operation first; `p attach` does. |
+| `session.stop` | Same as Start | The same shape: a new `session.stop` operation, which completes once the runtime is stopped; the unfinished stop; or, for a stopped session, its view. The runtime filesystem is retained. An attachment that is pending, opening its terminal, or attached answers `conflict` with reason `attachment_active`; one whose terminal ended unproven does not, and a stop that leaves the runtime stopped ends its lease ([terminal attachment](#terminal-attachment)). |
+| `session.attach` | Same as Start | `token` and `expires_at`, for a ready session. It starts nothing: a session that is not ready answers `conflict` with reason `session_not_running`, and one with an unfinished start `retry` naming it. Start the session and wait for its operation first; `p attach` does. |
 | `session.discard` | `{"uuid":"session-UUID"}`; the run adds `key` and `if_match` | Dry run: `plan` on target `session/<uuid>` for removing the session and its runtime while keeping its branch, and `change_tag`. Run: `operation` of kind `session.discard`. See [session removal](#session-removal-and-rename). |
 | `session.delete` | Same as Discard | The same, for removing the session's assigned P branch too; the operation's kind is `session.delete`. |
 
@@ -641,7 +642,9 @@ answer says whether anything happened. Their operation's
 `idempotency_key` is its own ID. Before recording, start checks what the
 session needs to run (established, its policy current, its Git principal
 registered and active, its key, endpoints and runtime), and stop that no
-attachment is pending or confirmed; a failed check records nothing. A
+attachment is pending, opening its terminal or attached; one whose terminal
+ended unproven does not refuse a stop, which ends its lease once the runtime
+is stopped. A failed check records nothing. A
 session keeps only its newest finished start or stop: recording one deletes
 the older finished one. While a start or stop is unfinished,
 `session.inspect` and `session.list` report the session `starting` or
@@ -899,8 +902,9 @@ they do not imply that the current workspace is unchanged.
 
 `latest_unattended_condition` is `null` or an object with `condition`,
 `adapter`, `adapter_version`, optional `source` and `reason`, plus daemon-assigned
-`received_at` and `receive_sequence`. `attached_count` counts confirmed live
-helper connections. The list methods may return fewer than the requested limit to
+`received_at` and `receive_sequence`. `attached_count` counts the attachments
+whose claim opened a terminal and whose end the runtime has not yet proven or
+settled. The list methods may return fewer than the requested limit to
 keep the encoded JSON-RPC response within 64 KiB; use the returned `next`
 cursor until it is empty, including when a short page has a nonempty cursor.
 
@@ -1149,8 +1153,8 @@ removal.
 
 The plan is not allowed, with one of these refusals:
 
-- `attachment_active` while a terminal is attached or an attachment is
-  pending;
+- `attachment_active` while a terminal is attached or its end is not yet
+  proven, or an attachment is pending;
 - `session_not_established` for a session that is being created or removed;
 - `runtime_unsettled` for a present runtime that is neither running nor
   stopped;
@@ -1258,7 +1262,7 @@ a running session's container, then deletes it. The plan is not allowed, with
 one of these refusals:
 
 - `attachment_active`, naming the session, while a terminal is attached to it
-  or an attachment is pending;
+  or its end is not yet proven, or an attachment is pending;
 - `session_not_established`, naming the session, for an incomplete creation or
   a session being removed; a failed creation needs supported cleanup first;
 - `runtime_unsettled`, naming the session, for a present runtime that is
@@ -1351,44 +1355,68 @@ starts a session that is not ready and waits for its start operation, since
 `session.attach` starts nothing. It restores local terminal settings on exit
 and forwards terminal size changes.
 
-`session.attach` returns a 30-second, one-use pending token after native checks
-approve the fixed `/usr/libexec/p/attach` command. The public spec grants no
-general Incus access.
+`session.attach` returns a 30-second, one-use pending token once the runtime
+driver reports the session's runtime running with its host ready. It carries no
+runtime details.
 The CLI transfers the token to a separate temporary `p attach-helper` process
 through an inherited private socket; the token never enters argv.
 
 The helper opens its own connection and agrees the protocol with
 `system.hello` before claiming. The daemon admits `attachment.claim` only from
-a Unix peer running the exact
-same executable in its fixed helper mode. The dedicated connection can then
-call only `attachment.confirm` and `attachment.ping`; any other method except
-`rpc.cancel`, including another hello, answers `invalid_request` with reason
-`connection`. Ordinary API callers
-cannot assert presence. Claim takes `{"token":"…"}` and returns the native
-launch details privately as `socket` and `spec`. `attachment.confirm` takes
-`{"operation":"/1.0/operations/<UUID>"}`, `attachment.ping` takes `{}`, and
-both return `{}`.
-Confirmation follows successful native PTY establishment, and repeats current
-ownership, readiness, and fixed asset checks. Tokens cannot be replayed or
-reconfirmed. The daemon permits at most eight pending/active attachments per
-session and 128 overall. Claimed pending state remains reserved through failed
-launch teardown even if its confirmation deadline expires.
+a Unix peer running the exact same executable in its fixed helper mode; from
+any other peer it answers `invalid_request` with reason `connection`, so
+ordinary API callers cannot assert presence. Claim takes
+`{"token":"…","width":1..65535,"height":1..65535}`, the client terminal's size.
+Like the hello, it is answered before the connection's next line is read, and
+only while no other request on the connection is in flight; otherwise it
+answers `retry` with reason `too_many_requests`. The daemon locks the session,
+checks again that it is established with a usable policy and that its runtime
+runs complete with its host ready, and has the runtime driver open a terminal
+on the fixed `/usr/libexec/p/attach` at that size and the runtime's current
+incarnation. It then counts the attachment in `attached_count`, clearing the
+latest unattended condition on the zero-to-one transition, and answers `{}`.
+A token that expired, was used or is unknown answers `precondition_failed`
+with reason `expired`; a session whose host is not ready, `conflict` with
+reason `session_not_running`; a terminal the driver could not open, `failed`
+with reason `runtime`. A refused or failed claim changes no presence. So does
+a claim whose helper hangs up while the terminal opens: the daemon notices the
+closed connection, counts nothing and closes the terminal. When the attach
+began but the terminal did not open and the driver cannot prove its end, the
+attachment keeps its lease without presence, refusing Discard and Delete,
+until the driver settles the terminal as ended or a Stop leaves the runtime
+stopped. Tokens cannot be replayed. The daemon permits at most eight pending
+or active attachments per session and 128 overall. A claimed attachment stays
+reserved through its terminal's teardown even after its token's deadline.
 
-The helper owns Incus's data and control WebSockets and monitors the lease
-connection continuously. For the pinned Incus 7.4 implementation, a matching
-control ping/pong proves that `instance.Exec` has succeeded: Incus starts its
-control reader only after that call returns. Before connecting the exec sockets,
-the helper opens Incus's native operation
-wait and receives its flushed response headers. It retains that completion
-witness even after Incus expires the operation record. Confirmation also checks
-the operation's running state, interactive flag, exact command, and session
-scope in the daemon. A completed native operation before confirmation is
-rejected. Terminal bytes do not provide readiness or
-semantic status. Client/carrier loss closes the control WebSocket, which makes
-Incus kill only the temporary exec command. The helper waits for native
-operation completion before closing a reachable lease. Daemon connection loss
-starts teardown immediately and permits no re-registration. Attachment lifetime
-and unattended reduction remain owned by [session observability](session-observability.md).
+After the claim's answer the connection carries the terminal in frames, not
+JSON-RPC. A frame is a kind byte, the length of its data as a big-endian 32-bit
+integer, and at most 32768 bytes of data:
+
+| Kind | Direction | Data |
+|---|---|---|
+| 2, input | helper to daemon | keyboard bytes |
+| 4, resize | helper to daemon | `{"width":…,"height":…}`, each 1 to 65535 |
+| 3, output | daemon to helper | terminal bytes |
+| 7, end | daemon to helper | empty, or why the attachment ended abnormally; the daemon's last frame |
+
+Any other frame, or a resize outside those bounds, ends the relay. Closing the
+connection, from either side,
+closes the terminal; the daemon closes the connection after the end frame.
+Terminal bytes do not provide readiness or semantic status.
+
+The runtime driver owns the native channel and its completion witness, which it
+arms before the attach starts; the daemon owns the token, the lease and the
+relay; the helper only carries bytes and has no Incus access. The daemon keeps
+the lease, and the attachment's count, until the witness proves the attached
+process ended. If the driver fails while the daemon stays up, the terminal ends
+unproven: the end frame says so, input and resizes stop and are not replayed,
+and the lease stays, so the plans of Discard, Delete and project deletion keep
+refusing with `attachment_active`. The lease
+ends when the driver settles the terminal as ended, which the daemon asks every
+few seconds, or when a Stop leaves the runtime stopped; such a lease does not
+refuse Stop. A daemon restart ends attachments and permits no re-registration.
+Attachment lifetime and unattended reduction remain owned by
+[session observability](session-observability.md).
 
 ## Errors
 
@@ -1462,7 +1490,7 @@ it.
 | `invalid_request` | `hello_required` | The connection sent a request before a successful `system.hello`. |
 | `invalid_request` | `duplicate_id` | Another request with the same `id` is in flight on the connection. |
 | `invalid_request` | `envelope` | The line is JSON but not a valid request object: a member other than `jsonrpc`, `id`, `method` and `params`, a repeated member, an `id` that is not a string of at most 128 bytes or an integer, or a missing `method`. On the session RPC, also a `status.report` with an `id`. |
-| `invalid_request` | `connection` | This connection may not call the method: the attachment helper's lease connection calls anything but `attachment.confirm` and `attachment.ping`, or a connection other than the trusted helper's calls `attachment.claim`. |
+| `invalid_request` | `connection` | This connection may not call the method: a connection other than the trusted attachment helper's calls `attachment.claim`. |
 | `unsupported_version` | `protocol` | The hello named a protocol the daemon does not speak; `supported` lists the ones it does. |
 | `unsupported_version` | `jsonrpc` | The request's `jsonrpc` member is not `"2.0"`. |
 | `invalid` | `param` | A param is missing, unknown, of the wrong type or out of bounds; `field` names it when one does. |
@@ -1472,11 +1500,11 @@ it.
 | `internal` | `encoding` | The result could not be encoded, or the handler returned both or neither of a result and an error. |
 | `internal` | `unexpected` | A failure the daemon did not classify. |
 | `retry` | `session_held` | Another request or a running operation holds the session; `target` names the operation when there is one. |
-| `retry` | `too_many_requests` | The connection has 16 requests in flight. |
+| `retry` | `too_many_requests` | The connection has 16 requests in flight, or, for `attachment.claim`, any request in flight. |
 | `retry` | `deadline` | The daemon's 30-second deadline passed. |
 | `retry` | `project_held` | Another request or a running operation holds the project: another creation of it, another `project.delete` call on it, or, for `project.delete`, any running operation in it. `target` names the operation when there is one. |
 | `retry` | `refs_moved` | P's branches moved while the source driver read them. |
-| `conflict` | `attachment_active` | A terminal is attached to the session, or an attachment is pending. |
+| `conflict` | `attachment_active` | A terminal is attached to the session or is opening, an attachment is pending, or, except for Stop, a terminal's end is not yet proven. |
 | `conflict` | `session_not_established` | The session is still being created, is being removed, or was never created. |
 | `conflict` | `session_not_stopped` | The change needs a stopped session: Rename. |
 | `conflict` | `session_not_running` | The request needs a ready session: attachment and project services. |

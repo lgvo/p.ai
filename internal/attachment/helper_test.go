@@ -2,483 +2,300 @@ package attachment
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
-	"net/http"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/errtext"
 )
 
-const testOperation = "/1.0/operations/11111111-1111-1111-1111-111111111111"
-const testInstance = "p-22222222-2222-2222-2222-222222222222"
+var testToken = strings.Repeat("a", 64)
 
-type nativeFixture struct {
-	socket           string
-	started          chan struct{}
-	controlConnected chan struct{}
-	controlClosed    chan struct{}
-	ended            atomic.Bool
-	removed          atomic.Bool
-	failWait         chan struct{}
-	resize           chan map[string]any
+// fakeDaemon is a control socket that agrees the protocol and answers the
+// helper's attachment.claim with refusal, or with success after which the
+// connection carries terminal frames.
+type fakeDaemon struct {
+	t       *testing.T
+	socket  string
+	claimed chan *api.FrameConn // the daemon's end of each claimed connection
+	claims  chan api.AttachmentClaimRequest
+	accepts chan struct{}
 }
 
-func newNativeFixture(t *testing.T) *nativeFixture {
+func newFakeDaemon(t *testing.T, refusal *api.Error, afterClaim []byte) *fakeDaemon {
 	t.Helper()
-	f := &nativeFixture{socket: filepath.Join(t.TempDir(), "incus.sock"), started: make(chan struct{}), controlConnected: make(chan struct{}), controlClosed: make(chan struct{}), resize: make(chan map[string]any, 1), failWait: make(chan struct{})}
-	listener, err := net.Listen("unix", f.socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	upgrader := websocket.Upgrader{}
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("project") != "p-test" {
-			t.Error("native project confinement lost")
-			http.Error(w, "project", 400)
-			return
-		}
-		switch r.URL.Path {
-		case "/1.0/instances/" + testInstance + "/exec":
-			var body struct {
-				Command     []string          `json:"command"`
-				Interactive bool              `json:"interactive"`
-				Wait        bool              `json:"wait-for-websocket"`
-				Environment map[string]string `json:"environment"`
-			}
-			if json.NewDecoder(r.Body).Decode(&body) != nil || len(body.Command) != 1 || body.Command[0] != "/usr/libexec/p/attach" || !body.Interactive || !body.Wait || body.Environment["TERM"] != "xterm-256color" {
-				t.Error("untrusted exec request")
-				http.Error(w, "exec", 400)
-				return
-			}
-			json.NewEncoder(w).Encode(map[string]any{"type": "async", "operation": testOperation, "metadata": map[string]any{"status_code": 103, "metadata": map[string]any{"fds": map[string]string{"0": "data-secret", "control": "control-secret"}}}})
-		case testOperation + "/websocket":
-			ws, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				return
-			}
-			defer ws.Close()
-			if r.URL.Query().Get("secret") == "control-secret" {
-				close(f.controlConnected)
-				// Mirrors pinned Incus 7.4: no NextReader (and therefore no nonce
-				// pong) until instance.Exec has succeeded and the PTY exists.
-				<-f.started
-				defer close(f.controlClosed)
-				for {
-					_, raw, e := ws.ReadMessage()
-					if e != nil {
-						return
-					}
-					var value map[string]any
-					if json.Unmarshal(raw, &value) == nil {
-						select {
-						case f.resize <- value:
-						default:
-						}
-					}
-				}
-			} else {
-				for {
-					kind, raw, e := ws.ReadMessage()
-					if e != nil {
-						return
-					}
-					if e = ws.WriteMessage(kind, raw); e != nil {
-						return
-					}
-				}
-			}
-		case testOperation + "/wait":
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(200)
-			w.(http.Flusher).Flush()
-			ticker := time.NewTicker(10 * time.Millisecond)
-			defer ticker.Stop()
-			for !f.ended.Load() {
-				select {
-				case <-r.Context().Done():
-					return
-				case <-f.failWait:
-					w.Write([]byte("{"))
-					return
-				case <-ticker.C:
-				}
-			}
-			json.NewEncoder(w).Encode(map[string]any{"type": "sync", "metadata": map[string]any{"status_code": 200, "metadata": map[string]any{"return": 0}}})
-		case testOperation:
-			if f.removed.Load() {
-				http.NotFound(w, r)
-				return
-			}
-			code := 103
-			if f.ended.Load() {
-				code = 200
-			}
-			json.NewEncoder(w).Encode(map[string]any{"type": "sync", "metadata": map[string]any{"status_code": code, "metadata": map[string]any{"return": 0}}})
-		default:
-			t.Errorf("unexpected Incus path %s", r.URL.Path)
-			http.NotFound(w, r)
-		}
-	})}
-	go server.Serve(listener)
-	t.Cleanup(func() {
-		select {
-		case <-f.started:
-		default:
-			close(f.started)
-		}
-		server.Close()
-	})
-	return f
-}
-func (f *nativeFixture) launch() api.AttachmentLaunch {
-	return api.AttachmentLaunch{Socket: f.socket, Spec: plugin.AttachSpec{Project: "p-test", Instance: testInstance, Argv: []string{"/usr/libexec/p/attach"}}}
-}
-func await(t *testing.T, ch <-chan struct{}, name string) {
-	t.Helper()
-	select {
-	case <-ch:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out: " + name)
-	}
-}
-func TestNativeConfirmationWaitsForExecPongAndRunningOperation(t *testing.T) {
-	for _, alreadyEnded := range []bool{false, true} {
-		t.Run(map[bool]string{false: "running", true: "exited"}[alreadyEnded], func(t *testing.T) {
-			f := newNativeFixture(t)
-			f.ended.Store(alreadyEnded)
-			n, err := newNative(f.launch())
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() {
-				n.closeChannel()
-				if n.cancelOperation != nil {
-					n.cancelOperation()
-				}
-			}()
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			result := make(chan error, 1)
-			go func() { result <- n.establish(ctx, f.launch(), 80, 24) }()
-			await(t, f.controlConnected, "control upgrade")
-			select {
-			case err := <-result:
-				if alreadyEnded && err != nil {
-					close(f.started)
-					return
-				}
-				t.Fatalf("upgrade became confirmation: %v", err)
-			case <-time.After(30 * time.Millisecond):
-			}
-			close(f.started)
-			if err = <-result; (err != nil) != alreadyEnded {
-				t.Fatalf("ended=%v result=%v", alreadyEnded, err)
-			}
-		})
-	}
-}
-
-type leaseFixture struct {
-	socket     string
-	confirmed  chan struct{}
-	closed     chan struct{}
-	connection chan net.Conn
-	confirms   atomic.Int32
-}
-
-func newLeaseFixture(t *testing.T, launch api.AttachmentLaunch, gates ...<-chan struct{}) *leaseFixture {
-	t.Helper()
-	f := &leaseFixture{socket: filepath.Join(t.TempDir(), "rpc.sock"), confirmed: make(chan struct{}), closed: make(chan struct{}), connection: make(chan net.Conn, 1)}
-	listener, err := net.Listen("unix", f.socket)
+	d := &fakeDaemon{t: t, socket: filepath.Join(t.TempDir(), "control.sock"), claimed: make(chan *api.FrameConn, 4),
+		claims: make(chan api.AttachmentClaimRequest, 4), accepts: make(chan struct{}, 4)}
+	listener, err := net.Listen("unix", d.socket)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { listener.Close() })
 	go func() {
-		conn, e := listener.Accept()
-		if e != nil {
-			return
-		}
-		defer conn.Close()
-		defer close(f.closed)
-		f.connection <- conn
-		reader := bufio.NewScanner(conn)
-		for reader.Scan() {
-			var req struct {
-				ID     int            `json:"id"`
-				Method string         `json:"method"`
-				Params map[string]any `json:"params"`
-			}
-			if json.Unmarshal(reader.Bytes(), &req) != nil {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
 				return
 			}
-			var result any = api.AttachmentResult{}
-			switch req.Method {
-			case "system.hello":
-				if req.Params["protocol"] != api.Protocol {
-					return
-				}
-				result = api.HelloResult{Protocol: api.Protocol, Capabilities: []api.Capability{}}
-			case "attachment.claim":
-				if req.Params["token"] != strings.Repeat("a", 64) {
-					return
-				}
-				result = launch
-			case "attachment.confirm":
-				if f.confirms.Add(1) == 1 {
-					close(f.confirmed)
-				}
-				if len(gates) > 0 {
-					<-gates[0]
-				}
-			case "attachment.ping":
-			default:
-				return
-			}
-			reply := struct {
-				JSONRPC string `json:"jsonrpc"`
-				ID      int    `json:"id"`
-				Result  any    `json:"result"`
-			}{"2.0", req.ID, result}
-			if json.NewEncoder(conn).Encode(reply) != nil {
-				return
-			}
+			d.accepts <- struct{}{}
+			go d.serve(conn, refusal, afterClaim)
 		}
 	}()
+	return d
+}
+
+func (d *fakeDaemon) serve(conn net.Conn, refusal *api.Error, afterClaim []byte) {
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			conn.Close()
+			return
+		}
+		var req struct {
+			ID     int             `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if json.Unmarshal(line, &req) != nil {
+			conn.Close()
+			return
+		}
+		reply := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+		switch req.Method {
+		case api.SystemHello.Name:
+			reply["result"] = api.HelloResult{Protocol: api.Protocol, Capabilities: []api.Capability{}}
+		case api.AttachmentClaim.Name:
+			var claim api.AttachmentClaimRequest
+			if json.Unmarshal(req.Params, &claim) != nil {
+				conn.Close()
+				return
+			}
+			d.claims <- claim
+			if refusal != nil {
+				reply["error"] = refusal
+			} else {
+				reply["result"] = api.AttachmentLaunch{}
+			}
+		default:
+			conn.Close()
+			return
+		}
+		raw, _ := json.Marshal(reply)
+		raw = append(raw, '\n')
+		if req.Method == api.AttachmentClaim.Name && refusal == nil {
+			// Frames written right after the answer may reach the helper in
+			// the same read as the answer.
+			conn.Write(append(raw, afterClaim...))
+			d.claimed <- api.NewFrameConn(conn, reader)
+			return
+		}
+		conn.Write(raw)
+	}
+}
+
+// helperRun is the helper running on one end of a carrier; client is the
+// other end.
+type helperRun struct {
+	t      *testing.T
+	client *api.FrameConn
+	done   chan error
+}
+
+func startHelper(t *testing.T, init initiation) *helperRun {
+	t.Helper()
+	helperEnd, clientEnd := net.Pipe()
+	t.Cleanup(func() { clientEnd.Close() })
+	h := &helperRun{t: t, client: api.NewFrameConn(clientEnd, nil), done: make(chan error, 1)}
+	go func() { defer helperEnd.Close(); h.done <- runHelper(api.NewFrameConn(helperEnd, nil)) }()
+	if err := h.client.WriteJSON(api.FrameInit, init); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func (h *helperRun) frame() api.Frame {
+	h.t.Helper()
+	h.client.SetReadDeadline(time.Now().Add(3 * time.Second))
+	f, err := h.client.ReadFrame()
+	if err != nil {
+		h.t.Fatalf("client frame: %v", err)
+	}
 	return f
 }
-func TestHelperCarrierLossRetainsLeaseUntilNativeTeardown(t *testing.T) {
-	native := newNativeFixture(t)
-	close(native.started)
-	lease := newLeaseFixture(t, native.launch())
-	helperConn, clientConn := net.Pipe()
-	defer clientConn.Close()
-	helperDone := make(chan error, 1)
-	go func() { defer helperConn.Close(); helperDone <- runHelper(&carrier{Conn: helperConn}) }()
-	client := &carrier{Conn: clientConn}
-	if err := client.writeJSON(carrierInit, initiation{Socket: lease.socket, Token: strings.Repeat("a", 64), Width: 80, Height: 24}); err != nil {
-		t.Fatal(err)
-	}
-	ready, err := client.read()
-	if err != nil || ready.kind != carrierReady {
-		t.Fatalf("not ready: %+v %v", ready, err)
-	}
-	await(t, lease.confirmed, "confirmation")
-	if err = client.write(carrierInput, []byte("echo")); err != nil {
-		t.Fatal(err)
-	}
-	output, err := client.read()
-	if err != nil || output.kind != carrierOutput || string(output.data) != "echo" {
-		t.Fatalf("PTY bytes: %+v %v", output, err)
-	}
-	if err = client.writeJSON(carrierResize, size{100, 40}); err != nil {
-		t.Fatal(err)
-	}
+
+func (h *helperRun) result() error {
+	h.t.Helper()
 	select {
-	case resize := <-native.resize:
-		if resize["command"] != "window-resize" {
-			t.Fatal(resize)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("resize missing")
-	}
-	client.Close()
-	await(t, native.controlClosed, "temporary exec kill")
-	select {
-	case <-lease.closed:
-		t.Fatal("presence released before temporary exec completed")
-	case <-time.After(100 * time.Millisecond):
-	}
-	native.ended.Store(true)
-	select {
-	case <-helperDone:
+	case err := <-h.done:
+		return err
 	case <-time.After(3 * time.Second):
-		t.Fatal("helper did not complete teardown")
+		h.t.Fatal("the helper did not end")
 	}
-	await(t, lease.closed, "lease release")
-	if lease.confirms.Load() != 1 {
-		t.Fatal("unexpected reconfirmation")
-	}
-}
-func TestDaemonLossImmediatelyClosesChannelWithoutReregistering(t *testing.T) {
-	native := newNativeFixture(t)
-	close(native.started)
-	lease := newLeaseFixture(t, native.launch())
-	helperConn, clientConn := net.Pipe()
-	defer clientConn.Close()
-	helperDone := make(chan error, 1)
-	go func() { defer helperConn.Close(); helperDone <- runHelper(&carrier{Conn: helperConn}) }()
-	client := &carrier{Conn: clientConn}
-	if err := client.writeJSON(carrierInit, initiation{lease.socket, strings.Repeat("a", 64), 80, 24}); err != nil {
-		t.Fatal(err)
-	}
-	if f, e := client.read(); e != nil || f.kind != carrierReady {
-		t.Fatal(f, e)
-	}
-	conn := <-lease.connection
-	conn.Close()
-	await(t, native.controlClosed, "daemon-loss teardown")
-	// Drain optional diagnostic so the helper can finish its private carrier.
-	go io.Copy(io.Discard, clientConn)
-	select {
-	case <-helperDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("helper survived lost lease")
-	}
-	if lease.confirms.Load() != 1 {
-		t.Fatal("lease was re-registered")
-	}
-}
-func TestLeaseReaderDetectsIdleEOF(t *testing.T) {
-	listener, err := net.Listen("unix", filepath.Join(t.TempDir(), "rpc.sock"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer listener.Close()
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c, e := listener.Accept()
-		if e != nil {
-			return
-		}
-		// Agree the protocol, then go idle and close.
-		hello := bufio.NewScanner(c)
-		if hello.Scan() {
-			c.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocol":"` + api.Protocol + `","build_version":"","instance_id":"","capabilities":[]}}` + "\n"))
-		}
-		c.Close()
-	}()
-	rpc, err := dialLease(context.Background(), listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rpc.fail()
-	await(t, rpc.lost, "idle lease EOF")
-	wg.Wait()
+	return nil
 }
 
-func TestFailedNativeLaunchNeverConfirms(t *testing.T) {
-	native := newNativeFixture(t)
-	close(native.started)
-	native.ended.Store(true)
-	lease := newLeaseFixture(t, native.launch())
-	helperConn, clientConn := net.Pipe()
-	defer clientConn.Close()
-	done := make(chan error, 1)
-	go func() { defer helperConn.Close(); done <- runHelper(&carrier{Conn: helperConn}) }()
-	client := &carrier{Conn: clientConn}
-	if err := client.writeJSON(carrierInit, initiation{lease.socket, strings.Repeat("a", 64), 80, 24}); err != nil {
-		t.Fatal(err)
-	}
-	frame, err := client.read()
-	if err != nil || frame.kind != carrierError {
-		t.Fatal(frame, err)
-	}
-	if err = <-done; err == nil {
-		t.Fatal("failed exec succeeded")
-	}
-	if lease.confirms.Load() != 0 {
-		t.Fatal("failed launch asserted presence")
-	}
-	await(t, lease.closed, "failed-launch release")
-}
-func TestCarrierLossDuringConfirmationKeepsReachableLease(t *testing.T) {
-	native := newNativeFixture(t)
-	close(native.started)
-	gate := make(chan struct{})
-	lease := newLeaseFixture(t, native.launch(), gate)
-	helperConn, clientConn := net.Pipe()
-	defer clientConn.Close()
-	done := make(chan error, 1)
-	go func() { defer helperConn.Close(); done <- runHelper(&carrier{Conn: helperConn}) }()
-	client := &carrier{Conn: clientConn}
-	if err := client.writeJSON(carrierInit, initiation{lease.socket, strings.Repeat("a", 64), 80, 24}); err != nil {
-		t.Fatal(err)
-	}
-	await(t, lease.confirmed, "in-flight confirmation")
-	client.Close()
-	await(t, native.controlClosed, "in-flight-confirm carrier teardown")
+func receive[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
 	select {
-	case <-lease.closed:
-		t.Fatal("carrier cancellation closed in-flight lease")
-	case <-time.After(50 * time.Millisecond):
-	}
-	native.ended.Store(true)
-	close(gate)
-	select {
-	case <-done:
+	case v := <-ch:
+		return v
 	case <-time.After(3 * time.Second):
-		t.Fatal("teardown did not finish")
+		t.Fatalf("timed out waiting for %s", what)
 	}
-	await(t, lease.closed, "post-completion release")
+	panic("unreachable")
 }
 
-func TestNativeCompletionWitnessSurvivesOperationExpiry(t *testing.T) {
-	f := newNativeFixture(t)
-	close(f.started)
-	n, err := newNative(f.launch())
+func daemonFrame(t *testing.T, c *api.FrameConn) api.Frame {
+	t.Helper()
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	f, err := c.ReadFrame()
 	if err != nil {
+		t.Fatalf("daemon frame: %v", err)
+	}
+	return f
+}
+
+// The helper claims the token at the client's size, and relays the client's
+// input and resizes to the daemon and the daemon's output back, including
+// output the daemon sent with the claim's answer, until the daemon's end.
+func TestHelperRelaysTheClaimedTerminal(t *testing.T) {
+	welcome := []byte{byte(api.FrameOutput), 0, 0, 0, 7, 'w', 'e', 'l', 'c', 'o', 'm', 'e'}
+	d := newFakeDaemon(t, nil, welcome)
+	h := startHelper(t, initiation{Socket: d.socket, Token: testToken, Width: 80, Height: 24})
+	if claim := receive(t, d.claims, "the claim"); claim != (api.AttachmentClaimRequest{Token: testToken, Width: 80, Height: 24}) {
+		t.Fatalf("claim %+v", claim)
+	}
+	daemon := receive(t, d.claimed, "the claimed connection")
+	if f := h.frame(); f.Kind != api.FrameReady {
+		t.Fatalf("first frame %+v, want ready", f)
+	}
+	if f := h.frame(); f.Kind != api.FrameOutput || string(f.Data) != "welcome" {
+		t.Fatalf("output %+v", f)
+	}
+	if err := h.client.WriteFrame(api.FrameInput, []byte("echo\r")); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		n.closeChannel()
-		if n.cancelOperation != nil {
-			n.cancelOperation()
-		}
-	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if err = n.establish(ctx, f.launch(), 80, 24); err != nil {
+	if f := daemonFrame(t, daemon); f.Kind != api.FrameInput || string(f.Data) != "echo\r" {
+		t.Fatalf("input %+v", f)
+	}
+	if err := h.client.WriteJSON(api.FrameResize, api.TerminalSize{Width: 100, Height: 40}); err != nil {
 		t.Fatal(err)
 	}
-	f.removed.Store(true)
-	f.ended.Store(true)
-	await(t, n.observerDone, "retained operation completion")
-	if err = n.teardown(ctx); err != nil {
-		t.Fatal("operation expiry lost completion proof", err)
+	if f := daemonFrame(t, daemon); f.Kind != api.FrameResize || string(f.Data) != `{"width":100,"height":40}` {
+		t.Fatalf("resize %+v", f)
+	}
+	if err := daemon.WriteFrame(api.FrameOutput, []byte("echo")); err != nil {
+		t.Fatal(err)
+	}
+	if f := h.frame(); f.Kind != api.FrameOutput || string(f.Data) != "echo" {
+		t.Fatalf("output %+v", f)
+	}
+	if err := daemon.WriteFrame(api.FrameEnd, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.result(); err != nil {
+		t.Fatalf("a normal end: %v", err)
+	}
+	daemon.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := daemon.ReadFrame(); !errors.Is(err, io.EOF) {
+		t.Fatalf("the helper kept the daemon's connection: %v", err)
 	}
 }
 
-func TestObserverFailureStartsTeardownDuringConfirmation(t *testing.T) {
-	native := newNativeFixture(t)
-	close(native.started)
-	gate := make(chan struct{})
-	lease := newLeaseFixture(t, native.launch(), gate)
-	helperConn, clientConn := net.Pipe()
-	defer clientConn.Close()
-	done := make(chan error, 1)
-	go func() { defer helperConn.Close(); done <- runHelper(&carrier{Conn: helperConn}) }()
-	client := &carrier{Conn: clientConn}
-	if err := client.writeJSON(carrierInit, initiation{lease.socket, strings.Repeat("a", 64), 80, 24}); err != nil {
+// Losing the client ends the attachment: the helper closes its connection,
+// and the daemon then closes the terminal.
+func TestHelperClosesTheDaemonsConnectionWhenTheClientGoes(t *testing.T) {
+	d := newFakeDaemon(t, nil, nil)
+	h := startHelper(t, initiation{Socket: d.socket, Token: testToken, Width: 80, Height: 24})
+	daemon := receive(t, d.claimed, "the claimed connection")
+	if f := h.frame(); f.Kind != api.FrameReady {
+		t.Fatalf("first frame %+v, want ready", f)
+	}
+	h.client.Close()
+	daemon.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := daemon.ReadFrame(); !errors.Is(err, io.EOF) {
+		t.Fatalf("the daemon's connection after the client went: %v", err)
+	}
+	if err := h.result(); err != nil {
 		t.Fatal(err)
 	}
-	await(t, lease.confirmed, "in-flight confirmation")
-	close(native.failWait)
-	await(t, native.controlClosed, "failed observer immediate teardown")
-	select {
-	case <-lease.closed:
-		t.Fatal("observer failure released reachable lease")
-	case <-time.After(50 * time.Millisecond):
+}
+
+// Losing the daemon ends the helper at once, and it never claims again.
+func TestHelperEndsWhenTheDaemonGoesWithoutClaimingAgain(t *testing.T) {
+	d := newFakeDaemon(t, nil, nil)
+	h := startHelper(t, initiation{Socket: d.socket, Token: testToken, Width: 80, Height: 24})
+	daemon := receive(t, d.claimed, "the claimed connection")
+	if f := h.frame(); f.Kind != api.FrameReady {
+		t.Fatalf("first frame %+v, want ready", f)
 	}
-	native.ended.Store(true)
-	close(gate)
-	go io.Copy(io.Discard, clientConn)
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("failed observer teardown did not finish")
+	daemon.Close()
+	if err := h.result(); err != nil {
+		t.Fatal(err)
 	}
-	await(t, lease.closed, "native-proved release after observer failure")
+	if len(d.accepts) != 1 || len(d.claims) != 1 {
+		t.Fatalf("the helper connected %d and claimed %d times", len(d.accepts), len(d.claims))
+	}
+}
+
+// A refused claim never reports the attachment ready; the client is told
+// why, in the sentence for the daemon's error.
+func TestARefusedClaimTellsTheClientWhy(t *testing.T) {
+	refusal := api.NewError(api.KindRetry, api.ReasonSessionHeld)
+	d := newFakeDaemon(t, refusal, nil)
+	h := startHelper(t, initiation{Socket: d.socket, Token: testToken, Width: 80, Height: 24})
+	if f := h.frame(); f.Kind != api.FrameError || string(f.Data) != errtext.Sentence(refusal) {
+		t.Fatalf("frame %+v, want the refusal's sentence", f)
+	}
+	if err := h.result(); err == nil {
+		t.Fatal("a refused claim succeeded")
+	}
+}
+
+// An abnormal end, such as a terminal whose end the runtime could not prove,
+// reaches the client as an error.
+func TestAnAbnormalEndTellsTheClientWhy(t *testing.T) {
+	d := newFakeDaemon(t, nil, nil)
+	h := startHelper(t, initiation{Socket: d.socket, Token: testToken, Width: 80, Height: 24})
+	daemon := receive(t, d.claimed, "the claimed connection")
+	if f := h.frame(); f.Kind != api.FrameReady {
+		t.Fatalf("first frame %+v, want ready", f)
+	}
+	if err := daemon.WriteFrame(api.FrameEnd, []byte("the terminal ended unproven")); err != nil {
+		t.Fatal(err)
+	}
+	if f := h.frame(); f.Kind != api.FrameError || string(f.Data) != "the terminal ended unproven" {
+		t.Fatalf("frame %+v, want the end's reason", f)
+	}
+	if err := h.result(); err == nil {
+		t.Fatal("an abnormal end succeeded")
+	}
+}
+
+// An initiation the helper cannot use never reaches the daemon.
+func TestHelperRefusesAnInvalidInitiation(t *testing.T) {
+	d := newFakeDaemon(t, nil, nil)
+	for name, init := range map[string]initiation{
+		"no size":     {Socket: d.socket, Token: testToken},
+		"short token": {Socket: d.socket, Token: "a", Width: 80, Height: 24},
+		"no socket":   {Token: testToken, Width: 80, Height: 24},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := startHelper(t, init)
+			if f := h.frame(); f.Kind != api.FrameError || string(f.Data) != "invalid private attachment initiation" {
+				t.Fatalf("frame %+v", f)
+			}
+			h.result()
+		})
+	}
+	if len(d.accepts) != 0 {
+		t.Fatal("an invalid initiation reached the daemon")
+	}
 }

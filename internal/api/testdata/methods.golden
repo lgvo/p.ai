@@ -586,10 +586,6 @@ control session.attach (runtime)
   result
     token string
     expires_at time
-    spec object
-      project string
-      instance string
-      argv array of string
 control session.discard (runtime)
   request
     uuid string
@@ -1343,18 +1339,8 @@ control session.create.cleanup (runtime)
 control attachment.claim (runtime)
   request
     token string
-  result
-    socket string
-    spec object
-      project string
-      instance string
-      argv array of string
-control attachment.confirm (runtime)
-  request
-    operation string
-  result
-control attachment.ping (runtime)
-  request
+    width integer
+    height integer
   result
 control session.services (services)
   request

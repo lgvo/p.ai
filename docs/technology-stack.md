@@ -100,11 +100,10 @@ driver's own settings ([control API](control-api.md)). The only driver is
 `incus`, `runtimeincus.Driver`, which runs inside the daemon process. An
 in-memory driver (`internal/runtimedriver/memory`) and a conformance suite
 (`internal/runtimedriver/conformance`) show that a driver keeps the contract;
-the Incus driver runs the suite over a stubbed Incus. Core so far reaches
-images, sessions, removal, rename's workspace edits, project services, the
+the Incus driver runs the suite over a stubbed Incus. Core reaches images,
+sessions, terminals, removal, rename's workspace edits, project services, the
 boundary check and the inventory through the driver, and computes admission
-and the proofs of absence from `Inspect` and `Inventory`; only terminals
-still go to Incus through direct `runtimeincus` calls.
+and the proofs of absence from `Inspect` and `Inventory`.
 
 The Incus driver is always bound to the configured local confined user
 project. It uses deterministic instance names and P metadata, passes structured
@@ -196,27 +195,27 @@ without changing lifecycle code. There is no MVP `direct` host.
 ```go
 type ClientTransport interface {
     DialRPC(context.Context) (io.ReadWriteCloser, error)
-    Attach(context.Context, AttachSpec) error
 }
 ```
 
-`UnixTransport` carries MVP RPC and the structured attachment specification.
-The retained `SSHUnixTransport` direction carries the same protocol after MVP.
-Terminal bytes stay outside JSON-RPC.
+`UnixTransport` carries MVP RPC, including the attachment claim and the
+terminal the daemon then relays on the claim's connection. The retained
+`SSHUnixTransport` direction carries the same protocol after MVP. Terminal
+bytes travel as terminal frames after the claim, outside JSON-RPC.
 
-Attachment uses a trusted host helper. The ordinary local client receives a
-short-lived pending token and structured spec, then invokes the helper and
-transfers the token over private stdin/control framing, never argv. The helper
-opens a dedicated attachment RPC connection, establishes the Incus channel,
-confirms the token, bridges terminal bytes directly, and owns the confirmed
-lease. A later SSH transport must preserve this contract.
+Attachment uses a trusted host helper. The ordinary local client receives only
+a short-lived pending token, then invokes the helper and transfers the token
+over private stdin/control framing, never argv. The helper claims the token on
+its own control connection; the daemon opens the terminal through the runtime
+driver and relays it over that connection, and the helper carries bytes
+between it and the client. Neither the client nor the helper has runtime
+authority. A later SSH transport must preserve this contract.
 
-While the daemon remains reachable, the helper retains that lease until
-temporary-client teardown completes. Client/carrier loss starts teardown
-independently of client cooperation. Lease loss caused by daemon restart also
-starts teardown immediately, and the helper cannot establish another lease or
-channel before it finishes. The systemd-owned host persists throughout
-detachment. MVP has no existing-channel re-registration method.
+The daemon keeps the attachment's lease until the runtime driver proves the
+attached process ended. Client or carrier loss closes the helper's connection
+and the daemon closes the terminal, independently of client cooperation. A
+daemon restart ends attachments. The systemd-owned host persists throughout
+detachment. MVP has no existing-terminal re-registration method.
 
 ### Agent status
 

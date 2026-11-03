@@ -484,11 +484,13 @@ var settleInterval = 250 * time.Millisecond
 // Settle answers from two observations settleInterval apart, which must
 // both show the effect applied, the same way. A session's effect is applied
 // when its runtime is as the effect intended, with no Incus operation
-// running on it (driver_settle.go). A build is applied only when both see
-// the same single image of the build, exactly as its publication would have
-// accepted it, no image operation running, and no builder of the build
-// anywhere in the Incus project. Nothing is proven not applied: Incus may
-// still admit a request it queued, a create or a publish included.
+// running on it (driver_settle.go). A terminal is applied when Incus no
+// longer runs its exec: the exec's operation is finished or gone. A build
+// is applied only when both see the same single image of the build, exactly
+// as its publication would have accepted it, no image operation running,
+// and no builder of the build anywhere in the Incus project. Nothing is
+// proven not applied: Incus may still admit a request it queued, a create
+// or a publish included.
 func (d *Driver) Settle(ctx context.Context, e runtimedriver.Effect) (runtimedriver.Settlement, error) {
 	b := d.backend
 	var observe func() (string, bool, error)
@@ -517,6 +519,14 @@ func (d *Driver) Settle(ctx context.Context, e runtimedriver.Effect) (runtimedri
 		observe = func() (string, bool, error) { return b.observeDeleted(ctx, r.ID) }
 	case runtimedriver.EffectWrite, runtimedriver.EffectRemove:
 		observe = func() (string, bool, error) { return b.observeWorkspace(ctx, e) }
+	case runtimedriver.EffectTerminal:
+		if _, err := b.NativeSession(e.Target.Session); err != nil {
+			return runtimedriver.Unknown, err
+		}
+		if !terminalIDPattern.MatchString(e.Terminal) {
+			return runtimedriver.Unknown, errors.New("invalid terminal effect")
+		}
+		observe = func() (string, bool, error) { return b.observeTerminalEnded(ctx, e.Terminal) }
 	case runtimedriver.EffectBuild:
 		if e.Build.Ref.Kind != runtimedriver.KindBuild || !uuidPattern.MatchString(e.Build.Ref.ID) || e.Build.Labels[runtimedriver.LabelBuild] != e.Build.Ref.ID {
 			return runtimedriver.Unknown, errors.New("invalid build effect")

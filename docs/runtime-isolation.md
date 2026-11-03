@@ -74,10 +74,10 @@ proves these properties; the conformance suite
 | Identity | Labels stored and returned exactly; an incarnation stable across stop and start, new on re-create or restore. | `user.p.*` keys, `volatile.uuid` and its generation, image properties. |
 | Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints` and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. | Disk devices within the project's ceilings ([filesystem grants](#filesystem-grants)). |
 
-So far core reaches images, sessions, project services, the boundary check,
-the inventory, removal and the workspace through the driver, and computes
-admission and the proofs of absence from the driver's `Inspect` and
-`Inventory`. Only terminals still reach Incus directly.
+Core reaches images, sessions, terminals, project services, the boundary
+check, the inventory, removal and the workspace through the driver, and
+computes admission and the proofs of absence from the driver's `Inspect` and
+`Inventory`.
 
 A proof of absence runs inside a boundary `Check` has just proven. A runtime
 is gone only when `Inspect` finds nothing at its address and a complete
@@ -568,36 +568,47 @@ Every supported persistent host supplies the same two runtime artifacts:
 - the fixed root-owned `/usr/libexec/p/attach`, which connects one PTY to the
   already-running host.
 
-The attach command is a short-lived adapter, not a daemon or supervisor. P
-opens a structured Incus exec operation as the fixed session user with an
-explicit PTY, working directory, and argv containing only
-`/usr/libexec/p/attach`. The adapter replaces itself with fixed host-specific
-argv, such as a tmux attach client addressed by a root-owned socket/session
-descriptor. It accepts no client-selected command, socket, session name, or
-shell string.
+The attach command is a short-lived adapter, not a daemon or supervisor. The
+Incus driver's `OpenTerminal` first checks that the runtime is at the
+requested incarnation, running, with its host ready, and that the image's
+links to the unit and attach program resolve to the selected host package's
+assets, unchanged. It then opens a structured Incus exec operation as the
+fixed session user with an explicit PTY, working directory, and argv
+containing only `/usr/libexec/p/attach`. Before the exec starts it arms its
+completion witness, a wait on Incus's exec operation, and it keeps that
+witness after Incus expires the operation record. The adapter replaces itself
+with fixed host-specific argv, such as a tmux attach client addressed by a
+root-owned socket/session descriptor. It accepts no client-selected command,
+socket, session name, or shell string.
 
 Tmux is the shipped MVP default. Another persistent host is supported only when
 its systemd unit and attach command pass the same conformance contract.
 
-The client never receives general Incus credentials. A future remote P client
-may initiate SSH to the P host and execute the daemon-approved attachment path;
-it still does not connect to Incus directly.
+The client and the attachment helper never receive Incus credentials or any
+runtime detail: the daemon opens the terminal through the runtime driver and
+relays it over the helper's control connection. A future remote P client may
+initiate SSH to the P host and execute the daemon-approved attachment path; it
+still does not connect to Incus directly.
 
-The returned spec is not attachment presence. Lifecycle first verifies the
-current systemd unit and fixed attach path, issues a pending token, and returns
-the structured spec. The trusted host helper establishes the channel,
-confirms the token on its dedicated attachment RPC connection, and owns the
-resulting lease.
+A pending token is not attachment presence. Lifecycle first checks through the
+driver that the host is ready and issues a pending token. When the trusted host
+helper claims it, the daemon checks again, opens the terminal, counts the
+attachment, and relays the terminal. The driver owns the native channel and its
+witness; the daemon owns the token and the lease.
 
-The helper binds channel lifetime to the lease and terminal carrier without
-depending on client cleanup. While the daemon is reachable, it retains the
-confirmed lease until channel teardown completes. Client crash, SIGKILL,
-attachment-transport loss, or client-machine loss starts teardown. If daemon
-restart removes the lease first, teardown begins immediately and that helper
-establishes no new lease or channel until it finishes. Teardown ends only the
-temporary attach client; the systemd-owned persistent host and configured
-interactive command continue. MVP does not re-register an already-running
-attachment channel.
+The daemon binds the terminal's lifetime to the helper's connection without
+depending on client cleanup: client crash, SIGKILL, helper or carrier loss, or
+client-machine loss closes the connection, and the daemon closes the terminal.
+It keeps the attachment's lease until the witness proves the attached process
+ended. If the driver fails while the daemon stays up, the terminal ends
+unproven: the helper tears down, input and resizes stop and are not replayed,
+and the lease stays, so discard and delete stay refused. It ends when the
+driver settles the terminal as ended, which the daemon asks every few seconds,
+or when the session stops; such a lease does not refuse Stop, and a Stop that
+leaves the runtime stopped ends it. A daemon restart ends attachments; MVP does
+not re-register an already-running terminal. Teardown ends only the temporary
+attach client; the systemd-owned persistent host and configured interactive
+command continue.
 
 ## Non-activating workspace access
 
@@ -730,7 +741,8 @@ MVP includes:
 - `none` and validation-gated `public-egress` profiles;
 - systemd-owned persistent interactive hosting with tmux as the shipped
   default;
-- one fixed attachment command and the confirmed attachment handshake; and
+- one fixed attachment command, whose terminal the daemon relays after a
+  one-use claim; and
 - Incus-authoritative inspection, operations, and cleanup.
 
 MVP excludes Incus administration, remote Incus servers, clustering, Incus
@@ -756,8 +768,8 @@ The backend is supported only when tests prove:
    only once no session from that commit remains;
 6. sessions cannot reach Incus, host credentials, undeclared mounts, sibling
    instances, or disallowed network destinations;
-7. attachment uses fixed structured argv, never exposes general Incus
-   authority, and failed launch before confirmation never becomes attachment
+7. attachment uses fixed structured argv, gives the client and helper no Incus
+   authority, and a terminal that failed to open never becomes attachment
    presence;
 8. the non-activating workspace interface acts only on a stopped instance and
    cannot execute repository-controlled hooks or arbitrary commands; and
