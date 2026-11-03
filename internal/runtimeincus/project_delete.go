@@ -36,7 +36,7 @@ func (b *Backend) CheckProjectDeletionInventory(ctx context.Context, project str
 			}
 		}
 		if matches && !names[in.Name] {
-			return fmt.Errorf("unreviewed project native resource %s; manual exact-identity investigation required", in.Name)
+			return fmt.Errorf("unreviewed project native resource %s", in.Name)
 		}
 	}
 	all, err := b.imageList(ctx)
@@ -48,7 +48,7 @@ func (b *Backend) CheckProjectDeletionInventory(ctx context.Context, project str
 	}
 	for _, im := range all {
 		if im.Properties["p.project_path"] == project && !images[im.Fingerprint] {
-			return fmt.Errorf("unreviewed project image %s; exact owned cache investigation required", im.Fingerprint)
+			return fmt.Errorf("unreviewed project image %s", im.Fingerprint)
 		}
 	}
 	return nil

@@ -932,7 +932,8 @@ Lifecycle methods evolve with implementation, but each exposes the
 same concepts:
 
 - operation and idempotency IDs;
-- current phase and bounded diagnostic;
+- current phase, and once blocked or failed a reason code and a diagnostic of
+  at most 1024 bytes;
 - registry state, observed session and policy condition, project, branch, and
   UUID;
 - destructive preflight facts and confirmation token; and

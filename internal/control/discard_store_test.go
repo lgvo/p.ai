@@ -69,7 +69,7 @@ func TestDiscardStaleRollbackReleasesOnlyOwnGuard(t *testing.T) {
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "guarded", false, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "guarded", false, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FailStaleDiscard(ctx, op.ID, "content changed"); err != nil {
@@ -98,7 +98,7 @@ func TestDiscardCommitAndExactForwardCompletion(t *testing.T) {
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	verify := func(_ context.Context, got DiscardEvidence) error {
@@ -128,14 +128,14 @@ func TestDiscardCommitAndExactForwardCompletion(t *testing.T) {
 	if err := s.FailStaleDiscard(ctx, op.ID, "late stale"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("committed removal rolled back: %v", err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "delete-issued", true, op.Evidence, "native outcome unknown"); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "delete-issued", true, op.Evidence, "internal", "native outcome unknown"); err != nil {
 		t.Fatal(err)
 	}
 	unresolved, err := unfinishedOf(ctx, s, KindSessionDiscard, KindSessionDelete, KindCreateCleanup)
 	if err != nil || len(unresolved) != 1 || unresolved[0].Phase != "delete-issued" {
 		t.Fatalf("restart tombstone missing: %+v %v", unresolved, err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "secrets-absent", true, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "secrets-absent", true, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CompleteDiscard(ctx, op.ID, func(_ context.Context, project, branch, tip string) error {
@@ -163,7 +163,7 @@ func TestDiscardChangedSiblingRefCannotCrossCommit(t *testing.T) {
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	changed := errors.New("sibling P ref changed after analysis")
@@ -205,7 +205,7 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CommitDelete(ctx, op.ID, func(_ context.Context, got DiscardEvidence) error {
@@ -216,14 +216,14 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "branch-delete-issued", true, op.Evidence, "CAS outcome unknown"); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "branch-delete-issued", true, op.Evidence, "internal", "CAS outcome unknown"); err != nil {
 		t.Fatal(err)
 	}
 	unresolved, err := unfinishedOf(ctx, s, KindSessionDiscard, KindSessionDelete, KindCreateCleanup)
 	if err != nil || len(unresolved) != 1 || unresolved[0].Phase != "branch-delete-issued" {
 		t.Fatalf("delete recovery marker missing: %+v %v", unresolved, err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "branch-absent", true, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "branch-absent", true, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CompleteDelete(ctx, op.ID, func(context.Context, string, string, string) error { return ErrConflict }); !errors.Is(err, ErrConflict) {
@@ -300,13 +300,13 @@ func TestRemovalDoesNotDependOnTheSessionGitPrincipal(t *testing.T) {
 				if err = s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 					t.Fatal(err)
 				}
-				if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); err != nil {
+				if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); err != nil {
 					t.Fatal(err)
 				}
 				if err = commit(ctx, op.ID, func(context.Context, DiscardEvidence) error { return nil }); err != nil {
 					t.Fatalf("commit refused: %v", err)
 				}
-				if err = s.AdvanceOperation(ctx, op.ID, "running", terminal, true, op.Evidence, ""); err != nil {
+				if err = s.AdvanceOperation(ctx, op.ID, "running", terminal, true, op.Evidence, "", ""); err != nil {
 					t.Fatal(err)
 				}
 				if err = complete(ctx, op.ID, func(context.Context, string, string, string) error { return nil }); err != nil {

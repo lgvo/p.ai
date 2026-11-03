@@ -60,7 +60,7 @@ func TestCompletedCreationReplayAfterSessionRemoval(t *testing.T) {
 			if err = s.SetGitRefGuard(ctx, session.Project, session.Branch, remove.ID, true); err != nil {
 				t.Fatal(err)
 			}
-			if err = s.AdvanceOperation(ctx, remove.ID, "running", "validated", false, remove.Evidence, ""); err != nil {
+			if err = s.AdvanceOperation(ctx, remove.ID, "running", "validated", false, remove.Evidence, "", ""); err != nil {
 				t.Fatal(err)
 			}
 			verify := func(context.Context, DiscardEvidence) error { return nil }
@@ -74,7 +74,7 @@ func TestCompletedCreationReplayAfterSessionRemoval(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = s.AdvanceOperation(ctx, remove.ID, "running", phase, true, remove.Evidence, ""); err != nil {
+			if err = s.AdvanceOperation(ctx, remove.ID, "running", phase, true, remove.Evidence, "", ""); err != nil {
 				t.Fatal(err)
 			}
 			complete := func(context.Context, string, string, string) error { return nil }

@@ -262,7 +262,7 @@ func TestLifecyclePollsDurableRetainedRename(t *testing.T) {
 		// An unsupported phase yields a bounded diagnostic when processed. This
 		// proves dispatch after a durable admission with no in-memory enqueue,
 		// without needing a runtime or performing unreviewed ref effects.
-		if err = store.AdvanceOperation(ctx, op.ID, name, "unsupported", false, op.Evidence, "original"); err != nil {
+		if err = store.AdvanceOperation(ctx, op.ID, name, "unsupported", false, op.Evidence, testReason(name), "original"); err != nil {
 			t.Fatal(err)
 		}
 		ops = append(ops, op)

@@ -41,7 +41,7 @@ func TestCreationRefusalsAnswerTheirKind(t *testing.T) {
 
 	_, err = s.BeginBlankProject(ctx, BlankProjectRequest{Key: "second", Project: "team/app"}, policy, image, testSelection())
 	wantAnswer(t, "creation while another runs", err, api.KindRetry, api.ReasonProjectHeld, api.TargetOperation(first.ID))
-	if err = s.AdvanceOperation(ctx, first.ID, "blocked", first.Phase, false, first.Evidence, "blocked for the test"); err != nil {
+	if err = s.AdvanceOperation(ctx, first.ID, "blocked", first.Phase, false, first.Evidence, "internal", "blocked for the test"); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.BeginBlankProject(ctx, BlankProjectRequest{Key: "second", Project: "team/app"}, policy, image, testSelection())

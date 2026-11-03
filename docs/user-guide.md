@@ -247,7 +247,8 @@ api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
 
 Creation continues in the daemon after the request returns. Repeat the last
 inspection until the operation is `completed`. If it is `blocked` or `failed`,
-read its `phase` and `diagnostic` before proceeding. Do not enter an incomplete
+read its `reason`, `phase` and `diagnostic` before proceeding; the TUI says
+what the reason means and what to do. Do not enter an incomplete
 session or issue another Create to hide the failure.
 
 The `key` identifies this exact intent. Keep the key and request if a response
@@ -477,8 +478,9 @@ be stale. Inspect the returned operation until complete. The destination must
 be absent, and the supported workspace must have the expected branch and
 upstream. This action does not rename a branch on the external origin.
 
-If P reports a branch/upstream mismatch, compare the expected and actual values
-in its diagnostic. Correct Git manually after deciding what you want to keep,
+If P reports a branch/upstream mismatch (operation reason
+`workspace_mismatch`), compare the expected and actual values in its
+diagnostic. Correct Git manually after deciding what you want to keep,
 then recheck. A Rename refused before making changes has a failed operation:
 read a fresh P tip and submit the corrected Rename with a **new key**. Replaying
 its old key only returns that same failure. This differs from resuming a blocked
@@ -560,7 +562,8 @@ the TUI shows a sentence for each. The daemon's log has the cause.
 | `conflict` | The state forbids the action until something changes it: an attached terminal, a session that must be stopped or started, a blocked operation, an assigned or reserved branch. `error.data.reason` names it; change that state, then try again. |
 | `capacity` | Every session slot is taken. Discard or Delete a session; Stop keeps its slot. |
 | `precondition_failed` | What you reviewed or expected changed, or the review expired. Preview again and confirm the new review. |
-| Branch/upstream mismatch | Compare expected and actual values, correct Git manually, then recheck. |
+| Reason `workspace_mismatch` | Compare the expected and actual values in the diagnostic, correct Git manually, then submit Rename again with a new key. |
+| Reason `internal` | P failed in a way it does not classify, or its work panicked; the diagnostic has the detail, and the daemon's log a panic's stack. A blocked operation keeps its guards; Retry it once the cause is understood. |
 | Incus unavailable or runtime unreachable | Restore or investigate the authority. P retains identity and incomplete cleanup; it must not claim deletion or create an uncertain duplicate. |
 | Runtime missing | Discard the session with `acknowledge_missing_runtime: true` in its removal preview, then create a new session on the retained branch. P does not adopt an unfamiliar replacement container. |
 | Failed Create needs different inputs | Try the explicit replacement preview only for supported cases. Otherwise use confirmed failed-create cleanup, then a new Create. |

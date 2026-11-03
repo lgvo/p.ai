@@ -30,7 +30,7 @@ type WorkspaceAssignmentMismatchError struct {
 }
 
 func (e *WorkspaceAssignmentMismatchError) Error() string {
-	return fmt.Sprintf("workspace %s mismatch: expected %q, actual %q; correct Git manually and retry", e.Field, e.Expected, e.Actual)
+	return fmt.Sprintf("workspace %s mismatch: expected %q, actual %q", e.Field, e.Expected, e.Actual)
 }
 
 func checkRenameHead(head []byte, old string) error {

@@ -129,7 +129,7 @@ func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed api.O
 	if _, err = tx.ExecContext(ctx, `UPDATE operations SET committed=1,phase='delete-issued',updated_at=? WHERE id=?`, now, op.ID); err != nil {
 		return classifyWrite(err)
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='superseded',phase='superseded',diagnostic=?,updated_at=? WHERE id=?`, "cleanup by "+op.ID, now, ev.Review.OldOperationID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=?`, "cleanup by "+op.ID, now, ev.Review.OldOperationID); err != nil {
 		return classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=?`, op.SessionUUID); err != nil {
@@ -163,10 +163,8 @@ func (s *Store) FailStaleAssembledCleanup(ctx context.Context, observed api.Oper
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE operation_id=?`, op.ID); err != nil {
 		return err
 	}
-	if len(diagnostic) > 512 {
-		diagnostic = diagnostic[:512]
-	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
+	diagnostic = api.BoundDiagnostic(diagnostic)
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
 		return err
 	}
 	return tx.Commit()

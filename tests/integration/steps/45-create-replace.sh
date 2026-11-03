@@ -276,7 +276,7 @@ done
 touch "$step_dir/git-release"
 blocked=$(wait_operation "$old_id" blocked)
 rm "$step_dir/git-arm"
-jq -e --arg oid "$first" '.result.operation | .kind=="session.create" and .phase=="source-ready" and .committed==false and .evidence.captured_oid==$oid and (.diagnostic|contains("assigned existing branch changed"))' <<< "$blocked" >/dev/null
+jq -e --arg oid "$first" '.result.operation | .kind=="session.create" and .phase=="source-ready" and .committed==false and .evidence.captured_oid==$oid and .reason=="changed" and (.diagnostic|contains("assigned existing branch changed"))' <<< "$blocked" >/dev/null
 test ! -e "$state/session_keys/$old_uuid"
 test ! -e "$endpoint_prefix/$old_uuid"
 inc list --format json | jq -e --arg name "p-$old_uuid" 'all(.[];.name!=$name)' >/dev/null

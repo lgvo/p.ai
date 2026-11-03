@@ -201,9 +201,7 @@ func (s *Store) FailStaleDelete(ctx context.Context, opID string, diagnostic str
 	return s.failStaleRemoval(ctx, opID, "delete", diagnostic)
 }
 func (s *Store) failStaleRemoval(ctx context.Context, opID, action, diagnostic string) error {
-	if len(diagnostic) > 512 {
-		diagnostic = diagnostic[:512]
-	}
+	diagnostic = api.BoundDiagnostic(diagnostic)
 	if err := s.lockGitAuthority(ctx); err != nil {
 		return err
 	}
@@ -236,7 +234,7 @@ func (s *Store) failStaleRemoval(ctx context.Context, opID, action, diagnostic s
 	if err = tx.QueryRowContext(ctx, `SELECT registry_state FROM sessions WHERE uuid=?`, sessionID).Scan(&registry); err != nil || registry != "established" {
 		return ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -309,7 +307,7 @@ func (s *Store) completeRemoval(ctx context.Context, opID, action string, verify
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE project_path=? AND branch=? AND operation_id=?`, project, ev.Branch, opID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase=?,committed=1,diagnostic='',updated_at=? WHERE id=?`, terminal, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase=?,committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, terminal, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
 	return tx.Commit()

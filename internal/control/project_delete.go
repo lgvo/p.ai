@@ -50,6 +50,32 @@ type ProjectDeleteAPI interface {
 	ConfirmProjectDelete(context.Context, ProjectDeleteConfirmRequest) (api.Operation, error)
 }
 
+// maxProjectDeleteReviewBytes bounds the encoded evidence a project deletion
+// is confirmed with; maxProjectDeleteEvidenceBytes bounds it later, when each
+// of its at most 29 resources may carry a diagnostic of up to
+// api.MaxDiagnosticBytes, also once encoded (ResourceDiagnostic).
+// operation.inspect of the largest still fits a response frame.
+const (
+	maxProjectDeleteReviewBytes   = 24 << 10
+	maxProjectDeleteEvidenceBytes = 56 << 10
+)
+
+// ResourceDiagnostic is d bounded for a resource in project deletion
+// evidence: at most api.MaxDiagnosticBytes, and at most that many once JSON
+// encodes it, which turns some characters into six bytes, so the evidence
+// stays within its bound whatever the detail holds.
+func ResourceDiagnostic(d string) string {
+	d = api.BoundDiagnostic(d)
+	encoded := 0
+	for i, r := range d {
+		raw, _ := json.Marshal(string(r))
+		if encoded += len(raw) - 2; encoded > api.MaxDiagnosticBytes {
+			return d[:i]
+		}
+	}
+	return d
+}
+
 func projectDeleteResourceAbsent(r ProjectDeleteResource) bool {
 	return r.Status == "deleted" || r.Status == "already_absent"
 }
@@ -83,7 +109,7 @@ func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
 	seen = map[string]bool{}
 	for _, r := range ev.Resources {
 		key := r.Kind + ":" + r.ID
-		if seen[key] || r.ID == "" || len(r.Diagnostic) > 512 || r.Status != "remaining" && r.Status != "unreachable" && !projectDeleteResourceAbsent(r) {
+		if seen[key] || r.ID == "" || ResourceDiagnostic(r.Diagnostic) != r.Diagnostic || r.Status != "remaining" && r.Status != "unreachable" && !projectDeleteResourceAbsent(r) {
 			return false
 		}
 		seen[key] = true

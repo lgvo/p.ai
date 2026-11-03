@@ -265,7 +265,7 @@ func (b *Backend) originGit(ctx context.Context, dir string, extraEnv []string, 
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return "", errors.New("origin Git failed; check SSH identity, host key, URL and access")
+		return "", errors.New("origin Git failed")
 	}
 	if ctx.Err() != nil {
 		return "", ctx.Err()

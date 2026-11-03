@@ -84,6 +84,22 @@ The [checkpoint](error-sentences/checkpoint.json) lists all nine findings and th
 state; the [action record](error-sentences/actions.ndjson) marks injected faults and
 the second client's input. Mock-socket evidence only.
 
+## Operation reasons — 2026-11-03
+
+Step 3 gives a blocked or failed operation a reason. In the
+[before frame](operation-reasons/before-0006-operation-page-120x35.png), the
+operation page shows only the fixture's diagnostic. The
+[changed page](operation-reasons/after2-0003-operation-page-120x35.png) puts the
+reason's sentence and next step on one line and the labelled diagnostic on the
+next. The first build ran them together and also changed an operations-list
+detail that is never drawn; both were fixed. At
+[48×16](operation-reasons/after2-0005-operation-page-48x16.png) the Diagnostic line
+is below the fold although six rows are empty, which predates this change;
+[G shows it](operation-reasons/after2-0006-operation-page-48x16-end.png). Retry and
+the [completed state](operation-reasons/after2-0009-operation-completed-120x35.png)
+were checked. The [checkpoint](operation-reasons/checkpoint.json) lists the
+findings. Mock-socket evidence only.
+
 ## Removal without loss inspection — 2026-11-02
 
 Step 0e removed the workspace loss inspection. The

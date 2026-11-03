@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // ReasonConstants returns the value of every Reason constant declared in the
@@ -96,5 +97,21 @@ func TestErrorObjectShape(t *testing.T) {
 	}
 	if ErrorKind("busy").Code() != 0 || ErrorKind("unavailable").Code() != 0 {
 		t.Error("the removed kinds still have codes")
+	}
+}
+
+func TestBoundDiagnosticCutsAtACharacterBoundary(t *testing.T) {
+	if got := BoundDiagnostic("short"); got != "short" {
+		t.Errorf("a short diagnostic became %q", got)
+	}
+	ascii := strings.Repeat("a", MaxDiagnosticBytes+10)
+	if got := BoundDiagnostic(ascii); got != ascii[:MaxDiagnosticBytes] {
+		t.Errorf("an ASCII diagnostic kept %d bytes", len(got))
+	}
+	// "€" takes three bytes, so the limit falls inside one.
+	euro := strings.Repeat("€", MaxDiagnosticBytes)
+	got := BoundDiagnostic(euro)
+	if len(got) != MaxDiagnosticBytes/3*3 || !utf8.ValidString(got) || !strings.HasPrefix(euro, got) {
+		t.Errorf("a multibyte diagnostic kept %d bytes, valid %t", len(got), utf8.ValidString(got))
 	}
 }

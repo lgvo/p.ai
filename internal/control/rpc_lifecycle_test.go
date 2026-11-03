@@ -168,13 +168,26 @@ func TestRemovalPreviewRPCUsesClosedRequest(t *testing.T) {
 }
 
 func TestLifecyclePagesFitClientFrame(t *testing.T) {
+	// A full page of operations whose diagnostics are at the limit fits one
+	// frame; diagnostics that JSON escapes into six bytes each shorten it.
 	ops := make([]api.OperationSummary, 20)
 	for i := range ops {
-		ops[i] = SummarizeOperation(api.Operation{ID: fmt.Sprintf("%036d", i), Key: strings.Repeat("\x00", 128), Kind: "session.create", Project: strings.Repeat("p", 255), SessionUUID: strings.Repeat("b", 36), Status: "blocked", Phase: "source-ready", Diagnostic: strings.Repeat("\x00", 1024)})
+		ops[i] = SummarizeOperation(api.Operation{ID: fmt.Sprintf("%036d", i), Key: strings.Repeat("k", 128), Kind: "session.create", Project: strings.Repeat("p", 255), SessionUUID: strings.Repeat("b", 36), Status: "blocked", Phase: "source-ready", Reason: "runtime", Diagnostic: strings.Repeat("d", api.MaxDiagnosticBytes)})
 	}
 	raw, err := json.Marshal(rpcResponse{JSONRPC: "2.0", ID: json.RawMessage("1"), Result: api.OperationListResult{Operations: ops, Next: strings.Repeat("a", 36)}})
-	if err != nil || len(raw)+1 > api.MaxFrameBytes {
-		t.Fatalf("operation page exceeds frame: %d %v", len(raw), err)
+	if err != nil || len(raw)+1 > lifecyclePageResultCeiling {
+		t.Fatalf("a page of operations at the diagnostic limit exceeds a frame: %d %v", len(raw), err)
+	}
+	escaped := make([]api.OperationSummary, 20)
+	for i := range escaped {
+		escaped[i] = ops[i]
+		escaped[i].Key, escaped[i].Diagnostic = strings.Repeat("\x00", 128), strings.Repeat("\x00", api.MaxDiagnosticBytes)
+	}
+	escapedPage, err := boundedPage(escaped, "", func(v api.OperationSummary) string { return v.ID }, func(v []api.OperationSummary, next string) api.OperationListResult {
+		return api.OperationListResult{Operations: v, Next: next}
+	})
+	if err != nil || len(escapedPage.Operations) == 0 || len(escapedPage.Operations) >= len(escaped) || escapedPage.Next != escapedPage.Operations[len(escapedPage.Operations)-1].ID {
+		t.Fatalf("an escaped page was not shortened with a continuation: %d %v", len(escapedPage.Operations), err)
 	}
 	sessions := make([]api.SessionView, 8)
 	for i := range sessions {
@@ -213,7 +226,7 @@ func TestLifecyclePagesFitClientFrame(t *testing.T) {
 func TestRenameMismatchDiagnosticAndPagesRetainFullNamesWithinFrame(t *testing.T) {
 	expected := "origin:refs/heads/" + strings.Repeat("a", 100)
 	actual := strings.Repeat("b", 100) + ":refs/heads/" + strings.Repeat("c", 100)
-	diagnostic := fmt.Sprintf("workspace upstream mismatch: expected %q, actual %q; correct Git manually and retry", expected, actual)
+	diagnostic := fmt.Sprintf("workspace upstream mismatch: expected %q, actual %q", expected, actual)
 	summary := SummarizeOperation(api.Operation{Kind: "session.rename", Diagnostic: diagnostic})
 	if summary.Diagnostic != diagnostic || !strings.Contains(summary.Diagnostic, actual) {
 		t.Fatalf("public mismatch lost reviewed names: %q", summary.Diagnostic)

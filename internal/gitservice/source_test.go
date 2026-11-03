@@ -104,7 +104,7 @@ func TestSelectedWASIOriginCaptureCreatesFirstPHeadAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.AdvanceOperation(ctx, op.ID, "blocked", "source-ready", false, op.Evidence, "interrupted before branch CAS"); err != nil {
+	if err = store.AdvanceOperation(ctx, op.ID, "blocked", "source-ready", false, op.Evidence, "internal", "interrupted before branch CAS"); err != nil {
 		t.Fatal(err)
 	}
 	if err = store.Close(); err != nil {
@@ -145,7 +145,7 @@ func TestSelectedWASIOriginCaptureCreatesFirstPHeadAfterRestart(t *testing.T) {
 	assertDenied(op.ID, "app", "arbitrary-branch", captured)
 	assertDenied(op.ID, "app", req.Branch, moved)
 	for _, invalid := range []struct{ status, phase string }{{"running", "reserved"}, {"unknown", "source-ready"}} {
-		if err := store.AdvanceOperation(ctx, op.ID, invalid.status, invalid.phase, false, op.Evidence, "test invalid authority"); err != nil {
+		if err := store.AdvanceOperation(ctx, op.ID, invalid.status, invalid.phase, false, op.Evidence, "", "test invalid authority"); err != nil {
 			t.Fatal(err)
 		}
 		assertDenied(op.ID, "app", req.Branch, captured)
@@ -156,11 +156,11 @@ func TestSelectedWASIOriginCaptureCreatesFirstPHeadAfterRestart(t *testing.T) {
 	}
 	evidence.OriginRef = "refs/heads/other"
 	badEvidence, _ := json.Marshal(evidence)
-	if err := store.AdvanceOperation(ctx, op.ID, "running", "source-ready", false, badEvidence, "test mismatched evidence"); err != nil {
+	if err := store.AdvanceOperation(ctx, op.ID, "running", "source-ready", false, badEvidence, "", "test mismatched evidence"); err != nil {
 		t.Fatal(err)
 	}
 	assertDenied(op.ID, "app", req.Branch, captured)
-	if err := store.AdvanceOperation(ctx, op.ID, "running", "source-ready", false, op.Evidence, ""); err != nil {
+	if err := store.AdvanceOperation(ctx, op.ID, "running", "source-ready", false, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.CreateCapturedOriginBranch(ctx, op.ID, "app", req.Branch, captured); err != nil {

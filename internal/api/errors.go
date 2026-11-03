@@ -1,6 +1,9 @@
 package api
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // ErrorKind names the client's next step after an error. It is the error
 // object's message; docs/control-api.md#errors lists each kind with its code
@@ -73,6 +76,10 @@ const (
 	ReasonStore      = "store"      // the control store failed
 	ReasonEncoding   = "encoding"   // the result could not be encoded
 	ReasonUnexpected = "unexpected" // a failure the daemon did not classify
+	// operations
+	ReasonOutcomeUnknown    = "outcome_unknown"    // an effect the operation issued may or may not have happened; P does not issue it again
+	ReasonWorkspaceMismatch = "workspace_mismatch" // the session's workspace is not on its assigned branch or tracks another upstream
+	ReasonInternal          = "internal"           // the operation's work failed in a way P did not classify, or panicked; the diagnostic holds the detail
 	// retry
 	ReasonSessionHeld     = "session_held"      // another request or a running operation holds the session
 	ReasonTooManyRequests = "too_many_requests" // the connection has 16 requests in flight
@@ -202,3 +209,20 @@ func TargetSession(uuid string) string         { return "session/" + uuid }
 func TargetOperation(id string) string         { return "operation/" + id }
 func TargetProject(path string) string         { return "project/" + path }
 func TargetBranch(project, name string) string { return "project/" + project + ":branch/" + name }
+
+// MaxDiagnosticBytes bounds every diagnostic P records: an operation's, a
+// session's start, and each resource's in project deletion evidence.
+const MaxDiagnosticBytes = 1024
+
+// BoundDiagnostic is d cut to at most MaxDiagnosticBytes at a UTF-8 character
+// boundary. Every writer of a diagnostic calls it.
+func BoundDiagnostic(d string) string {
+	if len(d) <= MaxDiagnosticBytes {
+		return d
+	}
+	cut := MaxDiagnosticBytes
+	for cut > 0 && !utf8.RuneStart(d[cut]) {
+		cut--
+	}
+	return d[:cut]
+}

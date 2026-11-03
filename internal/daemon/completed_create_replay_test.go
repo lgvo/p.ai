@@ -31,13 +31,13 @@ func TestCompletedCreateReplayDoesNotQueueRemovedSession(t *testing.T) {
 	if err = f.m.store.SetGitRefGuard(f.ctx, s.Project, s.Branch, removal.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err = f.m.store.AdvanceOperation(f.ctx, removal.ID, "running", "validated", false, removal.Evidence, ""); err != nil {
+	if err = f.m.store.AdvanceOperation(f.ctx, removal.ID, "running", "validated", false, removal.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err = f.m.store.CommitDiscard(f.ctx, removal.ID, func(context.Context, control.DiscardEvidence) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err = f.m.store.AdvanceOperation(f.ctx, removal.ID, "running", "secrets-absent", true, removal.Evidence, ""); err != nil {
+	if err = f.m.store.AdvanceOperation(f.ctx, removal.ID, "running", "secrets-absent", true, removal.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err = f.m.store.CompleteDiscard(f.ctx, removal.ID, func(context.Context, string, string, string) error { return nil }); err != nil {

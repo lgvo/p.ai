@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 )
 
 // Never let service logs, descriptions, or daemon errors issue terminal controls.
@@ -347,7 +348,9 @@ func (m Model) inspectionContent() (string, []string, string) {
 		commands := "r retry operation · q/Esc back"
 		if m.operationID != "" {
 			op := m.operation
-			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID, "", op.Diagnostic, "", "Leaving this screen does not cancel an accepted operation.")
+			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID, "")
+			lines = append(lines, operationDetail(op.Status, op.Reason, op.Diagnostic)...)
+			lines = append(lines, "", "Leaving this screen does not cancel an accepted operation.")
 			lines = append(lines, "Retry resumes exact captured intent; changed inputs need a new request.")
 			if op.Kind == "session.create" && op.Status == "running" && op.Phase == "branch-assigned" {
 				lines = append(lines[:5], append([]string{"Preparing captured source and environment; the runtime is not ready.", "Large source trees can take time. A pending phase is not a failure."}, lines[5:]...)...)
@@ -694,4 +697,17 @@ func (m Model) factLine(text string, width int) string {
 		}
 	}
 	return m.styles.text.Render(text)
+}
+
+// operationDetail is what a stopped operation's reason means and what to do,
+// then its diagnostic, the detail the daemon recorded, on its own line.
+func operationDetail(status, reason, diagnostic string) []string {
+	sentence := errtext.Operation(status, reason)
+	switch {
+	case sentence == "":
+		return []string{diagnostic}
+	case diagnostic == "":
+		return []string{sentence}
+	}
+	return []string{sentence, "Diagnostic: " + diagnostic}
 }

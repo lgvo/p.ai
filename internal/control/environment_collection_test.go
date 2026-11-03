@@ -122,7 +122,7 @@ func TestUnresolvedEnvironmentPublicationBlocksSecondSameKey(t *testing.T) {
 	if pending, err := s.PendingEnvironmentPublication(ctx, "team/a", strings.Repeat("b", 64), ""); err != nil || pending {
 		t.Fatalf("unrelated key blocked: %v %v", pending, err)
 	}
-	if err := s.AdvanceOperation(ctx, opid, "completed", "established", true, json.RawMessage(evidence), ""); err != nil {
+	if err := s.AdvanceOperation(ctx, opid, "completed", "established", true, json.RawMessage(evidence), "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if pending, err := s.PendingEnvironmentPublication(ctx, "team/a", key, ""); err != nil || pending {

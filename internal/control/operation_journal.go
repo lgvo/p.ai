@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -139,4 +140,19 @@ func insertOperation(ctx context.Context, x execer, r operationRecord) error {
 	_, err = x.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,?,'running',?,?,?,?,?)`, r.ID, r.Key, r.Kind, r.Project, session, string(r.Request), digest(r.Request), string(intent), r.Phase, r.Committed, nullableJSON(r.Evidence), r.Now, r.Now)
 	return err
+}
+
+// BlockAfterPanic records running operation id blocked with reason internal
+// and diagnostic, after its work panicked. It changes nothing else: the
+// operation keeps its phase, evidence and guards, and waits for Retry.
+func (s *Store) BlockAfterPanic(ctx context.Context, id, diagnostic string) (api.Operation, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE operations SET status='blocked',reason=?,diagnostic=?,updated_at=? WHERE id=? AND status='running'`,
+		api.ReasonInternal, api.BoundDiagnostic(diagnostic), time.Now().UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	if n, err := result.RowsAffected(); err != nil || n != 1 {
+		return api.Operation{}, errors.Join(err, ErrConflict)
+	}
+	return s.GetOperation(ctx, id)
 }

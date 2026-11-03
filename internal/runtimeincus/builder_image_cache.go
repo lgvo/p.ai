@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+
+	"github.com/lgvo/p.ai/internal/control"
 )
 
 // BuilderImageClaim is core-owned durable metadata for one project-scoped
@@ -130,7 +132,7 @@ func (b *Backend) ReconcileBuilderPublication(ctx context.Context, claim Builder
 	}
 	if count != 1 {
 		// Even a present but ambiguous operation is never guessed or deleted.
-		return BuilderImageInfo{}, fmt.Errorf("image publication outcome unresolved; no unique exact P image (%d active image operations)", pending)
+		return BuilderImageInfo{}, control.OutcomeUnknown(fmt.Errorf("image publication outcome unresolved; no unique exact P image (%d active image operations)", pending))
 	}
 	return zero, nil
 }

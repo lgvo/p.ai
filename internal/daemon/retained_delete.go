@@ -195,10 +195,7 @@ func (l *lifecycle) blockRetainedDelete(id string, cause error) {
 		return
 	}
 	message := fmt.Sprintf("retained delete blocked: %v", cause)
-	if len(message) > 900 {
-		message = message[:900]
-	}
-	_ = l.store.AdvanceOperation(l.ctx, id, "blocked", op.Phase, op.Committed, op.Evidence, message)
+	_ = l.store.AdvanceOperation(l.ctx, id, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), message)
 }
 
 func (l *lifecycle) processRetainedDelete(op api.Operation) {

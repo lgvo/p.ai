@@ -186,7 +186,7 @@ func (s *Store) FailRetainedRenamePreEffect(ctx context.Context, id string) erro
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',diagnostic='retained branch rename input changed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id)
+	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic='retained branch rename input changed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return err
 	}

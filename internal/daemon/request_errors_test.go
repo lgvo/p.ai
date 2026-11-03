@@ -43,7 +43,7 @@ func TestStartOfASessionHeldByAnOperationNamesIt(t *testing.T) {
 	op := renameHolding(t, l, session)
 	_, err := l.StartSession(ctx, session.UUID)
 	requireRefusal(t, err, api.KindRetry, api.ReasonSessionHeld, api.TargetOperation(op.ID))
-	if err = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, "blocked for the test"); err != nil {
+	if err = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, "internal", "blocked for the test"); err != nil {
 		t.Fatal(err)
 	}
 	_, err = l.StartSession(ctx, session.UUID)

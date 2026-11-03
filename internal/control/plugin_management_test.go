@@ -26,7 +26,7 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 	}
 	for _, selection := range []CreationSelection{{}, {RuntimeID: "runtime", RuntimeSHA256: "invalid", HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}, func() CreationSelection { v := testSelection(); v.AgentID = "agent"; return v }()} {
 		raw, _ := json.Marshal(CreationEvidence{Selection: selection})
-		if e = s.AdvanceOperation(ctx, op.ID, "blocked", "reserved", false, raw, ""); e != nil {
+		if e = s.AdvanceOperation(ctx, op.ID, "blocked", "reserved", false, raw, "internal", ""); e != nil {
 			t.Fatal(e)
 		}
 		if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e == nil {
@@ -38,7 +38,7 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 	selection.AgentSHA256 = digest
 	ev := CreationEvidence{Selection: selection, ImageFingerprint: strings.Repeat("d", 64), PolicySHA256: session.PolicySHA256, CapturedOID: strings.Repeat("e", 40), RuntimeInitState: "attempted"}
 	raw, _ := json.Marshal(ev)
-	if e = s.AdvanceOperation(ctx, op.ID, "blocked", "reserved", false, raw, ""); e != nil {
+	if e = s.AdvanceOperation(ctx, op.ID, "blocked", "reserved", false, raw, "internal", ""); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()

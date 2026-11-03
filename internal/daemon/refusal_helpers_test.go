@@ -8,6 +8,15 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 )
 
+// testReason is the reason a test records for an operation it moves to
+// status: blocked and failed operations need one.
+func testReason(status string) string {
+	if status == "blocked" || status == "failed" {
+		return "internal"
+	}
+	return ""
+}
+
 // wantRefusal fails the test unless err is a refusal of kind with reason and
 // target.
 func wantRefusal(t *testing.T, what string, err error, kind api.ErrorKind, reason, target string) {

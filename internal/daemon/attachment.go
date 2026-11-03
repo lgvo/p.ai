@@ -171,7 +171,7 @@ func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.Atta
 	if err != nil {
 		return plugin.AttachSpec{}, err
 	}
-	state, err := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.attach", runtimeincus.Scoped{Backend: l.runtime, Session: native, HostAssets: &l.hostPlan})
+	state, err := runRuntime(ctx, l.runtimePlugin, "runtime.attach", runtimeincus.Scoped{Backend: l.runtime, Session: native, HostAssets: &l.hostPlan})
 	if err != nil {
 		var failure *runtimeincus.AttachmentFailure
 		if errors.As(err, &failure) {

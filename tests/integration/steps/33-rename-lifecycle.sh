@@ -233,10 +233,10 @@ assert_mismatch_refusal() {
     '{key:$key,uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')")
   op=$(jq -er '.result.operation.id' <<< "$result")
   result=$(wait_operation "$op" failed)
-  printf 'P_RENAME_MISMATCH_OBSERVED %s\n' "$(jq -c '.result.operation | {status,phase,diagnostic}' <<< "$result")"
+  printf 'P_RENAME_MISMATCH_OBSERVED %s\n' "$(jq -c '.result.operation | {status,phase,reason,diagnostic}' <<< "$result")"
   jq -e --arg expected "$expected" --arg actual "$actual" \
-    '.result.operation | .committed==false and .phase=="stale" and
-      (.diagnostic | contains($expected) and contains($actual) and contains("correct Git manually"))' \
+    '.result.operation | .committed==false and .phase=="stale" and .reason=="workspace_mismatch" and
+      (.diagnostic | contains($expected) and contains($actual) and (contains("correct Git")|not))' \
     <<< "$result" >/dev/null
   inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
   start_session

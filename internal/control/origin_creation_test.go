@@ -109,7 +109,7 @@ func TestOriginSourceCaptureAndReplay(t *testing.T) {
 	if err != nil || ev.CapturedOID != oid || ev.OriginURL != "ssh://host/repo" || ev.OriginRef != req.OriginRef {
 		t.Fatalf("evidence: %+v %v", ev, err)
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "source-ready", false, op.Evidence, "waiting for branch assignment"); err != nil {
+	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "source-ready", false, op.Evidence, "internal", "waiting for branch assignment"); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Close(); err != nil {

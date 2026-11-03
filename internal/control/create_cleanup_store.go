@@ -111,7 +111,7 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if !assembled {
-		if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='superseded',phase='superseded',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "cleanup by "+id, now, old.ID); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "cleanup by "+id, now, old.ID); err != nil {
 			return api.Operation{}, err
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=? AND registry_state='creating'`, p.UUID); err != nil {
@@ -196,7 +196,7 @@ func (s *Store) CompleteCreateCleanup(ctx context.Context, id string, verify fun
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE operation_id=?`, id); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='cleaned',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='cleaned',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		return err
 	}
 	return tx.Commit()

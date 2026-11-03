@@ -22,7 +22,7 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, old.Evidence, "branch advanced"); err != nil {
+	if err = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, old.Evidence, "internal", "branch advanced"); err != nil {
 		t.Fatal(err)
 	}
 	newReq := ReserveSessionRequest{Key: "changed-create", Project: "team/app", Branch: "work", Choice: "existing"}
@@ -108,7 +108,7 @@ func TestReplaceBlockedCreateRefusesProvisionalBuilderAndPrincipal(t *testing.T)
 	ev, _ := Evidence(old)
 	ev.BuilderTreeOID = strings.Repeat("c", 40)
 	raw, _ := json.Marshal(ev)
-	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "builder failed"); e != nil {
+	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "internal", "builder failed"); e != nil {
 		t.Fatal(e)
 	}
 	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256,
@@ -121,7 +121,7 @@ func TestReplaceBlockedCreateRefusesProvisionalBuilderAndPrincipal(t *testing.T)
 	}
 	ev.BuilderTreeOID = ""
 	raw, _ = json.Marshal(ev)
-	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "before key"); e != nil {
+	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "internal", "before key"); e != nil {
 		t.Fatal(e)
 	}
 	intent.OldEvidenceSHA256 = digest(raw)
@@ -168,7 +168,7 @@ func TestReplaceBlockedCreateSQLiteRefusalsPreserveReservation(t *testing.T) {
 				ev.EnvironmentState = &EnvironmentState{}
 			}
 			raw, _ := json.Marshal(ev)
-			if e = s.AdvanceOperation(ctx, old.ID, status, phase, committed, raw, ""); e != nil {
+			if e = s.AdvanceOperation(ctx, old.ID, status, phase, committed, raw, testReason(status), ""); e != nil {
 				t.Fatal(e)
 			}
 			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
@@ -196,7 +196,7 @@ func TestReplaceBlockedCreateSQLiteRefusalsPreserveReservation(t *testing.T) {
 			}
 			verify := func(context.Context) (string, error) {
 				if name == "retry-during-proof" {
-					if e := s.AdvanceOperation(ctx, old.ID, "running", phase, committed, raw, ""); e != nil {
+					if e := s.AdvanceOperation(ctx, old.ID, "running", phase, committed, raw, "", ""); e != nil {
 						t.Fatal(e)
 					}
 					status = "running"
@@ -242,7 +242,7 @@ func TestReplaceBranchAssignedCreateTransfersPublicSlotAndRetiresOldKey(t *testi
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, old.Evidence, ""); e != nil {
+	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, old.Evidence, "internal", ""); e != nil {
 		t.Fatal(e)
 	}
 	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(old.Evidence), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256, TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "new", Project: "team/app", Branch: "work", Choice: "existing"}}
@@ -270,7 +270,7 @@ func TestReplaceBranchAssignedCreateTransfersPublicSlotAndRetiresOldKey(t *testi
 	}); e != nil || replay.ID != old.ID || replay.Status != "superseded" {
 		t.Fatalf("original exact replay: %+v %v", replay, e)
 	}
-	if e = s.AdvanceOperation(ctx, old.ID, "running", "branch-assigned", true, old.Evidence, ""); !errors.Is(e, ErrConflict) {
+	if e = s.AdvanceOperation(ctx, old.ID, "running", "branch-assigned", true, old.Evidence, "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatalf("superseded request resurrected: %v", e)
 	}
 }
@@ -286,7 +286,7 @@ func TestReplaceBlockedCreateCapturesChangedPolicyWithoutMovingRef(t *testing.T)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, old.Evidence, ""); e != nil {
+	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, old.Evidence, "internal", ""); e != nil {
 		t.Fatal(e)
 	}
 	if e = s.SetProjectPolicy(ctx, "team/app", json.RawMessage(`{"network":"none","command":["/bin/sh"]}`)); e != nil {
@@ -335,7 +335,7 @@ func TestReplaceBlockedLocalNewCreateChoicesAndRestartReplay(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if e = s.AdvanceOperation(ctx, old.ID, "blocked", tc.phase, tc.phase == "branch-assigned", old.Evidence, ""); e != nil {
+			if e = s.AdvanceOperation(ctx, old.ID, "blocked", tc.phase, tc.phase == "branch-assigned", old.Evidence, "internal", ""); e != nil {
 				t.Fatal(e)
 			}
 			req := ReserveSessionRequest{Key: "replacement", Project: session.Project, Branch: tc.branch, Choice: tc.choice, Source: tc.source}
@@ -403,7 +403,7 @@ func TestReplaceBlockedNewCreateRefusesOccupiedGuardedOrUnchangedTarget(t *testi
 				ev.BuilderTreeOID = strings.Repeat("c", 40)
 			}
 			raw, _ := json.Marshal(ev)
-			if e = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, raw, ""); e != nil {
+			if e = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, raw, "internal", ""); e != nil {
 				t.Fatal(e)
 			}
 			req := ReserveSessionRequest{Key: "new", Project: "app", Branch: "other", Choice: "new", Source: "refs/heads/main"}

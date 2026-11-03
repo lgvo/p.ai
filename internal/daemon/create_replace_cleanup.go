@@ -172,9 +172,7 @@ func cleanupReplacementLocal(ctx context.Context, stateDir string, m *endpointMa
 	if err := prove(ctx); err != nil {
 		return err
 	}
-	m.mu.Lock()
-	err := checkReplacementEndpointsLocked(m, c, true)
-	m.mu.Unlock()
+	err := m.withLock(func() error { return checkReplacementEndpointsLocked(m, c, true) })
 	if err != nil {
 		return err
 	}

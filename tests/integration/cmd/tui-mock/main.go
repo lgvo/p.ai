@@ -171,7 +171,7 @@ func newFixture(dir, dataset string) *fixture {
 		}
 	}
 	id := uuid.NewSHA1(uuid.NameSpaceURL, []byte("failed-operation")).String()
-	f.ops[id] = api.Operation{ID: id, Key: "fixture-failed", Kind: "session.rename", Project: "forge", Status: "failed", Phase: "rename", Diagnostic: "Fixture failure: branch conflict. Press r to retry.", Request: json.RawMessage(`{}`)}
+	f.ops[id] = api.Operation{ID: id, Key: "fixture-failed", Kind: "session.rename", Project: "forge", Status: "blocked", Phase: "rename", Reason: api.ReasonRuntime, Diagnostic: "Incus did not answer within 30 seconds", Request: json.RawMessage(`{}`)}
 	return f
 }
 func (f *fixture) addProject(name, origin string) {
@@ -359,7 +359,7 @@ func (f *fixture) registerReads(t *control.MethodTable) {
 		}
 		op.Status = "completed"
 		op.Phase = "complete"
-		op.Diagnostic = ""
+		op.Reason, op.Diagnostic = "", ""
 		f.ops[op.ID] = op
 		return api.OperationResult{Operation: op}, nil
 	})

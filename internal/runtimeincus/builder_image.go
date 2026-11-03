@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/nixenv"
 )
 
@@ -518,7 +519,7 @@ func (b *Backend) publishStoppedBuilderImage(ctx context.Context, r Builder, res
 		info = BuilderImageInfo{Fingerprint: fingerprint, Project: b.config.Project, Size: image.Size, Properties: properties}
 	}
 	if matches != 1 {
-		return zero, BuilderImageInfo{}, fmt.Errorf("published fingerprint %s missing or ambiguous; outcome remains unresolved", fingerprint)
+		return zero, BuilderImageInfo{}, control.OutcomeUnknown(fmt.Errorf("published fingerprint %s missing or ambiguous", fingerprint))
 	}
 	afterBuilder, err := b.InspectBuilder(ctx, r)
 	if err != nil || !afterBuilder.Exists || afterBuilder.Status != "Stopped" {
@@ -587,11 +588,11 @@ func (b *Backend) unresolvedBuilderPublish(before []builderImageJSON, properties
 				continue
 			}
 			if checkPublishedBuilderImage(image, properties, system, b.config.Project) == nil {
-				return fmt.Errorf("image publication outcome unresolved; P-labeled orphan %s requires later reconciliation", image.Fingerprint)
+				return control.OutcomeUnknown(fmt.Errorf("image publication outcome unresolved; P-labeled orphan image %s", image.Fingerprint))
 			}
 		}
 	}
-	return errors.New("image publication outcome unresolved; a P-labeled image may appear after the client disconnects")
+	return control.OutcomeUnknown(errors.New("image publication outcome unresolved; a P-labeled image may appear after the client disconnects"))
 }
 
 func checkPublishedBuilderImage(image builderImageJSON, properties map[string]string, system, project string) error {

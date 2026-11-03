@@ -157,10 +157,7 @@ func (l *lifecycle) blockRename(op api.Operation, cause error) {
 		return
 	}
 	message := fmt.Sprintf("rename blocked: %v", cause)
-	if len(message) > 900 {
-		message = message[:900]
-	}
-	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
+	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), message)
 }
 
 func (l *lifecycle) advanceRename(op *api.Operation, ev control.RenameEvidence, phase string, committed bool) error {
@@ -168,7 +165,7 @@ func (l *lifecycle) advanceRename(op *api.Operation, ev control.RenameEvidence, 
 	if err != nil || len(raw) > 2048 {
 		return control.ErrInvalid
 	}
-	if err := l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, committed, raw, ""); err != nil {
+	if err := l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, committed, raw, "", ""); err != nil {
 		return err
 	}
 	op.Phase, op.Evidence, op.Committed = phase, raw, committed
@@ -189,12 +186,12 @@ func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameE
 	}
 	// A replaced or started source does not prevent releasing these two ref
 	// guards after a definite no-effect precommit refusal.
-	diagnostic := "rename precommit input changed"
+	reason, diagnostic := api.ReasonChanged, "rename precommit input changed"
 	var mismatch *runtimeincus.WorkspaceAssignmentMismatchError
 	if errors.As(cause, &mismatch) {
-		diagnostic = mismatch.Error()
+		reason, diagnostic = api.ReasonWorkspaceMismatch, mismatch.Error()
 	}
-	if err := l.store.FailRenamePrecommit(ctx, op.ID, diagnostic); err != nil {
+	if err := l.store.FailRenamePrecommit(ctx, op.ID, reason, diagnostic); err != nil {
 		l.blockRename(op, errors.Join(cause, err))
 	}
 }

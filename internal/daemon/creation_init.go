@@ -35,7 +35,7 @@ func recordCreationInitAttempt(ctx context.Context, op *api.Operation, persist f
 		return err
 	}
 	if ev.RuntimeInitState != "not-attempted" || op.Kind != "session.create" || !op.Committed {
-		return errors.New("creation init outcome unknown; absent runtime cannot authorize another init")
+		return control.OutcomeUnknown(errors.New("creation init outcome unknown; absent runtime cannot authorize another init"))
 	}
 	ev.RuntimeInitState = "attempted"
 	raw, err := json.Marshal(ev)

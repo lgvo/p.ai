@@ -36,7 +36,7 @@ func assembledCreatorFixture(t *testing.T) (*Store, string, api.Operation, Sessi
 	creation, _ := Evidence(op)
 	creation.RuntimeInitState = "attempted"
 	raw, _ := json.Marshal(creation)
-	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "assembly-ready", true, raw, "interactive startup failed"); err != nil {
+	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "assembly-ready", true, raw, "internal", "interactive startup failed"); err != nil {
 		t.Fatal(err)
 	}
 	op, _ = s.GetOperation(ctx, op.ID)
@@ -128,7 +128,7 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 	if op.Committed || op.Phase != "validated" {
 		t.Fatal("cleanup crossed authority boundary before its final checks")
 	}
-	if err := s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err := s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("creator retry bypassed pending cleanup", err)
 	}
 	if err := s.CompleteCreation(ctx, creator.ID); !errors.Is(err, ErrConflict) {
@@ -183,10 +183,10 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 	if old.Status != "superseded" || session.Registry != "removing" || active {
 		t.Fatal("atomic native boundary retained source authority")
 	}
-	if err = s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("retired creator retry acted", err)
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale precommit writer rewound deletion", err)
 	}
 	if err = s.FailStaleAssembledCleanup(ctx, op, "stale"); !errors.Is(err, ErrConflict) {
@@ -214,15 +214,15 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 	}
 	ev.RuntimeAbsent = true
 	raw, _ := json.Marshal(ev)
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "runtime-absent", true, raw, ""); err != nil {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "runtime-absent", true, raw, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "delete-issued", true, op.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "delete-issued", true, op.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale writer erased positive absence", err)
 	}
 	ev.LocalComplete = true
 	raw, _ = json.Marshal(ev)
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, ""); err != nil {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.CompleteCreateCleanup(ctx, op.ID, func(context.Context, CreateCleanupEvidence) error { return errors.New("native authority unavailable") }); err == nil {
@@ -246,7 +246,7 @@ func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *t
 	s, dir, creator, ev := assembledCleanupFixture(t)
 	ctx := context.Background()
 	op := beginAssembledCleanup(t, s, ev)
-	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "stale-cleanup", false, op.Evidence, "assembled source changed"); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "stale-cleanup", false, op.Evidence, "internal", "assembled source changed"); err != nil {
 		t.Fatal(err)
 	}
 	op, _ = s.GetOperation(ctx, op.ID)
@@ -258,7 +258,7 @@ func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *t
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if err = s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("unsettled stale cleanup lost creator guard", err)
 	}
 	if err = s.FailStaleAssembledCleanup(ctx, op, "review the cleanup again"); err != nil {
@@ -273,7 +273,7 @@ func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *t
 	if _, active, err := s.ActiveSessionChange(ctx, creator.SessionUUID); err != nil || active {
 		t.Fatal("settled stale precommit guard retained", err)
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale confirmation restarted", err)
 	}
 	ev.Review.ExpiresAt = time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
@@ -297,7 +297,7 @@ func TestAssembledCleanupRefusesUnboundReviewAndRacesOriginalRetry(t *testing.T)
 			}
 			_, err := s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "cleanup", UUID: creator.SessionUUID, TokenSHA256: strings.Repeat("d", 64)}, ev, func(context.Context) error {
 				if name == "verify-race" {
-					return s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, "")
+					return s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, "", "")
 				}
 				return nil
 			})
@@ -323,7 +323,7 @@ func TestAssembledCleanupRefusesUnboundReviewAndRacesOriginalRetry(t *testing.T)
 	go func() {
 		defer wg.Done()
 		<-start
-		retryErr = s.AdvanceOperation(context.Background(), creator.ID, "running", creator.Phase, true, creator.Evidence, "")
+		retryErr = s.AdvanceOperation(context.Background(), creator.ID, "running", creator.Phase, true, creator.Evidence, "", "")
 	}()
 	close(start)
 	wg.Wait()

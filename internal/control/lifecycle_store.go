@@ -469,7 +469,7 @@ func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []plu
 		return Session{}, false, err
 	}
 	if len(refs) != 0 {
-		if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,updated_at=? WHERE id=?`, now, opID); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, now, opID); err != nil {
 			return Session{}, false, err
 		}
 		return Session{}, false, tx.Commit()
@@ -626,11 +626,13 @@ func (s *Store) ProjectPolicyRecord(ctx context.Context, project string) (json.R
 	return json.RawMessage(raw), sha, err
 }
 
-// Latest bounded Start diagnostic is not a second runtime state machine.
+// Latest bounded Start diagnostic is not a second runtime state machine. It
+// is cut to api.MaxDiagnosticBytes.
 func (s *Store) SetSessionStartDiagnostic(ctx context.Context, id, diagnostic string) error {
-	if len(id) != 36 || len(diagnostic) > 1024 {
+	if len(id) != 36 {
 		return ErrInvalid
 	}
+	diagnostic = api.BoundDiagnostic(diagnostic)
 	var present int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE uuid=?`, id).Scan(&present)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -705,7 +707,7 @@ func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
 			}
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,diagnostic='',updated_at=? WHERE id=?`, now, opID)
+	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, now, opID)
 	if err != nil {
 		return classifyWrite(err)
 	}

@@ -41,13 +41,13 @@ func committedListRemoval(t *testing.T) (*Store, api.Operation, []string) {
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CommitDiscard(ctx, op.ID, func(context.Context, DiscardEvidence) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "secrets-absent", true, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "secrets-absent", true, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	ids := []string{op.SessionUUID, "650e8400-e29b-41d4-a716-446655440000", "750e8400-e29b-41d4-a716-446655440000"}

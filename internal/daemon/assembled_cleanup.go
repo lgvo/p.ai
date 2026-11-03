@@ -41,10 +41,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 			return
 		}
 		message := fmt.Sprintf("assembled failed creation cleanup blocked: %v", cause)
-		if len(message) > 900 {
-			message = message[:900]
-		}
-		_ = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
+		_ = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), message)
 	}
 	if r == nil || ev.InstanceUUID != l.instanceID || r.IncusProject != l.cfg.IncusProject || ev.Review.ImageFingerprint != l.cfg.BaseImageFingerprint || r.OriginalStatus != "Stopped" ||
 		l.store.ValidateAssembledCleanupAuthority(ctx, op) != nil {
@@ -72,7 +69,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		if e != nil || len(raw) > 16384 {
 			return errors.New("assembled cleanup evidence exceeded bound")
 		}
-		if e = l.store.AdvanceOperation(ctx, op.ID, "running", phase, op.Committed, raw, ""); e != nil {
+		if e = l.store.AdvanceOperation(ctx, op.ID, "running", phase, op.Committed, raw, "", ""); e != nil {
 			return e
 		}
 		op.Phase, op.Evidence, op.Status = phase, raw, "running"
@@ -90,9 +87,9 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		return nil
 	}
 	verifyLocal := func() error {
-		l.endpoints.mu.Lock()
-		e := checkReplacementEndpointsLocked(l.endpoints, ev.Review.Provisional.Cleanup, false)
-		l.endpoints.mu.Unlock()
+		e := l.endpoints.withLock(func() error {
+			return checkReplacementEndpointsLocked(l.endpoints, ev.Review.Provisional.Cleanup, false)
+		})
 		if e != nil {
 			return e
 		}
@@ -109,7 +106,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 				return
 			}
 		}
-		if e := l.store.FailStaleAssembledCleanup(ctx, op, "assembled cleanup confirmation stale; source preserved, review the cleanup again: "+reason.Error()); e != nil {
+		if e := l.store.FailStaleAssembledCleanup(ctx, op, "assembled cleanup confirmation stale; source preserved: "+reason.Error()); e != nil {
 			block(e)
 			return
 		}
@@ -201,7 +198,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		}
 		l.recordProgress(op, "completed")
 	case "delete-issued":
-		block(fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s; exact administrative reconciliation required, no name-based replay", r.InstanceName, r.IncusUUID, r.Generation))
+		block(control.OutcomeUnknown(fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", r.InstanceName, r.IncusUUID, r.Generation)))
 	case "stale-cleanup":
 		stale(errors.New("prior pre-deletion check stale"))
 	default:

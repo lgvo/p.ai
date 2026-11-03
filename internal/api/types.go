@@ -166,9 +166,12 @@ type Operation struct {
 	Phase       string          `json:"phase"`
 	Committed   bool            `json:"committed"`
 	Evidence    json.RawMessage `json:"evidence,omitempty"`
-	Diagnostic  string          `json:"diagnostic,omitempty"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	// Reason is the code of why a blocked or failed operation stopped;
+	// Diagnostic is its detail, at most MaxDiagnosticBytes.
+	Reason     string `json:"reason,omitempty"`
+	Diagnostic string `json:"diagnostic,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 // OperationIntent is what the caller of a change named, recorded when the
@@ -211,6 +214,7 @@ type OperationSummary struct {
 	Status      string           `json:"status"`
 	Phase       string           `json:"phase"`
 	Committed   bool             `json:"committed"`
+	Reason      string           `json:"reason,omitempty"`
 	Diagnostic  string           `json:"diagnostic,omitempty"`
 	Environment *EnvironmentView `json:"environment,omitempty"`
 }

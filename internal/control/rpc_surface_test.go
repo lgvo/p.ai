@@ -466,10 +466,10 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 	}{
 		{"operation.inspect", `{"id":"op-b"}`, `{"operation":{"id":"op-b","idempotency_key":"key-op-b","kind":"session.rename","project":"team/app","session_uuid":"` + surfaceUUID +
 			`","intent":{"project":"team/app"},"request":{"key":"k"},"status":"blocked","phase":"stale","committed":true,"evidence":{"e":1},"diagnostic":"` + long + `","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}}`},
-		// Summaries keep 512 diagnostic bytes for Rename and 256 for others.
+		// A summary shows the same diagnostic as operation.inspect.
 		{"operation.list", `{"limit":2}`, `{"operations":[` + summary("op-a", "project.retained.rename", "", "completed", "completed", "") + "," +
-			summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long[:512]) + `],"next":"op-b"}`},
-		{"operation.list", `{"limit":2,"after":"op-b"}`, `{"operations":[` + summary("op-c", "session.discard", surfaceUUID2, "running", "reserved", long[:256]) + `],"next":""}`},
+			summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long) + `],"next":"op-b"}`},
+		{"operation.list", `{"limit":2,"after":"op-b"}`, `{"operations":[` + summary("op-c", "session.discard", surfaceUUID2, "running", "reserved", long) + `],"next":""}`},
 	} {
 		result, rpcErr := h(context.Background(), test.method, json.RawMessage(test.params))
 		if rpcErr != nil {

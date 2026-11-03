@@ -82,7 +82,7 @@ func TestRemovalRefusalsNameTheirNextStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = f.m.store.AdvanceOperation(f.ctx, op.ID, "blocked", op.Phase, false, op.Evidence, "blocked"); err != nil {
+	if err = f.m.store.AdvanceOperation(f.ctx, op.ID, "blocked", op.Phase, false, op.Evidence, "internal", "blocked"); err != nil {
 		t.Fatal(err)
 	}
 	// A recorded discard of another session under the key "reused".

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -16,11 +17,11 @@ type branchAuthority interface {
 func ensureBranchAssigned(ctx context.Context, git branchAuthority, operationID string, req control.ReserveSessionRequest, capturedOID string) error {
 	tip, exists, err := git.InspectBranchRef(ctx, req.Project, req.Branch)
 	if err != nil {
-		return err
+		return control.Failed(api.ReasonGit, err)
 	}
 	if req.Choice == "existing" {
 		if !exists || tip != capturedOID {
-			return errors.New("assigned existing branch changed from captured tip")
+			return refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, errors.New("assigned existing branch changed from captured tip"))
 		}
 		return nil
 	}
@@ -29,7 +30,7 @@ func ensureBranchAssigned(ctx context.Context, git branchAuthority, operationID 
 	}
 	if exists {
 		if tip != capturedOID {
-			return errors.New("new branch differs from captured CAS intent")
+			return refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, errors.New("new branch differs from captured CAS intent"))
 		}
 		return nil
 	}
@@ -39,14 +40,14 @@ func ensureBranchAssigned(ctx context.Context, git branchAuthority, operationID 
 		err = git.CreateBranch(ctx, req.Project, req.Branch, capturedOID)
 	}
 	if err != nil {
-		return err
+		return control.Failed(api.ReasonGit, err)
 	}
 	tip, exists, err = git.InspectBranchRef(ctx, req.Project, req.Branch)
 	if err != nil {
-		return err
+		return control.Failed(api.ReasonGit, err)
 	}
 	if !exists || tip != capturedOID {
-		return errors.New("new branch CAS postcondition failed")
+		return control.Failed(api.ReasonGit, errors.New("new branch CAS postcondition failed"))
 	}
 	return nil
 }

@@ -66,7 +66,7 @@ func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
 				ev.Environment = &EnvironmentIntent{ModuleID: "env", ModuleSHA256: image, ConfigSHA256: image, System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image}
 			}
 			raw, _ := json.Marshal(ev)
-			if err = s.AdvanceOperation(ctx, old.ID, "blocked", "principals-ready", true, raw, "native init refused before effect"); err != nil {
+			if err = s.AdvanceOperation(ctx, old.ID, "blocked", "principals-ready", true, raw, "internal", "native init refused before effect"); err != nil {
 				t.Fatal(err)
 			}
 			if negative == "legacy-init" {
@@ -120,7 +120,7 @@ func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
 			}
 			verify := func(context.Context) (string, error) {
 				if negative == "retry-during-proof" {
-					if e := s.AdvanceOperation(ctx, old.ID, "running", "principals-ready", true, raw, ""); e != nil {
+					if e := s.AdvanceOperation(ctx, old.ID, "running", "principals-ready", true, raw, "", ""); e != nil {
 						t.Fatal(e)
 					}
 				}
@@ -157,7 +157,7 @@ func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
 			}
 			// Kill/reopen while approved cleanup has not committed completion. The new
 			// immutable request retains old identity and cannot be mistaken for ready.
-			if err = s.AdvanceOperation(ctx, fresh.ID, "blocked", "replacement-cleanup", false, fresh.Evidence, "fixture interrupted local cleanup"); err != nil {
+			if err = s.AdvanceOperation(ctx, fresh.ID, "blocked", "replacement-cleanup", false, fresh.Evidence, "internal", "fixture interrupted local cleanup"); err != nil {
 				t.Fatal(err)
 			}
 			s.Close()
@@ -174,18 +174,18 @@ func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
 			if err != nil || e != nil || replay.ID != fresh.ID || replay.SessionUUID != fresh.SessionUUID || replay.Phase != "replacement-cleanup" || saved.ReplacementCleanup == nil || *saved.ReplacementCleanup != *c {
 				t.Fatalf("cleanup checkpoint forgotten: %+v %v", replay, err)
 			}
-			if e = s.AdvanceOperation(ctx, old.ID, "running", "principals-ready", true, raw, ""); !errors.Is(e, ErrConflict) {
+			if e = s.AdvanceOperation(ctx, old.ID, "running", "principals-ready", true, raw, "", ""); !errors.Is(e, ErrConflict) {
 				t.Fatalf("old Retry: %v", e)
 			}
-			if e = s.AdvanceOperation(ctx, fresh.ID, "running", replay.Phase, replay.Committed, replay.Evidence, ""); e != nil {
+			if e = s.AdvanceOperation(ctx, fresh.ID, "running", replay.Phase, replay.Committed, replay.Evidence, "", ""); e != nil {
 				t.Fatalf("cleanup Retry: %v", e)
 			}
 			saved.ReplacementCleanup.Completed = true
 			completedEvidence, _ := json.Marshal(saved)
-			if e = s.AdvanceOperation(ctx, fresh.ID, "running", "source-ready", false, completedEvidence, ""); e != nil {
+			if e = s.AdvanceOperation(ctx, fresh.ID, "running", "source-ready", false, completedEvidence, "", ""); e != nil {
 				t.Fatal(e)
 			}
-			if e = s.AdvanceOperation(ctx, fresh.ID, "running", replay.Phase, false, replay.Evidence, ""); !errors.Is(e, ErrConflict) {
+			if e = s.AdvanceOperation(ctx, fresh.ID, "running", replay.Phase, false, replay.Evidence, "", ""); !errors.Is(e, ErrConflict) {
 				t.Fatal("stale Retry rewound durable cleanup completion")
 			}
 			durable, e := s.GetOperation(ctx, fresh.ID)

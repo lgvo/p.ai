@@ -282,7 +282,7 @@ func dispatch(ctx context.Context, store *control.Store, backend *gitservice.Bac
 		if err != nil {
 			return nil, err
 		}
-		if err := store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, nil, ""); err != nil {
+		if err := store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, nil, "", ""); err != nil {
 			return nil, err
 		}
 		if err := store.RegisterGitPrincipal(ctx, fingerprint, "session", r.Project, session.UUID); err != nil {
@@ -291,7 +291,7 @@ func dispatch(ctx context.Context, store *control.Store, backend *gitservice.Bac
 		if err := store.AdvanceSessionRegistry(ctx, session.UUID, "creating", "established"); err != nil {
 			return nil, err
 		}
-		if err := store.AdvanceOperation(ctx, op.ID, "completed", "established", true, nil, ""); err != nil {
+		if err := store.AdvanceOperation(ctx, op.ID, "completed", "established", true, nil, "", ""); err != nil {
 			return nil, err
 		}
 		return map[string]string{"session_uuid": session.UUID, "operation_id": op.ID, "fingerprint": fingerprint}, nil

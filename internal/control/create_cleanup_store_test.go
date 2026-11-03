@@ -47,7 +47,7 @@ func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.
 		if state == "absent" || state == "not-attempted" {
 			status = "blocked"
 		}
-		if e = s.AdvanceOperation(ctx, old.ID, status, "branch-assigned", true, raw, "invalid immutable Nix selection"); e != nil {
+		if e = s.AdvanceOperation(ctx, old.ID, status, "branch-assigned", true, raw, testReason(status), "invalid immutable Nix selection"); e != nil {
 			t.Fatal(e)
 		}
 		old.Evidence = raw
@@ -82,14 +82,14 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	if got, e := s.GetOperation(ctx, old.ID); e != nil || got.Status != "superseded" {
 		t.Fatal("old worker not fenced")
 	}
-	if e = s.AdvanceOperation(ctx, old.ID, "running", old.Phase, true, old.Evidence, ""); !errors.Is(e, ErrConflict) {
+	if e = s.AdvanceOperation(ctx, old.ID, "running", old.Phase, true, old.Evidence, "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatal("superseded Retry acted")
 	}
 	if e = s.CompleteCreateCleanup(ctx, cleaned.ID, func(context.Context, CreateCleanupEvidence) error { return nil }); !errors.Is(e, ErrConflict) {
 		t.Fatal("record dropped before local cleanup checkpoint")
 	}
 	// Crash with confirmed cleanup still pending; reopen one old UUID/op/key.
-	if e = s.AdvanceOperation(ctx, cleaned.ID, "blocked", cleaned.Phase, true, cleaned.Evidence, "fixture interruption"); e != nil {
+	if e = s.AdvanceOperation(ctx, cleaned.ID, "blocked", cleaned.Phase, true, cleaned.Evidence, "internal", "fixture interruption"); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()
@@ -118,15 +118,15 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	changed := saved
 	changed.Review.AssignedBranch.OID = strings.Repeat("f", 40)
 	raw, _ := json.Marshal(changed)
-	if e = s.AdvanceOperation(ctx, cleaned.ID, "running", "local-cleanup", true, raw, ""); !errors.Is(e, ErrConflict) {
+	if e = s.AdvanceOperation(ctx, cleaned.ID, "running", "local-cleanup", true, raw, "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatal("approved identity changed")
 	}
 	saved.LocalComplete = true
 	raw, _ = json.Marshal(saved)
-	if e = s.AdvanceOperation(ctx, cleaned.ID, "running", "local-complete", true, raw, ""); e != nil {
+	if e = s.AdvanceOperation(ctx, cleaned.ID, "running", "local-complete", true, raw, "", ""); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.AdvanceOperation(ctx, cleaned.ID, "running", "local-cleanup", true, replay.Evidence, ""); !errors.Is(e, ErrConflict) {
+	if e = s.AdvanceOperation(ctx, cleaned.ID, "running", "local-cleanup", true, replay.Evidence, "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatal("stale Retry rewound completed local cleanup")
 	}
 	if e = s.CompleteCreateCleanup(ctx, cleaned.ID, func(context.Context, CreateCleanupEvidence) error { return ErrConflict }); !errors.Is(e, ErrConflict) {
@@ -203,7 +203,7 @@ func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
 					return ErrConflict
 				}
 				if name == "retry-during-proof" {
-					return s.AdvanceOperation(ctx, old.ID, "running", old.Phase, true, old.Evidence, "")
+					return s.AdvanceOperation(ctx, old.ID, "running", old.Phase, true, old.Evidence, "", "")
 				}
 				return nil
 			})
@@ -280,11 +280,11 @@ func TestFailedCreateCleanupUnavailableAfterConfirmationPreservesDisabledAuthori
 	}
 	ev.LocalComplete = true
 	raw, _ := json.Marshal(ev)
-	if e = s.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, ""); e != nil {
+	if e = s.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, "", ""); e != nil {
 		t.Fatal(e)
 	}
 	for _, phase := range []string{"local-cleanup", "cleaned", "unknown"} {
-		if e = s.AdvanceOperation(ctx, op.ID, "running", phase, true, raw, ""); !errors.Is(e, ErrConflict) {
+		if e = s.AdvanceOperation(ctx, op.ID, "running", phase, true, raw, "", ""); !errors.Is(e, ErrConflict) {
 			t.Fatalf("checkpoint regressed to %s: %v", phase, e)
 		}
 	}
@@ -292,7 +292,7 @@ func TestFailedCreateCleanupUnavailableAfterConfirmationPreservesDisabledAuthori
 	if e = s.CompleteCreateCleanup(ctx, op.ID, func(context.Context, CreateCleanupEvidence) error { return unavailable }); !errors.Is(e, unavailable) {
 		t.Fatal(e)
 	}
-	if e = s.AdvanceOperation(ctx, op.ID, "blocked", "local-complete", true, raw, unavailable.Error()); e != nil {
+	if e = s.AdvanceOperation(ctx, op.ID, "blocked", "local-complete", true, raw, "internal", unavailable.Error()); e != nil {
 		t.Fatal(e)
 	}
 	s.Close()
@@ -324,7 +324,7 @@ func TestFailedCreateCleanupUnavailableAfterConfirmationPreservesDisabledAuthori
 	if e != nil || replay.ID != op.ID {
 		t.Fatal("accepted replay changed intent")
 	}
-	if e = s.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, ""); e != nil {
+	if e = s.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, "", ""); e != nil {
 		t.Fatal(e)
 	}
 	if e = s.CompleteCreateCleanup(ctx, op.ID, func(context.Context, CreateCleanupEvidence) error { return nil }); e != nil {
@@ -345,12 +345,12 @@ func TestFailedCreateCleanupBuilderPreflightRetainsExactSQLiteRetryAndCleanup(t 
 			if !SafeCreateCleanupEvidence(ev.Review.OldRequest, before) {
 				t.Fatal("affirmative pre-dispatch captured tree ineligible")
 			}
-			if e := s.AdvanceOperation(ctx, old.ID, "running", old.Phase, true, old.Evidence, ""); e != nil {
+			if e := s.AdvanceOperation(ctx, old.ID, "running", old.Phase, true, old.Evidence, "", ""); e != nil {
 				t.Fatal(e)
 			}
 			// A native preflight rejection never invokes the dispatch gate. Its blocked
 			// status update retains the original key/UUID/source and settled cycle.
-			if e := s.AdvanceOperation(ctx, old.ID, "blocked", old.Phase, true, old.Evidence, "pinned image unavailable before init"); e != nil {
+			if e := s.AdvanceOperation(ctx, old.ID, "blocked", old.Phase, true, old.Evidence, "internal", "pinned image unavailable before init"); e != nil {
 				t.Fatal(e)
 			}
 			blocked, e := s.GetOperation(ctx, old.ID)
@@ -383,7 +383,7 @@ func TestSupersededCreateReplayPrecedesContestedGitAuthority(t *testing.T) {
 				if completed {
 					ev.LocalComplete = true
 					raw, _ := json.Marshal(ev)
-					if e = s.AdvanceOperation(ctx, cleanup.ID, "running", "local-complete", true, raw, ""); e != nil {
+					if e = s.AdvanceOperation(ctx, cleanup.ID, "running", "local-complete", true, raw, "", ""); e != nil {
 						t.Fatal(e)
 					}
 					if e = s.CompleteCreateCleanup(ctx, cleanup.ID, func(context.Context, CreateCleanupEvidence) error { return nil }); e != nil {

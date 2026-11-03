@@ -55,7 +55,7 @@ var schemaSQL string
 // schemaVersion marks a database built from schemaSQL. P does not migrate
 // state: every schema change raises it, and openStore refuses a database of
 // any other version.
-const schemaVersion = 25
+const schemaVersion = 26
 
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
@@ -443,8 +443,8 @@ func getOperationTx(ctx context.Context, tx *sql.Tx, key string) (api.Operation,
 	var o api.Operation
 	var request, intent, evidence string
 	var committed int
-	err := tx.QueryRowContext(ctx, `SELECT id,idempotency_key,kind,project_path,COALESCE(session_uuid,''),request_json,intent_json,status,phase,committed,COALESCE(evidence_json,''),diagnostic,created_at,updated_at
- FROM operations WHERE idempotency_key=?`, key).Scan(&o.ID, &o.Key, &o.Kind, &o.Project, &o.SessionUUID, &request, &intent, &o.Status, &o.Phase, &committed, &evidence, &o.Diagnostic, &o.CreatedAt, &o.UpdatedAt)
+	err := tx.QueryRowContext(ctx, `SELECT id,idempotency_key,kind,project_path,COALESCE(session_uuid,''),request_json,intent_json,status,phase,committed,COALESCE(evidence_json,''),reason,diagnostic,created_at,updated_at
+ FROM operations WHERE idempotency_key=?`, key).Scan(&o.ID, &o.Key, &o.Kind, &o.Project, &o.SessionUUID, &request, &intent, &o.Status, &o.Phase, &committed, &evidence, &o.Reason, &o.Diagnostic, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
 		return o, err
 	}
@@ -508,8 +508,12 @@ func (s *Store) Count(ctx context.Context) (projects, sessions, operations int, 
 	return
 }
 
-func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, committed bool, evidence json.RawMessage, diagnostic string) error {
-	if len(id) == 0 || len(phase) == 0 || len(phase) > 80 || len(diagnostic) > 1024 || len(evidence) > 16384 {
+// AdvanceOperation records operation id's next status, phase, evidence and
+// outcome. A blocked or failed operation records reason, the code of why it
+// stopped, and any other status none; diagnostic is cut to
+// api.MaxDiagnosticBytes.
+func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, committed bool, evidence json.RawMessage, reason, diagnostic string) error {
+	if len(id) == 0 || len(phase) == 0 || len(phase) > 80 || len(evidence) > maxProjectDeleteEvidenceBytes {
 		return ErrInvalid
 	}
 	switch status {
@@ -517,6 +521,10 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	default:
 		return ErrInvalid
 	}
+	if !reasonFits(status, reason) {
+		return ErrInvalid
+	}
+	diagnostic = api.BoundDiagnostic(diagnostic)
 	if len(evidence) > 0 && !json.Valid(evidence) {
 		return ErrInvalid
 	}
@@ -536,6 +544,11 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	}
 	if oldStatus == "completed" || oldStatus == "superseded" || (oldCommitted == 1 && !committed) {
 		return ErrConflict
+	}
+	// Only project deletion keeps evidence beyond 16 KiB, with a diagnostic
+	// for each of its resources.
+	if kind != KindProjectDelete && len(evidence) > 16384 {
+		return ErrInvalid
 	}
 	if kind == "session.create" {
 		if err = monotonicCreationEvidence(oldPhase, []byte(oldEvidence), evidence); err != nil {
@@ -571,8 +584,8 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 			return fmt.Errorf("%w: unresolved creation must remain running or blocked", ErrConflict)
 		}
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE operations SET status=?,phase=?,committed=?,evidence_json=?,diagnostic=?,updated_at=?
-	 WHERE id=?`, status, phase, committed, nullableJSON(evidence), diagnostic, time.Now().UTC().Format(time.RFC3339Nano), id)
+	result, err := tx.ExecContext(ctx, `UPDATE operations SET status=?,phase=?,committed=?,evidence_json=?,reason=?,diagnostic=?,updated_at=?
+	 WHERE id=?`, status, phase, committed, nullableJSON(evidence), reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return classifyWrite(err)
 	}
@@ -584,6 +597,29 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 		return NotFound(api.ReasonOperation, api.TargetOperation(id))
 	}
 	return tx.Commit()
+}
+
+// reasonFits reports whether an operation of status may record reason: a
+// blocked or failed one needs a reason code, any other none.
+func reasonFits(status, reason string) bool {
+	if status == "blocked" || status == "failed" {
+		return validReason(reason)
+	}
+	return reason == ""
+}
+
+// validReason reports whether reason is an operation reason code: 1 to 64
+// bytes of lowercase letters, digits and underscores.
+func validReason(reason string) bool {
+	if len(reason) == 0 || len(reason) > 64 {
+		return false
+	}
+	for _, c := range reason {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func nullableJSON(data json.RawMessage) any {

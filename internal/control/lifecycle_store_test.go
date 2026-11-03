@@ -161,7 +161,7 @@ func TestProjectCreateBootstrapReceiveOnlyAfterWorkspaceReady(t *testing.T) {
 	}
 	for _, phase := range []string{"branch-assigned", "principals-ready", "assembly-ready"} {
 		if phase != "branch-assigned" {
-			if err = s.AdvanceOperation(ctx, op.ID, "running", phase, true, op.Evidence, ""); err != nil {
+			if err = s.AdvanceOperation(ctx, op.ID, "running", phase, true, op.Evidence, "", ""); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -172,7 +172,7 @@ func TestProjectCreateBootstrapReceiveOnlyAfterWorkspaceReady(t *testing.T) {
 			t.Fatalf("bootstrap received too early at %s: %v", phase, e)
 		}
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "workspace-ready", true, op.Evidence, ""); err != nil {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "workspace-ready", true, op.Evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	ref, release, err := s.AcquireGitLease(ctx, fingerprint, "blank", "receive")

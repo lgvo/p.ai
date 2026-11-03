@@ -352,8 +352,8 @@ rpc operation.inspect "$(jq -nc --arg id "$stale_id" '{id:$id}')" |
 git -C "$repo" update-ref refs/heads/work "$moved" "$tip"
 touch "$step_dir/stale-release"
 stale_result=$(wait_operation "$stale_id" failed)
-jq -e '.result.operation | .phase=="stale" and .committed==false and
- (.diagnostic|contains("review the cleanup again"))' <<< "$stale_result" >/dev/null
+jq -e '.result.operation | .phase=="stale" and .committed==false and .reason=="changed" and
+ (.diagnostic|contains("confirmation stale; source preserved"))' <<< "$stale_result" >/dev/null
 rm "$step_dir/stale-arm"
 git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
 assert_source

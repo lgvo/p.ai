@@ -9,7 +9,7 @@
   keeps them safe, and `AdvanceOperation` does not take that lock.
   `IssueRetainedDelete` ignores `RowsAffected` before running its effect.
 - Evidence: retained_delete_store.go (read, then guarded update, then `effect()`);
-  20 of 25 `UPDATE operations` sites filter only on `id` and 2 check `RowsAffected`.
+  20 of 26 `UPDATE operations` sites filter only on `id` and 3 check `RowsAffected`.
 - Risk: a concurrent writer outside the lock could interleave between check and update.
   No failure has been observed.
 - Fix: update with the expected status and phase in the `WHERE` clause and check
@@ -61,3 +61,21 @@
 - Left by: the agent, by rule (a problem outside the change).
 - Added 2026-11-03, 1 case:
   - 2026-11-03: "errors that name the next step" met it in the VM gate.
+
+## Project deletion evidence admits fewer images than the review accepts
+
+- Where: internal/control project_delete.go `maxProjectDeleteReviewBytes` and
+  `validProjectDeleteEvidence`; project_delete_store.go `BeginProjectDelete`
+- Problem: The review accepts up to 20 environment images, but the evidence a deletion is
+  confirmed with must encode within 24 KiB, which four sessions and about eleven images
+  already fill; a larger project's confirmation is refused as invalid.
+- Evidence: control's `TestProjectDeleteEvidenceFitsAtTheDiagnosticLimit` measures that 11
+  images with four sessions fit; each image claim encodes to about 1.3 KiB.
+- Risk: a project with many environment images cannot be deleted through P.
+- Fix: bound the review by what the evidence can hold, or keep image claims smaller.
+- Fix when: step 1 of the interface rework (commit images) lands: at most one image per
+  session then fits.
+- Left by: the agent, by rule (a problem outside the change).
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "one diagnostic limit" found it while checking that the evidence fits at
+    the new diagnostic limit.

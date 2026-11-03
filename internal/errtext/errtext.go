@@ -117,3 +117,53 @@ var reasonSentences = map[api.ErrorKind]map[string]string{
 		api.ReasonPlugin:   "A plugin failed; check it and try again.",
 	},
 }
+
+// Operation is the sentence a client shows for an operation that stopped
+// with status blocked or failed and reason: what the reason means, then the
+// next step for that status. It is empty for an operation with no reason.
+func Operation(status, reason string) string {
+	if reason == "" {
+		return ""
+	}
+	sentence, ok := operationSentences[reason]
+	if !ok {
+		sentence = "It stopped: " + reason + "."
+	}
+	switch status {
+	case "blocked":
+		return sentence + " Retry it once that is resolved."
+	case "failed":
+		return sentence + " It ended; start a new request."
+	}
+	return sentence
+}
+
+// operationSentences says what each reason an operation records means.
+var operationSentences = map[string]string{
+	api.ReasonInternal:            "P failed in a way it does not classify; the diagnostic has the detail.",
+	api.ReasonStore:               "P's state store failed; the daemon's log has the cause.",
+	api.ReasonRuntime:             "The runtime failed; check Incus.",
+	api.ReasonGit:                 "P's Git repository failed.",
+	api.ReasonOrigin:              "The origin could not be reached; check its URL, the SSH identity and access.",
+	api.ReasonPlugin:              "A selected plugin is unavailable or changed; check the host configuration.",
+	api.ReasonChanged:             "What it was confirmed with changed.",
+	api.ReasonExpired:             "Its review expired.",
+	api.ReasonOutcomeUnknown:      "An effect it issued may or may not have happened; P does not issue it again. Check the resource the diagnostic names.",
+	api.ReasonWorkspaceMismatch:   "The session's workspace is not on its assigned branch or tracks another upstream; correct it with Git.",
+	api.ReasonPolicyInvalid:       "The project's policy no longer holds on this host.",
+	api.ReasonPublicEgress:        "This P instance has no public network configured.",
+	api.ReasonRuntimeUnsettled:    "The session's container is in an unexpected state.",
+	api.ReasonRuntimePresent:      "A container P does not recognize holds the session's name.",
+	api.ReasonRuntimeMissing:      "The session's container is missing.",
+	api.ReasonOperationUnfinished: "Another unfinished operation holds what this one needs.",
+	api.ReasonRefsMoved:           "P's branches moved while it read them.",
+	api.ReasonBranchExists:        "The new branch name is taken.",
+	api.ReasonBranchReserved:      "Another operation reserves the branch.",
+	api.ReasonPrincipalMissing:    "The session's Git identity is missing or changed.",
+	api.ReasonSessionNotStopped:   "The session is not stopped.",
+	api.ReasonSession:             "Its session is gone.",
+	api.ReasonProject:             "Its project is gone.",
+	api.ReasonBranch:              "A branch it needs is gone.",
+	api.ReasonSource:              "Its source is gone.",
+	api.ReasonOperation:           "An operation it depends on is gone.",
+}

@@ -42,7 +42,7 @@ func (l *lifecycle) readyEnvironment(ctx context.Context, op *api.Operation, ev 
 	runtime environmentRecoveryRuntime, rebuild func(context.Context, *api.Operation, *control.CreationEvidence) (string, error)) (string, error) {
 	current := l.environmentIntent()
 	if current == nil || ev.Environment == nil || *current != *ev.Environment || ev.CapturedOID == "" {
-		return "", errors.New("pinned environment selection unavailable; repair required")
+		return "", control.Failed(api.ReasonPlugin, errors.New("pinned environment selection unavailable"))
 	}
 	if op.Phase == "environment-publishing" {
 		if ev.EnvironmentState == nil || ev.EnvironmentState.Key == "" || ev.EnvironmentState.Fingerprint != "" || len(ev.EnvironmentState.Properties) == 0 {
@@ -167,7 +167,7 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *api.Operation, ev 
 		}
 	}
 	if ev.EnvironmentBuilder == nil {
-		return "", errors.New("historical builder dispatch/cleanup evidence unavailable; preserve unresolved resources")
+		return "", errors.New("historical builder dispatch/cleanup evidence unavailable")
 	}
 	before, err := l.runtime.InspectBuilder(ctx, r)
 	if err != nil {
@@ -195,7 +195,7 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *api.Operation, ev 
 		}
 	}
 	if ev.EnvironmentBuilder.State != "not-attempted" && ev.EnvironmentBuilder.State != "absent" {
-		return "", errors.New("builder init outcome unknown; absent inventory cannot authorize another init")
+		return "", control.OutcomeUnknown(errors.New("builder init outcome unknown; absent inventory cannot authorize another init"))
 	}
 	if _, err = l.runtime.CreateBuilderWithGate(ctx, r, func() error {
 		next := *ev
@@ -303,18 +303,19 @@ func (l *lifecycle) buildEnvironment(ctx context.Context, op *api.Operation, ev 
 }
 
 func (l *lifecycle) lockEnvironmentKey(ctx context.Context, project, key string) (func(), error) {
-	l.mu.Lock()
-	if l.cacheKeyLocks == nil {
-		l.cacheKeyLocks = map[string]chan struct{}{}
-	}
-	id := project + "\x00" + key
-	slot := l.cacheKeyLocks[id]
-	if slot == nil {
-		slot = make(chan struct{}, 1)
-		slot <- struct{}{}
-		l.cacheKeyLocks[id] = slot
-	}
-	l.mu.Unlock()
+	var slot chan struct{}
+	l.withLock(func() {
+		if l.cacheKeyLocks == nil {
+			l.cacheKeyLocks = map[string]chan struct{}{}
+		}
+		id := project + "\x00" + key
+		slot = l.cacheKeyLocks[id]
+		if slot == nil {
+			slot = make(chan struct{}, 1)
+			slot <- struct{}{}
+			l.cacheKeyLocks[id] = slot
+		}
+	})
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -329,7 +330,7 @@ func (l *lifecycle) rejectOtherEnvironmentPublication(ctx context.Context, proje
 		return err
 	}
 	if pending {
-		return errors.New("same environment key has an unresolved prior publication; reconcile its exact operation before retry")
+		return refusalBecause(api.KindConflict, api.ReasonOperationUnfinished, "", control.ErrConflict, errors.New("same environment key has an unresolved prior publication"))
 	}
 	return nil
 }
@@ -497,7 +498,7 @@ func (l *lifecycle) persistEnvironment(op *api.Operation, ev control.CreationEvi
 	if err != nil || len(data) > 16384 {
 		return errors.New("environment creation evidence exceeds durable bound")
 	}
-	if err := l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, true, data, ""); err != nil {
+	if err := l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, true, data, "", ""); err != nil {
 		return err
 	}
 	op.Phase, op.Evidence, op.Committed, op.Status = phase, data, true, "running"

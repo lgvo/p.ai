@@ -49,25 +49,28 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 	}
 	var ev control.ProjectDeleteEvidence
 	if json.Unmarshal(op.Evidence, &ev) != nil || ev.InstanceUUID != l.instanceID || ev.IncusProject != l.cfg.IncusProject || ev.BaseFingerprint != l.cfg.BaseImageFingerprint || l.store.ValidateProjectDeleteAuthority(l.ctx, op, ev) != nil {
-		_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, true, op.Evidence, "confirmed project deletion exact identity/authority unavailable")
+		_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, true, op.Evidence, api.ReasonChanged, "confirmed project deletion exact identity/authority unavailable")
 		return
 	}
 	ctx := l.ctx
-	persist := func(status string, diagnostic string) error {
-		if e := l.store.UpdateProjectDelete(ctx, op, ev, status, diagnostic); e != nil {
+	persist := func(status, reason, diagnostic string) error {
+		if e := l.store.UpdateProjectDelete(ctx, op, ev, status, reason, diagnostic); e != nil {
 			return e
 		}
 		raw, _ := json.Marshal(ev)
 		op.Evidence = raw
 		op.Status = status
-		op.Diagnostic = diagnostic
+		op.Reason, op.Diagnostic = reason, diagnostic
 		return nil
 	}
 	if op.Status == "blocked" {
-		if err = persist("running", ""); err != nil {
+		if err = persist("running", "", ""); err != nil {
 			return
 		}
 	}
+	// failure is the reason of the first resource that could not be removed;
+	// the operation blocks with it when resources remain.
+	failure := ""
 	fail := func(index int, cause error) bool {
 		if ctx.Err() != nil {
 			return false
@@ -76,11 +79,11 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		if !projectDeleteAbsent(*r) {
 			r.Status = "unreachable"
 		}
-		r.Diagnostic = cause.Error()
-		if len(r.Diagnostic) > 512 {
-			r.Diagnostic = r.Diagnostic[:512]
+		r.Diagnostic = control.ResourceDiagnostic(cause.Error())
+		if failure == "" {
+			failure = control.OperationReason(cause)
 		}
-		return persist("running", "") == nil
+		return persist("running", "", "") == nil
 	}
 	markAbsent := func(index int) bool {
 		r := &ev.Resources[index]
@@ -92,7 +95,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			}
 		}
 		r.Diagnostic = ""
-		return persist("running", "") == nil
+		return persist("running", "", "") == nil
 	}
 	verifiedRuntimes := make([]bool, len(ev.Sessions))
 	for i, ps := range ev.Sessions {
@@ -133,18 +136,18 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		} else {
 			r := &ev.Resources[ri]
 			if decision == "identity-conflict" {
-				if !fail(ri, fmt.Errorf("runtime identity changed at %s; preserve unfamiliar resource and investigate manually", ps.Runtime.InstanceName)) {
+				if !fail(ri, &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonRuntimePresent, Cause: fmt.Errorf("runtime identity changed at %s", ps.Runtime.InstanceName)}) {
 					return
 				}
 				continue
 			}
 			if decision == "issued-unresolved" {
-				if !fail(ri, fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s; administrative reconciliation required, no name-based replay", ps.Runtime.InstanceName, ps.Runtime.IncusUUID, ps.Runtime.Generation)) {
+				if !fail(ri, control.OutcomeUnknown(fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", ps.Runtime.InstanceName, ps.Runtime.IncusUUID, ps.Runtime.Generation))) {
 					return
 				}
 				continue
 			}
-			err = l.runtime.DeleteForDiscardExact(ctx, native, ps.Runtime.IncusUUID, ps.Runtime.Generation, func() error { r.DeleteIssued = true; return persist("running", "") })
+			err = l.runtime.DeleteForDiscardExact(ctx, native, ps.Runtime.IncusUUID, ps.Runtime.Generation, func() error { r.DeleteIssued = true; return persist("running", "", "") })
 			if err != nil {
 				if !fail(ri, err) {
 					return
@@ -164,7 +167,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		verifiedRuntimes[i] = true
 		if !projectDeleteAbsent(ev.Resources[li]) {
 			ev.Resources[li].DeleteIssued = true
-			if err = persist("running", ""); err != nil {
+			if err = persist("running", "", ""); err != nil {
 				return
 			}
 		}
@@ -223,7 +226,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 				continue
 			}
 			ev.Resources[index].DeleteIssued = true
-			if e = persist("running", ""); e != nil {
+			if e = persist("running", "", ""); e != nil {
 				return
 			}
 			if e = l.runtime.DeleteOwnedBuilderImage(ctx, owned); e != nil {
@@ -301,7 +304,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 						e = errors.New("repository reappeared after confirmed absence")
 					} else {
 						ev.Resources[last].DeleteIssued = true
-						if e = persist("running", ""); e == nil {
+						if e = persist("running", "", ""); e == nil {
 							e = os.RemoveAll(repo)
 						}
 					}
@@ -337,23 +340,25 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		if err == nil {
 			l.recordProgress(op, "completed")
 			l.forgetProjectDeletePreviews(op.Project)
-			l.eventMu.Lock()
-			for _, ps := range ev.Sessions {
-				delete(l.observed, ps.Session.UUID)
-				delete(l.eventContexts, ps.Session.UUID)
-			}
-			l.eventMu.Unlock()
+			func() {
+				l.eventMu.Lock()
+				defer l.eventMu.Unlock()
+				for _, ps := range ev.Sessions {
+					delete(l.observed, ps.Session.UUID)
+					delete(l.eventContexts, ps.Session.UUID)
+				}
+			}()
 			return
 		}
 	}
-	diagnostic := "project deletion incomplete; Retry exact confirmed operation after authority returns, or investigate reported native identity"
+	reason, diagnostic := failure, "project deletion incomplete"
 	if err != nil {
-		diagnostic = fmt.Sprintf("project deletion completion blocked: %v", err)
-		if len(diagnostic) > 900 {
-			diagnostic = diagnostic[:900]
-		}
+		reason, diagnostic = control.OperationReason(err), fmt.Sprintf("project deletion completion blocked: %v", err)
 	}
-	if persist("blocked", diagnostic) == nil {
+	if reason == "" {
+		reason = api.ReasonInternal
+	}
+	if persist("blocked", reason, diagnostic) == nil {
 		l.recordProgress(op, "blocked")
 	}
 }

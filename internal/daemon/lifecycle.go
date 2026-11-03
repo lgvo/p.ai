@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -749,11 +750,11 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 	}
 	if op.Status != "completed" {
 		if op.Status == "blocked" {
-			if err = l.store.AdvanceOperation(ctx, op.ID, "running", op.Phase, op.Committed, op.Evidence, ""); err != nil {
+			if err = l.store.AdvanceOperation(ctx, op.ID, "running", op.Phase, op.Committed, op.Evidence, "", ""); err != nil {
 				return op, err
 			}
 			op.Status = "running"
-			op.Diagnostic = ""
+			op.Reason, op.Diagnostic = "", ""
 			l.recordProgress(op, "running")
 		}
 		if err = l.enqueue(op.ID); err != nil {
@@ -764,6 +765,7 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 }
 
 func (l *lifecycle) process(id string) {
+	defer l.recoverOperation(id)
 	op, err := l.store.GetOperation(l.ctx, id)
 	if err != nil {
 		return
@@ -771,6 +773,24 @@ func (l *lifecycle) process(id string) {
 	if kind, ok := operationKinds[op.Kind]; ok {
 		kind.process(l, op)
 	}
+}
+
+// recoverOperation recovers a panic in the work of operation id. It logs the
+// panic and records the running operation blocked with reason internal,
+// keeping its guards, so it waits for Retry instead of the scheduler running
+// it again. Call it deferred.
+func (l *lifecycle) recoverOperation(id string) {
+	value := recover()
+	if value == nil {
+		return
+	}
+	log.Printf("operation %s work panicked: %v\n%s", id, value, debug.Stack())
+	op, err := l.store.BlockAfterPanic(l.ctx, id, fmt.Sprintf("operation work panicked: %v", value))
+	if err != nil {
+		log.Printf("operation %s stays as it was after the panic: %v", id, err)
+		return
+	}
+	l.recordProgress(op, "blocked")
 }
 
 func (l *lifecycle) processCreation(op api.Operation) {
@@ -791,11 +811,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		if ctx.Err() != nil {
 			return
 		}
-		message := err.Error()
-		if len(message) > 900 {
-			message = message[:900]
-		}
-		if l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message) == nil {
+		if l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(err), err.Error()) == nil {
 			l.recordProgress(op, "blocked")
 		}
 	}
@@ -822,7 +838,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		pinned = ev.Selection
 	}
 	if !pinned.Valid() || pinned != l.selection() {
-		fail(errors.New("pinned creation plugin selection unavailable; repair required"))
+		fail(control.Failed(api.ReasonPlugin, errors.New("pinned creation plugin selection unavailable")))
 		return
 	}
 	if op.Kind == "project.create" && op.Phase == "repo-pending" {
@@ -878,7 +894,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 	}
 	selectedPolicy, policyErr := control.ParseStoredProjectPolicy(session.Policy)
 	if policyErr != nil || selectedPolicy.Network == "public-egress" && l.cfg.PublicEgress == nil || control.RevalidateProjectPolicy(selectedPolicy, l.grantBoundary()) != nil {
-		fail(errors.New("stored project policy is unavailable"))
+		fail(refusalBecause(api.KindConflict, api.ReasonPolicyInvalid, api.TargetSession(session.UUID), control.ErrConflict, errors.New("stored project policy is unavailable")))
 		return
 	}
 	var image, initialOID string
@@ -922,7 +938,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 			return
 		}
 		if phaseRank(op.Phase) < phaseRank("workspace-ready") && (exists || tip != "") {
-			fail(errors.New("unborn main unexpectedly has a ref"))
+			fail(refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, errors.New("unborn main unexpectedly has a ref")))
 			return
 		}
 	}
@@ -933,7 +949,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 			return
 		}
 		if phaseRank(op.Phase) < phaseRank("workspace-ready") && (!exists || tip != initialOID) {
-			fail(errors.New("assigned branch changed from captured tip"))
+			fail(refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, errors.New("assigned branch changed from captured tip")))
 			return
 		}
 	}
@@ -986,26 +1002,26 @@ func (l *lifecycle) processCreation(op api.Operation) {
 	if op.Kind == "session.create" {
 		scoped.BeforeCreate = func() error {
 			return recordCreationInitAttempt(ctx, &op, func(call context.Context, raw json.RawMessage) error {
-				return l.store.AdvanceOperation(call, op.ID, "running", op.Phase, op.Committed, raw, "")
+				return l.store.AdvanceOperation(call, op.ID, "running", op.Phase, op.Committed, raw, "", "")
 			})
 		}
 	}
 	runtimeRunning := false
 	if phaseRank(op.Phase) >= phaseRank("runtime-created") {
-		state, inspectErr := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
+		state, inspectErr := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
 		if inspectErr != nil {
 			fail(inspectErr)
 			return
 		}
 		runtimeRunning = state.Status == "Running"
 		if runtimeRunning && phaseRank(op.Phase) < phaseRank("assembly-ready") {
-			fail(errors.New("creating runtime is running before verified assembly"))
+			fail(refusalBecause(api.KindConflict, api.ReasonRuntimeUnsettled, api.TargetSession(session.UUID), control.ErrConflict, errors.New("creating runtime is running before verified assembly")))
 			return
 		}
 	}
 	if !runtimeRunning {
 		run := func(call context.Context, kind string) (plugin.RuntimeState, error) {
-			return plugin.RunRuntime(call, l.runtimePlugin, kind, scoped)
+			return runRuntime(call, l.runtimePlugin, kind, scoped)
 		}
 		if _, err = ensureStoppedRuntime(ctx, run); err != nil {
 			fail(err)
@@ -1021,7 +1037,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		}
 		if l.agentPlan != nil {
 			if len(l.agentPlan.Files) != 1 || l.agentPlan.Files[0].Role != "p-codex-adapter" {
-				fail(errors.New("selected agent asset role unavailable"))
+				fail(control.Failed(api.ReasonPlugin, errors.New("selected agent asset role unavailable")))
 				return
 			}
 			activation.Schema = "p.runtime-session/v3"
@@ -1098,20 +1114,20 @@ func nativeFilesystemGrants(policy control.ProjectPolicy) []runtimeincus.Filesys
 }
 
 func (l *lifecycle) stopOwned(ctx context.Context, scoped runtimeincus.Scoped) error {
-	_, err := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped)
+	_, err := runRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped)
 	return err
 }
 func (l *lifecycle) awaitOwnedHost(ctx context.Context, scoped runtimeincus.Scoped) error {
-	return awaitHostReady(ctx, 100*time.Second, func(call context.Context) (plugin.RuntimeState, error) {
-		return plugin.RunRuntime(call, l.runtimePlugin, "runtime.observe-host", scoped)
-	}, func(call context.Context) error { return l.stopOwned(call, scoped) })
+	return control.Failed(api.ReasonRuntime, awaitHostReady(ctx, 100*time.Second, func(call context.Context) (plugin.RuntimeState, error) {
+		return runRuntime(call, l.runtimePlugin, "runtime.observe-host", scoped)
+	}, func(call context.Context) error { return l.stopOwned(call, scoped) }))
 }
 func (l *lifecycle) startOwned(ctx context.Context, scoped runtimeincus.Scoped) error {
-	_, err := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.start", scoped)
+	_, err := runRuntime(ctx, l.runtimePlugin, "runtime.start", scoped)
 	if err == nil {
 		return nil
 	}
-	observed, e := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.observe-host", scoped)
+	observed, e := runRuntime(ctx, l.runtimePlugin, "runtime.observe-host", scoped)
 	if e == nil && observed.DiagnosticAvailable && observed.Diagnostic != "" {
 		err = errors.New(observed.Diagnostic)
 	}
@@ -1129,7 +1145,7 @@ func (l *lifecycle) advance(op *api.Operation, phase string, committed bool) err
 	if phaseRank(op.Phase) > phaseRank(phase) {
 		return nil
 	}
-	if err := l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, committed, op.Evidence, ""); err != nil {
+	if err := l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, committed, op.Evidence, "", ""); err != nil {
 		return err
 	}
 	op.Phase = phase
@@ -1387,7 +1403,7 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 		return v, nil
 	}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
-	state, err := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.observe-host", scoped)
+	state, err := runRuntime(ctx, l.runtimePlugin, "runtime.observe-host", scoped)
 	if err != nil {
 		v.Condition = "unreachable"
 		return v, nil
@@ -1468,7 +1484,7 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 		return api.SessionView{}, err
 	}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
-	observed, err := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
+	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
 	if err != nil {
 		return api.SessionView{}, control.Failed(api.ReasonRuntime, err)
 	}
@@ -1514,9 +1530,6 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 		message := ""
 		if e != nil {
 			message = e.Error()
-			if len(message) > 1024 {
-				message = message[:1024]
-			}
 		}
 		if writeErr := l.store.SetSessionStartDiagnostic(l.ctx, id, message); writeErr != nil && l.ctx.Err() == nil {
 			log.Printf("start diagnostic: %v", writeErr)
@@ -1572,7 +1585,7 @@ func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView
 		return api.SessionView{}, err
 	}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
-	if _, err = plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped); err != nil {
+	if _, err = runRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped); err != nil {
 		return api.SessionView{}, control.Failed(api.ReasonRuntime, err)
 	}
 	return l.InspectSession(ctx, id)

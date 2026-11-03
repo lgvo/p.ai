@@ -33,7 +33,7 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 		if e = s.AdvanceSessionRegistry(ctx, session.UUID, "creating", "established"); e != nil {
 			t.Fatal(e)
 		}
-		if e = s.AdvanceOperation(ctx, op.ID, "completed", "established", true, nil, ""); e != nil {
+		if e = s.AdvanceOperation(ctx, op.ID, "completed", "established", true, nil, "", ""); e != nil {
 			t.Fatal(e)
 		}
 		session, _ = s.GetSession(ctx, session.UUID)
@@ -132,29 +132,29 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 	next.Resources[0].Status = "unreachable"
 	next.Resources[0].Diagnostic = "native authority unavailable"
 	next.Resources[2].Status = "already_absent"
-	if e = s.UpdateProjectDelete(ctx, op, next, "blocked", "partial"); e != nil {
+	if e = s.UpdateProjectDelete(ctx, op, next, "blocked", "runtime", "partial"); e != nil {
 		t.Fatal(e)
 	}
 	op, _ = s.GetOperation(ctx, op.ID)
 	rewind := next
 	rewind.Resources = append([]ProjectDeleteResource(nil), next.Resources...)
 	rewind.Resources[0].DeleteIssued = false
-	if e = s.UpdateProjectDelete(ctx, op, rewind, "running", ""); !errors.Is(e, ErrConflict) {
+	if e = s.UpdateProjectDelete(ctx, op, rewind, "running", "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatal("delete dispatch rewound", e)
 	}
 	rewind = next
 	rewind.Resources = append([]ProjectDeleteResource(nil), next.Resources...)
 	rewind.Resources[2].Status = "remaining"
-	if e = s.UpdateProjectDelete(ctx, op, rewind, "running", ""); !errors.Is(e, ErrConflict) {
+	if e = s.UpdateProjectDelete(ctx, op, rewind, "running", "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatal("positive absence rewound", e)
 	}
 	changed := next
 	changed.Sessions = append([]api.ProjectDeleteSession(nil), next.Sessions...)
 	changed.Sessions[0].Runtime.IncusUUID = "55555555-5555-4555-8555-555555555555"
-	if e = s.UpdateProjectDelete(ctx, op, changed, "running", ""); !errors.Is(e, ErrConflict) {
+	if e = s.UpdateProjectDelete(ctx, op, changed, "running", "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatal("native identity drift admitted", e)
 	}
-	if e = s.AdvanceOperation(ctx, op.ID, "completed", "completed", true, nil, ""); !errors.Is(e, ErrConflict) {
+	if e = s.AdvanceOperation(ctx, op.ID, "completed", "completed", true, nil, "", ""); !errors.Is(e, ErrConflict) {
 		t.Fatal("generic advance bypassed absence verification", e)
 	}
 	if e = s.Close(); e != nil {
@@ -176,7 +176,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 			durable.Resources[i].Diagnostic = ""
 		}
 	}
-	if e = s.UpdateProjectDelete(ctx, op, durable, "running", ""); e != nil {
+	if e = s.UpdateProjectDelete(ctx, op, durable, "running", "", ""); e != nil {
 		t.Fatal(e)
 	}
 	op, _ = s.GetOperation(ctx, op.ID)

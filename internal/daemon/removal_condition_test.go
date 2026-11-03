@@ -50,7 +50,7 @@ func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
 				if err = f.m.store.SetGitRefGuard(f.ctx, s.Project, s.Branch, op.ID, true); err != nil {
 					t.Fatal(err)
 				}
-				if err = f.m.store.AdvanceOperation(f.ctx, op.ID, "running", "validated", false, op.Evidence, ""); err != nil {
+				if err = f.m.store.AdvanceOperation(f.ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); err != nil {
 					t.Fatal(err)
 				}
 				if action == "delete" {
@@ -62,7 +62,7 @@ func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
 					t.Fatal(err)
 				}
 				if status == "blocked" {
-					if err = f.m.store.AdvanceOperation(f.ctx, op.ID, "blocked", "removal-committed", true, op.Evidence, "fixture cleanup blocked"); err != nil {
+					if err = f.m.store.AdvanceOperation(f.ctx, op.ID, "blocked", "removal-committed", true, op.Evidence, "internal", "fixture cleanup blocked"); err != nil {
 						t.Fatal(err)
 					}
 				}

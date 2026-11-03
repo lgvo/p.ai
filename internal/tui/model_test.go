@@ -505,3 +505,16 @@ func TestServiceKeyDuringRefreshCapturesExactlyOneIntent(t *testing.T) {
 		t.Fatal("intent was not issued exactly once")
 	}
 }
+
+// TestStoppedOperationShowsWhatItsReasonMeans checks that a blocked or failed
+// operation shows the client's sentence for its reason, then its diagnostic
+// on a labelled line of its own.
+func TestStoppedOperationShowsWhatItsReasonMeans(t *testing.T) {
+	want := []string{"The runtime failed; check Incus. Retry it once that is resolved.", "Diagnostic: Incus did not answer"}
+	if got := operationDetail("blocked", api.ReasonRuntime, "Incus did not answer"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("detail %q, want %q", got, want)
+	}
+	if got := operationDetail("running", "", "detail"); !reflect.DeepEqual(got, []string{"detail"}) {
+		t.Fatalf("a running operation's detail %q", got)
+	}
+}

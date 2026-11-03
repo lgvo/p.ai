@@ -142,7 +142,7 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	}
 	raw, _ := json.Marshal(req)
 	proof, _ := json.Marshal(ev)
-	if len(proof) > 24<<10 {
+	if len(proof) > maxProjectDeleteReviewBytes {
 		return api.Operation{}, ErrInvalid
 	}
 	if err := s.lockGitAuthority(ctx); err != nil {
@@ -243,10 +243,11 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 
 // UpdateProjectDelete changes only resource progress; exact accepted identities
 // cannot drift and positive absence/delete-issued markers never rewind.
-func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation, next ProjectDeleteEvidence, status string, diagnostic string) error {
-	if !validProjectDeleteEvidence(next) || status != "running" && status != "blocked" {
+func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation, next ProjectDeleteEvidence, status, reason, diagnostic string) error {
+	if !validProjectDeleteEvidence(next) || status != "running" && status != "blocked" || !reasonFits(status, reason) {
 		return ErrInvalid
 	}
+	diagnostic = api.BoundDiagnostic(diagnostic)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -264,10 +265,10 @@ func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation,
 		}
 	}
 	raw, _ := json.Marshal(next)
-	if len(raw) > 24<<10 || len(diagnostic) > 900 {
+	if len(raw) > maxProjectDeleteEvidenceBytes {
 		return ErrInvalid
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status=?,evidence_json=?,diagnostic=?,updated_at=? WHERE id=?`, status, string(raw), diagnostic, time.Now().UTC().Format(time.RFC3339Nano), old.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status=?,evidence_json=?,reason=?,diagnostic=?,updated_at=? WHERE id=?`, status, string(raw), reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), old.ID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -327,7 +328,7 @@ func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operatio
 	if _, err = tx.ExecContext(ctx, `DELETE FROM operations WHERE project_path=? AND id!=?`, op.Project, op.ID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='completed',evidence_json=NULL,diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='completed',evidence_json=NULL,reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
 		return err
 	}
 	if err = tx.Commit(); err != nil {

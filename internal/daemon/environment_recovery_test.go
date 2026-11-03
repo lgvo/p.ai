@@ -176,7 +176,7 @@ func environmentRecoveryFixture(t *testing.T, public bool) (*lifecycle, api.Oper
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, evidence, ""); err != nil {
+	if err = store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, evidence, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	op, err = store.GetOperation(ctx, op.ID)

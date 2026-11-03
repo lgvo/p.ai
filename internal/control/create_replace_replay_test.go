@@ -25,7 +25,7 @@ func TestCreateReplaceAcceptedReplayWithoutMutationAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.AdvanceOperation(ctx, old.ID, "blocked", "principals-ready", true, old.Evidence, "fixture read-only preflight refusal"); err != nil {
+	if err = s.AdvanceOperation(ctx, old.ID, "blocked", "principals-ready", true, old.Evidence, "internal", "fixture read-only preflight refusal"); err != nil {
 		t.Fatal(err)
 	}
 	cleanup := replacementCleanupIntent(t, old, image)

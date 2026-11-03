@@ -185,6 +185,7 @@ control project.create (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -221,6 +222,7 @@ control session.create (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -372,6 +374,7 @@ control operation.inspect (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -400,6 +403,7 @@ control operation.list (runtime)
       status string
       phase string
       committed boolean
+      reason string (optional)
       diagnostic string (optional)
       environment object (optional)
         commit_oid string (optional)
@@ -436,6 +440,7 @@ control operation.retry (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -518,6 +523,7 @@ control session.discard (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -549,6 +555,7 @@ control session.delete (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -581,6 +588,7 @@ control session.rename (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -614,6 +622,7 @@ control project.retained.rename (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -758,6 +767,7 @@ control project.delete.confirm (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -816,6 +826,7 @@ control project.retained.delete.confirm (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -954,6 +965,7 @@ control session.create.replace.confirm (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string
@@ -1079,6 +1091,7 @@ control session.create.cleanup.confirm (runtime)
       phase string
       committed boolean
       evidence raw (optional)
+      reason string (optional)
       diagnostic string (optional)
       created_at string
       updated_at string

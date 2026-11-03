@@ -23,7 +23,7 @@ func TestCreationInitAttemptCannotBeErasedByStaleRetryAcrossRestart(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "principals-ready", true, op.Evidence, ""); err != nil {
+	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "principals-ready", true, op.Evidence, "internal", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Deterministic interleaving: Retry reads blocked/not-attempted, exact replay
@@ -38,10 +38,10 @@ func TestCreationInitAttemptCannotBeErasedByStaleRetryAcrossRestart(t *testing.T
 	}
 	ev.RuntimeInitState = "attempted"
 	attempted, _ := json.Marshal(ev)
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, attempted, ""); err != nil {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, attempted, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.AdvanceOperation(ctx, stale.ID, "running", stale.Phase, stale.Committed, stale.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, stale.ID, "running", stale.Phase, stale.Committed, stale.Evidence, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale Retry erased dispatch marker: %v", err)
 	}
 	s.Close()
@@ -58,7 +58,7 @@ func TestCreationInitAttemptCannotBeErasedByStaleRetryAcrossRestart(t *testing.T
 	if err != nil || ev.RuntimeInitState != "attempted" || ReplaceableCreationPhase(durable, ev) {
 		t.Fatal("restart lost uncertain init provenance")
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "blocked", durable.Phase, true, stale.Evidence, "stale worker failure"); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, op.ID, "blocked", durable.Phase, true, stale.Evidence, "internal", "stale worker failure"); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale failure erased marker")
 	}
 }

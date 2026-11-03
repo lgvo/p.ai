@@ -38,7 +38,7 @@ func TestGitPrincipalAssignmentGuardAndRestart(t *testing.T) {
 		}
 		t.Fatalf("creating session gained write before commit: %v", err)
 	}
-	if err := store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, nil, ""); err != nil {
+	if err := store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, release, err := store.AcquireGitLease(ctx, agent, "team/app", "receive"); !errors.Is(err, ErrGitDenied) {
@@ -47,7 +47,7 @@ func TestGitPrincipalAssignmentGuardAndRestart(t *testing.T) {
 		}
 		t.Fatalf("write before verified workspace: %v", err)
 	}
-	if err := store.AdvanceOperation(ctx, op.ID, "running", "workspace-ready", true, nil, ""); err != nil {
+	if err := store.AdvanceOperation(ctx, op.ID, "running", "workspace-ready", true, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, release, err := store.AcquireGitLease(ctx, host, "team/app", "receive"); !errors.Is(err, ErrGitDenied) {
@@ -135,7 +135,7 @@ func TestBlankUnbornGrantSurvivesEstablishmentAndConsumesAtHook(t *testing.T) {
 	if err := store.RegisterGitPrincipal(ctx, key, "session", "blank", session.UUID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, nil, ""); err != nil {
+	if err := store.AdvanceOperation(ctx, op.ID, "running", "principals-ready", true, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.ExecContext(ctx, `UPDATE sessions SET registry_state='established' WHERE uuid=?`, session.UUID); err != nil {
@@ -182,7 +182,7 @@ func TestCancelledGuardAndRevocationDoNotOvertakeReceive(t *testing.T) {
 	if err := store.RegisterGitPrincipal(ctx, key, "session", "app", session.UUID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AdvanceOperation(ctx, op.ID, "running", "workspace-ready", true, nil, ""); err != nil {
+	if err := store.AdvanceOperation(ctx, op.ID, "running", "workspace-ready", true, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	_, release, err := store.AcquireGitLease(ctx, key, "app", "receive")

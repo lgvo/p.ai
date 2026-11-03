@@ -423,3 +423,10 @@ func (m *endpointManager) serveSession(ctx context.Context, l net.Listener, uuid
 		}()
 	}
 }
+
+// withLock runs f holding m.mu and releases it even when f panics.
+func (m *endpointManager) withLock(f func() error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return f()
+}

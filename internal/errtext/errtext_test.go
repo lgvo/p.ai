@@ -63,7 +63,7 @@ func TestEveryKindAndReasonHasASentence(t *testing.T) {
 		}
 	}
 	for name, reason := range apiReasons(t) {
-		found := kindSentenceSuffices[reason]
+		found := kindSentenceSuffices[reason] || operationSentences[reason] != ""
 		for _, sentences := range reasonSentences {
 			found = found || sentences[reason] != ""
 		}
@@ -93,5 +93,20 @@ func TestSentenceFallsBack(t *testing.T) {
 	// A reason names a record kind or an authority only within its kind.
 	if Sentence(api.NewError(api.KindNotConfigured, api.ReasonRuntime)) == Sentence(api.NewError(api.KindFailed, api.ReasonRuntime)) {
 		t.Error("not_configured and failed runtime read the same")
+	}
+}
+
+func TestOperationSentenceNamesTheNextStep(t *testing.T) {
+	if got := Operation("blocked", api.ReasonRuntime); got != "The runtime failed; check Incus. Retry it once that is resolved." {
+		t.Errorf("a blocked operation gave %q", got)
+	}
+	if got := Operation("failed", api.ReasonWorkspaceMismatch); got != operationSentences[api.ReasonWorkspaceMismatch]+" It ended; start a new request." {
+		t.Errorf("a failed operation gave %q", got)
+	}
+	if got := Operation("blocked", "something_new"); got != "It stopped: something_new. Retry it once that is resolved." {
+		t.Errorf("an unknown reason gave %q", got)
+	}
+	if Operation("running", "") != "" {
+		t.Error("an operation without a reason has a sentence")
 	}
 }

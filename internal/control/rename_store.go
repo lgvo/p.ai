@@ -121,10 +121,11 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 // the caller has removed its workspace backup.
 // A create-issued request has an unknown possible Git effect and cannot use
 // this rollback path.
-func (s *Store) FailRenamePrecommit(ctx context.Context, opID, diagnostic string) error {
-	if len(diagnostic) > 512 {
-		diagnostic = diagnostic[:512]
+func (s *Store) FailRenamePrecommit(ctx context.Context, opID, reason, diagnostic string) error {
+	if !validReason(reason) {
+		return ErrInvalid
 	}
+	diagnostic = api.BoundDiagnostic(diagnostic)
 	if err := s.lockGitAuthority(ctx); err != nil {
 		return err
 	}
@@ -157,7 +158,7 @@ func (s *Store) FailRenamePrecommit(ctx context.Context, opID, diagnostic string
 			return ErrConflict
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason=?,diagnostic=?,updated_at=? WHERE id=?`, reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -248,7 +249,7 @@ func (s *Store) CompleteRename(ctx context.Context, opID string, verify func(con
 			return ErrConflict
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='completed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='completed',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
 	return tx.Commit()

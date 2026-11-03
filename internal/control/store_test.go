@@ -78,7 +78,7 @@ func TestStoreRestartAndWriterLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AdvanceOperation(ctx, firstOperation.ID, "blocked", "source-ready", false, nil, "waiting for Git"); err != nil {
+	if err := store.AdvanceOperation(ctx, firstOperation.ID, "blocked", "source-ready", false, nil, "internal", "waiting for Git"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -210,13 +210,13 @@ func TestReservationIsAtomicIdempotentAndPolicyIsImmutable(t *testing.T) {
 	if _, err := store.db.ExecContext(ctx, "UPDATE operations SET request_json='{}' WHERE id=?", op.ID); err == nil {
 		t.Fatal("operation request changed in place")
 	}
-	if err := store.AdvanceOperation(ctx, op.ID, "blocked", "source-ready", true, json.RawMessage(`{"expected_ref":"refs/heads/feature/a"}`), "waiting for source"); err != nil {
+	if err := store.AdvanceOperation(ctx, op.ID, "blocked", "source-ready", true, json.RawMessage(`{"expected_ref":"refs/heads/feature/a"}`), "internal", "waiting for source"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AdvanceOperation(ctx, op.ID, "running", "source-ready", false, nil, ""); !errors.Is(err, ErrConflict) {
+	if err := store.AdvanceOperation(ctx, op.ID, "running", "source-ready", false, nil, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("commit point moved backwards: %v", err)
 	}
-	if err := store.AdvanceOperation(ctx, op.ID, "completed", "established", true, nil, ""); !errors.Is(err, ErrConflict) {
+	if err := store.AdvanceOperation(ctx, op.ID, "completed", "established", true, nil, "", ""); !errors.Is(err, ErrConflict) {
 		t.Fatalf("unresolved creation completed: %v", err)
 	}
 	stored, err := store.GetSession(ctx, session.UUID)

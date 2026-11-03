@@ -487,9 +487,9 @@ failed-create cleanup followed by a separate Create.
 | `session.create.replace.confirm` | `{"old_uuid":"blocked-session-UUID","key":"new-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | new `session.create` operation; an exact accepted key/token replays after restart. |
 | `session.create.cleanup.preview` | `{"uuid":"blocked-session-UUID"}` | `preview` with the old immutable request and evidence digest, assigned ref, image, tracked builder state, provisional resources, `external_mounts:"preserved"`, `shared_images:"preserved"`, eligibility and reasons; an eligible preview includes a two-minute confirmation token. |
 | `session.create.cleanup.confirm` | `{"uuid":"blocked-session-UUID","key":"cleanup-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | one `session.create.cleanup` operation on the old UUID; exact accepted key/token replay works during cleanup and after restart. |
-| `operation.inspect` | `{"id":"operation-UUID"}` | `operation` with status, phase, bounded diagnostic, and immutable evidence. |
+| `operation.inspect` | `{"id":"operation-UUID"}` | `operation` with status, phase, a `reason` and `diagnostic` once it is blocked or failed, and immutable evidence. |
 | `operation.retry` | Same as inspect | `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
-| `operation.list` | `{"limit":1..20,"after":"optional-operation-UUID"}` | concise operation summaries (without request/evidence), `next` in bytewise ID order. |
+| `operation.list` | `{"limit":1..20,"after":"optional-operation-UUID"}` | concise operation summaries (without request/evidence, with the same `reason` and `diagnostic`), `next` in bytewise ID order. |
 | `session.inspect` | `{"uuid":"session-UUID"}` | `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
 | `session.list` | `{"limit":1..8,"after":"optional-session-UUID"}` | `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
 | `session.start` | `{"uuid":"session-UUID"}` | `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused with `retry` by that watcher. |
@@ -514,10 +514,26 @@ the retired creation and the branch it held; and `url` for a project created
 with an origin. A client that repeats a change with the same key can compare
 it without reading live state.
 
-Rename operation diagnostics retain up to 512 bytes so both validated
-expected/actual branch or upstream names remain visible. Other operation
-diagnostics retain their 256-byte bound. Operation lists still enforce the
-control-frame limit and return a continuation when a page must be shortened.
+An operation that ends `blocked` or `failed` carries `reason`, the code of why
+it stopped, beside `diagnostic`, its detail; any other operation carries no
+reason. A superseded operation keeps a diagnostic naming the operation that
+replaced or cleaned it up. The reason is one of the error reasons above, such as `runtime`,
+`git`, `origin`, `plugin`, `changed` or `policy_invalid`, or one that only
+operations record:
+
+| `reason` | Meaning |
+|---|---|
+| `internal` | The operation's work failed in a way P did not classify, or panicked; the diagnostic holds the detail, and the daemon logs a panic's stack. A panicked operation is recorded `blocked`, keeps its guards and waits for `operation.retry`. |
+| `outcome_unknown` | The operation issued an effect, such as an Incus delete or a Git ref change, and cannot tell whether it happened. P does not issue it again; the diagnostic names the resource to check before Retry. |
+| `workspace_mismatch` | A Rename refused before any change: the workspace is not on its assigned branch, or its branch tracks another upstream. The diagnostic names the expected and actual values. |
+
+The diagnostic holds detail only, never advice: clients say what to do from the
+reason. Every diagnostic P records, an operation's, a session's start
+diagnostic and each resource's in project deletion evidence, keeps at most
+1024 bytes, cut at a character boundary, so a Rename mismatch keeps both
+validated branch or upstream names. `operation.list` shows the same diagnostic
+as `operation.inspect`. Operation lists still enforce the control-frame limit
+and return a continuation when a page must be shortened.
 
 The replacement methods implement a bounded subset of
 [Try again with changes](session-lifecycle.md#failure-cancellation-and-retry).
@@ -1014,8 +1030,11 @@ fails instead of matching a kind with another meaning.
 
 A request whose handler panics answers `internal` with reason `panic`; a
 notification gets no response. The daemon logs the panic with its stack and
-keeps serving: the connection stays open for later requests, and other
-connections are not affected. The private session RPC behaves the same way.
+the request ID and keeps serving: the connection stays open for later
+requests, and other connections are not affected. The private session RPC
+behaves the same way. A panic in an operation's work is recovered too: the
+operation is recorded `blocked` with reason `internal`, keeps its guards and
+waits for `operation.retry`; the scheduler does not run it again.
 
 Once a request's context ends, an error its handler returns answers as the
 context's: `cancelled` when the client cancelled it or closed the connection,

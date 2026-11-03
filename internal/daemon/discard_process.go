@@ -51,7 +51,7 @@ func (l *lifecycle) advanceDiscard(op *api.Operation, ev control.DiscardEvidence
 	if err != nil || len(raw) > 4096 {
 		return errors.New("discard evidence exceeds bound")
 	}
-	if err = l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, op.Committed, raw, ""); err != nil {
+	if err = l.store.AdvanceOperation(l.ctx, op.ID, "running", phase, op.Committed, raw, "", ""); err != nil {
 		return err
 	}
 	op.Phase, op.Evidence, op.Status = phase, raw, "running"
@@ -66,10 +66,7 @@ func (l *lifecycle) blockDiscard(op api.Operation, cause error) {
 	if cause != nil {
 		diagnostic = cause.Error()
 	}
-	if len(diagnostic) > 512 {
-		diagnostic = diagnostic[:512]
-	}
-	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, diagnostic)
+	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), diagnostic)
 	logDiscardProgress(l, op, "blocked")
 }
 
@@ -277,7 +274,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		fallthrough
 	case "stop-issued":
 		if entry == "stop-issued" {
-			l.blockDiscard(op, errors.New("Incus stop outcome unresolved; exact administrative reconciliation required"))
+			l.blockDiscard(op, control.OutcomeUnknown(errors.New("Incus stop outcome unresolved")))
 			return
 		}
 		fallthrough
@@ -295,7 +292,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		fallthrough
 	case "delete-issued":
 		if entry == "delete-issued" {
-			l.blockDiscard(op, errors.New("Incus delete outcome unresolved; exact administrative reconciliation required"))
+			l.blockDiscard(op, control.OutcomeUnknown(errors.New("Incus delete outcome unresolved")))
 			return
 		}
 		fallthrough
@@ -348,7 +345,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		l.recordProgress(op, "completed")
 		return
 	case "branch-delete-issued":
-		l.blockDiscard(op, errors.New("P ref delete outcome unresolved; exact administrative reconciliation required"))
+		l.blockDiscard(op, control.OutcomeUnknown(errors.New("P ref delete outcome unresolved")))
 		return
 	case "branch-absent":
 		if err = l.store.CompleteDelete(ctx, op.ID, func(c context.Context, project, branch, tip string) error {

@@ -71,7 +71,7 @@ func TestProjectDeleteRefusalsNameTheirNextStep(t *testing.T) {
 		if a := answer(err); a.Kind() != api.KindRetry || a.Reason() != api.ReasonProjectHeld || a.Target() != "operation/"+op.ID {
 			t.Fatalf("running operation answered %v (%v)", a, err)
 		}
-		if err = s.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, false, op.Evidence, "blocked"); err != nil {
+		if err = s.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, false, op.Evidence, "internal", "blocked"); err != nil {
 			t.Fatal(err)
 		}
 		_, _, err = s.ProjectDeleteSnapshot(ctx, "bulk")
@@ -132,7 +132,7 @@ func TestRemovalAdmissionNamesTheOperationHoldingTheSession(t *testing.T) {
 	if a := answerError(ctx, err); a.Kind() != api.KindRetry || a.Reason() != api.ReasonSessionHeld || a.Target() != "operation/"+first.ID {
 		t.Fatalf("a running holder answered %v (%v)", a, err)
 	}
-	if err = s.AdvanceOperation(ctx, first.ID, "blocked", first.Phase, first.Committed, first.Evidence, "blocked"); err != nil {
+	if err = s.AdvanceOperation(ctx, first.ID, "blocked", first.Phase, first.Committed, first.Evidence, "internal", "blocked"); err != nil {
 		t.Fatal(err)
 	}
 	_, err = s.BeginDiscard(ctx, second, ev)

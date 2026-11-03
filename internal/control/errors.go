@@ -29,13 +29,16 @@ type Refusal struct {
 	Cause  error
 }
 
+// Error is the cause's text, the detail an operation's diagnostic and the
+// daemon's log keep; a refusal with no cause beyond its class reads as its
+// kind, reason and target.
 func (r *Refusal) Error() string {
+	if r.Cause != nil && r.Cause != ErrConflict && r.Cause != ErrNotFound && r.Cause != ErrInvalid {
+		return r.Cause.Error()
+	}
 	text := string(r.Kind) + ": " + r.Reason
 	if r.Target != "" {
 		text += " (" + r.Target + ")"
-	}
-	if r.Cause != nil && r.Cause != ErrConflict && r.Cause != ErrNotFound && r.Cause != ErrInvalid {
-		text += ": " + r.Cause.Error()
 	}
 	return text
 }
@@ -115,10 +118,28 @@ func withTarget(err error, target string) error {
 	return err
 }
 
+// OutcomeUnknown is the failure of operation work that issued an effect it
+// cannot tell happened: P does not issue it again, and the operation blocks
+// with reason outcome_unknown.
+func OutcomeUnknown(cause error) error {
+	return &Refusal{Kind: api.KindFailed, Reason: api.ReasonOutcomeUnknown, Cause: cause}
+}
+
 // Internal answers internal with reason, for a failure whose cause the
 // daemon knows: the store or an encoding.
 func Internal(reason string, err error) error {
 	return &Refusal{Kind: api.KindInternal, Reason: reason, Cause: err}
+}
+
+// OperationReason is the reason an operation that blocks or fails because of
+// err records: the reason of the refusal err carries, or internal for a
+// failure the daemon did not classify.
+func OperationReason(err error) string {
+	var refusal *Refusal
+	if errors.As(err, &refusal) && refusal.Reason != "" {
+		return refusal.Reason
+	}
+	return api.ReasonInternal
 }
 
 // answerError maps an error a handler returned to the error its request

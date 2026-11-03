@@ -44,7 +44,7 @@ func renameAdvance(t *testing.T, s *Store, op api.Operation, ev RenameEvidence, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(context.Background(), op.ID, "running", phase, committed, raw, ""); err != nil {
+	if err := s.AdvanceOperation(context.Background(), op.ID, "running", phase, committed, raw, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	op, err = s.GetOperation(context.Background(), op.ID)
@@ -156,7 +156,7 @@ func TestRenamePrecommitFailureReleasesGuardsButCreateIssuedRetainsThem(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.FailRenamePrecommit(ctx, op.ID, "stale old tip"); err != nil {
+	if err := s.FailRenamePrecommit(ctx, op.ID, "changed", "stale old tip"); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := s.GetOperation(ctx, op.ID)
@@ -169,11 +169,11 @@ func TestRenamePrecommitFailureReleasesGuardsButCreateIssuedRetainsThem(t *testi
 		t.Fatal(err)
 	}
 	op = renameAdvance(t, s, op, ev, "prepare-issued", false)
-	if err := s.FailRenamePrecommit(ctx, op.ID, "backup POST timed out"); !errors.Is(err, ErrConflict) {
+	if err := s.FailRenamePrecommit(ctx, op.ID, "changed", "backup POST timed out"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("uncertain backup write released reservation: %v", err)
 	}
 	op = renameAdvance(t, s, op, ev, "new-ref-create-issued", false)
-	if err := s.FailRenamePrecommit(ctx, op.ID, "no immediate new ref"); !errors.Is(err, ErrConflict) {
+	if err := s.FailRenamePrecommit(ctx, op.ID, "changed", "no immediate new ref"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("uncertain Git effect released reservation: %v", err)
 	}
 	var count int

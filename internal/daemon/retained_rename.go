@@ -84,10 +84,7 @@ func (l *lifecycle) blockRetainedRename(op api.Operation, cause error) {
 		return
 	}
 	message := fmt.Sprintf("retained branch rename blocked: %v", cause)
-	if len(message) > 900 {
-		message = message[:900]
-	}
-	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, message)
+	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), message)
 }
 
 func (l *lifecycle) processRetainedRename(op api.Operation) {

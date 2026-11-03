@@ -78,18 +78,10 @@ func boundedPage[T, R any](values []T, next string, cursor func(T) string, page 
 	return zero, Internal(api.ReasonEncoding, errors.New("single lifecycle record exceeds frame limit"))
 }
 
+// SummarizeOperation is o without its request and evidence, for
+// operation.list; its diagnostic is the same as operation.inspect's.
 func SummarizeOperation(o api.Operation) api.OperationSummary {
-	d := o.Diagnostic
-	limit := 256
-	if o.Kind == "session.rename" {
-		// Preserve both full validated branch/upstream names in mismatch
-		// refusals. The durable Rename diagnostic has the same fixed bound.
-		limit = 512
-	}
-	if len(d) > limit {
-		d = d[:limit]
-	}
-	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Intent: o.Intent, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Diagnostic: d, Environment: CreationEnvironmentView(o)}
+	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Intent: o.Intent, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Reason: o.Reason, Diagnostic: o.Diagnostic, Environment: CreationEnvironmentView(o)}
 }
 
 type LifecycleAPI interface {

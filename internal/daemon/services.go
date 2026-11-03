@@ -71,7 +71,7 @@ func (l *lifecycle) observeServices(ctx context.Context, id, unit, action string
 		return zero, err
 	}
 	b := &serviceBroker{Scoped: runtimeincus.Scoped{Backend: l.runtime, Session: native}, unit: unit, action: action}
-	if _, err = plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.services", b); err != nil {
+	if _, err = runRuntime(ctx, l.runtimePlugin, "runtime.services", b); err != nil {
 		// The session's user service manager runs in the runtime; a refusal
 		// the runtime typed, such as a session that is not running, keeps its
 		// answer.

@@ -277,10 +277,7 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 	block := func(e error) {
 		if ctx.Err() == nil {
 			diagnostic := "failed creation cleanup refused: " + e.Error()
-			if len(diagnostic) > 1024 {
-				diagnostic = diagnostic[:1024]
-			}
-			_ = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, true, op.Evidence, diagnostic)
+			_ = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, true, op.Evidence, control.OperationReason(e), diagnostic)
 		}
 	}
 	old, oldErr := l.store.GetOperation(ctx, ev.Review.OldOperationID)
@@ -294,7 +291,7 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 		return
 	}
 	if op.Status == "blocked" {
-		if err = l.store.AdvanceOperation(ctx, op.ID, "running", op.Phase, true, op.Evidence, ""); err != nil {
+		if err = l.store.AdvanceOperation(ctx, op.ID, "running", op.Phase, true, op.Evidence, "", ""); err != nil {
 			return
 		}
 		op.Status = "running"
@@ -317,7 +314,7 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 		}
 		ev.LocalComplete = true
 		raw, _ := json.Marshal(ev)
-		if err = l.store.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, ""); err != nil {
+		if err = l.store.AdvanceOperation(ctx, op.ID, "running", "local-complete", true, raw, "", ""); err != nil {
 			block(err)
 			return
 		}

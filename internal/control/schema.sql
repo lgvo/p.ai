@@ -31,7 +31,7 @@ CREATE TABLE operations (
  request_sha256 TEXT NOT NULL, intent_json TEXT NOT NULL,
  status TEXT NOT NULL CHECK(status IN ('running','blocked','failed','unknown','superseded','completed')),
  phase TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0 CHECK(committed IN (0,1)),
- evidence_json TEXT, diagnostic TEXT NOT NULL DEFAULT '',
+ evidence_json TEXT, reason TEXT NOT NULL DEFAULT '', diagnostic TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 -- One active operation per session, except that a narrowly proved blocked

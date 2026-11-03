@@ -1,5 +1,31 @@
 # MVP implementation progress
 
+## TUI operation reasons — 2026-11-03
+
+Step 3 of the interface rework gives a blocked or failed operation a `reason`
+code beside its diagnostic, and moves P's advice out of the diagnostic. The
+operation page now shows the client's sentence for the reason, with the next
+step for the status, and the daemon's detail on its own labelled line.
+
+LLM experience review (mock socket only): the LLM ran `just tui-mock --dataset
+small --theme dark` from the commit before and from this change. It opened O,
+inspected the blocked operation, retried it and returned, at 120×35, 80×24 and
+48×16. The operation page now says what the reason means and how to continue:
+"The runtime failed; check Incus. Retry it once that is resolved." The daemon's
+detail follows on its own line, "Diagnostic: Incus did not answer within 30
+seconds". Retry completed the operation, and the completed page shows no
+reason. The review found two problems, both fixed and repeated: the operations
+list drew none of its rows' detail, so that change was withdrawn and the reason
+shows on the operation page only; and the sentence and the diagnostic ran
+together in one paragraph. Two issues that predate this change stay open: at
+48×16 the page leaves six rows empty, so the Diagnostic line is reached only by
+scrolling, and `r retry operation` is offered for every status. The mock has no
+failed operation, so "It ended; start a new request." was not rendered.
+Component checks: `internal/errtext` and `internal/tui` test the sentence for
+each status and the separate diagnostic line; `just tui-tests` passed 8
+terminal, 9 observer and 12 mock tests. Evidence:
+[checkpoint](llm-interactive-review/tui/operation-reasons/checkpoint.json).
+
 ## TUI error sentences — 2026-11-03
 
 Step 3 of the interface rework replaced the daemon's error text with codes: an
