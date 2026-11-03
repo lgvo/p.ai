@@ -96,7 +96,7 @@ export P_VM_LOG_DIR="$fixture/logs"
 "$repo/dev/test-vm" > "$fixture/grouped-full-output"
 mapfile -t first_group < "$P_TEST_SELECTION_CAPTURE.1"
 mapfile -t last_group < "$P_TEST_SELECTION_CAPTURE.3"
-[[ ${#first_group[@]} -eq 36 && ${first_group[0]} == 01-* && ${first_group[-1]} == 36-* ]]
+[[ ${#first_group[@]} -eq 35 && ${first_group[0]} == 01-* && ${first_group[-1]} == 36-* ]]
 [[ $(cat "$P_TEST_SELECTION_CAPTURE.2") == 37-public-egress.sh ]]
 expected_last_group=()
 for step in "$repo"/tests/integration/steps/*.sh; do

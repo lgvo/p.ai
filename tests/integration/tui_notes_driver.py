@@ -343,6 +343,19 @@ def run_notes(driver):
     assert fixture(branch_uuid, "sql", schema_query) == "0"
     send("q"); expect("All project sessions")
 
+    def stop_selected(selected_uuid):
+        assigned = rpc("session.inspect", uuid=selected_uuid)["session"]["branch"]
+        page_ready("All project sessions", selected_branch=assigned[:18])
+        send("s"); page_ready("Confirm action", "UUID: " + selected_uuid, "Confirm [y/N]")
+        send("y")
+        await_state(lambda: rpc("session.inspect", uuid=selected_uuid)["session"]["session_condition"] == "stopped",
+                    "selected notes session stopped")
+        expect("Stopped. Files and branch retained.")
+        send("q"); page_ready("All project sessions", selected_branch=assigned[:18], selected_state="stopped")
+
+    # Rename needs a stopped session: P changes a workspace only while its
+    # session is stopped.
+    stop_selected(branch_uuid)
     renamed = "feat/renamed-notes-qgG"
     send("R"); expect("New assigned branch name>")
     send(renamed + "\r"); page_ready("Confirm action", branch_uuid, "Confirm [y/N]")
@@ -351,23 +364,20 @@ def run_notes(driver):
     await_state(lambda: any(item["uuid"] == branch_uuid and item["branch"] == renamed for item in sessions()),
                 "rename preserved the native session UUID")
     send("q"); expect("All project sessions")
-    assert guest(branch_uuid, "git", "branch", "--show-current") == renamed
-    assert guest(branch_uuid, "git", "config", "branch." + renamed + ".merge") == "refs/heads/" + renamed
-    assert guest(branch_uuid, "cat", "/home/p/notes58-branch-private") == "branch-private"
-    assert fixture(branch_uuid, "sql", "SELECT body FROM notes") == "only branch notes"
     refs = rpc("project.branches", project=project, limit=8)["refs"]
     assert any(ref["ref"] == "refs/heads/" + renamed and ref["oid"] == source_oid for ref in refs)
     assert all(ref["ref"] != "refs/heads/" + branch for ref in refs)
-
-    def stop_selected(selected_uuid):
-        assigned = rpc("session.inspect", uuid=selected_uuid)["session"]["branch"]
-        page_ready("All project sessions", selected_branch=assigned[:18])
-        send("s"); page_ready("Confirm action", "UUID: " + selected_uuid, "Confirm [y/N]")
-        send("y")
-        await_state(lambda: rpc("session.inspect", uuid=selected_uuid)["session"]["session_condition"] == "stopped",
-                    "selected notes session stopped before removal")
-        expect("Stopped. Files and branch retained.")
-        send("q"); page_ready("All project sessions", selected_branch=assigned[:18], selected_state="stopped")
+    # Start the renamed session to observe its workspace and retained data.
+    page_ready("All project sessions", selected_branch=renamed[:18], selected_state="stopped")
+    send("\r"); attach(branch_uuid)
+    assert guest(branch_uuid, "git", "branch", "--show-current") == renamed
+    assert guest(branch_uuid, "git", "config", "branch." + renamed + ".merge") == "refs/heads/" + renamed
+    assert guest(branch_uuid, "cat", "/home/p/notes58-branch-private") == "branch-private"
+    detach(branch_uuid)
+    send("S"); expect("Project services")
+    service_action(branch_uuid, "db", "active")
+    assert fixture(branch_uuid, "sql", "SELECT body FROM notes") == "only branch notes"
+    send("q"); expect("All project sessions")
 
     def remove_selected(selected_uuid, key, *, default_no=False):
         send(key); page_ready("Removal loss preview", "y authorize", "[y/N] Default No")

@@ -124,10 +124,7 @@ test "$(guest git rev-parse HEAD)" = "$tip"
 test "$(guest cat /home/p/service-private)" = dummy-private
 test "$(guest cat /home/p/service-credential)" = dummy-credential
 stop_when_idle
-loss=$(rpc workspace.loss.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,key:"service55-loss",uuid:$uuid}')")
-op=$(jq -er '.result.operation.id' <<< "$loss")
-wait_completed "$op"
-review=$(rpc project.delete.preview "$(jq -nc --arg uuid "$uuid" --arg loss "$op" '{v:1,project:"nixos-service55",loss_operations:{($uuid):$loss}}')")
+review=$(rpc project.delete.preview '{"v":1,"project":"nixos-service55"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"service55-delete",project:"nixos-service55",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")

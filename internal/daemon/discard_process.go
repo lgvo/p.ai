@@ -14,23 +14,15 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-var errDiscardRefsChanged = errors.New("P refs changed after fresh discard inspection")
+var errDiscardRefsChanged = errors.New("P refs changed after the removal was validated")
 
-func discardPRefsDigest(refs []workspaceLossRef) (string, error) {
+func discardPRefsDigest(refs []plugin.GitRef) (string, error) {
 	data, err := json.Marshal(refs)
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
-}
-
-func discardPluginRefsDigest(refs []plugin.GitRef) (string, error) {
-	closed := make([]workspaceLossRef, 0, len(refs))
-	for _, ref := range refs {
-		closed = append(closed, workspaceLossRef{Name: ref.Ref, OID: ref.OID})
-	}
-	return discardPRefsDigest(closed)
 }
 
 func (l *lifecycle) verifyDiscardRefs(ctx context.Context, ev control.DiscardEvidence) error {
@@ -40,11 +32,11 @@ func (l *lifecycle) verifyDiscardRefs(ctx context.Context, ev control.DiscardEvi
 		}
 		return err
 	}
-	current, err := l.git.backend.AssignedBranchSnapshot(ctx, ev.Project, ev.Branch, ev.AllowUnborn)
+	current, err := l.git.backend.AssignedBranchSnapshot(ctx, ev.Project, ev.Branch, true)
 	if err != nil {
 		return err
 	}
-	digest, err := discardPluginRefsDigest(current.PRefs)
+	digest, err := discardPRefsDigest(current.PRefs)
 	if err != nil {
 		return err
 	}
@@ -85,8 +77,10 @@ func logDiscardProgress(l *lifecycle, op api.Operation, status string) {
 	l.recordProgress(op, status)
 }
 
-func (l *lifecycle) discardSourceMatches(o runtimeincus.Observation, ev control.DiscardEvidence, want string) bool {
-	return o.Exists && o.Name == ev.InstanceName && o.Status == want && o.IncusUUID == ev.IncusUUID &&
+// discardSourceMatches reports whether o is still the reviewed container. Its
+// status may have changed since the preview: P stops a running one itself.
+func discardSourceMatches(o runtimeincus.Observation, ev control.DiscardEvidence) bool {
+	return o.Exists && o.Name == ev.InstanceName && removableStatus(o.Status) && o.IncusUUID == ev.IncusUUID &&
 		o.Generation == ev.Generation && o.Fingerprint == ev.ImageFingerprint
 }
 
@@ -118,68 +112,21 @@ func (l *lifecycle) deleteAssignedAbsent(ctx context.Context, ev control.Discard
 	return nil
 }
 
-func (l *lifecycle) rollbackStaleDiscard(op *api.Operation, ev control.DiscardEvidence, source, helper runtimeincus.Session, reason error) {
-	ctx := l.ctx
-	if op.Phase != "stale-cleanup" {
-		// Only this operation's persisted freeze intent can require source
-		// restoration. A source independently stopped or replaced while we
-		// still held only the P-ref guard is stale, not ours to thaw.
-		ev.StaleNeedsThaw = discardStaleNeedsThaw(ev, op.Phase)
-		if err := l.advanceDiscard(op, ev, "stale-cleanup"); err != nil {
-			l.blockDiscard(*op, err)
-			return
-		}
-	}
-	if !ev.MissingRuntime {
-		if err := l.runtime.DeleteWorkspaceHelper(ctx, helper); err != nil {
-			l.blockDiscard(*op, err)
-			return
-		}
-		if ev.StaleNeedsThaw {
-			observed, err := l.runtime.Inspect(ctx, source)
-			if err != nil || !observed.Exists || observed.IncusUUID != ev.IncusUUID || observed.Generation != ev.Generation {
-				l.blockDiscard(*op, errors.Join(err, errors.New("stale discard source identity unavailable")))
-				return
-			}
-			if observed.Status == "Frozen" {
-				if err = l.runtime.ThawWorkspaceSourceExact(ctx, source, ev.IncusUUID, ev.Generation); err != nil {
-					l.blockDiscard(*op, err)
-					return
-				}
-			}
-			if observed, err = l.runtime.Inspect(ctx, source); err != nil || !l.discardSourceMatches(observed, ev, "Running") {
-				l.blockDiscard(*op, errors.Join(err, errors.New("stale discard source not restored")))
-				return
-			}
-		}
-	}
-	diagnostic := ev.Action + " confirmation stale; review fresh loss evidence"
-	if reason != nil {
-		diagnostic = fmt.Sprintf("%s confirmation stale: %v", ev.Action, reason)
-	}
-	var finishErr error
+// rollbackStaleDiscard fails a removal whose reviewed facts changed before its
+// commit and releases its guard; nothing was removed yet.
+func (l *lifecycle) rollbackStaleDiscard(op api.Operation, ev control.DiscardEvidence, reason error) {
+	diagnostic := fmt.Sprintf("%s confirmation stale: %v", ev.Action, reason)
+	var err error
 	if ev.Action == "delete" {
-		finishErr = l.store.FailStaleDelete(ctx, op.ID, diagnostic)
+		err = l.store.FailStaleDelete(l.ctx, op.ID, diagnostic)
 	} else {
-		finishErr = l.store.FailStaleDiscard(ctx, op.ID, diagnostic)
+		err = l.store.FailStaleDiscard(l.ctx, op.ID, diagnostic)
 	}
-	if finishErr != nil {
-		l.blockDiscard(*op, finishErr)
+	if err != nil {
+		l.blockDiscard(op, err)
 		return
 	}
-	l.recordProgress(*op, "failed")
-}
-
-func discardStaleNeedsThaw(ev control.DiscardEvidence, phase string) bool {
-	if ev.OriginalStatus != "Running" || ev.MissingRuntime {
-		return false
-	}
-	switch phase {
-	case "freeze-intent", "quiescent", "analyzed", "validated":
-		return true
-	default:
-		return false
-	}
+	l.recordProgress(op, "failed")
 }
 
 func (l *lifecycle) processDiscard(op api.Operation) {
@@ -190,9 +137,6 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 	if json.Unmarshal(op.Evidence, &ev) != nil {
 		l.blockDiscard(op, errors.New("removal durable evidence unreadable"))
 		return
-	}
-	if ev.Action == "" && op.Kind == "session.discard" {
-		ev.Action = "discard"
 	}
 	if (ev.Action != "discard" && ev.Action != "delete") || op.Kind != "session."+ev.Action || ev.Project != op.Project || ev.InstanceUUID != l.instanceID || ev.BaseFingerprint != l.cfg.BaseImageFingerprint ||
 		ev.IncusProject != l.cfg.IncusProject || ev.InstanceName != "p-"+op.SessionUUID || ev.Branch == "" {
@@ -211,7 +155,6 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard runtime selection changed")))
 		return
 	}
-	helper := runtimeincus.WorkspaceHelper(ev.InstanceUUID, op.ID, op.SessionUUID, op.Project, ev.BaseFingerprint)
 	entry := op.Phase
 	switch op.Phase {
 	case "guard-pending":
@@ -226,7 +169,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		fallthrough
 	case "guarded":
 		if err = l.discardAssignedTip(ctx, ev); err != nil {
-			l.rollbackStaleDiscard(&op, ev, source, helper, err)
+			l.rollbackStaleDiscard(op, ev, err)
 			return
 		}
 		observed, e := l.runtime.Inspect(ctx, source)
@@ -236,194 +179,25 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		if ev.MissingRuntime {
 			if observed.Exists {
-				l.rollbackStaleDiscard(&op, ev, source, helper, errors.New("missing runtime reappeared"))
+				l.rollbackStaleDiscard(op, ev, errors.New("missing runtime reappeared"))
 				return
 			}
-			if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
+			if e = l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
 				l.blockDiscard(op, e)
 				return
 			}
-			refs, e := l.git.backend.AssignedBranchSnapshot(ctx, ev.Project, ev.Branch, ev.AllowUnborn)
-			if e != nil {
-				l.blockDiscard(op, e)
-				return
-			}
-			ev.PRefsDigest, e = discardPluginRefsDigest(refs.PRefs)
-			if e != nil {
-				l.blockDiscard(op, e)
-				return
-			}
-			if e = l.verifyDeleteReview(ctx, ev); e != nil {
-				if errors.Is(e, control.ErrConflict) || errors.Is(e, errDeleteReviewChanged) {
-					l.rollbackStaleDiscard(&op, ev, source, helper, e)
-				} else {
-					l.blockDiscard(op, e)
-				}
-				return
-			}
-			if err = l.advanceDiscard(&op, ev, "analyzed"); err != nil {
-				l.blockDiscard(op, err)
-				return
-			}
-			break
-		}
-		if !l.discardSourceMatches(observed, ev, ev.OriginalStatus) {
-			l.rollbackStaleDiscard(&op, ev, source, helper, errors.New("runtime generation or status changed"))
+		} else if !discardSourceMatches(observed, ev) {
+			l.rollbackStaleDiscard(op, ev, errors.New("runtime generation or state changed"))
 			return
 		}
-		if err = l.runtime.CheckWorkspaceHelperCapacity(ctx); err != nil {
-			l.rollbackStaleDiscard(&op, ev, source, helper, err)
-			return
-		}
-		if err = l.advanceDiscard(&op, ev, "helper-intent"); err != nil {
-			l.blockDiscard(op, err)
-			return
-		}
-		fallthrough
-	case "helper-intent":
-		observed, e := l.runtime.InspectWorkspaceHelper(ctx, helper)
-		if e != nil || observed.Exists {
-			l.blockDiscard(op, errors.Join(e, errors.New("discard helper unexpectedly present before init")))
-			return
-		}
-		if _, e = l.runtime.CreateWorkspaceHelper(ctx, helper, func() error { return l.advanceDiscard(&op, ev, "init-issued") }); e != nil {
-			l.blockDiscard(op, e)
-			return
-		}
-		fallthrough
-	case "init-issued":
-		var observed runtimeincus.Observation
-		var e error
-		if entry == "init-issued" {
-			observed, e = l.runtime.ReconcileWorkspaceHelperInit(ctx, helper)
-		} else {
-			observed, e = l.runtime.InspectWorkspaceHelper(ctx, helper)
-		}
-		if e != nil || !observed.Exists {
-			l.blockDiscard(op, errors.Join(e, errors.New("discard helper init unresolved")))
-			return
-		}
-		if observed.Status == "Stopped" {
-			e = l.runtime.StartWorkspaceHelper(ctx, helper)
-		} else if observed.Status == "Running" {
-			e = l.runtime.VerifyWorkspaceHelperBoot(ctx, helper)
-		} else {
-			e = errors.New("discard helper state unavailable")
-		}
+		refs, e := l.git.backend.AssignedBranchSnapshot(ctx, ev.Project, ev.Branch, true)
 		if e != nil {
 			l.blockDiscard(op, e)
 			return
 		}
-		if err = l.advanceDiscard(&op, ev, "helper-ready"); err != nil {
-			l.blockDiscard(op, err)
-			return
-		}
-		fallthrough
-	case "helper-ready":
-		observed, e := l.runtime.Inspect(ctx, source)
+		ev.PRefsDigest, e = discardPRefsDigest(refs.PRefs)
 		if e != nil {
 			l.blockDiscard(op, e)
-			return
-		}
-		if !l.discardSourceMatches(observed, ev, ev.OriginalStatus) {
-			l.rollbackStaleDiscard(&op, ev, source, helper, errors.New("discard source changed before quiescence"))
-			return
-		}
-		if ev.OriginalStatus == "Running" {
-			e = l.runtime.FreezeWorkspaceSourceExact(ctx, source, ev.IncusUUID, ev.Generation, func() error { return l.advanceDiscard(&op, ev, "freeze-intent") })
-			if e != nil {
-				l.blockDiscard(op, e)
-				return
-			}
-		} else if observed.Status != "Stopped" {
-			l.blockDiscard(op, errors.New("discard stopped source changed"))
-			return
-		}
-		if err = l.advanceDiscard(&op, ev, "quiescent"); err != nil {
-			l.blockDiscard(op, err)
-			return
-		}
-		fallthrough
-	case "freeze-intent":
-		if entry == "freeze-intent" {
-			if err = l.runtime.ReconcileWorkspaceFreezeExact(ctx, source, ev.IncusUUID, ev.Generation); err != nil {
-				l.blockDiscard(op, err)
-				return
-			}
-			if err = l.advanceDiscard(&op, ev, "quiescent"); err != nil {
-				l.blockDiscard(op, err)
-				return
-			}
-		}
-		fallthrough
-	case "quiescent":
-		if entry == "quiescent" {
-			observed, e := l.runtime.Inspect(ctx, source)
-			want := "Stopped"
-			if ev.OriginalStatus == "Running" {
-				want = "Frozen"
-			}
-			if e != nil || !l.discardSourceMatches(observed, ev, want) {
-				l.blockDiscard(op, errors.Join(e, errors.New("discard quiescent source changed")))
-				return
-			}
-			if e = l.runtime.VerifyWorkspaceHelperBoot(ctx, helper); e != nil {
-				l.blockDiscard(op, e)
-				return
-			}
-		}
-		workspaceEv := control.WorkspaceInspectEvidence{InstanceUUID: ev.InstanceUUID, ImageFingerprint: ev.ImageFingerprint,
-			BaseFingerprint: ev.BaseFingerprint, SourceIncusUUID: ev.IncusUUID, SourceGeneration: ev.Generation, OriginalStatus: ev.OriginalStatus}
-		fresh, e := l.inspectWorkspaceLossResult(ctx, session, source, helper, workspaceEv)
-		if e != nil {
-			l.blockDiscard(op, e)
-			return
-		}
-		var loss workspaceLossResult
-		if json.Unmarshal(fresh, &loss) != nil || loss.Fingerprint == "" {
-			l.blockDiscard(op, errors.New("fresh discard loss malformed"))
-			return
-		}
-		if loss.Fingerprint != ev.LossFingerprint || l.discardAssignedTip(ctx, ev) != nil {
-			l.rollbackStaleDiscard(&op, ev, source, helper, errors.New("workspace or assigned P ref changed"))
-			return
-		}
-		ev.PRefsDigest, e = discardPRefsDigest(loss.PRefs)
-		if e != nil {
-			l.blockDiscard(op, e)
-			return
-		}
-		if e = l.verifyDeleteReview(ctx, ev); e != nil {
-			if errors.Is(e, control.ErrConflict) || errors.Is(e, errDeleteReviewChanged) {
-				l.rollbackStaleDiscard(&op, ev, source, helper, e)
-			} else {
-				l.blockDiscard(op, e)
-			}
-			return
-		}
-		if err = l.advanceDiscard(&op, ev, "analyzed"); err != nil {
-			l.blockDiscard(op, err)
-			return
-		}
-		fallthrough
-	case "analyzed":
-		if !ev.MissingRuntime {
-			observed, e := l.runtime.Inspect(ctx, source)
-			want := "Stopped"
-			if ev.OriginalStatus == "Running" {
-				want = "Frozen"
-			}
-			if e != nil || !l.discardSourceMatches(observed, ev, want) {
-				l.blockDiscard(op, errors.Join(e, errors.New("discard source changed after analysis")))
-				return
-			}
-			if err = l.runtime.DeleteWorkspaceHelper(ctx, helper); err != nil {
-				l.blockDiscard(op, err)
-				return
-			}
-		}
-		if err = l.discardAssignedTip(ctx, ev); err != nil {
-			l.rollbackStaleDiscard(&op, ev, source, helper, err)
 			return
 		}
 		if err = l.advanceDiscard(&op, ev, "validated"); err != nil {
@@ -432,24 +206,26 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		fallthrough
 	case "validated":
-		if !ev.MissingRuntime {
-			observed, e := l.runtime.Inspect(ctx, source)
-			want := "Stopped"
-			if ev.OriginalStatus == "Running" {
-				want = "Frozen"
-			}
-			if e != nil || !l.discardSourceMatches(observed, ev, want) {
-				l.blockDiscard(op, errors.Join(e, errors.New("validated discard source changed")))
-				return
-			}
+		observed, e := l.runtime.Inspect(ctx, source)
+		if e != nil {
+			l.blockDiscard(op, e)
+			return
+		}
+		if ev.MissingRuntime && observed.Exists {
+			l.rollbackStaleDiscard(op, ev, errors.New("missing runtime reappeared"))
+			return
+		}
+		if !ev.MissingRuntime && !discardSourceMatches(observed, ev) {
+			l.rollbackStaleDiscard(op, ev, errors.New("validated discard source changed"))
+			return
 		}
 		if err = l.discardAssignedTip(ctx, ev); err != nil {
-			l.rollbackStaleDiscard(&op, ev, source, helper, err)
+			l.rollbackStaleDiscard(op, ev, err)
 			return
 		}
 		if err = l.verifyDeleteReview(ctx, ev); err != nil {
 			if errors.Is(err, control.ErrConflict) || errors.Is(err, errDeleteReviewChanged) {
-				l.rollbackStaleDiscard(&op, ev, source, helper, err)
+				l.rollbackStaleDiscard(op, ev, err)
 			} else {
 				l.blockDiscard(op, err)
 			}
@@ -470,7 +246,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		if err != nil {
 			if errors.Is(err, errDiscardRefsChanged) {
-				l.rollbackStaleDiscard(&op, ev, source, helper, err)
+				l.rollbackStaleDiscard(op, ev, err)
 				return
 			}
 			l.blockDiscard(op, err)
@@ -488,16 +264,11 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 				l.blockDiscard(op, err)
 				return
 			}
-		} else if ev.OriginalStatus == "Running" {
+		} else {
 			if err = l.runtime.StopForDiscardExact(ctx, source, ev.IncusUUID, ev.Generation, func() error { return l.advanceDiscard(&op, ev, "stop-issued") }); err != nil {
 				l.blockDiscard(op, err)
 				return
 			}
-			if err = l.advanceDiscard(&op, ev, "source-stopped"); err != nil {
-				l.blockDiscard(op, err)
-				return
-			}
-		} else {
 			if err = l.advanceDiscard(&op, ev, "source-stopped"); err != nil {
 				l.blockDiscard(op, err)
 				return
@@ -577,7 +348,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		l.recordProgress(op, "completed")
 		return
 	case "branch-delete-issued":
-		l.blockDiscard(op, errors.New("P ref delete outcome unresolved; targeted repair required"))
+		l.blockDiscard(op, errors.New("P ref delete outcome unresolved; exact administrative reconciliation required"))
 		return
 	case "branch-absent":
 		if err = l.store.CompleteDelete(ctx, op.ID, func(c context.Context, project, branch, tip string) error {
@@ -591,16 +362,13 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		l.recordProgress(op, "completed")
 		return
-	case "stale-cleanup":
-		l.rollbackStaleDiscard(&op, ev, source, helper, errors.New("prior confirmation stale"))
-		return
 	default:
 		l.blockDiscard(op, errors.New("discard phase unavailable"))
 		return
 	}
-	// The missing-runtime branch reaches analyzed without a helper. Continue
-	// from its durably recorded phase in the same turn.
-	if op.Phase == "analyzed" || op.Phase == "branch-absent" {
+	// Delete records branch-absent before completing. Continue from that
+	// durably recorded phase in the same turn.
+	if op.Phase == "branch-absent" {
 		l.processDiscard(op)
 	}
 }

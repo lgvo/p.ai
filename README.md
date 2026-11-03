@@ -204,8 +204,8 @@ branch name. Creation either selects an existing unassigned branch or creates
 a new branch from selected source. `main` can be used directly when it has no
 session, or selected as the source for a different new branch.
 
-Renaming a session renames its actual P-server and workspace refs while keeping
-the UUID, runtime, credentials, and interactive state. The operation is
+Renaming a stopped session renames its actual P-server and workspace refs while
+keeping the UUID, runtime, credentials, and private files. The operation is
 journaled so reconciliation can finish an interrupted rename. It never renames
 or deletes an origin branch.
 
@@ -282,16 +282,19 @@ P never reclaims sessions automatically. The three destructive levels are:
 | Discard | removed | removed | retained as a project source branch | removed |
 | Delete | removed | removed | removed | removed |
 
-Before discard or delete, P inspects reachable running or stopped workspaces
-without activating the environment or starting the interactive command. If an
-instance is missing, P says its local state is already unavailable and offers
-cleanup. If Incus is unreachable, cleanup remains incomplete and retains exact
-identity and confirmed intent for Retry when authority returns. Manual Incus
-investigation is supported; abandonment and orphan-forget are outside MVP.
+Before discard or delete, P states what will be lost without looking inside the
+container: for a running or stopped runtime, the container and everything in it,
+including uncommitted changes, files outside Git and commits not pushed to P. P
+stops a running session as part of removing it; attached terminals must detach
+first. If an instance is missing, P says its local state is already unavailable
+and offers cleanup. If Incus is unreachable, cleanup remains incomplete and
+retains exact identity and confirmed intent for Retry when authority returns.
+Manual Incus investigation is supported; abandonment and orphan-forget are
+outside MVP.
 
 Delete separately itemizes Git refs and commits that lose their last retained
-reference. A configured origin is refreshed before P makes claims about what
-survives there. Local-only projects use retained P refs alone.
+reference in P. P does not check the origin: whether work is published there is
+the user's concern.
 
 The UUID↔branch invariant applies while the ref is assigned to a session.
 Discard releases that assignment and leaves an ordinary P branch; continuing
@@ -303,13 +306,12 @@ recovery are specified in [session lifecycle](docs/session-lifecycle.md).
 
 A separate project-level operation, **Delete project and all P data**, previews
 all sessions, retained branches, credentials, runtimes, and attachments that
-will be removed. The implemented path requires stopped, detached sessions with
-fresh loss inspection, or acknowledged positively missing runtimes; incomplete
-creations need separate supported cleanup first. P records minimal durable
-confirmed intent and idempotently ensures each resource is absent; if some
-cleanup fails, the user retries and P
-reports the smaller remainder. Project creation, retained branches, origins,
-and whole-project deletion are specified in
+will be removed. The implemented path requires stopped, detached sessions, or
+acknowledged positively missing runtimes; incomplete creations need separate
+supported cleanup first. P records minimal durable confirmed intent and
+idempotently ensures each resource is absent; if some cleanup fails, the user
+retries and P reports the smaller remainder. Project creation, retained
+branches, origins, and whole-project deletion are specified in
 [project lifecycle](docs/project-lifecycle.md).
 
 ## Overview and status

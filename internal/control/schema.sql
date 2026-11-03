@@ -34,16 +34,14 @@ CREATE TABLE operations (
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 -- One active operation per session, except that a narrowly proved blocked
--- creator shares its session with one read-only loss inspection or one
--- assembled cleanup, which holds a reversible read guard on it.
+-- creator shares its session with one assembled cleanup, which holds a
+-- reversible guard on it until it commits.
 CREATE UNIQUE INDEX active_session_operation ON operations(session_uuid)
  WHERE session_uuid IS NOT NULL AND status IN ('running','blocked','unknown')
- AND NOT (kind='workspace.loss.inspect' AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='')
  AND NOT (kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object');
-CREATE UNIQUE INDEX active_creator_loss_inspection ON operations(session_uuid)
+CREATE UNIQUE INDEX active_assembled_cleanup ON operations(session_uuid)
  WHERE status IN ('running','blocked','unknown') AND
- ((kind='workspace.loss.inspect' AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='') OR
- (kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object'));
+ kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object';
 CREATE UNIQUE INDEX one_project_delete ON operations(project_path) WHERE kind='project.delete' AND status IN ('running','blocked','unknown');
 
 CREATE TABLE git_principals (
@@ -131,12 +129,11 @@ CREATE TABLE retired_lifecycle_requests (
 
 -- Views
 
--- An assembled cleanup's read guard holds only until its atomic DELETE
+-- An assembled cleanup's guard holds only until its atomic DELETE
 -- commitment, which alone retires the blocked creator and its authority.
-CREATE VIEW creation_read_guards AS SELECT id,session_uuid FROM operations
+CREATE VIEW assembled_cleanup_guards AS SELECT id,session_uuid FROM operations
  WHERE status IN ('running','blocked','unknown') AND
- ((kind='workspace.loss.inspect' AND COALESCE(json_extract(evidence_json,'$.creator_operation_id'),'')!='') OR
- (kind='session.create.cleanup' AND committed=0 AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object'));
+ kind='session.create.cleanup' AND committed=0 AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object';
 
 -- Triggers, by the table they guard
 
@@ -161,19 +158,19 @@ CREATE TRIGGER session_insert_excludes_rename_reservation BEFORE INSERT ON sessi
    AND o.kind IN ('session.rename','project.retained.rename','project.retained.delete')
    AND o.status IN ('running','blocked','unknown'))
  BEGIN SELECT RAISE(ABORT,'constraint failed: branch reserved by lifecycle'); END;
-CREATE TRIGGER creator_loss_preserves_assignment BEFORE UPDATE OF registry_state,branch ON sessions
- WHEN EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.session_uuid=OLD.uuid) OR
+CREATE TRIGGER assembled_cleanup_preserves_assignment BEFORE UPDATE OF registry_state,branch ON sessions
+ WHEN EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.session_uuid=OLD.uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='session.create.cleanup'
  AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
  AND NOT (w.committed=1 AND w.phase='delete-issued' AND OLD.branch=NEW.branch AND NEW.registry_state='removing'))
- BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
-CREATE TRIGGER creator_loss_preserves_session BEFORE DELETE ON sessions
- WHEN EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.session_uuid=OLD.uuid) OR
+ BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;
+CREATE TRIGGER assembled_cleanup_preserves_session BEFORE DELETE ON sessions
+ WHEN EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.session_uuid=OLD.uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='session.create.cleanup'
  AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
  AND NOT (w.committed=1 AND w.phase='local-complete' AND json_extract(w.evidence_json,'$.runtime_absent')=1
  AND json_extract(w.evidence_json,'$.local_complete')=1))
- BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+ BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;
 CREATE TRIGGER deleting_project_sessions_insert BEFORE INSERT ON sessions
  WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
  BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
@@ -212,37 +209,25 @@ CREATE TRIGGER rename_requires_established BEFORE INSERT ON operations
    SELECT 1 FROM sessions WHERE uuid=NEW.session_uuid AND project_path=NEW.project_path
    AND registry_state='established')
  BEGIN SELECT RAISE(ABORT,'constraint failed: rename session unavailable'); END;
-CREATE TRIGGER workspace_loss_read_requires_established BEFORE INSERT ON operations
- WHEN NEW.kind='workspace.loss.inspect' AND NOT EXISTS(
- SELECT 1 FROM sessions s WHERE s.uuid=NEW.session_uuid AND s.project_path=NEW.project_path AND (
- (s.registry_state='established' AND COALESCE(json_extract(NEW.evidence_json,'$.creator_operation_id'),'')='') OR
- (s.registry_state='creating' AND json_extract(NEW.evidence_json,'$.original_status')='Stopped' AND EXISTS(
- SELECT 1 FROM operations c WHERE c.id=json_extract(NEW.evidence_json,'$.creator_operation_id')
- AND c.session_uuid=s.uuid AND c.project_path=s.project_path AND c.kind='session.create'
- AND c.status='blocked' AND c.phase='assembly-ready' AND c.committed=1
- AND c.request_sha256=json_extract(NEW.evidence_json,'$.creator_request_sha256')
- AND json_extract(c.evidence_json,'$.runtime_init_state')='attempted'))))
- BEGIN SELECT RAISE(ABORT,'constraint failed: workspace source unavailable'); END;
--- While a read guard holds a blocked creator, every other active-operation
--- exclusion stays in place, and the creator cannot advance, even through a
--- stale writer.
-CREATE TRIGGER creator_loss_excludes_other_insert BEFORE INSERT ON operations
+-- While an assembled cleanup guards a blocked creator, every other
+-- active-operation exclusion stays in place, and the creator cannot advance,
+-- even through a stale writer.
+CREATE TRIGGER assembled_cleanup_excludes_other_insert BEFORE INSERT ON operations
  WHEN NEW.session_uuid IS NOT NULL AND NEW.status IN ('running','blocked','unknown') AND
- (EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.session_uuid=NEW.session_uuid) OR
+ (EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.session_uuid=NEW.session_uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=NEW.session_uuid AND w.kind='session.create.cleanup'
  AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object') OR
- ((NEW.kind='workspace.loss.inspect' AND COALESCE(json_extract(NEW.evidence_json,'$.creator_operation_id'),'')!='' OR
- NEW.kind='session.create.cleanup' AND COALESCE(json_type(NEW.evidence_json,'$.review.runtime'),'')='object') AND
+ (NEW.kind='session.create.cleanup' AND COALESCE(json_type(NEW.evidence_json,'$.review.runtime'),'')='object' AND
  EXISTS(SELECT 1 FROM operations o WHERE o.session_uuid=NEW.session_uuid AND o.status IN ('running','blocked','unknown')
- AND o.id!=COALESCE(json_extract(NEW.evidence_json,'$.creator_operation_id'),json_extract(NEW.evidence_json,'$.review.old_operation_id')))))
- BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
-CREATE TRIGGER creator_loss_excludes_other_update BEFORE UPDATE ON operations
- WHEN EXISTS(SELECT 1 FROM creation_read_guards w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid) OR
+ AND o.id!=json_extract(NEW.evidence_json,'$.review.old_operation_id'))))
+ BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;
+CREATE TRIGGER assembled_cleanup_excludes_other_update BEFORE UPDATE ON operations
+ WHEN EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid AND w.kind='session.create.cleanup'
  AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
  AND NOT (w.committed=1 AND w.phase='delete-issued' AND OLD.kind='session.create'
  AND OLD.id=json_extract(w.evidence_json,'$.review.old_operation_id') AND NEW.status='superseded' AND NEW.phase='superseded'))
- BEGIN SELECT RAISE(ABORT,'constraint failed: creation workspace inspection active'); END;
+ BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;
 CREATE TRIGGER assembled_cleanup_requires_creator BEFORE INSERT ON operations
  WHEN NEW.kind='session.create.cleanup' AND COALESCE(json_type(NEW.evidence_json,'$.review.runtime'),'')='object' AND NOT EXISTS(
  SELECT 1 FROM sessions s JOIN operations c ON c.id=json_extract(NEW.evidence_json,'$.review.old_operation_id')
@@ -250,7 +235,7 @@ CREATE TRIGGER assembled_cleanup_requires_creator BEFORE INSERT ON operations
  AND c.session_uuid=s.uuid AND c.project_path=s.project_path AND c.kind='session.create'
  AND c.status='blocked' AND c.phase='assembly-ready' AND c.committed=1
  AND c.request_sha256=json_extract(NEW.evidence_json,'$.review.old_request_sha256')
- AND NEW.committed=0 AND NEW.phase='helper-intent')
+ AND NEW.committed=0 AND NEW.phase='validated')
  BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup source unavailable'); END;
 CREATE TRIGGER deleting_project_operation_insert BEFORE INSERT ON operations
  WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting') AND

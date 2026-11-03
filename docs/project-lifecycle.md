@@ -196,20 +196,24 @@ report containing:
 
 - every session and its condition;
 - every live attachment that confirmation will terminate;
-- the runtime-local loss report for every reachable session;
+- for every session whose runtime exists, its exact identity and the statement
+  that the container and everything in it will be lost; P does not look inside;
 - missing or unreachable runtime facts;
 - every assigned and retained P ref and the commits that lose their last P
   reference;
-- fresh origin-preservation evidence, or `unknown` when refresh fails;
 - session and project credentials;
 - project-scoped builders, images, and other owned cache resources; and
 - external mounts and already-delivered event-log records that P will not
   delete.
 
+Project deletion contacts and compares no origin: whether work is published
+there is the user's concern. Commits that lose their last P reference are
+reported as lost whether or not the origin has them.
+
 The confirmation is bound to the project path, origin identity, session UUIDs,
-attachment set, runtime locators/states, workspace fingerprints, ref names and
-tips, and requested complete-deletion outcome. A changed fact requires a new
-report. The action is named and described as deletion, never as unregistering.
+attachment set, runtime identities and states, ref names and tips, and
+requested complete-deletion outcome. A changed fact requires a new report. The
+action is named and described as deletion, never as unregistering.
 
 ### Ensure absent
 
@@ -255,16 +259,16 @@ session authority and are distinct from the excluded abandonment workflow.
 
 ### Implemented aggregate boundary
 
-The CLI-first aggregate path accepts established, stopped, detached sessions
-with fresh standalone workspace-loss proofs, or explicit
-acknowledgement of positively proved missing runtimes. It accepts
+The CLI-first aggregate path accepts established, stopped, detached sessions,
+or explicit acknowledgement of positively proved missing runtimes. It accepts
 indexed, exactly owned environment images and bounded Git/history/report
-inventories. Running or attached sessions require detach and Stop followed by
-fresh inspection. Incomplete creators require supported separate cleanup or
-exact-identity investigation first. Oversized or unfamiliar inventories remain
-intact with preparation or investigation instructions; no uncertain resource
-is deleted to meet a limit. The [host API](control-api.md#aggregate-project-deletion)
-owns the request fields and current bounds; validation evidence belongs in the
+inventories. Project deletion does not stop sessions itself: running or
+attached sessions require detach and Stop first. Incomplete creators require
+supported separate cleanup or exact-identity investigation first. Oversized
+or unfamiliar inventories remain intact with preparation or investigation
+instructions; no uncertain resource is deleted to meet a limit. The
+[host API](control-api.md#aggregate-project-deletion) owns the request fields
+and current bounds; validation evidence belongs in the
 progress record.
 
 Within already-confirmed bulk ensure-absent work, an issued source DELETE is
@@ -300,7 +304,8 @@ The project lifecycle is supported only when tests prove:
 5. retained branches can be selected, fetched, renamed, published, and deleted
    without acquiring session authority;
 6. retained-branch and project deletion previews become stale when any bound
-   Git, workspace, runtime, attachment, or origin fact changes;
+   Git, runtime, or attachment fact changes, and a retained-branch preview also
+   when its origin evidence changes;
 7. confirmed project deletion terminates only its listed attachments, disables
    new project authority, and converges through repeated ensure-absent calls;
 8. partial deletion and daemon restart retain enough identity to find every

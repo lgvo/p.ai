@@ -67,6 +67,19 @@ the full administrative socket, which is host-root-equivalent, and it never
 passes either socket into a builder or session. Running P as a user that also
 has unrestricted Incus administration is an unsupported isolation posture.
 
+Session creation and project bootstrap are admitted only when one more
+container fits beneath the configured Incus project container limit. Admission
+counts actual project containers and durable session or creation reservations
+without a matching visible instance, including unresolved attempts. An exactly
+verified builder occupies its associated pending session's slot; it is not
+counted twice. Unassociated or ambiguous containers count as separate
+occupants. A replacement creation needs no room beyond the reservations
+already counted. The reservation check and new durable intent must be
+serialized. This admission rule does not grant exclusive ownership of spare
+Incus capacity: external activity or older instances can still fill the
+project, and P never raises the ceiling or removes unrelated instances to make
+room.
+
 ### NixOS service installation
 
 The root flake exports the locked CLI, production runtime image, image metadata
@@ -444,12 +457,12 @@ Interactive terminals inherit the same session-user endpoint through
 these runtime-owned values after devShell activation before starting tmux.
 
 Host-only service RPC binds the exact established session, excludes
-workspace-inspection/removal conflicts, and uses the selected runtime WASI
+rename/removal conflicts, and uses the selected runtime WASI
 package with a core-bound `runtime.services` broker. A service action holds the
 session's lifecycle lock. An inventory or journal read never overlaps a
 holder of that lock: it is refused while the lock is held, and a request that
 takes the lock waits for running reads to end
-([concurrency](session-lifecycle.md#concurrency-and-quiescence)). The package
+([concurrency](session-lifecycle.md#concurrency)). The package
 cannot choose a target, command, unit, action or UID. Core admits only validated
 project user service names and executes fixed systemctl/journalctl argv with
 UID/GID 1000 and the fixed `/run/user/1000` user-manager endpoint. Existing
@@ -525,75 +538,35 @@ attachment channel.
 
 ## Non-activating workspace access
 
-Loss inspection and rename's workspace Git changes must not run repository
-hooks, activation, or the interactive command. The Incus backend therefore
-exposes a closed `WorkspaceOperation` set.
+P reads or changes a session's workspace only while the session is stopped,
+and never freezes a running session. Deletions do not read the workspace at
+all: they state loss by category
+([session lifecycle](session-lifecycle.md#runtime-local-loss)). Rename's
+workspace Git changes must not run repository hooks, activation, or the
+interactive command. The Incus backend therefore exposes a closed
+`WorkspaceOperation` set that uses Incus file facilities on the stopped
+instance; P creates no helper container for it. It must:
 
-An implementation may use Incus file/storage facilities or a P-owned isolated
-helper attached only to the stopped/frozen instance storage. It must:
-
-- operate under the lifecycle lock;
+- operate under the lifecycle lock on the exact stopped instance (Incus UUID
+  and generation);
 - expose only the workspace and explicitly required runtime-owned paths;
-- receive no external grants, session credentials, network, Incus socket, or
-  project activation;
-- disable Git hooks, helpers, monitors, and ambient Git configuration;
+- start no process in the instance and use no external grant, session
+  credential, network, or project activation;
+- never run Git hooks, helpers, monitors, or ambient Git configuration;
 - accept enumerated operations with structured arguments; and
 - return bounded structured results.
 
-Directory enumeration accepts SFTP NAME replies up to 128 KiB with at most
-128 entries per page, accommodating the native server's filename, display
-longname and attribute encoding. Other SFTP packet readers retain their
-16 KiB ceiling. Directory pages still require valid unique path components,
-complete encoding, EOF and successful close; the overall workspace entry,
-depth, byte and ownership limits remain independent.
-
-When inspection requires a helper container, creation admission reserves one
-slot beneath the configured Incus project container limit. Admission covers
-both project bootstrap and additional sessions. It counts actual project
-containers and durable session or creation reservations without a matching
-visible instance, including unresolved attempts. An exactly verified builder occupies
-its associated pending session's slot; it is not counted twice. Unassociated
-or ambiguous containers count as separate occupants. The reservation check and
-new durable intent must be serialized.
-
-This admission rule does not grant exclusive ownership of spare Incus capacity.
-External activity or older instances can still fill the project. P checks
-capacity again before creating the helper and quiescing its source; unavailable
-capacity blocks inspection without raising the ceiling or removing unrelated
-instances.
-
 The P base image uses static local account lookup (`files` for passwd/group)
-and does not run nscd/nsncd. Incus directory inspection must not wait on a
-name-service process inside a frozen source. Hostname lookup uses `files dns`;
-additional NSS modules and dynamic account providers are outside this substrate
-contract. This image configuration does not change the host's name services.
+and does not run nscd/nsncd. Hostname lookup uses `files dns`; additional NSS
+modules and dynamic account providers are outside this substrate contract.
+This image configuration does not change the host's name services.
 
 The same non-activating mechanism may read the fixed P-owned systemd journal
 and diagnostic paths from a stopped instance. It does not start the instance
 or treat logs as lifecycle authority.
 
-The MVP set covers Git status/ref inspection and branch/upstream rename. It
-never accepts arbitrary argv, reset, clean, automatic commit, or force-push.
-
-The narrow assembled failed-creation loss inspection also uses this helper.
-It requires a stopped source with exact UUID/generation and a complete,
-unambiguous confined-project inventory; a competing runtime identity or creator
-builder is a refusal. A durable creator-bound inspection guard prevents P from
-advancing the original Create while the helper may exist, including after
-restart. The source remains stopped, and the helper receives no NIC, filesystem
-grant, source credential files or activation. Losing helper cleanup authority
-keeps inspection incomplete and its guard retained until verified cleanup.
-The supported creation/policy boundary belongs to
-[session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
-
-Confirmed assembled-failure cleanup uses the same stopped-source helper for
-fresh precommit loss comparison. Settled stale or interrupted inspection removes
-only its exact helper and leaves the source intact for new review. After matching
-loss and atomic authority retirement, native deletion must target the reviewed
-UUID/generation and owned inventory. Unknown delete admission or effects retain
-the source identity and cleanup guard; a name alone never authorizes another
-deletion. Private home/credential data outside the bounded inventory is covered
-by whole-runtime loss warnings and removed with the confirmed owned runtime.
+The MVP set covers rename's branch, ref and upstream reads and edits. It never
+accepts arbitrary argv, reset, clean, automatic commit, or force-push.
 
 ## Reconciliation and cleanup
 
@@ -614,9 +587,18 @@ operations. After connection loss P inspects Incus; it does not infer success
 from its own RPC failure or replay Incus operations blindly.
 
 Discard removes the verified Incus instance, its private root, endpoint
-directory, and session credentials while retaining the P branch. Cached images
-are independent cache objects and are never deleted as a side effect of
-discard.
+directory, and session credentials while retaining the P branch. After the
+removal commit point, discard and delete force-stop a running instance before
+deleting it. Cached images are independent cache objects and are never deleted
+as a side effect of discard.
+
+Confirmed failed-creation cleanup of an assembled runtime deletes only the
+exact stopped instance it reviewed: native deletion targets the reviewed
+UUID/generation and owned inventory after atomic authority retirement. Unknown
+delete admission or effects retain the source identity and cleanup guard; a
+name alone never authorizes another deletion. The supported creation/policy
+boundary belongs to
+[session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
 
 ## Failure posture
 
@@ -675,8 +657,8 @@ The backend is supported only when tests prove:
 7. attachment uses fixed structured argv, never exposes general Incus
    authority, and failed launch before confirmation never becomes attachment
    presence;
-8. the non-activating workspace interface cannot execute repository-controlled
-   hooks or arbitrary commands; and
+8. the non-activating workspace interface acts only on a stopped instance and
+   cannot execute repository-controlled hooks or arbitrary commands; and
 9. systemd reports the persistent host ready only after endpoint validation,
    activation, and attachability succeed;
 10. activation or host failure records bounded journal diagnostics, stops the

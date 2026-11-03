@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Removal previews and reserved inspection capacity; no public removal yet.
+# Removal previews and session admission capacity; no removal is confirmed.
 # All files are disposable fixtures; no authentication is used.
 set -E
 umask 077
@@ -15,7 +15,7 @@ daemon_pid=
 uuid=
 uuid_keep=
 uuid_third=
-foreign_name=p-step30-foreign
+uuid_fourth=
 op_ids=()
 incus_real=$(command -v incus)
 
@@ -40,19 +40,14 @@ stop_daemon() {
 cleanup() {
   stop_daemon
   if test -n "$uuid"; then
-    inc resume "p-$uuid" >/dev/null 2>&1 || true
     inc delete --force "p-$uuid" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
   fi
-  for other in "$uuid_keep" "$uuid_third"; do
+  for other in "$uuid_keep" "$uuid_third" "$uuid_fourth"; do
     if test -n "$other"; then
       inc delete --force "p-$other" >/dev/null 2>&1 || true
       rm -rf -- "${endpoint_prefix:?}/${other:?}"
     fi
-  done
-  inc delete --force "$foreign_name" >/dev/null 2>&1 || true
-  for op in "${op_ids[@]}"; do
-    inc delete --force "p-workspace-$op" >/dev/null 2>&1 || true
   done
   rmdir "$endpoint_prefix" 2>/dev/null || true
 }
@@ -111,7 +106,8 @@ start_daemon() {
   return 1
 }
 start_daemon
-rpc system.capabilities | jq -e '.result.available | index("session.removal.preview") != null' >/dev/null
+rpc system.capabilities | jq -e '.result.available |
+  (index("session.removal.preview") != null and index("workspace.loss.inspect") == null)' >/dev/null
 
 created=$(rpc project.create '{"v":1,"key":"preview-bootstrap","project":"removal-preview"}')
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
@@ -147,39 +143,46 @@ expect_refusal() {
   fi
   jq -e --arg kind "$kind" '.error.kind==$kind' <<< "$response" >/dev/null
 }
-inspect_loss() {
-  local key="$1" response
-  response=$(rpc workspace.loss.inspect "$(jq -nc --arg key "$key" --arg uuid "$uuid" '{v:1,key:$key,uuid:$uuid}')")
-  new_loss_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$response")
-  op_ids+=("$new_loss_op")
-  loss_result=$(wait_operation "$new_loss_op" completed)
+expect_capacity_refusal() {
+  local method="$1" params="$2" response
+  if response=$(rpc "$method" "$params" 2> "$step_dir/refused.err"); then
+    echo "unexpectedly admitted $method" >&2; return 1
+  fi
+  jq -e '.error.code== -32003 and .error.kind=="busy" and
+    .error.message=="session capacity exhausted. Discard or Delete a session to free capacity; Stop retains its slot"' \
+    <<< "$response" >/dev/null
 }
 source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
     'length==1 and .[0].name==$name and .[0].status=="Running"' >/dev/null
 }
 preview() {
-  rpc session.removal.preview "$(jq -nc --arg uuid "$1" --arg kind "$2" --arg loss "$3" \
-    '{v:1,uuid:$uuid,kind:$kind,loss_operation_id:$loss}')"
+  rpc session.removal.preview "$(jq -nc --arg uuid "$1" --arg kind "$2" '{v:1,uuid:$uuid,kind:$kind}')"
 }
-# Empty bootstrap must be previewable before any P branch tip exists.
-inspect_loss preview-unborn
-unborn_op=$new_loss_op
-unborn_preview=$(preview "$uuid" discard "$unborn_op")
-jq -e --arg uuid "$uuid" --arg op "$unborn_op" '
+# Loss inspection is gone: its method is unknown and the preview's former
+# loss parameter is refused by the strict request decoder.
+expect_refusal workspace.loss.inspect '{"v":1}' method_not_found
+expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg op "$create_op" \
+  '{v:1,uuid:$uuid,kind:"discard",loss_operation_id:$op}')" invalid_params
+# Empty bootstrap must be previewable before any P branch tip exists: its
+# unborn first branch has no P ref, and the preview says so.
+unborn_preview=$(preview "$uuid" discard)
+jq -e --arg uuid "$uuid" '
   .result.preview | .kind=="discard" and .session_uuid==$uuid and
-  .assigned_ref=="refs/heads/main" and (.assigned_tip // "")=="" and
-  .runtime.condition=="present" and .runtime.loss_operation_id==$op and
-  .runtime.loss.worktrees[0].head_oid=="" and
+  .assigned_ref=="refs/heads/main" and (has("assigned_tip")|not) and
+  .assigned_ref_missing==true and .branch_loss==null and
+  .runtime.condition=="present" and .runtime.original_status=="Running" and
+  .runtime.runtime_data_lost==true and
   (.confirmation_token | test("^[0-9a-f]{32}$"))
 ' <<< "$unborn_preview" >/dev/null
-unborn_delete=$(preview "$uuid" delete "$unborn_op")
-jq -e '.result.preview.branch_loss | .assigned_ref=="refs/heads/main" and
-  (.assigned_tip // "")=="" and .commits_losing_p_reachability==[] and
-  .origin.status=="local_only"' <<< "$unborn_delete" >/dev/null
+unborn_delete=$(preview "$uuid" delete)
+jq -e '.result.preview | .assigned_ref_missing==true and (has("assigned_tip")|not) and
+  (.branch_loss | .assigned_ref=="refs/heads/main" and (has("assigned_tip")|not) and
+    .commits_losing_p_reachability==[] and .p_refs==[] and (has("origin")|not))' <<< "$unborn_delete" >/dev/null
 source_running
 
-# Three admitted sessions must leave one native slot for the inert helper.
+# Admission needs room for one more container only: four sessions fill the
+# project's four-container limit, and a fifth session or project is refused.
 guest /run/current-system/sw/bin/git config user.name P
 guest /run/current-system/sw/bin/git config user.email p@example.invalid
 guest /run/current-system/sw/bin/bash -c 'printf retained > tracked; git add tracked; git commit -qm retained; git push origin HEAD:main'
@@ -191,85 +194,71 @@ create_branch() {
   new_uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$response")
   local op
   op=$(jq -er '.result.operation.id | select(length==36)' <<< "$response")
+  op_ids+=("$op")
   wait_operation "$op" completed >/dev/null
 }
 create_branch preview-keep keep
 uuid_keep=$new_uuid
 create_branch preview-third third
 uuid_third=$new_uuid
+create_branch preview-fourth fourth
+uuid_fourth=$new_uuid
 
-expect_refusal session.create '{"v":1,"key":"preview-overflow","project":"removal-preview","branch":"overflow","choice":"new","source":"refs/heads/main"}' busy
-expect_refusal project.create '{"v":1,"key":"preview-overflow-project","project":"preview-overflow"}' busy
+expect_capacity_refusal session.create '{"v":1,"key":"preview-overflow","project":"removal-preview","branch":"overflow","choice":"new","source":"refs/heads/main"}'
+expect_capacity_refusal project.create '{"v":1,"key":"preview-overflow-project","project":"preview-overflow"}'
 # An exact replay does not need another reservation at the admission limit.
-replayed=$(rpc session.create '{"v":1,"key":"preview-third","project":"removal-preview","branch":"third","choice":"new","source":"refs/heads/main"}')
-test "$(jq -er '.result.operation.session_uuid' <<< "$replayed")" = "$uuid_third"
+replayed=$(rpc session.create '{"v":1,"key":"preview-fourth","project":"removal-preview","branch":"fourth","choice":"new","source":"refs/heads/main"}')
+test "$(jq -er '.result.operation.session_uuid' <<< "$replayed")" = "$uuid_fourth"
 inc project list --format json | jq -e \
   'map(select(.name=="user-1000")) | length==1 and .[0].config["limits.containers"]=="4"' >/dev/null
-inc list --format json | jq -e 'length==3' >/dev/null
+inc list --format json | jq -e 'length==4' >/dev/null
 
-# main now has a commit whose last P branch would disappear on Delete.
+# main now has a commit whose last P branch would disappear on Delete. The
+# previews do not look inside the running container: they state that it and
+# everything in it is lost, and leave it untouched.
 guest /run/current-system/sw/bin/bash -c 'printf unique > tracked; git add tracked; git commit -qm unique; git push origin HEAD:main'
 unique_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
 guest /run/current-system/sw/bin/bash -c 'printf dirty > tracked; mkdir -m 0700 /home/p/.codex; printf dummy-auth-only > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json'
-inspect_loss preview-loss
-loss_op=$new_loss_op
-fingerprint=$(jq -er '.result.operation.evidence.result.fingerprint' <<< "$loss_result")
-inc list "^p-workspace-$loss_op$" --format json | jq -e 'length==0' >/dev/null
-discard_preview=$(preview "$uuid" discard "$loss_op")
-delete_preview=$(preview "$uuid" delete "$loss_op")
+discard_preview=$(preview "$uuid" discard)
+delete_preview=$(preview "$uuid" delete)
 for result in "$discard_preview" "$delete_preview"; do
-  jq -e --arg uuid "$uuid" --arg op "$loss_op" --arg fp "$fingerprint" --arg oid "$unique_oid" '
+  jq -e --arg uuid "$uuid" --arg oid "$unique_oid" --arg image "$base" '
     .result.preview | .session_uuid==$uuid and .project=="removal-preview" and
     .branch=="main" and .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
+    (has("assigned_ref_missing")|not) and (.policy_sha256|length)==64 and
     (.confirmation_token | test("^[0-9a-f]{32}$")) and (.expires_at|length>0) and
     .runtime.condition=="present" and .runtime.original_status=="Running" and
+    .runtime.incus_project=="user-1000" and .runtime.instance_name==("p-"+$uuid) and
     (.runtime.incus_uuid|length)==36 and (.runtime.generation|length)==36 and
-    .runtime.loss_operation_id==$op and (.runtime.observed_at|length>0) and
-    .runtime.fingerprint==$fp and .runtime.loss.fingerprint==$fp and
-    .runtime.loss.runtime_data_will_be_removed==true and
-    any(.runtime.loss.worktrees[0].changes[]; .path=="tracked" and .code==" M")
+    .runtime.image_fingerprint==$image and .runtime.runtime_data_lost==true and
+    (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
+      has("observed_at") or has("runtime_loss_unknown")) | not)
   ' <<< "$result" >/dev/null
 done
 jq -e '.result.preview | .kind=="discard" and .branch_loss==null' <<< "$discard_preview" >/dev/null
 jq -e --arg oid "$unique_oid" --arg retained "$retained_oid" '
   .result.preview | .kind=="delete" and
   (.branch_loss | .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
-    .commits_losing_p_reachability==[$oid] and (.p_refs|length)==3 and
+    .commits_losing_p_reachability==[$oid] and (.p_refs|length)==4 and
     any(.p_refs[]; .name=="refs/heads/keep" and .oid==$retained) and
-    .origin.status=="local_only" and .origin.containing_branches==[])
+    (has("origin")|not))
 ' <<< "$delete_preview" >/dev/null
 test "$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")" != \
   "$(jq -er '.result.preview.confirmation_token' <<< "$delete_preview")"
-expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid_keep" --arg op "$loss_op" \
-  '{v:1,uuid:$uuid,kind:"delete",loss_operation_id:$op}')" busy
+# Acknowledging a missing runtime is refused while the runtime is present.
+expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid_keep" \
+  '{v:1,uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')" busy
 source_running
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-auth-only
 test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
 
-# External occupancy can still fill the reserved slot. It must be reported
-# before source quiescence; P must not delete the unrelated fixture instance.
-inc init "$base" "$foreign_name" --profile default \
-  --config security.idmap.isolated=true --config security.privileged=false \
-  --config security.nesting=false
-expect_refusal workspace.loss.inspect "$(jq -nc --arg uuid "$uuid" \
-  '{v:1,key:"preview-capacity-busy",uuid:$uuid}')" unavailable
-source_running
-inc list "^$foreign_name$" --format json | jq -e --arg name "$foreign_name" \
-  'length==1 and .[0].name==$name and .[0].status=="Stopped"' >/dev/null
-inc delete "$foreign_name"
-inspect_loss preview-capacity-restored
-source_running
-
-# A running report cannot authorize facts observed after Stop or a changed P
-# tip. Each mismatch requires a new reviewable loss snapshot.
+# A stopped session previews the same way; its status is informational.
 rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | \
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
-expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg op "$new_loss_op" \
-  '{v:1,uuid:$uuid,kind:"discard",loss_operation_id:$op}')" busy
-inspect_loss preview-stopped
-stopped_preview=$(preview "$uuid" discard "$new_loss_op")
-jq -e '.result.preview.runtime | .condition=="present" and .original_status=="Stopped"' \
-  <<< "$stopped_preview" >/dev/null
+stopped_preview=$(preview "$uuid" discard)
+jq -e '.result.preview.runtime | .condition=="present" and .original_status=="Stopped" and
+  .runtime_data_lost==true' <<< "$stopped_preview" >/dev/null
+inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
 rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
@@ -279,11 +268,13 @@ while ((SECONDS < deadline)); do
 done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | \
   jq -e '.result.session.session_condition=="ready"' >/dev/null
-inspect_loss preview-before-ref-change
-before_ref_op=$new_loss_op
+# A changed P tip is reviewed afresh: a new preview reports it.
 guest /run/current-system/sw/bin/bash -c 'git add tracked; git commit -qm changed-after-preview; git push origin HEAD:main'
-expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg op "$before_ref_op" \
-  '{v:1,uuid:$uuid,kind:"delete",loss_operation_id:$op}')" busy
+changed_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
+changed_preview=$(preview "$uuid" delete)
+jq -e --arg oid "$changed_oid" --arg unique "$unique_oid" '.result.preview |
+  .assigned_tip==$oid and (.branch_loss.commits_losing_p_reachability|sort)==([$oid,$unique]|sort)' \
+  <<< "$changed_preview" >/dev/null
 source_running
 
 # Fixture-only removal simulates authoritative native absence. The preview
@@ -291,14 +282,15 @@ source_running
 # P's session row/ref intact. This is not public cleanup evidence.
 inc delete --force "p-$uuid_third"
 expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid_third" \
-  '{v:1,uuid:$uuid,kind:"delete"}')" invalid_params
+  '{v:1,uuid:$uuid,kind:"delete"}')" busy
 missing_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid_third" \
   '{v:1,uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
 jq -e --arg uuid "$uuid_third" --arg oid "$retained_oid" '
   .result.preview | .session_uuid==$uuid and .kind=="delete" and
   .runtime.condition=="missing" and .runtime.runtime_loss_unknown==true and
-  .runtime.loss==null and .assigned_ref=="refs/heads/third" and .assigned_tip==$oid and
-  .branch_loss.commits_losing_p_reachability==[] and
+  (.runtime | (has("runtime_data_lost") or has("loss")) | not) and
+  .assigned_ref=="refs/heads/third" and .assigned_tip==$oid and
+  .branch_loss.commits_losing_p_reachability==[] and (.branch_loss|has("origin")|not) and
   (.confirmation_token | test("^[0-9a-f]{32}$"))
 ' <<< "$missing_preview" >/dev/null
 rpc session.inspect "$(jq -nc --arg uuid "$uuid_third" '{v:1,uuid:$uuid}')" | \
@@ -306,4 +298,5 @@ rpc session.inspect "$(jq -nc --arg uuid "$uuid_third" '{v:1,uuid:$uuid}')" | \
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/third | cut -f1)" = "$retained_oid"
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-auth-only
 inc list "^p-$uuid_keep$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
+inc list --format json | jq -e 'length==3' >/dev/null
 echo P_REMOVAL_PREVIEW_PASS

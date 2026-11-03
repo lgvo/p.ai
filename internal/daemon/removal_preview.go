@@ -6,13 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
 )
 
 const removalPreviewTTL = 2 * time.Minute
@@ -22,12 +20,11 @@ type removalPreviewState struct {
 	Expiry  time.Time
 }
 
-// PreviewRemoval creates no destructive intent. A present-runtime preview
-// cites one completed, recent 8a2 snapshot; its contents are explicitly
-// historical until confirmation re-quiesces and recomputes them.
+// PreviewRemoval creates no destructive intent. P does not look inside a
+// present container: the preview states that it and everything in it is lost,
+// and a running session is stopped as part of removing it.
 func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPreviewRequest) (control.RemovalPreview, error) {
-	if req.Kind != "discard" && req.Kind != "delete" || len(req.UUID) != 36 ||
-		(req.LossOperationID == "") == !req.AcknowledgeMissingRuntime || len(req.LossOperationID) > 128 {
+	if req.Kind != "discard" && req.Kind != "delete" || len(req.UUID) != 36 {
 		return control.RemovalPreview{}, control.ErrInvalid
 	}
 	release, err := l.lockSession(ctx, req.UUID)
@@ -39,16 +36,12 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 	if attached {
 		return control.RemovalPreview{}, control.ErrConflict
 	}
-	if err := l.checkNoWorkspaceInspect(ctx, req.UUID); err != nil {
+	if err := l.checkNoSessionChange(ctx, req.UUID); err != nil {
 		return control.RemovalPreview{}, err
 	}
 	session, err := l.store.GetSession(ctx, req.UUID)
 	if err != nil || session.Registry != "established" {
 		return control.RemovalPreview{}, errors.Join(err, control.ErrConflict)
-	}
-	created, err := l.store.CreationForSession(ctx, session.UUID)
-	if err != nil {
-		return control.RemovalPreview{}, err
 	}
 	native, err := l.runtimeSession(ctx, session)
 	if err != nil {
@@ -61,9 +54,8 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 	preview := control.RemovalPreview{Kind: req.Kind, SessionUUID: session.UUID, Project: session.Project,
 		Branch: session.Branch, AssignedRef: "refs/heads/" + session.Branch, PolicySHA256: session.PolicySHA256,
 		Runtime: control.RemovalRuntimePreview{IncusProject: l.cfg.IncusProject, InstanceName: "p-" + session.UUID}}
-	var lossFinished time.Time
 	if !observed.Exists {
-		if !req.AcknowledgeMissingRuntime || req.LossOperationID != "" {
+		if !req.AcknowledgeMissingRuntime {
 			return control.RemovalPreview{}, control.ErrConflict
 		}
 		if err := l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
@@ -72,69 +64,33 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 		preview.Runtime.Condition = "missing"
 		preview.Runtime.RuntimeLossUnknown = true
 	} else {
-		if req.AcknowledgeMissingRuntime || req.LossOperationID == "" ||
-			observed.Name != preview.Runtime.InstanceName || observed.Status != "Running" && observed.Status != "Stopped" {
-			return control.RemovalPreview{}, control.ErrConflict
-		}
-		lossOp, err := l.store.GetOperation(ctx, req.LossOperationID)
-		if err != nil || lossOp.Kind != "workspace.loss.inspect" || lossOp.SessionUUID != session.UUID || lossOp.Project != session.Project || lossOp.Status != "completed" {
-			return control.RemovalPreview{}, errors.Join(err, control.ErrConflict)
-		}
-		finished, err := time.Parse(time.RFC3339Nano, lossOp.UpdatedAt)
-		if err != nil || time.Since(finished) < 0 || time.Since(finished) > removalPreviewTTL {
-			return control.RemovalPreview{}, control.ErrConflict
-		}
-		lossFinished = finished
-		var ev control.WorkspaceInspectEvidence
-		var loss workspaceLossResult
-		if json.Unmarshal(lossOp.Evidence, &ev) != nil || len(ev.Result) == 0 || len(ev.Result) > 12<<10 ||
-			json.Unmarshal(ev.Result, &loss) != nil || loss.Schema != "p.workspace-loss/v1" || !loss.RuntimeDataWillBeRemoved ||
-			len(loss.Fingerprint) != 64 || ev.InstanceUUID != l.instanceID || ev.BaseFingerprint != l.cfg.BaseImageFingerprint ||
-			ev.ImageFingerprint != native.ImageFingerprint || ev.SourceIncusUUID != observed.IncusUUID ||
-			ev.SourceGeneration != observed.Generation || ev.OriginalStatus != observed.Status {
+		if req.AcknowledgeMissingRuntime || observed.Name != preview.Runtime.InstanceName || !removableStatus(observed.Status) ||
+			observed.IncusUUID == "" || observed.Generation == "" {
 			return control.RemovalPreview{}, control.ErrConflict
 		}
 		preview.Runtime.Condition, preview.Runtime.IncusUUID, preview.Runtime.Generation = "present", observed.IncusUUID, observed.Generation
 		preview.Runtime.ImageFingerprint, preview.Runtime.OriginalStatus = observed.Fingerprint, observed.Status
-		preview.Runtime.LossOperationID, preview.Runtime.ObservedAt = lossOp.ID, lossOp.UpdatedAt
-		preview.Runtime.Fingerprint, preview.Runtime.Loss = loss.Fingerprint, ev.Result
+		preview.Runtime.RuntimeDataLost = true
 	}
 	var branchLoss gitservice.BranchRemovalLoss
 	if req.Kind == "delete" {
-		branchLoss, err = l.git.backend.BranchRemovalLoss(ctx, session.Project, session.Branch, created.Kind == "project.create")
+		branchLoss, err = l.git.backend.BranchRemovalLoss(ctx, session.Project, session.Branch, true)
 	} else {
-		branchLoss, err = l.git.backend.AssignedBranchSnapshot(ctx, session.Project, session.Branch, created.Kind == "project.create")
+		branchLoss, err = l.git.backend.AssignedBranchSnapshot(ctx, session.Project, session.Branch, true)
 	}
 	if err != nil {
 		return control.RemovalPreview{}, err
 	}
-	preview.AssignedTip = branchLoss.AssignedTip
-	if preview.Runtime.Condition == "present" {
-		var loss workspaceLossResult
-		if json.Unmarshal(preview.Runtime.Loss, &loss) != nil || !slices.EqualFunc(loss.PRefs, branchLoss.PRefs,
-			func(a workspaceLossRef, b plugin.GitRef) bool { return a.Name == b.Ref && a.OID == b.OID }) {
-			return control.RemovalPreview{}, control.ErrConflict
-		}
-	}
+	preview.AssignedTip, preview.AssignedRefMissing = branchLoss.AssignedTip, branchLoss.AssignedTip == ""
 	if req.Kind == "delete" {
-		preview.BranchLoss, err = l.makeDeleteReview(ctx, session.Project, branchLoss)
-		if err != nil {
-			return control.RemovalPreview{}, err
-		}
+		preview.BranchLoss = deleteReview(branchLoss)
 	}
 	var token [16]byte
 	if _, err := rand.Read(token[:]); err != nil {
 		return control.RemovalPreview{}, err
 	}
 	preview.ConfirmationToken = hex.EncodeToString(token[:])
-	now := time.Now().UTC()
-	if !lossFinished.IsZero() && (now.Before(lossFinished) || now.Sub(lossFinished) >= removalPreviewTTL) {
-		return control.RemovalPreview{}, control.ErrConflict
-	}
-	expires := now.Add(removalPreviewTTL)
-	if !lossFinished.IsZero() && lossFinished.Add(removalPreviewTTL).Before(expires) {
-		expires = lossFinished.Add(removalPreviewTTL)
-	}
+	expires := time.Now().UTC().Add(removalPreviewTTL)
 	preview.ExpiresAt = expires.Format(time.RFC3339Nano)
 	if err := checkRemovalPreviewFrame(preview); err != nil {
 		return control.RemovalPreview{}, err
@@ -154,6 +110,12 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 	}
 	l.removalPreviews[preview.ConfirmationToken] = removalPreviewState{Preview: preview, Expiry: expires}
 	return preview, nil
+}
+
+// removableStatus reports whether removal accepts a present session runtime
+// in this Incus status: P stops a running one itself before deleting it.
+func removableStatus(status string) bool {
+	return status == "Running" || status == "Stopped"
 }
 
 func checkRemovalPreviewFrame(preview control.RemovalPreview) error {

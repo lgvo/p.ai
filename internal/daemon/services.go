@@ -42,7 +42,7 @@ func (l *lifecycle) SessionServices(ctx context.Context, id, unit, action string
 		return zero, err
 	}
 	defer release()
-	if err = l.checkNoWorkspaceInspect(ctx, id); err != nil {
+	if err = l.checkNoSessionChange(ctx, id); err != nil {
 		return zero, err
 	}
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)

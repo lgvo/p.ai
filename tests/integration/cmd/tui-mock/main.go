@@ -32,8 +32,8 @@ type fault struct {
 	ServicesEmpty bool   `json:"services_empty,omitempty"`
 }
 type preview struct {
-	UUID, Kind, Loss string
-	Expires          time.Time
+	UUID, Kind string
+	Expires    time.Time
 }
 type pending struct {
 	UUID    string
@@ -60,7 +60,7 @@ type fixture struct {
 	native   *nativeServer
 }
 
-var methods = []string{"system.capabilities", "system.health", "project.list", "project.create", "project.branches", "project.retained_branches", "origin.refresh", "origin.sources", "session.list", "session.inspect", "session.create", "session.start", "session.stop", "session.rename", "session.discard", "session.delete", "session.attach", "session.services", "session.service.action", "session.service.journal", "workspace.loss.inspect", "session.removal.preview", "operation.list", "operation.inspect", "operation.retry"}
+var methods = []string{"system.capabilities", "system.health", "project.list", "project.create", "project.branches", "project.retained_branches", "origin.refresh", "origin.sources", "session.list", "session.inspect", "session.create", "session.start", "session.stop", "session.rename", "session.discard", "session.delete", "session.attach", "session.services", "session.service.action", "session.service.journal", "session.removal.preview", "operation.list", "operation.inspect", "operation.retry"}
 
 const tip = "0123456789abcdef0123456789abcdef01234567"
 
@@ -157,7 +157,7 @@ func (f *fixture) operation(method string, p object, s api.SessionView) object {
 		return object{"v": 1, "operation": f.ops[id]}
 	}
 	request, _ := json.Marshal(p)
-	op := api.Operation{ID: uuid.NewString(), Key: key, Kind: method, Project: s.Project, SessionUUID: s.UUID, Status: "completed", Phase: "complete", Committed: method != "workspace.loss.inspect", Request: request, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	op := api.Operation{ID: uuid.NewString(), Key: key, Kind: method, Project: s.Project, SessionUUID: s.UUID, Status: "completed", Phase: "complete", Committed: true, Request: request, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	f.ops[op.ID] = op
 	if key != "" {
 		f.keys[key] = op.ID
@@ -393,39 +393,44 @@ func (f *fixture) handle(ctx context.Context, method string, raw json.RawMessage
 		return object{"v": 1, "session": s}, nil
 	case "session.rename":
 		branch := str("new_branch")
-		if s.Condition != "stopped" || s.AttachedCount != 0 || branch == "" || f.refs[s.Project][branch] != "" || str("expected_old_tip") != f.refs[s.Project][s.Branch] {
-			return rpcError("conflict", "Stop and detach; choose a new name and current tip")
+		if s.Condition != "stopped" {
+			return rpcError("busy", "Stop this session before Rename")
+		}
+		if branch == "" || f.refs[s.Project][branch] != "" || str("expected_old_tip") != f.refs[s.Project][s.Branch] {
+			return rpcError("conflict", "Choose a new name and the current tip")
 		}
 		delete(f.refs[s.Project], s.Branch)
 		f.refs[s.Project][branch] = tip
 		s.Branch = branch
 		f.sessions[id] = s
 		return f.operation(method, p, s), nil
-	case "workspace.loss.inspect":
-		if !exists {
-			return rpcError("unavailable", "Session absent")
-		}
-		if s.Condition != "stopped" || s.AttachedCount != 0 {
-			return rpcError("busy", "Stop and detach before loss inspection")
-		}
-		return f.operation(method, p, s), nil
 	case "session.removal.preview":
-		loss := f.ops[str("loss_operation_id")]
 		kind := str("kind")
-		if loss.Kind != "workspace.loss.inspect" || loss.SessionUUID != id || (kind != "discard" && kind != "delete") || s.Condition != "stopped" {
-			return rpcError("conflict", "Loss inspection does not match review")
+		if kind != "discard" && kind != "delete" {
+			return rpcError("invalid_params", "kind must be discard or delete")
+		}
+		if s.AttachedCount != 0 {
+			return rpcError("busy", "Detach every terminal before removal")
+		}
+		status := map[string]string{"ready": "Running", "stopped": "Stopped"}[s.Condition]
+		if status == "" {
+			return rpcError("busy", "Removal needs a Running or Stopped container")
 		}
 		token := strings.ReplaceAll(uuid.NewString(), "-", "")
 		expires := time.Now().Add(time.Minute)
-		f.previews[token] = preview{UUID: id, Kind: kind, Loss: loss.ID, Expires: expires}
-		return object{"v": 1, "preview": f.removalReview(s, kind, loss, token, expires)}, nil
+		f.previews[token] = preview{UUID: id, Kind: kind, Expires: expires}
+		return object{"v": 1, "preview": f.removalReview(s, kind, status, token, expires)}, nil
 	case "session.discard", "session.delete":
+		if s.AttachedCount != 0 {
+			return rpcError("busy", "Detach every terminal before removal")
+		}
 		token := str("confirmation_token")
 		review, ok := f.previews[token]
-		if !ok || review.UUID != id || "session."+review.Kind != method || time.Now().After(review.Expires) || s.Condition != "stopped" || s.AttachedCount != 0 {
+		if !ok || review.UUID != id || "session."+review.Kind != method || time.Now().After(review.Expires) {
 			return rpcError("conflict", "Removal review expired or session changed")
 		}
 		delete(f.previews, token)
+		// Like P, removal stops a running container itself before deleting it.
 		f.native.stopSession(id)
 		delete(f.sessions, id)
 		delete(f.services, id)

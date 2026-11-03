@@ -10,12 +10,6 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
-type workspaceRPCProbe struct {
-	LifecycleAPI
-	called  int
-	request WorkspaceInspectRequest
-}
-
 type renameRPCProbe struct {
 	LifecycleAPI
 	called  int
@@ -150,10 +144,9 @@ func TestRemovalPreviewRPCUsesClosedVersionedRequest(t *testing.T) {
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	loss := "11111111-1111-1111-1111-111111111111"
 	for _, raw := range []string{
-		`{"v":2,"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + loss + `"}`,
-		`{"v":1,"uuid":"` + uuid + `","kind":"delete","loss_operation_id":"` + loss + `","path":"/workspace"}`,
-		`{"v":1,"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + loss + `","acknowledge_missing_runtime":true}`,
-		`{"v":1,"uuid":"` + uuid + `","kind":"discard"}`,
+		`{"v":2,"uuid":"` + uuid + `","kind":"discard"}`,
+		`{"v":1,"uuid":"` + uuid + `","kind":"delete","path":"/workspace"}`,
+		`{"v":1,"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + loss + `"}`,
 		`{"v":1,"uuid":"` + uuid + `","kind":"rename","acknowledge_missing_runtime":true}`,
 	} {
 		if _, rpcErr := handler(context.Background(), "session.removal.preview", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind != "invalid_params" {
@@ -163,43 +156,14 @@ func TestRemovalPreviewRPCUsesClosedVersionedRequest(t *testing.T) {
 	if p.called != 0 {
 		t.Fatal("invalid removal request reached authority")
 	}
-	result, rpcErr := handler(context.Background(), "session.removal.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","kind":"delete","loss_operation_id":"`+loss+`"}`))
-	if rpcErr != nil || p.called != 1 || p.request.UUID != uuid || p.request.LossOperationID != loss ||
+	result, rpcErr := handler(context.Background(), "session.removal.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","kind":"delete"}`))
+	if rpcErr != nil || p.called != 1 || p.request.UUID != uuid || p.request.Kind != "delete" || p.request.AcknowledgeMissingRuntime ||
 		result.(map[string]any)["preview"].(RemovalPreview).ConfirmationToken != strings.Repeat("a", 32) {
 		t.Fatalf("removal preview route: %+v %+v", result, rpcErr)
 	}
 	_, rpcErr = handler(context.Background(), "session.removal.preview", json.RawMessage(`{"v":1,"uuid":"`+uuid+`","kind":"discard","acknowledge_missing_runtime":true}`))
-	if rpcErr != nil || p.called != 2 || !p.request.AcknowledgeMissingRuntime || p.request.LossOperationID != "" {
+	if rpcErr != nil || p.called != 2 || !p.request.AcknowledgeMissingRuntime {
 		t.Fatalf("missing runtime acknowledgement route: %+v", rpcErr)
-	}
-}
-
-func (p *workspaceRPCProbe) InspectWorkspaceLoss(_ context.Context, req WorkspaceInspectRequest) (api.Operation, error) {
-	p.called++
-	p.request = req
-	return api.Operation{Kind: "workspace.loss.inspect", Status: "running", SessionUUID: req.SessionUUID}, nil
-}
-
-func TestWorkspaceLossRPCUsesClosedVersionedRequest(t *testing.T) {
-	p := &workspaceRPCProbe{}
-	handler := NewHandler(HandlerConfig{Lifecycle: p})
-	uuid := "550e8400-e29b-41d4-a716-446655440000"
-	for _, raw := range []string{
-		`{"v":2,"key":"loss-1","uuid":"` + uuid + `"}`,
-		`{"v":1,"key":"loss-1","uuid":"` + uuid + `","path":"/home/p"}`,
-		`{"v":1,"key":"loss-1","key":"loss-1","uuid":"` + uuid + `"}`,
-		`{"v":1,"key":"loss-1","uuid":"not-a-uuid"}`,
-	} {
-		if _, rpcErr := handler(context.Background(), "workspace.loss.inspect", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind != "invalid_params" {
-			t.Fatalf("unsafe loss request accepted: %s: %+v", raw, rpcErr)
-		}
-	}
-	if p.called != 0 {
-		t.Fatal("invalid loss request reached authority")
-	}
-	result, rpcErr := handler(context.Background(), "workspace.loss.inspect", json.RawMessage(`{"v":1,"key":"loss-1","uuid":"`+uuid+`"}`))
-	if rpcErr != nil || p.called != 1 || p.request.Key != "loss-1" || p.request.SessionUUID != uuid || result.(map[string]any)["operation"].(api.Operation).Kind != "workspace.loss.inspect" {
-		t.Fatalf("closed loss request not routed: %+v %+v", result, rpcErr)
 	}
 }
 

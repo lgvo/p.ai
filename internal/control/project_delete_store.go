@@ -18,7 +18,6 @@ type projectDeleteQuerier interface {
 }
 
 // ProjectDeleteSnapshot binds the complete bounded registry resource set.
-// Settled workspace inspections are read evidence, not project authority.
 func (s *Store) ProjectDeleteSnapshot(ctx context.Context, project string) ([]Session, string, error) {
 	return projectDeleteSnapshot(ctx, s.db, project)
 }
@@ -74,7 +73,7 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	// a new settled mutation still invalidates an old report.
 	facts := []string{policy, sha, origin}
 	for _, query := range []string{
-		`SELECT id||':'||kind||':'||request_sha256||':'||status||':'||phase||':'||COALESCE(evidence_json,'') FROM operations WHERE project_path=? AND kind!='workspace.loss.inspect' ORDER BY id`,
+		`SELECT id||':'||kind||':'||request_sha256||':'||status||':'||phase||':'||COALESCE(evidence_json,'') FROM operations WHERE project_path=? ORDER BY id`,
 		`SELECT fingerprint||':'||role||':'||COALESCE(session_uuid,'')||':'||active FROM git_principals WHERE project_path=? ORDER BY fingerprint`,
 		`SELECT environment_key||':'||fingerprint||':'||properties_json||':'||created_at||':'||last_used_at||':'||logical_size FROM environment_images WHERE project_path=? ORDER BY environment_key`,
 	} {
@@ -172,17 +171,6 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 		creator, e := operationByIDTx(ctx, tx, ps.Local.OldOperationID)
 		if e != nil || creator.SessionUUID != s.UUID || creator.Project != req.Project || creator.Kind != "session.create" && creator.Kind != "project.create" || creator.Status != "completed" {
 			return api.Operation{}, ErrConflict
-		}
-		if ps.Runtime.Condition == "present" {
-			proof, e := operationByIDTx(ctx, tx, ps.Runtime.LossOperationID)
-			var inspected WorkspaceInspectEvidence
-			var result struct {
-				Fingerprint string `json:"fingerprint"`
-			}
-			finished, tErr := time.Parse(time.RFC3339Nano, proof.UpdatedAt)
-			if e != nil || tErr != nil || time.Since(finished) < 0 || time.Since(finished) > 2*time.Minute || proof.Kind != "workspace.loss.inspect" || proof.Status != "completed" || proof.Phase != "inspected" || proof.SessionUUID != s.UUID || proof.Project != req.Project || proof.UpdatedAt != ps.Runtime.ObservedAt || json.Unmarshal(proof.Evidence, &inspected) != nil || inspected.CreatorOperationID != "" || inspected.InstanceUUID != ev.InstanceUUID || inspected.BaseFingerprint != ev.BaseFingerprint || inspected.ImageFingerprint != ps.Runtime.ImageFingerprint || inspected.SourceIncusUUID != ps.Runtime.IncusUUID || inspected.SourceGeneration != ps.Runtime.Generation || inspected.OriginalStatus != "Stopped" || json.Unmarshal(inspected.Result, &result) != nil || result.Fingerprint != ps.Runtime.Fingerprint {
-				return api.Operation{}, ErrConflict
-			}
 		}
 	}
 	for _, im := range ev.Images {

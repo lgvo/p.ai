@@ -56,7 +56,6 @@ type Session struct {
 	ContractVersion  string
 	ImageFingerprint string
 	EndpointSource   string // optional session-owned socket directory under EndpointPrefix
-	WorkspaceOwner   string // exact source session UUID for a disposable read-only helper
 	Grants           []FilesystemGrant
 	PublicIPv4       string // exact SQLite-reserved static address; empty means no NIC
 }
@@ -174,9 +173,6 @@ func validateSession(c Config, s Session) error {
 		if c.EndpointPrefix == "" || !filepath.IsAbs(s.EndpointSource) || filepath.Clean(s.EndpointSource) != s.EndpointSource || !strings.HasPrefix(s.EndpointSource, c.EndpointPrefix+string(filepath.Separator)) {
 			return errors.New("endpoint source exceeds configured ceiling")
 		}
-	}
-	if s.WorkspaceOwner != "" && (!uuidPattern.MatchString(s.WorkspaceOwner) || s.ContractVersion != "p.workspace-helper/v1" || s.EndpointSource != "") {
-		return errors.New("invalid workspace helper identity")
 	}
 	if err := validateRuntimeGrants(c, s, false); err != nil {
 		return err
@@ -305,9 +301,6 @@ func fileUID(info os.FileInfo) uint32 {
 }
 
 func (b *Backend) name(s Session) string {
-	if s.WorkspaceOwner != "" {
-		return "p-workspace-" + s.SessionUUID
-	}
 	return "p-" + s.SessionUUID
 }
 
@@ -696,7 +689,7 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 }
 
 func validIdentity(c map[string]string, s Session) bool {
-	return c != nil && c["user.p.instance_uuid"] == s.InstanceUUID && c["user.p.session_uuid"] == s.SessionUUID && c["user.p.project_path"] == s.ProjectPath && c["user.p.contract_version"] == s.ContractVersion && c["user.p.image_fingerprint"] == s.ImageFingerprint && c["volatile.base_image"] == s.ImageFingerprint && c["user.p.workspace_owner"] == s.WorkspaceOwner
+	return c != nil && c["user.p.instance_uuid"] == s.InstanceUUID && c["user.p.session_uuid"] == s.SessionUUID && c["user.p.project_path"] == s.ProjectPath && c["user.p.contract_version"] == s.ContractVersion && c["user.p.image_fingerprint"] == s.ImageFingerprint && c["volatile.base_image"] == s.ImageFingerprint
 }
 
 func safeSecurity(c map[string]string) bool {
@@ -792,11 +785,8 @@ func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error
 	// A missing deterministic name does not prove the session runtime absent:
 	// an external rename can leave its UUID labels on another instance. Check
 	// the full project before recording or sending an ordinary session init.
-	// Disposable helpers have their own operation identity and ownership rules.
-	if s.WorkspaceOwner == "" {
-		if err := b.ConfirmSessionRuntimeAbsent(ctx, s); err != nil {
-			return Observation{}, err
-		}
+	if err := b.ConfirmSessionRuntimeAbsent(ctx, s); err != nil {
+		return Observation{}, err
 	}
 	if beforeInit != nil {
 		if err := beforeInit(); err != nil {
@@ -804,12 +794,6 @@ func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error
 		}
 	}
 	argv := []string{"init", s.ImageFingerprint, b.name(s), "--profile", "default", "--config", "security.idmap.isolated=true", "--config", "security.privileged=false", "--config", "security.nesting=false", "--config", "user.p.instance_uuid=" + s.InstanceUUID, "--config", "user.p.session_uuid=" + s.SessionUUID, "--config", "user.p.project_path=" + s.ProjectPath, "--config", "user.p.contract_version=" + s.ContractVersion, "--config", "user.p.image_fingerprint=" + s.ImageFingerprint}
-	if s.WorkspaceOwner != "" {
-		argv = append(argv, "--config", "user.p.workspace_owner="+s.WorkspaceOwner,
-			"--config", "limits.cpu="+workspaceHelperCPU,
-			"--config", "limits.memory="+workspaceHelperMemory,
-			"--config", "limits.processes="+workspaceHelperProcesses)
-	}
 	_, mutationErr := b.command(ctx, argv...)
 	after, inspectErr := b.inspect(ctx, s, true)
 	if inspectErr != nil {

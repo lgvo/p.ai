@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -11,7 +10,7 @@ import (
 
 func TestRemovalPreviewRequiresCompleteResponseBelowRPCFrame(t *testing.T) {
 	small := control.RemovalPreview{Kind: "delete", SessionUUID: "550e8400-e29b-41d4-a716-446655440000",
-		ConfirmationToken: strings.Repeat("a", 32), Runtime: control.RemovalRuntimePreview{Loss: json.RawMessage(`{"schema":"p.workspace-loss/v1"}`)}}
+		ConfirmationToken: strings.Repeat("a", 32), Runtime: control.RemovalRuntimePreview{Condition: "present", RuntimeDataLost: true}}
 	if err := checkRemovalPreviewFrame(small); err != nil {
 		t.Fatal(err)
 	}

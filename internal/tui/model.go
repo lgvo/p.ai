@@ -30,9 +30,9 @@ type actionDone struct {
 	err    error
 }
 type attached struct{ err error }
-type removalIntent struct{ UUID, Kind, LossOperationID string }
+type removalIntent struct{ UUID, Kind string }
 
-// Help suspends this captured read without replaying an accepted inspection.
+// Help suspends this captured preview read without replaying it.
 // The original epoch stays bound until its one reply is consumed or abandoned.
 type suspendedRemovalRead struct {
 	epoch   int
@@ -351,7 +351,7 @@ func (m Model) capacity() int {
 		return m.browserLayout().capacity
 	case "create":
 		n -= 2
-	case "creation-review", "agents", "policy", "progress", "help", "details":
+	case "creation-review", "review", "agents", "policy", "progress", "help", "details":
 		n = m.height - 8
 	case "retained":
 		n--
@@ -447,7 +447,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			case "progress":
 				if m.operationID != "" && m.operation.Status != "completed" {
 					cmds = append(cmds, m.begin("operation.inspect", params{"v": 1, "id": m.operationID}))
-				} else if m.contextSession.UUID != "" && (m.contextSession.Condition == "starting" || m.attachOnComplete) {
+				} else if m.removal == nil && m.contextSession.UUID != "" && (m.contextSession.Condition == "starting" || m.attachOnComplete) {
 					cmds = append(cmds, m.begin("session.inspect", params{"v": 1, "uuid": m.contextSession.UUID}))
 				}
 			case "services":
@@ -633,6 +633,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return m.back()
 		default:
 			m.scroll(key, &m.reviewOffset)
+			m.reviewOffset = min(m.reviewOffset, max(0, len(m.reviewLines())-m.capacity()))
 		}
 		return nil
 	}
@@ -675,7 +676,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		suspended := m.helpRemovalRead
 		if m.page == "progress" && m.removal != nil && suspended == nil {
 			switch m.pendingMethod {
-			case "", "workspace.loss.inspect", "operation.inspect", "session.removal.preview":
+			case "", "session.removal.preview":
 				suspended = &suspendedRemovalRead{epoch: m.epoch, method: m.pendingMethod, intent: *m.removal, working: m.working}
 			}
 		}
@@ -780,6 +781,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				return m.begin("creation.branches", params{"project": s.Project})
 			}
 		case "R":
+			if ok && s.Condition != "stopped" {
+				m.notice = "Stop this session before renaming its branch."
+				return nil
+			}
 			if ok {
 				m.contextSession = s
 				m.form = "rename"
@@ -795,13 +800,25 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if key == "X" {
 				kind = "delete"
 			}
-			if s.AttachedCount != 0 || s.Condition != "stopped" {
-				m.notice = "Detach and Stop this session before reviewing removal."
+			if s.AttachedCount != 0 {
+				m.notice = "Detach every terminal before reviewing removal."
 				return nil
 			}
+			// P stops a running container itself as part of removal.
+			switch s.Condition {
+			case "stopped", "ready", "starting":
+			case "missing":
+				m.notice = "The runtime is missing; review its removal with the CLI preview and acknowledge_missing_runtime."
+				return nil
+			default:
+				m.notice = "Removal is unavailable while the session is " + s.Condition + "."
+				return nil
+			}
+			m.operationID = ""
+			m.attachOnComplete = false
 			m.navigate("progress")
 			m.removal = &removalIntent{UUID: s.UUID, Kind: kind}
-			return m.begin("workspace.loss.inspect", params{"v": 1, "key": newKey(), "uuid": s.UUID})
+			return m.begin("session.removal.preview", params{"v": 1, "uuid": s.UUID, "kind": kind})
 		case "r":
 			if !m.refreshing {
 				m.refreshing = true
@@ -866,7 +883,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return m.begin("operation.inspect", params{"v": 1, "id": r.id})
 		}
 	case "progress":
-		if key == "r" && m.operationID != "" && !m.working && !api.WorkspaceInspectionRequiresFreshRequest(m.operation) {
+		if key == "r" && m.operationID != "" && !m.working {
 			return m.begin("operation.retry", params{"v": 1, "id": m.operationID})
 		}
 	}

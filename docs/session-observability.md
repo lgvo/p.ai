@@ -49,14 +49,14 @@ readiness matrix:
 | `stopped` | The retained container is stopped and may receive an ordinary Start. |
 | `missing` | SQLite expects a runtime that Incus cannot find. |
 | `unreachable` | P cannot inspect enough current Incus/runtime state to decide. |
-| `discarding` | Confirmed Discard is ending the session while retaining its assigned branch. |
+| `discarding` | Confirmed Discard is ending the session while retaining its assigned branch, when that branch still exists. |
 | `deleting` | Confirmed Delete is ending the session and removing its assigned branch. |
 
 Registry intent supplies `creating`. A committed removal operation supplies
-`discarding` for Discard or failed-create cleanup, which retain the branch,
-and `deleting` for session or project Delete. An unavailable or ambiguous
-removal intent reports `unreachable` rather than guessing branch loss. These
-conditions survive daemon restart through the durable operation. For an
+`discarding` for Discard or failed-create cleanup, which retain the branch when
+it exists, and `deleting` for session or project Delete. An unavailable or
+ambiguous removal intent reports `unreachable` rather than guessing branch loss.
+These conditions survive daemon restart through the durable operation. For an
 established session P freshly inspects Incus and `p-interactive.service`.
 `ready` requires the systemd unit to have completed endpoint validation,
 environment activation, persistent-host startup, and its attachability

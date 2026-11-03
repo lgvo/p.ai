@@ -37,27 +37,11 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 			t.Fatal(e)
 		}
 		session, _ = s.GetSession(ctx, session.UUID)
-		ev.Sessions = append(ev.Sessions, ProjectDeleteSession{Session: session, Condition: "stopped", Local: *local, Runtime: RemovalRuntimePreview{Condition: "present", IncusProject: ev.IncusProject, InstanceName: "p-" + session.UUID, IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333", ImageFingerprint: ev.BaseFingerprint, OriginalStatus: "Stopped", LossOperationID: "44444444-4444-4444-8444-444444444444", Fingerprint: strings.Repeat("d", 64)}})
+		ev.Sessions = append(ev.Sessions, ProjectDeleteSession{Session: session, Condition: "stopped", Local: *local, Runtime: RemovalRuntimePreview{Condition: "present", IncusProject: ev.IncusProject, InstanceName: "p-" + session.UUID, IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333", ImageFingerprint: ev.BaseFingerprint, OriginalStatus: "Stopped", RuntimeDataLost: true}})
 	}
 	// Store admission compares the exact stable UUID ordering.
 	if ev.Sessions[0].Session.UUID > ev.Sessions[1].Session.UUID {
 		ev.Sessions[0], ev.Sessions[1] = ev.Sessions[1], ev.Sessions[0]
-	}
-	for i := range ev.Sessions {
-		ps := &ev.Sessions[i]
-		inspected := WorkspaceInspectEvidence{InstanceUUID: ev.InstanceUUID, BaseFingerprint: ev.BaseFingerprint, ImageFingerprint: ps.Runtime.ImageFingerprint, SourceIncusUUID: ps.Runtime.IncusUUID, SourceGeneration: ps.Runtime.Generation, OriginalStatus: "Stopped"}
-		loss, e := s.BeginWorkspaceLossInspect(ctx, WorkspaceInspectRequest{Key: "loss:" + ps.Session.UUID, SessionUUID: ps.Session.UUID}, inspected)
-		if e != nil {
-			t.Fatal(e)
-		}
-		inspected.Result = json.RawMessage(`{"schema":"p.workspace-loss/v1","runtime_data_will_be_removed":true,"worktrees":[{"path":"/workspace"}],"external_worktrees":[],"fingerprint":"` + ps.Runtime.Fingerprint + `"}`)
-		raw, _ := json.Marshal(inspected)
-		if e = s.AdvanceOperation(ctx, loss.ID, "completed", "inspected", true, raw, ""); e != nil {
-			t.Fatal(e)
-		}
-		loss, _ = s.GetOperation(ctx, loss.ID)
-		ps.Runtime.LossOperationID = loss.ID
-		ps.Runtime.ObservedAt = loss.UpdatedAt
 	}
 	image := testEnvironmentImage("bulk")
 	image.Fingerprint = strings.Repeat("e", 64)

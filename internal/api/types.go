@@ -24,13 +24,6 @@ type Operation struct {
 	UpdatedAt   string          `json:"updated_at"`
 }
 
-// WorkspaceInspectionRequiresFreshRequest identifies failures whose helper
-// cleanup finished and whose source guard was released. Resuming their old
-// identity would not restore the accepted inspection's authority boundary.
-func WorkspaceInspectionRequiresFreshRequest(op Operation) bool {
-	return op.Kind == "workspace.loss.inspect" && op.Status == "failed" && op.Phase == "cleaned"
-}
-
 type SessionView struct {
 	UUID                      string               `json:"uuid"`
 	Project                   string               `json:"project"`

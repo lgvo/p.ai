@@ -10,9 +10,8 @@ import (
 // ProjectDeletePreview is one bounded whole-project loss review. Sessions must
 // already be stopped/detached; unknown native effects are never removal grants.
 type ProjectDeletePreviewRequest struct {
-	Project            string            `json:"project"`
-	LossOperations     map[string]string `json:"loss_operations"`
-	AcknowledgeMissing []string          `json:"acknowledge_missing,omitempty"`
+	Project            string   `json:"project"`
+	AcknowledgeMissing []string `json:"acknowledge_missing,omitempty"`
 }
 type ProjectDeleteConfirmRequest struct {
 	Key               string `json:"key"`
@@ -91,7 +90,7 @@ func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
 			return false
 		}
 		if r.Condition == "present" {
-			if !validUUID(r.IncusUUID) || !validUUID(r.Generation) || !validFingerprint(r.ImageFingerprint) || r.OriginalStatus != "Stopped" || !validFingerprint(r.Fingerprint) || !validUUID(r.LossOperationID) {
+			if !validUUID(r.IncusUUID) || !validUUID(r.Generation) || !validFingerprint(r.ImageFingerprint) || r.OriginalStatus != "Stopped" || !r.RuntimeDataLost {
 				return false
 			}
 		} else if r.Condition != "missing" || !r.RuntimeLossUnknown {

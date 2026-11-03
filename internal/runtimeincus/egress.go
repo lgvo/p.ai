@@ -117,7 +117,7 @@ func validatePublicSession(c *PublicEgressConfig, s Session) error {
 	if s.PublicIPv4 == "" {
 		return nil
 	}
-	if c == nil || s.WorkspaceOwner != "" {
+	if c == nil {
 		return errors.New("public NIC requires a selected ordinary session substrate")
 	}
 	guest, err := netip.ParsePrefix(s.PublicIPv4)

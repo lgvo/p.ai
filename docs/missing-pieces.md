@@ -115,8 +115,8 @@ does not change owner-document lifecycle semantics.
 ## Runtime and environments
 
 - [ ] Implement the confined Incus backend, deterministic labels/names,
-  non-activating inspection helper, endpoint mounts, and unfamiliar-runtime
-  identity checks without silent adoption.
+  non-activating stopped-workspace access, endpoint mounts, and
+  unfamiliar-runtime identity checks without silent adoption.
 - [ ] Build the pinned base image with systemd, Nix, Git/SSH, tmux, the runtime
   kit, `p-session.target`, `p-interactive.service`, and the root-owned
   `/usr/libexec/p/attach` entrypoint.

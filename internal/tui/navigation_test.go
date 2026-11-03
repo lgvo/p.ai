@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -96,28 +95,7 @@ func TestProgressExplainsPendingSourcePreparation(t *testing.T) {
 	}
 }
 
-func TestFinalizedInspectionHasFreshRequestGuidanceAndInertRetryKey(t *testing.T) {
-	t.Run("workspace.loss.inspect", func(t *testing.T) {
-		client := &fakeClient{fn: func(string, params) (any, error) { t.Fatal("finalized Retry dispatched an RPC"); return nil, nil }}
-		m := fixture()
-		m.client = client
-		m.navigate("progress")
-		m.operationID = "finalized"
-		m.operation = api.Operation{ID: "finalized", Kind: "workspace.loss.inspect", Status: "failed", Phase: "cleaned"}
-		_, lines, commands := m.inspectionContent()
-		if !strings.Contains(strings.Join(lines, "\n"), "Return and request a fresh inspection") || strings.Contains(commands, "retry") {
-			t.Fatalf("finalized inspection advertised Retry: %q %q", lines, commands)
-		}
-		var cmd tea.Cmd
-		m, cmd = press(m, "r")
-		if cmd != nil || m.working || len(client.calls) != 0 {
-			t.Fatal("actual r key accepted finalized inspection Retry")
-		}
-		m, cmd = press(m, "q")
-		if m.page != "sessions" || cmd != nil {
-			t.Fatal("Back did not leave finalized inspection")
-		}
-	})
+func TestBlockedOperationRetryKeyResumesCapturedRequest(t *testing.T) {
 	client := &fakeClient{fn: func(method string, p params) (any, error) {
 		if method != "operation.retry" || p["id"] != "blocked" {
 			t.Fatalf("wrong resumable request: %s %+v", method, p)

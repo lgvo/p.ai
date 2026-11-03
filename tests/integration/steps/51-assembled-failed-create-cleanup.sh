@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# Confirmed cleanup after actual assembly-ready startup failure.
-# Dummy private/credential fixtures only; no authentication.
+# Confirmed cleanup after actual assembly-ready startup failure. P does not
+# look inside the exact stopped container: the review states it lost by
+# category. Dummy private/credential fixtures only; no authentication.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-51"
@@ -39,10 +40,9 @@ stop_daemon() {
   fi
 }
 cleanup() {
-  touch "$step_dir/completion-release"
+  touch "$step_dir/completion-release" "$step_dir/stale-release"
   stop_daemon
   if test -n "$uuid"; then
-    inc resume "p-$uuid" >/dev/null 2>&1 || true
     inc delete --force "p-$uuid" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
   fi
@@ -50,9 +50,6 @@ cleanup() {
     inc delete --force "p-$sibling" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${sibling:?}"
   fi
-  for op in "${op_ids[@]}"; do
-    inc delete --force "p-workspace-$op" >/dev/null 2>&1 || true
-  done
   touch "$step_dir/completion-release"
   if test -n "$competing"; then inc delete --force "$competing" >/dev/null 2>&1 || true; fi
   if test -n "$next_uuid"; then
@@ -99,8 +96,8 @@ if test "$#" -ge 5 && test -f "$fixture/protect-source"; then
  fi
 fi
 # Fixture-only read outage for the retired source after local-complete crash.
-# Incus deletion and helper effects are real. This wrapper never deletes the
-# competing identity added by the fixture after restart.
+# Incus deletion is real. This wrapper never deletes the competing identity
+# added by the fixture after restart.
 if test "$#" -eq 7 && test "$4" = list && test "$6" = --format && test "$7" = json && test -f "$fixture/native-unavailable"; then
  read -r source < "$fixture/native-unavailable"
  if test "$5" = "^$source$"; then
@@ -149,6 +146,20 @@ printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"
 printf 'host_git=%q\nfixture=%q\np_binary=%q\njq_binary=%q\nsleep_binary=%q\n' "$host_git" "$step_dir" "$(command -v p)" "$(command -v jq)" "$(command -v sleep)" >> "$step_dir/bin/git"
 cat >> "$step_dir/bin/git" <<'GIT_WRAPPER'
 set -euo pipefail
+# Fixture-only pause of the cleanup worker's first precommit ref read, so the
+# test can move the assigned branch after the confirmation was accepted.
+if test -f "$fixture/stale-arm" && test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify && test "$5" = --quiet && test "$6" = refs/heads/work; then
+ read -r session_uuid < "$fixture/stale-arm"
+ if "$p_binary" api "$fixture/state/control.sock" operation.list '{"v":1,"limit":20}' |
+ "$jq_binary" -e --arg uuid "$session_uuid" '.result.operations|any(.[];.kind=="session.create.cleanup" and .session_uuid==$uuid and .phase=="validated" and .status=="running")' >/dev/null; then
+  : > "$fixture/stale-paused"
+  for ((attempt=0;attempt<800;attempt++)); do
+   if test -f "$fixture/stale-release"; then break; fi
+   "$sleep_binary" 0.05
+  done
+  test -f "$fixture/stale-release" || exit 124
+ fi
+fi
 if test -f "$fixture/completion-arm" && test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify && test "$5" = --quiet && test "$6" = refs/heads/work; then
  read -r cleanup_id < "$fixture/completion-arm"
  if "$p_binary" api "$fixture/state/control.sock" operation.inspect "$("$jq_binary" -nc --arg id "$cleanup_id" '{v:1,id:$id}')" |
@@ -165,7 +176,8 @@ exec "$host_git" "$@"
 GIT_WRAPPER
 chmod 0700 "$step_dir/bin/git"
 start_daemon
-rpc system.capabilities | jq -e '.result.available | index("workspace.loss.inspect") != null' >/dev/null
+rpc system.capabilities | jq -e '.result.available | index("session.create.cleanup.preview") != null and
+ index("session.create.cleanup.confirm") != null and index("workspace.loss.inspect") == null' >/dev/null
 
 wait_operation() {
   local id="$1" want="$2" result status deadline=$((SECONDS+170))
@@ -188,6 +200,13 @@ expect_busy() {
   test "$status" -eq 1
   jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
     .error.kind=="busy" and .error.code == -32003' <<< "$response" >/dev/null
+}
+expect_invalid() {
+  local method="$1" params="$2" response status=0
+  response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
+  test "$status" -eq 1
+  jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+    .error.kind=="invalid_params" and .error.code == -32602' <<< "$response" >/dev/null
 }
 inspect_creator() { rpc operation.inspect "$(jq -nc --arg id "$creator" '{v:1,id:$id}')"; }
 assert_source() {
@@ -269,15 +288,8 @@ refs_before=$(git -C "$repo" for-each-ref --format='%(refname) %(objectname)')
 key_before=$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)
 printf 'p-%s\n' "$uuid" > "$step_dir/protect-source"
 assert_source
-inspect_loss() {
-  local key="$1" response
-  response=$(rpc workspace.loss.inspect "$(jq -nc --arg uuid "$uuid" --arg key "$key" '{v:1,uuid:$uuid,key:$key}')")
-  current_loss=$(jq -er '.result.operation.id|select(length==36)' <<< "$response")
-  op_ids+=("$current_loss")
-  wait_operation "$current_loss" completed >/dev/null
-}
 preview_cleanup() {
-  rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" --arg loss "$current_loss" '{v:1,uuid:$uuid,loss_operation_id:$loss}')"
+  rpc session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')"
 }
 confirm_params() {
   jq -nc --arg uuid "$uuid" --arg key "$1" --arg token "$2" '{v:1,uuid:$uuid,key:$key,confirmation_token:$token}'
@@ -298,37 +310,62 @@ assert_old_effects_absent() {
      (.expanded_config["user.p.session_uuid"] // "")!=$uuid)' >/dev/null
 }
 images_before=$(inc image list --format json | jq -c '[.[].fingerprint]|sort')
-inspect_loss reviewed-loss
+# The removed loss inspection parameter is refused by strict decoding.
+expect_invalid session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid,loss_operation_id:$uuid}')"
+# P picks the assembled path itself and names the exact stopped container,
+# stating it and everything in it lost without looking inside.
 preview=$(preview_cleanup)
-jq -e --arg creator "$creator" --arg native "$native_uuid" --arg generation "$generation" --arg loss "$current_loss" \
+jq -e --arg creator "$creator" --arg native "$native_uuid" --arg generation "$generation" --arg uuid "$uuid" --arg image "$base" \
  '.result.preview | .eligible==true and .old_operation_id==$creator and .old_phase=="assembly-ready" and
+ (.unsafe_reasons // [])==[] and (.old_request_sha256|test("^[0-9a-f]{64}$")) and
  .runtime.condition=="present" and .runtime.original_status=="Stopped" and .runtime.incus_uuid==$native and
- .runtime.generation==$generation and .runtime.loss_operation_id==$loss and
- .runtime.loss.schema=="p.workspace-loss/v1" and (.loss_warnings|length)==3 and
+ .runtime.generation==$generation and .runtime.incus_project=="user-1000" and .runtime.instance_name==("p-"+$uuid) and
+ .runtime.image_fingerprint==$image and .runtime.runtime_data_lost==true and
+ (.runtime | has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at") | not) and
+ (.loss_warnings|length)==3 and
  any(.loss_warnings[];contains("private")) and any(.loss_warnings[];contains("credentials")) and
  .provisional.runtime=="present" and .provisional.runtime_local=="will_be_removed" and
  .provisional.assigned_ref=="preserved_existing" and .shared_images=="preserved" and .external_mounts=="preserved"' <<< "$preview" >/dev/null
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
-# Alter actual stopped workspace bytes after preview. Confirmation may accept
-# reversible intent, but its fresh helper must refuse before source deletion.
-printf changed-after-review > "$step_dir/changed"
-inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/changed" "p-$uuid/workspace/tracked"
-cp "$step_dir/changed" "$step_dir/before-workspace-tracked"
-confirmed=$(rpc session.create.cleanup.confirm "$(confirm_params stale-cleanup "$token")")
-stale_id=$(jq -er '.result.operation.id|select(length==36)' <<< "$confirmed")
-op_ids+=("$stale_id")
-stale_result=$(wait_operation "$stale_id" failed)
-jq -e '.result.operation | .phase=="stale" and .committed==false and
- (.diagnostic|contains("review fresh loss"))' <<< "$stale_result" >/dev/null
-inc list "^p-workspace-$stale_id$" --format json | jq -e 'length==0' >/dev/null
 assert_source
-expect_busy operation.retry "$(jq -nc --arg id "$stale_id" '{v:1,id:$id}')"
-# A new explicit loss operation, preview, token and key are the supported
-# settled-stale recovery procedure. The same original identity is retained.
-inspect_loss refreshed-loss
+# A branch moved between preview and confirmation refuses the request.
+moved=$(git -C "$repo" -c user.name=P -c user.email=p@example.invalid commit-tree "$(git -C "$repo" rev-parse "$tip^{tree}")" -p "$tip" -m moved-after-review)
+git -C "$repo" update-ref refs/heads/work "$moved" "$tip"
+expect_busy session.create.cleanup.confirm "$(confirm_params moved-before-confirm "$token")"
+git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
+assert_source
+# A branch moved after the confirmation was accepted but before the cleanup
+# committed fails it as stale and preserves everything.
 preview=$(preview_cleanup)
 jq -e '.result.preview.eligible==true' <<< "$preview" >/dev/null
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+printf '%s\n' "$uuid" > "$step_dir/stale-arm"
+confirmed=$(rpc session.create.cleanup.confirm "$(confirm_params stale-cleanup "$token")")
+stale_id=$(jq -er '.result.operation.id|select(length==36)' <<< "$confirmed")
+op_ids+=("$stale_id")
+deadline=$((SECONDS+100))
+while test ! -f "$step_dir/stale-paused" && ((SECONDS<deadline)); do sleep 0.1; done
+test -f "$step_dir/stale-paused"
+rpc operation.inspect "$(jq -nc --arg id "$stale_id" '{v:1,id:$id}')" |
+ jq -e '.result.operation | .status=="running" and .phase=="validated" and .committed==false' >/dev/null
+git -C "$repo" update-ref refs/heads/work "$moved" "$tip"
+touch "$step_dir/stale-release"
+stale_result=$(wait_operation "$stale_id" failed)
+jq -e '.result.operation | .phase=="stale" and .committed==false and
+ (.diagnostic|contains("review the cleanup again"))' <<< "$stale_result" >/dev/null
+rm "$step_dir/stale-arm"
+git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
+assert_source
+expect_busy operation.retry "$(jq -nc --arg id "$stale_id" '{v:1,id:$id}')"
+# A new preview, token and key are the supported settled-stale recovery
+# procedure. The same original identity is retained.
+preview=$(preview_cleanup)
+jq -e '.result.preview.eligible==true' <<< "$preview" >/dev/null
+token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
+# P does not look inside the container: workspace bytes changed after the
+# review do not refuse the cleanup.
+printf changed-after-review > "$step_dir/changed"
+inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/changed" "p-$uuid/workspace/tracked"
 printf 'pending\n' > "$step_dir/completion-arm"
 confirmed_status=0
 confirmed=$(rpc session.create.cleanup.confirm "$(confirm_params cleanup-reviewed "$token")") || confirmed_status=$?
@@ -394,9 +431,6 @@ wait_operation "$cleanup_id" completed >/dev/null
 assert_old_effects_absent
 assert_retained
 rpc session.list '{"v":1,"limit":8}' | jq -e --arg uuid "$uuid" '.result.sessions|all(.[];.uuid!=$uuid)' >/dev/null
-for helper_op in "${op_ids[@]}"; do
- inc list "^p-workspace-$helper_op$" --format json | jq -e 'length==0' >/dev/null
-done
 test "$(cat "$step_dir/source-effects")" = "delete p-$uuid"
 # Corrected Create is explicit and separate, claims the retained branch, and
 # obtains a new UUID. No old Create replay may reinitialize its source.

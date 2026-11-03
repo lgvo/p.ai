@@ -72,11 +72,8 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	}
 	if assembled {
 		session, e := getSessionTx(ctx, tx, p.UUID)
-		if e != nil || digest(old.Request) != p.OldRequestSHA256 || AssembledCreationForLoss(session, old, p.ImageFingerprint) != nil {
+		if e != nil || digest(old.Request) != p.OldRequestSHA256 || AssembledCreationForCleanup(session, old, p.ImageFingerprint) != nil {
 			return api.Operation{}, ErrConflict
-		}
-		if e = validateAssembledCleanupLossTx(ctx, tx, old, ev); e != nil {
-			return api.Operation{}, e
 		}
 	}
 	var registry, branch, policy string
@@ -130,7 +127,7 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	}
 	phase, committed := "local-cleanup", true
 	if assembled {
-		phase, committed = "helper-intent", false
+		phase, committed = "validated", false
 	}
 	if err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: KindCreateCleanup, Project: old.Project, Session: p.UUID, Request: raw, Phase: phase, Committed: committed, Evidence: evidence, Now: now}); err != nil {
 		return api.Operation{}, classifyWrite(err)

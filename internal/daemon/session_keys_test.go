@@ -62,3 +62,25 @@ func TestSessionKeyOperationsRefuseAnUnsafeKeyDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionKeyRemovalToleratesAMissingKey(t *testing.T) {
+	const uuid = "11111111-2222-4333-8444-555555555555"
+	stateDir := t.TempDir()
+	if err := removeSessionKeyAt(stateDir, uuid); err != nil {
+		t.Fatalf("removal refused without a key directory: %v", err)
+	}
+	dir := filepath.Join(stateDir, "session_keys")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(dir, "22222222-2222-4333-8444-555555555555")
+	if err := os.WriteFile(sibling, []byte("dummy sibling credential"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeSessionKeyAt(stateDir, uuid); err != nil {
+		t.Fatalf("removal refused for a session whose key is missing: %v", err)
+	}
+	if got, err := os.ReadFile(sibling); err != nil || string(got) != "dummy sibling credential" {
+		t.Fatalf("sibling key changed: %q %v", got, err)
+	}
+}

@@ -68,7 +68,7 @@ var schemaSQL string
 // schemaVersion marks a database built from schemaSQL. P does not migrate
 // state: every schema change raises it, and openStore refuses a database of
 // any other version.
-const schemaVersion = 23
+const schemaVersion = 24
 
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
@@ -541,22 +541,6 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	if kind == "session.create" {
 		if err = monotonicCreationEvidence(oldPhase, []byte(oldEvidence), evidence); err != nil {
 			return err
-		}
-	}
-	if kind == "workspace.loss.inspect" {
-		if err = immutableWorkspaceSource([]byte(oldEvidence), evidence); err != nil {
-			return err
-		}
-		var ev WorkspaceInspectEvidence
-		_ = json.Unmarshal(evidence, &ev)
-		if ev.CreatorOperationID != "" {
-			session, e := getSessionTx(ctx, tx, sessionID)
-			if e != nil {
-				return ErrConflict
-			}
-			if e = validateWorkspaceCreatorTx(ctx, tx, session, ev); e != nil {
-				return e
-			}
 		}
 	}
 	if kind == "session.create.cleanup" {

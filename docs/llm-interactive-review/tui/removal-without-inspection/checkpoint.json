@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-02",
+  "head": "5406004",
+  "working_tree": "uncommitted step 0e backend changes plus this TUI change",
+  "scope": "Production p tui against the disposable mock socket (just tui-mock --dataset small --theme dark); no Incus, Git, systemd or native removal claim",
+  "before": "git worktree of HEAD 5406004 (run 'before')",
+  "prototype": ".prototype/tui-options browser, X project-deletion probe (run 'proto')",
+  "after_runs": {
+    "after": "first changed build; found the stop line ordered after the advice line",
+    "after2": "reordered review; found the Delete outcome below the fold at 80x24 and the [y/N] prompt clipped at 48x16",
+    "after3": "review uses the text-page height and wraps its prompt; found review scroll left only the last line after 48x16 -> 120x35",
+    "after4": "scroll clamped to the last full page; found 'Requesting the Delete review' still shown after a refusal",
+    "after5": "final build: request, review, cancel and refusal wording"
+  },
+  "sizes": [
+    "120x35",
+    "80x24",
+    "48x16"
+  ],
+  "final_files_sha256": {
+    "internal/tui/model.go": "7d2fc70f19a268d9ab4470d5d92773590a294c3b14c133621b43be148f44af4e",
+    "internal/tui/view.go": "8bd2eac5afc0bc613bb7e35f3a5300deb68ca61a88e413a3afba966c8d572cc9",
+    "internal/tui/workflows.go": "5c5061bc4f4465d1931f10919f2e11043398216e2e3049a50012e456b73f5807",
+    "tests/integration/cmd/tui-mock/main.go": "ce40315f9d57af0168e227504f46daf92d18bd9a772f3608a7cba79877c813db",
+    "tests/integration/cmd/tui-mock/preview.go": "fa43c128cf12920413cdca797654d1686b8e9384490603eb11ec5ee612994f56",
+    "tests/integration/cmd/tui-mock/schema.go": "2e2e14fe02972258e804e73ab582413159c37fcb3ba2f1729064f1ed8713aa1b",
+    "dev/tui-mock": "ee83826cd9b27523c21d1641f8333b6bf9bf8a461c17ae7ec560a2f24c69ccc7",
+    "dev/tui-test-shell.nix": "c51028bb02a84fb20da3c3be84d17156f0f85b1e0c1e602c7b20b2e18229b505"
+  },
+  "findings_open": 0
+}

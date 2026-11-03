@@ -71,7 +71,7 @@ The layout and navigation follow the
 | `s`, `c`, `R` | Confirm Stop; create Project → Branch → Policy; rename a session branch. |
 | `D`, `A`, `S` | Read complete session details; inspect unattended agent reports; browse project user services. |
 | `O`, `p`, `b` | Inspect durable operations, captured policy/environment, or retained branches. |
-| `d`, `X` | Review Discard or session Delete after detaching and stopping. |
+| `d`, `X` | Review Discard or session Delete after detaching. |
 | `?`, `q`/Escape | Show help; close the current interaction, then search, project scope, or browser. |
 
 The browser refreshes real state and retains selected identity while it exists.
@@ -456,7 +456,9 @@ retained commit, not dirty files or unpushed commits in the workspace.
 ## Rename a stream
 
 Use `session.rename` to rename the session's assigned branch while keeping its
-UUID and private files. Supply the current P tip as `expected_old_tip`:
+UUID and private files. Detach and Stop the session first: Rename returns
+`busy` for a session that is not stopped. Supply the current P tip as
+`expected_old_tip`:
 
 ```bash
 api session.rename "$(jq -nc --arg uuid "$SESSION" --arg tip "$SOURCE_OID" \
@@ -481,37 +483,30 @@ reset your workspace to make it match.
 Discard keeps the existing branch pushed to P. Delete removes that assigned
 branch too. Both remove the session's runtime and private home, including
 credentials, dirty files, and commits that exist only in its workspace.
-Shared cached images and other sessions are preserved.
+P does not look inside the runtime to list them; the preview states that
+everything in it is lost. Shared cached images and other sessions are
+preserved.
 
-Detach, then Stop the session before this walkthrough. Choose the UUID carefully
-and run a loss inspection:
+Detach every terminal first. A running session does not need Stop: P stops it
+as part of the removal. Choose the UUID carefully and request a preview:
 
 ```bash
 ACTION=discard  # Set delete only when you also intend to remove the P branch.
-LOSS=$(api workspace.loss.inspect "$(jq -nc --arg uuid "$SESSION" \
-  '{v:1,key:"demo-loss-1",uuid:$uuid}')")
-LOSS_OPERATION=$(jq -er '.result.operation.id' <<< "$LOSS")
-api operation.inspect "$(jq -nc --arg id "$LOSS_OPERATION" '{v:1,id:$id}')"
-```
-
-Wait until inspection completes and review `operation.evidence.result`.
-It accounts for supported Git worktrees, file changes, and local-only commits;
-it also warns about private runtime data outside Git. An incomplete or unsupported
-scan is a refusal, not a clean report.
-
-Get the corresponding preview promptly; evidence and tokens have a two-minute
-freshness window:
-
-```bash
 PREVIEW=$(api session.removal.preview "$(jq -nc --arg uuid "$SESSION" \
-  --arg kind "$ACTION" --arg loss "$LOSS_OPERATION" \
-  '{v:1,uuid:$uuid,kind:$kind,loss_operation_id:$loss}')")
+  --arg kind "$ACTION" '{v:1,uuid:$uuid,kind:$kind}')")
 jq '.result.preview' <<< "$PREVIEW"
 ```
 
-**Pause here and review the loss, session identity, branch, and preserved
-resources.** If the loss is not acceptable, keep the session and push or export
-the work you need first. After a new inspection, use a new inspection key.
+**Pause here and review the session identity, branch, runtime, and preserved
+resources.** `runtime.runtime_data_lost: true` means the runtime and
+everything in it will be deleted. If that is not acceptable, keep the session
+and push or copy out the work you need first, then request a new preview.
+Tokens expire after two minutes.
+
+Delete's `branch_loss` lists the commits that leave P's repository. P does not
+check whether the external origin has them. When the assigned branch is
+already gone, the preview has `assigned_ref_missing: true` and no tip; Discard
+then keeps no branch and ends like Delete.
 
 Only after deciding to authorize the displayed removal:
 
@@ -525,9 +520,10 @@ api operation.inspect "$(jq -nc --arg id "$REMOVE_OPERATION" '{v:1,id:$id}')"
 ```
 
 Inspect until complete. Acceptance of a confirmation is not proof that cleanup
-finished. Changed facts or expired tokens require a fresh inspection and preview;
-P rechecks under quiescence before committing removal. An already accepted
-operation retains its exact intent and key across restart.
+finished. Changed facts or expired tokens require a fresh preview: P rechecks
+the branch tip and the runtime identity before committing removal. Starting or
+stopping the session after the preview does not invalidate it. An already
+accepted operation retains its exact intent and key across restart.
 
 If Incus positively proves the runtime missing, the preview can instead use
 `acknowledge_missing_runtime: true`, explicitly acknowledging unknown runtime
@@ -535,10 +531,10 @@ loss. An unavailable Incus service does not prove absence and cannot authorize
 this shortcut.
 
 For an unassigned retained branch, use `project.retained.delete.preview` and
-`project.retained.delete.confirm`; no runtime loss inspection is needed. Whole
-project deletion uses an aggregate preview and confirmation covering every
-session and branch. Its bounded MVP path requires stopped/detached established
-sessions with fresh loss evidence; failed creations need supported cleanup first.
+`project.retained.delete.confirm`; no runtime is involved. Whole project
+deletion uses an aggregate preview and confirmation covering every session and
+branch. Its bounded MVP path requires stopped/detached established sessions and
+does not stop them for you; failed creations need supported cleanup first.
 See the [project lifecycle](project-lifecycle.md) and [API schemas](control-api.md).
 
 ## When something does not finish
@@ -550,7 +546,7 @@ action. A transport timeout does not prove the daemon abandoned an operation.
 |---|---|
 | Creation is still running | Inspect the same operation. Do not create another stream with a new key just to retry. |
 | A blocked operation with a corrected prerequisite | Use `operation.retry` with its ID. Retry keeps the captured request, source, identity, and policy. |
-| `busy` | Read the message: attachments, guarded resources, branch assignment, or capacity may prevent the action. Remove the specific conflict before retrying. |
+| `busy` | Read the message: attachments, a running session for Rename, guarded resources, branch assignment, or capacity may prevent the action. Remove the specific conflict before retrying. |
 | Branch/upstream mismatch | Compare expected and actual values, correct Git manually, then recheck. |
 | Incus unavailable or runtime unreachable | Restore or investigate the authority. P retains identity and incomplete cleanup; it must not claim deletion or create an uncertain duplicate. |
 | Runtime missing | Discard the session with `acknowledge_missing_runtime: true` in its removal preview, then create a new session on the retained branch. P does not adopt an unfamiliar replacement container. |
@@ -566,9 +562,9 @@ api operation.retry "$(jq -nc --arg id "$OPERATION" '{v:1,id:$id}')"
 Replacement and cleanup are bounded capabilities, not universal recovery, and
 P has no session repair. When a session's runtime is missing, or its Git
 principal or key is missing, revoked or changed, discard the session and create
-a new one on the retained branch. If its assigned P ref is gone, Discard and
-Delete refuse the session, and P does not import commits that exist only in its
-workspace. Preserve the workspace and investigate the reported condition. A
+a new one on the retained branch. If its assigned P ref is gone, Discard or
+Delete the session; with no branch both end the same way. P does not import
+commits that exist only in its workspace, so rescue them by hand first. A
 supported cleanup path must still show loss, require confirmation, and verify
 ownership. Consult
 [inconsistent sessions](session-lifecycle.md#inconsistent-sessions); deleting

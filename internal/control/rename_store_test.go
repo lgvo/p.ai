@@ -34,7 +34,7 @@ func renameStoreFixture(t *testing.T) (*Store, string, RenameRequest, RenameEvid
 	e := RenameEvidence{Project: "app", OldBranch: "main", NewBranch: "renamed", OldTip: r.ExpectedOldTip,
 		PolicySHA256: policy, InstanceUUID: "11111111-1111-4111-8111-111111111111",
 		ImageFingerprint: strings.Repeat("b", 64), BaseFingerprint: strings.Repeat("c", 64),
-		IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333", OriginalStatus: "Running"}
+		IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333"}
 	return s, dir, r, e
 }
 
@@ -127,7 +127,7 @@ func TestRenamePostCommitForwardSurvivesSQLiteRestart(t *testing.T) {
 	if err != nil || !active {
 		t.Fatalf("principal changed during rename: %v %v", active, err)
 	}
-	op = renameAdvance(t, reopened, op, ev, "source-restored", true)
+	op = renameAdvance(t, reopened, op, ev, "backup-absent", true)
 	if err := reopened.CompleteRename(ctx, op.ID, func(_ context.Context, got RenameEvidence) error {
 		if got != ev {
 			t.Fatal("completion lost captured evidence")

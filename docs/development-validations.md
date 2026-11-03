@@ -22,10 +22,10 @@ backend development may proceed.
 ## 2. Incus runtime and storage conformance
 
 **Validate:** Exercise deterministic names/metadata, image launch, private root,
-workspace/home/private `/nix` persistence, start/pause/resume/stop/remove,
-operation inspection, events/gaps, structured exec/attach, resource limits,
-fixed endpoint mounts, filesystem grants, and the non-activating workspace
-helper.
+workspace/home/private `/nix` persistence, start/stop/remove, operation
+inspection, events/gaps, structured exec/attach, resource limits, fixed
+endpoint mounts, filesystem grants, and non-activating workspace access on a
+stopped instance.
 
 Run on each claimed storage driver and architecture. Measure logical and
 physical image/session sizes, but do not generalize copy-on-write or
@@ -135,24 +135,26 @@ losses, require explicit confirmation, recheck identity/ownership, recover
 durably, and preserve shared or unrelated resources. Uncertain cleanup must
 explain the unresolved condition and leave uncertain resources intact.
 
-For the narrow assembled failed-creation inspection path, use an actual failed
+For the narrow assembled failed-creation cleanup path, use an actual failed
 host startup with a stopped, committed local base-image workspace. Prove that
-the non-activating loss helper preserves workspace/private files and the assigned
-P ref, removes only its helper, and leaves the original session `creating`.
-Exercise durable creator fencing across Retry, replay and daemon restart;
-reject changed native identity, unsupported policy/layout and uncertain init.
-Read-only inspection evidence does not establish confirmed cleanup acceptance.
+the cleanup preview identifies the exact stopped container and states it lost
+by category without reading the workspace, and that previewing preserves
+workspace/private files, the assigned P ref and the original `creating`
+session. Reject changed native identity, unsupported policy and uncertain
+init. A preview does not establish confirmed cleanup acceptance.
 
-For confirmed assembled cleanup, change workspace bytes after preview and prove
-fresh quiescent comparison refuses source deletion, preserves private/dummy
-credential files and releases only the settled precommit helper/guards. Fresh
-inspection/review/confirmation must then remove only the exact owned source and
-reviewed local authority, retaining the P branch, sibling and shared base image.
-Crash after native deletion/local cleanup; unavailable or competing authority
-must retain the removing identity and accepted intent until exact recovery.
-Reject retired Create replay and prove a separate corrected Create receives a
-new UUID. Label injected outage/crash evidence separately from real native work;
-whole-runtime loss warnings do not claim private credential enumeration.
+For confirmed assembled cleanup, change the container's identity or the
+assigned branch after preview and prove the precommit check fails the cleanup
+as stale, preserves the container, private/dummy credential files and the
+branch, and releases its guards. Exercise durable creator fencing by that
+guard across Retry, replay and daemon restart. A new preview and confirmation
+must then remove only the exact stopped source and reviewed local authority,
+retaining the P branch, sibling and shared base image. Crash after native
+deletion/local cleanup; unavailable or competing authority must retain the
+removing identity and accepted intent until exact recovery. Reject retired
+Create replay and prove a separate corrected Create receives a new UUID. Label
+injected outage/crash evidence separately from real native work; the stated
+loss does not claim private credential enumeration.
 
 **Gate:** reliable status/control from sessions and local NixOS client support.
 
@@ -167,6 +169,12 @@ comparison, and cleanup failures. Branch/upstream
 mismatches must show expected and actual values, block dependent actions, and
 recheck on the next attempt after manual Git correction. No dedicated mismatch
 repair action or automatic checkout/reset is required.
+
+Discard and delete a running session and prove P stops it after the removal
+commit point; prove both refuse while a terminal is attached, and that a Start
+or Stop between preview and confirmation does not make the confirmation stale.
+Remove a session whose assigned ref was deleted outside P, then create a new
+session on a branch. Rename must refuse a running session.
 
 When Incus is unavailable, verify cleanup remains incomplete, session/project
 identity and durable confirmed operation state survive restart, and existing
@@ -194,16 +202,17 @@ remainder, and unavailable Incus keeps identity and cleanup incomplete until
 the confirmed operation can resume. Verify
 there is no rollback or hidden multi-phase recovery mode.
 
-For the implemented quiescent aggregate boundary, also prove stale ref/workspace
-refusal before retirement; atomic project/session/principal closure; partial
-resource absence and blocked competing/renamed/unavailable identities across
-restart; no repeat dispatch of an issued source DELETE; repository/registry-last
-removal; and retired Create/origin/publication keys that cannot revive deleted
-authority. VM52 is the base-session fixture for this batch. Production-path
-cached-session/image deletion requires separate actual builder/cache evidence;
-synthetic indexes or base-only sessions do not establish that gate. Running/live
-attachment preparation and oversized/unsupported inventory refusals remain
-explicit boundaries, not proof of automatic deletion in those states.
+For the implemented stopped-session aggregate boundary, also prove stale
+ref/runtime refusal before retirement; atomic project/session/principal closure;
+partial resource absence and blocked competing/renamed/unavailable identities
+across restart; no repeat dispatch of an issued source DELETE;
+repository/registry-last removal; and retired Create/origin/publication keys
+that cannot revive deleted authority. VM52 is the base-session fixture for this
+batch. Production-path cached-session/image deletion requires separate actual
+builder/cache evidence; synthetic indexes or base-only sessions do not establish
+that gate. Running/live attachment preparation and oversized/unsupported
+inventory refusals remain explicit boundaries, not proof of automatic deletion
+in those states.
 
 **Gate:** each lifecycle mutation as it enters the implementation.
 
@@ -404,7 +413,7 @@ and are excluded from production capabilities.
 | s Stop | Default No and explicit decline issue no Stop; confirmation changes fixture condition; subsequent Start retains files |
 | c Create | Project creation, new branch from P source, captured external origin, retained-branch resume; assigned identity, source params and automatic attachment |
 | R Rename | Literal q/g/G in forms, editing/cancel, reviewed rename preserving UUID and changing assigned ref |
-| d Discard; X Delete | Stopped-session requirement, fresh loss inspection and bound preview, cancel with no removal; Discard retains ref, Delete removes it |
+| d Discard; X Delete | Detach requirement, bound preview stating the runtime's loss by category, cancel with no removal; Discard retains ref, Delete removes it |
 | O operations; Enter inspect; r retry | Inspect failed operation, retry request and completed observation |
 | S services; s start/stop; r restart | Exact session/unit/action, updated state, inventory/action refusals, queued action bound to original unit, Back cancels queued work |
 | Enter/J journal; h/l; /; n/N; f; movement | Journal data, horizontal pan, find/matches, follow toggle, scroll, clear find then Back |

@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# Confirmed public Discard and exact runtime/credential cleanup.
-# All files are disposable fixtures; no authentication is used.
+# Confirmed public Discard of a running, unattached session: P stops and
+# deletes the exact runtime and removes its credentials without looking
+# inside it. All files are disposable fixtures; no authentication is used.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-31"
@@ -36,9 +37,9 @@ stop_daemon() {
   fi
 }
 cleanup() {
+  touch "$step_dir/stop-release"
   stop_daemon
   if test -n "$uuid"; then
-    inc resume "p-$uuid" >/dev/null 2>&1 || true
     inc delete --force "p-$uuid" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
   fi
@@ -46,9 +47,6 @@ cleanup() {
     inc delete --force "p-$uuid_b" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid_b:?}"
   fi
-  for op in "${op_ids[@]}"; do
-    inc delete --force "p-workspace-$op" >/dev/null 2>&1 || true
-  done
   rmdir "$endpoint_prefix" 2>/dev/null || true
 }
 on_error() {
@@ -57,6 +55,7 @@ on_error() {
     rpc operation.inspect "$(jq -nc --arg id "$op" '{v:1,id:$id}')" 2>/dev/null |
       jq -cr '.result.operation | {id,status,phase,diagnostic:(.diagnostic // "")[:512]}' >&2 || true
   done
+  tail -c 1024 "$step_dir/source-effects" >&2 || true
   tail -c 3072 "$step_dir/daemon.err" >&2 || true
 }
 trap cleanup EXIT
@@ -76,6 +75,34 @@ activate "$P_TEST_SOURCE/plugins/bundled/codex-adapter" "$step_dir/agent.json" a
 jq -s '{schema:"p.activation/v1",plugins:([.[0].plugins[0],.[1].plugins[0]])}' \
   "$step_dir/runtime-one.json" "$step_dir/host-one.json" > "$step_dir/runtime.json"
 
+# Record P's Incus effects on the armed source and hold its stop until the
+# fixture releases it, so the removal is observed at stop-issued. Incus runs
+# with PATH=/usr/bin:/bin, so use shell builtins and absolute utilities.
+incus_wrapper="$step_dir/incus-wrapper"
+printf '#!%s\n' "$(command -v bash)" > "$incus_wrapper"
+printf 'incus_real=%q\nfixture=%q\nsleep_binary=%q\n' "$incus_real" "$step_dir" "$(command -v sleep)" >> "$incus_wrapper"
+cat >> "$incus_wrapper" <<'NATIVE_WRAPPER'
+set -euo pipefail
+if test "$#" -ge 5 && test -f "$fixture/removal-arm"; then
+ read -r armed < "$fixture/removal-arm"
+ if test "$5" = "$armed"; then
+  case "$4" in start|stop|restart|pause|resume|delete)
+   printf '%s %s\n' "$4" "$5" >> "$fixture/source-effects" ;;
+  esac
+  if test "$4" = stop; then
+   : > "$fixture/stop-paused"
+   for ((attempt=0; attempt<800; attempt++)); do
+    if test -f "$fixture/stop-release"; then break; fi
+    "$sleep_binary" 0.05
+   done
+   test -f "$fixture/stop-release" || exit 124
+  fi
+ fi
+fi
+exec "$incus_real" "$@"
+NATIVE_WRAPPER
+chmod 0700 "$incus_wrapper"
+
 base=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base}" -eq 64
 jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
@@ -85,7 +112,7 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
   --arg host_id "$(jq -er '.plugins[1].id' "$step_dir/runtime.json")" \
   --arg agent_activation "$step_dir/agent.json" \
   --arg agent_id "$(jq -er '.plugins[0].id' "$step_dir/agent.json")" \
-  --arg incus_binary "$incus_real" --arg prefix "$endpoint_prefix" --arg image "$base" \
+  --arg incus_binary "$incus_wrapper" --arg prefix "$endpoint_prefix" --arg image "$base" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0"},
     runtime:{activation_path:$runtime_activation,runtime_plugin_id:$runtime_id,
@@ -153,18 +180,10 @@ source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
     'length==1 and .[0].name==$name and .[0].status=="Running"' >/dev/null
 }
-inspect_loss() {
-  local key="$1" response
-  response=$(rpc workspace.loss.inspect "$(jq -nc --arg key "$key" --arg uuid "$uuid" '{v:1,key:$key,uuid:$uuid}')")
-  loss_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$response")
-  op_ids+=("$loss_op")
-  wait_operation "$loss_op" completed >/dev/null
-}
 preview_discard() {
-  local result
-  result=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg op "$loss_op" \
-    '{v:1,uuid:$uuid,kind:"discard",loss_operation_id:$op}')")
-  jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$result"
+  discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
+    '{v:1,uuid:$uuid,kind:"discard"}')")
+  discard_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$discard_preview")
 }
 
 guest /run/current-system/sw/bin/git config user.name P
@@ -186,13 +205,25 @@ guest /usr/libexec/p/codex-adapter init
 guest /run/current-system/sw/bin/bash -c \
   'printf doomed-dummy > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json; printf dirty > tracked'
 
-# A same-length content change keeps Git status and P refs unchanged. The old
-# confirmation must be stale before any removal commit point.
-inspect_loss discard-stale-report
-stale_token=$(preview_discard)
-guest /run/current-system/sw/bin/bash -c 'printf other > tracked'
-# Confirmation request and stale-response assertions are completed with the
-# reviewed public schema before this fixture is eligible for a VM run.
+# The review of a running session does not look inside it: it states that
+# the container and everything in it is lost.
+preview_discard
+jq -e --arg uuid "$uuid" --arg oid "$main_oid" '
+  .result.preview | .kind=="discard" and .session_uuid==$uuid and
+  .project=="discard-lifecycle" and .branch=="main" and
+  .assigned_ref=="refs/heads/main" and .assigned_tip==$oid and
+  (has("assigned_ref_missing")|not) and .branch_loss==null and
+  .runtime.condition=="present" and .runtime.original_status=="Running" and
+  .runtime.instance_name==("p-"+$uuid) and .runtime.runtime_data_lost==true and
+  (.runtime | (has("loss") or has("loss_operation_id") or has("fingerprint") or
+    has("observed_at") or has("runtime_loss_unknown")) | not)
+' <<< "$discard_preview" >/dev/null
+stale_token=$discard_token
+# A changed assigned P tip makes the old confirmation stale before any
+# removal commit point.
+guest /run/current-system/sw/bin/bash -c \
+  'printf tip > tracked; git add tracked; git commit -qm after-preview; git push origin HEAD:main'
+main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
 discard() {
   local key="$1" token="$2"
   rpc session.discard "$(jq -nc --arg key "$key" --arg uuid "$uuid" --arg token "$token" \
@@ -200,11 +231,12 @@ discard() {
 }
 stale_response=$(discard discard-stale "$stale_token")
 stale_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$stale_response")
+op_ids+=("$stale_op")
 stale_result=$(wait_operation "$stale_op" failed)
 jq -e '.result.operation | .kind=="session.discard" and .phase=="stale" and
   .committed==false and (.diagnostic|type=="string" and length>0)' <<< "$stale_result" >/dev/null
 source_running
-test "$(guest /run/current-system/sw/bin/cat tracked)" = other
+test "$(guest /run/current-system/sw/bin/cat tracked)" = tip
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = doomed-dummy
 test -f "$state/session_keys/$uuid"
 test -f "$state/session_keys/$uuid_b"
@@ -217,17 +249,32 @@ inc list "^p-$uuid_b$" --format json | jq -e 'length==1 and .[0].status=="Runnin
 expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$stale_token" \
   '{v:1,key:"discard-stale-reused",uuid:$uuid,confirmation_token:$token}')" busy
 # A real push proves the stale path released the P ref guard and Git principal.
-guest /run/current-system/sw/bin/bash -c 'git add tracked; git commit -qm after-stale; git push origin HEAD:main'
+guest /run/current-system/sw/bin/bash -c 'printf after-stale > tracked; git add tracked; git commit -qm after-stale; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/main | cut -f1)" = "$main_oid"
 
-inspect_loss discard-fresh-report
-fresh_token=$(preview_discard)
+# Changed container contents do not make a review stale: P does not look
+# inside. P stops the running, unattached session itself, then deletes it.
+preview_discard
+fresh_token=$discard_token
+guest /run/current-system/sw/bin/bash -c 'printf other > tracked; printf new > untracked'
+printf 'p-%s\n' "$uuid" > "$step_dir/removal-arm"
 completed_response=$(discard discard-confirmed "$fresh_token")
 discard_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$completed_response")
+op_ids+=("$discard_op")
+pause_deadline=$((SECONDS+40))
+while test ! -f "$step_dir/stop-paused" && ((SECONDS < pause_deadline)); do sleep 0.1; done
+test -f "$step_dir/stop-paused"
+rpc operation.inspect "$(jq -nc --arg id "$discard_op" '{v:1,id:$id}')" |
+  jq -e '.result.operation | .status=="running" and .phase=="stop-issued" and .committed==true' >/dev/null
+source_running
+touch "$step_dir/stop-release"
 completed_result=$(wait_operation "$discard_op" completed)
-jq -e '.result.operation | .kind=="session.discard" and .status=="completed" and .committed==true' \
-  <<< "$completed_result" >/dev/null
+jq -e '.result.operation | .kind=="session.discard" and .phase=="discarded" and
+  .status=="completed" and .committed==true' <<< "$completed_result" >/dev/null
+# The exact source was stopped, then deleted: never paused or restarted.
+printf 'stop p-%s\ndelete p-%s\n' "$uuid" "$uuid" > "$step_dir/source-effects-expected"
+cmp "$step_dir/source-effects-expected" "$step_dir/source-effects"
 replayed=$(discard discard-confirmed "$fresh_token")
 test "$(jq -er '.result.operation.id' <<< "$replayed")" = "$discard_op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

@@ -1,89 +1,13 @@
 package gitservice
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os/exec"
-	"reflect"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/lgvo/p.ai/internal/plugin"
 )
-
-// RetainedLossRefs observes the complete bounded P-owned heads, then compares
-// literal commit OIDs from the isolated helper against those captured tips.
-// Runtime Git bytes and config are never opened by host Git.
-func (b *Backend) RetainedLossRefs(ctx context.Context, project string, commits []string) ([]plugin.GitRef, []string, error) {
-	if len(commits) > 256 {
-		return nil, nil, errors.New("local commit inventory exceeds bound")
-	}
-	seen := map[string]bool{}
-	for _, oid := range commits {
-		if !validOID(oid) || seen[oid] {
-			return nil, nil, errors.New("local commit inventory malformed")
-		}
-		seen[oid] = true
-	}
-	scoped, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
-	refs, err := b.observeLossHeads(scoped, project)
-	if err != nil {
-		return nil, nil, err
-	}
-	repo, err := b.checkRepository(scoped, project)
-	if err != nil {
-		return nil, nil, err
-	}
-	tips := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		tips = append(tips, ref.OID)
-	}
-	types, err := b.lossPObjectTypes(scoped, repo, tips, commits)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, tip := range tips {
-		if types[tip] != "commit" {
-			return nil, nil, errors.New("P retained tip object unavailable")
-		}
-	}
-	localOnly := make([]string, 0, len(commits))
-	for _, oid := range commits {
-		// Missing from P's object database means P has not retained these
-		// runtime bytes, regardless of local ref names or origin claims.
-		if types[oid] == "missing" {
-			localOnly = append(localOnly, oid)
-			continue
-		}
-		if types[oid] != "commit" {
-			return nil, nil, errors.New("P local commit object type unavailable")
-		}
-		args := []string{"-C", repo, "rev-list", "--max-count=1", oid, "--not"}
-		args = append(args, tips...)
-		query := exec.CommandContext(scoped, b.gitPath, args...)
-		query.Env = b.gitEnv()
-		var output refOutput
-		query.Stdout = &output
-		if err := query.Run(); err != nil {
-			return nil, nil, errors.New("P reachability observation unavailable")
-		}
-		if len(bytes.TrimSpace(output.buffer.Bytes())) != 0 {
-			if !bytes.Equal(output.buffer.Bytes(), []byte(oid+"\n")) {
-				return nil, nil, errors.New("P reachability output malformed")
-			}
-			localOnly = append(localOnly, oid)
-		}
-	}
-	again, err := b.observeLossHeads(scoped, project)
-	if err != nil || !reflect.DeepEqual(refs, again) {
-		return nil, nil, errors.Join(err, errors.New("P retained refs changed during loss analysis"))
-	}
-	sort.Strings(localOnly)
-	return refs, localOnly, nil
-}
 
 func (b *Backend) lossPObjectTypes(ctx context.Context, repo string, tips, commits []string) (map[string]string, error) {
 	input := make([]string, 0, len(tips)+len(commits))

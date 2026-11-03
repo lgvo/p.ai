@@ -78,8 +78,8 @@ There is no command that registers or imports the checkout you are standing in.
 
 When work has no good name yet, P suggests a timestamp. Every session still has
 a UUID and a real branch immediately. A Rename action changes that Git branch
-transactionally while the runtime and conversation continue; no commit is
-invented on the user's behalf.
+transactionally while the session is stopped, keeping its files and identity;
+no commit is invented on the user's behalf.
 
 A session may write only its assigned branch. An agent may still fan out with
 worktrees or subagents inside its runtime, but it must consolidate the result
@@ -90,9 +90,8 @@ Cleanup is three verbs, because “pause this runtime,” “remove this runtime
 restartable runtime. **Discard** ends the session and removes its machinery
 while keeping the ref as a retained branch. **Delete** also removes
 the session-owned branch. It
-itemizes commits that lose their last retained ref; when an origin exists, a
-fresh fetch also identifies what survives upstream. Local-only projects bypass
-that comparison. P never reclaims anything on its own.
+itemizes commits that lose their last retained ref in P; whether the origin
+has them is the user's concern. P never reclaims anything on its own.
 
 ## Git is the interface
 

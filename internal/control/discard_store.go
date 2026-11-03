@@ -16,9 +16,9 @@ type DiscardRequest struct {
 	TokenSHA256 string `json:"token_sha256"`
 }
 
-// DiscardEvidence contains only the authority needed to recompute and finish
-// an already confirmed Discard. The displayed loss snapshot remains in the
-// preview; it is not copied into the durable operation or sent to plugins.
+// DiscardEvidence contains only the authority needed to recheck and finish
+// an already confirmed Discard or Delete. An empty AssignedTip means the
+// session has no branch in P's repository.
 type DiscardEvidence struct {
 	Action             string `json:"action"`
 	Project            string `json:"project"`
@@ -32,15 +32,10 @@ type DiscardEvidence struct {
 	BaseFingerprint    string `json:"base_fingerprint"`
 	IncusUUID          string `json:"incus_uuid,omitempty"`
 	Generation         string `json:"generation,omitempty"`
-	OriginalStatus     string `json:"original_status,omitempty"`
-	LossOperationID    string `json:"loss_operation_id,omitempty"`
-	LossFingerprint    string `json:"loss_fingerprint,omitempty"`
 	PRefsDigest        string `json:"p_refs_digest,omitempty"`
-	AllowUnborn        bool   `json:"allow_unborn,omitempty"`
 	PreviewExpiresAt   string `json:"preview_expires_at"`
 	DeleteReviewSHA256 string `json:"delete_review_sha256,omitempty"`
 	MissingRuntime     bool   `json:"missing_runtime,omitempty"`
-	StaleNeedsThaw     bool   `json:"stale_needs_thaw,omitempty"`
 }
 
 func validDiscardEvidence(ev DiscardEvidence) bool {
@@ -51,10 +46,9 @@ func validDiscardEvidence(ev DiscardEvidence) bool {
 		return false
 	}
 	if ev.MissingRuntime {
-		return ev.IncusUUID == "" && ev.Generation == "" && ev.OriginalStatus == "" && ev.LossOperationID == "" && ev.LossFingerprint == ""
+		return ev.IncusUUID == "" && ev.Generation == ""
 	}
-	return validUUID(ev.IncusUUID) && validUUID(ev.Generation) && validFingerprint(ev.ImageFingerprint) &&
-		(ev.OriginalStatus == "Running" || ev.OriginalStatus == "Stopped") && validUUID(ev.LossOperationID) && validFingerprint(ev.LossFingerprint)
+	return validUUID(ev.IncusUUID) && validUUID(ev.Generation) && validFingerprint(ev.ImageFingerprint)
 }
 
 func (s *Store) BeginDiscard(ctx context.Context, req DiscardRequest, ev DiscardEvidence) (api.Operation, error) {
@@ -164,7 +158,7 @@ func (s *Store) commitRemoval(ctx context.Context, opID, action string, verifyRe
 		return ErrConflict
 	}
 	var ev DiscardEvidence
-	if json.Unmarshal([]byte(evRaw), &ev) != nil || ev.Project != project || ev.Action != action && !(action == "discard" && ev.Action == "") {
+	if json.Unmarshal([]byte(evRaw), &ev) != nil || ev.Project != project || ev.Action != action {
 		return ErrInvalid
 	}
 	if !validFingerprint(ev.PRefsDigest) {
@@ -194,8 +188,7 @@ func (s *Store) commitRemoval(ctx context.Context, opID, action string, verifyRe
 }
 
 // Stale precommit confirmation restores the established assignment and
-// releases only this operation's guard. Native helper/thaw cleanup is a
-// prerequisite checked by the caller before this transaction.
+// releases only this operation's guard.
 func (s *Store) FailStaleDiscard(ctx context.Context, opID string, diagnostic string) error {
 	return s.failStaleRemoval(ctx, opID, "discard", diagnostic)
 }
@@ -228,7 +221,7 @@ func (s *Store) failStaleRemoval(ctx context.Context, opID, action, diagnostic s
 		return ErrConflict
 	}
 	var ev DiscardEvidence
-	if json.Unmarshal([]byte(evRaw), &ev) != nil || ev.Action != action && !(action == "discard" && ev.Action == "") {
+	if json.Unmarshal([]byte(evRaw), &ev) != nil || ev.Action != action {
 		return ErrInvalid
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE project_path=? AND branch=? AND operation_id=?`, project, ev.Branch, opID); err != nil {
@@ -285,7 +278,7 @@ func (s *Store) completeRemoval(ctx context.Context, opID, action string, verify
 		return ErrConflict
 	}
 	var ev DiscardEvidence
-	if json.Unmarshal([]byte(evRaw), &ev) != nil || ev.Project != project || ev.Action != action && !(action == "discard" && ev.Action == "") {
+	if json.Unmarshal([]byte(evRaw), &ev) != nil || ev.Project != project || ev.Action != action {
 		return ErrInvalid
 	}
 	var owner string

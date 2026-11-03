@@ -23,7 +23,7 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	if prior, replayed, err := replayRequest(l, ctx, req.Key, control.KindSessionRename, req); err != nil || replayed {
 		return prior, err
 	}
-	if err := l.checkNoWorkspaceInspect(ctx, req.UUID); err != nil {
+	if err := l.checkNoSessionChange(ctx, req.UUID); err != nil {
 		return api.Operation{}, err
 	}
 	s, err := l.store.GetSession(ctx, req.UUID)
@@ -41,14 +41,13 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 		return api.Operation{}, err
 	}
 	observed, err := l.runtime.Inspect(ctx, native)
-	if err != nil || !observed.Exists || observed.Status != "Running" && observed.Status != "Stopped" ||
-		observed.IncusUUID == "" || observed.Generation == "" {
+	if err != nil || !renameSourceStopped(observed) {
 		return api.Operation{}, errors.Join(err, control.ErrConflict)
 	}
 	ev := control.RenameEvidence{Project: s.Project, OldBranch: s.Branch, NewBranch: req.NewBranch,
 		OldTip: req.ExpectedOldTip, PolicySHA256: s.PolicySHA256, InstanceUUID: l.instanceID,
 		ImageFingerprint: native.ImageFingerprint, BaseFingerprint: l.cfg.BaseImageFingerprint,
-		IncusUUID: observed.IncusUUID, Generation: observed.Generation, OriginalStatus: observed.Status}
+		IncusUUID: observed.IncusUUID, Generation: observed.Generation}
 	verify := func(ctx context.Context) error {
 		if err := l.git.backend.ValidateRenameBranch(ctx, ev.NewBranch); err != nil {
 			return err
@@ -63,6 +62,18 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 		return op, err
 	}
 	return op, nil
+}
+
+// renameSourceStopped reports whether rename may change the workspace of the
+// observed runtime: P changes a workspace only while its session is stopped.
+func renameSourceStopped(o runtimeincus.Observation) bool {
+	return o.Exists && o.Status == "Stopped" && o.IncusUUID != "" && o.Generation != ""
+}
+
+// renameSourceExact reports whether o is the stopped runtime the rename
+// recorded.
+func renameSourceExact(o runtimeincus.Observation, ev control.RenameEvidence) bool {
+	return renameSourceStopped(o) && o.IncusUUID == ev.IncusUUID && o.Generation == ev.Generation
 }
 
 // The caller either holds gitAuthority or is only making a preflight
@@ -130,25 +141,18 @@ func (l *lifecycle) advanceRename(op *api.Operation, ev control.RenameEvidence, 
 
 func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameEvidence, source runtimeincus.Session, cause error) {
 	ctx := l.ctx
-	if op.Phase == "freeze-intent" || op.Phase == "prepare-issued" || op.Phase == "new-ref-create-issued" || op.Committed {
+	if op.Phase == "prepare-issued" || op.Phase == "new-ref-create-issued" || op.Committed {
 		l.blockRename(op, cause)
 		return
 	}
-	if op.Phase == "workspace-prepared" || op.Phase == "quiesced" {
+	if op.Phase == "workspace-prepared" {
 		if err := l.runtime.RemoveWorkspaceRenameBackup(ctx, source, ev.IncusUUID, ev.Generation, op.ID); err != nil {
 			l.blockRename(op, errors.Join(cause, err))
 			return
 		}
 	}
-	if ev.OriginalStatus == "Running" && (op.Phase == "quiesced" || op.Phase == "workspace-prepared") {
-		if err := l.runtime.ThawWorkspaceSourceExact(ctx, source, ev.IncusUUID, ev.Generation); err != nil {
-			l.blockRename(op, errors.Join(cause, err))
-			return
-		}
-	}
-	// Before a native effect, an independently stopped/replaced source does
-	// not justify forcing its old status. It does not prevent releasing these
-	// two ref guards after a definite no-effect precommit refusal.
+	// A replaced or started source does not prevent releasing these two ref
+	// guards after a definite no-effect precommit refusal.
 	diagnostic := "rename precommit input changed"
 	var mismatch *runtimeincus.WorkspaceAssignmentMismatchError
 	if errors.As(cause, &mismatch) {
@@ -181,7 +185,6 @@ func (l *lifecycle) processRename(op api.Operation) {
 		l.blockRename(op, errors.Join(err, errors.New("rename runtime selection changed")))
 		return
 	}
-	entryPhase := op.Phase
 	for step := 0; step < 18; step++ {
 		switch op.Phase {
 		case "reserved":
@@ -195,40 +198,10 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 			observed, err := l.runtime.Inspect(ctx, source)
-			if err != nil || !observed.Exists || observed.IncusUUID != ev.IncusUUID || observed.Generation != ev.Generation || observed.Status != ev.OriginalStatus {
-				l.rollbackRenamePrecommit(op, ev, source, errors.Join(err, errors.New("rename source changed before pause")))
+			if err != nil || !renameSourceExact(observed, ev) {
+				l.rollbackRenamePrecommit(op, ev, source, errors.Join(err, errors.New("rename source changed or started")))
 				return
 			}
-			if ev.OriginalStatus == "Running" {
-				err = l.runtime.FreezeWorkspaceSourceExact(ctx, source, ev.IncusUUID, ev.Generation, func() error {
-					return l.advanceRename(&op, ev, "freeze-intent", false)
-				})
-				if err != nil {
-					if op.Phase == "guarded" {
-						// Freeze refused before the durable effect marker. No pause was sent.
-						l.rollbackRenamePrecommit(op, ev, source, err)
-					} else {
-						l.blockRename(op, err)
-					}
-					return
-				}
-			}
-			if err := l.advanceRename(&op, ev, "quiesced", false); err != nil {
-				l.blockRename(op, err)
-				return
-			}
-		case "freeze-intent":
-			if entryPhase == "freeze-intent" {
-				if err := l.runtime.ReconcileWorkspaceFreezeExact(ctx, source, ev.IncusUUID, ev.Generation); err != nil {
-					l.blockRename(op, err)
-					return
-				}
-			}
-			if err := l.advanceRename(&op, ev, "quiesced", false); err != nil {
-				l.blockRename(op, err)
-				return
-			}
-		case "quiesced":
 			plan, err := l.runtime.PrepareWorkspaceRename(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch,
 				func() error { return l.advanceRename(&op, ev, "prepare-issued", false) })
 			if err != nil {
@@ -370,28 +343,12 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 		case "backup-absent":
-			if ev.OriginalStatus == "Running" {
-				if err := l.runtime.ThawWorkspaceSourceExact(ctx, source, ev.IncusUUID, ev.Generation); err != nil {
-					l.blockRename(op, err)
-					return
-				}
-			}
-			observed, err := l.runtime.Inspect(ctx, source)
-			if err != nil || !observed.Exists || observed.Status != ev.OriginalStatus || observed.IncusUUID != ev.IncusUUID || observed.Generation != ev.Generation {
-				l.blockRename(op, errors.Join(err, errors.New("rename source restoration unavailable")))
-				return
-			}
-			if err := l.advanceRename(&op, ev, "source-restored", true); err != nil {
-				l.blockRename(op, err)
-				return
-			}
-		case "source-restored":
 			if err := l.verifyRenamePRefs(ctx, ev, true); err != nil {
 				l.blockRename(op, err)
 				return
 			}
 			observed, err := l.runtime.Inspect(ctx, source)
-			if err != nil || !observed.Exists || observed.Status != ev.OriginalStatus || observed.IncusUUID != ev.IncusUUID || observed.Generation != ev.Generation {
+			if err != nil || !renameSourceExact(observed, ev) {
 				l.blockRename(op, errors.Join(err, errors.New("rename source changed before completion")))
 				return
 			}

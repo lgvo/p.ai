@@ -59,7 +59,7 @@ func validGrantDevice(actual map[string]string, g FilesystemGrant) bool {
 }
 
 func validateRuntimeGrants(c Config, s Session, inspectSource bool) error {
-	if len(s.Grants) > 8 || s.WorkspaceOwner != "" && len(s.Grants) != 0 {
+	if len(s.Grants) > 8 {
 		return errors.New("invalid runtime grant count")
 	}
 	seen := map[string]bool{}

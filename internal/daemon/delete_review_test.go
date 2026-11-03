@@ -9,26 +9,44 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/gitservice"
+	"github.com/lgvo/p.ai/internal/plugin"
 )
 
-func TestDeleteReviewDigestBindsOriginIdentityAndUnknownEvidence(t *testing.T) {
-	review := &control.RemovalBranchLoss{AssignedRef: "refs/heads/main", AssignedTip: strings.Repeat("a", 40),
-		CommitsLosingPReachability: []string{strings.Repeat("a", 40)}}
-	review.PRefs = append(review.PRefs, struct {
-		Name string `json:"name"`
-		OID  string `json:"oid"`
-	}{"refs/heads/main", strings.Repeat("a", 40)})
-	review.Origin.URL = "ssh://git@example.test/team/app.git"
-	review.Origin.Status = "unknown"
-	review.Origin.Reason = "origin_refresh_unavailable"
-	review.Origin.ContainingBranches = []string{}
-	review.Origin.UnresolvedRefs = []string{}
-	want, err := deleteReviewDigest(review)
+func TestSessionDeleteReviewReadsNoOrigin(t *testing.T) {
+	tip := strings.Repeat("a", 40)
+	review := deleteReview(gitservice.BranchRemovalLoss{AssignedRef: "refs/heads/work", AssignedTip: tip,
+		CommitsLosingPReachability: []string{tip}, PRefs: []plugin.GitRef{{Ref: "refs/heads/work", OID: tip}}})
+	raw, err := json.Marshal(review)
 	if err != nil {
 		t.Fatal(err)
 	}
-	copyReview := *review
-	if got, err := deleteReviewDigest(&copyReview); err != nil || got != want || copyReview.Origin.Status != "unknown" {
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := fields["origin"]; found || len(review.PRefs) != 1 || review.CommitsLosingPReachability[0] != tip {
+		t.Fatalf("session Delete review: %s", raw)
+	}
+}
+
+func TestDeleteReviewDigestBindsOriginIdentityAndUnknownEvidence(t *testing.T) {
+	reviewed := func() *control.RemovalBranchLoss {
+		review := &control.RemovalBranchLoss{AssignedRef: "refs/heads/main", AssignedTip: strings.Repeat("a", 40),
+			CommitsLosingPReachability: []string{strings.Repeat("a", 40)}}
+		review.PRefs = append(review.PRefs, struct {
+			Name string `json:"name"`
+			OID  string `json:"oid"`
+		}{"refs/heads/main", strings.Repeat("a", 40)})
+		review.Origin = &control.RemovalOrigin{URL: "ssh://git@example.test/team/app.git", Status: "unknown", Reason: "origin_refresh_unavailable",
+			ContainingBranches: []string{}, UnresolvedRefs: []string{}}
+		return review
+	}
+	want, err := deleteReviewDigest(reviewed())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := deleteReviewDigest(reviewed()); err != nil || got != want {
 		t.Fatalf("explicit unknown review could not be revalidated: %s %v", got, err)
 	}
 	variants := []func(*control.RemovalBranchLoss){
@@ -39,9 +57,9 @@ func TestDeleteReviewDigestBindsOriginIdentityAndUnknownEvidence(t *testing.T) {
 		func(v *control.RemovalBranchLoss) { v.AssignedTip = strings.Repeat("c", 40) },
 	}
 	for i, mutate := range variants {
-		changed := *review
-		mutate(&changed)
-		got, err := deleteReviewDigest(&changed)
+		changed := reviewed()
+		mutate(changed)
+		got, err := deleteReviewDigest(changed)
 		if err != nil || got == want {
 			t.Fatalf("changed Delete review field %d retained confirmation digest: %s %v", i, got, err)
 		}
@@ -61,19 +79,16 @@ func (p staleRetainedDeleteRPC) ConfirmRetainedDelete(context.Context, string, s
 }
 
 func TestRetainedDeleteChangedOriginReviewIsPublicBusy(t *testing.T) {
-	review := &control.RemovalBranchLoss{AssignedRef: "refs/heads/saved", AssignedTip: strings.Repeat("a", 40), CommitsLosingPReachability: []string{strings.Repeat("a", 40)}}
-	review.Origin.URL = "ssh://git@example.test/app.git"
-	review.Origin.Status = "unknown"
-	review.Origin.Reason = "origin_object_or_comparison_unavailable"
-	review.Origin.ContainingBranches = []string{}
-	review.Origin.UnresolvedRefs = []string{"refs/heads/divergent"}
-	review.Origin.ObservedRefsDigest = strings.Repeat("b", 64)
-	want, err := deleteReviewDigest(review)
+	reviewed := func(observed string) *control.RemovalBranchLoss {
+		return &control.RemovalBranchLoss{AssignedRef: "refs/heads/saved", AssignedTip: strings.Repeat("a", 40), CommitsLosingPReachability: []string{strings.Repeat("a", 40)},
+			Origin: &control.RemovalOrigin{URL: "ssh://git@example.test/app.git", Status: "unknown", Reason: "origin_object_or_comparison_unavailable",
+				ContainingBranches: []string{}, UnresolvedRefs: []string{"refs/heads/divergent"}, ObservedRefsDigest: observed}}
+	}
+	want, err := deleteReviewDigest(reviewed(strings.Repeat("b", 64)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed := *review
-	changed.Origin.ObservedRefsDigest = strings.Repeat("c", 64)
+	changed := *reviewed(strings.Repeat("c", 64))
 	stale := matchRetainedDeleteReview(&changed, want)
 	if !errors.Is(stale, errDeleteReviewChanged) || !errors.Is(stale, control.ErrConflict) {
 		t.Fatalf("changed origin did not produce public conflict: %v", stale)

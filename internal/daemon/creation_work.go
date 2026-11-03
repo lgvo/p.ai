@@ -32,7 +32,7 @@ func (l *lifecycle) lockCreationOperation(ctx context.Context, observed api.Oper
 		release()
 		return api.Operation{}, nil, control.ErrConflict
 	}
-	if err = l.checkNoWorkspaceInspect(ctx, fresh.SessionUUID); err != nil {
+	if err = l.checkNoSessionChange(ctx, fresh.SessionUUID); err != nil {
 		release()
 		return api.Operation{}, nil, err
 	}

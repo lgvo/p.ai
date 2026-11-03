@@ -335,8 +335,8 @@ duplicate fields.
 | `project.retained.rename` | `{"v":1,"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `v`, `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key conflict. |
 | `project.retained.delete.preview` | `{"v":1,"project":"team/app","branch":"saved"}` | `v`, `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
 | `project.retained.delete.confirm` | `{"v":1,"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `v`, `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs conflict. |
-| `project.delete.preview` | `{"v":1,"project":"team/app","loss_operations":{"session-UUID":"completed-loss-operation-UUID"},"acknowledge_missing":[]}` | `v`, aggregate `preview` for whole-project deletion, including sessions, runtime loss, all P branch loss, exact credentials/repository/cache identities, preserved external mounts, warnings, token and expiry. |
-| `project.delete.confirm` | `{"v":1,"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | `v`, durable `operation` (`kind:"project.delete"`). Fresh loss and identity checks precede atomic authority closure. Completed exact confirmation replays without deleting again. |
+| `project.delete.preview` | `{"v":1,"project":"team/app","acknowledge_missing":[]}` | `v`, aggregate `preview` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, exact credentials/repository/cache identities, preserved external mounts, warnings, token and expiry. It contacts no origin. |
+| `project.delete.confirm` | `{"v":1,"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | `v`, durable `operation` (`kind:"project.delete"`), returned at once. A fresh preview must match the reviewed one before atomic authority closure. Completed exact confirmation replays without deleting again. |
 
 An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
 or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
@@ -552,30 +552,36 @@ releases the assignment for a separate corrected `session.create` with a new
 key and UUID. The superseded original Create remains inspectable and exact
 replay cannot schedule its worker.
 
-For the narrow stopped assembled failure supported by workspace loss inspection,
-`session.create.cleanup.preview` additionally accepts `loss_operation_id`:
+`session.create.cleanup.preview` takes only `{"v":1,"uuid":"session-UUID"}`;
+P selects the path from the creator's state. A creator blocked at an early
+phase takes the early path above. Any other creator takes the narrow stopped
+assembled path, which requires a blocked, committed, `assembly-ready` local
+base-image creator with a standalone policy (network `none`, no filesystem
+grants) and its exact stopped container. A creator outside that boundary is
+refused with `unsafe_reasons`; an unavailable exact stopped container gives
+`exact_stopped_runtime_unavailable: <error>`.
 
-```json
-{"v":1,"uuid":"session-UUID","loss_operation_id":"completed-inspection-UUID"}
-```
+P does not look inside the container. The assembled preview's `runtime` has
+`condition:"present"`, `incus_project`, `instance_name`, `incus_uuid`,
+`generation`, `image_fingerprint`, `original_status:"Stopped"` and
+`runtime_data_lost:true`: the container and everything in it are lost,
+including private home and credential files, whose contents P neither
+enumerates nor hashes. The preview also binds `old_request_sha256`, includes
+the three `loss_warnings` texts, and preserves the assigned P ref.
+Confirmation uses the same existing UUID/key/token shape. A durable precommit
+cleanup guard keeps the original creator blocked while the worker rechecks the
+reviewed facts. A changed container identity (Incus UUID, generation or image)
+or a changed branch fails the cleanup at `stale` and releases its guards; the
+container, the branch and the original creator remain. A new
+preview/confirmation requires new keys.
 
-The preview binds that explicitly selected creator-bound inspection and exact
-native source, includes `runtime.loss` and `loss_warnings`, and preserves the
-assigned P ref. Private home/credential files outside the bounded Git/workspace
-inventory are covered by whole-runtime loss warnings; their contents are not
-enumerated or hashed by the inspection. Confirmation uses the same existing
-UUID/key/token shape. A durable precommit cleanup guard keeps the original
-creator blocked while an isolated stopped helper recomputes bounded loss.
-Settled stale evidence removes only the helper, fails the cleanup intent and
-releases its guards; fresh inspection/preview/confirmation requires new keys.
-
-Only after fresh loss matches does cleanup atomically retire the original
+Only after those facts match does cleanup atomically retire the original
 creator/session authority and admit deletion of the exact native source.
 Subsequent recovery proceeds toward verified runtime and local-resource absence.
 Unknown deletion effects or an unavailable/competing native identity remain
 guarded and incomplete; recovery cannot reissue a name-only deletion or forget
 the identity. The selected assembled-cleanup integration gate is separate from
-earlier no-init cleanup and read-only inspection evidence. Other unsupported
+earlier no-init cleanup evidence. Other unsupported
 failures preserve resources and explain the unresolved condition.
 See the [CLI procedure](session-lifecycle.md#confirmed-failed-create-cleanup).
 
@@ -651,166 +657,131 @@ the SQLite reservation also rejects a captured URL mismatch. Exact replay keeps
 the original request/URL and does not recontact a changed origin. Older callers
 that omit this field retain their existing API behavior.
 
-## Workspace loss inspection
-
-`workspace.loss.inspect` accepts `{"v":1,"key":"idempotency-key","uuid":"session-UUID"}`
-and returns `v` and a durable `operation`. Poll `operation.inspect` with that
-operation's ID. It passed review and selected VM29; see
-[implementation progress](implementation-progress.md). It produces read-only
-evidence and does not authorize removal. Session RPC cannot invoke this method.
-
-Inspection requires an established, unattached session and spare container
-capacity for one disposable helper. P records the helper identity before
-creation, uses the pinned base with no network or session endpoints, and runs
-fixed Git queries against a sanitized workspace copy. It never activates the
-source. The helper enforces one CPU, 768 MiB memory, and 256 processes. The
-current `dir` pool does not establish a disk quota; the copied data is bounded
-and Git queries are fixed and read-only. A running source is temporarily
-frozen; a stopped source stays stopped.
-An unresolved operation holds a durable guard against Start, Stop, and Attach.
-`operation.retry` reinspects the same accepted identities; an uncertain native
-request is not permission to create a second helper or release the guard.
-`failed` with phase `cleaned` is finalized: the helper was cleaned up and the
-source guard was released. Exact Retry returns `busy` without enqueueing work or
-changing that operation. Request a fresh inspection with a new key to capture
-current facts.
-
-The method also admits the narrow stopped assembled failed-creation case
-described by [session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
-Its durable operation evidence additionally binds `creator_operation_id`,
-`creator_request_sha256` and `creator_evidence_sha256` alongside native source
-UUID/generation. The session remains `creating`; an active inspection fences
-the original creator. Unsupported or uncertain failed creations remain refused.
-This extension's selected-VM gate is recorded separately in implementation
-progress; the earlier VM29 pass does not validate it.
-
-On completion, `operation.evidence.result` has schema `p.workspace-loss/v1`:
-
-| Field | Meaning |
-|---|---|
-| `worktrees` | Original runtime paths, branch/head when available, porcelain changes, and ignored-file `count` and `logical_bytes`. |
-| `external_worktrees` | Empty when no linked worktree is found; worktree pointers outside the narrow runtime-owned paths refuse inspection, even when ordinary filesystem grants are present. |
-| `local_refs` | Local ref names, object IDs, and available upstream names. |
-| `local_only_commits` | Stored local commit objects not retained by the captured P branches, including unreferenced commits. |
-| `p_refs` | Captured P branch names and object IDs used for retention comparison. |
-| `fingerprint` | A hash binding source contents/metadata, runtime identity, policy, and retained-ref evidence. It is not a confirmation token. |
-| `runtime_data_will_be_removed` | Warns that removal would also discard runtime processes and private filesystem state outside Git. |
-
-The scan supports `/workspace` and up to eight Git-known linked worktrees at
-`/workspace/<name>` or `/home/p/worktrees/<name>`, with checked literal Git
-pointers and mount/ancestor evidence. Protected home roots, unsupported Git
-layouts, and out-of-policy paths are unavailable. The scan refuses escapes,
-nested mounts, unsupported Git configuration, and other unsupported layouts
-explicitly. The aggregate copy is limited to 512 entries, 16 MiB total file
-contents, 2 MiB per file, and depth 24; commit inventory is limited to 256
-and P branch inventory to 1,024. The final result must fit 12 KiB. Exceeding a
-bound refuses the report rather than returning partial loss evidence.
-
 ## Session removal preview
 
 `session.removal.preview` is a host-only, read-only method. The current patch
 passed focused tests, retained review, and selected VM30; see
 [implementation progress](implementation-progress.md). It does not remove a
-session or authorize removal by itself.
-
-For a reachable runtime, first complete `workspace.loss.inspect`, then call:
+session or authorize removal by itself. Call it with:
 
 ```json
-{"v":1,"uuid":"session-UUID","kind":"discard","loss_operation_id":"completed-loss-operation-UUID"}
+{"v":1,"uuid":"session-UUID","kind":"discard"}
 ```
 
-Use `kind:"delete"` to include branch-loss evidence. The completed loss
-operation must belong to the same session, be no older than two minutes, and
-match the current native identity, status, image, and P ref set. The preview
-labels its runtime loss as a **snapshot** with the loss operation ID,
-`observed_at`, and `fingerprint`; a resumed runtime may change afterward.
+Use `kind:"delete"` to include branch-loss evidence. P does not inspect the
+container before removal; there is no workspace loss inspection method. A
+present runtime may be running or stopped; any other native status returns
+`busy`. A pending or confirmed attachment, or another active change to the
+session (discard, delete, rename or failed-create cleanup), also returns
+`busy`.
 
-When Incus authoritatively reports the runtime absent, omit
-`loss_operation_id` and pass `"acknowledge_missing_runtime":true`. The result
-then has `runtime.condition:"missing"` and
-`runtime.runtime_loss_unknown:true`. An unreachable Incus authority does not
-qualify as an absent runtime. Missing-runtime preview/confirmation and durable
-removal require a full confined-project inventory with no matching session
-UUID. A renamed or competing instance produces a refusal without a token or
-newly accepted action. The proof is repeated before the authority commit and
-final row removal, including after a present-runtime deletion.
+When Incus authoritatively reports the runtime absent, pass
+`"acknowledge_missing_runtime":true`. The result then has
+`runtime.condition:"missing"` and `runtime.runtime_loss_unknown:true`. The
+acknowledgement with a present runtime returns `busy`. An unreachable Incus
+authority does not qualify as an absent runtime. Missing-runtime
+preview/confirmation and durable removal require a full confined-project
+inventory with no matching session UUID. A renamed or competing instance
+produces a refusal without a token or newly accepted action. The proof is
+repeated before the authority commit and final row removal, including after a
+present-runtime deletion.
 
 The result is `{"v":1,"preview":{...}}`. The preview identifies the session,
-project, assigned ref and tip (tip omitted for an unborn branch), policy,
-runtime identity or missing state, a short-lived `confirmation_token`, and
-`expires_at`. A present runtime includes the complete bounded workspace loss
-report. Delete also includes `branch_loss`: commits that lose P reachability,
-the captured P refs, and origin preservation evidence. The origin object names
-the observed URL and has status `local_only`, `observed`, or `unknown` plus
-containing and unresolved refs. Origin comparison is evidence, not a removal
-permission. Confirmation rechecks all facts under quiescence. Discard passed
+project, assigned ref and tip, policy, runtime identity or missing state, a
+short-lived `confirmation_token`, and `expires_at`; the token expires after two
+minutes. A present runtime has `runtime.condition:"present"`, `incus_uuid`,
+`generation`, `image_fingerprint`, an informational `original_status`
+(`Running` or `Stopped`) and `runtime_data_lost:true`: the container and
+everything in it are lost, including uncommitted changes, files outside Git,
+commits not pushed to P, the home directory and runtime-local credentials.
+When the assigned P ref is missing, because it was deleted outside P or is a
+blank project's unborn first branch, the preview omits the tip and has
+`assigned_ref_missing:true`. Delete also includes `branch_loss`: the
+`assigned_ref`, its `assigned_tip` when present, the
+`commits_losing_p_reachability` (empty for a missing ref) and the captured
+`p_refs`. Discard and delete contact and compare no origin. Discard passed
 selected VM31 and Delete passed selected VM32, using dummy Codex credential
 files without authentication.
 
 `session.discard` accepts
 `{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
 and returns `{"v":1,"operation":{...}}`. It accepts only a Discard preview.
-The durable operation reports `failed` at `stale` if fresh quiescent workspace
-or P-ref facts differ before the removal commit point; it restores only a
-source this operation froze and leaves the branch and session intact. A valid
-confirmation commits removal, disables session authority, removes the exact
+Before the removal commit point, a changed assigned tip, a replaced container
+(changed Incus UUID or generation) or a reappearing missing runtime
+fails the operation at `stale`, releases its guard, and leaves the branch and
+session intact. A Start or Stop between preview and
+confirmation does not make it stale. A valid confirmation commits removal,
+disables session authority, force-stops a running container, removes the exact
 owned runtime and P-owned endpoint/key, and ends the assignment while retaining
-the confirmed P branch. The same key and request replay the operation.
-An uncertain native stop/delete stays guarded and blocked for targeted repair;
-P does not retry a name-targeted request against a possible replacement.
+the confirmed P branch. With a missing assigned ref there is no branch to
+retain, so Discard ends like a Delete. A revoked or missing Git principal
+registration and a missing host key file do not stop removal; a host key file
+with an unexpected owner, mode or link count still blocks the key removal.
+While the operation runs, Start, Stop, Attach and service requests return
+`busy`. The same key and request replay the operation. An uncertain native
+stop/delete stays guarded and blocked for investigation; P does not retry a
+name-targeted request against a possible replacement.
 
 `session.delete` accepts
 `{"v":1,"key":"idempotency-key","uuid":"session-UUID","confirmation_token":"32-hex-token"}`
 and returns `{"v":1,"operation":{...}}`. It accepts only a Delete preview.
-The same pre-commit stale checks and exact runtime, endpoint, and key cleanup
-apply. After runtime absence, it removes only the assigned P branch through an
-expected-old-tip check; sibling P refs and origin refs remain. A mismatched or
-uncertain branch effect stays guarded for targeted repair. The same key and
+The same pre-commit stale checks apply, and a changed `branch_loss` review is
+also stale. The exact runtime, endpoint, and key cleanup is the same. After
+runtime absence, it removes only the assigned P branch through an
+expected-old-tip check; sibling P refs and origin refs remain. With a missing
+assigned ref it has nothing to remove in P's repository. A mismatched or
+uncertain branch effect stays guarded for investigation. The same key and
 request replay the durable operation.
 
 `session.rename` accepts
 `{"v":1,"key":"idempotency-key","uuid":"session-UUID","new_branch":"renamed","expected_old_tip":"<40-hex P commit>"}`
-and returns `{"v":1,"operation":{...}}`. The established session must have
-the exact nonempty assigned P tip, an ordinary local Git branch, and an exact
-running or stopped runtime. The new branch must pass Git validation and be
-absent in P and the local workspace. The durable operation guards both P ref
-names, quiesces the exact runtime, and creates the new P ref at the expected
-old tip as its commit point. It then moves the local branch without changing
-its tip or files, changes the assignment and principal policy, deletes the old
-P ref by expected-tip check, and restores only a runtime it froze. Local commits
-ahead of P, untracked files, private session state, and sibling refs remain.
-The same key and exact request replay the operation. A proven refusal before
-any effect may fail and release the guards; an uncertain Incus or Git effect
-remains blocked for exact recovery or targeted repair. The current supported
+and returns `{"v":1,"operation":{...}}`. The established session must be
+stopped, with the exact nonempty assigned P tip, an ordinary local Git branch,
+and its exact stopped runtime; a session in any other status returns `busy`.
+The new branch must pass Git validation and be absent in P and the local
+workspace. The durable operation guards both P ref names, prepares the
+workspace change on the stopped runtime, and creates the new P ref at the
+expected old tip as its commit point. It then moves the local branch without
+changing its tip or files, changes the assignment and principal policy, and
+deletes the old P ref by expected-tip check. P never freezes the runtime.
+Start is refused while the rename runs, and a session started between the
+request and the work fails as stale before any effect. Local commits ahead of
+P, untracked files, private session state, and sibling refs remain. The same
+key and exact request replay the operation. A proven refusal before any
+effect may fail and release the guards; an uncertain Incus or Git effect
+remains blocked for exact recovery or investigation. The current supported
 workspace layout is a single ordinary worktree with loose branch refs; other
 layouts return unavailable before the ref commit point.
 
 ## Aggregate project deletion
 
 The implemented aggregate boundary requires at most four established, stopped,
-detached sessions with standalone workspace layouts and recent completed
-`workspace.loss.inspect` proofs. `loss_operations` maps each present session UUID
-to its proof operation ID. Supply positively missing UUIDs in
-`acknowledge_missing` instead: the preview explicitly reports unknown runtime
-loss and still requires full native absence proof. Unknown native identity or
-unavailable Incus cannot be acknowledged into deletion authority.
+detached sessions. Project deletion does not stop sessions itself: an
+attached, starting or running session returns `busy`. P does not look inside
+the containers. Each present session's `sessions[].runtime` has
+`condition:"present"`, `incus_project`, `instance_name`, `incus_uuid`,
+`generation`, `image_fingerprint`, `original_status:"Stopped"` and
+`runtime_data_lost:true`. List each positively missing session UUID in
+`acknowledge_missing`: the preview explicitly reports unknown runtime loss and
+still requires full native absence proof. Listing a present session returns
+`busy`; listing a UUID that is not a missing session of the project is
+`invalid_params`. Unknown native identity or unavailable Incus cannot be
+acknowledged into deletion authority.
 
 At most twenty indexed, exactly owned environment images and bounded Git/history
 and report inventories are accepted. The preview covers every assigned and
-retained P ref and the union of commits losing P reachability, with fresh origin
-preservation or explicit unknown evidence. Its expiry is at most two minutes and
-does not outlive the earliest loss proof. Changed facts or expired reports need
-fresh loss inspection and a new preview/token/key. Refused preparation directs
-the caller to Stop/detach, supported failed-creation cleanup or identity
-investigation; P does not delete uncertain resources.
+retained P ref and the union of commits losing P reachability. It contacts no
+origin, and its `branch_loss` has no origin evidence. Its expiry is at most two
+minutes. Changed facts or an expired preview need a new preview/token/key.
+Refused preparation directs the caller to Stop/detach, supported
+failed-creation cleanup or identity investigation; P does not delete uncertain
+resources.
 
 After reviewing the complete preview, call `project.delete.confirm` with its
-token and a new key. It repeats bounded read-only loss inspection and fact checks
-before atomically setting the project to `deleting`, sessions to `removing`, and
-principals inactive. The CLI allows this confirmation call up to two minutes
-for fresh multi-session inspection; other API calls retain their ten-second
-transport deadline. This does not extend the preview's expiry or authorize
-expired facts. Poll `operation.inspect`; its incomplete evidence contains
+token and a new key. A fresh preview must match the reviewed one in full
+before P atomically sets the project to `deleting`, sessions to `removing`,
+and principals inactive. The call returns the operation at once. Poll
+`operation.inspect`; its incomplete evidence contains
 independent `runtime`, `local`, `image` and `repository` resources with `remaining`,
 `unreachable`, `deleted` or `already_absent` status. Existing `operation.retry`
 resumes the same confirmed outcome; it does not grant replacement machinery.
@@ -879,12 +850,12 @@ the failure with its stack and keeps serving: the connection stays open for
 later requests, and other connections are not affected. The private session
 RPC behaves the same way.
 
-Session-capacity admission refusals retain `busy`/`-32003` and explain the
-reserved loss-inspection slot and Discard/Delete remedy. Stop retains its
-reservation. Other authority conflicts keep their generic conflict message;
-the capacity message is not an instruction to retry until admission succeeds.
-The [runtime contract](runtime-isolation.md)
-owns capacity accounting and the helper reservation.
+Session-capacity admission refusals retain `busy`/`-32003` with the message
+`session capacity exhausted. Discard or Delete a session to free capacity;
+Stop retains its slot`. Other authority conflicts keep their generic conflict
+message; the capacity message is not an instruction to retry until admission
+succeeds. The [runtime contract](runtime-isolation.md#incus-boundary)
+owns capacity accounting.
 
 Without trusted runtime configuration, lifecycle mutations and inspection
 remain unavailable. Other methods under `project.`, `session.`, `origin.`,

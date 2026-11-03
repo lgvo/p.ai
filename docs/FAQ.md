@@ -156,10 +156,11 @@ source authority independent of where a user happens to run the client.
 
 It creates the new P ref at the old tip, updates the workspace branch and
 upstream, updates SQLite, verifies the new mapping, and deletes the old P ref.
-The UUID, runtime locator, interactive host, and credentials stay attached to
-the same session. Origin refs are untouched; publishing the new name is a
-separate choice. The transaction and crash recovery are defined in
-[session lifecycle](session-lifecycle.md#rename).
+It requires a stopped session, because P changes a workspace only while nothing
+runs in it and never freezes a running session. The UUID, runtime locator,
+private files, and credentials stay attached to the same session. Origin refs
+are untouched; publishing the new name is a separate choice. The transaction and
+crash recovery are defined in [session lifecycle](session-lifecycle.md#rename).
 
 ### Can two sessions use the same branch?
 
@@ -190,12 +191,16 @@ intended new history without granting the session a force exception.
 Stop preserves writable files and identity, not processes: starting again
 reruns activation and interactive-host preparation.
 
-P inspects runtime-local and Git-ref loss before destructive actions. If Incus
-cannot be reached, ordinary discard/delete is refused because P cannot
-truthfully itemize local loss. An already-confirmed cleanup remains incomplete
-with identity, operation state and restrictions retained until Incus returns.
-Manual investigation is supported; abandonment and its orphan-cleanup/forget
-workflow are outside MVP. See
+P states what a destructive action loses before it runs. It does not look inside
+the container: a runtime that exists is lost with everything in it, including
+uncommitted changes, files outside Git and commits not pushed to P. Delete also
+lists the commits that leave P's repository; P does not check the origin,
+because whether work is published there is the user's concern. If Incus cannot
+be reached, ordinary discard/delete is refused because P cannot tell whether the
+runtime still exists. An already-confirmed cleanup remains incomplete with
+identity, operation state and restrictions retained until Incus returns. Manual
+investigation is supported; abandonment and its orphan-cleanup/forget workflow
+are outside MVP. See
 [destructive preflight](session-lifecycle.md#destructive-preflight).
 
 ### How do I continue after discard?

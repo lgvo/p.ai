@@ -221,3 +221,20 @@ func TestRenameDoesNotAttributeUnrelatedConfigFailureToAssignedUpstream(t *testi
 		}
 	}
 }
+
+func TestRenameGitConfigRejectsExecutableControlsAndOmitsIdentity(t *testing.T) {
+	base := "[core]\n repositoryformatversion = 0\n bare = false\n[remote \"origin\"]\n url = ssh://example.invalid/repo\n fetch = +refs/heads/*:refs/remotes/origin/*\n[user]\n name = Alice\n email = a@example.invalid\n[branch \"main\"]\n remote = origin\n merge = refs/heads/main\n"
+	out, err := safeGitConfig([]byte(base))
+	if err != nil || strings.Contains(string(out), "ssh://") || strings.Contains(string(out), "Alice") || !strings.Contains(string(out), "merge = refs/heads/main") {
+		t.Fatalf("safe config: %q %v", out, err)
+	}
+	for _, malicious := range []string{
+		base + "[include]\n path = /tmp/evil\n", base + "[filter \"evil\"]\n clean = /tmp/evil\n",
+		base + "[core]\n fsmonitor = /tmp/evil\n", base + "[diff]\n external = /tmp/evil\n",
+		base + "[core]\n worktree = /tmp/evil\n",
+	} {
+		if _, err := safeGitConfig([]byte(malicious)); err == nil {
+			t.Fatalf("executable config accepted: %q", malicious)
+		}
+	}
+}

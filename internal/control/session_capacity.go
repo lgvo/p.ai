@@ -32,7 +32,7 @@ type CapacityObserver func(context.Context, []CapacityReservation) (CapacityObse
 type sessionCapacityError struct{}
 
 func (*sessionCapacityError) Error() string {
-	return "session capacity exhausted; P keeps one slot for loss inspection. Discard or Delete a session to free capacity; Stop retains its slot"
+	return "session capacity exhausted. Discard or Delete a session to free capacity; Stop retains its slot"
 }
 
 func (*sessionCapacityError) Unwrap() error { return ErrConflict }
@@ -41,13 +41,13 @@ func (*sessionCapacityError) Unwrap() error { return ErrConflict }
 // creation. The caller's native inventory is fresh at this point; the sole
 // daemon lock and this authority lock serialize P's durable admissions.
 func (s *Store) checkSessionAdmission(ctx context.Context, observe CapacityObserver) error {
-	return s.checkSessionCapacity(ctx, observe, 2)
+	return s.checkSessionCapacity(ctx, observe, 1)
 }
 
 // A replacement takes over the reservation of the session it replaces, so it
-// needs only the one inspection-helper slot rather than another session slot.
+// needs no slot beyond the reservations already counted.
 func (s *Store) checkReplacementCapacity(ctx context.Context, observe CapacityObserver) error {
-	return s.checkSessionCapacity(ctx, observe, 1)
+	return s.checkSessionCapacity(ctx, observe, 0)
 }
 
 func (s *Store) checkSessionCapacity(ctx context.Context, observe CapacityObserver, extra int) error {

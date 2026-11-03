@@ -11,16 +11,15 @@ import (
 
 // The kinds of durable operation the journal records.
 const (
-	KindProjectCreate        = "project.create"
-	KindSessionCreate        = "session.create"
-	KindProjectDelete        = "project.delete"
-	KindWorkspaceLossInspect = "workspace.loss.inspect"
-	KindSessionDiscard       = "session.discard"
-	KindSessionDelete        = "session.delete"
-	KindCreateCleanup        = "session.create.cleanup"
-	KindSessionRename        = "session.rename"
-	KindRetainedRename       = "project.retained.rename"
-	KindRetainedDelete       = "project.retained.delete"
+	KindProjectCreate  = "project.create"
+	KindSessionCreate  = "session.create"
+	KindProjectDelete  = "project.delete"
+	KindSessionDiscard = "session.discard"
+	KindSessionDelete  = "session.delete"
+	KindCreateCleanup  = "session.create.cleanup"
+	KindSessionRename  = "session.rename"
+	KindRetainedRename = "project.retained.rename"
+	KindRetainedDelete = "project.retained.delete"
 )
 
 // unfinishedGroups lists unfinished operations in recovery order. Each group
@@ -32,7 +31,6 @@ var unfinishedGroups = []struct {
 }{
 	{[]string{KindProjectCreate, KindSessionCreate}, "created_at"},
 	{[]string{KindProjectDelete}, "created_at"},
-	{[]string{KindWorkspaceLossInspect}, "created_at"},
 	{[]string{KindSessionDiscard, KindSessionDelete, KindCreateCleanup}, "created_at"},
 	{[]string{KindSessionRename}, "created_at"},
 	{[]string{KindRetainedRename}, "rowid"},

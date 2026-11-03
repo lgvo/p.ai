@@ -27,7 +27,7 @@ REQUIRED_METHODS = {
     "system.capabilities", "project.list", "session.list", "operation.list",
     "project.branches", "project.retained_branches", "origin.refresh", "origin.sources",
     "project.create", "session.create", "session.inspect", "session.start", "session.stop",
-    "session.rename", "workspace.loss.inspect", "session.removal.preview",
+    "session.rename", "session.removal.preview",
     "session.discard", "session.delete", "operation.inspect", "operation.retry",
     "session.services", "session.service.action", "session.service.journal",
     "session.attach", "attachment.claim", "attachment.confirm",
@@ -318,6 +318,8 @@ class MockTUITests(unittest.TestCase):
         self.key("\r", "TUI_MOCK_OK")
         self.key("cat kept.txt\r", "kept")
         self.detach()
+        self.key("R", "Stop this session before renaming")  # the daemon refuses a running Rename
+        self.assertNotIn("New assigned branch name", self.screen())
         self.key("s", "Confirm action")
         self.key("n", "project sessions")
         self.assertEqual(self.count("session.stop"), 0)
@@ -370,33 +372,37 @@ class MockTUITests(unittest.TestCase):
         self.assertEqual(self.session("main", "new-project")["session_condition"], "ready")
         self.detach()
 
-    def test_05_loss_preview_discard_delete_and_error(self):
-        for action, branch in (("d", "feat/ui"), ("X", "fix/cache")):
-            with self.subTest(action=action):
-                # atlas is stopped; select an exact branch through fuzzy search.
-                self.key("/atlas " + branch + "\r")
-                sid = self.session(branch, "atlas")["uuid"]
-                before = self.count("session.discard" if action == "d" else "session.delete")
+    def test_05_removal_preview_discard_delete_running_and_error(self):
+        # atlas is stopped; forge/fix/token-refresh is running and unattached,
+        # so P stops it as part of the removal.
+        for action, project, branch in (("d", "atlas", "feat/ui"), ("X", "atlas", "fix/cache"), ("d", "forge", "fix/token-refresh")):
+            with self.subTest(action=action, branch=branch):
+                kind = "discard" if action == "d" else "delete"
+                # Select an exact branch through fuzzy search.
+                self.key("/" + project + " " + branch + "\r")
+                sid = self.session(branch, project)["uuid"]
+                running = self.session(branch, project)["session_condition"] == "ready"
+                before = self.count("session." + kind)
                 self.key(action, "Removal loss preview")
+                self.assertIn("P does not look inside the container", self.screen())
+                self.assertEqual("P stops the running container" in self.screen(), running)
                 if action == "d":
-                    self.assertNotIn('"branch_loss"', self.screen())
-                    self.assertIn('"condition": "present"', self.screen())
+                    self.assertIn("Discard keeps this branch in P", self.screen())
                 else:
-                    self.assertIn('"branch_loss"', self.screen())
+                    self.assertIn("Delete removes this branch from P's repository", self.screen())
                 previews = [c for c in self.rpc("mock.inspect")["calls"] if c["method"] == "session.removal.preview"]
-                self.assertEqual(previews[-1]["params"]["kind"], "discard" if action == "d" else "delete")
+                self.assertEqual(previews[-1]["params"], {"v": 1, "uuid": sid, "kind": kind})
                 self.key("Ggg")
                 self.key("n", "Enter open")
                 self.assertIn(sid, self.rpc("mock.inspect")["sessions"])
-                self.assertEqual(self.count("session.discard" if action == "d" else "session.delete"), before)
+                self.assertEqual(self.count("session." + kind), before)
                 self.key(action, "Removal loss preview")
                 self.key("y", "Operation completed")
                 state = self.rpc("mock.inspect")
                 self.assertNotIn(sid, state["sessions"])
-                self.assertEqual(branch in state["refs"]["atlas"], action == "d")
+                self.assertEqual(branch in state["refs"][project], action == "d")
                 self.key("q", "Enter open")
                 self.key("q", "All project sessions")  # clear search
-        self.key("ggX", "Detach and Stop")
         self.rpc("mock.configure", method="project.branches", error="Injected branch observation refusal")
         self.key("b", "Injected branch observation refusal")
         self.key("q", "All project sessions")

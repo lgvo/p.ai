@@ -84,8 +84,6 @@ type RuntimeBackend interface {
     List(context.Context) ([]RuntimeInfo, error)
     Inspect(context.Context, RuntimeLocator) (RuntimeInfo, error)
     Start(context.Context, RuntimeLocator) (RuntimeOperation, error)
-    Pause(context.Context, RuntimeLocator) (RuntimeOperation, error)
-    Resume(context.Context, RuntimeLocator) (RuntimeOperation, error)
     WorkspaceStatus(context.Context, RuntimeLocator) (WorkspaceStatus, error)
     WorkspaceOperation(context.Context, RuntimeLocator, WorkspaceOperation) error
     Attach(context.Context, RuntimeLocator) (AttachSpec, error)
@@ -355,8 +353,8 @@ gates.
 Support is claimed only after the relevant validation in
 [development validations](development-validations.md) passes. In particular,
 the configured Incus project/storage/network combination must prove confinement,
-workspace inspection, lifecycle operations, cached-image correctness, systemd
-host readiness/exit behavior, confirmed attachment semantics, and no
+stopped-workspace access, lifecycle operations, cached-image correctness,
+systemd host readiness/exit behavior, confirmed attachment semantics, and no
 host/private-network access.
 
 ## Licensing policy

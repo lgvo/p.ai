@@ -29,6 +29,6 @@ func TestProjectRemovalLossAllHeadsAndBoundedHistory(t *testing.T) {
 		t.Fatal("oversized history produced incomplete confirmation report")
 	}
 	if refs, err := b.observeLossHeads(context.Background(), "app"); err != nil || len(refs) != 2 {
-		t.Fatal("loss inspection changed refs", err)
+		t.Fatal("removal loss review changed refs", err)
 	}
 }

@@ -98,10 +98,6 @@ type LifecycleAPI interface {
 	StopSession(context.Context, string) (api.SessionView, error)
 }
 
-type WorkspaceLossReadAPI interface {
-	InspectWorkspaceLoss(context.Context, WorkspaceInspectRequest) (api.Operation, error)
-}
-
 type RenameAPI interface {
 	RenameSession(context.Context, RenameRequest) (api.Operation, error)
 }
@@ -297,40 +293,19 @@ func addLifecycleMethods(t *methodTable, store *Store, life LifecycleAPI) {
 	} else {
 		t.unavailable("session.attach", "attachment.claim", "attachment.confirm", "attachment.ping")
 	}
-	if workspace, ok := life.(WorkspaceLossReadAPI); ok {
-		t.add("workspace.loss.inspect", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
-			var p struct {
-				V    int    `json:"v"`
-				Key  string `json:"key"`
-				UUID string `json:"uuid"`
-			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || len(p.Key) < 1 || len(p.Key) > 128 || !validUUID(p.UUID) {
-				return nil, errorRPC(-32602, "invalid_params", "workspace.loss.inspect requires v=1, key and session UUID")
-			}
-			op, e := workspace.InspectWorkspaceLoss(ctx, WorkspaceInspectRequest{Key: p.Key, SessionUUID: p.UUID})
-			if e != nil {
-				return nil, lifecycleRPC(e)
-			}
-			return map[string]any{"v": 1, "operation": op}, nil
-		})
-	} else {
-		t.unavailable("workspace.loss.inspect")
-	}
 	if removal, ok := life.(RemovalPreviewAPI); ok {
 		t.add("session.removal.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
 			var p struct {
 				V                         int    `json:"v"`
 				UUID                      string `json:"uuid"`
 				Kind                      string `json:"kind"`
-				LossOperationID           string `json:"loss_operation_id"`
 				AcknowledgeMissingRuntime bool   `json:"acknowledge_missing_runtime"`
 			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.Kind != "discard" && p.Kind != "delete" ||
-				len(p.LossOperationID) > 128 || (p.LossOperationID == "") == !p.AcknowledgeMissingRuntime {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.Kind != "discard" && p.Kind != "delete" {
 				return nil, errorRPC(-32602, "invalid_params", "invalid session.removal.preview request")
 			}
 			preview, e := removal.PreviewRemoval(ctx, RemovalPreviewRequest{UUID: p.UUID, Kind: p.Kind,
-				LossOperationID: p.LossOperationID, AcknowledgeMissingRuntime: p.AcknowledgeMissingRuntime})
+				AcknowledgeMissingRuntime: p.AcknowledgeMissingRuntime})
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}
@@ -433,25 +408,19 @@ func addLifecycleMethods(t *methodTable, store *Store, life LifecycleAPI) {
 	if deletion, ok := life.(ProjectDeleteAPI); ok {
 		t.add("project.delete.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
 			var p struct {
-				V                  int               `json:"v"`
-				Project            string            `json:"project"`
-				LossOperations     map[string]string `json:"loss_operations"`
-				AcknowledgeMissing []string          `json:"acknowledge_missing,omitempty"`
+				V                  int      `json:"v"`
+				Project            string   `json:"project"`
+				AcknowledgeMissing []string `json:"acknowledge_missing,omitempty"`
 			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || len(p.LossOperations) > 4 || len(p.AcknowledgeMissing) > 4 {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validProject(p.Project) || len(p.AcknowledgeMissing) > 4 {
 				return nil, errorRPC(-32602, "invalid_params", "invalid project deletion preview")
-			}
-			for uuid, id := range p.LossOperations {
-				if !validUUID(uuid) || !validUUID(id) {
-					return nil, errorRPC(-32602, "invalid_params", "invalid project loss proof")
-				}
 			}
 			for _, uuid := range p.AcknowledgeMissing {
 				if !validUUID(uuid) {
 					return nil, errorRPC(-32602, "invalid_params", "invalid missing runtime acknowledgement")
 				}
 			}
-			preview, e := deletion.PreviewProjectDelete(ctx, ProjectDeletePreviewRequest{Project: p.Project, LossOperations: p.LossOperations, AcknowledgeMissing: p.AcknowledgeMissing})
+			preview, e := deletion.PreviewProjectDelete(ctx, ProjectDeletePreviewRequest{Project: p.Project, AcknowledgeMissing: p.AcknowledgeMissing})
 			if e != nil {
 				return nil, projectDeleteRPC(e)
 			}
@@ -560,24 +529,13 @@ func addLifecycleMethods(t *methodTable, store *Store, life LifecycleAPI) {
 	if cleanup, ok := life.(CreateCleanupAPI); ok {
 		t.add("session.create.cleanup.preview", func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
 			var p struct {
-				V               int    `json:"v"`
-				UUID            string `json:"uuid"`
-				LossOperationID string `json:"loss_operation_id,omitempty"`
+				V    int    `json:"v"`
+				UUID string `json:"uuid"`
 			}
-			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) || p.LossOperationID != "" && !validUUID(p.LossOperationID) {
+			if strictjson.Decode(params, &p) != nil || p.V != 1 || !validUUID(p.UUID) {
 				return nil, errorRPC(-32602, "invalid_params", "invalid failed creation cleanup preview")
 			}
-			var review CreateCleanupPreview
-			var e error
-			if p.LossOperationID != "" {
-				assembled, supported := life.(AssembledCreateCleanupAPI)
-				if !supported {
-					return nil, lifecycleRPC(ErrNotFound)
-				}
-				review, e = assembled.PreviewAssembledCreateCleanup(ctx, p.UUID, p.LossOperationID)
-			} else {
-				review, e = cleanup.PreviewCreateCleanup(ctx, p.UUID)
-			}
+			review, e := cleanup.PreviewCreateCleanup(ctx, p.UUID)
 			if e != nil {
 				return nil, lifecycleRPC(e)
 			}
@@ -633,5 +591,5 @@ func projectDeleteRPC(err error) *api.RPCError {
 	if errors.Is(err, ErrInvalid) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return lifecycleRPC(err)
 	}
-	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions and obtain fresh loss inspections; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review")
+	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review")
 }

@@ -78,7 +78,7 @@ inc list "^p-$uuid$" --format json |
 rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" remove "$socket" "$step_dir/uuid"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
-preview=$(rpc project.delete.preview '{"v":1,"project":"tui56","loss_operations":{}}')
+preview=$(rpc project.delete.preview '{"v":1,"project":"tui56"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"tui56-final-delete",project:"tui56",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")

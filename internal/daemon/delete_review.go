@@ -10,37 +10,20 @@ import (
 
 var errDeleteReviewChanged = errors.New("reviewed Delete branch loss or origin changed")
 
-// Fresh Delete review is recomputed while the exact runtime is quiescent.
-// An origin read that cannot be completed remains an explicit unknown with
-// its captured URL, exactly as the public preview presented it.
+// freshDeleteReview recomputes a session Delete's branch loss. A missing
+// assigned ref leaves nothing of the branch to lose in P's repository.
 func (l *lifecycle) freshDeleteReview(ctx context.Context, ev control.DiscardEvidence) (*control.RemovalBranchLoss, error) {
-	branchLoss, err := l.git.backend.BranchRemovalLoss(ctx, ev.Project, ev.Branch, ev.AllowUnborn)
+	branchLoss, err := l.git.backend.BranchRemovalLoss(ctx, ev.Project, ev.Branch, true)
 	if err != nil {
 		return nil, err
 	}
-	return l.makeDeleteReview(ctx, ev.Project, branchLoss)
+	return deleteReview(branchLoss), nil
 }
 
-func (l *lifecycle) makeDeleteReview(ctx context.Context, project string, branchLoss gitservice.BranchRemovalLoss) (*control.RemovalBranchLoss, error) {
-	origin, _, err := l.store.Origin(ctx, project)
-	if err != nil {
-		return nil, err
-	}
-	if origin.URL == "" {
-		return l.makeDeleteReviewInScope(ctx, project, branchLoss, nil)
-	}
-	var review *control.RemovalBranchLoss
-	err = l.git.backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
-		var e error
-		review, e = l.makeDeleteReviewInScope(ctx, project, branchLoss, scope)
-		return e
-	})
-	return review, err
-}
-
-// makeDeleteReviewInScope avoids a nested origin lock when a Git-only
-// destructive action holds origin and ref authority through its final effect.
-func (l *lifecycle) makeDeleteReviewInScope(ctx context.Context, project string, branchLoss gitservice.BranchRemovalLoss, scope *gitservice.OriginScope) (*control.RemovalBranchLoss, error) {
+// deleteReview lists the commits a deletion removes from P's repository.
+// Session and project deletion do not read the origin: whether the origin
+// keeps those commits is the user's concern.
+func deleteReview(branchLoss gitservice.BranchRemovalLoss) *control.RemovalBranchLoss {
 	branch := &control.RemovalBranchLoss{AssignedRef: branchLoss.AssignedRef, AssignedTip: branchLoss.AssignedTip,
 		CommitsLosingPReachability: branchLoss.CommitsLosingPReachability}
 	branch.PRefs = make([]struct {
@@ -53,7 +36,15 @@ func (l *lifecycle) makeDeleteReviewInScope(ctx context.Context, project string,
 			OID  string `json:"oid"`
 		}{ref.Ref, ref.OID})
 	}
-	branch.Origin.Status, branch.Origin.ContainingBranches, branch.Origin.UnresolvedRefs = "local_only", []string{}, []string{}
+	return branch
+}
+
+// makeDeleteReviewInScope adds a fresh origin comparison to a retained-branch
+// deletion's review. The caller holds the origin scope through its final
+// effect, which avoids a nested origin lock.
+func (l *lifecycle) makeDeleteReviewInScope(ctx context.Context, project string, branchLoss gitservice.BranchRemovalLoss, scope *gitservice.OriginScope) (*control.RemovalBranchLoss, error) {
+	branch := deleteReview(branchLoss)
+	branch.Origin = &control.RemovalOrigin{Status: "local_only", ContainingBranches: []string{}, UnresolvedRefs: []string{}}
 	origin, _, err := l.store.Origin(ctx, project)
 	if err != nil {
 		return nil, err

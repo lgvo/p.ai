@@ -63,128 +63,16 @@ def wait_jobs():
         time.sleep(0.1)
 
 
-identity_keys = ("user.p.instance_uuid", "user.p.session_uuid", "user.p.workspace_owner",
-                 "user.p.project_path", "user.p.contract_version", "user.p.image_fingerprint")
-
-
-def native_instance(name):
-    values = json.loads(incus("list", "^" + name + "$", "--format", "json").stdout)
-    if len(values) != 1 or values[0]["name"] != name:
-        raise RuntimeError("exact fixture instance is absent or ambiguous")
-    return values[0]
-
-
-def helper_identity(item, operation, process_limit):
-    if item["name"] != "p-workspace-" + str(uuid_module.UUID(operation["id"])):
-        raise RuntimeError("helper name differs from its exact operation")
-    configs = (item["config"], item["expanded_config"])
-    wanted = {"limits.cpu": "1", "limits.memory": "768MiB", "limits.processes": process_limit,
-              "user.p.session_uuid": operation["id"], "user.p.workspace_owner": session,
-              "user.p.project_path": operation["project"], "user.p.contract_version": "p.workspace-helper/v1",
-              "user.p.instance_uuid": operation["evidence"]["instance_uuid"],
-              "user.p.image_fingerprint": operation["evidence"]["base_fingerprint"]}
-    if any(config.get(key) != value for config in configs for key, value in wanted.items()):
-        raise RuntimeError("helper fixture identity or bounded resources changed")
-    native_uuid = str(uuid_module.UUID(item["config"]["volatile.uuid"]))
-    return {"name": item["name"], "native_uuid": native_uuid,
-            "labels": {key: item["config"].get(key) for key in identity_keys}}
-
-
-def inspection_fault(mode, record_path):
-    record_path = Path(record_path)
-    if mode == "block-inspection":
-        if record_path.exists():
-            raise RuntimeError("refusing to replace an existing fault record")
-        source = native_instance("p-" + session)
-        if source["status"] != "Stopped" or source["config"].get("user.p.session_uuid") != session:
-            raise RuntimeError("fault fixture requires its exact stopped source")
-        source_uuid = source["config"]["volatile.uuid"]
-        source_generation = source["config"]["volatile.uuid.generation"]
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            instances = json.loads(incus("list", "--format", "json").stdout)
-            candidates = [item for item in instances
-                          if item["config"].get("user.p.workspace_owner") == session
-                          and item["config"].get("user.p.contract_version") == "p.workspace-helper/v1"]
-            if len(candidates) > 1:
-                raise RuntimeError("multiple owner helpers; refusing a fault")
-            if not candidates:
-                time.sleep(0.03)
-                continue
-            helper = candidates[0]
-            op_id = str(uuid_module.UUID(helper["config"]["user.p.session_uuid"]))
-            operation = rpc("operation.inspect", id=op_id)["operation"]
-            if operation["kind"] != "workspace.loss.inspect" or operation["session_uuid"] != session:
-                raise RuntimeError("unexpected owner helper operation")
-            if operation["status"] != "running" or operation["phase"] != "init-issued":
-                raise RuntimeError("missed safe init-issued injection phase; no fault applied")
-            if helper["status"] != "Running":
-                time.sleep(0.03)
-                continue
-            evidence = operation["evidence"]
-            if (evidence["original_status"] != "Stopped" or evidence["source_incus_uuid"] != source_uuid
-                    or evidence["source_generation"] != source_generation):
-                raise RuntimeError("accepted source identity differs from the fixture")
-            identity = helper_identity(helper, operation, "256")
-            current = rpc("operation.inspect", id=op_id)["operation"]
-            if (time.monotonic() >= deadline or current["status"] != "running"
-                    or current["phase"] != "init-issued" or current["evidence"] != evidence):
-                raise RuntimeError("safe injection window ended; no fault applied")
-            # Persist the restoration identity before the sole reversible
-            # resource change. Never edit ownership labels or durable state.
-            record = {"source": session, "source_native_uuid": source_uuid,
-                      "source_generation": source_generation, "operation": operation,
-                      "helper": identity, "original_limit": "256", "changed_limit": "255",
-                      "native_before": helper}
-            with os.fdopen(os.open(record_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "w") as output:
-                json.dump(record, output)
-            incus("config", "set", identity["name"], "limits.processes", "255")
-            changed = native_instance(identity["name"])
-            if helper_identity(changed, operation, "255") != identity:
-                raise RuntimeError("helper identity changed during injection; record retained")
-            current = rpc("operation.inspect", id=op_id)["operation"]
-            print(json.dumps({"fault": "applied", "record": str(record_path), "operation": op_id,
-                              "phase_after": current["phase"], "status_after": current["status"]}))
-            return
-        raise RuntimeError("helper did not reach the safe injection window; no fault applied")
-    record = json.loads(record_path.read_text())
-    if record["source"] != session or record["original_limit"] != "256" or record["changed_limit"] != "255":
-        raise RuntimeError("fault record is outside this fixture")
-    source = native_instance("p-" + session)
-    if (source["status"] != "Stopped" or source["config"].get("user.p.session_uuid") != session
-            or source["config"]["volatile.uuid"] != record["source_native_uuid"]
-            or source["config"]["volatile.uuid.generation"] != record["source_generation"]):
-        raise RuntimeError("fault source identity changed; refusing restoration")
-    operation = rpc("operation.inspect", id=record["operation"]["id"])["operation"]
-    immutable = lambda evidence: {key: value for key, value in evidence.items() if key != "result"}
-    if (operation["kind"] != "workspace.loss.inspect" or operation["session_uuid"] != session
-            or immutable(operation["evidence"]) != immutable(record["operation"]["evidence"])
-            or operation["status"] != "blocked"):
-        raise RuntimeError("fault operation is not the same blocked inspection")
-    helper = native_instance(record["helper"]["name"])
-    if helper_identity(helper, operation, "255") != record["helper"]:
-        raise RuntimeError("fault helper identity changed; refusing restoration")
-    incus("config", "set", helper["name"], "limits.processes", "256")
-    restored = native_instance(helper["name"])
-    if helper_identity(restored, operation, "256") != record["helper"]:
-        raise RuntimeError("helper identity changed during restoration")
-    print(json.dumps({"fault": "restored", "operation": operation["id"], "native_uuid": record["helper"]["native_uuid"]}))
-
-
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--socket", required=True)
 parser.add_argument("--uuid", required=True)
-parser.add_argument("mode", choices=["seed", "install", "setup", "snapshot", "services", "assert-empty", "add", "sql", "wait-jobs", "fail-worker", "recover-worker", "block-inspection", "restore-inspection"])
+parser.add_argument("mode", choices=["seed", "install", "setup", "snapshot", "services", "assert-empty", "add", "sql", "wait-jobs", "fail-worker", "recover-worker"])
 parser.add_argument("value", nargs="?")
 args = parser.parse_args()
 session = str(uuid_module.UUID(args.uuid))
 os.environ["INCUS_SOCKET"] = "/var/lib/incus/unix.socket.user"
 
-if args.mode in {"block-inspection", "restore-inspection"}:
-    if args.value is None:
-        parser.error("inspection fault requires a private record path")
-    inspection_fault(args.mode, args.value)
-elif args.mode == "seed":
+if args.mode == "seed":
     source = Path(os.environ["P_TEST_SOURCE"]) / "examples/notes"
     guest("mkdir", "-p", "examples/notes")
     with tempfile.TemporaryDirectory(prefix="notes58-", dir=os.environ.get("P_TEST_TMP")) as root:

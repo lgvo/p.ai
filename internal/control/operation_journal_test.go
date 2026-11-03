@@ -20,7 +20,6 @@ import (
 
 var journalKinds = []string{
 	"project.create", "session.create", "project.delete",
-	"workspace.loss.inspect",
 	"session.discard", "session.delete", "session.create.cleanup",
 	"session.rename", "project.retained.rename", "project.retained.delete",
 }
@@ -83,14 +82,12 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 		return ids
 	}
 	byRowid := func(kind string) []string { return []string{kind + ":A", kind + ":B", kind + ":C"} }
-	// Recovery order: creations, project deletions, workspace loss
-	// inspections, removals, renames, then retained renames and deletes. Each
-	// group keeps its own order.
+	// Recovery order: creations, project deletions, removals, renames, then
+	// retained renames and deletes. Each group keeps its own order.
 	var want []string
 	for _, group := range [][]string{
 		byCreated("project.create", "session.create"),
 		byCreated("project.delete"),
-		byCreated("workspace.loss.inspect"),
 		byCreated("session.discard", "session.delete", "session.create.cleanup"),
 		byCreated("session.rename"),
 		byRowid("project.retained.rename"),

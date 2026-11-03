@@ -190,8 +190,9 @@ branch behavior are defined in
 ## Branch rename
 
 Rename uses host RPC for intent and progress, daemon Git authority for the P
-refs, and a quiesced Incus workspace for the local branch/upstream change.
-Git pushes to the affected refs are guarded while the operation is incomplete.
+refs, and the stopped session's Incus workspace for the local branch/upstream
+change. Git pushes to the affected refs are guarded while the operation is
+incomplete.
 The transaction and recovery rules are defined in
 [session lifecycle](session-lifecycle.md#rename).
 
@@ -289,13 +290,15 @@ MVP performs a refresh:
 - on explicit user request;
 - before resolving a source explicitly selected from current origin state;
 - before every P-managed publication; and
-- before destructive preflight makes origin-preservation claims.
+- before a retained-branch deletion preview reports origin preservation.
 
 Origin source selection and publication require their refresh to succeed. If
 it fails, the user may still select an exact commit already reachable in P, but
-P does not describe that commit as current origin state. Destructive preflight
-may continue after refresh failure only by displaying origin preservation as
-`unknown`, as defined by session lifecycle.
+P does not describe that commit as current origin state. A retained-branch
+deletion preview may continue after refresh failure only by displaying origin
+preservation as `unknown`, as defined by
+[project lifecycle](project-lifecycle.md#retained-branches). Session discard
+and delete and project deletion contact no origin.
 
 Background refresh is an optional best-effort convenience. It may update the
 overview, but its presence, interval, or success is never a correctness
@@ -381,13 +384,14 @@ user Git.
 
 ## Destructive operations
 
-Destructive preflight and lifecycle intent travel over host RPC. Workspace loss
-is obtained through non-activating Incus inspection; branch loss comes from
-Git reachability and optionally observed origin branches. Runtime files and Git
-objects never travel inside the RPC request.
+Destructive preflight and lifecycle intent travel over host RPC. Runtime loss
+is stated by category from the runtime's presence and identity; P does not
+read the workspace. Branch loss comes from Git reachability in P's repository;
+only retained-branch deletion also compares freshly observed origin branches.
+Runtime files and Git objects never travel inside the RPC request.
 
-Session discard/delete, missing/unreachable behavior, confirmation
-fingerprints and credential cleanup are defined in
+Session discard/delete, missing/unreachable behavior, confirmation tokens and
+credential cleanup are defined in
 [session lifecycle](session-lifecycle.md#destructive-preflight).
 Unavailable Incus keeps confirmed cleanup incomplete and resumable; explicit
 abandonment and its associated tombstone/orphan-cleanup/forget workflow are

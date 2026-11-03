@@ -4,26 +4,38 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
-func TestDiscardStaleRollbackOnlyRestoresOwnFreeze(t *testing.T) {
-	ev := control.DiscardEvidence{OriginalStatus: "Running"}
-	for _, phase := range []string{"guard-pending", "guarded", "helper-intent", "init-issued", "helper-ready"} {
-		if discardStaleNeedsThaw(ev, phase) {
-			t.Fatalf("independent stop/replacement before freeze would strand guard at %s", phase)
+func TestDiscardAcceptsTheReviewedContainerWhateverItsRunState(t *testing.T) {
+	ev := control.DiscardEvidence{InstanceName: "p-550e8400-e29b-41d4-a716-446655440000",
+		IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333", ImageFingerprint: strings.Repeat("c", 64)}
+	reviewed := runtimeincus.Observation{Exists: true, Name: ev.InstanceName, IncusUUID: ev.IncusUUID, Generation: ev.Generation, Fingerprint: ev.ImageFingerprint}
+	for _, status := range []string{"Running", "Stopped"} {
+		o := reviewed
+		o.Status = status
+		if !discardSourceMatches(o, ev) {
+			t.Fatalf("a %s container started or stopped after its preview was refused", status)
 		}
 	}
-	for _, phase := range []string{"freeze-intent", "quiescent", "analyzed", "validated"} {
-		if !discardStaleNeedsThaw(ev, phase) {
-			t.Fatalf("own freeze could be released without exact restoration at %s", phase)
+	for name, change := range map[string]func(*runtimeincus.Observation){
+		"replaced":       func(o *runtimeincus.Observation) { o.IncusUUID = "44444444-4444-4444-8444-444444444444" },
+		"restored":       func(o *runtimeincus.Observation) { o.Generation = "44444444-4444-4444-8444-444444444444" },
+		"rebuilt":        func(o *runtimeincus.Observation) { o.Fingerprint = strings.Repeat("d", 64) },
+		"renamed":        func(o *runtimeincus.Observation) { o.Name = "p-other" },
+		"gone":           func(o *runtimeincus.Observation) { o.Exists = false },
+		"frozen outside": func(o *runtimeincus.Observation) { o.Status = "Frozen" },
+	} {
+		o := reviewed
+		o.Status = "Running"
+		change(&o)
+		if discardSourceMatches(o, ev) {
+			t.Fatalf("a %s container was taken for the reviewed one", name)
 		}
-	}
-	ev.OriginalStatus = "Stopped"
-	if discardStaleNeedsThaw(ev, "analyzed") {
-		t.Fatal("stopped source never needed thaw")
 	}
 }
 

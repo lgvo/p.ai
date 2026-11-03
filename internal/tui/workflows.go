@@ -276,22 +276,6 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.attachOnComplete = v.method == "session.create" || v.method == "project.create"
 		m.navigate("progress")
 		return m.begin("operation.inspect", params{"v": 1, "id": m.operationID})
-	case "workspace.loss.inspect":
-		var r struct {
-			Operation api.Operation `json:"operation"`
-		}
-		if e := json.Unmarshal(v.raw, &r); e != nil {
-			m.notice = e.Error()
-			return nil
-		}
-		if m.removal == nil || r.Operation.SessionUUID != m.removal.UUID || r.Operation.Kind != "workspace.loss.inspect" || r.Operation.ID == "" {
-			m.notice = "Loss operation does not match the captured removal session."
-			return nil
-		}
-		m.operation = r.Operation
-		m.operationID = r.Operation.ID
-		m.removal.LossOperationID = r.Operation.ID
-		return m.begin("operation.inspect", params{"v": 1, "id": m.operationID})
 	case "operation.inspect":
 		var r struct {
 			Operation api.Operation `json:"operation"`
@@ -300,15 +284,8 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.notice = e.Error()
 			return nil
 		}
-		if m.removal != nil && (r.Operation.ID != m.removal.LossOperationID || r.Operation.SessionUUID != m.removal.UUID || r.Operation.Kind != "workspace.loss.inspect") {
-			m.notice = "Loss operation does not match the captured removal session."
-			return nil
-		}
 		m.operation = r.Operation
 		if r.Operation.Status == "completed" {
-			if r.Operation.Kind == "workspace.loss.inspect" && m.removal != nil && r.Operation.ID == m.removal.LossOperationID && r.Operation.SessionUUID == m.removal.UUID {
-				return m.begin("session.removal.preview", params{"v": 1, "uuid": m.removal.UUID, "kind": m.removal.Kind, "loss_operation_id": r.Operation.ID})
-			}
 			if m.attachOnComplete && r.Operation.SessionUUID != "" {
 				m.contextSession.UUID = r.Operation.SessionUUID
 				m.operationID = ""
@@ -327,22 +304,15 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.notice = e.Error()
 			return nil
 		}
-		var p struct {
-			Token string `json:"confirmation_token"`
-			UUID  string `json:"session_uuid"`
-			Kind  string `json:"kind"`
-		}
-		if e := json.Unmarshal(r.Preview, &p); e != nil || p.Token == "" || m.removal == nil || p.UUID != m.removal.UUID || p.Kind != m.removal.Kind {
+		var p removalPreview
+		if e := json.Unmarshal(r.Preview, &p); e != nil || p.ConfirmationToken == "" || m.removal == nil || p.SessionUUID != m.removal.UUID || p.Kind != m.removal.Kind || !p.Runtime.RuntimeDataLost {
 			m.notice = "No valid removal confirmation returned."
 			return nil
 		}
-		var pretty any
-		_ = json.Unmarshal(r.Preview, &pretty)
-		text, _ := json.MarshalIndent(pretty, "", "  ")
-		m.review = string(text)
+		m.review = p.review()
 		m.reviewOffset = 0
 		m.confirmMethod = "session." + m.removal.Kind
-		m.confirmParams = params{"v": 1, "key": newKey(), "uuid": m.removal.UUID, "confirmation_token": p.Token}
+		m.confirmParams = params{"v": 1, "key": newKey(), "uuid": m.removal.UUID, "confirmation_token": p.ConfirmationToken}
 		m.removal = nil
 		m.navigate("review")
 	case "session.start", "session.inspect", "session.stop":
@@ -418,6 +388,76 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.notice = ""
 	}
 	return nil
+}
+
+// removalPreview holds the session.removal.preview facts the review states.
+type removalPreview struct {
+	Kind               string `json:"kind"`
+	SessionUUID        string `json:"session_uuid"`
+	Project            string `json:"project"`
+	Branch             string `json:"branch"`
+	AssignedRef        string `json:"assigned_ref"`
+	AssignedTip        string `json:"assigned_tip"`
+	AssignedRefMissing bool   `json:"assigned_ref_missing"`
+	Runtime            struct {
+		IncusProject    string `json:"incus_project"`
+		InstanceName    string `json:"instance_name"`
+		OriginalStatus  string `json:"original_status"`
+		RuntimeDataLost bool   `json:"runtime_data_lost"`
+	} `json:"runtime"`
+	BranchLoss *struct {
+		CommitsLosingPReachability []string `json:"commits_losing_p_reachability"`
+	} `json:"branch_loss"`
+	ConfirmationToken string `json:"confirmation_token"`
+	ExpiresAt         string `json:"expires_at"`
+}
+
+// review states the loss by category. P does not look inside the container,
+// so the review names what it holds instead of listing it.
+func (p removalPreview) review() string {
+	action := "Discard"
+	if p.Kind == "delete" {
+		action = "Delete"
+	}
+	lines := []string{
+		action + " " + p.Project + " / " + p.Branch + "?",
+		"UUID: " + p.SessionUUID,
+		"Review expires: " + p.ExpiresAt,
+		"",
+		"Container: " + p.Runtime.InstanceName + " in Incus project " + p.Runtime.IncusProject + " · " + p.Runtime.OriginalStatus,
+	}
+	if p.Runtime.OriginalStatus == "Running" {
+		lines = append(lines, "P stops the running container before deleting it.")
+	}
+	lines = append(lines,
+		"It is deleted with everything in it: uncommitted changes, files outside Git, commits not pushed to P, the home directory and runtime-local credentials.",
+		"P does not look inside the container to list them. Push or copy out what you need before you authorize.",
+		"")
+	switch {
+	case p.AssignedRefMissing:
+		lines = append(lines, "Branch: "+p.AssignedRef+" is already gone from P.")
+		if p.Kind == "delete" {
+			lines = append(lines, "Delete removes nothing from P's repository.")
+		} else {
+			lines = append(lines, "Discard keeps no branch; it ends like Delete.")
+		}
+	case p.Kind == "delete":
+		lines = append(lines, "Branch: "+p.AssignedRef+" at "+p.AssignedTip, "Delete removes this branch from P's repository.")
+		commits := []string{}
+		if p.BranchLoss != nil {
+			commits = p.BranchLoss.CommitsLosingPReachability
+		}
+		if len(commits) == 0 {
+			lines = append(lines, "No commits leave P: other P branches still reach them.")
+		} else {
+			lines = append(lines, fmt.Sprintf("Commits that leave P (%d):", len(commits)))
+			lines = append(lines, commits...)
+			lines = append(lines, "P does not check whether the external origin has them.")
+		}
+	default:
+		lines = append(lines, "Branch: "+p.AssignedRef+" at "+p.AssignedTip, "Discard keeps this branch in P.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) dispatchService(intent serviceIntent) tea.Cmd {

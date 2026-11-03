@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -20,8 +19,6 @@ func testDiscardEvidence() DiscardEvidence {
 		InstanceUUID:     "11111111-1111-4111-8111-111111111111",
 		ImageFingerprint: strings.Repeat("c", 64), BaseFingerprint: strings.Repeat("d", 64),
 		IncusUUID: "22222222-2222-4222-8222-222222222222", Generation: "33333333-3333-4333-8333-333333333333",
-		OriginalStatus: "Stopped", LossOperationID: "44444444-4444-4444-8444-444444444444",
-		LossFingerprint:  strings.Repeat("e", 64),
 		PRefsDigest:      strings.Repeat("1", 64),
 		PreviewExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano),
 	}
@@ -71,7 +68,7 @@ func TestDiscardStaleRollbackReleasesOnlyOwnGuard(t *testing.T) {
 	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "stale-cleanup", false, op.Evidence, ""); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "running", "guarded", false, op.Evidence, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.FailStaleDiscard(ctx, op.ID, "content changed"); err != nil {
@@ -261,30 +258,67 @@ func TestDeleteAdmissionRequiresEstablishedSession(t *testing.T) {
 	}
 }
 
-func TestSchemaElevenDiscardEvidenceRecoversValidatedAndSecretsAbsent(t *testing.T) {
-	s, ev, op := setupDiscardStore(t)
-	ctx := context.Background()
-	if err := s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
-		t.Fatal(err)
-	}
-	ev.Action = "" // persisted before schema 12 introduced explicit action
-	legacy, err := json.Marshal(ev)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "validated", false, legacy, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CommitDiscard(ctx, op.ID, func(context.Context, DiscardEvidence) error { return nil }); err != nil {
-		t.Fatalf("legacy validated recovery stranded: %v", err)
-	}
-	if err := s.AdvanceOperation(ctx, op.ID, "running", "secrets-absent", true, legacy, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CompleteDiscard(ctx, op.ID, func(context.Context, string, string, string) error { return nil }); err != nil {
-		t.Fatalf("legacy secrets recovery stranded: %v", err)
-	}
-	if _, err := s.GetSession(ctx, op.SessionUUID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("legacy assignment remains: %v", err)
+func TestRemovalDoesNotDependOnTheSessionGitPrincipal(t *testing.T) {
+	const uuid = "550e8400-e29b-41d4-a716-446655440000"
+	for _, action := range []string{"discard", "delete"} {
+		for _, principal := range []string{"active", "revoked", "missing"} {
+			t.Run(action+"/"+principal, func(t *testing.T) {
+				s, _ := openTestStore(t)
+				ctx := context.Background()
+				ev := testDiscardEvidence()
+				ev.Action = action
+				if action == "delete" {
+					ev.DeleteReviewSHA256 = strings.Repeat("9", 64)
+				}
+				if err := s.CreateProject(ctx, ev.Project, []byte(`{}`)); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256)
+				 VALUES(?,'app','main','established','{}',?)`, uuid, ev.PolicySHA256); err != nil {
+					t.Fatal(err)
+				}
+				if principal != "missing" {
+					if err := s.RegisterGitPrincipal(ctx, strings.Repeat("f", 64), "session", ev.Project, uuid); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if principal == "revoked" {
+					if _, err := s.db.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE session_uuid=?`, uuid); err != nil {
+						t.Fatal(err)
+					}
+				}
+				req := DiscardRequest{Key: "remove", UUID: uuid, TokenSHA256: strings.Repeat("a", 64)}
+				begin, commit, complete, terminal := s.BeginDiscard, s.CommitDiscard, s.CompleteDiscard, "secrets-absent"
+				if action == "delete" {
+					begin, commit, complete, terminal = s.BeginDelete, s.CommitDelete, s.CompleteDelete, "branch-absent"
+				}
+				op, err := begin(ctx, req, ev)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = s.SetGitRefGuard(ctx, ev.Project, ev.Branch, op.ID, true); err != nil {
+					t.Fatal(err)
+				}
+				if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); err != nil {
+					t.Fatal(err)
+				}
+				if err = commit(ctx, op.ID, func(context.Context, DiscardEvidence) error { return nil }); err != nil {
+					t.Fatalf("commit refused: %v", err)
+				}
+				if err = s.AdvanceOperation(ctx, op.ID, "running", terminal, true, op.Evidence, ""); err != nil {
+					t.Fatal(err)
+				}
+				if err = complete(ctx, op.ID, func(context.Context, string, string, string) error { return nil }); err != nil {
+					t.Fatalf("completion refused: %v", err)
+				}
+				if _, err = s.GetSession(ctx, uuid); !errors.Is(err, ErrNotFound) {
+					t.Fatalf("session survived removal: %v", err)
+				}
+				var principals int
+				if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE session_uuid=?`, uuid).Scan(&principals); err != nil || principals != 0 {
+					t.Fatalf("session principal survived removal: %d %v", principals, err)
+				}
+			})
+		}
 	}
 }

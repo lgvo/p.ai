@@ -72,7 +72,7 @@ done < "$step_dir/owned-uuids"
 
 # Whole-project deletion remains an owner API action after the TUI has
 # removed the streams. No fabricated preview tokens or privileged cleanup.
-preview=$(rpc project.delete.preview "$(jq -nc --arg project "$project" '{v:1,project:$project,loss_operations:{}}')")
+preview=$(rpc project.delete.preview "$(jq -nc --arg project "$project" '{v:1,project:$project}')")
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 removed=$(rpc project.delete.confirm "$(jq -nc --arg project "$project" --arg token "$token" '{v:1,key:"notes58-project-delete",project:$project,confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")

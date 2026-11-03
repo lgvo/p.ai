@@ -145,13 +145,9 @@ wait_ready() {
   return 1
 }
 discard_owned() {
-  local id="$1" inspected loss_op preview token confirmed op
-  inspected=$(rpc workspace.loss.inspect "$(jq -nc --arg uuid "$id" --arg key "grant-loss-$id" \
-    '{v:1,key:$key,uuid:$uuid}')")
-  loss_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$inspected")
-  wait_operation "$loss_op"
-  preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$id" --arg op "$loss_op" \
-    '{v:1,uuid:$uuid,kind:"discard",loss_operation_id:$op}')")
+  local id="$1" preview token confirmed op
+  preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$id" \
+    '{v:1,uuid:$uuid,kind:"discard"}')")
   token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$preview")
   confirmed=$(rpc session.discard "$(jq -nc --arg uuid "$id" --arg token "$token" \
     '{v:1,key:"grant-discard",uuid:$uuid,confirmation_token:$token}')")

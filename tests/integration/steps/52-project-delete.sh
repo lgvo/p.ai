@@ -1,6 +1,8 @@
 # shellcheck shell=bash
-# Quiescent aggregate project deletion. Private/credential bytes are dummy
-# sentinels; outages and competing identities below are explicit test injection.
+# Aggregate deletion of a project whose sessions are stopped. P does not look
+# inside the containers or contact an origin: the review states each runtime
+# lost by category. Private/credential bytes are dummy sentinels; outages and
+# competing identities below are explicit test injection.
 set -E
 umask 077
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
@@ -59,11 +61,6 @@ cleanup() {
   if test -n "$id"; then inc delete --force "p-$id" >/dev/null 2>&1 || true; rm -rf -- "${endpoint_prefix:?}/${id:?}"; fi
  done
  for name in "$parked" "$competing"; do if test -n "$name"; then inc delete --force "$name" >/dev/null 2>&1 || true; fi; done
- for op in "${op_ids[@]}"; do inc delete --force "p-workspace-$op" >/dev/null 2>&1 || true; done
- # Clean only this fixture's isolated loss helpers after a failed run.
- while IFS= read -r name; do
-  if test -n "$name"; then inc delete --force "$name" >/dev/null 2>&1 || true; fi
- done < <(inc list --format json 2>/dev/null | jq -r '.[ ]|select((.config["user.p.project_path"] // "")=="bulk-delete" and (.name|startswith("p-workspace-")))|.name' 2>/dev/null || true)
  rmdir "$endpoint_prefix" 2>/dev/null || true
 }
 on_error() {
@@ -155,7 +152,7 @@ start_daemon() {
   return 1
 }
 start_daemon
-rpc system.capabilities | jq -e '.result.available|index("project.delete.preview")!=null and index("project.delete.confirm")!=null' >/dev/null
+rpc system.capabilities | jq -e '.result.available|index("project.delete.preview")!=null and index("project.delete.confirm")!=null and index("workspace.loss.inspect")==null' >/dev/null
 wait_operation() {
  local id="$1" want="$2" result status deadline=$((SECONDS+190))
  while ((SECONDS<deadline)); do
@@ -177,33 +174,18 @@ expect_busy() {
   return 1
  fi
 }
-losses() {
- local tag="$1" id uuid op result after=
- loss_main=
- loss_work=
- for uuid in "$main" "$work"; do
-  result=$(rpc workspace.loss.inspect "$(jq -nc --arg key "$tag-$uuid" --arg uuid "$uuid" '{v:1,key:$key,uuid:$uuid}')")
-  op=$(jq -er '.result.operation.id' <<< "$result")
-  op_ids+=("$op")
-  wait_operation "$op" completed >/dev/null
-  inc list "^p-workspace-$op$" --format json | jq -e 'length==0' >/dev/null
-  if test "$uuid" = "$main"; then loss_main=$op; else loss_work=$op; fi
- done
- # Every implicit fresh confirmation read must clean its own helper too.
- : > "$step_dir/inspect-ids"
- while true; do
-  id=$(rpc operation.list "$(jq -nc --arg after "$after" '{v:1,limit:20,after:$after}')")
-  jq -e '.result.operations|type=="array"' <<< "$id" >/dev/null
-  jq -r '.result.operations[]|select(.project=="bulk-delete" and .kind=="workspace.loss.inspect")|.id' <<< "$id" >> "$step_dir/inspect-ids"
-  after=$(jq -er '.result.next|select(type=="string")' <<< "$id")
-  if test -z "$after"; then break; fi
- done
- while IFS= read -r id; do
-  inc list "^p-workspace-$id$" --format json | jq -e 'length==0' >/dev/null
- done < "$step_dir/inspect-ids"
+expect_invalid() {
+ local response status=0
+ response=$(rpc "$1" "$2" 2> "$step_dir/api.err") || status=$?
+ if ! test "$status" -eq 1 || ! jq -e '.error.kind=="invalid_params" and .error.code == -32602 and (has("result")|not)' <<< "$response" >/dev/null; then
+  printf 'P_PROJECT_DELETE_EXPECT_INVALID_FAIL method=%s status=%s\n' "$1" "$status" >&2
+  jq -c '{error}' <<< "$response" | head -c 2048 >&2
+  printf '\n' >&2
+  return 1
+ fi
 }
 preview() {
- rpc project.delete.preview "$(jq -nc --arg main "$main" --arg work "$work" --arg a "$loss_main" --arg b "$loss_work" '{v:1,project:"bulk-delete",loss_operations:{($main):$a,($work):$b}}')"
+ rpc project.delete.preview '{"v":1,"project":"bulk-delete"}'
 }
 assert_project_active() {
  rpc project.list '{"v":1,"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="active")' >/dev/null
@@ -266,6 +248,9 @@ other_creator=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$other_creator")
 wait_operation "$other_creator" completed >/dev/null
 guest "$unrelated" /run/current-system/sw/bin/bash -c 'printf unrelated-private > /home/p/p-bulk-other'
+# Project deletion does not stop sessions: a running session refuses the review.
+inc list "^p-$work$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
+expect_busy project.delete.preview '{"v":1,"project":"bulk-delete"}'
 for uuid in "$main" "$work"; do
  rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
  printf 'private-%s\n' "$uuid" > "$step_dir/private-$uuid"
@@ -280,20 +265,14 @@ other_repo_name=$(printf %s bulk-other | sha256sum | cut -d' ' -f1)
 other_repo="$state/repositories/$other_repo_name.git"
 other_key=$(sha256sum "$state/session_keys/$unrelated" | cut -d' ' -f1)
 git -C "$repo" update-ref refs/heads/retained "$tip"
-losses initial
+# The removed loss inspection parameter is refused by strict decoding.
+expect_invalid project.delete.preview '{"v":1,"project":"bulk-delete","loss_operations":{}}'
 review=$(preview)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-jq -e --arg main "$main" --arg work "$work" '.result.preview|.outcome=="delete_project_and_all_p_data" and (.sessions|length)==2 and .attachments==[] and (.branch_loss.p_refs|length)==3 and (.branch_loss.commits_losing_p_reachability|length)==1 and .branch_loss.origin.status=="local_only" and (.sessions|all(.runtime.original_status=="Stopped" and (.runtime.loss.fingerprint|length)==64)) and (.warnings|any(contains("private"))) and (.warnings|any(contains("credentials")))' <<< "$review" >/dev/null
+jq -e --arg main "$main" --arg work "$work" '.result.preview|.outcome=="delete_project_and_all_p_data" and (.sessions|length)==2 and ([.sessions[].session.uuid]|sort)==([$main,$work]|sort) and .attachments==[] and (.branch_loss.p_refs|length)==3 and (.branch_loss.commits_losing_p_reachability|length)==1 and (.branch_loss|has("origin")|not) and (.sessions|all(.runtime|.condition=="present" and .original_status=="Stopped" and .runtime_data_lost==true and .incus_project=="user-1000" and (.incus_uuid|length)>0 and (.generation|length)>0 and (.image_fingerprint|length)==64 and (has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at")|not))) and (.warnings|any(contains("private"))) and (.warnings|any(contains("credentials")))' <<< "$review" >/dev/null
 # A new retained ref changes aggregate review and refuses before retirement.
 git -C "$repo" update-ref refs/heads/changed-after-preview "$tip"
 expect_busy project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"stale-ref",project:"bulk-delete",confirmation_token:$token}')"
-assert_project_active
-losses after-ref
-review=$(preview)
-token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
-printf changed-workspace > "$step_dir/dirty"
-inc file push "$step_dir/dirty" "p-$work/workspace/tracked" --uid 1000 --gid 1000 --mode 0644
-expect_busy project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"stale-bytes",project:"bulk-delete",confirmation_token:$token}')"
 assert_project_active
 for uuid in "$main" "$work"; do
  rm -f -- "$step_dir/pulled"
@@ -303,7 +282,6 @@ for uuid in "$main" "$work"; do
  inc file pull "p-$uuid/home/p/p-bulk-dummy-credential" "$step_dir/pulled"
  cmp "$step_dir/dummy-$uuid" "$step_dir/pulled"
 done
-losses after-bytes
 review=$(preview)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 first=$(jq -er '.result.preview.sessions[0].session.uuid' <<< "$review")
@@ -311,10 +289,17 @@ if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
  jq -e --arg image "$cache_image" '.result.preview.cache_images|length==1 and .[0].image.fingerprint==$image' <<< "$review" >/dev/null
 fi
 second=$(jq -er '.result.preview.sessions[1].session.uuid' <<< "$review")
+# P does not look inside the containers: workspace bytes changed after the
+# review do not refuse the confirmation.
+printf changed-workspace > "$step_dir/dirty"
+inc file push "$step_dir/dirty" "p-$work/workspace/tracked" --uid 1000 --gid 1000 --mode 0644
 printf 'p-%s\n' "$first" > "$step_dir/confirmed-first"
 printf 'p-%s\n' "$second" > "$step_dir/confirmed-second"
 : > "$step_dir/outage-arm"
+# Confirmation returns its operation at once (within p api's ten-second
+# deadline); the deletion runs afterwards.
 confirmed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')")
+jq -e '.result.operation|.kind=="project.delete" and .status=="running" and .phase=="ensure-absent" and .committed==true' <<< "$confirmed" >/dev/null
 deletion=$(jq -er '.result.operation.id' <<< "$confirmed")
 op_ids+=("$deletion")
 result=$(wait_operation "$deletion" blocked)
@@ -329,7 +314,7 @@ start_daemon
 rpc project.list '{"v":1,"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="deleting")' >/dev/null
 for uuid in "$main" "$work"; do rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" | jq -e '.result.session.registry_state=="removing"' >/dev/null; done
 expect_busy session.create '{"v":1,"key":"closed-new","project":"bulk-delete","branch":"closed","choice":"new","source":"refs/heads/main"}'
-expect_busy workspace.loss.inspect "$(jq -nc --arg uuid "$second" '{v:1,key:"closed-read",uuid:$uuid}')"
+expect_busy session.start "$(jq -nc --arg uuid "$second" '{v:1,uuid:$uuid}')"
 rpc session.create '{"v":1,"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}' | jq -e '.result.operation.status=="completed"' >/dev/null
 # Explicit fixture competing name; the original exact runtime is parked and
 # preserved. Neither fixture mutation is performed by P's deletion worker.
@@ -370,6 +355,6 @@ expect_busy session.create '{"v":1,"key":"bulk-work","project":"bulk-delete","br
 rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')" | jq -e --arg id "$deletion" '.result.operation.id==$id and .result.operation.status=="completed"' >/dev/null
 test "$(wc -l < "$step_dir/source-effects")" -eq 2
 test "$(awk '$1!="delete"{n++} END{print n+0}' "$step_dir/source-effects")" -eq 0
-# No unaccounted native helper remains, including internal fresh confirmations.
+# No native resource of the deleted project remains.
 inc list --format json | jq -e --arg project bulk-delete 'all((.config["user.p.project_path"] // "")!=$project and (.config["user.p.builder_project_path"] // "")!=$project)' >/dev/null
 printf 'P_PROJECT_DELETE_STALE_PRESERVED\nP_PROJECT_DELETE_RESTART_IDENTITY_PRESERVED\nP_PROJECT_DELETE_PASS\n'

@@ -9,7 +9,7 @@ import (
 // under its deterministic name. A second session identity or any creator
 // builder blocks inspection; neither is adopted or removed.
 func (b *Backend) CheckAssembledCreationSource(ctx context.Context, source Session, creationID, incusUUID, generation string) error {
-	if !uuidPattern.MatchString(creationID) || !uuidPattern.MatchString(incusUUID) || !uuidPattern.MatchString(generation) || source.WorkspaceOwner != "" {
+	if !uuidPattern.MatchString(creationID) || !uuidPattern.MatchString(incusUUID) || !uuidPattern.MatchString(generation) {
 		return errors.New("failed creation native identity unavailable")
 	}
 	if err := b.CheckConfinement(ctx); err != nil {

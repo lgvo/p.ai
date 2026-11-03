@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -84,12 +85,7 @@ func TestFixtureCreationIdempotencyAndSourceFreshness(t *testing.T) {
 }
 func TestFixtureRemovalPreviewBindsKindSessionAndExpiry(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
-	var id string
-	for _, s := range f.sessions {
-		if s.Project == "atlas" && s.Branch == "feat/ui" {
-			id = s.UUID
-		}
-	}
+	id := sessionID(f, "atlas", "feat/ui")
 	for _, review := range []preview{{UUID: id, Kind: "discard", Expires: time.Now().Add(-time.Second)}, {UUID: id, Kind: "delete", Expires: time.Now().Add(time.Minute)}, {UUID: "other", Kind: "discard", Expires: time.Now().Add(time.Minute)}} {
 		f.previews["token"] = review
 		_, err := f.handle(context.Background(), "session.discard", json.RawMessage(`{"v":1,"key":"remove","uuid":"`+id+`","confirmation_token":"token"}`), &attachmentLease{})
@@ -101,49 +97,91 @@ func TestFixtureRemovalPreviewBindsKindSessionAndExpiry(t *testing.T) {
 		}
 	}
 }
+func sessionID(f *fixture, project, branch string) string {
+	for id, s := range f.sessions {
+		if s.Project == project && s.Branch == branch {
+			return id
+		}
+	}
+	return ""
+}
+func decodePreview(t *testing.T, data json.RawMessage) control.RemovalPreview {
+	t.Helper()
+	var response struct {
+		V       int                    `json:"v"`
+		Preview control.RemovalPreview `json:"preview"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	return response.Preview
+}
 func TestFixtureRemovalPreviewMatchesPublicShapeAndSeparatesBranchLoss(t *testing.T) {
 	f := newFixture(t.TempDir(), "portfolio")
-	var id string
-	for _, s := range f.sessions {
-		if s.Project == "atlas" && s.Branch == "feat/ui" {
-			id = s.UUID
-		}
-	}
-	raw, _ := callFixture(t, f, "workspace.loss.inspect", object{"key": "inspect", "uuid": id})
-	var accepted struct {
-		Operation api.Operation `json:"operation"`
-	}
-	_ = json.Unmarshal(raw, &accepted)
+	id := sessionID(f, "atlas", "feat/ui")
 	for _, kind := range []string{"discard", "delete"} {
-		data, _ := callFixture(t, f, "session.removal.preview", object{"uuid": id, "kind": kind, "loss_operation_id": accepted.Operation.ID})
-		var response struct {
-			V       int                    `json:"v"`
-			Preview control.RemovalPreview `json:"preview"`
-		}
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&response); err != nil {
-			t.Fatal(err)
-		}
-		p := response.Preview
-		if p.Runtime.Condition != "present" || p.Runtime.InstanceName != "p-"+id || p.Runtime.LossOperationID != accepted.Operation.ID || len(p.Runtime.Fingerprint) != 64 {
-			t.Fatal("runtime review shape differs from public contract")
+		data, _ := callFixture(t, f, "session.removal.preview", object{"uuid": id, "kind": kind})
+		p := decodePreview(t, data)
+		if p.Runtime.Condition != "present" || p.Runtime.InstanceName != "p-"+id || !p.Runtime.RuntimeDataLost || p.Runtime.OriginalStatus != "Stopped" || p.AssignedTip != tip || p.AssignedRefMissing {
+			t.Fatalf("runtime review shape differs from public contract: %+v", p)
 		}
 		if (p.BranchLoss != nil) != (kind == "delete") {
 			t.Fatal("branch loss applies only to Delete")
 		}
-		var loss map[string]json.RawMessage
-		if err := json.Unmarshal(p.Runtime.Loss, &loss); err != nil {
-			t.Fatal(err)
+		if p.BranchLoss != nil && p.BranchLoss.Origin != nil {
+			t.Fatal("session Delete preview reads the origin")
 		}
-		if string(loss["schema"]) != `"p.workspace-loss/v1"` || string(loss["runtime_data_will_be_removed"]) != "true" || len(loss["worktrees"]) == 0 || len(loss["p_refs"]) == 0 {
-			t.Fatal("workspace-loss contract is absent")
-		}
-		for _, invented := range []string{"tracked_changes", "untracked_files", "home_files"} {
-			if _, ok := loss[invented]; ok {
-				t.Fatal("non-contract loss field:", invented)
-			}
-		}
+	}
+}
+func TestFixtureRemovesARunningUnattachedSessionAndRefusesAnAttachedOne(t *testing.T) {
+	f := newFixture(t.TempDir(), "small")
+	f.native = &nativeServer{tmux: filepath.Join(t.TempDir(), "tmux.sock")}
+	running := sessionID(f, "forge", "fix/token-refresh")
+	data, _ := callFixture(t, f, "session.removal.preview", object{"uuid": running, "kind": "discard"})
+	p := decodePreview(t, data)
+	if p.Runtime.OriginalStatus != "Running" {
+		t.Fatalf("running session previewed as %q", p.Runtime.OriginalStatus)
+	}
+	callFixture(t, f, "session.discard", object{"key": "discard", "uuid": running, "confirmation_token": p.ConfirmationToken})
+	if _, ok := f.sessions[running]; ok {
+		t.Fatal("running session survived its confirmed Discard")
+	}
+	if f.refs["forge"]["fix/token-refresh"] == "" {
+		t.Fatal("Discard removed the assigned branch")
+	}
+	attached := sessionID(f, "orbit", "feat/job-retries")
+	s := f.sessions[attached]
+	s.AttachedCount = 1
+	f.sessions[attached] = s
+	_, err := f.handle(context.Background(), "session.removal.preview", json.RawMessage(`{"v":1,"uuid":"`+attached+`","kind":"delete"}`), &attachmentLease{})
+	if err == nil || err.Kind != "busy" {
+		t.Fatalf("attached session preview: %+v", err)
+	}
+}
+func TestFixtureRenameRefusesARunningSessionAsBusy(t *testing.T) {
+	f := newFixture(t.TempDir(), "small")
+	id := sessionID(f, "forge", "fix/token-refresh")
+	_, err := f.handle(context.Background(), "session.rename", json.RawMessage(`{"v":1,"key":"rename","uuid":"`+id+`","new_branch":"feat/renamed","expected_old_tip":"`+tip+`"}`), &attachmentLease{})
+	if err == nil || err.Kind != "busy" || f.sessions[id].Branch != "fix/token-refresh" {
+		t.Fatalf("running session rename: %+v", err)
+	}
+}
+func TestFixtureHasNoLossInspection(t *testing.T) {
+	f := newFixture(t.TempDir(), "small")
+	id := sessionID(f, "forge", "fix/token-refresh")
+	_, err := f.handle(context.Background(), "workspace.loss.inspect", json.RawMessage(`{"v":1,"key":"inspect","uuid":"`+id+`"}`), &attachmentLease{})
+	if err == nil || err.Kind != "method_not_found" {
+		t.Fatalf("loss inspection: %+v", err)
+	}
+	_, err = f.handle(context.Background(), "session.removal.preview", json.RawMessage(`{"v":1,"uuid":"`+id+`","kind":"discard","loss_operation_id":"inspect"}`), &attachmentLease{})
+	if err == nil || err.Kind != "invalid_params" {
+		t.Fatalf("preview with a loss operation: %+v", err)
+	}
+	raw, _ := callFixture(t, f, "system.capabilities", object{})
+	if strings.Contains(string(raw), "workspace.loss.inspect") {
+		t.Fatal("capabilities list loss inspection")
 	}
 }
 func TestFixturePendingAttachmentIsSingleUseAndExpires(t *testing.T) {

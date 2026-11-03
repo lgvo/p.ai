@@ -14,7 +14,7 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
-func TestRetainedLossRefsWithRealBareRepository(t *testing.T) {
+func TestBranchRemovalLossWithRealBareRepository(t *testing.T) {
 	goPath, err := exec.LookPath("go")
 	if err != nil {
 		t.Fatal("Go compiler required by package check")
@@ -70,11 +70,6 @@ func TestRetainedLossRefsWithRealBareRepository(t *testing.T) {
 	gitTest(t, identity, "-C", work, "commit", "-am", "local")
 	missing := gitTest(t, nil, "-C", work, "rev-parse", "HEAD")
 	dangling := gitTest(t, identity, "-C", repo, "commit-tree", gitTest(t, nil, "-C", repo, "rev-parse", "refs/heads/main^{tree}"), "-m", "dangling")
-	refs, local, err := b.RetainedLossRefs(context.Background(), "loss", []string{retained, missing, dangling})
-	if err != nil || len(refs) != 1 || refs[0].Ref != "refs/heads/main" || refs[0].OID != retained ||
-		!reflect.DeepEqual(local, []string{dangling, missing}) && !reflect.DeepEqual(local, []string{missing, dangling}) {
-		t.Fatalf("retention comparison: refs=%+v local=%v err=%v", refs, local, err)
-	}
 	branchLoss, err := b.BranchRemovalLoss(context.Background(), "loss", "main", false)
 	if err != nil || branchLoss.AssignedTip != retained || !reflect.DeepEqual(branchLoss.CommitsLosingPReachability, []string{retained}) {
 		t.Fatalf("delete branch loss: %+v %v", branchLoss, err)
@@ -109,15 +104,10 @@ func TestRetainedLossRefsWithRealBareRepository(t *testing.T) {
 	if _, err := b.CompareOriginRemoval(context.Background(), "loss", []plugin.GitOriginRef{{Ref: "invalid", CommitOID: retained}}, nil); err == nil {
 		t.Fatal("malformed advertised origin ref accepted when no commits would be lost")
 	}
-	// A workspace loss inspection must remain complete when its assigned P
-	// head was removed externally. The local commit is still a valid object,
-	// but no P head now retains it.
+	// With every head removed outside P, the commit stays a valid object
+	// that no P head retains.
 	gitTest(t, nil, "-C", repo, "update-ref", "-d", "refs/heads/main")
 	gitTest(t, nil, "-C", repo, "update-ref", "-d", "refs/heads/keep")
-	refs, local, err = b.RetainedLossRefs(context.Background(), "loss", []string{retained, missing, dangling})
-	if err != nil || len(refs) != 0 || len(local) != 3 {
-		t.Fatalf("missing assigned P ref made workspace loss unavailable: refs=%+v local=%v err=%v", refs, local, err)
-	}
 	if present, err := b.PCommitPresent(context.Background(), "loss", retained); err != nil || !present {
 		t.Fatalf("unreferenced but present P commit unavailable: %v %v", present, err)
 	}
@@ -139,7 +129,7 @@ func TestRetainedLossRefsWithRealBareRepository(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "refs", "heads", "main"), []byte(bogus+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := b.RetainedLossRefs(context.Background(), "loss", []string{retained}); err == nil {
+	if _, err := b.AssignedBranchSnapshot(context.Background(), "loss", "main", false); err == nil {
 		t.Fatal("missing P tip object accepted as retention")
 	}
 	// A nonzero native batch query is unavailable; it is never interpreted
@@ -152,7 +142,7 @@ func TestRetainedLossRefsWithRealBareRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.gitPath = wrapper
-	if _, _, err := b.RetainedLossRefs(context.Background(), "loss", []string{retained}); err == nil {
+	if _, err := b.AssignedBranchSnapshot(context.Background(), "loss", "main", false); err == nil {
 		t.Fatal("failed P batch observation treated as absent")
 	}
 }

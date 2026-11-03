@@ -62,20 +62,18 @@ type lifecycle struct {
 // implementation of its interface; a missing method would silently answer
 // "unavailable" instead of failing the build.
 var (
-	_ control.LifecycleAPI              = (*lifecycle)(nil)
-	_ control.ServiceAPI                = (*lifecycle)(nil)
-	_ control.AttachmentAPI             = (*lifecycle)(nil)
-	_ control.WorkspaceLossReadAPI      = (*lifecycle)(nil)
-	_ control.RemovalPreviewAPI         = (*lifecycle)(nil)
-	_ control.DiscardAPI                = (*lifecycle)(nil)
-	_ control.DeleteAPI                 = (*lifecycle)(nil)
-	_ control.RenameAPI                 = (*lifecycle)(nil)
-	_ control.RetainedRenameAPI         = (*lifecycle)(nil)
-	_ control.ProjectDeleteAPI          = (*lifecycle)(nil)
-	_ control.RetainedDeleteAPI         = (*lifecycle)(nil)
-	_ control.CreateReplaceAPI          = (*lifecycle)(nil)
-	_ control.CreateCleanupAPI          = (*lifecycle)(nil)
-	_ control.AssembledCreateCleanupAPI = (*lifecycle)(nil)
+	_ control.LifecycleAPI      = (*lifecycle)(nil)
+	_ control.ServiceAPI        = (*lifecycle)(nil)
+	_ control.AttachmentAPI     = (*lifecycle)(nil)
+	_ control.RemovalPreviewAPI = (*lifecycle)(nil)
+	_ control.DiscardAPI        = (*lifecycle)(nil)
+	_ control.DeleteAPI         = (*lifecycle)(nil)
+	_ control.RenameAPI         = (*lifecycle)(nil)
+	_ control.RetainedRenameAPI = (*lifecycle)(nil)
+	_ control.ProjectDeleteAPI  = (*lifecycle)(nil)
+	_ control.RetainedDeleteAPI = (*lifecycle)(nil)
+	_ control.CreateReplaceAPI  = (*lifecycle)(nil)
+	_ control.CreateCleanupAPI  = (*lifecycle)(nil)
 )
 
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (*lifecycle, error) {
@@ -482,6 +480,22 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 		}
 	}
 	return release, nil
+}
+
+// checkNoSessionChange refuses work on a session while an unfinished cleanup,
+// discard, delete or rename holds it.
+func (l *lifecycle) checkNoSessionChange(ctx context.Context, sessionUUID string) error {
+	if l.store == nil {
+		return nil
+	} // unit-only lifecycle seam; production always owns a Store
+	_, active, err := l.store.ActiveSessionChange(ctx, sessionUUID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return control.ErrConflict
+	}
+	return nil
 }
 
 // readsInFlight counts the admitted reads of one session.
@@ -1360,7 +1374,7 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 			release()
 		}
 	}()
-	if err := l.checkNoWorkspaceInspect(ctx, id); err != nil {
+	if err := l.checkNoSessionChange(ctx, id); err != nil {
 		return api.SessionView{}, err
 	}
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
@@ -1478,7 +1492,7 @@ func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView
 	if blocked {
 		return api.SessionView{}, control.ErrConflict
 	}
-	if err := l.checkNoWorkspaceInspect(ctx, id); err != nil {
+	if err := l.checkNoSessionChange(ctx, id); err != nil {
 		return api.SessionView{}, err
 	}
 	s, err := l.store.GetSession(ctx, id)

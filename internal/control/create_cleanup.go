@@ -92,7 +92,3 @@ type CreateCleanupAPI interface {
 	PreviewCreateCleanup(context.Context, string) (CreateCleanupPreview, error)
 	ConfirmCreateCleanup(context.Context, string, string, string) (api.Operation, error)
 }
-
-type AssembledCreateCleanupAPI interface {
-	PreviewAssembledCreateCleanup(context.Context, string, string) (CreateCleanupPreview, error)
-}

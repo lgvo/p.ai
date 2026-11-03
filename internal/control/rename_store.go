@@ -32,7 +32,6 @@ type RenameEvidence struct {
 	BaseFingerprint   string `json:"base_fingerprint"`
 	IncusUUID         string `json:"incus_uuid"`
 	Generation        string `json:"generation"`
-	OriginalStatus    string `json:"original_status"`
 }
 
 func ValidRenameRequest(r RenameRequest) bool {
@@ -45,7 +44,7 @@ func validRenameEvidence(e RenameEvidence) bool {
 		validOID(e.OldTip) && (e.WorkspaceTip == "" || validOID(e.WorkspaceTip)) &&
 		(e.ConfigAfterSHA256 == "" || validFingerprint(e.ConfigAfterSHA256)) && validFingerprint(e.PolicySHA256) &&
 		validUUID(e.InstanceUUID) && validFingerprint(e.ImageFingerprint) && validFingerprint(e.BaseFingerprint) &&
-		validUUID(e.IncusUUID) && validUUID(e.Generation) && (e.OriginalStatus == "Running" || e.OriginalStatus == "Stopped")
+		validUUID(e.IncusUUID) && validUUID(e.Generation)
 }
 
 // BeginRename serializes ref observation, session reservation and both guards
@@ -118,7 +117,7 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 }
 
 // FailRenamePrecommit is only for a positively known pre-commit refusal after
-// the caller has restored the exact original source and removed its backup.
+// the caller has removed its workspace backup.
 // A create-issued request has an unknown possible Git effect and cannot use
 // this rollback path.
 func (s *Store) FailRenamePrecommit(ctx context.Context, opID, diagnostic string) error {
@@ -145,7 +144,7 @@ func (s *Store) FailRenamePrecommit(ctx context.Context, opID, diagnostic string
 	}
 	var e RenameEvidence
 	if json.Unmarshal([]byte(evRaw), &e) != nil || !validRenameEvidence(e) || project != e.Project || committed != 0 ||
-		phase != "reserved" && phase != "guarded" && phase != "quiesced" && phase != "workspace-prepared" {
+		phase != "reserved" && phase != "guarded" && phase != "workspace-prepared" {
 		return ErrConflict
 	}
 	for _, branch := range []string{e.OldBranch, e.NewBranch} {
@@ -209,8 +208,8 @@ func (s *Store) UpdateRenameAssignment(ctx context.Context, opID string, verify 
 }
 
 // CompleteRename releases both guards only after the caller proves the old P
-// ref absent, the new P ref exact, the workspace mapping and original runtime
-// status. Neither a blocked nor an ambiguous operation is made terminal here.
+// ref absent, the new P ref exact, the workspace mapping and the runtime still
+// stopped. Neither a blocked nor an ambiguous operation is made terminal here.
 func (s *Store) CompleteRename(ctx context.Context, opID string, verify func(context.Context, RenameEvidence) error) error {
 	if verify == nil {
 		return ErrInvalid
@@ -224,7 +223,7 @@ func (s *Store) CompleteRename(ctx context.Context, opID string, verify func(con
 		return err
 	}
 	var e RenameEvidence
-	if op.Kind != "session.rename" || op.Status != "running" || op.Phase != "source-restored" || !op.Committed || json.Unmarshal(op.Evidence, &e) != nil || !validRenameEvidence(e) {
+	if op.Kind != "session.rename" || op.Status != "running" || op.Phase != "backup-absent" || !op.Committed || json.Unmarshal(op.Evidence, &e) != nil || !validRenameEvidence(e) {
 		return ErrConflict
 	}
 	if err := verify(ctx, e); err != nil {

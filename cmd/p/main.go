@@ -114,13 +114,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		deadline := 10 * time.Second
-		if method == "project.delete.confirm" {
-			// Aggregate confirmation performs fresh durable loss inspections before
-			// retiring authority. Its preview still enforces the two-minute expiry.
-			deadline = 2 * time.Minute
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), deadline)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		response, err := api.Call(ctx, socket, method, params)
 		if err != nil {

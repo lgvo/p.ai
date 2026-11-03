@@ -1,5 +1,8 @@
 # shellcheck shell=bash
-# Public Rename across real Incus and Git. Credentials are dummy private files.
+# Public Rename across real Incus and Git. P changes a session's workspace
+# only while the session is stopped: a running session is refused, a stopped
+# one is renamed through the Incus file API without starting it.
+# Credentials are dummy private files.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-33"
@@ -17,6 +20,14 @@ incus_real=$(command -v incus)
 
 inc() { timeout 60 "$incus_real" --force-local --project user-1000 "$@"; }
 rpc() { timeout 35 p api "$socket" "$@"; }
+expect_busy() {
+  local method="$1" params="$2" response status=0
+  response=$(rpc "$method" "$params") || status=$?
+  test "$status" -eq 1
+  jq -e '.jsonrpc=="2.0" and .id==1 and (has("result")|not) and
+    .error.code== -32003 and .error.kind=="busy" and
+    (.error.message|type=="string" and length>0)' <<< "$response" >/dev/null
+}
 guest() {
   inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
     --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh -- "$@"
@@ -36,7 +47,6 @@ stop_daemon() {
 cleanup() {
   stop_daemon
   if test -n "$uuid"; then
-    inc resume "p-$uuid" >/dev/null 2>&1 || true
     inc delete --force "p-$uuid" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
   fi
@@ -114,12 +124,49 @@ wait_operation() {
   echo "operation $id did not reach $want" >&2
   return 1
 }
+wait_ready() {
+  local deadline=$((SECONDS+80))
+  while ((SECONDS < deadline)); do
+    if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+      jq -e '.result.session.session_condition=="ready"' >/dev/null; then return; fi
+    sleep 0.3
+  done
+  echo "session $uuid did not become ready" >&2
+  return 1
+}
+stop_session() {
+  rpc session.stop "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+    jq -e '.result.session.session_condition=="stopped"' >/dev/null
+  inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
+}
+start_session() {
+  rpc session.start "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" >/dev/null
+  wait_ready
+}
 start_daemon
 rpc system.capabilities | jq -e '.result.available | index("session.rename") != null' >/dev/null
 created=$(rpc project.create '{"v":1,"key":"rename-bootstrap","project":"rename-lifecycle"}')
 create_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 wait_operation "$create_op" completed >/dev/null
+wait_ready
+# The pinned base uses static local account lookup and runs no nscd (runtime
+# substrate contract for reading a stopped workspace). Inspect generated
+# guest state; do not stop or mask a live session service.
+inc file pull "p-$uuid/etc/nsswitch.conf" "$step_dir/nsswitch.conf"
+grep -Eq '^passwd:[[:space:]]+files[[:space:]]*$' "$step_dir/nsswitch.conf"
+grep -Eq '^group:[[:space:]]+files[[:space:]]*$' "$step_dir/nsswitch.conf"
+grep -Eq '^shadow:[[:space:]]+files[[:space:]]*$' "$step_dir/nsswitch.conf"
+grep -Eq '^hosts:[[:space:]]+files[[:space:]]+dns[[:space:]]*$' "$step_dir/nsswitch.conf"
+test "$(guest /run/current-system/sw/bin/id -u root)" = 0
+test "$(guest /run/current-system/sw/bin/id -u p)" = 1000
+test "$(guest /run/current-system/sw/bin/id -u nixbld1)" -gt 1000
+inc exec "p-$uuid" -- /run/current-system/sw/bin/test ! -e /run/nscd/socket
+inc exec "p-$uuid" -- /run/current-system/sw/bin/test ! -L /run/nscd/socket
+nscd_unit=$(inc exec "p-$uuid" -- /run/current-system/sw/bin/systemctl show nscd.service \
+  --no-pager -p LoadState -p ActiveState)
+grep -Fxq 'LoadState=not-found' <<< "$nscd_unit"
+grep -Fxq 'ActiveState=inactive' <<< "$nscd_unit"
 test "$(guest /run/current-system/sw/bin/git config branch.main.remote)" = origin
 test "$(guest /run/current-system/sw/bin/git config branch.main.merge)" = refs/heads/main
 guest /run/current-system/sw/bin/git config user.name P
@@ -138,17 +185,47 @@ guest /run/current-system/sw/bin/bash -c \
 ahead_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
 guest /run/current-system/sw/bin/bash -c 'printf dirty > tracked; printf staged > staged-note; git add staged-note'
 status_digest=$(guest /run/current-system/sw/bin/bash -c 'git status --porcelain=v1 -z | sha256sum' | cut -d' ' -f1)
-guest /run/current-system/sw/bin/bash -c \
-  'setsid /run/current-system/sw/bin/sleep 300 > /tmp/rename-sleep.log 2>&1 < /dev/null & echo $! > /tmp/rename.pid'
-sleep_pid=$(guest /run/current-system/sw/bin/cat /tmp/rename.pid)
-guest /run/current-system/sw/bin/kill -0 "$sleep_pid"
 
-# Refuse changed upstream/HEAD before any Git mutation, preserve private work
-# and resume the persistent host. Manual Git correction is the supported path.
+# The running session's assignment, P refs and private work are unchanged.
+assert_unrenamed() {
+  local config="$1" branch="$2"
+  test "$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)" = "$config"
+  test "$(guest /run/current-system/sw/bin/git rev-parse HEAD)" = "$ahead_oid"
+  test "$(guest /run/current-system/sw/bin/git branch --show-current)" = "$branch"
+  test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
+  test "$(guest /run/current-system/sw/bin/cat private-note)" = untracked
+  test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
+  test "$(guest /run/current-system/sw/bin/cat staged-note)" = staged
+  test "$(guest /run/current-system/sw/bin/bash -c 'git status --porcelain=v1 -z | sha256sum' | cut -d' ' -f1)" = "$status_digest"
+  test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename
+  # shellcheck disable=SC2016 # The loop expands inside the guest shell.
+  guest /run/current-system/sw/bin/bash -c 'test ! -e .git/refs/heads/renamed; for backup in .git/p-rename-*.json; do test ! -e "$backup"; done'
+  rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
+    jq -e --arg base "$base_oid" '.result.refs | length==2 and
+      any(.[]; .ref=="refs/heads/main" and .oid==$base) and
+      any(.[]; .ref=="refs/heads/sibling" and .oid==$base)' >/dev/null
+  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+    jq -e '.result.session.branch=="main" and .result.session.registry_state=="established"' >/dev/null
+}
+
+# A running session is refused at the request (busy): no operation starts,
+# and its branch, P ref and workspace stay as they were.
+running_config=$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)
+expect_busy session.rename "$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" \
+  '{v:1,key:"rename-running",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')"
+rpc operation.list '{"v":1,"limit":20}' | jq -e '.result.operations |
+  all(.[]; .idempotency_key!="rename-running")' >/dev/null
+inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
+assert_unrenamed "$running_config" main
+
+# Refuse changed upstream/HEAD of the stopped workspace before any Git
+# mutation and preserve private work. Manual Git correction is the supported
+# path. P never starts the session itself.
 assert_mismatch_refusal() {
   local key="$1" expected="$2" actual="$3" op result before_config before_branch
   before_config=$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)
   before_branch=$(guest /run/current-system/sw/bin/git branch --show-current)
+  stop_session
   result=$(rpc session.rename "$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" --arg key "$key" \
     '{v:1,key:$key,uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')")
   op=$(jq -er '.result.operation.id' <<< "$result")
@@ -158,22 +235,9 @@ assert_mismatch_refusal() {
     '.result.operation | .committed==false and .phase=="stale" and
       (.diagnostic | contains($expected) and contains($actual) and contains("correct Git manually"))' \
     <<< "$result" >/dev/null
-  test "$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)" = "$before_config"
-  test "$(guest /run/current-system/sw/bin/git rev-parse HEAD)" = "$ahead_oid"
-  test "$(guest /run/current-system/sw/bin/git branch --show-current)" = "$before_branch"
-  test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
-  test "$(guest /run/current-system/sw/bin/cat private-note)" = untracked
-  test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
-  test "$(guest /run/current-system/sw/bin/cat staged-note)" = staged
-  test "$(guest /run/current-system/sw/bin/bash -c 'git status --porcelain=v1 -z | sha256sum' | cut -d' ' -f1)" = "$status_digest"
-  test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename
-  guest /run/current-system/sw/bin/kill -0 "$sleep_pid"
-  # shellcheck disable=SC2016 # The loop expands inside the guest shell.
-  guest /run/current-system/sw/bin/bash -c 'test ! -e .git/refs/heads/renamed; for backup in .git/p-rename-*.json; do test ! -e "$backup"; done'
-  rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
-    jq -e --arg base "$base_oid" '.result.refs | length==2 and
-      any(.[]; .ref=="refs/heads/main" and .oid==$base) and
-      any(.[]; .ref=="refs/heads/sibling" and .oid==$base)' >/dev/null
+  inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
+  start_session
+  assert_unrenamed "$before_config" "$before_branch"
 }
 guest /run/current-system/sw/bin/git config branch.main.merge refs/heads/sibling
 assert_mismatch_refusal rename-upstream-mismatch origin:refs/heads/main origin:refs/heads/sibling
@@ -181,24 +245,33 @@ guest /run/current-system/sw/bin/git config branch.main.merge refs/heads/main
 guest /run/current-system/sw/bin/git switch -c manual-other
 assert_mismatch_refusal rename-branch-mismatch refs/heads/main refs/heads/manual-other
 guest /run/current-system/sw/bin/git switch main
+test "$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)" = "$running_config"
 
+# Rename of the stopped session renames its branch, P ref and workspace and
+# leaves the session stopped.
+stop_session
 request=$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" \
   '{v:1,key:"rename-confirmed",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')
 renamed=$(rpc session.rename "$request")
 rename_op=$(jq -er '.result.operation.id | select(length==36)' <<< "$renamed")
 done_op=$(wait_operation "$rename_op" completed)
 jq -e '.result.operation | .kind=="session.rename" and .status=="completed" and .committed==true' <<< "$done_op" >/dev/null
+inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
+  jq -e '.result.session.branch=="renamed" and .result.session.session_condition=="stopped"' >/dev/null
+start_session
 test "$(guest /run/current-system/sw/bin/git branch --show-current)" = renamed
 test "$(guest /run/current-system/sw/bin/git rev-parse HEAD)" = "$ahead_oid"
+test "$(guest /run/current-system/sw/bin/git config branch.renamed.merge)" = refs/heads/renamed
 test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
 test "$(guest /run/current-system/sw/bin/cat staged-note)" = staged
 test "$(guest /run/current-system/sw/bin/bash -c 'git status --porcelain=v1 -z | sha256sum' | cut -d' ' -f1)" = "$status_digest"
 test "$(guest /run/current-system/sw/bin/cat private-note)" = untracked
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename
-guest /run/current-system/sw/bin/kill -0 "$sleep_pid"
+# shellcheck disable=SC2016 # The loop expands inside the guest shell.
+guest /run/current-system/sw/bin/bash -c 'test ! -e .git/refs/heads/main; for backup in .git/p-rename-*.json; do test ! -e "$backup"; done'
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d' ' -f1)" = "$key_digest"
 test -S "$endpoint_prefix/$uuid/git.sock"
-inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
 echo P_RENAME_MISMATCH_MANUAL_CORRECTION_PASS
 rpc project.branches '{"v":1,"project":"rename-lifecycle","limit":8}' |
   jq -e --arg base "$base_oid" '.result.refs | length==2 and
@@ -227,7 +300,6 @@ while ((SECONDS < deadline)); do
 done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{v:1,uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready" and .result.session.branch=="renamed"' >/dev/null
-guest /run/current-system/sw/bin/kill -0 "$sleep_pid"
 guest /run/current-system/sw/bin/git push origin HEAD:renamed
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-rename
 test -f "$state/session_keys/$uuid_b"

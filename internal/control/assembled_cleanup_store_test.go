@@ -12,35 +12,99 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 )
 
-func assembledCleanupFixture(t *testing.T) (*Store, string, api.Operation, CreateCleanupEvidence) {
+// assembledCreatorFixture records a blocked local base-image creation whose
+// stopped assembly completed before startup failed.
+func assembledCreatorFixture(t *testing.T) (*Store, string, api.Operation, Session) {
 	t.Helper()
-	s, dir, creator, inspectEv := assembledLossFixture(t)
+	s, dir := openTestStore(t)
 	ctx := context.Background()
-	inspectEv.Result = json.RawMessage(`{"schema":"p.workspace-loss/v1","fingerprint":"` + strings.Repeat("f", 64) + `","runtime_data_will_be_removed":true,"worktrees":[{"path":"/workspace"}],"p_refs":[]}`)
-	result := inspectEv.Result
-	inspectEv.Result = nil
-	inspected, err := s.BeginWorkspaceLossInspect(ctx, WorkspaceInspectRequest{Key: "loss", SessionUUID: creator.SessionUUID}, inspectEv)
+	policy, _, err := ProjectPolicySnapshot(ProjectPolicy{Network: "none", Command: []string{"/bin/false"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	inspectEv.Result = result
-	raw, _ := json.Marshal(inspectEv)
-	if err = s.AdvanceOperation(ctx, inspected.ID, "completed", "inspected", true, raw, ""); err != nil {
+	if err = s.CreateProject(ctx, "app", policy); err != nil {
 		t.Fatal(err)
 	}
-	inspected, _ = s.GetOperation(ctx, inspected.ID)
-	session, _ := s.GetSession(ctx, creator.SessionUUID)
+	image := strings.Repeat("a", 64)
+	req := ReserveSessionRequest{Key: "failed-create", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"}
+	op, session, err := s.BeginSessionCreate(ctx, req, image, testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
+		return strings.Repeat("b", 40), false, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	creation, _ := Evidence(op)
+	creation.RuntimeInitState = "attempted"
+	raw, _ := json.Marshal(creation)
+	if err = s.AdvanceOperation(ctx, op.ID, "blocked", "assembly-ready", true, raw, "interactive startup failed"); err != nil {
+		t.Fatal(err)
+	}
+	op, _ = s.GetOperation(ctx, op.ID)
+	if err = AssembledCreationForCleanup(session, op, image); err != nil {
+		t.Fatal(err)
+	}
+	return s, dir, op, session
+}
+
+func TestAssembledCreationForCleanupRefusesUnsupportedCreators(t *testing.T) {
+	for _, name := range []string{"legacy-init", "not-attempted", "early", "workspace-ready", "running", "bootstrap", "origin", "builder", "environment", "publication", "captured-oid", "policy", "image", "selection", "replacement"} {
+		t.Run(name, func(t *testing.T) {
+			_, _, op, session := assembledCreatorFixture(t)
+			creation, _ := Evidence(op)
+			switch name {
+			case "legacy-init":
+				creation.RuntimeInitState = ""
+			case "not-attempted":
+				creation.RuntimeInitState = "not-attempted"
+			case "early":
+				op.Phase = "runtime-created"
+			case "workspace-ready":
+				op.Phase = "workspace-ready"
+			case "running":
+				op.Status = "running"
+			case "bootstrap":
+				op.Kind = "project.create"
+			case "origin":
+				creation.OriginURL = "ssh://origin.invalid/repo"
+			case "builder":
+				creation.EnvironmentBuilder = &CreationBuilderState{State: "absent", Cycle: 1}
+			case "environment":
+				creation.Environment = &EnvironmentIntent{}
+			case "publication":
+				creation.EnvironmentState = &EnvironmentState{}
+			case "captured-oid":
+				creation.CapturedOID = ""
+			case "policy":
+				creation.PolicySHA256 = strings.Repeat("c", 64)
+			case "image":
+				creation.ImageFingerprint = strings.Repeat("c", 64)
+			case "selection":
+				creation.Selection = CreationSelection{}
+			case "replacement":
+				creation.SupersedesOperationID = op.ID
+			}
+			op.Evidence, _ = json.Marshal(creation)
+			if err := AssembledCreationForCleanup(session, op, strings.Repeat("a", 64)); !errors.Is(err, ErrConflict) {
+				t.Fatalf("unsupported creator admitted: %v", err)
+			}
+		})
+	}
+}
+
+func assembledCleanupFixture(t *testing.T) (*Store, string, api.Operation, CreateCleanupEvidence) {
+	t.Helper()
+	s, dir, creator, session := assembledCreatorFixture(t)
+	ctx := context.Background()
 	creation, _ := Evidence(creator)
 	var request ReserveSessionRequest
 	_ = json.Unmarshal(creator.Request, &request)
 	local := replacementCleanupIntent(t, creator, creation.ImageFingerprint)
-	if err = s.RegisterGitPrincipal(ctx, local.KeyFingerprint, "session", creator.Project, creator.SessionUUID); err != nil {
+	if err := s.RegisterGitPrincipal(ctx, local.KeyFingerprint, "session", creator.Project, creator.SessionUUID); err != nil {
 		t.Fatal(err)
 	}
-	runtime := &RemovalRuntimePreview{Condition: "present", IncusProject: "user-1000", InstanceName: "p-" + creator.SessionUUID, IncusUUID: inspectEv.SourceIncusUUID,
-		Generation: inspectEv.SourceGeneration, ImageFingerprint: creation.ImageFingerprint, OriginalStatus: "Stopped", LossOperationID: inspected.ID,
-		ObservedAt: inspected.UpdatedAt, Fingerprint: strings.Repeat("f", 64), Loss: result}
-	ev := CreateCleanupEvidence{InstanceUUID: inspectEv.InstanceUUID, Review: CreateCleanupPreview{UUID: creator.SessionUUID, OldOperationID: creator.ID, OldRequest: request,
+	runtime := &RemovalRuntimePreview{Condition: "present", IncusProject: "user-1000", InstanceName: "p-" + creator.SessionUUID, IncusUUID: "44444444-4444-4444-8444-444444444444",
+		Generation: "55555555-5555-4555-8555-555555555555", ImageFingerprint: creation.ImageFingerprint, OriginalStatus: "Stopped", RuntimeDataLost: true}
+	ev := CreateCleanupEvidence{InstanceUUID: "33333333-3333-4333-8333-333333333333", Review: CreateCleanupPreview{UUID: creator.SessionUUID, OldOperationID: creator.ID, OldRequest: request,
 		OldPhase: creator.Phase, OldEvidenceSHA256: digest(creator.Evidence), OldRequestSHA256: digest(creator.Request), PolicySHA256: session.PolicySHA256,
 		AssignedBranch: CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: creation.CapturedOID}, ImageFingerprint: creation.ImageFingerprint,
 		Runtime: runtime, Provisional: CreateReplaceResources{Cleanup: local}, LossWarnings: []string{"workspace", "private files and credentials", "host credentials"}, Eligible: true,
@@ -57,23 +121,12 @@ func beginAssembledCleanup(t *testing.T, s *Store, ev CreateCleanupEvidence) api
 	return op
 }
 
-func advanceAssembledToValidated(t *testing.T, s *Store, op api.Operation) api.Operation {
-	t.Helper()
-	for _, phase := range []string{"init-issued", "helper-ready", "quiescent", "analyzed", "validated"} {
-		if err := s.AdvanceOperation(context.Background(), op.ID, "running", phase, false, op.Evidence, ""); err != nil {
-			t.Fatal(phase, err)
-		}
-	}
-	op, _ = s.GetOperation(context.Background(), op.ID)
-	return op
-}
-
 func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *testing.T) {
 	s, dir, creator, ev := assembledCleanupFixture(t)
 	ctx := context.Background()
 	op := beginAssembledCleanup(t, s, ev)
-	if op.Committed || op.Phase != "helper-intent" {
-		t.Fatal("cleanup crossed authority boundary before fresh loss")
+	if op.Committed || op.Phase != "validated" {
+		t.Fatal("cleanup crossed authority boundary before its final checks")
 	}
 	if err := s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("creator retry bypassed pending cleanup", err)
@@ -81,10 +134,14 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 	if err := s.CompleteCreation(ctx, creator.ID); !errors.Is(err, ErrConflict) {
 		t.Fatal("pending cleanup promoted creator", err)
 	}
-	if _, err := s.BeginWorkspaceLossInspect(ctx, WorkspaceInspectRequest{Key: "overlap", SessionUUID: creator.SessionUUID}, assembledCleanupWorkspaceProof(ev)); !errors.Is(err, ErrConflict) {
-		t.Fatal("inspection overlapped confirmed read guard", err)
+	for _, query := range []string{`UPDATE sessions SET branch='changed' WHERE uuid=?`, `UPDATE sessions SET registry_state='established' WHERE uuid=?`, `DELETE FROM sessions WHERE uuid=?`} {
+		if _, err := s.db.ExecContext(ctx, query, creator.SessionUUID); err == nil {
+			t.Fatalf("pending cleanup assignment guard bypassed: %s", query)
+		}
 	}
-	op = advanceAssembledToValidated(t, s, op)
+	if _, err := s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "overlap", UUID: creator.SessionUUID, TokenSHA256: strings.Repeat("e", 64)}, ev, func(context.Context) error { return nil }); !errors.Is(err, ErrConflict) {
+		t.Fatal("second cleanup overlapped the pending one", err)
+	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -180,23 +237,16 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 	if _, err = s.GetSession(ctx, creator.SessionUUID); !errors.Is(err, ErrNotFound) {
 		t.Fatal("completed cleanup retained assignment", err)
 	}
-	if _, active, err := s.ActiveWorkspaceInspect(ctx, creator.SessionUUID); err != nil || active {
+	if _, active, err := s.ActiveSessionChange(ctx, creator.SessionUUID); err != nil || active {
 		t.Fatal("completed cleanup retained guard", err)
 	}
-}
-
-func assembledCleanupWorkspaceProof(ev CreateCleanupEvidence) WorkspaceInspectEvidence {
-	r := ev.Review.Runtime
-	return WorkspaceInspectEvidence{InstanceUUID: ev.InstanceUUID, BaseFingerprint: ev.Review.ImageFingerprint, ImageFingerprint: r.ImageFingerprint,
-		SourceIncusUUID: r.IncusUUID, SourceGeneration: r.Generation, OriginalStatus: "Stopped", CreatorOperationID: ev.Review.OldOperationID,
-		CreatorRequestSHA256: ev.Review.OldRequestSHA256, CreatorEvidenceSHA256: ev.Review.OldEvidenceSHA256}
 }
 
 func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *testing.T) {
 	s, dir, creator, ev := assembledCleanupFixture(t)
 	ctx := context.Background()
 	op := beginAssembledCleanup(t, s, ev)
-	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "stale-cleanup", false, op.Evidence, "native helper cleanup unavailable"); err != nil {
+	if err := s.AdvanceOperation(ctx, op.ID, "blocked", "stale-cleanup", false, op.Evidence, "assembled source changed"); err != nil {
 		t.Fatal(err)
 	}
 	op, _ = s.GetOperation(ctx, op.ID)
@@ -209,9 +259,9 @@ func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *t
 	}
 	defer s.Close()
 	if err = s.AdvanceOperation(ctx, creator.ID, "running", creator.Phase, true, creator.Evidence, ""); !errors.Is(err, ErrConflict) {
-		t.Fatal("unsettled helper lost creator guard", err)
+		t.Fatal("unsettled stale cleanup lost creator guard", err)
 	}
-	if err = s.FailStaleAssembledCleanup(ctx, op, "review fresh loss"); err != nil {
+	if err = s.FailStaleAssembledCleanup(ctx, op, "review the cleanup again"); err != nil {
 		t.Fatal(err)
 	}
 	old, _ := s.GetOperation(ctx, creator.ID)
@@ -220,19 +270,20 @@ func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *t
 	if old.Status != "blocked" || session.Registry != "creating" || !active {
 		t.Fatal("pre-deletion stale refusal changed original creator authority")
 	}
-	if _, active, err := s.ActiveWorkspaceInspect(ctx, creator.SessionUUID); err != nil || active {
+	if _, active, err := s.ActiveSessionChange(ctx, creator.SessionUUID); err != nil || active {
 		t.Fatal("settled stale precommit guard retained", err)
 	}
-	if err = s.AdvanceOperation(ctx, op.ID, "running", "helper-intent", false, op.Evidence, ""); !errors.Is(err, ErrConflict) {
+	if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, ""); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale confirmation restarted", err)
 	}
-	if _, err = s.BeginWorkspaceLossInspect(ctx, WorkspaceInspectRequest{Key: "fresh-loss", SessionUUID: creator.SessionUUID}, assembledCleanupWorkspaceProof(ev)); err != nil {
-		t.Fatal("fresh review was stranded", err)
+	ev.Review.ExpiresAt = time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
+	if _, err = s.BeginAssembledCreateCleanup(ctx, DiscardRequest{Key: "fresh-cleanup", UUID: creator.SessionUUID, TokenSHA256: strings.Repeat("e", 64)}, ev, func(context.Context) error { return nil }); err != nil {
+		t.Fatal("fresh cleanup was stranded", err)
 	}
 }
 
 func TestAssembledCleanupRefusesUnboundReviewAndRacesOriginalRetry(t *testing.T) {
-	for _, name := range []string{"creator-request", "creator-evidence", "native-uuid", "generation", "loss-bytes", "loss-id", "expiry", "verify-race"} {
+	for _, name := range []string{"creator-request", "creator-evidence", "expiry", "verify-race"} {
 		t.Run(name, func(t *testing.T) {
 			s, _, creator, ev := assembledCleanupFixture(t)
 			ctx := context.Background()
@@ -241,14 +292,6 @@ func TestAssembledCleanupRefusesUnboundReviewAndRacesOriginalRetry(t *testing.T)
 				ev.Review.OldRequestSHA256 = strings.Repeat("0", 64)
 			case "creator-evidence":
 				ev.Review.OldEvidenceSHA256 = strings.Repeat("0", 64)
-			case "native-uuid":
-				ev.Review.Runtime.IncusUUID = ev.InstanceUUID
-			case "generation":
-				ev.Review.Runtime.Generation = ev.InstanceUUID
-			case "loss-bytes":
-				ev.Review.Runtime.Loss = json.RawMessage(`{}`)
-			case "loss-id":
-				ev.Review.Runtime.LossOperationID = ev.InstanceUUID
 			case "expiry":
 				ev.Review.ExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
 			}

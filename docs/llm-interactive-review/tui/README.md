@@ -62,6 +62,27 @@ compact source scrolling and Stop Enter decline also passed. Four representative
 PNG frames, the complete chosen-action record and a read-only fixture effect
 record are retained separately under `creation-enter/reviewer/`.
 
+## Removal without loss inspection — 2026-11-02
+
+Step 0e removed the workspace loss inspection. The
+[before frames](removal-without-inspection/before-0011-discard-json-review-120x35.png)
+come from a worktree of `5406004`: `d`/`X` refused a running session, and a
+stopped session's review was the raw preview JSON. Rename of a running session
+reached its confirmation before the daemon refused it.
+
+In the changed product, `d`/`X` request the preview directly for a running or
+stopped unattended session. The
+[review](removal-without-inspection/after5-0003-discard-running-review-120x35.png)
+states in words what the container loss covers, that P does not look inside,
+that P stops a running container, and what happens to the branch. `R` on a
+running session is refused before the form
+([80×24](removal-without-inspection/after3-0002-running-rename-refused-80x24.png)).
+The LLM reviewed 120×35, 80×24 and 48×16, Help during a pending preview, a
+refused preview and resizing. Four findings were fixed and their paths repeated;
+the [checkpoint](removal-without-inspection/checkpoint.json) lists them. The
+[action record](removal-without-inspection/actions.ndjson) marks fixture API
+calls separately from TUI input. This is mock-socket evidence only.
+
 ## Persistent observation helper
 
 Use `just tui-tests` for protocol, real-PTY, and mock-socket production TUI

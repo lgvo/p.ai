@@ -47,10 +47,8 @@ in
   system.installer.channel.enable = false;
   services.openssh.enable = lib.mkForce false;
   services.journald.settings.Journal.Storage = "persistent";
-  # The Incus file endpoint formats SFTP directory entries with os/user
-  # lookups. During a read-only frozen workspace inspection, a guest nscd
-  # process cannot answer those lookups. This image has fixed local users;
-  # keep passwd/group/shadow local and preserve ordinary files/DNS hosts.
+  # This image has fixed local users and needs no name service cache; keep
+  # passwd/group/shadow local and preserve ordinary files/DNS hosts.
   services.nscd.enable = false;
   system.nssModules = lib.mkForce [ ];
   system.nssDatabases.passwd = lib.mkForce [ "files" ];

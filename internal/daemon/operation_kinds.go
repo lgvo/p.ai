@@ -34,43 +34,35 @@ func init() {
 	operationKinds = map[string]operationKind{
 		control.KindProjectCreate: {process: (*lifecycle).processCreation},
 		control.KindSessionCreate: {process: (*lifecycle).processCreation,
-			refuseRetry: creationAwaitsInspection, admit: creationAwaitsInspection, resumeAtStart: resumeCreationAtStart},
-		control.KindProjectDelete:        {process: (*lifecycle).processProjectDelete, removal: "deleting"},
-		control.KindWorkspaceLossInspect: {process: (*lifecycle).processWorkspaceInspect, refuseRetry: inspectionNeedsFreshRequest},
-		control.KindSessionDiscard:       {process: (*lifecycle).processDiscard, removal: "discarding"},
-		control.KindSessionDelete:        {process: (*lifecycle).processDiscard, removal: "deleting"},
-		control.KindCreateCleanup:        {process: (*lifecycle).processCreateCleanup, refuseRetry: cleanupFoundStale, removal: "discarding"},
-		control.KindSessionRename:        {process: (*lifecycle).processRename},
-		control.KindRetainedRename:       {process: (*lifecycle).processRetainedRename},
-		control.KindRetainedDelete:       {process: (*lifecycle).processRetainedDelete},
+			refuseRetry: creationAwaitsCleanup, admit: creationAwaitsCleanup, resumeAtStart: resumeCreationAtStart},
+		control.KindProjectDelete:  {process: (*lifecycle).processProjectDelete, removal: "deleting"},
+		control.KindSessionDiscard: {process: (*lifecycle).processDiscard, removal: "discarding"},
+		control.KindSessionDelete:  {process: (*lifecycle).processDiscard, removal: "deleting"},
+		control.KindCreateCleanup:  {process: (*lifecycle).processCreateCleanup, refuseRetry: cleanupFoundStale, removal: "discarding"},
+		control.KindSessionRename:  {process: (*lifecycle).processRename},
+		control.KindRetainedRename: {process: (*lifecycle).processRetainedRename},
+		control.KindRetainedDelete: {process: (*lifecycle).processRetainedDelete},
 	}
 }
 
-// creationAwaitsInspection keeps an unfinished creation from running while a
-// workspace inspection holds its session.
-func creationAwaitsInspection(l *lifecycle, ctx context.Context, op api.Operation) error {
+// creationAwaitsCleanup keeps an unfinished creation from running while an
+// assembled cleanup holds its session.
+func creationAwaitsCleanup(l *lifecycle, ctx context.Context, op api.Operation) error {
 	if op.Status == "completed" || op.Status == "superseded" {
 		return nil
 	}
-	return l.checkNoWorkspaceInspect(ctx, op.SessionUUID)
+	return l.checkNoSessionChange(ctx, op.SessionUUID)
 }
 
-// resumeCreationAtStart leaves creations held by a workspace inspection, and
+// resumeCreationAtStart leaves creations held by an assembled cleanup, and
 // blocked early local creations, for an explicit Retry.
 func resumeCreationAtStart(l *lifecycle, ctx context.Context, op api.Operation) (bool, error) {
-	if err := l.checkNoWorkspaceInspect(ctx, op.SessionUUID); errors.Is(err, control.ErrConflict) {
+	if err := l.checkNoSessionChange(ctx, op.SessionUUID); errors.Is(err, control.ErrConflict) {
 		return false, nil
 	} else if err != nil {
 		return false, err
 	}
 	return !deferBlockedCreationUntilRetry(op), nil
-}
-
-func inspectionNeedsFreshRequest(_ *lifecycle, _ context.Context, op api.Operation) error {
-	if api.WorkspaceInspectionRequiresFreshRequest(op) {
-		return control.ErrConflict
-	}
-	return nil
 }
 
 func cleanupFoundStale(_ *lifecycle, _ context.Context, op api.Operation) error {

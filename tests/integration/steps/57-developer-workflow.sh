@@ -125,18 +125,11 @@ setup() {
  action worker start
  guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 }
-loss() {
- local key=$1 response
- response=$(rpc workspace.loss.inspect "$(jq -nc --arg uuid "$uuid" --arg key "$key" '{v:1,uuid:$uuid,key:$key}')")
- loss_op=$(jq -er '.result.operation.id' <<< "$response")
- wait_completed "$loss_op"
-}
 remove_session() {
  local kind=$1 key=$2 response token
  stop_session
- loss "$key-loss"
- response=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$kind" --arg loss "$loss_op" \
-  '{v:1,uuid:$uuid,kind:$kind,loss_operation_id:$loss}')")
+ response=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$kind" \
+  '{v:1,uuid:$uuid,kind:$kind}')")
  token=$(jq -er '.result.preview.confirmation_token' <<< "$response")
  response=$(rpc "session.$kind" "$(jq -nc --arg uuid "$uuid" --arg key "$key" --arg token "$token" \
   '{v:1,uuid:$uuid,key:$key,confirmation_token:$token}')")
@@ -339,13 +332,24 @@ test "$(guest tmux -S /run/p-interactive/tmux.sock display-message -p '#{pid}')"
 test "$(sha256sum "/var/lib/p-service55/session_keys/$uuid" | cut -d ' ' -f1)" = "$key_digest"
 test "$(guest git rev-parse HEAD)" = "$local_oid"
 
-# Rename retains UUID/data and adjusts the ordinary branch/upstream.
+# Rename needs the session stopped; it retains UUID/data and adjusts the
+# ordinary branch/upstream.
 uuid=$uuid_b
-renamed=$(rpc session.rename "$(jq -nc --arg uuid "$uuid" --arg oid "$sample_oid" '{v:1,key:"notes57-rename",uuid:$uuid,new_branch:"retained-notes",expected_old_tip:$oid}')")
+rename_params=$(jq -nc --arg uuid "$uuid" --arg oid "$sample_oid" '{v:1,key:"notes57-rename",uuid:$uuid,new_branch:"retained-notes",expected_old_tip:$oid}')
+if refused=$(rpc session.rename "$rename_params"); then
+ echo 'renamed a running session' >&2; exit 1
+fi
+jq -e '.error.kind=="busy" and (has("result")|not)' <<< "$refused" >/dev/null
+stop_session
+renamed=$(rpc session.rename "$rename_params")
 op=$(jq -er '.result.operation.id' <<< "$renamed")
 wait_completed "$op"
+rpc session.start "$(params)" >/dev/null
+wait_ready
 test "$(guest git branch --show-current)" = retained-notes
 test "$(guest git config branch.retained-notes.merge)" = refs/heads/retained-notes
+wait_unit db inactive
+setup
 test "$(sql 'SELECT count(*) FROM notes')" = 1
 
 # Discard keeps the pushed source, then existing-branch assignment has fresh state.
@@ -385,8 +389,7 @@ wait_sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL' 0
 uuid=$uuid_a
 test "$(sql 'SELECT count(*) FROM notes')" = 3
 stop_session
-loss notes57-final-loss
-review=$(rpc project.delete.preview "$(jq -nc --arg uuid "$uuid" --arg loss "$loss_op" '{v:1,project:"notes57",loss_operations:{($uuid):$loss}}')")
+review=$(rpc project.delete.preview '{"v":1,"project":"notes57"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"notes57-project-delete",project:"notes57",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
@@ -397,8 +400,7 @@ uuid=$uuid_sibling
 test "$(sql 'SELECT body FROM notes')" = 'sibling survives'
 guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 stop_session
-loss notes57-sibling-final-loss
-review=$(rpc project.delete.preview "$(jq -nc --arg uuid "$uuid" --arg loss "$loss_op" '{v:1,project:"notes57-sibling",loss_operations:{($uuid):$loss}}')")
+review=$(rpc project.delete.preview '{"v":1,"project":"notes57-sibling"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{v:1,key:"notes57-sibling-project-delete",project:"notes57-sibling",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")

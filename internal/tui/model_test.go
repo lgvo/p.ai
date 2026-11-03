@@ -242,13 +242,13 @@ func TestSnapshotUUIDDoesNotSilentlySelectAnother(t *testing.T) {
 func TestRemovalRequiresPreviewAndExplicitYes(t *testing.T) {
 	m := fixture()
 	m.contextSession = m.data.sessions[0]
-	m.removal = &removalIntent{UUID: "stopped", Kind: "discard", LossOperationID: "loss"}
+	m.removal = &removalIntent{UUID: "stopped", Kind: "discard"}
 	m.page = "progress"
 	m.client = &fakeClient{fn: func(method string, p params) (any, error) {
 		t.Fatalf("unexpected command execution %s", method)
 		return nil, nil
 	}}
-	updated, cmd := m.Update(actionDone{epoch: m.epoch, method: "session.removal.preview", raw: json.RawMessage(`{"preview":{"session_uuid":"stopped","kind":"discard","confirmation_token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime_loss":{"dirty":true}}}`)})
+	updated, cmd := m.Update(actionDone{epoch: m.epoch, method: "session.removal.preview", raw: json.RawMessage(`{"preview":{"session_uuid":"stopped","kind":"discard","confirmation_token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"condition":"present","runtime_data_lost":true}}}`)})
 	m = updated.(Model)
 	if m.page != "review" || cmd != nil || m.confirmParams["uuid"] != "stopped" {
 		t.Fatal("preview skipped review or retargeted")
@@ -266,7 +266,7 @@ func TestRemovalRequiresPreviewAndExplicitYes(t *testing.T) {
 func TestCanceledRemovalAndOperationInspectionStayReadOnly(t *testing.T) {
 	m := fixture()
 	m.page = "progress"
-	m.removal = &removalIntent{UUID: "stopped", Kind: "delete", LossOperationID: "loss"}
+	m.removal = &removalIntent{UUID: "stopped", Kind: "delete"}
 	m, _ = press(m, "q")
 	if m.removal != nil {
 		t.Fatal("Back retained removal intent")
@@ -279,7 +279,7 @@ func TestCanceledRemovalAndOperationInspectionStayReadOnly(t *testing.T) {
 		}
 		return map[string]any{"available": []string{}}, nil
 	}}
-	updated, cmd := m.Update(actionDone{epoch: m.epoch, method: "operation.inspect", raw: json.RawMessage(`{"operation":{"id":"loss","kind":"workspace.loss.inspect","session_uuid":"stopped","status":"completed"}}`)})
+	updated, cmd := m.Update(actionDone{epoch: m.epoch, method: "operation.inspect", raw: json.RawMessage(`{"operation":{"id":"removal","kind":"session.discard","session_uuid":"stopped","status":"completed"}}`)})
 	m = updated.(Model)
 	if m.page != "progress" || m.confirmMethod != "" {
 		t.Fatal("inspection reopened removal review")
@@ -289,8 +289,8 @@ func TestCanceledRemovalAndOperationInspectionStayReadOnly(t *testing.T) {
 			t.Fatal("operation inspection was not read-only refresh")
 		}
 	}
-	m.removal = &removalIntent{UUID: "other", Kind: "discard", LossOperationID: "loss"}
-	_, cmd = m.Update(actionDone{epoch: m.epoch, method: "operation.inspect", raw: json.RawMessage(`{"operation":{"id":"loss","kind":"workspace.loss.inspect","session_uuid":"stopped","status":"completed"}}`)})
+	m.removal = &removalIntent{UUID: "other", Kind: "discard"}
+	_, cmd = m.Update(actionDone{epoch: m.epoch, method: "operation.inspect", raw: json.RawMessage(`{"operation":{"id":"removal","kind":"session.discard","session_uuid":"stopped","status":"completed"}}`)})
 	if cmd != nil {
 		if _, ok := cmd().(loaded); !ok {
 			t.Fatal("wrong UUID triggered removal preview")

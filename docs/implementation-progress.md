@@ -1,5 +1,70 @@
 # MVP implementation progress
 
+## TUI removal without loss inspection — 2026-11-02
+
+Step 0e removed `workspace.loss.inspect`, so the browser's Discard and Delete no
+longer start one. `d` and `X` now ask for `session.removal.preview`
+(`{v, uuid, kind}`) right away. They work on a stopped, running or starting
+session with no attached terminal, because P stops a running container itself.
+An attached session is still refused before any request, and so are missing,
+unreachable, creating, discarding and deleting sessions, each with a notice.
+The review used to print the raw preview JSON. It now says in words that the
+container is deleted with everything in it: uncommitted changes, files outside
+Git, commits not pushed to P, the home directory and runtime-local credentials.
+It says that P does not look inside to list them and, for a running container,
+that P stops it first. For Discard it says the branch is kept. For Delete it
+says the branch is removed, lists the commits that leave P, and says P does not
+check the origin. When the assigned branch is already gone, it says Discard
+keeps no branch and Delete removes nothing from P's repository. A preview
+without `runtime_data_lost` is refused. `R` on a session that is not stopped is
+now refused before the form, because the daemon refuses that Rename with `busy`.
+Retry on the progress page no longer has a loss-inspection exception.
+
+LLM experience review (mock socket only): the LLM ran `just tui-mock --dataset
+small --theme dark` from a worktree of `5406004` and then from the changed
+working tree, which also holds the uncommitted step 0e backend. It checked the
+prototype's `X` project-deletion probe for comparison. It looked at 120×35,
+80×24 and 48×16. It went through Discard and Delete of running and stopped
+sessions, Rename of a running session, Help while a preview was pending, Enter
+and `n` on the review, a delayed preview, an injected refusal, a resize from
+48×16 to 120×35, and both authorizations. The fixture showed the removed
+sessions, Discard keeping its branch and Delete removing its branch, and no
+Rename request. Four findings were fixed, and each path was repeated on the
+next build:
+
+- the stop line came after the advice line;
+- the review kept the confirm page's smaller height, which put Delete's branch
+  outcome below the fold at 80×24, and its `[y/N]` prompt was clipped at 48×16;
+- after scrolling at 48×16 and growing to 120×35, the review showed only its
+  last line;
+- a refused preview still said that the review was being requested.
+
+Word wrap replaced hard wrap for review text, which affects the creation and
+confirmation reviews too. No findings remain. The review page is still unframed,
+unlike the prototype's panel probe; that page layout predates this change.
+Frames, the action record and source hashes are in the
+[evidence](llm-interactive-review/tui/removal-without-inspection/checkpoint.json).
+
+Component and integration checks: new `internal/tui` tests failed before the
+change and passed after it: `d`/`X` request the preview for stopped, running and
+starting sessions; the review states the loss by category and the branch
+outcome; the running-container line; a preview without `runtime_data_lost` is
+refused; a refused preview is neither polled away nor shown as pending; the
+removal progress wording; review height, prompt wrapping and scroll clamping;
+and Rename refused before the form. The refusal of attached or unremovable
+sessions was checked by breaking and restoring the code. Help-suspension
+tests now cover the single preview read. The mock drops `workspace.loss.inspect`
+and `loss_operation_id`, returns the new preview shape, removes a running
+unattached session by stopping it, and refuses a running Rename with `busy`.
+New mock tests failed before and passed after. `go vet ./...` passed, `gofmt`
+reported nothing outside ignored module caches, `go test ./internal/tui
+./tests/integration/cmd/tui-mock` passed, and `just tui-tests` passed 8
+terminal, 9 observer and 12 mock tests. The VM drivers changed where the flow
+required it. Scenario 58 now stops the branch session before Rename and starts
+it again to check the renamed workspace and database. Scenario 56 is unchanged.
+The notes fixture lost its `block-inspection`/`restore-inspection` modes. No VM
+scenario was run for this entry.
+
 ## Notes TUI driver session-row matching — 2026-11-02
 
 VM scenario 58 failed on every run: its driver waited for selected rows in the

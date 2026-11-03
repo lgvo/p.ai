@@ -247,11 +247,10 @@ func (m Model) View() tea.View {
 		content += "\n" + m.styles.warning.Render("Confirm [y/N] · Enter means No")
 	case "review":
 		lines := m.reviewLines()
-		m.reviewOffset = min(m.reviewOffset, max(0, len(lines)-1))
-		end := min(len(lines), m.reviewOffset+m.capacity())
-		shown := lines[m.reviewOffset:end]
+		start := min(m.reviewOffset, max(0, len(lines)-m.capacity()))
+		shown := lines[start:min(len(lines), start+m.capacity())]
 		content = m.textPage("Removal loss preview", shown, width, "j/k/PgUp/PgDn scroll · y authorize · n/q/Esc cancel")
-		content += "\n" + m.styles.danger.Render("[y/N] Default No · review all losses; daemon rechecks freshness and ownership")
+		content += "\n" + m.styles.danger.Render(ansi.Wrap("[y/N] Default No · review all losses; daemon rechecks freshness and ownership", width, ""))
 	case "form":
 		prompt := map[string]string{"project-name": "Project path", "project-url": "SSH origin URL (Enter for local-only)", "branch-name": "New branch name", "rename": "New assigned branch name"}[m.form]
 		input := safe(m.input)
@@ -323,7 +322,7 @@ func (m Model) renderLines(lines []string, width int) []string {
 
 func (m Model) reviewLines() []string {
 	width := max(1, min(m.width, 96)-4)
-	return strings.Split(ansi.Hardwrap(strings.Join(plainLines(m.review), "\n"), width, true), "\n")
+	return strings.Split(ansi.Wrap(strings.Join(plainLines(m.review), "\n"), width, ""), "\n")
 }
 func (m Model) inspectionPage() bool {
 	switch m.page {
@@ -356,15 +355,21 @@ func (m Model) inspectionContent() (string, []string, string) {
 		if m.operationID != "" {
 			op := m.operation
 			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID, "", op.Diagnostic, "", "Leaving this screen does not cancel an accepted operation.")
-			if api.WorkspaceInspectionRequiresFreshRequest(op) {
-				lines = append(lines, "Inspection finished with an error. Return and request a fresh inspection.")
-				commands = "q/Esc back"
-			} else {
-				lines = append(lines, "Retry resumes exact captured intent; changed inputs need a new request.")
-			}
+			lines = append(lines, "Retry resumes exact captured intent; changed inputs need a new request.")
 			if op.Kind == "session.create" && op.Status == "running" && op.Phase == "branch-assigned" {
 				lines = append(lines[:5], append([]string{"Preparing captured source and environment; the runtime is not ready.", "Large source trees can take time. A pending phase is not a failure."}, lines[5:]...)...)
 			}
+		} else if m.removal != nil {
+			action := "Discard"
+			if m.removal.Kind == "delete" {
+				action = "Delete"
+			}
+			status := "Requesting the " + action + " review. Nothing is removed until you authorize it."
+			if !m.working {
+				status = "The " + action + " review did not open. Nothing was removed."
+			}
+			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Runtime: "+runtimeLabel(m.contextSession), "", status)
+			commands = "q/Esc back"
 		} else {
 			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Condition: "+m.contextSession.Condition, "", m.contextSession.Diagnostic, "", "Leaving startup prevents automatic entry when it finishes.")
 		}

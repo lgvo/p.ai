@@ -167,14 +167,9 @@ create_branch() {
   sessions+=("$new_uuid")
 }
 discard_owned() {
-  local uuid="$1" suffix="$2" inspected loss_op preview token reply discard_op
-  inspected=$(rpc workspace.loss.inspect "$(jq -nc --arg uuid "$uuid" --arg key "loss-$suffix" \
-    '{v:1,key:$key,uuid:$uuid}')")
-  loss_op=$(operation_id "$inspected")
-  op_ids+=("$loss_op")
-  wait_operation "$loss_op" completed >/dev/null
-  preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg id "$loss_op" \
-    '{v:1,uuid:$uuid,kind:"discard",loss_operation_id:$id}')")
+  local uuid="$1" suffix="$2" preview token reply discard_op
+  preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
+    '{v:1,uuid:$uuid,kind:"discard"}')")
   token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$preview")
   reply=$(rpc session.discard "$(jq -nc --arg uuid "$uuid" --arg key "discard-$suffix" --arg token "$token" \
     '{v:1,key:$key,uuid:$uuid,confirmation_token:$token}')")

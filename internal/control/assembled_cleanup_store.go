@@ -4,42 +4,44 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
 
+// AssembledCreationForCleanup admits only the ordinary local base-image
+// creator whose stopped assembly completed before startup failed. Native
+// ownership and stopped state still require fresh Incus observations.
+func AssembledCreationForCleanup(session Session, op api.Operation, base string) error {
+	ev, err := Evidence(op)
+	var req ReserveSessionRequest
+	if err != nil || json.Unmarshal(op.Request, &req) != nil || !ValidSessionCreateRequest(req) ||
+		op.Kind != "session.create" || op.Status != "blocked" || op.Phase != "assembly-ready" || !op.Committed ||
+		session.Registry != "creating" || op.SessionUUID != session.UUID || op.Project != session.Project ||
+		req.Project != session.Project || req.Branch != session.Branch || req.Key != op.Key ||
+		!validOID(ev.CapturedOID) || !validFingerprint(base) || ev.ImageFingerprint != base || !ev.Selection.Valid() ||
+		ev.RuntimeInitState != "attempted" || ev.BranchExisted != (req.Choice == "existing") || ev.RefCASIntent != (req.Choice == "new") ||
+		req.OriginRef != "" || ev.OriginURL != "" || ev.OriginRef != "" ||
+		ev.Environment != nil || ev.EnvironmentState != nil || ev.EnvironmentBuilder != nil || ev.BuilderTreeOID != "" ||
+		ev.SupersedesOperationID != "" || ev.SupersedesUUID != "" || ev.ReplacementCleanup != nil || ev.ReplacementTokenSHA256 != "" {
+		return fmt.Errorf("%w: assembled failed creation cleanup requires a blocked local base-image assembly-ready creator with recorded init", ErrConflict)
+	}
+	policy, err := ParseStoredProjectPolicy(session.Policy)
+	sha, hashErr := StoredProjectPolicySHA(session.Policy)
+	if err != nil || hashErr != nil || sha != session.PolicySHA256 || sha != ev.PolicySHA256 ||
+		policy.Network != "none" || len(policy.FilesystemMounts) != 0 {
+		return fmt.Errorf("%w: assembled failed creation cleanup requires a valid immutable standalone policy", ErrConflict)
+	}
+	return nil
+}
+
 func validAssembledCleanupReview(ev CreateCleanupEvidence) bool {
 	p, r := ev.Review, ev.Review.Runtime
 	return r != nil && validFingerprint(p.OldRequestSHA256) && p.OldPhase == "assembly-ready" &&
 		r.Condition == "present" && r.OriginalStatus == "Stopped" && validUUID(r.IncusUUID) && validUUID(r.Generation) &&
-		r.InstanceName == "p-"+p.UUID && r.IncusProject != "" && r.ImageFingerprint == p.ImageFingerprint &&
-		validUUID(r.LossOperationID) && validFingerprint(r.Fingerprint) && len(r.Loss) > 0 && len(r.Loss) <= 12<<10 &&
+		r.InstanceName == "p-"+p.UUID && r.IncusProject != "" && r.ImageFingerprint == p.ImageFingerprint && r.RuntimeDataLost &&
 		len(p.LossWarnings) == 3 && p.Provisional.Cleanup != nil && !ev.RuntimeAbsent && !ev.LocalComplete
-}
-
-func validateAssembledCleanupLossTx(ctx context.Context, tx *sql.Tx, creator api.Operation, ev CreateCleanupEvidence) error {
-	r := ev.Review.Runtime
-	loss, err := operationByIDTx(ctx, tx, r.LossOperationID)
-	var proof WorkspaceInspectEvidence
-	finished, timeErr := time.Parse(time.RFC3339Nano, loss.UpdatedAt)
-	if err != nil || timeErr != nil || time.Since(finished) < 0 || time.Since(finished) > 2*time.Minute ||
-		loss.Kind != "workspace.loss.inspect" || loss.Status != "completed" || loss.Phase != "inspected" || loss.SessionUUID != creator.SessionUUID || loss.Project != creator.Project ||
-		json.Unmarshal(loss.Evidence, &proof) != nil || proof.CreatorOperationID != creator.ID || proof.CreatorRequestSHA256 != digest(creator.Request) ||
-		proof.CreatorEvidenceSHA256 != digest(creator.Evidence) || proof.InstanceUUID != ev.InstanceUUID || proof.BaseFingerprint != ev.Review.ImageFingerprint ||
-		proof.ImageFingerprint != r.ImageFingerprint || proof.SourceIncusUUID != r.IncusUUID || proof.SourceGeneration != r.Generation ||
-		proof.OriginalStatus != "Stopped" || string(proof.Result) != string(r.Loss) || loss.UpdatedAt != r.ObservedAt {
-		return ErrConflict
-	}
-	var result struct {
-		Schema                   string `json:"schema"`
-		Fingerprint              string `json:"fingerprint"`
-		RuntimeDataWillBeRemoved bool   `json:"runtime_data_will_be_removed"`
-	}
-	if json.Unmarshal(r.Loss, &result) != nil || result.Schema != "p.workspace-loss/v1" || result.Fingerprint != r.Fingerprint || !result.RuntimeDataWillBeRemoved {
-		return ErrConflict
-	}
-	return nil
 }
 
 // ValidateAssembledCleanupAuthority keeps creator/request/policy and the exact
@@ -82,7 +84,7 @@ func validateAssembledCleanupAuthorityTx(ctx context.Context, tx *sql.Tx, op api
 	// Retired state changes only the coarse authority state; its immutable
 	// creator evidence must still meet the original accepted narrow proof.
 	creator.Status, creator.Phase, session.Registry = "blocked", p.OldPhase, "creating"
-	if AssembledCreationForLoss(session, creator, p.ImageFingerprint) != nil {
+	if AssembledCreationForCleanup(session, creator, p.ImageFingerprint) != nil {
 		return ErrConflict
 	}
 	var owner string
@@ -139,8 +141,8 @@ func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed api.O
 	return tx.Commit()
 }
 
-// FailStaleAssembledCleanup releases only this precommit intent. The caller
-// must positively settle helper absence; the original creator stays blocked.
+// FailStaleAssembledCleanup releases only this precommit intent; the original
+// creator stays blocked.
 func (s *Store) FailStaleAssembledCleanup(ctx context.Context, observed api.Operation, diagnostic string) error {
 	if err := s.lockGitAuthority(ctx); err != nil {
 		return err
@@ -179,26 +181,16 @@ func boolInt(value bool) int {
 
 func assembledCleanupPhaseRank(phase string) int {
 	switch phase {
-	case "helper-intent":
-		return 0
-	case "init-issued":
-		return 1
-	case "helper-ready":
-		return 2
-	case "quiescent":
-		return 3
-	case "analyzed":
-		return 4
 	case "validated":
-		return 5
+		return 0
 	case "delete-issued":
-		return 6
+		return 1
 	case "runtime-absent":
-		return 7
+		return 2
 	case "local-complete":
-		return 8
+		return 3
 	case "stale-cleanup":
-		return 9
+		return 4
 	}
 	return -1
 }

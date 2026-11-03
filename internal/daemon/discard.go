@@ -59,17 +59,11 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 		return api.Operation{}, control.ErrConflict
 	}
 	preview := state.Preview
-	created, err := l.store.CreationForSession(ctx, req.UUID)
-	if err != nil {
-		return api.Operation{}, err
-	}
 	ev := control.DiscardEvidence{Action: action, Project: preview.Project, Branch: preview.Branch, AssignedTip: preview.AssignedTip,
 		PolicySHA256: preview.PolicySHA256, IncusProject: preview.Runtime.IncusProject, InstanceName: preview.Runtime.InstanceName,
 		InstanceUUID: l.instanceID, ImageFingerprint: preview.Runtime.ImageFingerprint, BaseFingerprint: l.cfg.BaseImageFingerprint,
-		IncusUUID: preview.Runtime.IncusUUID, Generation: preview.Runtime.Generation, OriginalStatus: preview.Runtime.OriginalStatus,
-		LossOperationID: preview.Runtime.LossOperationID, LossFingerprint: preview.Runtime.Fingerprint,
-		MissingRuntime: preview.Runtime.Condition == "missing", AllowUnborn: created.Kind == "project.create",
-		PreviewExpiresAt: preview.ExpiresAt}
+		IncusUUID: preview.Runtime.IncusUUID, Generation: preview.Runtime.Generation,
+		MissingRuntime: preview.Runtime.Condition == "missing", PreviewExpiresAt: preview.ExpiresAt}
 	if action == "delete" {
 		ev.DeleteReviewSHA256, err = deleteReviewDigest(preview.BranchLoss)
 		if err != nil {

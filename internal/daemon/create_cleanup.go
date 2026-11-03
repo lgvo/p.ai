@@ -71,11 +71,11 @@ func checkCreateCleanupLocalAbsent(state string, endpoints *endpointManager, uui
 func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, p control.CreateCleanupPreview, instance string) error {
 	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: instance, SessionUUID: p.UUID, ProjectPath: p.OldRequest.Project, ContractVersion: "1", ImageFingerprint: p.ImageFingerprint}, p.OldOperationID)
 }
-func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string, lossIDs ...string) (control.CreateCleanupPreview, error) {
-	lossID := ""
-	if len(lossIDs) > 0 {
-		lossID = lossIDs[0]
-	}
+
+// createCleanupFacts reviews the cleanup of a failed creation. A creator
+// blocked before its runtime was initialized takes the early path; any later
+// creator takes the assembled path, which removes its exact stopped container.
+func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (control.CreateCleanupPreview, error) {
 	p := control.CreateCleanupPreview{UUID: uuid, UnsafeReasons: []string{}, ExternalMounts: "preserved", SharedImages: "preserved", Provisional: control.CreateReplaceResources{RuntimeLocal: "unavailable"}}
 	unsafe := func(reason string) { p.UnsafeReasons = append(p.UnsafeReasons, reason) }
 	op, err := l.store.CreationForSession(ctx, uuid)
@@ -95,19 +95,17 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string, lossIDs
 	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" || p.OldRequest.Project != s.Project || p.OldRequest.Branch != s.Branch || ev.PolicySHA256 != s.PolicySHA256 {
 		unsafe("blocked_local_creation_required")
 	}
-	if lossID != "" {
+	assembled := !control.SafeCreateCleanupPhase(op)
+	if assembled {
 		p.OldRequestSHA256 = hexDigest(op.Request)
-		if control.AssembledCreationForLoss(s, op, l.cfg.BaseImageFingerprint) != nil || ev.Selection != l.selection() {
+		if control.AssembledCreationForCleanup(s, op, l.cfg.BaseImageFingerprint) != nil || ev.Selection != l.selection() {
 			unsafe("blocked_stopped_standalone_base_image_assembly_ready_creator_required")
 		}
-		if l.checkNoWorkspaceInspect(ctx, uuid) != nil {
+		if l.checkNoSessionChange(ctx, uuid) != nil {
 			unsafe("active_workspace_or_cleanup_guard")
 		}
 	} else if !control.SafeCreateCleanupEvidence(p.OldRequest, ev) {
 		unsafe("native_or_builder_dispatch_unsettled_or_publication_origin_unsupported")
-	}
-	if lossID == "" && !control.SafeCreateCleanupPhase(op) {
-		unsafe("assembled_workspace_requires_dedicated_loss_inspection; preserve_or_retry_exact_request")
 	}
 	var working bool
 	l.withLock(func() { working = l.working[op.ID] || l.hasAttachmentLocked(uuid) })
@@ -136,13 +134,13 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string, lossIDs
 			p.Provisional.Principal = "present"
 		}
 	}
-	if lossID != "" {
-		p.Runtime, e = l.reviewAssembledCleanupLoss(ctx, s, op, lossID)
+	if assembled {
+		p.Runtime, e = l.reviewAssembledCleanupRuntime(ctx, s, op)
 		if e != nil {
-			unsafe("creator_bound_completed_loss_or_exact_stopped_runtime_unavailable: " + e.Error())
+			unsafe("exact_stopped_runtime_unavailable: " + e.Error())
 		} else {
 			p.Provisional.Runtime, p.Provisional.Builder, p.Provisional.RuntimeLocal = "present", "absent", "will_be_removed"
-			p.LossWarnings = []string{"All runtime-local workspace and private files will be removed, including ignored files and unpushed Git state.", "Runtime-local credentials and dummy credential files outside the workspace are not enumerated; all will be removed.", "The reviewed P Git principal, host session key and endpoint sockets will be retired; the assigned P branch and shared images are preserved."}
+			p.LossWarnings = []string{"All runtime-local workspace and private files will be removed, including ignored files and unpushed Git state.", "P does not look inside the container; runtime-local credentials and dummy credential files are not enumerated and all will be removed.", "The reviewed P Git principal, host session key and endpoint sockets will be retired; the assigned P branch and shared images are preserved."}
 		}
 	} else if e = l.createCleanupNativeAbsent(ctx, p, l.instanceID); e != nil {
 		unsafe("native_runtime_or_builder_present_ambiguous_or_unreachable")
@@ -156,21 +154,12 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string, lossIDs
 }
 func hexDigest(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
 func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (control.CreateCleanupPreview, error) {
-	return l.previewCreateCleanup(ctx, uuid, "")
-}
-func (l *lifecycle) PreviewAssembledCreateCleanup(ctx context.Context, uuid, lossID string) (control.CreateCleanupPreview, error) {
-	if len(lossID) != 36 {
-		return control.CreateCleanupPreview{}, control.ErrInvalid
-	}
-	return l.previewCreateCleanup(ctx, uuid, lossID)
-}
-func (l *lifecycle) previewCreateCleanup(ctx context.Context, uuid, lossID string) (control.CreateCleanupPreview, error) {
 	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
 		return control.CreateCleanupPreview{}, err
 	}
 	defer release()
-	p, err := l.createCleanupFacts(ctx, uuid, lossID)
+	p, err := l.createCleanupFacts(ctx, uuid)
 	if err != nil || !p.Eligible {
 		return p, err
 	}
@@ -237,11 +226,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	if !found || state.Preview.UUID != uuid || !time.Now().Before(state.Expiry) {
 		return api.Operation{}, control.ErrConflict
 	}
-	lossID := ""
-	if state.Preview.Runtime != nil {
-		lossID = state.Preview.Runtime.LossOperationID
-	}
-	fresh, err := l.createCleanupFacts(ctx, uuid, lossID)
+	fresh, err := l.createCleanupFacts(ctx, uuid)
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -256,7 +241,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 		begin = l.store.BeginAssembledCreateCleanup
 	}
 	op, err := begin(ctx, req, ev, func(call context.Context) error {
-		actual, e := l.createCleanupFacts(call, uuid, lossID)
+		actual, e := l.createCleanupFacts(call, uuid)
 		actual.ConfirmationToken, actual.ExpiresAt = token, fresh.ExpiresAt
 		if e != nil || !actual.Eligible || !reflect.DeepEqual(actual, fresh) {
 			return control.ErrConflict

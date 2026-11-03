@@ -10,13 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
 )
 
 type projectDeletePreviewState struct {
@@ -81,9 +79,9 @@ func projectDeleteNamedResources(sessions []control.ProjectDeleteSession, images
 	}
 	return names, fps
 }
-func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectDeletePreviewRequest, scope *gitservice.OriginScope) (control.ProjectDeletePreview, error) {
+func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectDeletePreviewRequest) (control.ProjectDeletePreview, error) {
 	p := control.ProjectDeletePreview{Project: req.Project, Outcome: "delete_project_and_all_p_data", Attachments: []string{}, Sessions: []control.ProjectDeleteSession{}, Images: []control.EnvironmentCollectionClaim{}, Warnings: []string{
-		"All P refs, reachable and unreachable bare Git objects, runtime workspaces, private home files and runtime-local credentials will be deleted. Private and credential contents outside the workspace are not enumerated or hashed.",
+		"All P refs, reachable and unreachable bare Git objects, runtime workspaces, private home files and runtime-local credentials will be deleted. P does not look inside the runtimes; their contents are not enumerated or hashed.",
 		"External filesystem-grant contents, shared/unindexed images and unrelated projects are preserved; delivered handler logs remain subject to the handler's own retention policy."}}
 	sessions, sha, err := l.store.ProjectDeleteSnapshot(ctx, req.Project)
 	if err != nil {
@@ -108,12 +106,12 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		}
 		missing[id] = true
 	}
-	requested := 0
+	acknowledged := 0
 	for _, s := range sessions {
 		var attached bool
 		l.withLock(func() { attached = l.hasAttachmentLocked(s.UUID) || l.startActive[s.UUID] })
 		if attached {
-			return p, fmt.Errorf("%w: detach and Stop all project sessions, then obtain fresh workspace loss inspections", control.ErrConflict)
+			return p, fmt.Errorf("%w: detach and Stop all project sessions", control.ErrConflict)
 		}
 		native, e := l.runtimeSession(ctx, s)
 		if e != nil {
@@ -134,28 +132,17 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		}
 		ps.Local = *local
 		if observed.Exists {
-			lossID := req.LossOperations[s.UUID]
-			if observed.Status != "Stopped" || lossID == "" || missing[s.UUID] {
-				return p, fmt.Errorf("%w: Stop/detach session %s then supply its completed fresh loss_operation_id", control.ErrConflict, s.UUID)
-			}
-			lossOp, e := l.store.GetOperation(ctx, lossID)
-			var proof control.WorkspaceInspectEvidence
-			var loss workspaceLossResult
-			finished, tErr := time.Parse(time.RFC3339Nano, lossOp.UpdatedAt)
-			if e != nil || tErr != nil || time.Since(finished) < 0 || time.Since(finished) > removalPreviewTTL || lossOp.Kind != "workspace.loss.inspect" || lossOp.Status != "completed" || lossOp.Phase != "inspected" || lossOp.SessionUUID != s.UUID || lossOp.Project != s.Project || json.Unmarshal(lossOp.Evidence, &proof) != nil || proof.CreatorOperationID != "" || proof.InstanceUUID != l.instanceID || proof.BaseFingerprint != l.cfg.BaseImageFingerprint || proof.ImageFingerprint != native.ImageFingerprint || proof.OriginalStatus != "Stopped" || proof.SourceIncusUUID != observed.IncusUUID || proof.SourceGeneration != observed.Generation || len(proof.Result) > 12<<10 || json.Unmarshal(proof.Result, &loss) != nil || loss.Schema != "p.workspace-loss/v1" || !loss.RuntimeDataWillBeRemoved || len(loss.Fingerprint) != 64 || len(loss.Worktrees) != 1 || loss.Worktrees[0].Path != "/workspace" || len(loss.ExternalWorktrees) != 0 {
-				return p, errors.Join(e, errors.New("recent exact stopped standalone workspace loss proof required"))
+			if observed.Status != "Stopped" || observed.IncusUUID == "" || observed.Generation == "" || missing[s.UUID] {
+				return p, fmt.Errorf("%w: Stop/detach session %s", control.ErrConflict, s.UUID)
 			}
 			ps.Runtime.Condition = "present"
 			ps.Runtime.IncusUUID = observed.IncusUUID
 			ps.Runtime.Generation = observed.Generation
 			ps.Runtime.ImageFingerprint = native.ImageFingerprint
 			ps.Runtime.OriginalStatus = "Stopped"
-			ps.Runtime.LossOperationID = lossID
-			ps.Runtime.ObservedAt = lossOp.UpdatedAt
-			ps.Runtime.Fingerprint = loss.Fingerprint
-			ps.Runtime.Loss = proof.Result
+			ps.Runtime.RuntimeDataLost = true
 		} else {
-			if !missing[s.UUID] || req.LossOperations[s.UUID] != "" {
+			if !missing[s.UUID] {
 				return p, fmt.Errorf("%w: positively missing runtime %s requires acknowledge_missing", control.ErrConflict, s.UUID)
 			}
 			if e = l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); e != nil {
@@ -164,30 +151,18 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 			ps.Condition = "missing"
 			ps.Runtime.Condition = "missing"
 			ps.Runtime.RuntimeLossUnknown = true
+			acknowledged++
 		}
-		requested++
 		p.Sessions = append(p.Sessions, ps)
 	}
-	if requested != len(req.LossOperations)+len(missing) {
+	if acknowledged != len(missing) {
 		return p, control.ErrInvalid
 	}
 	branchLoss, err := l.git.backend.ProjectRemovalLoss(ctx, req.Project)
 	if err != nil {
 		return p, err
 	}
-	p.BranchLoss, err = l.makeDeleteReviewInScope(ctx, req.Project, branchLoss, scope)
-	if err != nil {
-		return p, err
-	}
-	for _, ps := range p.Sessions {
-		if ps.Runtime.Condition == "present" {
-			var loss workspaceLossResult
-			_ = json.Unmarshal(ps.Runtime.Loss, &loss)
-			if !slices.EqualFunc(loss.PRefs, branchLoss.PRefs, func(a workspaceLossRef, b plugin.GitRef) bool { return a.Name == b.Ref && a.OID == b.OID }) {
-				return p, control.ErrConflict
-			}
-		}
-	}
+	p.BranchLoss = deleteReview(branchLoss)
 	entries, next, err := l.store.ListEnvironmentImages(ctx, req.Project, "", 20)
 	if err != nil || next != "" {
 		return p, errors.Join(err, errors.New("project cache exceeds aggregate review bound"))
@@ -235,12 +210,7 @@ func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.Projec
 		return control.ProjectDeletePreview{}, err
 	}
 	defer release()
-	var p control.ProjectDeletePreview
-	err = l.git.backend.WithOrigin(ctx, req.Project, func(scope *gitservice.OriginScope) error {
-		var e error
-		p, e = l.projectDeleteFacts(ctx, req, scope)
-		return e
-	})
+	p, err := l.projectDeleteFacts(ctx, req)
 	if err != nil {
 		return p, err
 	}
@@ -249,14 +219,6 @@ func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.Projec
 		return p, err
 	}
 	expiry := time.Now().Add(removalPreviewTTL)
-	for _, s := range p.Sessions {
-		if s.Runtime.Condition == "present" {
-			finished, _ := time.Parse(time.RFC3339Nano, s.Runtime.ObservedAt)
-			if finished.Add(removalPreviewTTL).Before(expiry) {
-				expiry = finished.Add(removalPreviewTTL)
-			}
-		}
-	}
 	p.ConfirmationToken = token
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
 	raw, err := json.Marshal(p)
@@ -321,74 +283,30 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 		return api.Operation{}, err
 	}
 	defer release()
-	// Durable read helpers own their existing inspection guards. Cancellation or
-	// daemon failure leaves that read recoverable and never retires the project.
-	for _, ps := range state.Preview.Sessions {
-		if ps.Runtime.Condition != "present" {
-			continue
-		}
-		token, e := collectionToken()
-		if e != nil {
-			return api.Operation{}, e
-		}
-		proof := control.WorkspaceInspectEvidence{InstanceUUID: l.instanceID, ImageFingerprint: ps.Runtime.ImageFingerprint, BaseFingerprint: l.cfg.BaseImageFingerprint, SourceIncusUUID: ps.Runtime.IncusUUID, SourceGeneration: ps.Runtime.Generation, OriginalStatus: "Stopped"}
-		op, e := l.store.BeginWorkspaceLossInspect(ctx, control.WorkspaceInspectRequest{Key: "project-delete-review:" + token, SessionUUID: ps.Session.UUID}, proof)
-		if e != nil {
-			return api.Operation{}, e
-		}
-		if e = l.enqueue(op.ID); e != nil {
-			return api.Operation{}, e
-		}
-		for {
-			current, e := l.store.GetOperation(ctx, op.ID)
-			if e != nil {
-				return api.Operation{}, e
-			}
-			if current.Status == "completed" {
-				var inspected control.WorkspaceInspectEvidence
-				var loss workspaceLossResult
-				if json.Unmarshal(current.Evidence, &inspected) != nil || json.Unmarshal(inspected.Result, &loss) != nil || loss.Fingerprint != ps.Runtime.Fingerprint {
-					return api.Operation{}, fmt.Errorf("%w: workspace changed; obtain a new aggregate loss preview", control.ErrConflict)
-				}
-				break
-			}
-			if current.Status != "running" {
-				return api.Operation{}, fmt.Errorf("%w: fresh inspection %s incomplete; Retry/investigate that read before a new project review", control.ErrConflict, current.ID)
-			}
-			select {
-			case <-ctx.Done():
-				return api.Operation{}, ctx.Err()
-			case <-time.After(100 * time.Millisecond):
-			}
-		}
-	}
 	var accepted api.Operation
-	err = l.git.backend.WithOrigin(ctx, req.Project, func(scope *gitservice.OriginScope) error {
-		return func() error {
-			verify := func(call context.Context) error {
-				fresh, e := l.projectDeleteFacts(call, state.Request, scope)
-				fresh.ConfirmationToken = state.Preview.ConfirmationToken
-				fresh.ExpiresAt = state.Preview.ExpiresAt
-				if e != nil || !reflect.DeepEqual(fresh, state.Preview) {
-					return errors.Join(e, control.ErrConflict)
-				}
-				return nil
+	err = l.git.backend.WithOrigin(ctx, req.Project, func(*gitservice.OriginScope) error {
+		verify := func(call context.Context) error {
+			fresh, e := l.projectDeleteFacts(call, state.Request)
+			fresh.ConfirmationToken = state.Preview.ConfirmationToken
+			fresh.ExpiresAt = state.Preview.ExpiresAt
+			if e != nil || !reflect.DeepEqual(fresh, state.Preview) {
+				return errors.Join(e, control.ErrConflict)
 			}
-			ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.cfg.IncusProject, StateSHA256: sha, Sessions: append([]control.ProjectDeleteSession(nil), state.Preview.Sessions...), Images: state.Preview.Images, Repository: state.Preview.Repository, RepositoryParent: state.Preview.RepositoryParent}
-			reviewed, _ := json.Marshal(state.Preview)
-			ev.ReviewSHA256 = hexDigest(reviewed)
-			for i := range ev.Sessions {
-				ev.Sessions[i].Runtime.Loss = nil
-				ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "runtime", ID: ev.Sessions[i].Session.UUID, Status: "remaining"}, control.ProjectDeleteResource{Kind: "local", ID: ev.Sessions[i].Session.UUID, Status: "remaining"})
-			}
-			for _, im := range ev.Images {
-				ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "image", ID: im.Image.Key, Status: "remaining"})
-			}
-			ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
-			var e error
-			accepted, e = l.store.BeginProjectDelete(ctx, saved, ev, state.Preview.ExpiresAt, verify)
-			return e
-		}()
+			return nil
+		}
+		ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.cfg.IncusProject, StateSHA256: sha, Sessions: append([]control.ProjectDeleteSession(nil), state.Preview.Sessions...), Images: state.Preview.Images, Repository: state.Preview.Repository, RepositoryParent: state.Preview.RepositoryParent}
+		reviewed, _ := json.Marshal(state.Preview)
+		ev.ReviewSHA256 = hexDigest(reviewed)
+		for i := range ev.Sessions {
+			ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "runtime", ID: ev.Sessions[i].Session.UUID, Status: "remaining"}, control.ProjectDeleteResource{Kind: "local", ID: ev.Sessions[i].Session.UUID, Status: "remaining"})
+		}
+		for _, im := range ev.Images {
+			ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "image", ID: im.Image.Key, Status: "remaining"})
+		}
+		ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
+		var e error
+		accepted, e = l.store.BeginProjectDelete(ctx, saved, ev, state.Preview.ExpiresAt, verify)
+		return e
 	})
 	if err != nil {
 		return api.Operation{}, err

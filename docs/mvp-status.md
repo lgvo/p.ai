@@ -30,6 +30,9 @@ initialization, dummy credential isolation, and Stop/Start VM checks. That seria
 58 steps at its tested revision, including the native live-TUI test, bounded workspace inspection and
 interrupted-pause recovery. Bounded loss reports for Git-known
 runtime worktrees, retained commits, and fingerprints passed selected test 29.
+That workspace loss inspection, its reports and freezing have since been
+removed: deletions state loss by category without looking inside the
+container, and rename requires a stopped session.
 Selected later VM checks also cover Discard/Delete, typed grants,
 retained-branch rename/delete, and three early failed-creation replacement
 paths. Session repair has since been removed. The selected public-network VM
@@ -78,9 +81,10 @@ boundary. Event-handler, source-Git, runtime and environment executable methods
 and host/agent assets are validated. Selected VM48 exercised the production
 package's exact six-plugin catalog and CLI default activation through real
 session creation, fixture status reporting and Stop/Start with daemon restart.
-Stopped local base-image failed creations now have reviewed bounded loss
-inspection and confirmed cleanup, validated separately in selected VM50/51.
-Stale workspace review preserves the source for fresh confirmation; exact native
+Stopped local base-image failed creations now have reviewed confirmed cleanup,
+validated separately in selected VM51; the loss inspection that preceded it,
+and its scenario VM50, have since been removed. A stale review preserves the source for fresh
+confirmation; exact native
 cleanup and restart retain the branch and uncertain identities. This is a narrow
 supported failure boundary, not universal replacement or cleanup support.
 The static CLI/runtime packages and installed dependency, supplementary vendor
@@ -104,8 +108,7 @@ and actual SSH import/publication evidence. Fresh-context review accepted the
 final implementation after schema readiness, journal coverage, synchronization
 and concurrent-removal listing fixes. The final `just test` checkpoint passed
 all 58 scenarios across three cleanly shut down serial VMs. A real committed
-default-devShell remains a separately pending offline-input-resolution extension;
-the seeded P tree still exceeds the independent 512-entry loss inventory bound.
+default-devShell remains a separately pending offline-input-resolution extension.
 See [the current evidence](implementation-progress.md#tui-and-three-service-developer-workflows--2026-09-30).
 
 ## Settled model
@@ -131,9 +134,9 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
   list/source/fetch/rename/fast-forward-publish/loss-preview/delete operations.
 - **Delete project and all P data** uses aggregate loss preflight, explicit
   confirmation, a minimal durable deletion record, and idempotent ensure-absent
-  retry. The CLI-first boundary requires established stopped, detached sessions
-  with fresh loss proofs, or acknowledged positively missing runtimes. Running,
-  attached or incomplete sessions require the documented preparation/cleanup
+  retry. The CLI-first boundary requires established stopped, detached
+  sessions, or acknowledged positively missing runtimes. Running, attached or
+  incomplete sessions require the documented preparation/cleanup
   first. It has no rollback/recovery-mode state machine. Base-session deletion
   and restart/identity refusal passed VM52; actual Nix-built indexed-image
   deletion passed VM53 using offline fixture source.
@@ -175,9 +178,10 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
   Explicit abandonment and its tombstone/orphan-cleanup/forget workflow are outside
   MVP. Manual investigation preserves existing identity and duplicate checks.
 - P has no session repair. Discard a session with a missing runtime or a
-  broken Git principal, then create a new session on its retained branch. A
-  session whose assigned P ref is missing cannot currently be discarded or
-  deleted. See [inconsistent sessions](session-lifecycle.md#inconsistent-sessions).
+  broken Git principal, then create a new session on its retained branch.
+  Discard or Delete a session whose assigned P ref is missing; with no ref,
+  both end the session and keep no branch. See
+  [inconsistent sessions](session-lifecycle.md#inconsistent-sessions).
 - A renamed Incus instance cannot be relinked in MVP. Its expected name is
   derived from the session UUID; P stores no mutable runtime locator and does
   not adopt a renamed instance.
@@ -187,8 +191,8 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
   Complex cases may refuse with a documented, validated cleanup-then-Create
   path. Uncertain resources remain intact when safe cleanup cannot proceed;
   VM49 validates bounded local committed-creation cleanup after a settled
-  builder failure. VM50/51 validate inspection and confirmed cleanup of the
-  documented stopped assembled base-image boundary; broader cases still refuse.
+  builder failure. VM51 validates confirmed cleanup of the documented
+  stopped assembled base-image boundary; broader cases still refuse.
 - The public status model has four independent facts:
   `session_condition`, `attached_count`,
   `latest_unattended_condition`, and `policy_condition`.

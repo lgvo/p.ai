@@ -111,10 +111,10 @@ func (b *Backend) CompareOriginRemoval(ctx context.Context, project string, adve
 }
 
 // BranchRemovalLoss compares one assigned ref with the complete freshly
-// captured P head set. An eligible unborn branch may coexist with unreferenced
-// P objects; absence of retained heads is what matters for branch loss.
-func (b *Backend) BranchRemovalLoss(ctx context.Context, project, branch string, allowUnborn bool) (BranchRemovalLoss, error) {
-	result, err := b.AssignedBranchSnapshot(ctx, project, branch, allowUnborn)
+// captured P head set. When allowMissing accepts an absent ref, nothing of
+// that branch is left to lose in P's repository.
+func (b *Backend) BranchRemovalLoss(ctx context.Context, project, branch string, allowMissing bool) (BranchRemovalLoss, error) {
+	result, err := b.AssignedBranchSnapshot(ctx, project, branch, allowMissing)
 	if err != nil || result.AssignedTip == "" {
 		return result, err
 	}
@@ -160,7 +160,10 @@ func (b *Backend) BranchRemovalLoss(ctx context.Context, project, branch string,
 	return result, nil
 }
 
-func (b *Backend) AssignedBranchSnapshot(ctx context.Context, project, branch string, allowUnborn bool) (BranchRemovalLoss, error) {
+// AssignedBranchSnapshot captures the assigned ref and every P head. Session
+// removal sets allowMissing: a branch that was never born or was deleted
+// outside P leaves AssignedTip empty instead of refusing the removal.
+func (b *Backend) AssignedBranchSnapshot(ctx context.Context, project, branch string, allowMissing bool) (BranchRemovalLoss, error) {
 	if !validProject(project) || !validBranch(branch) {
 		return BranchRemovalLoss{}, errors.New("invalid branch loss request")
 	}
@@ -181,27 +184,22 @@ func (b *Backend) AssignedBranchSnapshot(ctx context.Context, project, branch st
 	if err != nil {
 		return BranchRemovalLoss{}, err
 	}
-	if result.AssignedTip == "" {
-		if !allowUnborn || len(refs) != 0 {
-			return BranchRemovalLoss{}, errors.New("assigned P ref unavailable")
+	if result.AssignedTip == "" && !allowMissing {
+		return BranchRemovalLoss{}, errors.New("assigned P ref unavailable")
+	}
+	if len(refs) != 0 {
+		tips := make([]string, 0, len(refs))
+		for _, ref := range refs {
+			tips = append(tips, ref.OID)
 		}
-		again, err := b.observeLossHeads(ctx, project)
-		if err != nil || len(again) != 0 {
-			return BranchRemovalLoss{}, errors.Join(err, errors.New("unborn P refs changed during preview"))
+		types, err := b.lossPObjectTypes(ctx, repo, tips, nil)
+		if err != nil {
+			return BranchRemovalLoss{}, err
 		}
-		return result, nil
-	}
-	tips := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		tips = append(tips, ref.OID)
-	}
-	types, err := b.lossPObjectTypes(ctx, repo, tips, nil)
-	if err != nil {
-		return BranchRemovalLoss{}, err
-	}
-	for _, tip := range tips {
-		if types[tip] != "commit" {
-			return BranchRemovalLoss{}, errors.New("P retained tip unavailable")
+		for _, tip := range tips {
+			if types[tip] != "commit" {
+				return BranchRemovalLoss{}, errors.New("P retained tip unavailable")
+			}
 		}
 	}
 	again, err := b.observeLossHeads(ctx, project)

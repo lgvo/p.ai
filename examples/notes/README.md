@@ -194,12 +194,13 @@ port 8000/socket namespace. A schema change made only in session A, such as
 Commit source changes and push the assigned branch to retain them in P.
 Publication to an external origin is an explicit owner action.
 
-Rename preserves session UUID and private data. Discard removes the session's
-cluster, notes, jobs and private home while retaining the pushed branch.
-Creating a session from that existing retained branch creates a new UUID and
-an empty database. Session Delete also removes its assigned P branch. Review
-fresh loss information and confirmation before either action; verify sibling
-sessions still have their own notes. Whole-project deletion uses the owner API.
+Rename, on a stopped session, preserves session UUID and private data.
+Discard removes the session's cluster, notes, jobs and private home while
+retaining the pushed branch. Creating a session from that existing retained
+branch creates a new UUID and an empty database. Session Delete also removes
+its assigned P branch. Review the removal preview, which states what is lost,
+before confirming either action; verify sibling sessions still have their own
+notes. Whole-project deletion uses the owner API.
 
 ## Automated evidence and remaining gates
 

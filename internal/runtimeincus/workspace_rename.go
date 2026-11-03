@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"regexp"
+	"sort"
 	"strings"
 )
 
 // Rename changes only the ordinary Git administration files of an exact
-// stopped/frozen runtime. The workspace files, object database, home, and
-// process tree are never copied to the host or a helper for this mutation.
+// stopped runtime. The workspace files, object database and home are never
+// copied to the host for this mutation.
 // Unsupported Git layouts are refused before the P ref commit point.
 type WorkspaceRenamePlan struct {
 	HeadOID           string
@@ -86,24 +88,17 @@ func validWorkspaceRenameName(name string) bool {
 }
 
 func (b *Backend) renameSourceAPI(ctx context.Context, source Session, incusUUID, generation string) (*unixFileAPI, error) {
-	if source.WorkspaceOwner != "" || !uuidPattern.MatchString(incusUUID) || !uuidPattern.MatchString(generation) {
+	if !uuidPattern.MatchString(incusUUID) || !uuidPattern.MatchString(generation) {
 		return nil, errors.New("rename source identity unavailable")
 	}
 	if err := b.CheckConfinement(ctx); err != nil {
 		return nil, err
 	}
 	observed, err := b.Inspect(ctx, source)
-	if err != nil || !observed.Exists || observed.IncusUUID != incusUUID || observed.Generation != generation ||
-		observed.Status != "Stopped" && observed.Status != "Frozen" {
-		return nil, errors.Join(err, errors.New("rename source is not exact and quiescent"))
+	if err != nil || !observed.Exists || observed.IncusUUID != incusUUID || observed.Generation != generation || observed.Status != "Stopped" {
+		return nil, errors.Join(err, errors.New("rename source is not exact and stopped"))
 	}
-	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(source)}
-	if observed.Status == "Frozen" {
-		if err := api.verifyFrozenWorkspaceMounts(ctx); err != nil {
-			return nil, err
-		}
-	}
-	return api, nil
+	return &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(source)}, nil
 }
 
 func renameSafeFile(ctx context.Context, api renameFileAPI, name string, max int64) ([]byte, int, error) {
@@ -629,4 +624,157 @@ func (b *Backend) RemoveWorkspaceRenameBackup(ctx context.Context, source Sessio
 		return errors.Join(err, errors.New("rename backup removal unresolved"))
 	}
 	return nil
+}
+
+var safeGitToken = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$`)
+
+type gitUpstreamConfigError struct{ branch, reason string }
+
+func (e *gitUpstreamConfigError) Error() string { return e.reason }
+
+// safeGitConfig accepts only inert facts needed to interpret an ordinary
+// standalone worktree, and returns them without URLs or user identity.
+// Includes, extensions, filters, monitors, external diff and credential
+// helpers are unsupported regardless of where they appear.
+func safeGitConfig(raw []byte) ([]byte, error) {
+	if len(raw) == 0 || len(raw) > 32<<10 || bytes.IndexByte(raw, 0) >= 0 || bytes.IndexByte(raw, '\r') >= 0 {
+		return nil, errors.New("Git config size or encoding unavailable")
+	}
+	section, subject := "", ""
+	seenCore := map[string]bool{}
+	coreValues := map[string]string{}
+	branches := map[string]map[string]string{}
+	remoteFetch := map[string]string{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			if !strings.HasSuffix(line, "]") {
+				return nil, errors.New("Git config section malformed")
+			}
+			content := strings.TrimSuffix(strings.TrimPrefix(line, "["), "]")
+			section, subject = "", ""
+			if content == "core" || content == "user" {
+				section = content
+				continue
+			}
+			for _, prefix := range []string{"branch", "remote"} {
+				if strings.HasPrefix(content, prefix+" \"") && strings.HasSuffix(content, "\"") {
+					name := strings.TrimSuffix(strings.TrimPrefix(content, prefix+" \""), "\"")
+					if !safeGitToken.MatchString(name) || strings.Contains(name, "..") || strings.Contains(name, "//") || strings.HasSuffix(name, ".") {
+						return nil, errors.New("Git config subsection unavailable")
+					}
+					section, subject = prefix, name
+					break
+				}
+			}
+			if section == "" {
+				return nil, errors.New("Git config section unsupported")
+			}
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || section == "" {
+			return nil, errors.New("Git config entry malformed")
+		}
+		key, value = strings.ToLower(strings.TrimSpace(key)), strings.TrimSpace(value)
+		if strings.ContainsAny(value, "\x00\n\r\\\"") || len(value) > 1024 {
+			return nil, errors.New("Git config value unsupported")
+		}
+		switch section {
+		case "core":
+			if seenCore[key] {
+				return nil, errors.New("Git core config repeated")
+			}
+			seenCore[key] = true
+			switch key {
+			case "repositoryformatversion":
+				if value != "0" {
+					return nil, errors.New("Git repository format unsupported")
+				}
+			case "bare":
+				if value != "false" {
+					return nil, errors.New("bare Git repository unavailable")
+				}
+			case "filemode", "logallrefupdates", "ignorecase", "precomposeunicode":
+				if value != "true" && value != "false" {
+					return nil, errors.New("Git core boolean unsupported")
+				}
+			default:
+				return nil, errors.New("Git core behavior unsupported")
+			}
+			coreValues[key] = value
+		case "user":
+			if key != "name" && key != "email" {
+				return nil, errors.New("Git user setting unsupported")
+			}
+			// Identity is intentionally omitted.
+		case "remote":
+			if key != "url" && key != "fetch" {
+				return nil, errors.New("Git remote setting unsupported")
+			}
+			if key == "fetch" {
+				want := "+refs/heads/*:refs/remotes/" + subject + "/*"
+				if value != want || remoteFetch[subject] != "" {
+					return nil, errors.New("Git remote refspec unsupported")
+				}
+				remoteFetch[subject] = value
+			}
+			// URLs are deliberately omitted.
+		case "branch":
+			if key != "remote" && key != "merge" {
+				return nil, errors.New("Git branch setting unsupported")
+			}
+			if branches[subject] == nil {
+				branches[subject] = map[string]string{}
+			}
+			if branches[subject][key] != "" {
+				return nil, errors.New("Git branch setting repeated")
+			}
+			if key == "remote" && (!safeGitToken.MatchString(value) || strings.Contains(value, "..")) {
+				return nil, errors.New("Git branch remote unsupported")
+			}
+			if key == "merge" && (!strings.HasPrefix(value, "refs/heads/") || !safeGitToken.MatchString(strings.TrimPrefix(value, "refs/heads/"))) {
+				return nil, errors.New("Git branch merge ref unsupported")
+			}
+			branches[subject][key] = value
+		}
+	}
+	if !seenCore["repositoryformatversion"] || !seenCore["bare"] {
+		return nil, errors.New("Git core identity incomplete")
+	}
+	var out strings.Builder
+	out.WriteString("[core]\n\trepositoryformatversion = 0\n\tbare = false\n")
+	for _, key := range []string{"filemode", "ignorecase", "precomposeunicode"} {
+		if value := coreValues[key]; value != "" {
+			fmt.Fprintf(&out, "\t%s = %s\n", key, value)
+		}
+	}
+	out.WriteString("\tlogallrefupdates = false\n")
+	remotes := make([]string, 0, len(remoteFetch))
+	for name := range remoteFetch {
+		remotes = append(remotes, name)
+	}
+	sort.Strings(remotes)
+	for _, name := range remotes {
+		fmt.Fprintf(&out, "[remote %q]\n\tfetch = %s\n", name, remoteFetch[name])
+	}
+	keys := make([]string, 0, len(branches))
+	for key := range branches {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, name := range keys {
+		values := branches[name]
+		if values["remote"] == "" || values["merge"] == "" {
+			return nil, &gitUpstreamConfigError{branch: name, reason: "Git upstream setting incomplete"}
+		}
+		if remoteFetch[values["remote"]] == "" {
+			return nil, &gitUpstreamConfigError{branch: name, reason: "Git upstream fetch mapping unavailable"}
+		}
+		fmt.Fprintf(&out, "[branch %q]\n\tremote = %s\n\tmerge = %s\n", name, values["remote"], values["merge"])
+	}
+	return []byte(out.String()), nil
 }

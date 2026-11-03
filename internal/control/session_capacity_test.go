@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestSessionAdmissionReservesHelperAndCountsRowlessProjectIntent(t *testing.T) {
+func TestSessionAdmissionUsesEveryContainerSlotAndCountsRowlessProjectIntent(t *testing.T) {
 	s, _ := openTestStore(t)
 	ctx := context.Background()
 	observed := []CapacityReservation{}
@@ -16,7 +16,7 @@ func TestSessionAdmissionReservesHelperAndCountsRowlessProjectIntent(t *testing.
 		observed = append([]CapacityReservation(nil), reservations...)
 		return CapacityObservation{Limit: 4, PhysicalCount: 0, Occupied: map[string]bool{}}, nil
 	}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		req := BlankProjectRequest{Key: "capacity-" + string(rune('a'+i)), Project: "team/capacity-" + string(rune('a'+i)), URL: "ssh://example.invalid/repo"}
 		if _, err := s.BeginBlankProjectWithCapacity(ctx, req, json.RawMessage(`{"network":"none"}`), strings.Repeat("d", 64), testSelection(), observe); err != nil {
 			t.Fatalf("reservation %d: %v", i, err)
@@ -30,20 +30,20 @@ func TestSessionAdmissionReservesHelperAndCountsRowlessProjectIntent(t *testing.
 			}
 		}
 	}
-	_, err := s.BeginBlankProjectWithCapacity(ctx, BlankProjectRequest{Key: "capacity-d", Project: "team/capacity-d"}, json.RawMessage(`{"network":"none"}`), strings.Repeat("d", 64), testSelection(), observe)
+	_, err := s.BeginBlankProjectWithCapacity(ctx, BlankProjectRequest{Key: "capacity-e", Project: "team/capacity-e"}, json.RawMessage(`{"network":"none"}`), strings.Repeat("d", 64), testSelection(), observe)
 	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("fourth session consumed helper slot: %v", err)
+		t.Fatalf("fifth session admitted beyond the container limit: %v", err)
 	}
 	var capacity *sessionCapacityError
 	if !errors.As(err, &capacity) {
 		t.Fatalf("admission refusal lost its capacity classification: %v", err)
 	}
 	rpcErr := lifecycleRPC(err)
-	if rpcErr.Code != -32003 || rpcErr.Kind != "busy" || !strings.Contains(rpcErr.Message, "one slot for loss inspection") || !strings.Contains(rpcErr.Message, "Discard or Delete") || !strings.Contains(rpcErr.Message, "Stop retains") {
+	if rpcErr.Code != -32003 || rpcErr.Kind != "busy" || strings.Contains(rpcErr.Message, "loss inspection") || !strings.Contains(rpcErr.Message, "Discard or Delete") || !strings.Contains(rpcErr.Message, "Stop retains") {
 		t.Fatalf("capacity refusal did not explain the remedy: %+v", rpcErr)
 	}
 	var mutations int
-	if err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM operations WHERE idempotency_key='capacity-d') + (SELECT count(*) FROM projects WHERE path='team/capacity-d') + (SELECT count(*) FROM sessions WHERE project_path='team/capacity-d')`).Scan(&mutations); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM operations WHERE idempotency_key='capacity-e') + (SELECT count(*) FROM projects WHERE path='team/capacity-e') + (SELECT count(*) FROM sessions WHERE project_path='team/capacity-e')`).Scan(&mutations); err != nil {
 		t.Fatal(err)
 	}
 	if mutations != 0 {
@@ -70,7 +70,7 @@ func TestSessionAdmissionCountsUnknownDurableSessionAndForeignOccupant(t *testin
 		if len(reservations) != 2 {
 			t.Fatalf("lost an unknown durable session: %+v", reservations)
 		}
-		return CapacityObservation{Limit: 4, PhysicalCount: 1, Occupied: map[string]bool{}}, nil
+		return CapacityObservation{Limit: 4, PhysicalCount: 2, Occupied: map[string]bool{}}, nil
 	}
 	if _, err := s.BeginBlankProjectWithCapacity(ctx, BlankProjectRequest{Key: "next", Project: "team/next"}, json.RawMessage(`{"network":"none"}`), strings.Repeat("d", 64), testSelection(), observe); !errors.Is(err, ErrConflict) {
 		t.Fatalf("foreign physical occupant plus unknown reservations admitted: %v", err)

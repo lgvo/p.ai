@@ -69,11 +69,7 @@ to detach and return to the browser. Stop/Start, services, branch creation,
 rename, and reviewed removal operate on real Incus instances and P state.
 See [Using P](../../docs/user-guide.md) for the complete workflows.
 
-The seeded P repository exceeds the current
-[512-entry workspace-loss inspection limit](../../docs/control-api.md#workspace-loss-inspection).
-Its reviewed Discard/Delete is therefore refused with a bounded diagnostic;
-the source is preserved. Use the small notes project below to exercise complete
-reviewed removal. A clean lab reset uses the disk-reset procedure below.
+A clean lab reset uses the disk-reset procedure below.
 
 From the guest shell:
 

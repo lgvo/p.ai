@@ -37,9 +37,8 @@ not log in or trust hooks on the user's behalf. Authentication-free fixture
 evidence and the pending manual gate are recorded in
 [implementation progress](../docs/implementation-progress.md).
 
-The image uses static local account lookup without nscd/nsncd so Incus can
-enumerate files while the container is frozen. Hostnames use standard
-`files dns` lookup; additional NSS modules are excluded by the
+The image uses static local account lookup without nscd/nsncd. Hostnames use
+standard `files dns` lookup; additional NSS modules are excluded by the
 [runtime substrate contract](../docs/runtime-isolation.md#non-activating-workspace-access).
 
 NixOS links `/etc/systemd/system` to an immutable generated store tree, so the
