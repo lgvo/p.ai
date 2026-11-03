@@ -4,9 +4,11 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 
 ## Summary
 
-**Today** the control API has no shared shapes. The daemon dispatches 56
-methods (53 advertised, plus the attachment helper's three); `rpc.cancel` is
-handled before dispatch. Each handler decodes its params into an anonymous
+**Before step 2** the control API had no shared shapes, and this section
+describes that state. Before steps 0d, 0e and 0h removed some of them, the
+daemon dispatched 56 methods (53 advertised, plus the attachment helper's
+three), with `rpc.cancel` handled before dispatch; step 2's `api.Methods()`
+lists 42, `rpc.cancel` and the helper's three included. Each handler decodes its params into an anonymous
 struct declared inside the handler, and most handlers in `internal/control`
 build their result as `map[string]any`. The TUI writes its requests as
 `map[string]any` and decodes results into struct shapes of its own. The TUI
@@ -45,7 +47,7 @@ first.
 | Result shape | `map[string]any`, or a type in `internal/api` or `internal/control` | `api.<Method>Result`, one per method; methods may share one, such as `api.OperationResult` |
 | Bounds (limits, key and UUID length) | Inside each handler's decode condition | `Validate()` on the request type |
 | Version | `"v":1` in every request and result, checked per handler | Agreed once per connection at `system.hello` |
-| Which methods exist | `system.capabilities` lists the dispatched names | The protocol fixes the methods; `system.hello` lists the configured capabilities; a method whose capability is missing answers `not_configured` |
+| Which methods exist | `system.capabilities` lists the dispatched names | The protocol fixes the methods; `system.hello` lists the configured capabilities; a method whose capability is missing answers `not_configured` from step 3, and `unavailable` naming the capability until then |
 | Preview types (`RemovalPreview` and nine more) | `internal/control`, so clients decode them by hand | `internal/api`; step 5 wraps them in the plan envelope |
 | Services fields | `unit`, `active_state`, `sub_state`, `session.service.journal` | `name`, `state`, `detail`, `session.service.logs`, as [services-plugin.md](services-plugin.md#what-ps-api-and-tui-keep) decided for this step |
 
@@ -180,10 +182,14 @@ The rules:
   	OriginRef       string `json:"origin_ref,omitempty"`       // session.create from the origin
   	ReplacesSession string `json:"replaces_session,omitempty"` // session.create.replace: the blocked creation's UUID
   	ReplacesBranch  string `json:"replaces_branch,omitempty"`  // and the branch it held, which may differ from Branch
-  	URL             string `json:"url,omitempty"`              // project.create, origin.change
-  	Destination     string `json:"destination,omitempty"`      // origin.publish
+  	URL             string `json:"url,omitempty"`              // project.create; origin.change from step 4
+  	Destination     string `json:"destination,omitempty"`      // origin.publish, from step 4
   }
   ```
+
+  Step 2 records `url` for `project.create` only and has no `destination`:
+  both arrive with step 4, when `origin.change` and `origin.publish` become
+  operations ([waiting.md](waiting.md#origin-change-and-publish-as-operations)).
 
   A replacement's operation is the new creation, so `session` and `branch`
   name the new session and its branch. The replaced session's row is deleted
@@ -216,10 +222,10 @@ Every name in `api.Methods()` is registered, served or not:
 | Case | Today | After |
 |---|---|---|
 | Capability configured | `add` | `register` |
-| Capability not configured (no Git, no runtime) | `unconfiguredMethod` guesses from the name's prefix and answers `unavailable` | `notConfigured(m, capability)` answers `not_configured` with the capability's name |
-| Optional lifecycle interface missing | `t.unavailable` answers "record was not found" | Gone. In the daemon `*lifecycle` implements every optional interface; I checked by building `internal/daemon` with an extra file asserting all 21. Test fakes register only what they implement. |
+| Capability not configured (no Git, no runtime) | `unconfiguredMethod` guesses from the name's prefix and answers `unavailable` | Step 2: every method left unregistered answers `unavailable`, naming its capability (`registerNotConfigured` in internal/control/rpc.go); step 3 makes it `not_configured` |
+| Optional lifecycle interface missing | `t.unavailable` answers "record was not found" | The method stays unregistered, so it answers as not configured; the daemon's `*lifecycle` implements every optional interface. Test fakes register only what they implement. |
 | Name not in the protocol | `method_not_found` | `method_not_found` |
-| Attachment helper methods | `addHidden` | `register` on a table the daemon serves only on the helper's dedicated connection |
+| Attachment helper methods | `addHidden` | `register` on the one method table, because a claim arrives before the connection is dedicated; once it is, the connection accepts only `attachment.confirm` and `attachment.ping` |
 
 ## The version, agreed at `system.hello`
 
