@@ -9,12 +9,13 @@ session, deleting a project or a retained branch, publishing to an origin,
 and cleaning up or replacing a failed session creation. P shows each of
 these as a preview first and runs it only when the user confirms.
 
-**Today** the daemon remembers each preview. It keeps the preview in memory
-under a random token for two minutes, and confirm looks the token up. The
-daemon has ten preview stores, each with its own copy of this code, and the
-API has a preview method and a confirm method for each change. Publication is
-the exception: it has no token, and `origin.publish` sends the whole request
-again and checks it afresh.
+**Before step 5** the daemon remembered each preview. It kept the preview in
+memory under a random token for two minutes, and confirm looked the token up.
+Once groundwork steps 0d and 0h had removed the cache and repair previews, the
+daemon had five preview stores, each with its own copy of this code, and the
+API had a preview method and a confirm method for each change, 13 methods in
+all. Publication was the exception: it had no token, and `origin.publish` sent
+the whole request again and checked it afresh.
 
 **Proposed:** P confirms risky changes the way HTTP makes conditional requests
 with `ETag` and `If-Match`.
@@ -108,11 +109,11 @@ instead of quietly returning a dry run:
 
 ### The API
 
-Today each change has two methods, a preview and a confirm: 23 methods in all.
-Groundwork removes ten of them first: the cache preview and collection
-(step 0d) and the four session repairs (step 0h, [repairs.md](repairs.md)).
-After this decision each remaining change has one method, called twice: 7
-methods in all.
+Before step 5 each change had two methods, a preview and a confirm.
+Groundwork removed some of them first: the cache preview and collection
+(step 0d) and the four session repairs (step 0h, [repairs.md](repairs.md)),
+which left the 13 methods in the table below. After this decision each
+remaining change has one method, called twice: 7 methods in all.
 
 | Change | Before | After: one method, called twice |
 |---|---|---|
@@ -164,31 +165,38 @@ After, with no `"v":1`, since the version is agreed once per connection
 
 ### The code
 
-Before: ten copies of the token handling, one per kind of change.
+Before step 5, after groundwork: five copies of the token handling, one per
+kind of change; publication had none.
 
 ```text
 internal/daemon/
-  lifecycle.go            ten preview stores (maps from token to preview)
+  lifecycle.go            five preview stores (maps from token to preview)
   removal_preview.go      token, expiry, store limit, lookup, recheck: discard and delete
-  repair.go               the same for missing-runtime repair
-  ref_repair.go           the same for ref repair
-  …                       seven more copies
+  retained_delete.go      the same for retained-branch deletion
+  …                       three more copies: create_replace.go, create_cleanup.go,
+                          project_delete.go
 ```
 
 After: one module does the dry run and the precondition check; each kind
-keeps only what is specific to it.
+keeps only what is specific to it. The module is in `internal/control`, not
+`internal/daemon`: control's `OriginAPI` serves publication through it, also
+on a daemon that has Git and no runtime.
 
 ```text
+internal/control/
+  change.go               dry run, change hash and tag, key replay, hold, recheck: written once
+  publication_api.go      read the state and plan publication
 internal/daemon/
-  plan.go                 dry run, change hash and tag, key replay, lock, recheck: written once
-  removal_preview.go      read the state and plan discard and delete
+  plan.go                 the session hold and the loss items that several changes share
+  removal.go              read the state and plan discard and delete
   create_cleanup.go       read the state and plan create cleanup
   …
 ```
 
-Each kind of change supplies only three things: what it acts on, which is
-locked and hashed; a function that reads the state and plans the change; and
-the operation it writes once confirmed.
+Each kind of change supplies a `control.Change`: what it acts on and the
+caller's inputs, which are hashed; how to hold its target while it plans and
+runs; a function that reads the state and plans the change; how to find the
+operation a run's key recorded; and the operation it writes once confirmed.
 
 This removes the debt entry "Preview confirmation tokens are issued by copied
 code" in [docs/debts/structure.md](../docs/debts/structure.md).
@@ -210,27 +218,34 @@ one JSON object holding the state before the change and the state after it:
 | `state` | The state before: the facts the plan depends on, read now | the runtime's identity and state, the image reference, ref OIDs |
 | `plan` | The state after: the planned effects, and whether the change is allowed | what will be removed or created |
 
+Step 5 has no separate `state` field: the plan's `details` hold the facts it
+was planned from, so `plan` covers both (`changeFacts` in
+internal/control/change.go).
+
 The object is encoded with Go's `encoding/json` from fixed structs, which keeps
 field order and sorts map keys, so the same values always give the same bytes.
 
 Three rules keep the change hash honest:
 
 1. **Hash the facts the plan is built from.** That is what each confirm
-   compares today, for example `sameEnvironmentImage` in
-   `internal/control/environment_collection.go` for the cached images project
-   deletion removes, minus the observations the maintainer removed: the
-   workspace contents and the origin. It leaves out display text and the
-   preview's own token and expiry, and it keeps timestamps that identify a
-   generation, such as a cached image's `created_at`, which tells a
-   re-created image from the one the user reviewed. So a change inside a
-   session's workspace never invalidates a deletion's tag.
+   compared before step 5, minus the observations the maintainer removed:
+   the workspace contents and the origin. It leaves out display text and the
+   tag's expiry, and it keeps timestamps that identify a generation, such as
+   a commit image's `created_at` in project deletion's `state_sha256`, which
+   tells a re-created image from the one the user reviewed. So a change
+   inside a session's workspace never invalidates a deletion's tag. It also
+   leaves out what a plan shows for information only (`Change.Shown`): a
+   removal's `runtime.original_status`. P stops a running container itself,
+   so a Start or Stop between the dry run and the run does not make a
+   removal's tag stale.
 2. **Read the same way at preview and at run.** The daemon calls the same
    `plan` function both times.
 3. **Same state, same change hash.** Two previews of an unchanged state give
    the same change hash.
 
 The change hash stays inside the daemon: replies never include it, and the
-operation journal records it as the exact change that ran.
+operation journal records it, in the `operations.change_hash` column, as the
+exact change that ran.
 
 ### The change tag
 
@@ -297,7 +312,9 @@ older tags stop matching.
   no longer causes a `busy` refusal, because there is no store.
 - Publication to a divergent destination is refused at the dry run, with the
   refusal `destination_divergent`, instead of returning `status: "refused"`
-  from `origin.publish`.
+  from `origin.publish`. A push that the origin's server rejects still
+  completes the operation with publication status `refused`
+  (`RunPublication` in internal/control/publication_api.go).
 
 ## `--force` in the CLI
 
@@ -381,7 +398,7 @@ and offers no force.
   but no `if_match` is refused with
   `precondition_required`; a call with `if_match` but no `key` is refused as
   invalid; a tag that expires while
-  the run re-checks the state is refused at admission; a re-created cached
+  the run re-checks the state is refused at admission; a re-created commit
   image with otherwise identical facts gets a different change hash; a dry
   run starts no operation and destroys nothing; a tag for one target or action cannot
   run another; key replay works after a daemon restart.

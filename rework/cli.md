@@ -85,11 +85,11 @@ a dry run; [Risky changes](#risky-changes) describes them.
 | `p origin refs PROJECT` | `origin.refresh`, then `origin.sources` | Lists refs only from a fresh observation, as the TUI does ([below](#origin-refs-must-be-fresh)) |
 | `p origin set PROJECT URL` | `origin.change`, kind `set` | Reads the current URL for `expected_url`; waits |
 | `p origin remove PROJECT` | `origin.change`, kind `remove` | Same |
-| `p origin publish PROJECT:BRANCH [--to NAME]` | `origin.publish` | Asks, waits. Kind `session` when a session holds the branch, otherwise `retained`. `--to` defaults to the same branch name. |
+| `p origin publish PROJECT:BRANCH [--to NAME]` | `origin.publish` | Asks, waits. Kind `session` when a session holds the branch, otherwise `retained`. `--to` defaults to the same branch name. Reads `expected_origin_url` with `origin.inspect` and `source_oid` with `project.branches`; a local-only project exits 3. |
 | `p session list [--project PROJECT]` | `session.list` | The project filter is applied by the CLI |
 | `p session show SESSION` | `session.inspect` | Conditions, attachments, the latest unattended agent report, policy, diagnostic |
-| `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`). `--from-origin` refreshes the origin, takes the commit and URL only from a fresh observation, and prints which commit it chose. |
-| `p session create … --replace SESSION` | `session.create.replace` | Asks, waits: replaces a blocked creation with this request |
+| `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`); a bare branch name is sent as `refs/heads/NAME`, a full ref or a commit ID as given. `--from-origin` refreshes the origin, takes the commit and URL only from a fresh observation, and prints which commit it chose. |
+| `p session create … --replace SESSION` | `session.create.replace` | Asks, waits: replaces a blocked creation with this request. Takes `--from` but not `--from-origin`: a replacement cannot start from the origin. |
 | `p session start SESSION` | `session.start` | Waits for its operation, which completes when the session is ready ([waiting.md](waiting.md#start-and-stop-as-operations)). A ready session prints "already running" and exits 0 ([Start and stop](#start-and-stop)). |
 | `p session stop SESSION` | `session.stop` | Waits for its operation. A stopped session prints "already stopped" and exits 0. |
 | `p session rename SESSION NEW` | `session.rename` | Reads the tip, as the TUI does; waits. A running session is refused. |
@@ -206,9 +206,11 @@ status is not `running` (`completed`, `failed`, `superseded` or `blocked`),
 or with the status still `running` when its timeout passes. The CLI asks for
 a timeout of 20 seconds, as the TUI does, inside a budget of 25 seconds for
 the whole call (connect, hello, wait, reply), so it stays under the server's
-30-second deadline. A wait that returns `running` is not an error: the CLI
-prints the operation's phase on standard error if it changed, and waits
-again. So a long build shows its phase at most every 20 seconds.
+30-second deadline. Every other call has a budget of 35 seconds: the
+server's 30-second deadline and 5 seconds for its answer to arrive
+(`callBudget` in cmd/p/call.go). A wait that returns `running` is not an
+error: the CLI prints the operation's phase on standard error if it changed,
+and waits again. So a long build shows its phase at most every 20 seconds.
 
 `--no-wait` prints the operation ID as soon as the daemon accepts the change
 and exits 0; `p operation wait ID` waits later.
@@ -264,9 +266,9 @@ Color and bold appear only when standard error is a terminal.
 | Code | Meaning |
 |---|---|
 | 0 | Done: the read succeeded, the operation completed, or with `--no-wait` the daemon accepted it; a start or stop found the session already as asked; `--dry-run` of an allowed change. |
-| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; the outcome of a service action is unknown; the origin observation is stale; or the operation ended `failed` or `superseded`. |
+| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; the outcome of a service action is unknown; the origin observation is stale; the operation ended `failed` or `superseded`; or a publication completed with status `refused`, because the origin's server rejected the push. |
 | 2 | Usage: the arguments or flags are invalid, found by the CLI or answered `invalid` by the daemon; or a `--key` belongs to another command. |
-| 3 | Not run, nothing changed: the plan is not allowed; the daemon answered `conflict`, `capacity` or `precondition_failed`; the user declined or cancelled; or no terminal could ask. |
+| 3 | Not run, nothing changed: the plan is not allowed; the daemon answered `conflict`, `capacity`, `precondition_failed` or `precondition_required`; the user declined or cancelled; or no terminal could ask. |
 | 4 | Not finished: the operation is `blocked`, or the CLI stopped waiting while it runs on. |
 
 `p api` keeps its own rule: 0, or 1 on any error.
@@ -289,9 +291,9 @@ tag, only when a second call cannot act twice:
 
 | Reason | What the daemon did | The CLI |
 |---|---|---|
-| `session_held` | Refused before dispatch: an operation holds the session | Says so, waits for the named operation with `operation.wait`, then repeats. Any call. |
+| `session_held`, `project_held` | Refused before dispatch: an operation or another request holds the session or project | When it names an operation: says so, waits for it with `operation.wait`, then repeats. Otherwise as for `too_many_requests`. Any call. |
 | `too_many_requests` | Refused at admission | Repeats after a short pause, for up to 10 seconds. Any call. |
-| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change with the identical request it sent (the key replays it), or a start or stop (a repeat converges). Never a service action, which has no key and may already be queued (`Backend.Services` in internal/runtimeincus/services.go runs `systemctl` first); it answers as for a lost reply ([Changes without an operation](#changes-without-an-operation)). |
+| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change with the identical request it sent (the key replays it), or a start or stop (a repeat converges), at most twice. Never `operation.retry`, which has no key. Never a service action, which has no key and may already be queued (`Driver.ServiceAction` in internal/runtimeincus/driver_services.go runs `systemctl --no-block` before it answers); it answers as for a lost reply ([Changes without an operation](#changes-without-an-operation)). |
 
 If the operation a `session_held` names ends `blocked`, the repeat answers
 `conflict`, `operation_blocked`, and the CLI stops. A risky run repeated
@@ -340,8 +342,10 @@ The CLI reads only the envelope's `allowed`, `refusals`, `loss` and `gone` to
 decide what to print and whether to warn ([plan-shape.md](plan-shape.md)).
 The API carries no message text, so the CLI owns one sentence per refusal
 code, error reason and kind, and loss kind. The sentences live in one table
-that the TUI and the CLI share, so both say the same thing; whichever step
-first needs it creates it.
+that the TUI and the CLI share, so both say the same thing: `internal/errtext`.
+The TUI takes its error, operation and refusal sentences from it, but not yet
+its loss sentences: its removal review writes its own, recorded as the debt
+["The TUI writes its own loss sentences"](../docs/debts/structure.md#the-tui-writes-its-own-loss-sentences).
 
 1. **A heading** from the command's arguments and a few facts of its own
    `details` type:
@@ -369,8 +373,9 @@ first needs it creates it.
    check whether the origin has them". An item with `certain: false` reads
    "possibly: …".
 
-A code the table lacks prints as the code itself. That cannot happen in a
-release: the CLI and the daemon are the same `p` binary, and a unit test
+A code the table lacks prints errtext's fallback sentence, which names the
+code, such as "It cannot run now (CODE)." for a refusal. That cannot happen
+in a release: the CLI and the daemon are the same `p` binary, and a unit test
 checks that every code has a sentence.
 
 ### Without a terminal
@@ -386,9 +391,11 @@ terminals. Otherwise:
 
 ### `--dry-run` and `--if-match`
 
-- `--dry-run` prints the plan, warning included, and sends nothing else. With
-  `--json` it prints the reply, including `change_tag` when the change is
-  allowed.
+- `--dry-run` prints the plan, warning included, and sends nothing else.
+  For an allowed change it also prints the change tag on standard output,
+  and on standard error how to run the plan with `--if-match`. With `--json`
+  it prints the reply, including `change_tag` when the change is allowed. It
+  takes no `--key` or `--no-wait`.
 - `--if-match TAG` runs the plan that tag names: no dry run, no prompt and no
   countdown, because the caller saw that plan from `--dry-run`, warning
   included, and the daemon runs it only if nothing changed; otherwise the CLI
@@ -438,25 +445,29 @@ Still open in the documents this design builds on:
 
 - **A `key` filter on `operation.list`** would make the replay lookup one
   call instead of paging; waiting.md does not have one yet.
-- **Step 5:** the full list of refusal codes, and whether `origin.publish`
-  still takes `expected_origin_url` and `source_oid` once the tag binds
-  them; the CLI passes them as long as it does.
+
+Settled by step 5:
+
+- **Refusal codes:** every `conflict` reason a risky change meets while it
+  plans, and the codes that only plans use
+  ([control-api.md](../docs/control-api.md#refusals)).
+- **Publication's guards:** `origin.publish` still takes
+  `expected_origin_url` and `source_oid` beside the tag. The CLI reads the
+  URL with `origin.inspect` and the branch's tip with `project.branches`.
 
 ## Departures from current docs
 
-These change when step 7 lands:
+Steps 7a and 7b made these changes:
 
 - [User guide](../docs/user-guide.md): every walkthrough uses the task
-  commands instead of `api` helpers and `jq`. The TUI section's "Bulk project
-  deletion, publication, plugin management and specialized repairs remain
-  CLI/API workflows" names the commands and drops the repairs, which P no
-  longer has ([repairs.md](repairs.md)).
+  commands instead of `api` helpers and hand-written JSON, and the TUI
+  section names the commands for the workflows the TUI lacks.
 - [Control API](../docs/control-api.md#host-framing-and-request-envelope):
-  the paragraph on `p api` gains the task commands and loses the two-minute
-  deadline.
+  the paragraph on `p api` gains the task commands; `p api`'s two-minute
+  deadline had already gone in step 0e.
 - [README](../README.md#nixos-installation): the first-run checks use
   `p status` and `p project list`.
-- `usage()` in cmd/p/main.go becomes `p help`.
+- `p help` lists the commands (cmd/p/help.go).
 
 ## How it will be checked
 

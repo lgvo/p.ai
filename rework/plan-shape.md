@@ -104,7 +104,7 @@ A dry run, a call with neither `key` nor `if_match`, has three outcomes, as
 |---|---|---|
 | `action` | string | The method name, such as `session.delete`. The same value as `action` in the change hash. |
 | `target` | string | What the change acts on. Forms below. |
-| `allowed` | bool | Whether the change can run now. It is `true` exactly when `refusals` is empty; the shared `plan.go` sets it, so the two cannot disagree. |
+| `allowed` | bool | Whether the change can run now. It is `true` exactly when `refusals` is empty; the shared code in `internal/control/change.go` sets it, so the two cannot disagree. |
 | `refusals` | array of refusals, never null | Why the change cannot run. Empty when allowed. |
 | `loss` | array of loss items, never null | What the change would destroy. Empty means nothing is lost. |
 | `gone` | array of loss items, never null | What is already lost before the change runs, such as the contents of a runtime that is missing. Information only: the change destroys none of it. |
@@ -147,13 +147,15 @@ behind a refusal goes to the daemon log, not into the plan.
 
 These codes change:
 
-- `assembled_workspace_requires_dedicated_loss_inspection; preserve_or_retry_exact_request`
-  leaves create cleanup with the loss inspection: when the creator's container
-  exists, the plan lists it as `runtime_data` loss instead.
-- `creator_bound_completed_loss_or_exact_stopped_runtime_unavailable: <error>`
-  loses its inspection half. A creator container that P cannot identify
-  exactly is still refused; step 5 names that code with the others from
-  today's conflict errors. The error text goes to the daemon log.
+- The two `unsafe_reasons` tied to the loss inspection were gone after step
+  0e, which removed the inspection:
+  `assembled_workspace_requires_dedicated_loss_inspection; preserve_or_retry_exact_request`
+  went, and the plan lists an existing creator container as `runtime_data`
+  loss instead; `creator_bound_completed_loss_or_exact_stopped_runtime_unavailable: <error>`
+  became `exact_stopped_runtime_unavailable: <error>`. Step 5 dropped the
+  error text from that code, so a creator container that P cannot identify
+  exactly is refused with `exact_stopped_runtime_unavailable`, and the error
+  text goes to the daemon log.
 - Publication gains `destination_divergent`, from `relation: "divergent"`.
 
 ### A plan that is not allowed
@@ -171,7 +173,7 @@ outside Git, commits only in the runtime) are lost before any change runs. P
 counts a runtime as missing only after Incus reports it absent and a full
 inventory of P's Incus project finds no instance with that session's UUID; an
 unreachable Incus refuses the change instead
-([control-api.md](../docs/control-api.md#session-removal-preview)).
+([control-api.md](../docs/control-api.md#session-removal-and-rename)).
 
 The maintainer decided on 2026-11-02 that this is not loss: nothing is left
 to save, so the `--force` countdown would protect nothing. The plan lists it
@@ -185,13 +187,23 @@ saw that.
 ### What the change hash covers
 
 The change hash's `plan` is the reply's `plan` object, as `encoding/json`
-encodes it. That holds because a plan carries no token, expiry or prose: those
-leave the plan. One kind of timestamp remains, and it is a fact rather than an
-observation time: a cached image's `created_at` and `last_used_at`, in project
-deletion's `cache_images`. Project deletion's confirmation compares the fresh
-preview with the reviewed one in full today (`reflect.DeepEqual` in
-`internal/daemon/project_delete.go`), so a changed `last_used_at` makes it
-stale. They must stay hashed to keep that refusal.
+encodes it, less one fact shown for information only (below). That holds
+because a plan carries no token, expiry or prose: those leave the plan.
+Project deletion's details list commit images, in `images`
+(`api.CommitImageClaim`), with no timestamp. A timestamp reaches the hash
+only inside a digest, and as a fact rather than an observation time: for
+example each commit image row's `created_at`, in project deletion's
+`state_sha256`, which tells a re-created image from the one the user
+reviewed.
+
+The fact left out is a removal's `runtime.original_status`, which the plan
+shows for information only (`Change.Shown` in
+internal/control/change.go). P stops a running container itself, so a Start
+or Stop between the dry run and the run keeps a removal's tag. Project
+deletion's tag does change when a session is started or stopped: its
+`state_sha256` is a digest of the project's stored state, which covers the
+project's operations, and starting or stopping a session records one
+(`projectDeleteSnapshot` in internal/control/project_delete_store.go).
 
 ## Loss items
 
@@ -248,7 +260,9 @@ session keys and endpoint sockets. It stays in `details`, for example
 Cached environment images are not loss either, by the maintainer's decision
 of 2026-11-02: an image is a cache, so losing it costs a rebuild, not work.
 Project deletion removes every session, so nothing is left that needs exact
-recreation. Its `cache_images` stay in `details`.
+recreation. The commit images it deletes, which replaced cached environment
+images in step 1, are listed in `images` in `details`
+([commit-images.md](commit-images.md)).
 
 Deletions do not check the origin, by the maintainer's decision of
 2026-11-02: whether work is published there is the user's concern. Session
@@ -339,7 +353,7 @@ no branch to keep.
 | `branch_loss.commits_losing_p_reachability` (every commit, since every ref goes) | `p_commits`, target `project/<path>` |
 | `warnings[0]` | Removed: `p_commits`, `unreachable_objects` (always listed, `not_enumerated`) and `runtime_data` |
 | `warnings[1]` | Removed: it lists what deletion keeps, the same on every call. The CLI and TUI state it. |
-| `cache_images[].confirmation_digest`, `confirmation_expires_at` | Removed: always empty here, because `observeCollection` does not set them |
+| `cache_images` | Replaced in step 1 by `images`, the commit images in the project's index (`api.CommitImageClaim`), which have no `confirmation_digest` or `confirmation_expires_at` |
 | `confirmation_token`, `expires_at` | Removed |
 | Not allowed | Refusal codes from today's conflict errors, from step 5; see [Fields that do not fit](#fields-that-do-not-fit-the-envelope), item 2. |
 
@@ -360,7 +374,7 @@ preview.
 | Today | After |
 |---|---|
 | `project`, `destination_ref` | `target`: `project/<path>:origin-branch/<name>`; both also kept in details |
-| `relation: "divergent"` | `allowed: false`, refusal `destination_divergent`. Today the run records a completed `refused` result under the publish key; that status no longer appears, because no run starts without a tag. If the destination diverges between the dry run and the run, the run fails with `precondition_failed`. Nothing is pushed in either case. |
+| `relation: "divergent"` | `allowed: false`, refusal `destination_divergent`. Today the run records a completed `refused` result under the publish key; a divergent destination no longer does, because no run starts without a tag. If the destination diverges between the dry run and the run, the run fails with `precondition_failed`. Nothing is pushed in either case. A push that the origin's server rejects still completes the operation with publication status `refused`. |
 | `relation` `absent`, `fast_forward`, `equal` or `destination_contains` | `allowed: true`; for the last two the run records `satisfied` without pushing, as today |
 | Loss | None: a push only creates or fast-forwards a branch |
 
@@ -377,19 +391,24 @@ preview.
    has the preview point to the handler's own log-retention policy; the CLI
    and TUI do that instead.
 2. **Refusals raised as errors.** Removal, project deletion and
-   retained-branch deletion refuse with RPC errors today; removal answers
-   every such case with the same `busy` "lifecycle request conflicts with
-   current authority". By the maintainer's decision of 2026-11-02 they answer
+   retained-branch deletion refused with RPC errors before step 5. Removal
+   answered every such case with the same `busy` "lifecycle request conflicts
+   with current authority" until step 3 typed each as `conflict` with its own
+   reason. By the maintainer's decision of 2026-11-02 they answer
    like create cleanup and replacement: each "not now, do this first" condition becomes a
    refusal code in an `allowed: false` plan, for example `attachment_active`,
-   `session_not_established` and `runtime_changed`. Errors stay for invalid
+   `session_not_established` and `runtime_unsettled`. Step 5 made the change
+   for every risky change: each `conflict` met while planning ends planning
+   and becomes the plan's refusal (`Change.plan` in
+   internal/control/change.go). So a plan's refusal codes are the conflict
+   reasons it meets, plus the codes that only plans use, which the
+   [refusals table](../docs/control-api.md#refusals) lists.
+   Errors stay for invalid
    input, unknown records, unreachable authorities, and a session held for
    the moment by another request or a running operation (`retry`); methods
    that are not risky changes, such as stopping a session with a terminal
    attached, keep answering a forbidding state with `conflict`
-   ([errors.md](errors.md)). Step 5 makes the
-   change, because it rewrites these methods, and settles the full list of
-   codes from today's conflict errors. Publication gains
+   ([errors.md](errors.md)). Publication gains
    `destination_divergent` the same way.
 3. **Frame size.** Removal and project deletion previews are checked against
    the 64 KiB frame less 1 KiB today. Without the workspace loss report, up to
@@ -417,7 +436,7 @@ branch loss. The shared code sets
 | List the container's contents before deleting it (today's workspace loss inspection: changed files, ignored files, commits only in the runtime) | Set aside by the maintainer on 2026-11-02: deletions state loss by category. The inspection needs a helper container, pauses a running source, expires after two minutes and is checked again while deleting. |
 | A list of what a change keeps, in the envelope or in `details` | Only project deletion and create cleanup state it today, always the same text. It reassures rather than protects, so it carries no information the plan needs; the CLI and TUI state it. |
 | `refusals` as bare code strings, as `unsafe_reasons` are | Project deletion needs to name the session that blocks it; a refusal object carries that `target`. |
-| `allowed` alone, or `refusals` alone | `allowed` is the one bit every client checks; `refusals` explain it. `plan.go` derives one from the other, so they cannot disagree. |
+| `allowed` alone, or `refusals` alone | `allowed` is the one bit every client checks; `refusals` explain it. The shared code derives one from the other, so they cannot disagree. |
 | A missing runtime's contents as an uncertain `loss` item | Set aside by the maintainer on 2026-11-02: nothing is left to save, so a countdown would protect nothing. They go in `gone`. |
 | Check the origin before deleting, and list only commits it lacks | Set aside by the maintainer on 2026-11-02: whether work is published to the origin is the user's concern. The dry run stays local and never depends on the origin being reachable. |
 | One loss item per commit | A deletion can remove up to 256 commits from P's repository; a count and a sample of five serve the warning, and the full list stays in `branch_loss`. |

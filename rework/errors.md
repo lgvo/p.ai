@@ -90,19 +90,20 @@ After
 | `capacity` | -32012 | Discard or delete a session to free a slot | `session_capacity` |
 | `precondition_failed` | -32013 | Read the state again and decide again: for a risky change, a new dry run ([state-hash-confirmation.md](state-hash-confirmation.md)) | `expired`, `changed` |
 | `precondition_required` | -32014 | Send the change tag in `if_match` | `if_match_missing` |
-| `not_found` | -32015 | Stop: the named record does not exist | The kind of record: `session`, `operation`, `project`, `branch`, `source` |
+| `not_found` | -32015 | Stop: the named record does not exist | The kind of record: `session`, `operation`, `project`, `branch`, `source`, `service` |
 | `not_configured` | -32016 | Configure the named capability on the host | The capability: `git`, `runtime`, `services` |
 | `failed` | -32017 | Check the named authority, then send the request again | The authority: `runtime`, `git`, `origin`, `plugin`, `services` |
 
 Step 3 added four reasons this design did not name: `envelope` (JSON that is
 not a valid request object), `connection` (a method this connection may not
 call), `jsonrpc` (a `jsonrpc` member other than `"2.0"`) and `unexpected` (an
-error nobody typed). `not_found` uses `source` for a source ref or commit to
-create from, and no `service`: an action on a project service the session
-does not have reaches the service manager, which refuses it, so it answers
-`failed` with reason `services`.
-[services-plugin.md](services-plugin.md#guarantees) plans `not_found`,
-`service` for the runtime driver's `ErrNoService`.
+error nobody typed). `not_found` also uses `source` for a source ref or
+commit to create from. Step 8's M2 (ef7eb3b) added `service`, as
+[services-plugin.md](services-plugin.md#guarantees) planned: an action on, or
+the logs of, a name that is not one of the session's project services answers
+`not_found`, reason `service`, with the session as target, and the name never
+reaches the service manager. The runtime driver returns `ErrNoService` for
+it, and `servicesRefusal` in internal/daemon/services.go maps that.
 
 The codes for P's own kinds are new numbers in JSON-RPC's range for server
 errors (-32000 to -32099). `busy` (-32003) and `unavailable` (-32004) go and

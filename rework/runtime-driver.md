@@ -282,8 +282,11 @@ after the client gave up, so state alone does not settle an effect. The
 contract keeps today's rules:
 
 1. **A guard until settled.** The gate's record stays until the effect
-   settles: the creation's init state, the build's states and publication
-   claim, rename's write marker, the delete mark.
+   settles: the creation's init state, the build's cycle state, rename's
+   write marker, the delete mark. Step 1 keeps no publication claim for a
+   build: the Incus driver settles a build by whether its builder still
+   exists, since a build removes its builder only after publication accepted
+   the image (`observeBuild` in internal/runtimeincus/driver.go).
 2. **Only a positive outcome settles**: the intended object or state, seen
    exactly on two observations 250 ms apart with no Incus operation active
    on it. The Incus driver never returns `NotApplied` for a create or a build.
