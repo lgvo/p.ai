@@ -493,6 +493,18 @@ the exact session UUID has been removed from the registry. Missing authority
 for a surviving session and other inspection errors remain errors. The cursor
 belongs to the original registry page and remains valid after such omissions.
 
+Every operation and operation summary carries `intent`: what the change's
+caller named, recorded when the daemon accepted it. It never holds a guard
+read from live state, such as an expected tip, URL or commit, or a
+confirmation token. Its fields, each present only when the kind has it, are
+`project`; `session`, the target session or, for a creation, the new one;
+`branch`, the P branch named or held by the session at acceptance;
+`new_branch` for a rename; `choice`, `source` and `origin_ref` for a session
+creation; `replaces_session` and `replaces_branch` for a replacement, naming
+the retired creation and the branch it held; and `url` for a project created
+with an origin. A client that repeats a change with the same key can compare
+it without reading live state.
+
 Rename operation diagnostics retain up to 512 bytes so both validated
 expected/actual branch or upstream names remain visible. Other operation
 diagnostics retain their 256-byte bound. Operation lists still enforce the

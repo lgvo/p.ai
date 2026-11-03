@@ -89,7 +89,9 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	evRaw, _ := json.Marshal(e)
-	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: r.Key, Kind: KindRetainedDelete, Project: r.Project, Request: raw, Phase: "guarded", Evidence: evRaw, Now: now})
+	rec := operationRecord{ID: id, Key: r.Key, Kind: KindRetainedDelete, Project: r.Project, Request: raw,
+		Intent: api.OperationIntent{Project: r.Project, Branch: r.Branch}, Phase: "guarded", Evidence: evRaw, Now: now}
+	err = insertOperation(ctx, tx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -99,7 +101,7 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err
 	}
-	return api.Operation{ID: id, Key: r.Key, Kind: "project.retained.delete", Project: r.Project, Request: raw, Status: "running", Phase: "guarded", Evidence: evRaw, CreatedAt: now, UpdatedAt: now}, nil
+	return rec.operation(), nil
 }
 
 // IssueRetainedDelete holds the ref authority lock through final review, the

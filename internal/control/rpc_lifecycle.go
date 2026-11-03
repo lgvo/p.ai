@@ -89,7 +89,7 @@ func SummarizeOperation(o api.Operation) api.OperationSummary {
 	if len(d) > limit {
 		d = d[:limit]
 	}
-	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Diagnostic: d, Environment: CreationEnvironmentView(o)}
+	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Intent: o.Intent, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Diagnostic: d, Environment: CreationEnvironmentView(o)}
 }
 
 type LifecycleAPI interface {

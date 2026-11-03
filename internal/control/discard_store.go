@@ -109,14 +109,16 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, Session: req.UUID, Request: request, Phase: "guard-pending", Evidence: evidence, Now: now})
+	rec := operationRecord{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, Session: req.UUID, Request: request,
+		Intent: api.OperationIntent{Project: ev.Project, Session: req.UUID, Branch: ev.Branch}, Phase: "guard-pending", Evidence: evidence, Now: now}
+	err = insertOperation(ctx, tx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err
 	}
-	return api.Operation{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, SessionUUID: req.UUID, Request: request, Status: "running", Phase: "guard-pending", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
+	return rec.operation(), nil
 }
 
 // CommitDiscard is the irreversible local authority boundary. The guarded

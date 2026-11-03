@@ -169,6 +169,17 @@ control project.create (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -194,6 +205,17 @@ control session.create (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -334,6 +356,17 @@ control operation.inspect (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -353,6 +386,17 @@ control operation.list (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       status string
       phase string
       committed boolean
@@ -376,6 +420,17 @@ control operation.retry (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -447,6 +502,17 @@ control session.discard (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -467,6 +533,17 @@ control session.delete (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -488,6 +565,17 @@ control session.rename (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -510,6 +598,17 @@ control project.retained.rename (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -643,6 +742,17 @@ control project.delete.confirm (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -690,6 +800,17 @@ control project.retained.delete.confirm (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -817,6 +938,17 @@ control session.create.replace.confirm (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string
@@ -931,6 +1063,17 @@ control session.create.cleanup.confirm (runtime)
       kind string
       project string
       session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
       request raw
       status string
       phase string

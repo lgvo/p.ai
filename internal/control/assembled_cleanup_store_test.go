@@ -174,7 +174,7 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 			t.Fatalf("committed cleanup assignment guard bypassed: %s", query)
 		}
 	}
-	if _, err = s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,created_at,updated_at) VALUES('other','other','unknown',?,?, '{}',?,'running','unknown','now','now')`, creator.Project, creator.SessionUUID, strings.Repeat("a", 64)); err == nil {
+	if _, err = s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,created_at,updated_at) VALUES('other','other','unknown',?,?, '{}',?,'{}','running','unknown','now','now')`, creator.Project, creator.SessionUUID, strings.Repeat("a", 64)); err == nil {
 		t.Fatal("committed cleanup admitted competing durable operation")
 	}
 	old, _ = s.GetOperation(ctx, creator.ID)

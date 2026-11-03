@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,7 @@ func TestRetainedRenameGuardsBothNamesAndSurvivesRestart(t *testing.T) {
 	if err != nil || op.Phase != "reserved" || calls != 1 {
 		t.Fatalf("begin: %+v %v calls=%d", op, err, calls)
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: "app", Branch: "saved", NewBranch: "archive"})
 	for _, branch := range []string{r.OldBranch, r.NewBranch} {
 		if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES(?,? ,?,'established','{}',?)`, "550e8400-e29b-41d4-a716-446655440000", r.Project, branch, strings.Repeat("b", 64)); err == nil {
 			t.Fatalf("assigned guarded branch %s", branch)

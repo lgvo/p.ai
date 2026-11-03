@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,8 @@ func TestCreateReplaceAcceptedReplayWithoutMutationAuthority(t *testing.T) {
 	if err != nil || fresh.Phase != "replacement-cleanup" {
 		t.Fatalf("cleanup admission: %+v %v", fresh, err)
 	}
+	checkIntent(t, s, fresh, api.OperationIntent{Project: "app", Session: fresh.SessionUUID, Branch: "work", Choice: "existing",
+		ReplacesSession: old.SessionUUID, ReplacesBranch: "work"})
 	if _, err = s.GetSession(ctx, old.SessionUUID); !errors.Is(err, ErrNotFound) {
 		t.Fatal("old session row survived handoff")
 	}

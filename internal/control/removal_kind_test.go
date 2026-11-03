@@ -53,7 +53,7 @@ func insertRemovalKind(t *testing.T, s *Store, uuid, kind, status string, commit
 	if kind == "project.delete" {
 		id = nil
 	}
-	_, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at) VALUES(?,?,?,'app',?,'{}',?,?,'fixture',?,'{}','now','now')`, key, key, kind, id, strings.Repeat("a", 64), status, committed)
+	_, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at) VALUES(?,?,?,'app',?,'{}',?,'{}',?,'fixture',?,'{}','now','now')`, key, key, kind, id, strings.Repeat("a", 64), status, committed)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -97,7 +97,9 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: r.Key, Kind: KindSessionRename, Project: project, Session: r.UUID, Request: request, Phase: "reserved", Evidence: evidence, Now: now})
+	rec := operationRecord{ID: id, Key: r.Key, Kind: KindSessionRename, Project: project, Session: r.UUID, Request: request,
+		Intent: api.OperationIntent{Project: project, Session: r.UUID, Branch: branch, NewBranch: r.NewBranch}, Phase: "reserved", Evidence: evidence, Now: now}
+	err = insertOperation(ctx, tx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -109,8 +111,7 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err
 	}
-	return api.Operation{ID: id, Key: r.Key, Kind: "session.rename", Project: project, SessionUUID: r.UUID,
-		Request: request, Status: "running", Phase: "reserved", Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
+	return rec.operation(), nil
 }
 
 // FailRenamePrecommit is only for a positively known pre-commit refusal after

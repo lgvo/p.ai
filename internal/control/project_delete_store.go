@@ -200,13 +200,15 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE project_path=?`, req.Project); err != nil {
 		return api.Operation{}, err
 	}
-	if err = insertOperation(ctx, tx, operationRecord{ID: id, Key: req.Key, Kind: KindProjectDelete, Project: req.Project, Request: raw, Phase: "ensure-absent", Committed: true, Evidence: proof, Now: now}); err != nil {
+	rec := operationRecord{ID: id, Key: req.Key, Kind: KindProjectDelete, Project: req.Project, Request: raw,
+		Intent: api.OperationIntent{Project: req.Project}, Phase: "ensure-absent", Committed: true, Evidence: proof, Now: now}
+	if err = insertOperation(ctx, tx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err
 	}
-	return api.Operation{ID: id, Key: req.Key, Kind: "project.delete", Project: req.Project, Request: raw, Evidence: proof, Status: "running", Phase: "ensure-absent", Committed: true, CreatedAt: now, UpdatedAt: now}, nil
+	return rec.operation(), nil
 }
 
 // UpdateProjectDelete changes only resource progress; exact accepted identities

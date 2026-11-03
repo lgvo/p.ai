@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -111,10 +112,18 @@ type operationRecord struct {
 	ID, Key, Kind, Project string
 	Session                string // empty records no session
 	Request                []byte
+	Intent                 api.OperationIntent
 	Phase                  string
 	Committed              bool
 	Evidence               []byte // nil records no evidence
 	Now                    string
+}
+
+// operation is the operation that r records, as the journal returns it.
+func (r operationRecord) operation() api.Operation {
+	return api.Operation{ID: r.ID, Key: r.Key, Kind: r.Kind, Project: r.Project, SessionUUID: r.Session, Intent: r.Intent,
+		Request: json.RawMessage(r.Request), Status: "running", Phase: r.Phase, Committed: r.Committed,
+		Evidence: json.RawMessage(r.Evidence), CreatedAt: r.Now, UpdatedAt: r.Now}
 }
 
 // insertOperation records a new operation; it is the journal's only insert.
@@ -123,7 +132,11 @@ func insertOperation(ctx context.Context, x execer, r operationRecord) error {
 	if r.Session != "" {
 		session = r.Session
 	}
-	_, err := x.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,?,?,?,'running',?,?,?,?,?)`, r.ID, r.Key, r.Kind, r.Project, session, string(r.Request), digest(r.Request), r.Phase, r.Committed, nullableJSON(r.Evidence), r.Now, r.Now)
+	intent, err := json.Marshal(r.Intent)
+	if err != nil {
+		return err
+	}
+	_, err = x.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
+	 VALUES(?,?,?,?,?,?,?,?,'running',?,?,?,?,?)`, r.ID, r.Key, r.Kind, r.Project, session, string(r.Request), digest(r.Request), string(intent), r.Phase, r.Committed, nullableJSON(r.Evidence), r.Now, r.Now)
 	return err
 }

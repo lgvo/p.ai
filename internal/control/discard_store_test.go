@@ -59,6 +59,7 @@ func setupDiscardStore(t *testing.T) (*Store, DiscardEvidence, api.Operation) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: ev.Project, Session: "550e8400-e29b-41d4-a716-446655440000", Branch: ev.Branch})
 	return s, ev, op
 }
 
@@ -251,8 +252,8 @@ func TestDeleteDurableCommitBranchCASConflictAndExactCompletion(t *testing.T) {
 
 func TestDeleteAdmissionRequiresEstablishedSession(t *testing.T) {
 	s, _ := openTestStore(t)
-	_, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,created_at,updated_at)
-	 VALUES('x','x','session.delete','app','550e8400-e29b-41d4-a716-446655440000','{}','x','running','guard-pending',0,'2026','2026')`)
+	_, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,created_at,updated_at)
+	 VALUES('x','x','session.delete','app','550e8400-e29b-41d4-a716-446655440000','{}','x','{}','running','guard-pending',0,'2026','2026')`)
 	if err == nil {
 		t.Fatal("delete operation without established session bypassed admission guard")
 	}

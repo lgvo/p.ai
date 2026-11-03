@@ -444,8 +444,8 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 		{"op-b", "session.rename", surfaceUUID, "blocked", "stale", long},
 		{"op-c", "session.discard", surfaceUUID2, "running", "reserved", long},
 	} {
-		if _, err := store.db.Exec(`INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,diagnostic,created_at,updated_at)
-		 VALUES(?,?,?,'team/app',NULLIF(?,''),'{"key":"k"}','x',?,?,1,'{"e":1}',?,'2026-01-01T00:00:00Z','2026-01-02T00:00:00Z')`,
+		if _, err := store.db.Exec(`INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,diagnostic,created_at,updated_at)
+		 VALUES(?,?,?,'team/app',NULLIF(?,''),'{"key":"k"}','x','{"project":"team/app"}',?,?,1,'{"e":1}',?,'2026-01-01T00:00:00Z','2026-01-02T00:00:00Z')`,
 			row.id, "key-"+row.id, row.kind, row.session, row.status, row.phase, row.diagnostic); err != nil {
 			t.Fatal(err)
 		}
@@ -455,7 +455,7 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 		if session != "" {
 			out += `"session_uuid":"` + session + `",`
 		}
-		out += `"status":"` + status + `","phase":"` + phase + `","committed":true`
+		out += `"intent":{"project":"team/app"},"status":"` + status + `","phase":"` + phase + `","committed":true`
 		if diagnostic != "" {
 			out += `,"diagnostic":"` + diagnostic + `"`
 		}
@@ -465,7 +465,7 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 		method, params, want string
 	}{
 		{"operation.inspect", `{"id":"op-b"}`, `{"operation":{"id":"op-b","idempotency_key":"key-op-b","kind":"session.rename","project":"team/app","session_uuid":"` + surfaceUUID +
-			`","request":{"key":"k"},"status":"blocked","phase":"stale","committed":true,"evidence":{"e":1},"diagnostic":"` + long + `","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}}`},
+			`","intent":{"project":"team/app"},"request":{"key":"k"},"status":"blocked","phase":"stale","committed":true,"evidence":{"e":1},"diagnostic":"` + long + `","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}}`},
 		// Summaries keep 512 diagnostic bytes for Rename and 256 for others.
 		{"operation.list", `{"limit":2}`, `{"operations":[` + summary("op-a", "project.retained.rename", "", "completed", "completed", "") + "," +
 			summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long[:512]) + `],"next":"op-b"}`},

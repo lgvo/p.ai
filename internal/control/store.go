@@ -61,7 +61,7 @@ var schemaSQL string
 // schemaVersion marks a database built from schemaSQL. P does not migrate
 // state: every schema change raises it, and openStore refuses a database of
 // any other version.
-const schemaVersion = 24
+const schemaVersion = 25
 
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
@@ -385,15 +385,15 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err = insertOperation(ctx, tx, operationRecord{ID: op.ID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: session.UUID, Request: requestJSON, Phase: "reserved", Now: now})
+	rec := operationRecord{ID: op.ID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: session.UUID, Request: requestJSON, Intent: creationIntent(req, session.UUID), Phase: "reserved", Now: now}
+	err = insertOperation(ctx, tx, rec)
 	if err != nil {
 		return op, session, classifyWrite(err)
 	}
 	if err := tx.Commit(); err != nil {
 		return op, session, err
 	}
-	op = api.Operation{ID: op.ID, Key: req.Key, Kind: "session.create", Project: req.Project, SessionUUID: session.UUID, Request: requestJSON, Status: "running", Phase: "reserved", CreatedAt: now, UpdatedAt: now}
-	return op, session, nil
+	return rec.operation(), session, nil
 }
 
 func classifyWrite(err error) error {
@@ -408,11 +408,14 @@ func classifyWrite(err error) error {
 
 func getOperationTx(ctx context.Context, tx *sql.Tx, key string) (api.Operation, error) {
 	var o api.Operation
-	var request, evidence string
+	var request, intent, evidence string
 	var committed int
-	err := tx.QueryRowContext(ctx, `SELECT id,idempotency_key,kind,project_path,COALESCE(session_uuid,''),request_json,status,phase,committed,COALESCE(evidence_json,''),diagnostic,created_at,updated_at
- FROM operations WHERE idempotency_key=?`, key).Scan(&o.ID, &o.Key, &o.Kind, &o.Project, &o.SessionUUID, &request, &o.Status, &o.Phase, &committed, &evidence, &o.Diagnostic, &o.CreatedAt, &o.UpdatedAt)
+	err := tx.QueryRowContext(ctx, `SELECT id,idempotency_key,kind,project_path,COALESCE(session_uuid,''),request_json,intent_json,status,phase,committed,COALESCE(evidence_json,''),diagnostic,created_at,updated_at
+ FROM operations WHERE idempotency_key=?`, key).Scan(&o.ID, &o.Key, &o.Kind, &o.Project, &o.SessionUUID, &request, &intent, &o.Status, &o.Phase, &committed, &evidence, &o.Diagnostic, &o.CreatedAt, &o.UpdatedAt)
 	if err != nil {
+		return o, err
+	}
+	if err = json.Unmarshal([]byte(intent), &o.Intent); err != nil {
 		return o, err
 	}
 	o.Request, o.Evidence, o.Committed = json.RawMessage(request), json.RawMessage(evidence), committed == 1

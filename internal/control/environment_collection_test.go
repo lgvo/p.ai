@@ -65,8 +65,8 @@ func TestEnvironmentLastUseOnlyOnEstablishedExactGeneration(t *testing.T) {
 	}
 	ev := CreationEvidence{EnvironmentState: &EnvironmentState{Key: e.Key, Fingerprint: e.Fingerprint}}
 	raw, _ := json.Marshal(ev)
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,evidence_json,created_at,updated_at)
-	 VALUES(?,'use-exact','session.create',?,?,'{}','fixture','running','workspace-ready',?,'2026-09-24T00:00:00Z','2026-09-24T00:00:00Z')`, opid, e.Project, sid, string(raw)); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,evidence_json,created_at,updated_at)
+	 VALUES(?,'use-exact','session.create',?,?,'{}','fixture','{}','running','workspace-ready',?,'2026-09-24T00:00:00Z','2026-09-24T00:00:00Z')`, opid, e.Project, sid, string(raw)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.CompleteCreation(ctx, opid); err != nil {
@@ -109,8 +109,8 @@ func TestUnresolvedEnvironmentPublicationBlocksSecondSameKey(t *testing.T) {
 	key := strings.Repeat("a", 64)
 	opid := "550e8400-e29b-41d4-a716-446655440004"
 	evidence := `{"environment_state":{"key":"` + key + `","builder_request_uuid":"` + opid + `","properties":{"p.environment_key":"` + key + `"}}}`
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,evidence_json,created_at,updated_at)
-	 VALUES(?,'first-publish','session.create','team/a','{}','fixture','blocked','environment-publishing',?,'now','now')`, opid, evidence); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,intent_json,status,phase,evidence_json,created_at,updated_at)
+	 VALUES(?,'first-publish','session.create','team/a','{}','fixture','{}','blocked','environment-publishing',?,'now','now')`, opid, evidence); err != nil {
 		t.Fatal(err)
 	}
 	if pending, err := s.PendingEnvironmentPublication(ctx, "team/a", key, ""); err != nil || !pending {

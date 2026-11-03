@@ -93,6 +93,12 @@ type CapturedSource struct {
 	OriginRef string
 }
 
+// creationIntent is what a session creation's caller named: the new session
+// is session.
+func creationIntent(req ReserveSessionRequest, session string) api.OperationIntent {
+	return api.OperationIntent{Project: req.Project, Session: session, Branch: req.Branch, Choice: req.Choice, Source: req.Source, OriginRef: req.OriginRef}
+}
+
 func ValidSessionCreateRequest(req ReserveSessionRequest) bool { return req.Validate() == nil }
 
 // BeginSessionCreate compares the original request before calling capture. The
@@ -235,13 +241,14 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		return api.Operation{}, Session{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if err = insertOperation(ctx, tx, operationRecord{ID: oidID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: sid, Request: request, Phase: "source-ready", Evidence: evJSON, Now: now}); err != nil {
+	rec := operationRecord{ID: oidID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: sid, Request: request, Intent: creationIntent(req, sid), Phase: "source-ready", Evidence: evJSON, Now: now}
+	if err = insertOperation(ctx, tx, rec); err != nil {
 		return api.Operation{}, Session{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, Session{}, err
 	}
-	return api.Operation{ID: oidID, Key: req.Key, Kind: "session.create", Project: req.Project, SessionUUID: sid, Request: request, Status: "running", Phase: "source-ready", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, Session{UUID: sid, Project: req.Project, Branch: req.Branch, Registry: "creating", Policy: json.RawMessage(policy), PolicySHA256: policyHash}, nil
+	return rec.operation(), Session{UUID: sid, Project: req.Project, Branch: req.Branch, Registry: "creating", Policy: json.RawMessage(policy), PolicySHA256: policyHash}, nil
 }
 
 func (s *Store) CheckOriginKeyConflict(ctx context.Context, key string) error {
@@ -356,11 +363,13 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	if req.URL != "" {
 		operationSession = ""
 	}
-	err = insertOperation(ctx, s.db, operationRecord{ID: opID, Key: req.Key, Kind: KindProjectCreate, Project: req.Project, Session: operationSession, Request: request, Phase: "repo-pending", Evidence: evJSON, Now: now})
+	rec := operationRecord{ID: opID, Key: req.Key, Kind: KindProjectCreate, Project: req.Project, Session: operationSession, Request: request,
+		Intent: api.OperationIntent{Project: req.Project, Session: operationSession, URL: req.URL}, Phase: "repo-pending", Evidence: evJSON, Now: now}
+	err = insertOperation(ctx, s.db, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
-	return api.Operation{ID: opID, Key: req.Key, Kind: "project.create", Project: req.Project, SessionUUID: operationSession, Request: request, Status: "running", Phase: "repo-pending", Evidence: evJSON, CreatedAt: now, UpdatedAt: now}, nil
+	return rec.operation(), nil
 }
 
 // CommitBlankProject is the only transition that exposes a new project to Git

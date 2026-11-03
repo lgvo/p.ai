@@ -197,14 +197,16 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if len(evidence) > 16384 {
 		return api.Operation{}, ErrInvalid
 	}
-	if err = insertOperation(ctx, tx, operationRecord{ID: newID, Key: intent.New.Key, Kind: KindSessionCreate, Project: project, Session: newSessionID, Request: request, Phase: phase, Evidence: evidence, Now: now}); err != nil {
+	recorded := creationIntent(intent.New, newSessionID)
+	recorded.ReplacesSession, recorded.ReplacesBranch = intent.OldUUID, oldRequest.Branch
+	rec := operationRecord{ID: newID, Key: intent.New.Key, Kind: KindSessionCreate, Project: project, Session: newSessionID, Request: request, Intent: recorded, Phase: phase, Evidence: evidence, Now: now}
+	if err = insertOperation(ctx, tx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err
 	}
-	return api.Operation{ID: newID, Key: intent.New.Key, Kind: "session.create", Project: project, SessionUUID: newSessionID,
-		Request: request, Status: "running", Phase: phase, Evidence: evidence, CreatedAt: now, UpdatedAt: now}, nil
+	return rec.operation(), nil
 }
 
 // CheckCreateReplacementTarget is read-only preview evidence. Admission repeats

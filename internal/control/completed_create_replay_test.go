@@ -155,6 +155,7 @@ func TestUnfinishedCreationReplayRequiresSessionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: "app", Session: session.UUID, Branch: "work", Choice: "existing"})
 	// Simulate inconsistent/externally removed unfinished identity. Replay must
 	// expose the missing authority and must never reserve another session.
 	if _, err = s.db.ExecContext(ctx, `DELETE FROM sessions WHERE uuid=?`, session.UUID); err != nil {

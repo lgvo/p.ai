@@ -72,6 +72,7 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	if e != nil || n != 1 || cleaned.SessionUUID != old.SessionUUID || cleaned.Kind != "session.create.cleanup" || !cleaned.Committed {
 		t.Fatalf("cleanup admission: %+v %v", cleaned, e)
 	}
+	checkIntent(t, s, cleaned, api.OperationIntent{Project: "app", Session: old.SessionUUID, Branch: ev.Review.OldRequest.Branch})
 	if s.IsGitPrincipalActive(ctx, local.KeyFingerprint) {
 		t.Fatal("old Git authority still active")
 	}

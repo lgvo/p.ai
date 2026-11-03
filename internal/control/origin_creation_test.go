@@ -23,6 +23,7 @@ func TestOriginProjectCommitNonemptyAndReplay(t *testing.T) {
 	if op.SessionUUID != "" {
 		t.Fatalf("nonempty origin intent prematurely reserved session: %+v", op)
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: "team/app", URL: "ssh://host/repo"})
 	if active, _ := s.HasActiveProject(ctx, req.Project); active {
 		t.Fatal("project visible before verified contact")
 	}
@@ -92,7 +93,7 @@ func TestOriginSourceCaptureAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	oid := strings.Repeat("a", 40)
-	req := ReserveSessionRequest{Key: "source-origin", Project: "app", Branch: "work", Choice: "new", OriginRef: "refs/tags/v1", ExpectedCommitOID: oid}
+	req := ReserveSessionRequest{Key: "source-origin", Project: "app", Branch: "work", Choice: "new", OriginRef: "refs/tags/v1", ExpectedCommitOID: oid, ExpectedOriginURL: "ssh://host/repo"}
 	called := 0
 	capture := func(context.Context, ReserveSessionRequest) (CapturedSource, error) {
 		called++
@@ -102,6 +103,8 @@ func TestOriginSourceCaptureAndReplay(t *testing.T) {
 	if err != nil || sess.UUID == "" {
 		t.Fatalf("capture: %+v %v", sess, err)
 	}
+	// The expected commit and URL are guards read from the origin, not intent.
+	checkIntent(t, s, op, api.OperationIntent{Project: "app", Session: sess.UUID, Branch: "work", Choice: "new", OriginRef: "refs/tags/v1"})
 	ev, err := Evidence(op)
 	if err != nil || ev.CapturedOID != oid || ev.OriginURL != "ssh://host/repo" || ev.OriginRef != req.OriginRef {
 		t.Fatalf("evidence: %+v %v", ev, err)

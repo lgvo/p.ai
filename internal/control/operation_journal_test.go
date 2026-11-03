@@ -68,8 +68,8 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 			created := fmt.Sprintf("2026-01-01T00:%02d:%02dZ", i, journalCreated[row.name])
 			// Project deletions allow one active row per project.
 			project := "team/" + strings.ReplaceAll(kind, ".", "-") + "-" + row.name
-			if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-			 VALUES(?,?,?,?,NULL,'{}','x',?,'forged',0,NULL,?,?)`, kind+":"+row.name, kind+":"+row.name, kind, project, row.status, created, created); err != nil {
+			if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
+			 VALUES(?,?,?,?,NULL,'{}','x','{}',?,'forged',0,NULL,?,?)`, kind+":"+row.name, kind+":"+row.name, kind, project, row.status, created, created); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -130,8 +130,8 @@ func unfinishedOf(ctx context.Context, s *Store, kinds ...string) ([]api.Operati
 func forgeKeyHolder(t *testing.T, s *Store, key, kind, project, session, request, requestSHA string) {
 	t.Helper()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,NULLIF(?,''),?,?,'completed','completed',1,NULL,?,?)`, "holder-"+key, key, kind, project, session, request, requestSHA, now, now); err != nil {
+	if _, err := s.db.ExecContext(context.Background(), `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
+	 VALUES(?,?,?,?,NULLIF(?,''),?,?,'{}','completed','completed',1,NULL,?,?)`, "holder-"+key, key, kind, project, session, request, requestSHA, now, now); err != nil {
 		t.Fatal(err)
 	}
 }

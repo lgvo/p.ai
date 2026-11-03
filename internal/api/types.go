@@ -160,6 +160,7 @@ type Operation struct {
 	Kind        string          `json:"kind"`
 	Project     string          `json:"project"`
 	SessionUUID string          `json:"session_uuid,omitempty"`
+	Intent      OperationIntent `json:"intent"`
 	Request     json.RawMessage `json:"request"`
 	Status      string          `json:"status"`
 	Phase       string          `json:"phase"`
@@ -168,6 +169,31 @@ type Operation struct {
 	Diagnostic  string          `json:"diagnostic,omitempty"`
 	CreatedAt   string          `json:"created_at"`
 	UpdatedAt   string          `json:"updated_at"`
+}
+
+// OperationIntent is what the caller of a change named, recorded when the
+// daemon accepted it. It never holds a guard read from live state, such as an
+// expected tip, URL or commit, or a confirmation token.
+type OperationIntent struct {
+	Project string `json:"project"`
+	// Session is the target session; for a creation, the new one.
+	Session string `json:"session,omitempty"`
+	// Branch is the P branch named, or held by the session, at acceptance.
+	Branch string `json:"branch,omitempty"`
+	// NewBranch is a session or retained-branch rename's new name.
+	NewBranch string `json:"new_branch,omitempty"`
+	// Choice, Source and OriginRef are a creation's: new or existing, a P ref
+	// or commit, or an origin ref.
+	Choice    string `json:"choice,omitempty"`
+	Source    string `json:"source,omitempty"`
+	OriginRef string `json:"origin_ref,omitempty"`
+	// ReplacesSession and ReplacesBranch name the blocked creation a
+	// replacement retired and the branch it held, which may differ from
+	// Branch.
+	ReplacesSession string `json:"replaces_session,omitempty"`
+	ReplacesBranch  string `json:"replaces_branch,omitempty"`
+	// URL is a new project's origin.
+	URL string `json:"url,omitempty"`
 }
 
 type OperationListResult struct {
@@ -181,6 +207,7 @@ type OperationSummary struct {
 	Kind        string           `json:"kind"`
 	Project     string           `json:"project"`
 	SessionUUID string           `json:"session_uuid,omitempty"`
+	Intent      OperationIntent  `json:"intent"`
 	Status      string           `json:"status"`
 	Phase       string           `json:"phase"`
 	Committed   bool             `json:"committed"`

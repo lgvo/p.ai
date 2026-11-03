@@ -106,8 +106,8 @@ func (f *journalFixture) operationWith(t *testing.T, project, kind, status, phas
 	default:
 		phase = "forged"
 	}
-	if _, err := f.raw.Exec(`INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,status,phase,committed,evidence_json,created_at,updated_at)
-	 VALUES(?,?,?,?,NULLIF(?,''),?,'x',?,?,?,?,?,?)`, id, "key-"+id, kind, project, session, request, status, phase, committed, evidence, created, created); err != nil {
+	if _, err := f.raw.Exec(`INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
+	 VALUES(?,?,?,?,NULLIF(?,''),?,'x','{}',?,?,?,?,?,?)`, id, "key-"+id, kind, project, session, request, status, phase, committed, evidence, created, created); err != nil {
 		t.Fatal(err)
 	}
 	return id

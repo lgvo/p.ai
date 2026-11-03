@@ -63,6 +63,7 @@ func TestRenameReservesBothNamesAndReplaysOnlyExactRequest(t *testing.T) {
 	if err != nil || op.Phase != "reserved" || op.Committed {
 		t.Fatalf("begin: %+v %v", op, err)
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: ev.Project, Session: r.UUID, Branch: ev.OldBranch, NewBranch: r.NewBranch})
 	if observations != 1 {
 		t.Fatal("ref observation omitted")
 	}

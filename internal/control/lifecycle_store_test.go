@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"strings"
 	"testing"
 )
@@ -42,6 +43,7 @@ func TestBlankProjectIntentAndAtomicBootstrap(t *testing.T) {
 	if op.Phase != "repo-pending" || op.SessionUUID == "" {
 		t.Fatal("durable intent missing")
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: "team/app", Session: op.SessionUUID})
 	if _, err = s.GetSession(ctx, op.SessionUUID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("session exposed before Git verify: %v", err)
 	}
@@ -102,6 +104,7 @@ func TestCapturedSourceIsNotReobservedOnDuplicate(t *testing.T) {
 	if calls != 1 || op.Phase != "source-ready" || session.Registry != "creating" {
 		t.Fatal("capture reservation failed")
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: "team/app", Session: session.UUID, Branch: "feature/x", Choice: "new", Source: "refs/heads/main"})
 	captured = strings.Repeat("b", 40)
 	replay, again, err := s.BeginSessionCreate(ctx, req, strings.Repeat("e", 64), CreationSelection{}, func(context.Context, ReserveSessionRequest) (string, bool, error) {
 		t.Fatal("duplicate observed moved source")

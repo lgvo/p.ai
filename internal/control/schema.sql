@@ -28,7 +28,8 @@ CREATE TABLE operations (
  id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE,
  kind TEXT NOT NULL, project_path TEXT NOT NULL,
  session_uuid TEXT, request_json TEXT NOT NULL,
- request_sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('running','blocked','failed','unknown','superseded','completed')),
+ request_sha256 TEXT NOT NULL, intent_json TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('running','blocked','failed','unknown','superseded','completed')),
  phase TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0 CHECK(committed IN (0,1)),
  evidence_json TEXT, diagnostic TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -188,8 +189,8 @@ CREATE TRIGGER deleting_project_sessions_delete BEFORE DELETE ON sessions
 CREATE TRIGGER lifecycle_request_key_conflict BEFORE INSERT ON operations
  WHEN EXISTS(SELECT 1 FROM origin_requests WHERE idempotency_key=NEW.idempotency_key)
  BEGIN SELECT RAISE(ABORT,'constraint failed: idempotency key'); END;
-CREATE TRIGGER immutable_operation_request BEFORE UPDATE OF id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,created_at ON operations
- WHEN OLD.id != NEW.id OR OLD.idempotency_key != NEW.idempotency_key OR OLD.kind != NEW.kind OR OLD.project_path != NEW.project_path OR OLD.request_json != NEW.request_json OR OLD.request_sha256 != NEW.request_sha256 OR OLD.created_at != NEW.created_at
+CREATE TRIGGER immutable_operation_request BEFORE UPDATE OF id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,created_at ON operations
+ WHEN OLD.id != NEW.id OR OLD.idempotency_key != NEW.idempotency_key OR OLD.kind != NEW.kind OR OLD.project_path != NEW.project_path OR OLD.request_json != NEW.request_json OR OLD.request_sha256 != NEW.request_sha256 OR OLD.intent_json != NEW.intent_json OR OLD.created_at != NEW.created_at
  OR (OLD.session_uuid IS NOT NEW.session_uuid AND NOT (OLD.kind='project.create' AND OLD.phase='repo-pending' AND OLD.session_uuid IS NULL AND NEW.session_uuid IS NOT NULL))
  BEGIN SELECT RAISE(ABORT, 'immutable operation request'); END;
 CREATE TRIGGER operations_key_publication BEFORE INSERT ON operations

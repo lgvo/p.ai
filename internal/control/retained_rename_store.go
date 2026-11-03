@@ -68,7 +68,9 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	err = insertOperation(ctx, tx, operationRecord{ID: id, Key: r.Key, Kind: KindRetainedRename, Project: r.Project, Request: raw, Phase: "reserved", Evidence: raw, Now: now})
+	rec := operationRecord{ID: id, Key: r.Key, Kind: KindRetainedRename, Project: r.Project, Request: raw,
+		Intent: api.OperationIntent{Project: r.Project, Branch: r.OldBranch, NewBranch: r.NewBranch}, Phase: "reserved", Evidence: raw, Now: now}
+	err = insertOperation(ctx, tx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -80,7 +82,7 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err
 	}
-	return api.Operation{ID: id, Key: r.Key, Kind: "project.retained.rename", Project: r.Project, Request: raw, Status: "running", Phase: "reserved", Evidence: raw, CreatedAt: now, UpdatedAt: now}, nil
+	return rec.operation(), nil
 }
 
 func (s *Store) retainedRenameGuards(ctx context.Context, tx *sql.Tx, id string, r RetainedRenameRequest) error {

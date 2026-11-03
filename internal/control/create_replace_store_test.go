@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"strings"
 	"testing"
 	"time"
@@ -348,6 +349,10 @@ func TestReplaceBlockedLocalNewCreateChoicesAndRestartReplay(t *testing.T) {
 			if got, e := s.GetSession(ctx, fresh.SessionUUID); e != nil || got.Branch != tc.branch {
 				t.Fatalf("new target assignment: %+v %v", got, e)
 			}
+			// The replaced creation held work; the replacement names its own
+			// branch, choice and source, and none of the captured tips.
+			checkIntent(t, s, fresh, api.OperationIntent{Project: "team/app", Session: fresh.SessionUUID, Branch: tc.branch, Choice: tc.choice, Source: tc.source,
+				ReplacesSession: session.UUID, ReplacesBranch: "work"})
 			if e = s.Close(); e != nil {
 				t.Fatal(e)
 			}

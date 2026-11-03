@@ -70,6 +70,7 @@ func acceptProjectDelete(t *testing.T, s *Store, req ProjectDeleteRequest, ev Pr
 	if e != nil {
 		t.Fatal(e)
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: req.Project})
 	return op
 }
 func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.T) {
@@ -99,7 +100,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 		`DELETE FROM projects WHERE path='bulk'`,
 		`INSERT INTO origin_requests VALUES('late','bulk','remove','','','prepared','now','','')`,
 		`INSERT INTO git_ref_guards VALUES('bulk','late','` + op.ID + `')`,
-		`INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,status,phase,created_at,updated_at) VALUES('late','late','session.create','bulk','{}','hash','running','reserved','now','now')`,
+		`INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,intent_json,status,phase,created_at,updated_at) VALUES('late','late','session.create','bulk','{}','hash','{}','running','reserved','now','now')`,
 	} {
 		if _, e := s.db.ExecContext(ctx, q); e == nil {
 			t.Fatal("late authority bypass", q)

@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,7 @@ func TestRetainedDeleteGuardedEffectAndRestart(t *testing.T) {
 	if err != nil || op.Phase != "guarded" || verified != 1 {
 		t.Fatalf("begin: %+v %v", op, err)
 	}
+	checkIntent(t, s, op, api.OperationIntent{Project: r.Project, Branch: r.Branch})
 	var owner string
 	if err := s.db.QueryRowContext(ctx, `SELECT operation_id FROM git_ref_guards WHERE project_path='app' AND branch='saved'`).Scan(&owner); err != nil || owner != op.ID {
 		t.Fatalf("guard: %q %v", owner, err)
