@@ -17,7 +17,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
-	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
 	"github.com/lgvo/p.ai/internal/sshserver"
 	"golang.org/x/crypto/ssh"
 )
@@ -43,13 +42,13 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 	if selected == nil {
 		return nil, errors.New("Git configuration is absent")
 	}
-	driver, err := newSourceDriver(ctx, cfg)
+	driver, endServices, err := newSourceDriver(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		if err != nil {
-			driver.Close()
+			endServices()
 		}
 	}()
 	if err := store.PinSourceBackend(ctx, driver.Describe().Backend); err != nil {
@@ -91,28 +90,13 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 		DriverBackend:   driver.Describe().Backend,
 		DriverVersion:   driver.Describe().Version,
 	}
-	return &gitCapability{driver: driver, endServices: driver.Close, server: server, listener: listener, info: info}, nil
+	return &gitCapability{driver: driver, endServices: endServices, server: server, listener: listener, info: info}, nil
 }
 
 // close stops P's SSH endpoint and ends the Git services the driver runs.
 func (g *gitCapability) close() {
 	g.listener.Close()
 	g.endServices()
-}
-
-// newSourceDriver starts the source driver host configuration selects: the
-// bundled Git driver, in process, over the state directory. It refuses to
-// start a driver whose storage or Git tools fail its check, which also ends
-// the Git services a driver that died left running.
-func newSourceDriver(ctx context.Context, cfg control.HostConfig) (*sourcegit.Driver, error) {
-	driver, err := sourcegit.New(cfg.StateDir, cfg.Git.Driver.Config)
-	if err != nil {
-		return nil, fmt.Errorf("source driver: %w", err)
-	}
-	if err := driver.Check(ctx); err != nil {
-		return nil, fmt.Errorf("source driver: %w", err)
-	}
-	return driver, nil
 }
 
 // inspectBranch reads head branch of project exactly: its tip, or "" and

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
 )
 
 // Exercise real journal, guards and the bundled source driver's head effects.
@@ -75,7 +73,7 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 					t.Fatal(err)
 				}
 				// The restarted daemon's driver over the same storage.
-				driver, err = sourcegit.New(state, json.RawMessage(`{}`))
+				driver, _, err = newSourceDriver(t.Context(), gitHostConfig(store))
 				if err != nil {
 					t.Fatal(err)
 				}

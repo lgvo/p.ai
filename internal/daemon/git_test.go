@@ -131,16 +131,16 @@ func TestSourceDriverStartsOnlyWithItsOwnConfigOverPrivateStorage(t *testing.T) 
 	git := func(config string) *control.GitConfig {
 		return &control.GitConfig{Driver: control.SourceDriverConfig{Name: control.GitDriver, Config: json.RawMessage(config)}}
 	}
-	if _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{"unknown":1}`)}); err == nil {
+	if _, _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{"unknown":1}`)}); err == nil {
 		t.Fatal("the driver started with a setting it does not know")
 	}
-	if _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err != nil {
+	if _, _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err != nil {
 		t.Fatalf("the driver did not start over private storage: %v", err)
 	}
 	if err := os.Chmod(state, 0770); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err == nil {
+	if _, _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err == nil {
 		t.Fatal("the driver started over storage others can write")
 	}
 }

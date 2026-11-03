@@ -1,20 +1,19 @@
 # Structure
 
-## Lifecycle workers depend on concrete store and Git types
+## Lifecycle workers depend on the concrete store
 
-- Where: internal/daemon `lifecycle` (fields `store`, `git`)
-- Problem: Workers call the concrete `*control.Store` and `*gitCapability`, so no worker
-  can run against a stand-in store or Git service.
-- Evidence: daemon statement coverage is 65.8% (2026-11-03); the removal and rename workers
-  run in unit tests only over a real SQLite store and a real Git repository, and
-  `processRetainedDelete` is at 0%.
-- Risk: a store or Git failure in a recovery branch is checked only where a real store or
-  repository can be made to fail, and otherwise only by the serial VM suite.
-- Fix: give the workers narrow store and Git interfaces, then unit-test each worker's
-  recovery branches.
+- Where: internal/daemon `lifecycle` (field `store`)
+- Problem: Workers call the concrete `*control.Store`, so no worker can run against a
+  stand-in store.
+- Evidence: daemon statement coverage is 65.8% (2026-11-03); the workers run in unit tests
+  only over a real SQLite store.
+- Risk: a store failure in a recovery branch is checked only where a real store can be made
+  to fail, and otherwise only by the serial VM suite.
+- Fix: give the workers a narrow store interface, then unit-test each worker's recovery
+  branches.
 - Fix when: a worker's recovery logic changes.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 20 cases:
+- Added 2026-11-01, updated 2026-11-03, 21 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -106,6 +105,15 @@
     internal/sshserver, whose Git service runs the driver's `ServeGit`; gitservice is gone,
     and the Git service's lease, approval and settling of a lost service are unit-tested on
     the in-memory source driver with a real store.
+  - 2026-11-03: "step 9 S6: the daemon holds only the source driver" moved building the
+    bundled Git driver into one daemon file (source_setup.go), which returns it as
+    `sourcedriver.Driver` with its shutdown function, and added a boundary test that no other
+    code but named fixtures imports it, runs `git` or `ssh` on the host or builds paths into
+    its storage.
+    Workers reach Git only through that interface: most worker tests use the in-memory
+    source driver, and a few fixtures still run the bundled driver on a real repository
+    (`gitSource`). The Git half of this entry is gone; the title, "Problem", "Risk" and "Fix"
+    now name only the store.
 
 ## Long worker functions
 

@@ -366,7 +366,7 @@ P does not implement the pack protocol. The bundled driver's read-side
 queries shell out to Git; `go-git` remains an optional fallback only if
 profiling justifies it.
 
-The source driver, `internal/sourcedriver`, is the seam that is to own P's
+The source driver, `internal/sourcedriver`, is the seam that owns P's
 repositories and every Git effect, as the runtime driver owns runtime
 machinery. Core addresses it in P's terms through the operations in
 [`internal/sourcedriver/driver.go`](../internal/sourcedriver/driver.go): the
@@ -383,13 +383,15 @@ daemon over the state directory; an in-memory driver
 (`internal/sourcedriver/memory`) and a conformance suite
 (`internal/sourcedriver/conformance`) show that a driver keeps the contract,
 and the Git driver runs the suite on real Git. The daemon starts the driver
-and checks its storage and Git tools before serving. P's repositories, heads,
-commits, the commit export for image builds, Git's syntax for names and
-origin URLs, the Git edits of a renamed session's clone, and the origin's
-observation, fetch, comparison and push go through it. Core holds each
-project's origin lock and decides what an origin operation may do; the driver
-performs it. Core makes each build's private staging directory, the driver
-exports the commit's Git bundle into it, and core removes it after the build.
+and checks its storage and Git tools before serving; it holds only
+`sourcedriver.Driver`, and no other code runs `git` or `ssh` on the host.
+P's repositories, heads, commits, the commit export for image builds, Git's
+syntax for names and origin URLs, the Git edits of a renamed session's clone,
+and the origin's observation, fetch, comparison and push go through it.
+Core holds each project's origin lock and decides what an origin operation
+may do; the driver performs it. Core makes each build's private staging
+directory, the driver exports the commit's Git bundle into it, and core
+removes it after the build.
 The Git service runs in the driver too: its pre-receive hook checks the
 proposed ref update over a per-push socket, and core's lease is held until
 `ServeGit` returns from a served or refused service, or, after a lost call,

@@ -4,27 +4,23 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"path/filepath"
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/control"
-	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
-// gitSource is the bundled source driver over store's state directory, with
-// project app's repository at path repo and tip, a commit no head holds yet.
-// A test changes the repository natively, with dispatchGit, as Git or a
-// session's push would.
-func gitSource(t *testing.T, store *control.Store) (driver *sourcegit.Driver, repo, tip string) {
+// gitSource is the bundled source driver over store's state directory, as the
+// daemon starts it, with project app's repository at path repo and tip, a
+// commit no head holds yet. A test changes the repository natively, with
+// dispatchGit, as Git or a session's push would.
+func gitSource(t *testing.T, store *control.Store) (driver sourcedriver.Driver, repo, tip string) {
 	t.Helper()
 	state := store.StateDir()
-	driver, err := sourcegit.New(state, json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx := context.Background()
-	if err = driver.Check(ctx); err != nil {
+	driver, _, err := newSourceDriver(ctx, gitHostConfig(store))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = driver.CreateRepository(ctx, "app"); err != nil {

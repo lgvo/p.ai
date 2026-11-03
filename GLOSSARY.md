@@ -329,9 +329,12 @@ addressed in P's terms rather than Git's layout.
   database or reaches a runtime. Core's SSH server authenticates a session's
   key and hands the stream to the driver's Git service, which asks core to
   open the service and to approve the one head update a push makes. Host
-  configuration selects it as `git.driver`; its Git implementation runs
-  inside the P daemon. Core pins the driver's backend at its first start and
-  refuses another while any project exists; sessions pin no source package.
+  configuration selects it as `git.driver`; its Git implementation,
+  `internal/sourcedriver/git`, runs inside the P daemon, which holds nothing
+  of it but the driver interface. The daemon reaches P's repositories and Git
+  only through the driver; no other code runs `git` or `ssh` on the host.
+  Core pins the driver's backend at its first start and refuses another while
+  any project exists; sessions pin no source package.
 - **Rules:** It acts only on P's repositories in its configured storage,
   changes a head only at an exact expected state, and claims nothing after an
   error.
