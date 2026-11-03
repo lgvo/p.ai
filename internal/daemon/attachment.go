@@ -142,11 +142,11 @@ func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.Atta
 	if err != nil {
 		return plugin.AttachSpec{}, err
 	}
-	native, err := l.runtimeSession(ctx, s)
+	native, err := l.nativeSession(ctx, s)
 	if err != nil {
 		return plugin.AttachSpec{}, err
 	}
-	state, err := runRuntime(ctx, l.runtimePlugin, "runtime.attach", runtimeincus.Scoped{Backend: l.runtime, Session: native, HostAssets: &l.hostPlan})
+	spec, err := l.runtime.AttachSpec(ctx, native, l.hostPlan)
 	if err != nil {
 		var failure *runtimeincus.AttachmentFailure
 		if errors.As(err, &failure) {
@@ -159,10 +159,7 @@ func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.Atta
 		}
 		return plugin.AttachSpec{}, control.Failed(api.ReasonRuntime, err)
 	}
-	if state.AttachSpec == nil {
-		return plugin.AttachSpec{}, control.ErrConflict
-	}
-	return *state.AttachSpec, nil
+	return spec, nil
 }
 func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *control.Connection) (api.AttachmentLaunch, error) {
 	var candidate *attachment
@@ -246,7 +243,7 @@ func (l *lifecycle) ConfirmAttachment(ctx context.Context, conn *control.Connect
 	if err != nil {
 		return err
 	}
-	native, err := l.runtimeSession(ctx, session)
+	native, err := l.nativeSession(ctx, session)
 	if err != nil {
 		return err
 	}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -23,6 +24,9 @@ type HostObservation struct {
 }
 
 var machineIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// lastWordsWait bounds the read of a stopped session host's journal.
+var lastWordsWait = 5 * time.Second
 
 func (b *Backend) ObserveHost(ctx context.Context, s Session) (HostObservation, error) {
 	o, err := b.Inspect(ctx, s)
@@ -71,7 +75,12 @@ func (b *Backend) observeHostOf(ctx context.Context, s Session, o Observation) (
 	}
 	// A stopped systemd unit cannot be queried. Read only its fixed persistent
 	// journal via the confined file API. Absent/oversized/corrupt journal is an
-	// unavailable diagnostic, never a reason to start the guest.
+	// unavailable diagnostic, never a reason to start the guest. The read is
+	// best effort and short: Incus's file API can stall on a stopped instance,
+	// as after an external rename, and the host's last words never hold up the
+	// caller.
+	ctx, cancel := context.WithTimeout(ctx, lastWordsWait)
+	defer cancel()
 	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(s)}
 	mid, ok, e := api.get(ctx, "/etc/machine-id")
 	if e != nil || !ok || mid.typ != "file" {

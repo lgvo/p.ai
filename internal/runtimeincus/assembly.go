@@ -13,30 +13,15 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/nixenv"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimekit"
 	"golang.org/x/crypto/ssh"
 )
-
-// Assembly is core-selected immutable input for one stopped instance. The
-// plugin sees none of these bytes or paths and cannot choose installation
-// targets. No origin credential belongs here.
-type Assembly struct {
-	HostAssets      plugin.AssetPlan
-	SourceAssets    plugin.AssetPlan
-	AgentAssets     *plugin.AssetPlan
-	SessionConfig   runtimekit.Config
-	Workspace       runtimekit.WorkspaceConfig
-	Identity        []byte
-	ServerPublicKey string
-}
 
 type guestFile struct {
 	typ            string
@@ -46,57 +31,6 @@ type guestFile struct {
 type fileAPI interface {
 	get(context.Context, string) (guestFile, bool, error)
 	put(context.Context, string, guestFile) error
-}
-
-func validateAssembly(a Assembly) ([]guestInstall, error) {
-	if a.HostAssets.Schema != "p.asset-plan/v1" || a.SourceAssets.Schema != "p.asset-plan/v1" || a.HostAssets.PackageID == "" || a.SourceAssets.PackageID == "" || a.HostAssets.PackageID == a.SourceAssets.PackageID || a.HostAssets.Scope != "internal-session" || a.SourceAssets.Scope != "internal-session" {
-		return nil, errors.New("invalid selected asset plans")
-	}
-	if !fingerprintPattern.MatchString(a.HostAssets.PackageSHA256) || !fingerprintPattern.MatchString(a.SourceAssets.PackageSHA256) {
-		return nil, errors.New("invalid selected package digest")
-	}
-	if a.AgentAssets != nil && (a.AgentAssets.Schema != "p.asset-plan/v1" || a.AgentAssets.Scope != "internal-session" || a.AgentAssets.PackageID == "" || a.AgentAssets.PackageID == a.HostAssets.PackageID || a.AgentAssets.PackageID == a.SourceAssets.PackageID || !fingerprintPattern.MatchString(a.AgentAssets.PackageSHA256)) {
-		return nil, errors.New("invalid selected agent asset plan")
-	}
-	if a.AgentAssets == nil && a.SessionConfig.AgentSHA256 != "" || a.AgentAssets != nil && (len(a.AgentAssets.Files) != 1 || a.SessionConfig.AgentSHA256 != a.AgentAssets.Files[0].SHA256) {
-		return nil, errors.New("selected agent asset differs from runtime config")
-	}
-	session, err := sessionGuestFiles(a.SessionConfig, a.Workspace, a.Identity, a.ServerPublicKey)
-	if err != nil {
-		return nil, err
-	}
-	files := []guestInstall{}
-	appendPlan := func(plan plugin.AssetPlan, roles ...string) error {
-		if len(plan.Files) != len(roles) {
-			return errors.New("asset role set incomplete")
-		}
-		seen := map[string]bool{}
-		visible := map[string]string{"p-session.target": "/etc/systemd/system/p-session.target", "p-interactive.service": "/etc/systemd/system/p-interactive.service", "p-attach": "/usr/libexec/p/attach", "p-git-ssh": "/usr/libexec/p/git-ssh", "p-codex-adapter": "/usr/libexec/p/codex-adapter"}
-		for _, f := range plan.Files {
-			if !slices.Contains(roles, f.Role) || seen[f.Role] || f.Destination != visible[f.Role] {
-				return errors.New("asset role, destination, or mode changed")
-			}
-			install, err := assetInstall(f.Role, f.Mode, f.Data, f.SHA256)
-			if err != nil {
-				return err
-			}
-			files = append(files, install)
-			seen[f.Role] = true
-		}
-		return nil
-	}
-	if err := appendPlan(a.HostAssets, "p-session.target", "p-interactive.service", "p-attach"); err != nil {
-		return nil, err
-	}
-	if err := appendPlan(a.SourceAssets, "p-git-ssh"); err != nil {
-		return nil, err
-	}
-	if a.AgentAssets != nil {
-		if err := appendPlan(*a.AgentAssets, "p-codex-adapter"); err != nil {
-			return nil, err
-		}
-	}
-	return append(files, session...), nil
 }
 
 // guestAssets are where the guest's systemd host, its Git transport and the
@@ -177,24 +111,6 @@ func sessionGuestFiles(sessionConfig runtimekit.Config, workspaceConfig runtimek
 type guestInstall struct {
 	path string
 	file guestFile
-}
-
-// Assemble never writes a running or unowned instance. Missing guest files
-// are installed; identical complete files are retained; any other state is
-// refused without deleting or overwriting it.
-func (b *Backend) Assemble(ctx context.Context, s Session, a Assembly) (Observation, error) {
-	files, err := validateAssembly(a)
-	if err != nil {
-		return Observation{}, err
-	}
-	if s.ProjectPath != a.Workspace.Repository || s.AssignedBranch != a.Workspace.Branch || s.InitialOID != a.Workspace.InitialOID {
-		return Observation{}, errors.New("assembly workspace differs from bound session intent")
-	}
-	plan := guestPlan{files: files}
-	if a.SessionConfig.Activation == "devshell" {
-		plan.material = a.SessionConfig.MaterialSHA256
-	}
-	return b.installGuestPlan(ctx, s, plan, "")
 }
 
 // guestPlan is what a session's stopped runtime gets before its first

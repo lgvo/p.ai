@@ -86,7 +86,7 @@ func (l *lifecycle) releaseImages(ctx context.Context, project string) error {
 	if l.cfg.Environment == nil && !indexed {
 		return nil
 	}
-	images, err := l.images.Images(ctx)
+	images, err := l.driver.Images(ctx)
 	if err != nil {
 		return errors.Join(append(errs, err)...)
 	}
@@ -119,7 +119,7 @@ func (l *lifecycle) releaseIndexedImage(ctx context.Context, key control.CommitI
 		}
 		intent = func() error { return l.store.MarkCommitImageReleasing(ctx, key, row.Ref) }
 	}
-	if err = l.images.DeleteImage(ctx, indexedImage(row), intent); err != nil {
+	if err = l.driver.DeleteImage(ctx, indexedImage(row), intent); err != nil {
 		return err
 	}
 	return l.store.ForgetCommitImage(ctx, key, row.Ref)
@@ -144,5 +144,5 @@ func (l *lifecycle) releaseUnindexedImage(ctx context.Context, img runtimedriver
 	if err != nil || creating != 0 {
 		return err
 	}
-	return l.images.DeleteImage(ctx, img, noIntent)
+	return l.driver.DeleteImage(ctx, img, noIntent)
 }

@@ -103,9 +103,9 @@ func TestCapturedGrantProjectionAndCapacityIdentity(t *testing.T) {
 	grant := control.FilesystemGrant{Name: "data", Source: "/var/lib/p-vm/grants/pdev/data", Type: "directory", Access: "read-only", SourceIdentity: &control.SourceIdentity{Device: 7, Inode: 11, OwnerUID: 1000, OwnerGID: 100}}
 	policy := control.ProjectPolicy{Network: "none", Command: []string{"/bin/sh"}, FilesystemMounts: []control.FilesystemGrant{grant}}
 	native := nativeFilesystemGrants(policy)
-	guest := guestFilesystemGrants(policy)
-	if len(native) != 1 || native[0].Source != grant.Source || native[0].Inode != 11 || len(guest) != 1 || guest[0].Inode != 11 || guest[0].Access != "read-only" {
-		t.Fatalf("captured grant projections differ: %+v %+v", native, guest)
+	spec := sessionGrants(policy)
+	if len(native) != 1 || native[0].Source != grant.Source || native[0].Inode != 11 || len(spec) != 1 || spec[0].Source != grant.Source || spec[0].Inode != 11 || spec[0].Access != "read-only" {
+		t.Fatalf("captured grant projections differ: %+v %+v", native, spec)
 	}
 	raw, _, err := control.ProjectPolicySnapshot(policy)
 	if err != nil {

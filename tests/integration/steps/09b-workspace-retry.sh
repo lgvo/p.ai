@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Interrupt real first-boot Git fetch before atomic workspace publication, then
-# retry the same selected assembly through ordinary Incus Start. Synthetic
-# fixture identities exercise the runtime broker, not public session creation.
+# retry the same session through an ordinary driver Start. Synthetic fixture
+# identities exercise the runtime driver, not public session creation.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-09b"
@@ -12,12 +12,10 @@ pids=()
 name=
 inc() { timeout 45 incus --force-local --project user-1000 "$@"; }
 cleanup() {
-  if test -n "$name"; then
-    inc delete --force "$name" >/dev/null 2>&1 || true
-    rm -rf -- "${endpoint_prefix:?}/${name:?}"
-  fi
+  if test -n "$name"; then inc delete --force "$name" >/dev/null 2>&1 || true; fi
   for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
   for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+  if test -n "$name"; then rm -rf -- "${endpoint_prefix:?}/${name:?}"; fi
 }
 on_error() {
   printf 'P_WORKSPACE_RETRY_FAIL line=%s status=%s\n' "$2" "$1" >&2
@@ -37,7 +35,6 @@ activate_package() {
   jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
-activate_package "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime.json" runtime.incus
 activate_package "$P_TEST_GIT_PLUGIN" "$step_dir/git-server.json" git.project
 
 # The package copy changes only the selected session asset. Its new digest is
@@ -99,16 +96,16 @@ for ((attempt=0; attempt<100; attempt++)); do
 done
 test -S "$endpoint/session.sock" && test -S "$endpoint/git.sock"
 jq -n --arg instance 11111111-1111-4111-8111-111111111111 \
-  --arg session "$session" --arg image "$fingerprint" --arg endpoint "$endpoint" \
-  --arg oid "$initial_oid" --arg identity "$step_dir/session" \
+  --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint" \
+  --arg commit "$initial_oid" --arg key "$step_dir/session" \
   --arg server "$step_dir/server.pub" --arg host "$step_dir/host.json" \
   --arg source "$step_dir/source.json" \
-  '{instance_uuid:$instance,session_uuid:$session,image:$image,endpoint:$endpoint,
-    repository:"retry",branch:"main",initial_oid:$oid,host_activation:$host,
-    source_activation:$source,identity_file:$identity,server_public_key_file:$server}' \
-  > "$step_dir/request.json"
-request_digest=$(sha256sum "$step_dir/request.json" | cut -d' ' -f1)
-invoke() { timeout 130 runtime-fixture "$step_dir/runtime.json" "$1" "$step_dir/request.json"; }
+  '{instance_uuid:$instance,session_uuid:$session,project:"retry",branch:"main",commit:$commit,
+    image:$image,endpoints:$endpoints,host_activation:$host,source_activation:$source,
+    git_key_file:$key,git_host_key_file:$server}' \
+  > "$step_dir/session.json"
+spec_digest=$(sha256sum "$step_dir/session.json" | cut -d' ' -f1)
+invoke() { timeout 190 runtime-fixture "$1" "$step_dir/session.json" "${@:2}"; }
 exec_p() {
   inc exec "$name" --user 1000 --group 1000 --cwd /workspace \
     --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh -- "$@"
@@ -123,59 +120,8 @@ wait_state() {
   printf 'Instance did not reach %s (last %s)\n' "$expected" "$state" >&2
   return 1
 }
-wait_host() {
-  local state deadline=$((SECONDS+60))
-  while ((SECONDS < deadline)); do
-    if state=$(invoke runtime.observe-host 2> "$step_dir/observe.err"); then
-      if jq -e '.status=="Running" and .host_ready==true and .host_unit=="active/running"' <<< "$state" >/dev/null; then return; fi
-      if jq -e '.status=="Stopped"' <<< "$state" >/dev/null; then
-        echo 'Host stopped before readiness' >&2
-        return 1
-      fi
-    fi
-    sleep 0.2
-  done
-  echo 'Host did not become ready' >&2
-  return 1
-}
-start_after_stop() {
-  local output deadline=$((SECONDS+45))
-  while ((SECONDS < deadline)); do
-    if output=$(invoke runtime.start 2> "$step_dir/start.err"); then
-      jq -e '.status=="Running"' <<< "$output" >/dev/null
-      return
-    fi
-    # This exact Incus rejection precedes any start effect. The guest can
-    # report Stopped before its own stop operation releases the Incus lock.
-    if ! grep -Fq 'Instance is busy running a "stop" operation' "$step_dir/start.err"; then
-      cat "$step_dir/start.err" >&2
-      return 1
-    fi
-    sleep 0.2
-  done
-  echo 'Incus stop operation did not release its lock' >&2
-  return 1
-}
-start_expect_self_shutdown() {
-  local output deadline=$((SECONDS+45))
-  while ((SECONDS < deadline)); do
-    if output=$(invoke runtime.start 2> "$step_dir/start.err"); then
-      jq -e '.status=="Running"' <<< "$output" >/dev/null
-      return
-    fi
-    if grep -Fq 'Instance is busy running a "stop" operation' "$step_dir/start.err"; then
-      sleep 0.2
-      continue
-    fi
-    # A fast failing ExecStartPre can stop the guest before the broker's
-    # post-start inspect. The failed Incus postcondition is expected here.
-    if grep -Fq 'Incus state postcondition failed' "$step_dir/start.err"; then return; fi
-    cat "$step_dir/start.err" >&2
-    return 1
-  done
-  echo 'Incus stop operation did not release its lock' >&2
-  return 1
-}
+# The guest can report Stopped before its own stop operation releases the
+# Incus lock; the file API waits for that release.
 file_after_stop() {
   local output deadline=$((SECONDS+45))
   while ((SECONDS < deadline)); do
@@ -189,10 +135,25 @@ file_after_stop() {
   echo 'Incus stop operation did not release its file lock' >&2
   return 1
 }
+# Start returns once the session host is ready. When the host fails, the
+# fixture exits 3 and the runtime ends stopped.
+start_ready() {
+  invoke start 2> "$step_dir/start.err" | jq -e '.state=="running" and .host.ready' >/dev/null
+}
+start_host_failure() {
+  local status=0
+  invoke start > "$step_dir/start.out" 2> "$step_dir/start.err" || status=$?
+  if test "$status" -ne 3; then
+    printf 'Start ended with status %s, not a host failure\n' "$status" >&2
+    return 1
+  fi
+}
 
-invoke runtime.create | jq -e '.status=="Stopped"' >/dev/null
-invoke runtime.assemble | jq -e '.status=="Stopped"' >/dev/null
-start_after_stop
+invoke create | jq -e '.state=="stopped" and .complete and .gated' >/dev/null
+# The gated fetch holds the host, so Start waits in the background.
+invoke start > "$step_dir/first-start.json" 2> "$step_dir/start.err" &
+start_pid=$!
+pids+=("$start_pid")
 wait_state Running
 
 # .git exists only in the root-private scratch tree while SSH is gated. Kill
@@ -220,7 +181,12 @@ inc exec "$name" -- sh -c 'set -e; entries=$(ls -A /workspace); test -z "$entrie
 exec_p test ! -r /.p-workspace-init/tree
 inc exec "$name" -- kill -KILL "$control_pid"
 wait_state Stopped
-test "$(sha256sum "$step_dir/request.json" | cut -d' ' -f1)" = "$request_digest"
+# The killed first boot is the host failure the waiting Start reports.
+start_status=0
+wait "$start_pid" || start_status=$?
+test "$start_status" -eq 3
+test ! -s "$step_dir/first-start.json"
+test "$(sha256sum "$step_dir/session.json" | cut -d' ' -f1)" = "$spec_digest"
 file_after_stop pull "$name/.p-workspace-init/tree/.git/config" "$step_dir/partial-config"
 grep -F 'ssh://git@p/retry' "$step_dir/partial-config" >/dev/null
 if inc file pull "$name/workspace/.git/p-initialized" - > /dev/null 2>&1; then
@@ -237,22 +203,20 @@ fi
 printf 'unexpected\n' > "$step_dir/unexpected"
 file_after_stop push --uid 1000 --gid 1000 --mode 0644 \
   "$step_dir/unexpected" "$name/workspace/unexpected"
-start_expect_self_shutdown
+start_host_failure
 wait_state Stopped
 file_after_stop pull "$name/workspace/unexpected" "$step_dir/preserved"
 test "$(cat "$step_dir/preserved")" = unexpected
-failed_host=$(invoke runtime.observe-host)
-jq -e '.status=="Stopped" and .diagnostic_available==true and (.diagnostic | contains("partial or unexpected workspace"))' \
-  <<< "$failed_host" >/dev/null
+invoke inspect | jq -e '.state=="stopped" and (.host.ready|not)' >/dev/null
+invoke hostlog | jq -e '.log | contains("partial or unexpected workspace")' >/dev/null
 file_after_stop pull "$name/.p-workspace-init/tree/.git/config" "$step_dir/partial-after-refusal"
 cmp "$step_dir/partial-config" "$step_dir/partial-after-refusal"
 file_after_stop delete "$name/workspace/unexpected"
 printf 'release\n' > "$step_dir/test-init-release"
 file_after_stop push --uid 0 --gid 0 --mode 0644 \
   "$step_dir/test-init-release" "$name/etc/p/test-init-release"
-start_after_stop
-wait_host
-test "$(sha256sum "$step_dir/request.json" | cut -d' ' -f1)" = "$request_digest"
+start_ready
+test "$(sha256sum "$step_dir/session.json" | cut -d' ' -f1)" = "$spec_digest"
 test "$(exec_p git rev-parse HEAD)" = "$initial_oid"
 test "$(exec_p git symbolic-ref -q HEAD)" = refs/heads/main
 test "$(exec_p cat README)" = seed
@@ -271,13 +235,12 @@ fixture '{"schema":"p.git-fixture/v1","kind":"refs","project":"retry","limit":8}
 
 # A later ordinary Start must preserve user files, local Git state, and home.
 exec_p sh -c 'printf "dirty\n" > dirty; printf "private\n" > /home/p/private'
-invoke runtime.stop | jq -e '.status=="Stopped"' >/dev/null
-start_after_stop
-wait_host
+invoke stop | jq -e '.state=="stopped"' >/dev/null
+start_ready
 test "$(exec_p git rev-parse HEAD)" = "$published_oid"
 test "$(exec_p cat dirty)" = dirty
 test "$(exec_p cat /home/p/private)" = private
 inc exec "$name" -- test ! -e /.p-workspace-init/tree
 test "$(inc list "$name" --format json | jq --arg n "$name" '[.[]|select(.name==$n)]|length')" -eq 1
-invoke runtime.stop | jq -e '.status=="Stopped"' >/dev/null
+invoke stop | jq -e '.state=="stopped"' >/dev/null
 echo P_WORKSPACE_RETRY_PASS

@@ -12,23 +12,13 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
-
-// createdRuntime reads whether a creating session's runtime exists.
-type createdRuntime interface {
-	InspectCreated(context.Context, runtimeincus.Session) (runtimeincus.Observation, error)
-}
 
 // ensureImage brings a creation with image builders to image-ready and
 // returns the image its runtime is created from. It reads only the commit
 // captured in the creation's evidence, never the branch's current tip.
 func (l *lifecycle) ensureImage(ctx context.Context, op *api.Operation, ev control.CreationEvidence) (string, error) {
-	return l.ensureImageWith(ctx, op, ev, l.runtime)
-}
-
-func (l *lifecycle) ensureImageWith(ctx context.Context, op *api.Operation, ev control.CreationEvidence, created createdRuntime) (string, error) {
-	image, err := l.readyImage(ctx, op, ev, created)
+	image, err := l.readyImage(ctx, op, ev)
 	if err != nil {
 		return "", err
 	}
@@ -37,7 +27,7 @@ func (l *lifecycle) ensureImageWith(ctx context.Context, op *api.Operation, ev c
 	return image, l.store.ReleaseBuilderPublicAddress(ctx, op.SessionUUID)
 }
 
-func (l *lifecycle) readyImage(ctx context.Context, op *api.Operation, ev control.CreationEvidence, created createdRuntime) (string, error) {
+func (l *lifecycle) readyImage(ctx context.Context, op *api.Operation, ev control.CreationEvidence) (string, error) {
 	current := l.environmentIntent()
 	if current == nil || ev.Environment == nil || *current != *ev.Environment || ev.CapturedOID == "" {
 		return "", refusalBecause(api.KindConflict, api.ReasonImageBuilderChanged, api.TargetSession(op.SessionUUID), control.ErrConflict, errors.New("pinned image builder selection unavailable"))
@@ -56,7 +46,7 @@ func (l *lifecycle) readyImage(ctx context.Context, op *api.Operation, ev contro
 	}
 	defer release()
 	if ev.Image != nil {
-		remains, err := l.acceptedImageRemains(ctx, op, ev, key, created)
+		remains, err := l.acceptedImageRemains(ctx, op, ev, key)
 		if err != nil {
 			return "", err
 		}
@@ -139,8 +129,8 @@ func noIntent() error { return nil }
 
 // acceptedImageRemains reports whether the image a creation accepted can
 // still create its runtime: the image exists, or the runtime already does.
-func (l *lifecycle) acceptedImageRemains(ctx context.Context, op *api.Operation, ev control.CreationEvidence, key control.CommitImageKey, created createdRuntime) (bool, error) {
-	img, found, err := l.images.InspectImage(ctx, runtimedriver.ImageRef(ev.Image.Ref))
+func (l *lifecycle) acceptedImageRemains(ctx context.Context, op *api.Operation, ev control.CreationEvidence, key control.CommitImageKey) (bool, error) {
+	img, found, err := l.driver.InspectImage(ctx, runtimedriver.ImageRef(ev.Image.Ref))
 	if err != nil {
 		return false, imageFailure(err)
 	}
@@ -150,27 +140,27 @@ func (l *lifecycle) acceptedImageRemains(ctx context.Context, op *api.Operation,
 		}
 		return true, nil
 	}
-	// Incus init can succeed before runtime-created is persisted. Its private
-	// root remains valid after the image is removed, so inspect the exact
-	// durable instance identity before forgetting the image.
+	// A runtime's init can succeed before runtime-created is persisted. Its
+	// private root remains valid after the image is removed, so inspect the
+	// exact durable runtime identity before forgetting the image.
 	session, err := l.store.GetSession(ctx, op.SessionUUID)
 	if err != nil || session.Project != op.Project || session.Registry != "creating" || session.PolicySHA256 != ev.PolicySHA256 {
 		return false, errors.Join(err, errors.New("creating session identity unavailable"))
 	}
-	owned, err := l.runtimeSession(ctx, session)
+	spec, err := l.sessionSpec(ctx, session)
 	if err != nil {
 		return false, err
 	}
 	// Creation recovery cannot substitute another image or source. The
 	// stored session policy and reserved address supply every device.
-	if owned.ImageFingerprint != ev.ImageFingerprint || owned.InitialOID != ev.CapturedOID {
+	if spec.Image != runtimedriver.ImageRef(ev.ImageFingerprint) || spec.Workspace.Commit != ev.CapturedOID {
 		return false, errors.New("creating runtime image or source differs from captured request")
 	}
-	observed, err := created.InspectCreated(ctx, owned)
+	observed, err := l.driver.Inspect(ctx, spec)
 	if err != nil {
 		return false, control.Failed(api.ReasonRuntime, err)
 	}
-	return observed.Exists, nil
+	return observed.State != runtimedriver.StateAbsent, nil
 }
 
 // settleBuild settles the build of a cycle whose outcome is unknown. A build
@@ -179,7 +169,7 @@ func (l *lifecycle) acceptedImageRemains(ctx context.Context, op *api.Operation,
 func (l *lifecycle) settleBuild(ctx context.Context, op *api.Operation, ev *control.CreationEvidence, key control.CommitImageKey) (bool, error) {
 	cycle := ev.EnvironmentBuilder.Cycle
 	build := imageBuild(op.ID, cycle, key)
-	settled, err := l.images.Settle(ctx, runtimedriver.Effect{Kind: runtimedriver.EffectBuild, Build: build})
+	settled, err := l.driver.Settle(ctx, runtimedriver.Effect{Kind: runtimedriver.EffectBuild, Build: build})
 	if err != nil {
 		return false, imageFailure(err)
 	}
@@ -197,7 +187,7 @@ func (l *lifecycle) settleBuild(ctx context.Context, op *api.Operation, ev *cont
 	if err != nil {
 		return false, err
 	}
-	if err = l.images.Delete(ctx, build.Ref, "", noIntent); err != nil {
+	if err = l.driver.Delete(ctx, build.Ref, "", noIntent); err != nil {
 		return false, imageFailure(err)
 	}
 	return l.acceptBuiltImage(ctx, op, ev, key, build, cycle, img)
@@ -208,7 +198,7 @@ func (l *lifecycle) settleBuild(ctx context.Context, op *api.Operation, ev *cont
 // delete.
 func (l *lifecycle) endAbandonedBuild(ctx context.Context, op *api.Operation, ev *control.CreationEvidence, key control.CommitImageKey) error {
 	cycle := ev.EnvironmentBuilder.Cycle
-	if err := l.images.Delete(ctx, imageBuild(op.ID, cycle, key).Ref, "", noIntent); err != nil {
+	if err := l.driver.Delete(ctx, imageBuild(op.ID, cycle, key).Ref, "", noIntent); err != nil {
 		return imageFailure(err)
 	}
 	ev.EnvironmentBuilder = &control.CreationBuilderState{Cycle: cycle, State: "absent"}
@@ -216,7 +206,7 @@ func (l *lifecycle) endAbandonedBuild(ctx context.Context, op *api.Operation, ev
 }
 
 func (l *lifecycle) imageOfBuild(ctx context.Context, build runtimedriver.Build) (runtimedriver.Image, error) {
-	images, err := l.images.Images(ctx)
+	images, err := l.driver.Images(ctx)
 	if err != nil {
 		return runtimedriver.Image{}, imageFailure(err)
 	}
@@ -250,7 +240,7 @@ func (l *lifecycle) acceptBuiltImage(ctx context.Context, op *api.Operation, ev 
 		case found && indexed.Ref == row.Ref:
 			err = nil // indexed before a restart
 		case found:
-			if e = l.images.DeleteImage(ctx, img, noIntent); e != nil {
+			if e = l.driver.DeleteImage(ctx, img, noIntent); e != nil {
 				return false, imageFailure(e)
 			}
 			ev.EnvironmentBuilder = &control.CreationBuilderState{Cycle: cycle, State: "absent"}
@@ -277,12 +267,12 @@ func (l *lifecycle) reuseIndexedImage(ctx context.Context, op *api.Operation, ev
 	}
 	indexed := indexedImage(row)
 	if row.State == "releasing" {
-		if err = l.images.DeleteImage(ctx, indexed, noIntent); err != nil {
+		if err = l.driver.DeleteImage(ctx, indexed, noIntent); err != nil {
 			return false, imageFailure(err)
 		}
 		return false, l.store.ForgetCommitImage(ctx, key, row.Ref)
 	}
-	img, present, err := l.images.InspectImage(ctx, indexed.Ref)
+	img, present, err := l.driver.InspectImage(ctx, indexed.Ref)
 	if err != nil {
 		return false, imageFailure(err)
 	}
@@ -326,7 +316,7 @@ func (l *lifecycle) buildImage(ctx context.Context, op *api.Operation, ev *contr
 	build.Network = runtimedriver.Network{PublicIPv4: address}
 	attempted := false
 	var gateErr error
-	img, err := l.images.BuildImage(ctx, build, func() error {
+	img, err := l.driver.BuildImage(ctx, build, func() error {
 		next := *ev
 		next.EnvironmentBuilder = &control.CreationBuilderState{Cycle: cycle, State: "attempted"}
 		if gateErr = l.persistImageEvidence(op, next, op.Phase); gateErr != nil {

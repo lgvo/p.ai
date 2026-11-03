@@ -22,8 +22,8 @@ func (w *World) checkSession(s runtimedriver.Session) error {
 	if s.Labels[runtimedriver.LabelProject] == "" {
 		return errors.New("the session's project label is missing")
 	}
-	if len(s.Command) == 0 || len(s.GitKey) == 0 || s.GitHostKey == "" || s.Workspace.Branch == "" {
-		return errors.New("the session's command, Git key, Git host key and branch are required")
+	if len(s.Command) == 0 || s.GitHostKey == "" || s.Workspace.Branch == "" {
+		return errors.New("the session's command, Git host key and branch are required")
 	}
 	if !path.IsAbs(s.Endpoints) || path.Clean(s.Endpoints) != s.Endpoints {
 		return errors.New("the endpoint directory must be an absolute clean path")

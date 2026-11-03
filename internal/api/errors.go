@@ -149,7 +149,8 @@ const (
 	ReasonOperation = "operation"
 	ReasonProject   = "project"
 	ReasonBranch    = "branch"
-	ReasonSource    = "source" // a source ref or commit to create from
+	ReasonSource    = "source"  // a source ref or commit to create from
+	ReasonService   = "service" // a project service of the session
 	// not_configured: the capability; failed: the authority
 	ReasonGit           = "git"
 	ReasonRuntime       = "runtime"

@@ -12,7 +12,6 @@ type bundledRole struct {
 }
 
 var bundledRoles = []bundledRole{
-	{"runtime-incus", "org.p.runtime.incus", "runtime", "wasi-command", "runtime.wasm", "runtime.incus"},
 	{"tmux-host", "org.p.tmux-host", "interactive-host", "assets", "", "session.asset.install"},
 	{"source-git", "org.p.git", "source-git", "wasi-command", "git.wasm", "git.project"},
 	{"file-log", "org.p.filelog", "event-handler", "declarative", "event.file.append", "event.file.append"},

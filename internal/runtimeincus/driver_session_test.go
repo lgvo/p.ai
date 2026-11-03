@@ -51,7 +51,6 @@ func TestCheckProvesTheProjectConfinement(t *testing.T) {
 }
 
 func TestSessionSpecMustBeOneProjectsSession(t *testing.T) {
-	a := assemblyFixture(t)
 	for name, edit := range map[string]func(*runtimedriver.Session){
 		"build reference":       func(s *runtimedriver.Session) { s.Ref.Kind = runtimedriver.KindBuild },
 		"no project label":      func(s *runtimedriver.Session) { s.Labels = runtimedriver.Labels{} },
@@ -63,7 +62,7 @@ func TestSessionSpecMustBeOneProjectsSession(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newIncusWorld(t)
-			s := testSessionSpec(a)
+			s := testSessionSpec(t)
 			edit(&s)
 			if _, err := w.driver().Inspect(context.Background(), s); err == nil || len(w.commands) != 0 {
 				t.Fatalf("invalid spec reached Incus: %v %v", err, w.commands)
@@ -74,8 +73,7 @@ func TestSessionSpecMustBeOneProjectsSession(t *testing.T) {
 
 func TestCreateGatesBeforeInitAndLeavesTheRuntimeStoppedAndComplete(t *testing.T) {
 	w := newIncusWorld(t)
-	a := assemblyFixture(t)
-	s := testSessionSpec(a)
+	s := testSessionSpec(t)
 	s.Grants = []runtimedriver.Grant{testGrant()}
 	gates := 0
 	got, err := w.driver().Create(context.Background(), s, "", func() error {
@@ -96,14 +94,14 @@ func TestCreateGatesBeforeInitAndLeavesTheRuntimeStoppedAndComplete(t *testing.T
 		t.Fatalf("effects: %v", mutations)
 	}
 	identity := in.files["/etc/p/git/identity"]
-	if identity.uid != 1000 || identity.mode != 0400 || !bytes.Equal(identity.data, a.Identity) || !bytes.Contains(in.files["/etc/p/session.json"].data, []byte(`"filesystem_mounts"`)) {
+	if identity.uid != 1000 || identity.mode != 0400 || !bytes.Equal(identity.data, s.GitKey) || !bytes.Contains(in.files["/etc/p/session.json"].data, []byte(`"filesystem_mounts"`)) {
 		t.Fatalf("guest files not installed: identity %+v session %s", identity, in.files["/etc/p/session.json"].data)
 	}
 }
 
 func TestCreateWithoutIncarnationNeverAdoptsAnExistingRuntime(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	if _, err := w.driver().Create(context.Background(), s, "", func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +120,7 @@ func TestCreateWithoutIncarnationNeverAdoptsAnExistingRuntime(t *testing.T) {
 
 func TestCreateRefusesBeforeItsGateWhenAHostCheckFails(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	s.Grants = []runtimedriver.Grant{testGrant()}
 	w.grantErr = errors.New("runtime grant data source identity changed")
 	refused := errors.New("core could not record its intent")
@@ -143,7 +141,7 @@ func TestCreateFailingAfterItsGateIsAnUnknownOutcome(t *testing.T) {
 		}
 		return nil
 	}
-	_, err := w.driver().Create(context.Background(), testSessionSpec(assemblyFixture(t)), "", func() error { return nil })
+	_, err := w.driver().Create(context.Background(), testSessionSpec(t), "", func() error { return nil })
 	if !errors.Is(err, runtimedriver.ErrUnknownOutcome) {
 		t.Fatalf("lost init is not an unknown outcome: %v", err)
 	}
@@ -172,7 +170,7 @@ func interruptedCreate(t *testing.T, w *incusWorld, s runtimedriver.Session) run
 
 func TestCreateAtAnIncarnationCompletesThatRuntimeWithoutInit(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	interrupted := interruptedCreate(t, w, s)
 	before := w.mutations()
 	if _, err := w.driver().Create(context.Background(), s, "00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000", nil); !errors.Is(err, runtimedriver.ErrMismatch) || !slices.Equal(w.mutations(), before) {
@@ -195,7 +193,7 @@ func TestCreateAtAnIncarnationCompletesThatRuntimeWithoutInit(t *testing.T) {
 
 func TestCreateAtAnIncarnationRefusesADifferentGuestFile(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	interrupted := interruptedCreate(t, w, s)
 	changed := guestFile{typ: "file", uid: 0, gid: 0, mode: 0644, data: []byte(`{"schema":"other"}`)}
 	w.change(testRuntime, func(in *worldInstance) {
@@ -218,7 +216,7 @@ func TestCreateAtAnIncarnationRefusesADifferentGuestFile(t *testing.T) {
 
 func TestInspectReportsAbsentIncompleteAndDrift(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	s.Grants = []runtimedriver.Grant{testGrant()}
 	ctx := context.Background()
 	if got, err := w.driver().Inspect(ctx, s); err != nil || got.State != runtimedriver.StateAbsent {
@@ -255,7 +253,7 @@ func TestInspectReportsAbsentIncompleteAndDrift(t *testing.T) {
 
 func TestInspectReadsTheIncarnationAndTheSessionHost(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	ctx := context.Background()
 	created, err := w.driver().Create(ctx, s, "", func() error { return nil })
 	if err != nil {
@@ -299,7 +297,7 @@ func createdSession(t *testing.T, w *incusWorld, s runtimedriver.Session) runtim
 
 func TestStartWaitsUntilTheSessionHostIsReady(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	created := createdSession(t, w, s)
 	w.change(testRuntime, func(in *worldInstance) { in.hostReads = 3 })
 	got, err := w.driver().Start(context.Background(), s)
@@ -317,7 +315,7 @@ func TestStartWaitsUntilTheSessionHostIsReady(t *testing.T) {
 
 func TestStartOfAFailedHostStopsTheRuntimeWithItsDiagnostic(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	createdSession(t, w, s)
 	w.change(testRuntime, func(in *worldInstance) {
 		in.host, in.journal = "failed/failed/exit-code", "p-interactive.service: /bin/bash: not found"
@@ -334,7 +332,7 @@ func TestStartOfAFailedHostStopsTheRuntimeWithItsDiagnostic(t *testing.T) {
 
 func TestStartThatIncusRefusesIsAHostErrorAndLeavesTheRuntimeStopped(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	createdSession(t, w, s)
 	w.before = func(args []string) error {
 		if args[0] == "start" {
@@ -351,7 +349,7 @@ func TestStartThatIncusRefusesIsAHostErrorAndLeavesTheRuntimeStopped(t *testing.
 
 func TestStartChecksTheEndpointDirectoryBeforeAnyEffect(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	createdSession(t, w, s)
 	before := w.mutations()
 	w.endpointErr = errors.New("endpoint socket must be daemon-owned mode 0666")
@@ -364,7 +362,7 @@ func TestStartChecksTheEndpointDirectoryBeforeAnyEffect(t *testing.T) {
 
 func TestStopStopsTheRuntimeGracefully(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	createdSession(t, w, s)
 	if _, err := w.driver().Start(context.Background(), s); err != nil {
 		t.Fatal(err)
@@ -423,7 +421,7 @@ func TestHostDiagnosticIsBoundedValidUTF8(t *testing.T) {
 func TestOperationsOfLaterMigrationStepsAreUnsupported(t *testing.T) {
 	d := newIncusWorld(t).driver()
 	ctx := context.Background()
-	target := runtimedriver.Target{Session: testSessionSpec(assemblyFixture(t))}
+	target := runtimedriver.Target{Session: testSessionSpec(t)}
 	_, inventory := d.Inventory(ctx)
 	_, terminal := d.OpenTerminal(ctx, target, runtimedriver.Size{Width: 80, Height: 24})
 	_, read := d.ReadWorkspace(ctx, target, "README.md", 1024)
@@ -455,7 +453,7 @@ func restoreAfterDevice(w *incusWorld, device string) {
 
 func TestCreateAddsDevicesOnlyToTheRuntimeItInitialized(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	s.Grants = []runtimedriver.Grant{testGrant()}
 	restoreAfterDevice(w, "p-grant-data")
 	_, err := w.driver().Create(context.Background(), s, "", func() error { return nil })
@@ -472,7 +470,7 @@ func TestCreateAddsDevicesOnlyToTheRuntimeItInitialized(t *testing.T) {
 
 func TestCreateAtAnIncarnationAddsDevicesOnlyToThatRuntime(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	s.Grants = []runtimedriver.Grant{testGrant()}
 	w.before = func(args []string) error {
 		if args[0] == "config" {
@@ -501,7 +499,7 @@ func TestCreateAtAnIncarnationAddsDevicesOnlyToThatRuntime(t *testing.T) {
 // A runtime that starts between two device additions gets no further device.
 func TestCreateAddsNoDeviceToARuntimeThatStarted(t *testing.T) {
 	w := newIncusWorld(t)
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	second := testGrant()
 	second.Name, second.Source, second.Inode = "more", "/var/lib/p-vm/grants/team/more", 12
 	s.Grants = []runtimedriver.Grant{testGrant(), second}
@@ -518,5 +516,109 @@ func TestCreateAddsNoDeviceToARuntimeThatStarted(t *testing.T) {
 	}
 	if mutations := w.mutations(); !slices.Equal(mutations, []string{"init", "device p-grant-data"}) {
 		t.Fatalf("effects on the running runtime: %v", mutations)
+	}
+}
+
+// While Incus cleans up after a poweroff the failed host started, it refuses
+// the stop and lists a placeholder for the instance for a moment; the startup
+// failure is reported once the runtime is seen stopped, without the refused
+// stop.
+func TestStartOfAFailedHostIsReportedOnceTheRuntimeIsSeenStopped(t *testing.T) {
+	w := newIncusWorld(t)
+	s := testSessionSpec(t)
+	createdSession(t, w, s)
+	w.change(testRuntime, func(in *worldInstance) {
+		in.host, in.journal = "failed/failed/exit-code", "p-interactive.service: exited"
+	})
+	placeholders := 0
+	w.before = func(args []string) error {
+		if args[0] == "stop" {
+			w.change(testRuntime, func(in *worldInstance) { in.status = "Stopped" })
+			placeholders = 3
+			return errors.New("Incus instance state unavailable")
+		}
+		return nil
+	}
+	b := w.backend()
+	run := b.run
+	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if len(argv) > 3 && argv[3] == "list" && placeholders > 0 {
+			placeholders--
+			return []byte(unrenderedInstance), nil
+		}
+		return run(ctx, binary, argv, env)
+	}
+	_, err := NewDriver(b).Start(context.Background(), s)
+	var host *runtimedriver.HostError
+	if !errors.As(err, &host) || !strings.Contains(host.Diagnostic, "exited") || strings.Contains(host.Diagnostic, "stopping failed") || placeholders != 0 {
+		t.Fatalf("startup failure not reported once the runtime was seen stopped: %v (%d placeholders left)", err, placeholders)
+	}
+}
+
+// A stop that is refused while the runtime keeps running, or whose runtime
+// goes missing, is named in the startup failure, within the stop's bound.
+func TestStartOfAFailedHostNamesAStopNotSeenToTakeEffect(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		gone bool
+	}{{"still running", false}, {"gone", true}} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newIncusWorld(t)
+			s := testSessionSpec(t)
+			createdSession(t, w, s)
+			w.change(testRuntime, func(in *worldInstance) { in.host = "failed/failed/exit-code" })
+			w.before = func(args []string) error {
+				if args[0] == "stop" {
+					if c.gone {
+						w.mu.Lock()
+						w.instances = slices.DeleteFunc(w.instances, func(in *worldInstance) bool { return in.name == testRuntime })
+						w.mu.Unlock()
+					}
+					return errors.New("Incus state postcondition failed")
+				}
+				return nil
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			answer := make(chan error, 1)
+			go func() {
+				_, err := w.driver().Start(ctx, s)
+				answer <- err
+			}()
+			select {
+			case err := <-answer:
+				if err == nil || !strings.Contains(err.Error(), "stopping failed: Incus state postcondition failed") {
+					t.Fatalf("a stop not seen to take effect is not named: %v", err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("Start kept observing after the stop's bound")
+			}
+		})
+	}
+}
+
+// A failed host powers its runtime off by itself; a stop Incus refuses
+// meanwhile does not make Start return while the runtime still runs.
+func TestStartOfAFailedHostReturnsOnlyOnceTheRuntimeStopped(t *testing.T) {
+	w := newIncusWorld(t)
+	s := testSessionSpec(t)
+	createdSession(t, w, s)
+	w.change(testRuntime, func(in *worldInstance) {
+		in.host, in.journal = "failed/failed/exit-code", "p-interactive.service: exited"
+	})
+	w.before = func(args []string) error {
+		if args[0] == "stop" {
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				w.change(testRuntime, func(in *worldInstance) { in.status = "Stopped" })
+			}()
+			return errors.New("The instance is already stopping")
+		}
+		return nil
+	}
+	_, err := w.driver().Start(context.Background(), s)
+	var host *runtimedriver.HostError
+	if !errors.As(err, &host) || w.instance(testRuntime).status != "Stopped" {
+		t.Fatalf("failed host: %v, runtime %s", err, w.instance(testRuntime).status)
 	}
 }

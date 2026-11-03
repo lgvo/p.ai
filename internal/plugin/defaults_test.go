@@ -55,7 +55,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selection.Plugins) != 5 || selection.Schema != ActivationSchema {
+	if len(selection.Plugins) != 4 || selection.Schema != ActivationSchema {
 		t.Fatalf("incomplete composition: %+v", selection)
 	}
 	if _, err := os.Stat(log); !os.IsNotExist(err) {
@@ -70,7 +70,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	active, err := LoadActivation(activation)
-	if err != nil || len(active) != 5 {
+	if err != nil || len(active) != 4 {
 		t.Fatalf("defaults cannot activate: %v, %+v", err, active)
 	}
 	for _, selected := range active {
@@ -85,7 +85,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 		}
 	}
 	// Selection is immutable: later package edits require a new reviewed digest.
-	module := filepath.Join(catalog, "runtime-incus", "runtime.wasm")
+	module := filepath.Join(catalog, "source-git", "git.wasm")
 	if err := os.WriteFile(module, []byte("\x00asm\x01\x00\x00\x00changed"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestDefaultActivationRejectsUnsafeOrSubstitutedPackages(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			catalog := defaultsCatalog(t)
 			log := filepath.Join(t.TempDir(), "events.ndjson")
-			module := filepath.Join(catalog, "runtime-incus", "runtime.wasm")
+			module := filepath.Join(catalog, "source-git", "git.wasm")
 			switch name {
 			case "relative log":
 				log = "events.ndjson"

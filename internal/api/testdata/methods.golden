@@ -1121,8 +1121,6 @@ control session.create.replace (runtime)
         new_captured_oid string (optional)
         new_image_fingerprint string
         new_selection object
-          runtime_id string
-          runtime_sha256 string
           host_id string
           host_sha256 string
           source_id string

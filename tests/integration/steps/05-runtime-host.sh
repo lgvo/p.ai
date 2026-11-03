@@ -1,12 +1,13 @@
 # shellcheck shell=bash
-# Production image and selected host assets, assembled by a fixture only.
-# Public project/session creation and attachment leases are later steps.
+# Production image and selected host assets in two sessions that the runtime
+# driver creates and starts through a test fixture. Public project/session
+# creation and attachment leases are later steps.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-05"
 mkdir -m 0700 "$step_dir"
 export INCUS_SOCKET=/var/lib/incus/unix.socket.user
-names=("p-host-$BASHPID-a" "p-host-$BASHPID-b")
+names=()
 endpoint_prefix=/var/lib/p-vm/endpoints/pdev
 pids=()
 inc() { timeout 45 incus --force-local --project user-1000 "$@"; }
@@ -121,11 +122,9 @@ activate_package() {
   jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
-host_package="$P_TEST_SOURCE/plugins/bundled/tmux-host"
-activate_package "$host_package" "$step_dir/host.json" session.asset.install
-p plugins plan-assets "$step_dir/host.json" "$(jq -er '.plugins[0].id' "$step_dir/host.json")" > "$step_dir/assets.json"
+runtime() { timeout 190 runtime-fixture "$@"; }
+activate_package "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host.json" session.asset.install
 activate_package "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
-p plugins plan-assets "$step_dir/git.json" "$(jq -er '.plugins[0].id' "$step_dir/git.json")" > "$step_dir/git-assets.json"
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 inc image list --format json | jq -e --arg f "$fingerprint" 'any(.[]; .fingerprint==$f)' >/dev/null
@@ -141,29 +140,13 @@ for ((attempt=0; attempt<100; attempt++)); do
 done
 git_control=$(jq -er '.control' "$step_dir/git-ready.json")
 git_address=$(jq -er '.listen' "$step_dir/git-ready.json")
-printf 'p %s\n' "$(cat "$step_dir/server.pub")" > "$step_dir/known_hosts"
-cat > "$step_dir/ssh_config" <<'EOF'
-Host p
-  HostName p
-  User git
-  HostKeyAlias p
-  IdentityFile /etc/p/git/identity
-  IdentitiesOnly yes
-  IdentityAgent none
-  UserKnownHostsFile /etc/p/git/known_hosts
-  GlobalKnownHostsFile /dev/null
-  StrictHostKeyChecking yes
-  BatchMode yes
-  ConnectTimeout 5
-  ProxyCommand /usr/libexec/p/runtime-kit git-stream
-EOF
-cat > "$step_dir/session.json" <<'EOF'
-{"schema":"p.runtime-session/v1","activation":"base","command":["/run/current-system/sw/bin/bash","--noprofile","--norc"]}
-EOF
 
-index=0
 for label in a b; do
-  name="${names[$index]}"
+  git-fixture call "$git_control" "$(jq -nc --arg project "host-$label" '{schema:"p.git-fixture/v1",kind:"project",project:$project}')" | jq -e '.ok' >/dev/null
+  seeded=$(git-fixture call "$git_control" "$(jq -nc --arg project "host-$label" --arg key "$step_dir/$label.pub" '{schema:"p.git-fixture/v1",kind:"seed-session",key:$project,project:$project,branch:"main",choice:"blank",public_key:$key}')")
+  session=$(jq -er '.result.session_uuid' <<< "$seeded")
+  name="p-$session"
+  names+=("$name")
   endpoint="$endpoint_prefix/$name"
   mkdir -m 0755 "$endpoint"
   socat "UNIX-LISTEN:$endpoint/session.sock,fork,mode=666" EXEC:cat &
@@ -175,29 +158,18 @@ for label in a b; do
     sleep 0.1
   done
   test -S "$endpoint/session.sock" && test -S "$endpoint/git.sock"
-  git-fixture call "$git_control" "$(jq -nc --arg project "host-$label" '{schema:"p.git-fixture/v1",kind:"project",project:$project}')" | jq -e '.ok' >/dev/null
-  git-fixture call "$git_control" "$(jq -nc --arg project "host-$label" --arg key "$step_dir/$label.pub" '{schema:"p.git-fixture/v1",kind:"seed-session",key:$project,project:$project,branch:"main",choice:"blank",public_key:$key}')" | jq -e '.ok' >/dev/null
-
-  inc init "$fingerprint" "$name"
-  inc config device add "$name" p-endpoint disk "source=$endpoint" path=/opt/p/endpoints readonly=true shift=false propagation=private
-  # Closed image-specific staging map; verified files keep the public paths.
-  while IFS=$'\t' read -r role digest mode; do
-    test "$(sha256sum "$host_package/$role" | cut -d' ' -f1)" = "$digest"
-    case "$role" in p-session.target|p-interactive.service|p-attach) ;; *) exit 1;; esac
-    push_root "$name" "$host_package/$role" "/etc/p/assets/$role" "$(printf '%04o' "$mode")"
-  done < <(jq -r '.files[] | [.role,.sha256,.mode] | @tsv' "$step_dir/assets.json")
-  test "$(sha256sum "$P_TEST_GIT_PLUGIN/p-git-ssh" | cut -d' ' -f1)" = "$(jq -er '.files[] | select(.role=="p-git-ssh") | .sha256' "$step_dir/git-assets.json")"
-  push_root "$name" "$P_TEST_GIT_PLUGIN/p-git-ssh" /etc/p/assets/p-git-ssh 0555
-  push_root "$name" "$step_dir/ssh_config" /etc/p/git/ssh_config 0644
-  push_root "$name" "$step_dir/known_hosts" /etc/p/git/known_hosts 0644
-  inc file push --uid 1000 --gid 1000 --mode 0400 "$step_dir/$label" "$name/etc/p/git/identity"
-  push_root "$name" "$step_dir/session.json" /etc/p/session.json 0644
-  jq -n --arg repository "host-$label" '{schema:"p.workspace/v1",repository:$repository,branch:"main"}' > "$step_dir/$label-workspace.json"
-  push_root "$name" "$step_dir/$label-workspace.json" /etc/p/workspace.json 0644
+  jq -n --arg session "$session" --arg project "host-$label" --arg image "$fingerprint" \
+    --arg endpoints "$endpoint" --arg host "$step_dir/host.json" --arg source "$step_dir/git.json" \
+    --arg key "$step_dir/$label" --arg server "$step_dir/server.pub" \
+    '{instance_uuid:"11111111-1111-4111-8111-111111111111",session_uuid:$session,project:$project,
+      branch:"main",image:$image,endpoints:$endpoints,host_activation:$host,source_activation:$source,
+      git_key_file:$key,git_host_key_file:$server}' > "$step_dir/$label-session.json"
   stat -c 'HOST_ENDPOINT %n uid=%u gid=%g mode=%a type=%F' "$endpoint_prefix" \
     "$endpoint" "$endpoint/session.sock" "$endpoint/git.sock"
-  inc start "$name"
-  wait_ready "$name"
+  # The driver installs the selected host and Git assets and the session's
+  # guest files; Start returns once the session host is ready.
+  runtime create "$step_dir/$label-session.json" | jq -e '.state=="stopped" and .complete' >/dev/null
+  runtime start "$step_dir/$label-session.json" | jq -e '.state=="running" and .host.ready' >/dev/null
   test "$(inc list "$name" --format json | jq -er --arg n "$name" '.[] | select(.name==$n) | .expanded_devices["p-endpoint"].source')" = "$endpoint"
   for path in /opt/p/endpoints /run/p; do
     # Exactly one mount, read-only and private in the instance namespace.
@@ -229,7 +201,6 @@ for label in a b; do
   exec_p "$name" git push origin HEAD:main
   expect_failure exec_p "$name" sh -c 'echo change >> /etc/systemd/system/p-interactive.service'
   expect_failure exec_p "$name" /usr/libexec/p/attach unwanted
-  index=$((index+1))
 done
 
 a="${names[0]}" b="${names[1]}"
@@ -249,10 +220,8 @@ test "$(inc exec "$a" -- cat "/proc/$main_pid/comm")" = 'tmux: server'
   "$step_dir/attach.log" >/dev/null
 test "$(inc exec "$a" -- systemctl show -p MainPID --value p-interactive.service)" = "$main_pid"
 inc exec "$a" -- systemctl is-active --quiet p-interactive.service
-inc stop "$a"
-wait_state "$a" Stopped
-inc start "$a"
-wait_ready "$a"
+runtime stop "$step_dir/a-session.json" | jq -e '.state=="stopped"' >/dev/null
+runtime start "$step_dir/a-session.json" | jq -e '.state=="running" and .host.ready' >/dev/null
 test "$(exec_p "$a" cat /home/p/private)" = a
 exec_p "$a" test -e "$store_path"
 exec_p "$a" git fetch origin main
@@ -266,11 +235,12 @@ wait_ready "$a"
 inc exec "$a" -- journalctl -u p-interactive.service --no-pager | grep -E 'signal=KILL|status=9/KILL' >/dev/null
 inc stop "$a"
 wait_state "$a" Stopped
+inc file pull "$a/etc/p/session.json" "$step_dir/session-original.json"
 printf '%s\n' '{"schema":"p.runtime-session/v1","activation":"base","command":["/no/such/p-command"]}' > "$step_dir/bad-session.json"
 push_root "$a" "$step_dir/bad-session.json" /etc/p/session.json 0644
 inc start "$a"
 wait_state "$a" Stopped
-push_root "$a" "$step_dir/session.json" /etc/p/session.json 0644
+push_root "$a" "$step_dir/session-original.json" /etc/p/session.json 0644
 start_after_self_shutdown "$a"
 wait_ready "$a"
 inc exec "$a" -- journalctl -u p-interactive.service --no-pager | grep -E 'tmux (did not become attachable|lifetime setup|startup)' >/dev/null

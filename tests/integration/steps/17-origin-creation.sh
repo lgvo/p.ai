@@ -206,30 +206,26 @@ activate() {
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
 activate "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
-activate "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime-one.json" runtime.incus
 mkdir -m 0700 "$step_dir/host-package"
 cp "$P_TEST_SOURCE/plugins/bundled/tmux-host/"* "$step_dir/host-package/"
 sed '/^\[Install\]$/i ExecStartPost=/run/current-system/sw/bin/timeout 20 /run/current-system/sw/bin/bash -c "until test -e /etc/p/test-release; do sleep 0.1; done"' \
   "$step_dir/host-package/p-interactive.service" > "$step_dir/service-gated"
 mv "$step_dir/service-gated" "$step_dir/host-package/p-interactive.service"
-activate "$step_dir/host-package" "$step_dir/host-one.json" session.asset.install
-jq -s '{schema:"p.activation/v1",plugins:([.[0].plugins[0],.[1].plugins[0]])}' \
-  "$step_dir/runtime-one.json" "$step_dir/host-one.json" > "$step_dir/runtime.json"
+activate "$step_dir/host-package" "$step_dir/runtime.json" session.asset.install
 p plugins activate "$step_dir/git.json" | jq -e '.[0].capability=="source-git"' >/dev/null
-p plugins activate "$step_dir/runtime.json" | jq -e 'length==2' >/dev/null
+p plugins activate "$step_dir/runtime.json" | jq -e 'length==1' >/dev/null
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 git_id=$(jq -er '.plugins[0].id' "$step_dir/git.json")
-runtime_id=$(jq -er '.plugins[0].id' "$step_dir/runtime.json")
-host_id=$(jq -er '.plugins[1].id' "$step_dir/runtime.json")
+host_id=$(jq -er '.plugins[0].id' "$step_dir/runtime.json")
 incus_binary=$(command -v incus)
 jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" --arg git_id "$git_id" \
-  --arg runtime_activation "$step_dir/runtime.json" --arg runtime_id "$runtime_id" \
+  --arg runtime_activation "$step_dir/runtime.json" \
   --arg host_id "$host_id" --arg binary "$incus_binary" --arg prefix "$endpoint_prefix" \
   --arg image "$fingerprint" \
   '{schema:"p.host/v1",state_dir:$state,
    git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0"},
-   runtime:{activation_path:$runtime_activation,runtime_plugin_id:$runtime_id,
+   runtime:{activation_path:$runtime_activation,
     host_plugin_id:$host_id,driver:{name:"incus",config:{binary:$binary,
     user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},
     endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],

@@ -79,7 +79,7 @@ project services, terminals, devices, network, and the proofs of its own
 boundary. Core addresses it in P's terms, through the operations in
 [`internal/runtimedriver/driver.go`](../internal/runtimedriver/driver.go): the
 host (`Describe`, `Check`, `Inventory`), sessions (`Inspect`, `Create`,
-`Start`, `Stop`, `Delete`, `OpenTerminal`), the workspace of a stopped session
+`Start`, `Stop`, `Delete`, `HostLog`, `OpenTerminal`), the workspace of a stopped session
 (`ReadWorkspace`, `WriteWorkspace`, `RemoveWorkspace`), images (`BuildImage`,
 `Images`, `InspectImage`, `DeleteImage`), `Settle` for an effect whose outcome
 is unknown, and project services (`Services`, `ServiceAction`, `ServiceLogs`).
@@ -101,9 +101,9 @@ driver's own settings ([control API](control-api.md)). The only driver is
 in-memory driver (`internal/runtimedriver/memory`) and a conformance suite
 (`internal/runtimedriver/conformance`) show that a driver keeps the contract;
 the Incus driver runs the suite over a stubbed Incus. Core so far reaches
-images through the driver; session runtimes, project services, terminals and
-removal still go to Incus through the WASI runtime plugin and direct
-`runtimeincus` calls.
+images, session inspection, creation, start and stop, and project services
+through the driver; terminals, removal, rename and the proofs of absence still
+go to Incus through direct `runtimeincus` calls.
 
 The Incus driver is always bound to the configured local confined user
 project. It uses deterministic instance names and P metadata, passes structured

@@ -10,7 +10,7 @@ import (
 )
 
 func testSelection() CreationSelection {
-	return CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("a", 64), HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	return CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
 }
 
 func TestCreationSelectionBindsOptionalAgentPackage(t *testing.T) {

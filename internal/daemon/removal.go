@@ -87,7 +87,7 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 	if session.Registry != "established" {
 		return control.Conflict(api.ReasonSessionNotEstablished, target)
 	}
-	native, err := l.runtimeSession(ctx, session)
+	native, err := l.nativeSession(ctx, session)
 	if err != nil {
 		return err
 	}

@@ -3,7 +3,7 @@
 ## Lifecycle workers depend on concrete runtime, store and Git types
 
 - Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
-- Problem: Workers call a concrete `*runtimeincus.Backend` (16 methods, about 45 calls),
+- Problem: Workers call a concrete `*runtimeincus.Backend` (18 methods, about 47 calls),
   `*control.Store` and `*gitCapability`, so no worker can run against a stand-in.
 - Evidence: daemon statement coverage is 18.7%; every `process*` worker except
   `processCreateCleanup` and `processRetainedRename` is at 0%.
@@ -13,7 +13,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 9 cases:
+- Added 2026-11-01, updated 2026-11-03, 10 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -54,6 +54,11 @@
     cleanup and replacement read the concrete runtime too, so their unit tests reach only the
     refusals found before that read; the VM scenarios cover the rest. Retained-branch
     deletion's plan reads only Git and is unit-tested end to end.
+  - 2026-11-03: "the daemon reaches sessions and services through the runtime driver" moved
+    creation's runtime steps, Inspect, Start, Stop and the services methods to
+    `runtimedriver.Driver` and unit-tested them on the in-memory driver; the removal,
+    rename, capacity and attachment workers still call the backend, now through
+    `NativeSession` for the session spec, which took the runtime to 18 methods and 47 calls.
 
 ## Long worker functions
 
@@ -65,7 +70,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 7 cases:
+- Added 2026-11-01, updated 2026-11-03, 8 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -85,6 +90,9 @@
     `processProjectDelete` went from 328 lines to 298 and `processCreation` from 300 to 285.
   - 2026-11-03: "risky changes confirmed with change tags" grew `processProjectDelete` by 15
     lines, to stop a running session's container before deleting it.
+  - 2026-11-03: "the daemon reaches sessions and services through the runtime driver" moved
+    the runtime part of `processCreation` into `createRuntime`, cutting it from 285 lines to
+    205; it still exceeds 150 lines.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
@@ -124,7 +132,7 @@
 
 ## Incus exec and HTTP access is hand-built in many places
 
-- Where: internal/runtimeincus (services.go, builder.go, builder_nix.go, host_observe.go,
+- Where: internal/runtimeincus (driver_services.go, builder.go, builder_nix.go, host_observe.go,
   attach.go, builder_architecture.go, assembly.go, sftp_stat.go, graceful_stop.go) and
   internal/attachment incus.go
 - Problem: The `incus exec` argument lists and the HTTP-over-socket clients are written
@@ -174,7 +182,7 @@
   gitservice, plugin and runtimeincus), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 6 cases:
+- Added 2026-11-01, updated 2026-11-03, 7 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler

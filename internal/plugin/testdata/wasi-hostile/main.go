@@ -54,7 +54,7 @@ func main() {
 			return
 		}
 	case "session.attachment_changed":
-		call := []byte(`{"schema":"p.broker/v1","method":"runtime.incus"}`)
+		call := []byte(`{"schema":"p.broker/v1","method":"git.branch.delete"}`)
 		reply := make([]byte, 256)
 		brokerCall(uint32(uintptr(unsafe.Pointer(&call[0]))), uint32(len(call)), uint32(uintptr(unsafe.Pointer(&reply[0]))), uint32(len(reply)))
 		if request.Event.Fields["count"] == "2" {

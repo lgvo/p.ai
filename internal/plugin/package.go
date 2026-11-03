@@ -24,15 +24,13 @@ var (
 )
 
 var placements = map[string]string{
-	"runtime": "host", "interactive-host": "internal-session",
-	"source-git": "hybrid", "event-handler": "host",
-	"agent-adapter": "internal-session",
+	"interactive-host": "internal-session", "source-git": "hybrid",
+	"event-handler": "host", "agent-adapter": "internal-session",
 }
 
 var grants = map[string]string{
-	"runtime.incus": "runtime", "session.asset.install": "interactive-host",
-	"git.project": "source-git", "event.file.append": "event-handler",
-	"agent.status.report": "agent-adapter",
+	"session.asset.install": "interactive-host", "git.project": "source-git",
+	"event.file.append": "event-handler", "agent.status.report": "agent-adapter",
 }
 
 // Conformance validates package data and returns its content digest. It never

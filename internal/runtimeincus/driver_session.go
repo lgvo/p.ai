@@ -50,9 +50,11 @@ func incarnationOf(o Observation) runtimedriver.Incarnation {
 // public egress substrate.
 func (d *Driver) Check(ctx context.Context) error { return d.backend.CheckConfinement(ctx) }
 
-// nativeSession reads a session spec into the backend's session. Its labels
-// must be exactly its project, whose repository its workspace clones.
-func (b *Backend) nativeSession(s runtimedriver.Session) (Session, error) {
+// NativeSession reads a session spec into the backend's session. Its labels
+// must be exactly its project, whose repository its workspace clones. The
+// daemon uses it for the backend calls that later migration steps move into
+// the driver.
+func (b *Backend) NativeSession(s runtimedriver.Session) (Session, error) {
 	if s.Ref.Kind != runtimedriver.KindSession || !uuidPattern.MatchString(s.Ref.ID) {
 		return Session{}, errors.New("invalid session reference")
 	}
@@ -86,7 +88,7 @@ func (b *Backend) nativeSession(s runtimedriver.Session) (Session, error) {
 // Inspect reads the session's runtime, tolerating only the devices an
 // interrupted Create has not added yet, and its session host.
 func (d *Driver) Inspect(ctx context.Context, s runtimedriver.Session) (runtimedriver.Observation, error) {
-	native, err := d.backend.nativeSession(s)
+	native, err := d.backend.NativeSession(s)
 	if err != nil {
 		return runtimedriver.Observation{}, err
 	}
@@ -98,9 +100,30 @@ func (d *Driver) Inspect(ctx context.Context, s runtimedriver.Session) (runtimed
 }
 
 // observe turns an observation of the session's runtime into the driver's,
-// with its session host. A running runtime whose host cannot be read has an
-// unknown host rather than an error.
+// with the session host of a running runtime. A running runtime whose host
+// cannot be read has an unknown host rather than an error. A stopped
+// runtime's journal is read only by HostLog: Incus's file API can stall on a
+// stopped instance, as after an external rename, and a stalled read holds
+// the start that follows it.
 func (b *Backend) observe(ctx context.Context, s Session, o Observation) runtimedriver.Observation {
+	out := observeRuntime(s, o)
+	if out.State != runtimedriver.StateRunning {
+		return out
+	}
+	host, err := b.observeHostOf(ctx, s, o)
+	if err != nil {
+		out.Host.Unknown = true
+		return out
+	}
+	out.Host = runtimedriver.HostState{Ready: host.Ready, Diagnostic: host.Diagnostic}
+	return out
+}
+
+// observeRuntime is the driver's observation of the session's runtime without
+// its session host. Create and Stop return it: reading a stopped runtime's
+// journal through the file API right after they changed the runtime gives
+// the caller nothing it needs.
+func observeRuntime(s Session, o Observation) runtimedriver.Observation {
 	if !o.Exists {
 		return runtimedriver.Observation{State: runtimedriver.StateAbsent}
 	}
@@ -111,12 +134,6 @@ func (b *Backend) observe(ctx context.Context, s Session, o Observation) runtime
 	case "Stopped":
 		out.State = runtimedriver.StateStopped
 	}
-	host, err := b.observeHostOf(ctx, s, o)
-	if err != nil {
-		out.Host.Unknown = true
-		return out
-	}
-	out.Host = runtimedriver.HostState{Ready: host.Ready, Diagnostic: host.Diagnostic}
 	return out
 }
 
@@ -128,7 +145,7 @@ func (b *Backend) observe(ctx context.Context, s Session, o Observation) runtime
 func (d *Driver) Create(ctx context.Context, s runtimedriver.Session, at runtimedriver.Incarnation, g runtimedriver.Gate) (runtimedriver.Observation, error) {
 	var zero runtimedriver.Observation
 	b := d.backend
-	native, err := b.nativeSession(s)
+	native, err := b.NativeSession(s)
 	if err != nil {
 		return zero, err
 	}
@@ -141,7 +158,7 @@ func (d *Driver) Create(ctx context.Context, s runtimedriver.Session, at runtime
 		if err != nil {
 			return zero, err
 		}
-		return b.observe(ctx, native, o), nil
+		return observeRuntime(native, o), nil
 	}
 	if g == nil {
 		return zero, errors.New("runtime create gate required")
@@ -162,7 +179,7 @@ func (d *Driver) Create(ctx context.Context, s runtimedriver.Session, at runtime
 		}
 		return zero, err
 	}
-	return b.observe(ctx, native, o), nil
+	return observeRuntime(native, o), nil
 }
 
 // createRuntime initializes the session's runtime and installs its guest
@@ -246,7 +263,7 @@ func stillBound(o Observation, at runtimedriver.Incarnation) error {
 func (d *Driver) Start(ctx context.Context, s runtimedriver.Session) (runtimedriver.Observation, error) {
 	var zero runtimedriver.Observation
 	b := d.backend
-	native, err := b.nativeSession(s)
+	native, err := b.NativeSession(s)
 	if err != nil {
 		return zero, err
 	}
@@ -270,8 +287,7 @@ func (d *Driver) Start(ctx context.Context, s runtimedriver.Session) (runtimedri
 	host, err := awaitHostReady(ctx, hostReadyWait, func(call context.Context) (HostObservation, error) {
 		return b.ObserveHost(call, native)
 	}, func(call context.Context) error {
-		_, err := b.Stop(call, native)
-		return err
+		return b.stopFailedHost(call, native)
 	})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -299,11 +315,40 @@ func (d *Driver) startRuntime(ctx context.Context, s Session) error {
 	if e != nil || observed.Exists && observed.Status == "Running" {
 		stopCtx, cancel := context.WithTimeout(ctx, hostStopWait)
 		defer cancel()
-		if _, stopErr := b.Stop(stopCtx, s); stopErr != nil {
+		if stopErr := b.stopFailedHost(stopCtx, s); stopErr != nil {
 			err = fmt.Errorf("%v; stopping failed: %w", err, stopErr)
 		}
 	}
 	return hostError(err)
+}
+
+// stopFailedHost stops a runtime whose session host failed. A failed host
+// shuts its runtime down by itself, so Incus may refuse or lose a stop sent
+// meanwhile; the runtime counts as stopped once it is seen stopped before
+// ctx ends, and Start never returns a host failure while it still runs. A
+// stop not seen to take effect, because ctx ended first or the runtime went
+// missing, keeps its error.
+func (b *Backend) stopFailedHost(ctx context.Context, s Session) error {
+	_, err := b.Stop(ctx, s)
+	if err == nil {
+		return nil
+	}
+	for {
+		o, e := b.Inspect(ctx, s)
+		if e == nil && !o.Exists {
+			return err
+		}
+		if e == nil && o.Status == "Stopped" {
+			return nil
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+	}
 }
 
 // maxHostDiagnostic bounds the diagnostic of a host that did not become
@@ -402,7 +447,7 @@ func stopAfterHostFailure(parent context.Context, reason error, mustStop bool, s
 // Stop stops the runtime gracefully, and by force once Incus's graceful
 // timeout has passed.
 func (d *Driver) Stop(ctx context.Context, s runtimedriver.Session) (runtimedriver.Observation, error) {
-	native, err := d.backend.nativeSession(s)
+	native, err := d.backend.NativeSession(s)
 	if err != nil {
 		return runtimedriver.Observation{}, err
 	}
@@ -410,12 +455,34 @@ func (d *Driver) Stop(ctx context.Context, s runtimedriver.Session) (runtimedriv
 	if err != nil {
 		return runtimedriver.Observation{}, err
 	}
-	return d.backend.observe(ctx, native, o), nil
+	return observeRuntime(native, o), nil
 }
 
 // Inventory comes with the absence proofs in migration step M3.
 func (d *Driver) Inventory(context.Context) (runtimedriver.Inventory, error) {
 	return runtimedriver.Inventory{}, runtimedriver.ErrUnsupported
+}
+
+// HostLog reads the session host's journal: through systemd in a running
+// runtime, and for a stopped one its persistent journal through the file
+// API, briefly and at most once (see observeHostOf).
+func (d *Driver) HostLog(ctx context.Context, t runtimedriver.Target) (string, error) {
+	native, err := d.backend.NativeSession(t.Session)
+	if err != nil {
+		return "", err
+	}
+	o, err := d.backend.InspectCreated(ctx, native)
+	if err != nil || !o.Exists {
+		return "", err
+	}
+	if err := sameIncarnation(o, t.At); err != nil {
+		return "", err
+	}
+	host, err := d.backend.observeHostOf(ctx, native, o)
+	if err != nil {
+		return "", err
+	}
+	return host.Diagnostic, nil
 }
 
 // OpenTerminal comes in migration step M5.

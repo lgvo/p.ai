@@ -1,6 +1,7 @@
 # shellcheck shell=bash
-# Test-only selected assembly through the real WASI policy and confined Incus
-# socket. Public project/session lifecycle is a later step.
+# Test-only sessions through the production Incus runtime driver and its
+# confined socket: create installs the selected guest files, start waits for
+# the session host. Public project/session lifecycle is a later step.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-09"
@@ -23,6 +24,7 @@ on_error() {
     inc exec "$name" -- journalctl -u p-interactive.service -n 15 --no-pager 2>&1 | tail -c 2048 >&2 || true
   done
   tail -c 2048 "$step_dir/git.err" >&2 || true
+  tail -c 1024 "$step_dir/start.err" >&2 || true
   tail -c 1024 "$step_dir/refused.err" >&2 || true
 }
 trap cleanup EXIT
@@ -40,8 +42,7 @@ activate_package() {
   jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
-activate_package "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime.json" runtime.incus
-# Hold this selected service in systemd's startup state until the fixture
+# Hold this selected service in systemd's startup state until the scenario
 # observes Running without host readiness. The gate is bounded and test-only;
 # the changed bytes are pinned by the normal selected-package plan.
 mkdir -m 0700 "$step_dir/host-package"
@@ -69,7 +70,6 @@ git_control=$(jq -er '.control' "$step_dir/git-ready.json")
 git_address=$(jq -er '.listen' "$step_dir/git-ready.json")
 fixture() { timeout 15 git-fixture call "$git_control" "$1"; }
 fixture '{"schema":"p.git-fixture/v1","kind":"project","project":"assembly"}' | jq -e '.ok' >/dev/null
-fixture '{"schema":"p.git-fixture/v1","kind":"project","project":"other"}' | jq -e '.ok' >/dev/null
 blank_result=$(fixture "$(jq -nc --arg key "$step_dir/blank.pub" \
   '{schema:"p.git-fixture/v1",kind:"seed-session",key:"assembly-main",project:"assembly",branch:"main",choice:"blank",public_key:$key}')")
 blank_session=$(jq -er '.result.session_uuid' <<< "$blank_result")
@@ -88,56 +88,30 @@ prepare_endpoint() {
   echo 'endpoint listeners failed to start' >&2
   return 1
 }
-request() {
-  local name="$1" session="$2" branch="$3" oid="$4" identity="$5" target="$6"
+session_file() {
+  local name="$1" session="$2" branch="$3" commit="$4" key="$5" target="$6"
   jq -n --arg instance 11111111-1111-4111-8111-111111111111 \
-    --arg session "$session" --arg image "$fingerprint" --arg endpoint "$endpoint_prefix/$name" \
-    --arg branch "$branch" --arg oid "$oid" --arg identity "$step_dir/$identity" \
+    --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint_prefix/$name" \
+    --arg branch "$branch" --arg commit "$commit" --arg key "$step_dir/$key" \
     --arg server "$step_dir/server.pub" --arg host "$step_dir/host.json" \
     --arg source "$step_dir/source.json" \
-    '{instance_uuid:$instance,session_uuid:$session,image:$image,endpoint:$endpoint,
-      repository:"assembly",branch:$branch,initial_oid:$oid,host_activation:$host,
-      source_activation:$source,identity_file:$identity,server_public_key_file:$server}' > "$target"
+    '{instance_uuid:$instance,session_uuid:$session,project:"assembly",branch:$branch,commit:$commit,
+      image:$image,endpoints:$endpoints,host_activation:$host,source_activation:$source,
+      git_key_file:$key,git_host_key_file:$server}' > "$target"
 }
-invoke() { timeout 130 runtime-fixture "$step_dir/runtime.json" "$1" "$2"; }
+runtime() { timeout 190 runtime-fixture "$@"; }
 exec_p() {
   local name="$1"
   shift
   inc exec "$name" --user 1000 --group 1000 --cwd /workspace \
     --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh -- "$@"
 }
-wait_host() {
-  local request_file="$1" deadline=$((SECONDS+60)) state last_error=''
-  while ((SECONDS < deadline)); do
-    if state=$(invoke runtime.observe-host "$request_file" 2> "$step_dir/host-observe.err"); then
-      if jq -e '.status=="Running" and .host_ready==true and .host_unit=="active/running"' <<< "$state" >/dev/null; then return; fi
-      if jq -e '.status=="Stopped"' <<< "$state" >/dev/null; then
-        echo 'persistent host stopped before readiness' >&2
-        return 1
-      fi
-    else
-      # During early boot the fixed systemctl helper may not exist yet. A
-      # failed observation supplies no readiness claim; inspect Incus state
-      # separately so a stopped guest still terminates the wait promptly.
-      last_error=$(tail -c 1024 "$step_dir/host-observe.err")
-      if state=$(invoke runtime.inspect "$request_file" 2> "$step_dir/host-inspect.err"); then
-        if jq -e '.status=="Stopped"' <<< "$state" >/dev/null; then
-          echo 'persistent host stopped before readiness' >&2
-          return 1
-        fi
-      fi
-    fi
-    sleep 0.2
-  done
-  echo 'persistent host did not become ready' >&2
-  if test -n "$last_error"; then printf 'Last host observation error: %s\n' "$last_error" >&2; fi
-  return 1
-}
 wait_running_unready() {
-  local request_file="$1" deadline=$((SECONDS+15)) state
+  local spec="$1" deadline=$((SECONDS+60)) state
   while ((SECONDS < deadline)); do
-    if state=$(invoke runtime.observe-host "$request_file" 2> "$step_dir/observe.err"); then
-      if jq -e '.status=="Running" and (.host_ready // false)==false and .host_unit!="active/running"' <<< "$state" >/dev/null; then
+    # During early boot the host cannot be read yet; that is no observation.
+    if state=$(runtime inspect "$spec" 2> "$step_dir/observe.err"); then
+      if jq -e '.state=="running" and (.host.ready|not) and (.host.unknown|not)' <<< "$state" >/dev/null; then
         return
       fi
     fi
@@ -148,41 +122,50 @@ wait_running_unready() {
 }
 blank_name="p-$blank_session"
 prepare_endpoint "$blank_name"
-request "$blank_name" "$blank_session" main '' blank "$step_dir/blank-request.json"
-blank_request="$step_dir/blank-request.json"
-invoke runtime.create "$blank_request" | jq -e '.status=="Stopped"' >/dev/null
-invoke runtime.assemble "$blank_request" | jq -e '.status=="Stopped"' >/dev/null
-invoke runtime.assemble "$blank_request" | jq -e '.status=="Stopped"' >/dev/null
+session_file "$blank_name" "$blank_session" main '' blank "$step_dir/blank-session.json"
+blank_spec="$step_dir/blank-session.json"
+created=$(runtime create "$blank_spec")
+jq -e '.state=="stopped" and .complete and .gated' <<< "$created" >/dev/null
+blank_at=$(jq -er '.incarnation' <<< "$created")
+# Completing the created runtime keeps every identical guest file.
+runtime create "$blank_spec" "$blank_at" | jq -e --arg at "$blank_at" '.state=="stopped" and .complete and .incarnation==$at' >/dev/null
+runtime create "$blank_spec" "$blank_at" | jq -e --arg at "$blank_at" '.state=="stopped" and .complete and .incarnation==$at' >/dev/null
 test "$(inc file pull "$blank_name/etc/p/git/identity" - 2>/dev/null | sha256sum | cut -d' ' -f1)" = \
   "$(sha256sum "$step_dir/blank" | cut -d' ' -f1)"
 
-# Refused assembly must retain an existing altered file and its metadata.
+# A refused completion must retain an existing altered file and its metadata.
 inc file pull "$blank_name/etc/p/session.json" "$step_dir/session-original.json"
 printf '%s\n' '{"schema":"p.runtime-session/v1","activation":"base","command":["/bin/false"]}' > "$step_dir/session-changed.json"
 inc file push --uid 0 --gid 0 --mode 0644 "$step_dir/session-changed.json" "$blank_name/etc/p/session.json"
-expect_failure invoke runtime.assemble "$blank_request"
+expect_failure runtime create "$blank_spec" "$blank_at"
 test "$(inc file pull "$blank_name/etc/p/session.json" -)" = "$(cat "$step_dir/session-changed.json")"
 inc file push --uid 0 --gid 0 --mode 0644 "$step_dir/session-original.json" "$blank_name/etc/p/session.json"
 inc file delete "$blank_name/etc/p/session.json"
 inc file push --uid 0 --gid 0 --mode 0600 "$step_dir/session-original.json" "$blank_name/etc/p/session.json"
 inc file pull "$blank_name/etc/p/session.json" "$step_dir/session-mode-check.json"
 test "$(stat -c %a "$step_dir/session-mode-check.json")" = 600
-expect_failure invoke runtime.assemble "$blank_request"
+expect_failure runtime create "$blank_spec" "$blank_at"
 inc file delete "$blank_name/etc/p/session.json"
 inc file push --uid 0 --gid 0 --mode 0644 "$step_dir/session-original.json" "$blank_name/etc/p/session.json"
-jq '.workspace_repository="other"' "$blank_request" > "$step_dir/wrong-project.json"
+# A spec naming another workspace is refused; the installed one stays.
+jq '.branch="other"' "$blank_spec" > "$step_dir/wrong-workspace.json"
 inc file pull "$blank_name/etc/p/workspace.json" "$step_dir/workspace-before-refusal.json"
-expect_failure invoke runtime.assemble "$step_dir/wrong-project.json"
+expect_failure runtime create "$step_dir/wrong-workspace.json" "$blank_at"
 inc file pull "$blank_name/etc/p/workspace.json" "$step_dir/workspace-after-refusal.json"
 cmp "$step_dir/workspace-before-refusal.json" "$step_dir/workspace-after-refusal.json"
 
-# The selected unit gate makes Incus Running observable before host readiness.
-invoke runtime.start "$blank_request" | jq -e '.status=="Running"' >/dev/null
-wait_running_unready "$blank_request"
+# The selected unit gate makes Incus Running observable before host
+# readiness, and Start returns only once the released host is ready.
+runtime start "$blank_spec" > "$step_dir/blank-start.json" 2> "$step_dir/start.err" &
+start_pid=$!
+pids+=("$start_pid")
+wait_running_unready "$blank_spec"
+test ! -s "$step_dir/blank-start.json"
 printf 'release\n' > "$step_dir/test-release"
 inc file push --uid 0 --gid 0 --mode 0644 "$step_dir/test-release" "$blank_name/etc/p/test-release"
-wait_host "$blank_request"
-expect_failure invoke runtime.assemble "$blank_request"
+wait "$start_pid"
+jq -e --arg at "$blank_at" '.state=="running" and .host.ready and .incarnation==$at' "$step_dir/blank-start.json" >/dev/null
+expect_failure runtime create "$blank_spec" "$blank_at"
 test "$(exec_p "$blank_name" git symbolic-ref -q HEAD)" = refs/heads/main
 expect_failure exec_p "$blank_name" git rev-parse --verify HEAD
 fixture '{"schema":"p.git-fixture/v1","kind":"refs","project":"assembly","limit":8}' |
@@ -206,17 +189,16 @@ exec_p "$blank_name" git commit -qm local
 local_oid=$(exec_p "$blank_name" git rev-parse HEAD)
 exec_p "$blank_name" git checkout -q --detach
 store_path=$(exec_p "$blank_name" nix-store --add /workspace/README)
-invoke runtime.stop "$blank_request" | jq -e '.status=="Stopped"' >/dev/null
-invoke runtime.observe-host "$blank_request" | jq -e '.status=="Stopped" and (.host_ready // false)==false' >/dev/null
-invoke runtime.start "$blank_request" | jq -e '.status=="Running"' >/dev/null
-wait_host "$blank_request"
+runtime stop "$blank_spec" | jq -e '.state=="stopped"' >/dev/null
+runtime inspect "$blank_spec" | jq -e '.state=="stopped" and (.host.ready|not)' >/dev/null
+runtime start "$blank_spec" | jq -e '.state=="running" and .host.ready' >/dev/null
 test "$(exec_p "$blank_name" git rev-parse HEAD)" = "$local_oid"
 test "$(exec_p "$blank_name" git symbolic-ref -q HEAD || true)" = ''
 test "$(exec_p "$blank_name" cat dirty)" = dirty
 test "$(exec_p "$blank_name" cat /home/p/private)" = private
 exec_p "$blank_name" test -f flake.nix
 exec_p "$blank_name" test -e "$store_path"
-invoke runtime.stop "$blank_request" | jq -e '.status=="Stopped"' >/dev/null
+runtime stop "$blank_spec" | jq -e '.state=="stopped"' >/dev/null
 
 # Capture a committed source ref and initialize a second, independent guest.
 fixture "$(jq -nc --arg oid "$main_oid" \
@@ -226,17 +208,20 @@ work_result=$(fixture "$(jq -nc --arg key "$step_dir/work.pub" \
 work_session=$(jq -er '.result.session_uuid' <<< "$work_result")
 work_name="p-$work_session"
 prepare_endpoint "$work_name"
-request "$work_name" "$work_session" work "$main_oid" work "$step_dir/work-request.json"
-work_request="$step_dir/work-request.json"
-invoke runtime.create "$work_request" | jq -e '.status=="Stopped"' >/dev/null
-jq '.workspace_initial_oid=("0"*40)' "$work_request" > "$step_dir/wrong-source.json"
-expect_failure inc file pull "$work_name/etc/p/workspace.json" -
-expect_failure invoke runtime.assemble "$step_dir/wrong-source.json"
-expect_failure inc file pull "$work_name/etc/p/workspace.json" -
-invoke runtime.assemble "$work_request" | jq -e '.status=="Stopped"' >/dev/null
-invoke runtime.start "$work_request" | jq -e '.status=="Running"' >/dev/null
+session_file "$work_name" "$work_session" work "$main_oid" work "$step_dir/work-session.json"
+work_spec="$step_dir/work-session.json"
+created=$(runtime create "$work_spec")
+jq -e '.state=="stopped" and .complete and .gated' <<< "$created" >/dev/null
+work_at=$(jq -er '.incarnation' <<< "$created")
+# A spec naming another source commit is refused; the installed workspace stays.
+jq '.commit=("0"*40)' "$work_spec" > "$step_dir/wrong-source.json"
+inc file pull "$work_name/etc/p/workspace.json" "$step_dir/work-workspace-before-refusal.json"
+expect_failure runtime create "$step_dir/wrong-source.json" "$work_at"
+inc file pull "$work_name/etc/p/workspace.json" "$step_dir/work-workspace-after-refusal.json"
+cmp "$step_dir/work-workspace-before-refusal.json" "$step_dir/work-workspace-after-refusal.json"
+# Released in advance, the selected unit gate lets the first start finish.
 inc file push --uid 0 --gid 0 --mode 0644 "$step_dir/test-release" "$work_name/etc/p/test-release"
-wait_host "$work_request"
+runtime start "$work_spec" | jq -e --arg at "$work_at" '.state=="running" and .host.ready and .incarnation==$at' >/dev/null
 test "$(exec_p "$work_name" git rev-parse HEAD)" = "$main_oid"
 test "$(exec_p "$work_name" git symbolic-ref -q HEAD)" = refs/heads/work
 test "$(exec_p "$work_name" cat README)" = first
@@ -250,13 +235,13 @@ exec_p "$work_name" git push origin HEAD:work
 test "$(inc file pull "$blank_name/workspace/README" -)" = first
 
 # A dangling link is present for HEAD, but GET cannot read a regular file.
-# The installer must refuse and leave the link untouched.
+# Completing the runtime must refuse and leave the link untouched.
 inc exec "$work_name" -- rm /etc/p/assets/p-attach
 inc exec "$work_name" -- ln -s /missing-p-attach /etc/p/assets/p-attach
 inc exec "$work_name" -- test -L /etc/p/assets/p-attach
 inc exec "$work_name" -- test ! -e /missing-p-attach
-invoke runtime.stop "$work_request" | jq -e '.status=="Stopped"' >/dev/null
-expect_failure invoke runtime.assemble "$work_request"
+runtime stop "$work_spec" | jq -e '.state=="stopped"' >/dev/null
+expect_failure runtime create "$work_spec" "$work_at"
 grep -Eq 'symbolic link|HEAD status|GET status|changed|differs from trusted assembly' "$step_dir/refused.err"
 inc file pull -P "$work_name/etc/p/assets/p-attach" "$step_dir/p-attach-after-refusal"
 test -L "$step_dir/p-attach-after-refusal"

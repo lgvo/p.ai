@@ -104,6 +104,7 @@ var reasonSentences = map[api.ErrorKind]map[string]string{
 		api.ReasonProject:   "That project does not exist.",
 		api.ReasonBranch:    "That branch does not exist.",
 		api.ReasonSource:    "That source does not exist.",
+		api.ReasonService:   "That session has no such project service.",
 	},
 	api.KindNotConfigured: {
 		api.ReasonGit:           "This P instance has no Git configured.",

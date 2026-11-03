@@ -39,7 +39,7 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	if err := l.checkBranchName(ctx, "new_branch", req.NewBranch); err != nil {
 		return api.Operation{}, err
 	}
-	native, err := l.runtimeSession(ctx, s)
+	native, err := l.nativeSession(ctx, s)
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -213,7 +213,7 @@ func (l *lifecycle) processRename(op api.Operation) {
 		l.blockRename(op, errors.Join(err, errors.New("rename assignment changed")))
 		return
 	}
-	source, err := l.runtimeSession(ctx, s)
+	source, err := l.nativeSession(ctx, s)
 	if err != nil || source.ImageFingerprint != ev.ImageFingerprint {
 		l.blockRename(op, errors.Join(err, errors.New("rename runtime selection changed")))
 		return

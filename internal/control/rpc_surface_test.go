@@ -392,7 +392,7 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		{"session.start", `{}`},
 		{"session.stop", `{"uuid":"` + uuid + `","extra":1}`},
 		{"session.services", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `"}`},
-		{"session.service.logs", `{"uuid":"` + uuid + `","name":"sshd.service"}`},
+		{"session.service.logs", `{"uuid":"` + uuid + `","name":"sshd.service\nsystemd"}`},
 		{"session.service.action", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `","action":"reload"}`},
 		{"session.service.action", `{"uuid":"` + uuid + `","unit":"` + surfaceUnit + `","action":"restart"}`},
 		{"session.service.action", `{"uuid":"` + uuid + `","action":"list"}`},

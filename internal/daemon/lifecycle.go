@@ -10,7 +10,7 @@ import (
 	"log"
 	"path/filepath"
 	"runtime/debug"
-	"strings"
+	"slices"
 	"sync"
 	"time"
 
@@ -20,7 +20,6 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
-	"github.com/lgvo/p.ai/internal/runtimekit"
 )
 
 type lifecycle struct {
@@ -28,9 +27,8 @@ type lifecycle struct {
 	cfg              control.RuntimeConfig
 	incus            runtimeincus.DriverConfig // the Incus driver's own settings from cfg.Driver
 	git              *gitCapability
-	runtime          *runtimeincus.Backend
-	images           runtimedriver.Images
-	runtimePlugin    plugin.Active
+	runtime          *runtimeincus.Backend // the backend calls that later migration steps move into the driver
+	driver           runtimedriver.Driver
 	hostPlan         plugin.AssetPlan
 	sourcePlan       plugin.AssetPlan
 	agentPlan        *plugin.AssetPlan
@@ -91,18 +89,11 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	var runtimeSelection, hostSelection *plugin.Active
+	var hostSelection *plugin.Active
 	for i := range active {
-		v := &active[i]
-		switch v.Package.Manifest.ID {
-		case cfg.RuntimePluginID:
-			runtimeSelection = v
-		case cfg.HostPluginID:
-			hostSelection = v
+		if active[i].Package.Manifest.ID == cfg.HostPluginID {
+			hostSelection = &active[i]
 		}
-	}
-	if runtimeSelection == nil || runtimeSelection.Package.Manifest.Capability != "runtime" || runtimeSelection.Package.Manifest.Runtime.Kind != "wasi-command" || len(runtimeSelection.Grants) != 1 || runtimeSelection.Grants[0] != "runtime.incus" {
-		return nil, errors.New("selected runtime plugin unavailable")
 	}
 	if hostSelection == nil || hostSelection.Package.Manifest.Capability != "interactive-host" || hostSelection.Package.Manifest.Runtime.Kind != "assets" || len(hostSelection.Grants) != 1 || hostSelection.Grants[0] != "session.asset.install" {
 		return nil, errors.New("selected interactive host unavailable")
@@ -166,7 +157,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, runtime: runtime, images: runtimeincus.NewDriver(runtime), runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, runtime: runtime, driver: runtimeincus.NewDriver(runtime), hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -476,7 +467,7 @@ func (l *lifecycle) dispatchLocked() {
 }
 
 func (l *lifecycle) selection() control.CreationSelection {
-	s := control.CreationSelection{RuntimeID: l.runtimePlugin.Package.Manifest.ID, RuntimeSHA256: l.runtimePlugin.Package.SHA256, HostID: l.hostPlan.PackageID, HostSHA256: l.hostPlan.PackageSHA256, SourceID: l.sourcePlan.PackageID, SourceSHA256: l.sourcePlan.PackageSHA256}
+	s := control.CreationSelection{HostID: l.hostPlan.PackageID, HostSHA256: l.hostPlan.PackageSHA256, SourceID: l.sourcePlan.PackageID, SourceSHA256: l.sourcePlan.PackageSHA256}
 	if l.agentPlan != nil {
 		s.AgentID, s.AgentSHA256 = l.agentPlan.PackageID, l.agentPlan.PackageSHA256
 	}
@@ -496,7 +487,7 @@ func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
 		BaseFingerprint:     l.cfg.BaseImageFingerprint,
 		BuilderStoragePool:  l.cfg.Environment.BuilderStoragePool,
 		BuilderPolicySHA256: runtimeincus.BuilderPolicyDigest(publicEgress),
-		ImageBuilder:        l.images.Describe().ImageBuilder,
+		ImageBuilder:        l.driver.Describe().ImageBuilder,
 	}
 }
 
@@ -1056,22 +1047,14 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		fail(refusalBecause(api.KindConflict, api.ReasonPolicyInvalid, api.TargetSession(session.UUID), control.ErrConflict, errors.New("stored project policy is unavailable")))
 		return
 	}
-	var image, initialOID string
+	var initialOID string
 	var creationEvidence control.CreationEvidence
-	if op.Kind == "project.create" {
-		var ev control.BlankProjectEvidence
-		if json.Unmarshal(op.Evidence, &ev) != nil {
-			fail(errors.New("invalid project evidence"))
-			return
-		}
-		image = ev.ImageFingerprint
-	} else {
+	if op.Kind == "session.create" {
 		ev, e := control.Evidence(op)
 		if e != nil {
 			fail(e)
 			return
 		}
-		image = ev.ImageFingerprint
 		initialOID = ev.CapturedOID
 		creationEvidence = ev
 		if op.Phase == "source-ready" {
@@ -1113,13 +1096,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		}
 	}
 	if op.Kind == "session.create" && creationEvidence.Environment != nil {
-		image, err = l.ensureImage(ctx, &op, creationEvidence)
-		if err != nil {
-			fail(err)
-			return
-		}
-		creationEvidence, err = control.Evidence(op)
-		if err != nil {
+		if _, err = l.ensureImage(ctx, &op, creationEvidence); err != nil {
 			fail(err)
 			return
 		}
@@ -1133,8 +1110,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 			return
 		}
 	}
-	dir, err := l.endpoints.Ensure(ctx, session.UUID)
-	if err != nil {
+	if _, err = l.endpoints.Ensure(ctx, session.UUID); err != nil {
 		fail(err)
 		return
 	}
@@ -1151,78 +1127,13 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		fail(err)
 		return
 	}
-	publicIPv4, networkErr := l.publicSessionIPv4(ctx, session.UUID, selectedPolicy)
-	if networkErr != nil {
-		fail(networkErr)
+	spec, err := l.sessionSpec(ctx, session)
+	if err != nil {
+		fail(err)
 		return
 	}
-	native := runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: session.UUID, ProjectPath: session.Project, AssignedBranch: session.Branch, InitialOID: initialOID, ContractVersion: "1", ImageFingerprint: image, EndpointSource: dir, Grants: nativeFilesystemGrants(selectedPolicy), PublicIPv4: publicIPv4}
-	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
-	if op.Kind == "session.create" {
-		scoped.BeforeCreate = func() error {
-			return recordCreationInitAttempt(ctx, &op, func(call context.Context, raw json.RawMessage) error {
-				return l.store.AdvanceOperation(call, op.ID, "running", op.Phase, op.Committed, raw, "", "")
-			})
-		}
-	}
-	runtimeRunning := false
-	if phaseRank(op.Phase) >= phaseRank("runtime-created") {
-		state, inspectErr := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
-		if inspectErr != nil {
-			fail(inspectErr)
-			return
-		}
-		runtimeRunning = state.Status == "Running"
-		if runtimeRunning && phaseRank(op.Phase) < phaseRank("assembly-ready") {
-			fail(refusalBecause(api.KindConflict, api.ReasonRuntimeUnsettled, api.TargetSession(session.UUID), control.ErrConflict, errors.New("creating runtime is running before verified assembly")))
-			return
-		}
-	}
-	if !runtimeRunning {
-		run := func(call context.Context, kind string) (plugin.RuntimeState, error) {
-			return runRuntime(call, l.runtimePlugin, kind, scoped)
-		}
-		if _, err = ensureStoppedRuntime(ctx, run); err != nil {
-			fail(err)
-			return
-		}
-		if err = l.advance(&op, "runtime-created", true); err != nil {
-			fail(err)
-			return
-		}
-		activation, workspace := imageSessionConfig(creationEvidence.Image, session, initialOID, selectedPolicy.Command)
-		if l.agentPlan != nil {
-			if len(l.agentPlan.Files) != 1 || l.agentPlan.Files[0].Role != "p-codex-adapter" {
-				fail(control.Failed(api.ReasonPlugin, errors.New("selected agent asset role unavailable")))
-				return
-			}
-			activation.Schema = "p.runtime-session/v3"
-			activation.AgentSHA256 = l.agentPlan.Files[0].SHA256
-		}
-		if len(selectedPolicy.FilesystemMounts) != 0 {
-			activation.Schema = "p.runtime-session/v4"
-			activation.FilesystemMounts = guestFilesystemGrants(selectedPolicy)
-		}
-		if publicIPv4 != "" {
-			activation.Schema = "p.runtime-session/v5"
-			activation.PublicNetwork = l.guestPublicNetwork(publicIPv4)
-		}
-		assembly := runtimeincus.Assembly{HostAssets: l.hostPlan, SourceAssets: l.sourcePlan, AgentAssets: l.agentPlan, SessionConfig: activation, Workspace: workspace, Identity: key, ServerPublicKey: l.git.info.HostPublicKey}
-		scoped.Assembly = &assembly
-		if err = assembleStoppedRuntime(ctx, run); err != nil {
-			fail(err)
-			return
-		}
-		if err = l.advance(&op, "assembly-ready", true); err != nil {
-			fail(err)
-			return
-		}
-		if err = l.startOwned(ctx, scoped); err != nil {
-			fail(err)
-			return
-		}
-	}
-	if err = l.awaitOwnedHost(ctx, scoped); err != nil {
+	spec.GitKey = key
+	if err = l.createRuntime(ctx, &op, spec); err != nil {
 		fail(err)
 		return
 	}
@@ -1237,32 +1148,76 @@ func (l *lifecycle) processCreation(op api.Operation) {
 	}
 }
 
-// imageSessionConfig is the session configuration a runtime kit receives for
-// the image a session was created from. A commit image activates its
-// devShell, if it has one, and already holds the workspace's clone; without
-// one, the runtime kit clones the workspace from P at start.
-func imageSessionConfig(img *control.CreationImage, session control.Session, initialOID string, command []string) (runtimekit.Config, runtimekit.WorkspaceConfig) {
-	activation := runtimekit.Config{Schema: "p.runtime-session/v1", Activation: "base", Command: command}
-	workspace := runtimekit.WorkspaceConfig{Schema: "p.workspace/v1", Repository: session.Project, Branch: session.Branch, InitialOID: initialOID}
-	if img == nil {
-		return activation, workspace
+// createRuntime brings the runtime of a creation at principals-ready or
+// later to a ready session host. An absent runtime is created through the
+// creation's init gate; a stopped one an interrupted creation left is
+// completed at its incarnation and never initialized again. A runtime
+// running before its assembly was recorded blocks the creation. Start returns
+// once the session host is ready, or fails with the host's diagnostic.
+func (l *lifecycle) createRuntime(ctx context.Context, op *api.Operation, spec runtimedriver.Session) error {
+	observed, err := l.driver.Inspect(ctx, spec)
+	if err != nil {
+		return control.Failed(api.ReasonRuntime, err)
 	}
-	if img.Selection == string(runtimedriver.SelectionDevShell) {
-		activation = runtimekit.Config{Schema: "p.runtime-session/v2", Activation: "devshell", MaterialSHA256: img.MaterialSHA256, Command: command}
+	switch {
+	case observed.State == runtimedriver.StateRunning:
+		// The daemon restarted after starting it: Start only waits.
+		if phaseRank(op.Phase) < phaseRank("assembly-ready") {
+			return refusalBecause(api.KindConflict, api.ReasonRuntimeUnsettled, api.TargetSession(spec.Ref.ID), control.ErrConflict, errors.New("creating runtime is running before verified assembly"))
+		}
+		_, err = l.driver.Start(ctx, spec)
+		return control.Failed(api.ReasonRuntime, err)
+	case observed.State == runtimedriver.StateAbsent:
+		_, err = l.driver.Create(ctx, spec, "", l.creationInitGate(ctx, op))
+	case observed.Incarnation == "":
+		err = errors.New("creating runtime has no incarnation to complete")
+	default:
+		_, err = l.driver.Create(ctx, spec, observed.Incarnation, nil)
 	}
-	workspace.Schema, workspace.EnvironmentSelection = "p.workspace/v2", img.Selection
-	return activation, workspace
+	if err != nil {
+		return control.Failed(api.ReasonRuntime, err)
+	}
+	// Create installs the runtime and its guest files together.
+	if err = l.advance(op, "runtime-created", true); err != nil {
+		return err
+	}
+	if err = l.advance(op, "assembly-ready", true); err != nil {
+		return err
+	}
+	_, err = l.driver.Start(ctx, spec)
+	return control.Failed(api.ReasonRuntime, err)
 }
 
-func guestFilesystemGrants(policy control.ProjectPolicy) []runtimekit.FilesystemGrant {
-	grants := make([]runtimekit.FilesystemGrant, 0, len(policy.FilesystemMounts))
+// creationInitGate is the gate of a creation's runtime init. A session
+// creation records its init attempt there, so that a runtime absent after an
+// attempted init never authorizes another; a blank project's creation
+// records none.
+func (l *lifecycle) creationInitGate(ctx context.Context, op *api.Operation) runtimedriver.Gate {
+	if op.Kind != "session.create" {
+		return func() error { return nil }
+	}
+	return func() error {
+		return recordCreationInitAttempt(ctx, op, func(call context.Context, raw json.RawMessage) error {
+			return l.store.AdvanceOperation(call, op.ID, "running", op.Phase, op.Committed, raw, "", "")
+		})
+	}
+}
+
+// sessionGrants are the filesystem grants of a stored policy, with the
+// source identity each had when captured.
+func sessionGrants(policy control.ProjectPolicy) []runtimedriver.Grant {
+	grants := make([]runtimedriver.Grant, 0, len(policy.FilesystemMounts))
 	for _, g := range policy.FilesystemMounts {
-		grants = append(grants, runtimekit.FilesystemGrant{Name: g.Name, Type: g.Type, Access: g.Access, Executable: g.Executable,
-			Device: g.SourceIdentity.Device, Inode: g.SourceIdentity.Inode})
+		id := g.SourceIdentity
+		grants = append(grants, runtimedriver.Grant{Name: g.Name, Source: g.Source, Type: g.Type, Access: g.Access, Executable: g.Executable,
+			Device: id.Device, Inode: id.Inode, OwnerUID: id.OwnerUID, OwnerGID: id.OwnerGID})
 	}
 	return grants
 }
 
+// nativeFilesystemGrants are the grants of a stored policy as session
+// capacity inspects them, until migration step M3 counts capacity from the
+// driver's inventory.
 func nativeFilesystemGrants(policy control.ProjectPolicy) []runtimeincus.FilesystemGrant {
 	grants := make([]runtimeincus.FilesystemGrant, 0, len(policy.FilesystemMounts))
 	for _, g := range policy.FilesystemMounts {
@@ -1271,34 +1226,6 @@ func nativeFilesystemGrants(policy control.ProjectPolicy) []runtimeincus.Filesys
 			Device: id.Device, Inode: id.Inode, OwnerUID: id.OwnerUID, OwnerGID: id.OwnerGID})
 	}
 	return grants
-}
-
-func (l *lifecycle) stopOwned(ctx context.Context, scoped runtimeincus.Scoped) error {
-	_, err := runRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped)
-	return err
-}
-func (l *lifecycle) awaitOwnedHost(ctx context.Context, scoped runtimeincus.Scoped) error {
-	return control.Failed(api.ReasonRuntime, awaitHostReady(ctx, 100*time.Second, func(call context.Context) (plugin.RuntimeState, error) {
-		return runRuntime(call, l.runtimePlugin, "runtime.observe-host", scoped)
-	}, func(call context.Context) error { return l.stopOwned(call, scoped) }))
-}
-func (l *lifecycle) startOwned(ctx context.Context, scoped runtimeincus.Scoped) error {
-	_, err := runRuntime(ctx, l.runtimePlugin, "runtime.start", scoped)
-	if err == nil {
-		return nil
-	}
-	observed, e := runRuntime(ctx, l.runtimePlugin, "runtime.observe-host", scoped)
-	if e == nil && observed.DiagnosticAvailable && observed.Diagnostic != "" {
-		err = errors.New(observed.Diagnostic)
-	}
-	if e != nil || observed.Exists && observed.Status == "Running" {
-		stopCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-		defer cancel()
-		if stopErr := l.stopOwned(stopCtx, scoped); stopErr != nil {
-			err = fmt.Errorf("%v; stopping failed: %w", err, stopErr)
-		}
-	}
-	return err
 }
 
 func (l *lifecycle) advance(op *api.Operation, phase string, committed bool) error {
@@ -1339,46 +1266,76 @@ func phaseRank(phase string) int {
 	}
 }
 
-// runtimeSession is the runtime identity of session s. Its policy and its
-// creation's evidence come from the store, so a failure to read them answers
-// internal with reason store.
-func (l *lifecycle) runtimeSession(ctx context.Context, s control.Session) (runtimeincus.Session, error) {
+// sessionSpec is the runtime driver's spec of session s: its project, the
+// image and commit its creation captured, the command of its stored policy,
+// P's Git host key, its endpoint directory, grants, network and the selected
+// session assets. It holds no Git key: only creating the runtime installs
+// one, and the creation adds it. Its policy and its creation's evidence come
+// from the store, so a failure to read them answers internal with reason
+// store.
+func (l *lifecycle) sessionSpec(ctx context.Context, s control.Session) (runtimedriver.Session, error) {
 	policy, err := control.ParseStoredProjectPolicy(s.Policy)
 	if err != nil {
-		return runtimeincus.Session{}, control.Internal(api.ReasonStore, err)
+		return runtimedriver.Session{}, control.Internal(api.ReasonStore, err)
 	}
-	grants := nativeFilesystemGrants(policy)
-	op, err := l.store.CreationForSession(ctx, s.UUID)
+	created, err := l.store.CreationForSession(ctx, s.UUID)
 	if err != nil {
-		return runtimeincus.Session{}, control.Internal(api.ReasonStore, err)
+		return runtimedriver.Session{}, control.Internal(api.ReasonStore, err)
 	}
-	image := ""
-	if op.Kind == "project.create" {
+	var image, commit string
+	if created.Kind == "project.create" {
 		var ev control.BlankProjectEvidence
-		if e := json.Unmarshal(op.Evidence, &ev); e != nil {
-			return runtimeincus.Session{}, control.Internal(api.ReasonStore, e)
+		if e := json.Unmarshal(created.Evidence, &ev); e != nil {
+			return runtimedriver.Session{}, control.Internal(api.ReasonStore, e)
 		}
 		image = ev.ImageFingerprint
 	} else {
-		ev, e := control.Evidence(op)
+		ev, e := control.Evidence(created)
 		if e != nil {
-			return runtimeincus.Session{}, control.Internal(api.ReasonStore, e)
+			return runtimedriver.Session{}, control.Internal(api.ReasonStore, e)
 		}
-		image = ev.ImageFingerprint
-	}
-	initialOID := ""
-	if op.Kind == "session.create" {
-		ev, e := control.Evidence(op)
-		if e != nil {
-			return runtimeincus.Session{}, control.Internal(api.ReasonStore, e)
-		}
-		initialOID = ev.CapturedOID
+		image, commit = ev.ImageFingerprint, ev.CapturedOID
 	}
 	publicIPv4, err := l.publicSessionIPv4(ctx, s.UUID, policy)
 	if err != nil {
+		return runtimedriver.Session{}, err
+	}
+	return runtimedriver.Session{
+		Ref:        runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: s.UUID},
+		Labels:     runtimedriver.Labels{runtimedriver.LabelProject: s.Project},
+		Image:      runtimedriver.ImageRef(image),
+		Command:    policy.Command,
+		Workspace:  runtimedriver.Workspace{Repository: s.Project, Branch: s.Branch, Commit: commit},
+		GitHostKey: l.git.info.HostPublicKey,
+		Endpoints:  filepath.Join(l.cfg.EndpointPrefix, s.UUID),
+		Grants:     sessionGrants(policy),
+		Network:    runtimedriver.Network{PublicIPv4: publicIPv4},
+		Assets:     l.sessionAssets(),
+	}, nil
+}
+
+// sessionAssets are the files of the selected interactive host, source and
+// agent adapter packages, each named by its role.
+func (l *lifecycle) sessionAssets() []runtimedriver.Asset {
+	files := slices.Concat(l.hostPlan.Files, l.sourcePlan.Files)
+	if l.agentPlan != nil {
+		files = append(files, l.agentPlan.Files...)
+	}
+	assets := make([]runtimedriver.Asset, 0, len(files))
+	for _, f := range files {
+		assets = append(assets, runtimedriver.Asset{Role: f.Role, Mode: f.Mode, Data: f.Data, SHA256: f.SHA256})
+	}
+	return assets
+}
+
+// nativeSession is the Incus backend's session of s, for the backend calls
+// that later migration steps move into the driver.
+func (l *lifecycle) nativeSession(ctx context.Context, s control.Session) (runtimeincus.Session, error) {
+	spec, err := l.sessionSpec(ctx, s)
+	if err != nil {
 		return runtimeincus.Session{}, err
 	}
-	return runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: s.UUID, ProjectPath: s.Project, AssignedBranch: s.Branch, InitialOID: initialOID, ContractVersion: "1", ImageFingerprint: image, EndpointSource: filepath.Join(l.cfg.EndpointPrefix, s.UUID), Grants: grants, PublicIPv4: publicIPv4}, nil
+	return l.runtime.NativeSession(spec)
 }
 
 // publicSessionIPv4 is the public egress address of a session with policy,
@@ -1404,13 +1361,6 @@ func (l *lifecycle) publicSessionIPv4(ctx context.Context, sessionID string, pol
 		return "", err
 	}
 	return l.cfg.PublicEgress.PublicEgressGuestIPv4(slot)
-}
-
-func (l *lifecycle) guestPublicNetwork(address string) *runtimekit.PublicNetwork {
-	if address == "" || l.cfg.PublicEgress == nil {
-		return nil
-	}
-	return &runtimekit.PublicNetwork{Address: address, Gateway: strings.SplitN(l.cfg.PublicEgress.BridgeIPv4, "/", 2)[0], DNS: append([]string(nil), l.cfg.PublicEgress.DNS...)}
 }
 
 func (l *lifecycle) policyCondition(ctx context.Context, s control.Session) string {
@@ -1562,13 +1512,18 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 		v.Condition = unfinished
 		return v, err
 	}
+	// A runtime missing a device, or whose host cannot be read, is as
+	// unreachable as one the driver cannot inspect.
 	v.Condition = "unreachable"
-	if native, e := l.runtimeSession(ctx, s); e == nil {
-		state, e := runRuntime(ctx, l.runtimePlugin, "runtime.observe-host", runtimeincus.Scoped{Backend: l.runtime, Session: native})
-		if e == nil {
-			v.Condition = observedCondition(state)
-			if state.DiagnosticAvailable {
-				v.Diagnostic = state.Diagnostic
+	if spec, e := l.sessionSpec(ctx, s); e == nil {
+		observed, e := l.driver.Inspect(ctx, spec)
+		if e == nil && !observed.Host.Unknown && (observed.State == runtimedriver.StateAbsent || observed.Complete) {
+			v.Condition, v.Diagnostic = observedCondition(observed), observed.Host.Diagnostic
+			if observed.State == runtimedriver.StateStopped {
+				// The host's last words say why a session stopped on its own.
+				if words, e := l.driver.HostLog(ctx, runtimedriver.Target{Session: spec, At: observed.Incarnation}); e == nil {
+					v.Diagnostic = words
+				}
 			}
 		}
 	}
@@ -1600,14 +1555,14 @@ func (l *lifecycle) unfinishedSessionChange(ctx context.Context, id string) (api
 }
 
 // observedCondition is the condition of an established session, with no
-// unfinished start or stop, whose runtime was observed as state.
-func observedCondition(state plugin.RuntimeState) string {
+// unfinished start or stop, whose runtime was observed.
+func observedCondition(observed runtimedriver.Observation) string {
 	switch {
-	case !state.Exists:
+	case observed.State == runtimedriver.StateAbsent:
 		return "missing"
-	case state.Status == "Stopped":
+	case observed.State == runtimedriver.StateStopped:
 		return "stopped"
-	case state.HostReady:
+	case observed.Host.Ready:
 		return "ready"
 	default:
 		return "starting"
@@ -1707,24 +1662,21 @@ func (l *lifecycle) admitStart(ctx context.Context, id string) (*api.SessionView
 	} else if err != nil {
 		return nil, err
 	}
-	native, err := l.runtimeSession(ctx, s)
+	spec, err := l.sessionSpec(ctx, s)
 	if err != nil {
 		return nil, err
 	}
 	if _, err = l.endpoints.Ensure(ctx, id); err != nil {
 		return nil, err
 	}
-	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", runtimeincus.Scoped{Backend: l.runtime, Session: native})
+	observed, err := l.driver.Inspect(ctx, spec)
 	if err != nil {
 		return nil, control.Failed(api.ReasonRuntime, err)
 	}
-	if !observed.Exists {
-		return nil, control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
+	if err = startableRuntime(id, observed); err != nil {
+		return nil, err
 	}
-	if observed.Status != "Stopped" && observed.Status != "Running" {
-		return nil, control.Failed(api.ReasonRuntime, fmt.Errorf("runtime status %q is neither Running nor Stopped", observed.Status))
-	}
-	if observed.Status == "Running" {
+	if observed.State == runtimedriver.StateRunning {
 		view, e := l.InspectSession(ctx, id)
 		if e != nil {
 			return nil, e
@@ -1736,9 +1688,23 @@ func (l *lifecycle) admitStart(ctx context.Context, id string) (*api.SessionView
 	return nil, nil
 }
 
+// startableRuntime refuses a start of session id whose runtime was observed
+// missing, neither running nor stopped, or incomplete.
+func startableRuntime(id string, observed runtimedriver.Observation) error {
+	switch {
+	case observed.State == runtimedriver.StateAbsent:
+		return control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
+	case observed.State != runtimedriver.StateStopped && observed.State != runtimedriver.StateRunning:
+		return control.Failed(api.ReasonRuntime, fmt.Errorf("runtime is %s, neither running nor stopped", observed.State))
+	case !observed.Complete:
+		return control.Failed(api.ReasonRuntime, errors.New("session runtime is incomplete"))
+	}
+	return nil
+}
+
 // admitStop checks what a stop needs before it is recorded: an established
-// session with no pending or confirmed attachment, and its runtime. A stopped
-// session needs no stop: its view comes back instead.
+// session with no pending or confirmed attachment, and its complete runtime.
+// A stopped session needs no stop: its view comes back instead.
 func (l *lifecycle) admitStop(ctx context.Context, id string) (*api.SessionView, error) {
 	if l.hasAttachment(id) {
 		return nil, control.Conflict(api.ReasonAttachmentActive, api.TargetSession(id))
@@ -1750,18 +1716,20 @@ func (l *lifecycle) admitStop(ctx context.Context, id string) (*api.SessionView,
 	if s.Registry != "established" {
 		return nil, control.Conflict(api.ReasonSessionNotEstablished, api.TargetSession(id))
 	}
-	native, err := l.runtimeSession(ctx, s)
+	spec, err := l.sessionSpec(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", runtimeincus.Scoped{Backend: l.runtime, Session: native})
+	observed, err := l.driver.Inspect(ctx, spec)
 	if err != nil {
 		return nil, control.Failed(api.ReasonRuntime, err)
 	}
-	if !observed.Exists {
+	switch {
+	case observed.State == runtimedriver.StateAbsent:
 		return nil, control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
-	}
-	if observed.Status == "Stopped" {
+	case !observed.Complete:
+		return nil, control.Failed(api.ReasonRuntime, errors.New("session runtime is incomplete"))
+	case observed.State == runtimedriver.StateStopped:
 		view, e := l.InspectSession(ctx, id)
 		return &view, e
 	}
@@ -1800,32 +1768,29 @@ func (l *lifecycle) processSessionChange(observed api.Operation) {
 	_, _ = l.InspectSession(ctx, op.SessionUUID)
 }
 
-// runSessionChange starts or stops op's session runtime.
+// runSessionChange starts or stops op's session runtime. The driver's Start
+// starts a stopped runtime and waits until its session host is ready; on a
+// running one it only waits.
 func (l *lifecycle) runSessionChange(ctx context.Context, op api.Operation) error {
 	s, err := l.store.GetSession(ctx, op.SessionUUID)
 	if err != nil {
 		return err
 	}
-	native, err := l.runtimeSession(ctx, s)
+	spec, err := l.sessionSpec(ctx, s)
 	if err != nil {
 		return err
 	}
-	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
 	if op.Kind == control.KindSessionStop {
-		_, err = runRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped)
+		_, err = l.driver.Stop(ctx, spec)
 		return control.Failed(api.ReasonRuntime, err)
 	}
-	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
+	observed, err := l.driver.Inspect(ctx, spec)
 	if err != nil {
 		return control.Failed(api.ReasonRuntime, err)
 	}
-	if !observed.Exists {
-		return control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(s.UUID))
+	if err = startableRuntime(s.UUID, observed); err != nil {
+		return err
 	}
-	if observed.Status == "Stopped" {
-		if err = l.startOwned(ctx, scoped); err != nil {
-			return control.Failed(api.ReasonRuntime, err)
-		}
-	}
-	return l.awaitOwnedHost(ctx, scoped)
+	_, err = l.driver.Start(ctx, spec)
+	return control.Failed(api.ReasonRuntime, err)
 }

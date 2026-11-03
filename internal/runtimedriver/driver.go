@@ -61,6 +61,11 @@ type Driver interface {
 	Start(ctx context.Context, s Session) (Observation, error)
 	// Stop converges on a stopped runtime, gracefully and within a bound.
 	Stop(ctx context.Context, s Session) (Observation, error)
+	// HostLog is the session host's recent, bounded and printable account of
+	// itself, newest last: for a stopped runtime, its last words. It is for
+	// display; reading it changes nothing and a backend may give up on it
+	// quickly, returning what it could read or nothing.
+	HostLog(ctx context.Context, t Target) (string, error)
 	// OpenTerminal attaches the session user to the session host with a
 	// PTY. It arms a completion witness before the attach starts, or fails.
 	OpenTerminal(ctx context.Context, t Target, size Size) (Terminal, error)
@@ -192,7 +197,8 @@ type Session struct {
 	Workspace Workspace // what the workspace holds
 	// GitKey is the session's private P Git key (PEM), and GitHostKey the
 	// public host key of P's Git endpoint that the session pins, as an
-	// authorized_keys line.
+	// authorized_keys line. Only Create installs the key; core leaves it
+	// out of every other call.
 	GitKey     []byte
 	GitHostKey string
 	// Endpoints is the host directory holding session.sock and git.sock; the
@@ -267,14 +273,14 @@ type Observation struct {
 	Host     HostState
 }
 
-// HostState is the session host of a running runtime, or the last words of
-// a stopped one's.
+// HostState is the session host of a running runtime; it is empty for any
+// other. A stopped runtime's last words come from HostLog.
 type HostState struct {
 	Ready bool
 	// Unknown is true for a running runtime whose host could not be read.
 	Unknown bool
 	// Diagnostic is the host's bounded, printable account of itself, such as
-	// why it is not ready or why it ended; empty when there is none.
+	// why it is not ready; empty when there is none.
 	Diagnostic string
 }
 

@@ -171,8 +171,8 @@ automatically retried. A stopped unit may be unloaded by systemd and shown as
 The unit file and other private files survive Stop/Start. Processes end on Stop;
 this example has no enablement rule, so start it again when needed. Project units
 execute with ordinary session-user authority, including that session's captured
-grants. Service requests are synchronous; after a timeout inspect the unit before
-issuing another restart.
+grants. A start, stop or restart returns as soon as systemd has queued it; the
+page then shows the unit `starting` or `stopping` and later its result.
 
 ## Before your first session
 

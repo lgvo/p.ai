@@ -19,6 +19,8 @@ func changeFixture(t *testing.T) (*journalFixture, *lifecycle, context.Context, 
 	t.Helper()
 	f := newJournalFixture(t)
 	l, ctx := observedLifecycle(t, f)
+	// The runtime cannot be reached.
+	l.git, l.driver = testGitCapability(), unreachableRuntime{}
 	session := sessionUUID(1)
 	// A session whose policy and creation evidence hold, so its work reaches
 	// the runtime.
@@ -64,8 +66,8 @@ func TestUnfinishedStartOrStopIsTheSessionsCondition(t *testing.T) {
 	}
 }
 
-// TestStartWorkerRecordsTheRuntimeFailure runs a start without a runtime
-// plugin: the runtime fails, the operation ends failed with reason runtime
+// TestStartWorkerRecordsTheRuntimeFailure runs a start on a runtime that
+// cannot be reached: the runtime fails, the operation ends failed with reason runtime
 // and its diagnostic, and the worker lets go of the session.
 func TestStartWorkerRecordsTheRuntimeFailure(t *testing.T) {
 	f, l, ctx, session := changeFixture(t)

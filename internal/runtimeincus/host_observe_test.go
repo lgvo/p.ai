@@ -3,10 +3,15 @@ package runtimeincus
 import (
 	"context"
 	"errors"
+	"net"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
+
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 func TestHostReadinessRequiresActualSystemdState(t *testing.T) {
@@ -44,5 +49,71 @@ func TestHostDiagnosticTailIsValidUTF8(t *testing.T) {
 	got := boundedDiagnostic(journal)
 	if len(got) > 2048 || !utf8.ValidString(got) || !strings.HasSuffix(got, "\uFFFD end") {
 		t.Fatalf("diagnostic tail: %d bytes, valid=%t, %q", len(got), utf8.ValidString(got), got[len(got)-8:])
+	}
+}
+
+// A stopped host's journal read that Incus's file API never answers leaves
+// the last words unknown instead of holding the caller.
+func TestAStalledJournalReadLeavesTheLastWordsUnknown(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "incus.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close() // accepted, never answered
+		}
+	}()
+	f := &fakeIncus{instance: true, status: "Stopped", socket: socket}
+	b := fakeBackend(f)
+	b.config.UserSocket = socket
+	defer func(wait time.Duration) { lastWordsWait = wait }(lastWordsWait)
+	lastWordsWait = 100 * time.Millisecond
+	started := time.Now()
+	h, err := b.ObserveHost(context.Background(), testSession())
+	if err != nil || h.DiagnosticAvailable || time.Since(started) > 5*time.Second {
+		t.Fatalf("stalled journal read: %+v %v after %s", h, err, time.Since(started))
+	}
+}
+
+// Inspect of a stopped runtime reads no file of it: only HostLog reads a
+// stopped host's journal.
+func TestInspectOfAStoppedRuntimeReadsNoFile(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "incus.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	reads := make(chan struct{}, 16)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			reads <- struct{}{}
+			conn.Close()
+		}
+	}()
+	f := &fakeIncus{instance: true, status: "Stopped", socket: socket}
+	b := fakeBackend(f)
+	b.config.UserSocket = socket
+	o, err := b.InspectCreated(context.Background(), testSession())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed := b.observe(context.Background(), testSession(), o)
+	if observed.State != runtimedriver.StateStopped || observed.Host != (runtimedriver.HostState{}) || len(reads) != 0 {
+		t.Fatalf("stopped observation: %+v, %d file reads", observed, len(reads))
+	}
+	if _, err := b.observeHostOf(context.Background(), testSession(), o); err != nil || len(reads) == 0 {
+		t.Fatalf("the host's journal was not read for its last words: %v", err)
 	}
 }

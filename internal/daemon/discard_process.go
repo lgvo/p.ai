@@ -140,7 +140,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard session identity changed")))
 		return
 	}
-	source, err := l.runtimeSession(ctx, session)
+	source, err := l.nativeSession(ctx, session)
 	if err != nil || source.ImageFingerprint != ev.ImageFingerprint && !ev.MissingRuntime {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard runtime selection changed")))
 		return

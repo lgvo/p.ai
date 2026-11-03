@@ -41,10 +41,14 @@ guest() {
   --env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus -- "$@"
 }
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
+# An action returns once the session's service manager has queued it; the
+# inventory shows when it is done.
 action() {
  rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$1.service" --arg action "$2" \
   '{uuid:$uuid,name:$name,action:$action}')" >/dev/null
 }
+start_unit() { action "$1" start; wait_unit "$1" running; }
+stop_unit() { action "$1" stop; wait_unit "$1" stopped; }
 wait_health() {
  local deadline=$((SECONDS+45))
  while ! rpc system.health | jq -e '.result.control_state=="ready"' >/dev/null 2>&1; do
@@ -92,7 +96,8 @@ wait_sql() {
  done
 }
 wait_unit() {
- local unit=$1 expected=$2 deadline=$((SECONDS+30)) observed
+ # The notes database may take its whole 45-second start timeout.
+ local unit=$1 expected=$2 deadline=$((SECONDS+60)) observed
  while ((SECONDS<deadline)); do
   observed=$(rpc session.services "$(params)")
   # An installed unit the user manager unloaded reports stopped.
@@ -104,6 +109,18 @@ wait_unit() {
  return 1
 }
 pids() { guest systemctl --user show p-project-notes-{db,web,worker}.service -p MainPID --value; }
+main_pid() { guest systemctl --user show "p-project-notes-$1.service" -p MainPID --value; }
+# A queued restart is done once the unit runs again under a new main process.
+wait_restarted() {
+ local unit=$1 old=$2 pid deadline=$((SECONDS+60))
+ while ((SECONDS<deadline)); do
+  pid=$(main_pid "$unit")
+  if test "$pid" != 0 && test "$pid" != "$old"; then wait_unit "$unit" running; return; fi
+  sleep 0.1
+ done
+ printf 'p-project-notes-%s.service kept main PID %s after restart\n' "$unit" "$old" >&2
+ return 1
+}
 seed_sample() {
  guest mkdir -p examples/notes
  python3 - "$P_TEST_SOURCE/examples/notes" "$step_dir/notes-source.tar" <<'PY_ARCHIVE'
@@ -119,10 +136,10 @@ PY_ARCHIVE
 }
 setup() {
  guest python3 examples/notes/install.py
- action db start
+ start_unit db
  guest python3 examples/notes/manage.py migrate
- action web start
- action worker start
+ start_unit web
+ start_unit worker
  guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 }
 remove_session() {
@@ -195,11 +212,10 @@ test "$(sql 'SHOW listen_addresses')" = ''
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and ([.[0].expanded_devices[]|select(.type=="nic")]|length)==0' >/dev/null
 
 # Mix active web/database and inactive worker, then resume a durable job.
-action worker stop
-wait_unit worker stopped
+stop_unit worker
 guest python3 examples/notes/client.py add 'pending before worker resume' | jq -e '.status=="pending"' >/dev/null
 test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 1
-action worker start
+start_unit worker
 wait_sql 'SELECT word_count FROM notes WHERE id=1' 4
 # Real unit-specific logs via the public interface.
 for unit in db web worker; do
@@ -213,32 +229,32 @@ guest systemctl --user kill --signal=KILL --kill-whom=main p-project-notes-worke
 wait_unit worker failed
 wait_unit web running
 guest systemctl --user reset-failed p-project-notes-worker.service
-action worker start
-worker_pid=$(guest systemctl --user show p-project-notes-worker.service -p MainPID --value)
+start_unit worker
+worker_pid=$(main_pid worker)
 action worker restart
-test "$(guest systemctl --user show p-project-notes-worker.service -p MainPID --value)" != "$worker_pid"
+wait_restarted worker "$worker_pid"
 
 # Interrupted open transaction leaves the pending job claimable on restart.
-action worker stop
+stop_unit worker
 guest python3 examples/notes/client.py add 'interrupted transaction recovers' >/dev/null
 guest bash -euc 'python3 examples/notes/worker.py --once --hold-before-commit 30 > /tmp/notes57-worker.log 2>&1 & echo $! > /tmp/notes57-worker.pid'
 deadline=$((SECONDS+20))
 while ! guest python3 -c 'from pathlib import Path; import sys; sys.exit(0 if "transaction open" in Path("/tmp/notes57-worker.log").read_text() else 1)'; do test "$SECONDS" -lt "$deadline"; sleep 0.1; done
 # shellcheck disable=SC2016 # The private worker PID is read inside the guest.
 guest bash -euc 'kill -KILL "$(cat /tmp/notes57-worker.pid)"'
-action worker start
+start_unit worker
 wait_sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL' 0
 test "$(sql "SELECT count(*) FROM notes WHERE status='processed'")" = 2
 
 # Dependency stop and failure both stop web/worker. Explicit recovery retains rows.
-action db stop
+stop_unit db
 wait_unit web stopped
 wait_unit worker stopped
 if guest python3 examples/notes/client.py add 'cannot be accepted'; then exit 1; fi
-action db start
+start_unit db
 guest python3 examples/notes/manage.py ready
-action web start
-action worker start
+start_unit web
+start_unit worker
 test "$(sql 'SELECT count(*) FROM notes')" = 2
 guest systemctl --user kill --signal=KILL --kill-whom=all p-project-notes-db.service
 wait_unit db failed
@@ -262,7 +278,7 @@ test "$(pids)" = "$before_pids"
 test "$(guest tmux -S /run/p-interactive/tmux.sock display-message -p '#{pid}')" = "$before_tmux"
 
 # Edit/fail/fix: a wrong word-count implementation fails the real HTTP/SQL test.
-action worker stop
+stop_unit worker
 guest cp examples/notes/worker.py /tmp/notes57-worker-source
 # Replace only the calculation line; tests cover the externally stored result.
 guest python3 -c 'from pathlib import Path; p=Path("examples/notes/worker.py"); p.write_text(p.read_text().replace("len(job[\"body\"].split())", "0"))'
@@ -271,7 +287,7 @@ if guest python3 examples/notes/tests.py NotesTests.test_http_and_word_count > "
 fi
 guest cp /tmp/notes57-worker-source examples/notes/worker.py
 guest python3 examples/notes/tests.py NotesTests.test_http_and_word_count
-action worker start
+start_unit worker
 
 # Exact committed source excludes the source session's private home/unpushed work.
 guest bash -euc 'printf private-A > /home/p/notes-private; printf dirty-A > notes-dirty; printf local-only > local-only; git add local-only; git commit -qm local-only'
@@ -303,7 +319,7 @@ jq -e 'has("error")' <<< "$refused" >/dev/null
 
 # Stop/start preserves local/dirty/private/database/unit state but ends old processes.
 uuid=$uuid_a
-action worker stop
+stop_unit worker
 guest python3 examples/notes/client.py add 'pending across stop start' >/dev/null
 stop_session
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null

@@ -74,9 +74,9 @@ proves these properties; the conformance suite
 | Identity | Labels stored and returned exactly; an incarnation stable across stop and start, new on re-create or restore. | `user.p.*` keys, `volatile.uuid` and its generation, image properties. |
 | Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints` and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. | Disk devices within the project's ceilings ([filesystem grants](#filesystem-grants)). |
 
-So far core reaches only images through the driver. Session runtimes, project
-services, terminals and removal still reach Incus directly or through the WASI
-runtime plugin.
+So far core reaches images, session inspection, creation, start and stop, and
+project services through the driver. Terminals, removal, rename and the proofs
+of absence still reach Incus directly.
 
 ## Incus boundary
 
@@ -503,26 +503,30 @@ Interactive terminals inherit the same session-user endpoint through
 these runtime-owned values after devShell activation before starting tmux.
 
 Host-only service RPC binds the exact established session, excludes
-rename/removal conflicts, and uses the selected runtime WASI
-package with a core-bound `runtime.services` broker. A service action holds the
+rename/removal conflicts, and calls the runtime driver's services operations at
+the runtime's current incarnation. A service action holds the
 session's lifecycle lock. An inventory or journal read never overlaps a
 holder of that lock: it is refused while the lock is held, and a request that
 takes the lock waits for running reads to end
-([concurrency](session-lifecycle.md#concurrency)). The package
-cannot choose a target, command, unit, action or UID. Core admits only validated
-project user service names and executes fixed systemctl/journalctl argv with
-UID/GID 1000 and the fixed `/run/user/1000` user-manager endpoint. Existing
-Incus ownership, security, filesystem, resource and network checks remain.
-Native UUID/generation is rechecked after observation/action; unavailable or
-changed authority never yields a success claim.
+([concurrency](session-lifecycle.md#concurrency)). Core checks only that a
+service name is printable and at most 128 bytes. The Incus driver admits only
+`p-project-*.service` units the session has, refusing any other name before
+its service manager is reached, and executes fixed systemctl/journalctl argv
+with UID/GID 1000 and the fixed `/run/user/1000` user-manager endpoint. It
+checks its boundary before an action, and the existing Incus ownership,
+security, filesystem, resource and network checks remain. The native
+UUID/generation is rechecked after observation/action; unavailable or changed
+authority never yields a success claim.
 
 Loaded unit observations and installed unit files are bounded to 64 distinct
-project units. Unloaded files have explicitly unknown process state. Journals
-are bounded recent tails. User service content has ordinary workspace-user
-authority and remains subject to Incus isolation. Root/system/P infrastructure
-units are outside the API allowlist. Older images without a usable user manager
-report unavailable and are not automatically modified. Service actions are
-synchronous; an uncertain timeout requires observation before another request.
+project units. An installed unit the user manager has not loaded is `stopped`,
+since the manager unloads only inactive units. Journals are bounded recent
+tails. User service content has ordinary workspace-user authority and remains
+subject to Incus isolation. Root/system/P infrastructure units are never
+project services. Older images without a usable user manager report
+unavailable and are not automatically modified. A service action returns once
+systemd has queued it (`systemctl --no-block`); the inventory shows its
+progress.
 
 ## Credentials
 

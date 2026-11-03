@@ -238,8 +238,8 @@ try:
             properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
             return result.returncode == 0 and properties == {"ActiveState": "inactive", "SubState": "dead", "MainPID": "0"}
 
-        # An unloaded inventory entry is unknown, not proof of Stop. Require
-        # fresh native manager properties and absence of its main process.
+        # The queued stop has finished when the manager itself reports the
+        # unit inactive with no main process, independently of the inventory.
         await_state(stopped, "native user service inactive/dead with MainPID=0")
         send("q"); expect("All project sessions")
         send("q")

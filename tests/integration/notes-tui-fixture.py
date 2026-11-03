@@ -55,6 +55,19 @@ def action(unit, verb):
                name=f"p-project-notes-{unit}.service", action=verb)
 
 
+def start(unit):
+    # An action returns once the session's service manager has queued it;
+    # the inventory shows when the unit runs.
+    action(unit, "start")
+    name = f"p-project-notes-{unit}.service"
+    deadline = time.monotonic() + 60
+    while not any(item["name"] == name and item["state"] == "running"
+                  for item in rpc("session.services", uuid=session).get("services", [])):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"{name} did not start")
+        time.sleep(0.2)
+
+
 def wait_jobs():
     deadline = time.monotonic() + 30
     while sql("SELECT count(*) FROM jobs WHERE completed_at IS NULL") != "0":
@@ -91,10 +104,10 @@ elif args.mode == "install":
     print(json.dumps({"installed": session}))
 elif args.mode == "setup":
     guest("python3", "examples/notes/install.py")
-    action("db", "start")
+    start("db")
     guest("python3", "examples/notes/manage.py", "migrate")
-    action("web", "start")
-    action("worker", "start")
+    start("web")
+    start("worker")
     print(guest("python3", "examples/notes/client.py", "health").strip())
 elif args.mode == "snapshot":
     print(json.dumps({"uuid": session, "source": guest("git", "rev-parse", "HEAD").strip(),
@@ -132,6 +145,6 @@ elif args.mode == "fail-worker":
     print(json.dumps({"worker": "killed"}))
 elif args.mode == "recover-worker":
     guest("systemctl", "--user", "reset-failed", "p-project-notes-worker.service")
-    action("worker", "start")
+    start("worker")
     wait_jobs()
     print(json.dumps({"worker": "recovered", "pending": 0}))

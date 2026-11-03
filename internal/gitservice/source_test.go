@@ -96,7 +96,7 @@ func TestSelectedWASIOriginCaptureCreatesFirstPHeadAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	fingerprint := strings.Repeat("a", 64)
-	selected := control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: fingerprint, HostID: "host", HostSHA256: fingerprint, SourceID: pkg.Manifest.ID, SourceSHA256: pkg.SHA256}
+	selected := control.CreationSelection{HostID: "host", HostSHA256: fingerprint, SourceID: pkg.Manifest.ID, SourceSHA256: pkg.SHA256}
 	req := control.ReserveSessionRequest{Key: "captured-source", Project: "app", Branch: "from-origin", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: captured}
 	op, session, err := store.BeginSessionCreateCaptured(ctx, req, fingerprint, selected, func(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error) {
 		return control.CapturedSource{OID: captured, OriginURL: "ssh://origin.invalid/repo", OriginRef: req.OriginRef}, nil

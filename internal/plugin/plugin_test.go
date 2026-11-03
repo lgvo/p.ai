@@ -59,7 +59,7 @@ func TestConformanceRejectsUnsafePackage(t *testing.T) {
 		extra          func(string) error
 		want           string
 	}{
-		{"unknown grant", strings.Replace(goodManifest, "event.file.append\"]", "runtime.incus\"]", 1), nil, "grant"},
+		{"unknown grant", strings.Replace(goodManifest, "event.file.append\"]", "git.project\"]", 1), nil, "grant"},
 		{"unknown field", strings.Replace(goodManifest, `"schema":"p.plugin/v1"`, `"schema":"p.plugin/v1","surprise":true`, 1), nil, "unknown field"},
 		{"wrong api", strings.Replace(goodManifest, `"api":"1.0"`, `"api":"2.0"`, 1), nil, "unsupported plugin API"},
 		{"symlink", goodManifest, func(dir string) error { return os.Symlink("/etc/passwd", filepath.Join(dir, "other")) }, "symlink"},
@@ -111,7 +111,7 @@ func TestActivationPinsDigestAndGrants(t *testing.T) {
 	if _, err := LoadActivation(path); err == nil || !strings.Contains(err.Error(), "grants") {
 		t.Fatalf("missing grant accepted: %v", err)
 	}
-	activationFile(t, pkg, path, []string{"event.file.append", "runtime.incus"}, config)
+	activationFile(t, pkg, path, []string{"event.file.append", "git.project"}, config)
 	if _, err := LoadActivation(path); err == nil || !strings.Contains(err.Error(), "grants") {
 		t.Fatalf("extra grant accepted: %v", err)
 	}

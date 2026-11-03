@@ -1,52 +1,13 @@
 package daemon
 
 import (
-	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimekit"
 )
-
-func TestASessionFromACommitImageActivatesItsDevShellAndKeepsItsClone(t *testing.T) {
-	session := control.Session{Project: "team/app", Branch: "work"}
-	commit, material := strings.Repeat("c", 40), strings.Repeat("d", 64)
-	for _, tc := range []struct {
-		name               string
-		image              *control.CreationImage
-		schema, activation string
-		workspace          string
-		selection          string
-	}{
-		{"base image", nil, "p.runtime-session/v1", "base", "p.workspace/v1", ""},
-		{"without flake", &control.CreationImage{Ref: strings.Repeat("e", 64), Selection: "no-flake"}, "p.runtime-session/v1", "base", "p.workspace/v2", "no-flake"},
-		{"without default devShell", &control.CreationImage{Ref: strings.Repeat("e", 64), Selection: "no-default"}, "p.runtime-session/v1", "base", "p.workspace/v2", "no-default"},
-		{"devShell", &control.CreationImage{Ref: strings.Repeat("e", 64), Built: true, Selection: "devshell", MaterialSHA256: material}, "p.runtime-session/v2", "devshell", "p.workspace/v2", "devshell"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			activation, workspace := imageSessionConfig(tc.image, session, commit, []string{"/bin/sh"})
-			if activation.Schema != tc.schema || activation.Activation != tc.activation || (activation.MaterialSHA256 == material) != (tc.activation == "devshell") {
-				t.Fatalf("activation %+v", activation)
-			}
-			if workspace.Schema != tc.workspace || workspace.EnvironmentSelection != tc.selection || workspace.InitialOID != commit || workspace.Repository != session.Project || workspace.Branch != session.Branch {
-				t.Fatalf("workspace %+v", workspace)
-			}
-			// The runtime kit accepts exactly what assembly writes.
-			raw, _ := json.Marshal(activation)
-			if _, err := runtimekit.ParseConfig(raw); err != nil {
-				t.Fatalf("runtime kit refused the session config: %v", err)
-			}
-			raw, _ = json.Marshal(workspace)
-			if _, err := runtimekit.ParseWorkspaceConfig(raw); err != nil {
-				t.Fatalf("runtime kit refused the workspace config: %v", err)
-			}
-		})
-	}
-}
 
 func TestImagesGoAfterAnOperationOfTheProjectAndAtDaemonStart(t *testing.T) {
 	for _, trigger := range []string{"operation", "start"} {

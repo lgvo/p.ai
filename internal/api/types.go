@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"regexp"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -304,10 +303,6 @@ type AttachmentLaunch struct {
 type AttachmentResult struct{}
 
 // Results of the project services methods.
-
-var projectServicePattern = regexp.MustCompile(`^p-project-[A-Za-z0-9][A-Za-z0-9_.-]{0,100}\.service$`)
-
-func ValidProjectServiceUnit(unit string) bool { return projectServicePattern.MatchString(unit) }
 
 // ProjectService is one project service of a session. Name is the runtime's
 // name for it; Detail is the runtime's own words for its state, for display.

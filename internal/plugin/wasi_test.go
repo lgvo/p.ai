@@ -185,7 +185,9 @@ func TestAssetScopeAndGrantRefusal(t *testing.T) {
 	}
 }
 
-func TestRuntimeHostCapabilityCanActivate(t *testing.T) {
+// The runtime driver, not a plugin, provides runtimes: an activation that
+// selects a runtime package is invalid.
+func TestRuntimeCapabilityIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	m := Manifest{Schema: ManifestSchema, ID: "org.p.example.runtime", Version: "1.0.0", API: APIVersion, Capability: "runtime", Placement: "host", Description: "Runtime example", Runtime: Runtime{Kind: "wasi-command", Entry: "runtime.wasm"}, Requests: []string{"runtime.incus"}}
 	data, _ := json.Marshal(m)
@@ -195,13 +197,10 @@ func TestRuntimeHostCapabilityCanActivate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "runtime.wasm"), []byte{0, 97, 115, 109, 1, 0, 0, 0}, 0600); err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Conformance(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pkg := Package{Path: dir, SHA256: strings.Repeat("a", 64), Manifest: m}
 	path := filepath.Join(t.TempDir(), "activation.json")
 	activationFile(t, pkg, path, []string{"runtime.incus"}, struct{}{})
-	if _, err := LoadActivation(path); err != nil {
+	if _, err := LoadActivation(path); err == nil || !strings.Contains(err.Error(), `unsupported capability "runtime"`) {
 		t.Fatalf("runtime capability activation: %v", err)
 	}
 }

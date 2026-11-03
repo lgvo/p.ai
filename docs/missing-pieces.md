@@ -103,9 +103,10 @@ does not change owner-document lifecycle semantics.
   session services provided through scoped network bindings and service-native
   authentication, and host-side capabilities that are never exposed to the
   session.
-- [ ] Express the MVP Incus runtime, tmux persistent host, Git source/session
-  service, structured file-log handler, and Codex adapter as secure first-party
-  plugins selected and composed automatically by default setup.
+- [ ] Express the tmux persistent host, Git source/session service, structured
+  file-log handler, and Codex adapter as secure first-party plugins selected
+  and composed automatically by default setup; the Incus runtime is the
+  built-in runtime driver, not a plugin.
 - [ ] Provide an agent-usable authoring, validation, and test workflow that
   does not require rebuilding P core.
 - [ ] Document the usable public interfaces; a separately agent-authored

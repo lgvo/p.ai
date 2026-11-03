@@ -133,7 +133,7 @@ func TestStopRightAfterStartWaitsForGuestSystemd(t *testing.T) {
 	b.config.UserSocket = f.socket
 	b.run = guest.wrap(f.run)
 	ctx := context.Background()
-	if got, err := b.Start(ctx, testSession()); err != nil || got.Status != "Running" {
+	if got, err := b.checkedTransition(ctx, testSession(), "start"); err != nil || got.Status != "Running" {
 		t.Fatalf("start: %+v %v", got, err)
 	}
 	got, err := b.Stop(ctx, testSession())
@@ -193,7 +193,7 @@ func TestStopIsSentWhenGuestSystemdNeverComesUp(t *testing.T) {
 	b.config.UserSocket = f.socket
 	b.run = guest.wrap(f.run)
 	ctx := context.Background()
-	if got, err := b.Start(ctx, testSession()); err != nil || got.Status != "Running" {
+	if got, err := b.checkedTransition(ctx, testSession(), "start"); err != nil || got.Status != "Running" {
 		t.Fatalf("start: %+v %v", got, err)
 	}
 	began := time.Now()

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os/exec"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -18,6 +19,13 @@ import (
 // p-project-*.service. Every services call runs a fixed systemctl or
 // journalctl command as the session user, with no more authority than the
 // session's own work.
+
+var projectUnitPattern = regexp.MustCompile(`^p-project-[A-Za-z0-9][A-Za-z0-9_.-]{0,100}\.service$`)
+
+// projectUnit reports whether unit names a project service: never the
+// session host's or P's own units, and nothing systemctl reads as an option
+// or a path.
+func projectUnit(unit string) bool { return projectUnitPattern.MatchString(unit) }
 
 // Services lists the project services of the target's running session whose
 // host is ready, sorted by name.
@@ -78,7 +86,7 @@ func (d *Driver) ServiceLogs(ctx context.Context, t runtimedriver.Target, name s
 // serviceTarget checks the target of a services call: a running runtime of
 // the session, at the target's incarnation, whose session host is ready.
 func (b *Backend) serviceTarget(ctx context.Context, t runtimedriver.Target) (Session, Observation, error) {
-	s, err := b.nativeSession(t.Session)
+	s, err := b.NativeSession(t.Session)
 	if err != nil {
 		return Session{}, Observation{}, err
 	}
@@ -106,7 +114,7 @@ func (b *Backend) serviceTarget(ctx context.Context, t runtimedriver.Target) (Se
 // service name. A name that is not a project service, or one the session
 // does not have, never reaches the service manager.
 func (b *Backend) projectService(ctx context.Context, t runtimedriver.Target, name string) (Session, Observation, error) {
-	if !ValidProjectService(name) {
+	if !projectUnit(name) {
 		return Session{}, Observation{}, runtimedriver.ErrNoService
 	}
 	s, before, err := b.serviceTarget(ctx, t)
@@ -164,14 +172,14 @@ func (b *Backend) serviceInventory(ctx context.Context, s Session) ([]runtimedri
 	services := make([]runtimedriver.Service, 0, len(rows))
 	for _, r := range rows {
 		state, known := serviceState(r.Active)
-		if !known || !ValidProjectService(r.Unit) || len(r.Description) > 256 || len(r.Sub) > 32 || strings.IndexFunc(r.Description+r.Sub, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+		if !known || !projectUnit(r.Unit) || len(r.Description) > 256 || len(r.Sub) > 32 || strings.IndexFunc(r.Description+r.Sub, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
 			return nil, errors.New("invalid project service inventory")
 		}
 		services = append(services, runtimedriver.Service{Name: r.Unit, Description: r.Description, State: state, Detail: r.Active + " (" + r.Sub + ")"})
 	}
 	for _, f := range files {
 		unit := path.Base(f.UnitFile)
-		if !ValidProjectService(unit) {
+		if !projectUnit(unit) {
 			return nil, errors.New("invalid installed project service")
 		}
 		if !slices.ContainsFunc(services, func(service runtimedriver.Service) bool { return service.Name == unit }) {

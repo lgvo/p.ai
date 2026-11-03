@@ -13,10 +13,21 @@ guest() {
     --env XDG_RUNTIME_DIR=/run/user/1000 \
     --env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus -- "$@"
 }
+# An action returns once the session's service manager has queued it; the
+# inventory shows when it is done.
 action() {
   rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$1.service" --arg action "$2" \
     '{uuid:$uuid,name:$name,action:$action}')" >/dev/null
 }
+wait_unit() {
+  local deadline=$((SECONDS+60))
+  until rpc session.services "$(params)" | jq -e --arg name "p-project-notes-$1.service" --arg state "$2" \
+    '.result.services|any(.name==$name and .state==$state)' >/dev/null; do
+    test "$SECONDS" -lt "$deadline"; sleep .2
+  done
+}
+start_unit() { action "$1" start; wait_unit "$1" running; }
+stop_unit() { action "$1" stop; wait_unit "$1" stopped; }
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 wait_ready() {
   local deadline=$((SECONDS+180))
@@ -40,9 +51,9 @@ start_session() {
 }
 setup() {
   guest python3 examples/notes/install.py
-  action db start
-  action web start
-  action worker start
+  start_unit db
+  start_unit web
+  start_unit worker
   guest python3 examples/notes/client.py health
 }
 case "${1-}" in
@@ -57,7 +68,7 @@ case "${1-}" in
     guest python3 examples/notes/client.py add 'retained across full lab reboot'
     deadline=$((SECONDS+30))
     until test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 0; do test "$SECONDS" -lt "$deadline"; sleep .2; done
-    action worker stop
+    stop_unit worker
     guest python3 examples/notes/client.py add 'queued across full lab reboot'
     guest bash -euc 'printf persistent-private > /home/p/persistence-marker; printf local-commit > persistence-local; git add persistence-local; git -c user.name=P -c user.email=p@example.invalid commit -qm local-only; printf dirty-retained > persistence-dirty'
     local_oid=$(guest git rev-parse HEAD)
@@ -82,13 +93,13 @@ case "${1-}" in
     for unit in db web worker; do
       test "$(guest systemctl --user show "p-project-notes-$unit.service" -p MainPID --value)" = 0
     done
-    action db start
+    start_unit db
     test "$(sql 'SELECT count(*) FROM notes')" = 2
     test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 1
     rpc project.branches '{"project":"notes-persistence","limit":8}' \
       | jq -e --arg oid "$(jq -er '.pushed' "$record")" '.result.refs|any(.ref=="refs/heads/main" and .oid==$oid)' >/dev/null
-    action web start
-    action worker start
+    start_unit web
+    start_unit worker
     deadline=$((SECONDS+30))
     until test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 0; do test "$SECONDS" -lt "$deadline"; sleep .2; done
     guest python3 examples/notes/client.py health

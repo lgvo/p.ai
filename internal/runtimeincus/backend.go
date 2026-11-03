@@ -783,45 +783,6 @@ func validEndpointDevice(d map[string]string, source string) bool {
 	return true
 }
 
-func (b *Backend) Create(ctx context.Context, s Session) (Observation, error) {
-	return b.create(ctx, s, nil)
-}
-
-// CreateWithGate persists an exact core init intent after all no-effect checks
-// and immediately before a name-targeted Incus init can be submitted.
-func (b *Backend) CreateWithGate(ctx context.Context, s Session, beforeInit func() error) (Observation, error) {
-	if beforeInit == nil {
-		return Observation{}, errors.New("runtime init gate missing")
-	}
-	return b.create(ctx, s, beforeInit)
-}
-
-// beforeInit persists the trusted core effect-attempt marker after every
-// deterministic preflight and before the Incus init request can be sent.
-func (b *Backend) create(ctx context.Context, s Session, beforeInit func() error) (Observation, error) {
-	if err := validateSession(b.config, s); err != nil {
-		return Observation{}, err
-	}
-	if err := b.effectChecks(ctx, s); err != nil {
-		return Observation{}, err
-	}
-	before, err := b.inspect(ctx, s, true)
-	if err != nil {
-		return before, err
-	}
-	if before.Exists {
-		if devicesComplete(s, before) {
-			return before, nil
-		}
-		return b.ensureSessionDevices(ctx, s, before, "")
-	}
-	after, err := b.initSession(ctx, s, beforeInit)
-	if err != nil {
-		return after, err
-	}
-	return b.ensureSessionDevices(ctx, s, after, "")
-}
-
 // effectChecks are the checks before Incus creates or starts a session's
 // runtime: its endpoint directory and grant sources on the host, the
 // project's confinement and egress substrate, and its public address.
@@ -883,10 +844,8 @@ func (b *Backend) initSession(ctx context.Context, s Session, beforeInit func() 
 	if err := b.ConfirmSessionRuntimeAbsent(ctx, s); err != nil {
 		return Observation{}, err
 	}
-	if beforeInit != nil {
-		if err := beforeInit(); err != nil {
-			return Observation{}, err
-		}
+	if err := beforeInit(); err != nil {
+		return Observation{}, err
 	}
 	argv := []string{"init", s.ImageFingerprint, b.name(s), "--profile", "default", "--config", "security.idmap.isolated=true", "--config", "security.privileged=false", "--config", "security.nesting=false", "--config", "user.p.instance_uuid=" + s.InstanceUUID, "--config", "user.p.session_uuid=" + s.SessionUUID, "--config", "user.p.project_path=" + s.ProjectPath, "--config", "user.p.contract_version=" + s.ContractVersion, "--config", "user.p.image_fingerprint=" + s.ImageFingerprint}
 	_, mutationErr := b.command(ctx, argv...)
@@ -975,47 +934,29 @@ func (b *Backend) ensureEndpoint(ctx context.Context, s Session, before Observat
 	return after, nil
 }
 
-func (b *Backend) Start(ctx context.Context, s Session) (Observation, error) {
-	return b.transition(ctx, s, "start")
-}
+// Stop stops the runtime once the project's confinement is proven.
 func (b *Backend) Stop(ctx context.Context, s Session) (Observation, error) {
-	return b.transition(ctx, s, "stop")
-}
-func (b *Backend) Delete(ctx context.Context, s Session) (Observation, error) {
-	return b.transition(ctx, s, "delete")
-}
-
-func (b *Backend) transition(ctx context.Context, s Session, action string) (Observation, error) {
-	var err error
-	if action == "start" {
-		err = b.effectChecks(ctx, s)
-	} else {
-		err = b.CheckConfinement(ctx)
-	}
-	if err != nil {
+	if err := b.CheckConfinement(ctx); err != nil {
 		return Observation{}, err
 	}
-	return b.checkedTransition(ctx, s, action)
+	return b.checkedTransition(ctx, s, "stop")
 }
 
-// checkedTransition moves the runtime to the action's state once the
-// action's checks passed, and observes the result.
+// checkedTransition starts or stops the runtime once the action's checks
+// passed, and observes the result.
 func (b *Backend) checkedTransition(ctx context.Context, s Session, action string) (Observation, error) {
 	before, err := b.Inspect(ctx, s)
 	if err != nil {
 		return Observation{}, err
 	}
 	if !before.Exists {
-		if action == "delete" {
-			return before, nil
-		}
 		return before, errors.New("runtime instance missing")
 	}
 	want := "Running"
 	if action != "start" {
 		want = "Stopped"
 	}
-	if action == "delete" || !strings.EqualFold(before.Status, want) {
+	if !strings.EqualFold(before.Status, want) {
 		argv := []string{action, b.name(s)}
 		var bootErr error
 		if action == "stop" {
@@ -1036,12 +977,6 @@ func (b *Backend) checkedTransition(ctx context.Context, s Session, action strin
 	}
 	if inspectErr != nil {
 		return Observation{}, errors.Join(err, inspectErr)
-	}
-	if action == "delete" {
-		if after.Exists {
-			return after, errors.Join(err, errors.New("Incus delete postcondition failed"))
-		}
-		return after, nil
 	}
 	if !after.Exists || !strings.EqualFold(after.Status, want) {
 		return after, errors.Join(err, errors.New("Incus state postcondition failed"))

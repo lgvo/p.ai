@@ -45,7 +45,7 @@ func newSessionAdmissionFixture(t *testing.T) *sessionAdmissionFixture {
 		t.Fatal(err)
 	}
 	f := &sessionAdmissionFixture{m: m, ctx: ctx}
-	selection := control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("a", 64), HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
 	for i := 0; i < 5; i++ {
 		op, s, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: fmt.Sprintf("session-%d", i), Project: "app", Branch: fmt.Sprintf("work-%d", i), Choice: "existing"}, strings.Repeat("d", 64), selection, func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil

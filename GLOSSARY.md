@@ -127,14 +127,15 @@ available across a P isolation or extension boundary.
 A plugin-provided capability that participates in P lifecycle work outside a
 session without being exposed to that session.
 
-- **Examples:** A runtime provider or event handler.
+- **Examples:** An event handler, or the host-side Git operations of a
+  source-Git plugin.
 - **Rules:** It receives only the authority granted for its declared role and
   does not become a session service merely because its result affects one.
 
 ### Internal session service
 
 A service that runs inside a session's isolation boundary and is supervised
-through the runtime's systemd contract.
+by the runtime, through the runtime driver.
 
 - **Rules:** It operates with the session's effective grants and receives no
   ambient host authority from the plugin that provides it.
@@ -207,9 +208,10 @@ items, what is already gone, and the change's own details.
 An independently authored, installable implementation of one or more stable,
 documented P capability contracts.
 
-- **Boundaries:** A plugin may provide a first- or third-party runtime,
-  internal or external session service, host-side capability, integration, or
-  workflow. It is not P core.
+- **Boundaries:** A plugin may provide a first- or third-party internal or
+  external session service, host-side capability, integration, or workflow. It
+  is not P core and does not provide a runtime; the
+  [runtime driver](#runtime-driver) does.
 - **Rules:** Developers or agents may author, register, and test plugins.
   Registration does not activate a plugin or grant authority. Trusted
   developer configuration controls activation, implementation selection, and
@@ -293,9 +295,9 @@ terms rather than its backend's.
   requests, and plugins never reach it. Its contract covers images and their
   builds, session runtimes, the workspace of a stopped session, terminals and
   project services; host configuration selects it as `runtime.driver`. Its
-  Incus implementation runs inside the P daemon. So far only images go
-  through it; other runtime effects still reach Incus directly or through the
-  WASI runtime plugin.
+  Incus implementation runs inside the P daemon. So far images, session
+  inspection, creation, start and stop, and project services go through it;
+  other runtime effects still reach Incus directly.
 - **Rules:** It acts only on objects carrying its P instance's labels, stores
   those labels immutably, and claims nothing after an error.
 

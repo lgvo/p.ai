@@ -10,11 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
@@ -70,73 +69,6 @@ func TestPhaseRankPreventsRetryRegression(t *testing.T) {
 	}
 }
 
-func TestReadinessRetriesBootObservationAndStopsFailure(t *testing.T) {
-	attempts, stops := 0, 0
-	err := awaitHostReady(context.Background(), time.Second, func(context.Context) (plugin.RuntimeState, error) {
-		attempts++
-		if attempts == 1 {
-			return plugin.RuntimeState{}, errors.New("guest systemd not yet accepting exec")
-		}
-		return plugin.RuntimeState{Exists: true, Status: "Running", HostReady: true}, nil
-	}, func(context.Context) error { stops++; return nil })
-	if err != nil || attempts != 2 || stops != 0 {
-		t.Fatalf("transient boot observation: attempts=%d stops=%d err=%v", attempts, stops, err)
-	}
-	err = awaitHostReady(context.Background(), time.Second, func(context.Context) (plugin.RuntimeState, error) {
-		return plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "failed/failed", DiagnosticAvailable: true, Diagnostic: "host failed"}, nil
-	}, func(context.Context) error { stops++; return nil })
-	if err == nil || !strings.Contains(err.Error(), "host failed") || stops != 1 {
-		t.Fatalf("failed host left running: stops=%d err=%v", stops, err)
-	}
-	err = awaitHostReady(context.Background(), 25*time.Millisecond, func(context.Context) (plugin.RuntimeState, error) {
-		return plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "activating/start-post"}, nil
-	}, func(context.Context) error { stops++; return nil })
-	if err == nil || stops != 2 {
-		t.Fatalf("readiness timeout left running: stops=%d err=%v", stops, err)
-	}
-}
-
-// A stop can fail while the instance stops anyway, as when Incus cleans up
-// after a poweroff the guest started; a startup failure is reported once the
-// instance is seen stopped.
-func TestReadinessFailureIsReportedOnceTheInstanceIsSeenStopped(t *testing.T) {
-	stopped, observedAfterStop, seenStopped := false, 0, false
-	err := awaitHostReady(context.Background(), time.Second, func(context.Context) (plugin.RuntimeState, error) {
-		if !stopped {
-			return plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "failed/failed", DiagnosticAvailable: true, Diagnostic: "host failed"}, nil
-		}
-		observedAfterStop++
-		if observedAfterStop == 1 {
-			return plugin.RuntimeState{}, errors.New("Incus instance state unavailable")
-		}
-		seenStopped = true
-		return plugin.RuntimeState{Exists: true, Status: "Stopped"}, nil
-	}, func(context.Context) error { stopped = true; return errors.New("Incus instance state unavailable") })
-	if err == nil || !strings.Contains(err.Error(), "host failed") || strings.Contains(err.Error(), "stopping failed") || !seenStopped {
-		t.Fatalf("startup failure not reported once the instance was seen stopped: seen=%t err=%v", seenStopped, err)
-	}
-}
-
-func TestReadinessFailureNamesAStopNotSeenToTakeEffect(t *testing.T) {
-	stopped := false
-	parent, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	answer := make(chan error, 1)
-	go func() {
-		answer <- awaitHostReady(parent, time.Second, func(context.Context) (plugin.RuntimeState, error) {
-			return plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "failed/failed"}, nil
-		}, func(context.Context) error { stopped = true; return errors.New("Incus state postcondition failed") })
-	}()
-	select {
-	case err := <-answer:
-		if err == nil || !stopped || !strings.Contains(err.Error(), "stopping failed: Incus state postcondition failed") {
-			t.Fatalf("a stop not seen to take effect is not named: %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("readiness kept observing after the stop's bound")
-	}
-}
-
 func TestSessionMutationLockSerializesStartStop(t *testing.T) {
 	l := &lifecycle{}
 	release, err := l.lockSession(context.Background(), "session")
@@ -157,13 +89,13 @@ func TestSessionMutationLockSerializesStartStop(t *testing.T) {
 func TestObservedConditionFollowsTheRuntime(t *testing.T) {
 	for _, c := range []struct {
 		name  string
-		state plugin.RuntimeState
+		state runtimedriver.Observation
 		want  string
 	}{
-		{"ready host", plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "active/running", HostReady: true}, "ready"},
-		{"host not ready yet", plugin.RuntimeState{Exists: true, Status: "Running"}, "starting"},
-		{"stopped", plugin.RuntimeState{Exists: true, Status: "Stopped"}, "stopped"},
-		{"missing runtime", plugin.RuntimeState{}, "missing"},
+		{"ready host", runtimedriver.Observation{State: runtimedriver.StateRunning, Complete: true, Host: runtimedriver.HostState{Ready: true}}, "ready"},
+		{"host not ready yet", runtimedriver.Observation{State: runtimedriver.StateRunning, Complete: true}, "starting"},
+		{"stopped", runtimedriver.Observation{State: runtimedriver.StateStopped, Complete: true}, "stopped"},
+		{"missing runtime", runtimedriver.Observation{State: runtimedriver.StateAbsent}, "missing"},
 	} {
 		if got := observedCondition(c.state); got != c.want {
 			t.Errorf("%s: condition=%s want %s", c.name, got, c.want)

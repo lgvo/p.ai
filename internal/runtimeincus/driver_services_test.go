@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func TestServiceStatesMapSystemdActiveStates(t *testing.T) {
 // host and the given project services.
 func runningSession(t *testing.T, w *incusWorld, units []worldUnit, unitFiles ...string) runtimedriver.Target {
 	t.Helper()
-	s := testSessionSpec(assemblyFixture(t))
+	s := testSessionSpec(t)
 	created := createdSession(t, w, s)
 	if _, err := w.driver().Start(context.Background(), s); err != nil {
 		t.Fatal(err)
@@ -276,5 +277,91 @@ func TestServiceActionProvesTheBoundaryBeforeTheAction(t *testing.T) {
 		if slices.Contains(command, "--no-block") {
 			t.Fatalf("the action reached the service manager: %v", command)
 		}
+	}
+}
+
+func TestServiceCommandOutputHelper(t *testing.T) {
+	switch os.Getenv("P_SERVICE_OUTPUT_HELPER") {
+	case "one":
+		fmt.Print("[]")
+		os.Exit(1)
+	case "two":
+		fmt.Print("[]")
+		os.Exit(2)
+	case "stdout-overflow":
+		fmt.Print(strings.Repeat(" ", 33000) + "[]")
+		os.Exit(1)
+	case "stderr-overflow":
+		fmt.Print("[]")
+		fmt.Fprint(os.Stderr, strings.Repeat("x", 33000))
+		os.Exit(1)
+	}
+}
+
+func serviceCommandFixture(t *testing.T, mode string) ([]byte, error) {
+	t.Helper()
+	return runCommandBounded(context.Background(), os.Args[0], []string{"-test.run=^TestServiceCommandOutputHelper$"},
+		[]string{"P_SERVICE_OUTPUT_HELPER=" + mode}, 32000, 32000, false)
+}
+
+func TestEmptyInstalledServiceInventoryExitConvention(t *testing.T) {
+	empty, exitOne := serviceCommandFixture(t, "one")
+	if string(empty) != "[]" || !emptyUnitFileInventory(context.Background(), empty, exitOne) {
+		t.Fatalf("actual exit 1 empty inventory was lost: %q %v", empty, exitOne)
+	}
+	_, exitTwo := serviceCommandFixture(t, "two")
+	for _, tc := range []struct {
+		name string
+		data []byte
+		err  error
+	}{
+		{"exit-two", empty, exitTwo},
+		{"transport", empty, errors.New("transport unavailable")},
+		{"context-canceled", empty, errors.Join(exitOne, context.Canceled)},
+		{"context-deadline", empty, errors.Join(exitOne, context.DeadlineExceeded)},
+		{"malformed", []byte("["), exitOne},
+		{"null", []byte("null"), exitOne},
+		{"object", []byte("{}"), exitOne},
+		{"nonempty", []byte(`[{"unit_file":"p-project-worker.service"}]`), exitOne},
+		{"oversized", []byte(strings.Repeat(" ", 32001) + "[]"), exitOne},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if emptyUnitFileInventory(context.Background(), tc.data, tc.err) {
+				t.Fatalf("failed inventory accepted: %q %v", tc.data, tc.err)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if emptyUnitFileInventory(ctx, empty, exitOne) {
+		t.Fatal("canceled caller accepted a stale inventory")
+	}
+	for _, mode := range []string{"stdout-overflow", "stderr-overflow"} {
+		data, err := serviceCommandFixture(t, mode)
+		if data != nil || err == nil || emptyUnitFileInventory(context.Background(), data, err) {
+			t.Fatalf("overflow became an empty inventory: %s %q %v", mode, data, err)
+		}
+	}
+}
+
+// An empty inventory, which systemctl reports with exit status 1, is still
+// proven to come from the target's runtime.
+func TestAnEmptyServiceInventoryStillProvesTheRuntimeIdentity(t *testing.T) {
+	ctx := context.Background()
+	w := newIncusWorld(t)
+	target := runningSession(t, w, nil)
+	if got, err := w.driver().Services(ctx, target); err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("ready empty inventory: %#v %v", got, err)
+	}
+	w.before = func(args []string) error {
+		if slices.Contains(args, "list-unit-files") {
+			w.mu.Lock()
+			w.instance(testRuntime).config["volatile.uuid.generation"] = w.newUUID()
+			w.mu.Unlock()
+		}
+		return nil
+	}
+	if _, err := w.driver().Services(ctx, target); !errors.Is(err, runtimedriver.ErrMismatch) {
+		t.Fatalf("an empty inventory bypassed the runtime identity proof: %v", err)
 	}
 }

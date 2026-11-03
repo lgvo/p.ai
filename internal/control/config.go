@@ -39,7 +39,6 @@ type EventsConfig struct {
 // supply or widen these values.
 type RuntimeConfig struct {
 	ActivationPath       string                   `json:"activation_path"`
-	RuntimePluginID      string                   `json:"runtime_plugin_id"`
 	HostPluginID         string                   `json:"host_plugin_id"`
 	Driver               RuntimeDriverConfig      `json:"driver"`
 	EndpointPrefix       string                   `json:"endpoint_prefix"`
@@ -333,7 +332,7 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 		if singleton == mapped || mapped && (len(mapValue) == 0 || mapValue[0] != '{') {
 			return cfg, errors.New("runtime requires exactly one project policy mode")
 		}
-		if cfg.Git == nil || r.RuntimePluginID == "" || r.HostPluginID == "" ||
+		if cfg.Git == nil || r.HostPluginID == "" ||
 			len(r.BaseImageFingerprint) != 64 || len(r.DiskSourceCeilings) == 0 || len(r.DiskSourceCeilings) > 8 ||
 			mapped && r.ProjectPolicies == nil {
 			return cfg, errors.New("runtime requires Git, pinned plugins/image and a confined baseline policy")

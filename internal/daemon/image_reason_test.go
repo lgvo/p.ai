@@ -52,7 +52,7 @@ func TestAnImageTheDriverCannotReadIsARuntimeFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	row, _ := f.row(t, f.commits[0])
-	f.l.images = unreadableImages{f.driver}
+	f.l.driver = unreadableImages{f.driver}
 	second := f.create(t, "second", f.commits[0])
 	if _, err := f.ensure(t, &second); control.OperationReason(err) != api.ReasonRuntime {
 		t.Fatalf("reuse of an unreadable image: %v, reason %s", err, control.OperationReason(err))
@@ -76,7 +76,7 @@ func TestProjectDeletionOfAnImageTheDriverCannotReadIsARuntimeFailure(t *testing
 		t.Fatal(err)
 	}
 	resource := control.ProjectDeleteResource{Kind: "image", ID: claim.Image.Ref, Status: "remaining"}
-	f.l.images = unreadableImages{f.driver}
+	f.l.driver = unreadableImages{f.driver}
 	if err = f.l.deleteProjectImage(f.l.ctx, claim, &resource, func() error { return nil }); control.OperationReason(err) != api.ReasonRuntime {
 		t.Fatalf("unreadable image: %v, reason %s", err, control.OperationReason(err))
 	}
@@ -104,10 +104,10 @@ func TestAPanicInImageReleaseLeavesLaterReleasesRunning(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	f.l.images = panickingImages{f.driver}
+	f.l.driver = panickingImages{f.driver}
 	f.l.startRelease("app")
 	wait(released, "the panicked release never ended")
-	f.l.images = f.driver
+	f.l.driver = f.driver
 	f.l.startRelease("app")
 	wait(func() bool { return len(f.driver.projectImages("app")) == 0 }, "a release after the panic kept the unused image")
 }

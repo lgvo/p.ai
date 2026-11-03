@@ -2,56 +2,94 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
-type serviceBroker struct {
-	runtimeincus.Scoped
-	unit, action string
-	result       runtimeincus.ServiceObservation
-}
-
-func (b *serviceBroker) Services(ctx context.Context) (plugin.RuntimeState, error) {
-	result, err := b.Backend.Services(ctx, b.Session, b.unit, b.action)
-	if err != nil {
-		return plugin.RuntimeState{}, err
-	}
-	b.result = result
-	return plugin.RuntimeState{Exists: true, Status: "Running"}, nil
-}
+// maxServicesResult bounds the encoded result of a services method.
+const maxServicesResult = 48000
 
 func (l *lifecycle) SessionServices(ctx context.Context, id string) (api.SessionServicesResult, error) {
-	o, err := l.observeServices(ctx, id, "", "list")
-	return api.SessionServicesResult{UUID: id, Services: o.Services, ObservedAt: o.ObservedAt}, err
-}
-
-func (l *lifecycle) SessionServiceAction(ctx context.Context, id, name, action string) (api.SessionServiceActionResult, error) {
-	o, err := l.observeServices(ctx, id, name, action)
-	return api.SessionServiceActionResult{UUID: id, Name: name, ObservedAt: o.ObservedAt}, err
-}
-
-func (l *lifecycle) SessionServiceLogs(ctx context.Context, id, name string) (api.SessionServiceLogsResult, error) {
-	o, err := l.observeServices(ctx, id, name, "logs")
-	return api.SessionServiceLogsResult{UUID: id, Name: name, Logs: o.Logs, LogsTruncated: o.LogsTruncated, ObservedAt: o.ObservedAt}, err
-}
-
-// observeServices runs one services call in the session's runtime: list,
-// logs, or an action.
-func (l *lifecycle) observeServices(ctx context.Context, id, unit, action string) (runtimeincus.ServiceObservation, error) {
-	var zero runtimeincus.ServiceObservation
-	if action != "list" && !runtimeincus.ValidProjectService(unit) {
-		return zero, control.Invalid("name")
+	var services []runtimedriver.Service
+	err := l.onServices(ctx, id, false, func(call context.Context, t runtimedriver.Target) (err error) {
+		services, err = l.driver.Services(call, t)
+		return err
+	})
+	if err != nil {
+		return api.SessionServicesResult{}, err
 	}
-	// The inventory and the logs are reads: a change that arrives while one
-	// runs waits for it instead of being refused. An action is a change.
+	result := api.SessionServicesResult{UUID: id, Services: make([]api.ProjectService, 0, len(services)), ObservedAt: observedNow()}
+	for _, s := range services {
+		result.Services = append(result.Services, api.ProjectService{Name: s.Name, Description: s.Description, State: api.ServiceState(s.State), Detail: s.Detail})
+	}
+	return result, nil
+}
+
+// SessionServiceAction returns once the runtime queued the action; the
+// inventory shows its progress.
+func (l *lifecycle) SessionServiceAction(ctx context.Context, id, name, action string) (api.SessionServiceActionResult, error) {
+	if !api.ValidServiceName(name) {
+		return api.SessionServiceActionResult{}, control.Invalid("name")
+	}
+	err := l.onServices(ctx, id, true, func(call context.Context, t runtimedriver.Target) error {
+		return l.driver.ServiceAction(call, t, name, runtimedriver.Action(action))
+	})
+	if err != nil {
+		return api.SessionServiceActionResult{}, err
+	}
+	return api.SessionServiceActionResult{UUID: id, Name: name, ObservedAt: observedNow()}, nil
+}
+
+// SessionServiceLogs returns the service's log tail, cut further at its
+// oldest end while the encoded result exceeds its bound.
+func (l *lifecycle) SessionServiceLogs(ctx context.Context, id, name string) (api.SessionServiceLogsResult, error) {
+	if !api.ValidServiceName(name) {
+		return api.SessionServiceLogsResult{}, control.Invalid("name")
+	}
+	var logs runtimedriver.Logs
+	err := l.onServices(ctx, id, false, func(call context.Context, t runtimedriver.Target) (err error) {
+		logs, err = l.driver.ServiceLogs(call, t, name)
+		return err
+	})
+	if err != nil {
+		return api.SessionServiceLogsResult{}, err
+	}
+	result := api.SessionServiceLogsResult{UUID: id, Name: name, Logs: logs.Text, LogsTruncated: logs.Truncated, ObservedAt: observedNow()}
+	for {
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			return api.SessionServiceLogsResult{}, err
+		}
+		if len(encoded) <= maxServicesResult {
+			return result, nil
+		}
+		result.LogsTruncated = true
+		result.Logs = strings.ToValidUTF8(result.Logs[len(result.Logs)/4:], "�")
+	}
+}
+
+func observedNow() string { return time.Now().UTC().Format(time.RFC3339Nano) }
+
+// onServices runs one services call on the ready session id, at its
+// runtime's current incarnation; a runtime that is not running complete with
+// a ready host is refused before the driver is called, and one whose host
+// cannot be read or that is incomplete failed. The inventory and the
+// logs are reads: a change that arrives while one runs waits for it instead
+// of being refused. An action is a change. A service the session does not
+// have is not found.
+func (l *lifecycle) onServices(ctx context.Context, id string, change bool, call func(context.Context, runtimedriver.Target) error) error {
 	var release func()
 	var err error
-	if action == "list" || action == "logs" {
+	if change {
+		release, err = l.lockSession(ctx, id)
+	} else {
 		release, err = l.readSession(id)
 		// A read runs its runtime commands to their end even when its client
 		// goes, so a change that waits for the read never meets them:
@@ -60,30 +98,57 @@ func (l *lifecycle) observeServices(ctx context.Context, id, unit, action string
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-	} else {
-		release, err = l.lockSession(ctx, id)
 	}
 	if err != nil {
-		return zero, err
+		return err
 	}
 	defer release()
 	if err = l.admitSessionWork(ctx, id, ""); err != nil {
-		return zero, err
+		return err
 	}
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
 	if err != nil {
-		return zero, err
+		return err
 	}
-	native, err := l.runtimeSession(ctx, s)
+	spec, err := l.sessionSpec(ctx, s)
 	if err != nil {
-		return zero, err
+		return err
 	}
-	b := &serviceBroker{Scoped: runtimeincus.Scoped{Backend: l.runtime, Session: native}, unit: unit, action: action}
-	if _, err = runRuntime(ctx, l.runtimePlugin, "runtime.services", b); err != nil {
-		// The session's user service manager runs in the runtime; a refusal
-		// the runtime typed, such as a session that is not running, keeps its
-		// answer.
-		return zero, control.Failed(api.ReasonRuntime, err)
+	notReady := &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonSessionNotRunning, Target: api.TargetSession(id),
+		Cause: fmt.Errorf("%w: project services require a ready session", control.ErrConflict)}
+	observed, err := l.driver.Inspect(ctx, spec)
+	if err != nil {
+		return control.Failed(api.ReasonRuntime, err)
 	}
-	return b.result, nil
+	switch {
+	case observed.State != runtimedriver.StateAbsent && !observed.Complete:
+		return control.Failed(api.ReasonRuntime, errors.New("session runtime is incomplete"))
+	case observed.Host.Unknown:
+		return control.Failed(api.ReasonRuntime, errors.New("the session host cannot be read"))
+	case observed.State != runtimedriver.StateRunning || !observed.Host.Ready || observed.Incarnation == "":
+		return notReady
+	}
+	return servicesRefusal(id, notReady, call(ctx, runtimedriver.Target{Session: spec, At: observed.Incarnation}))
+}
+
+// servicesRefusal is the answer to a services call of session id that the
+// driver refused with err: a service the session does not have is not found,
+// a session host no longer ready is notReady, a driver without project
+// services has them not configured, and a service manager that refused or
+// could not be reached failed with reason services. Anything else failed in
+// the runtime.
+func servicesRefusal(id string, notReady, err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, runtimedriver.ErrNoService):
+		return &control.Refusal{Kind: api.KindNotFound, Reason: api.ReasonService, Target: api.TargetSession(id), Cause: fmt.Errorf("%w: %w", control.ErrNotFound, err)}
+	case errors.Is(err, runtimedriver.ErrNotReady):
+		return notReady
+	case errors.Is(err, runtimedriver.ErrUnsupported):
+		return control.NotConfigured(api.ReasonServices)
+	case errors.Is(err, runtimedriver.ErrUnavailable):
+		return control.Failed(api.ReasonServices, err)
+	}
+	return control.Failed(api.ReasonRuntime, err)
 }

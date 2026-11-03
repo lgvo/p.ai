@@ -63,11 +63,6 @@ func TestRunnersRefuseMisbehavingModules(t *testing.T) {
 			_, err := RunEvent(ctx, active, event)
 			return err
 		}, map[string]string{"loop": "plugin execution timed out or was cancelled", "flood": "plugin output exceeds limit", "exit": "plugin execution failed"}},
-		{"runtime", func(ctx context.Context, mode string) error {
-			active := selected(t, "testdata/runtime-hostile/plugin.json", "runtime.wasm", mode, []string{"runtime.incus"}, nil)
-			_, err := RunRuntime(ctx, active, "runtime.inspect", &runtimeFixture{})
-			return err
-		}, map[string]string{"loop": "runtime plugin timed out; native state must be re-inspected", "flood": "runtime plugin output exceeded limit", "exit": "runtime plugin execution failed"}},
 		{"source Git", func(ctx context.Context, mode string) error {
 			active := selected(t, "testdata/git-alternate/plugin.json", "git.wasm", mode, []string{"git.project"}, nil)
 			_, err := RunSourceGit(ctx, active, GitCommand{Kind: "git.origin.observe", Project: "team/app"}, &originFixture{sourceFixture: &sourceFixture{}})

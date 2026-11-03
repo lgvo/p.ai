@@ -5,8 +5,8 @@ containment, trusted activation, grants, and the minimum conformance workflow.
 [Technology stack](technology-stack.md) owns implementation dependencies and
 capability behavior. [Product direction](PRODUCT.md) owns the reason for the
 extension model. This contract is **v1 foundation**: package/activation schemas,
-the file-log operation, bounded WASI event, source-Git, and runtime commands,
-and trusted stopped-session asset assembly are implemented. Capability-specific
+the file-log operation, bounded WASI event and source-Git commands, and
+trusted stopped-session asset assembly are implemented. Capability-specific
 support claims remain subject to their recorded validation gates. P rejects an unimplemented method rather
 than executing it with ambient authority.
 
@@ -54,7 +54,6 @@ The v1 capability and placement pairs are:
 
 | Capability | Placement | Declared broker grant |
 |---|---|---|
-| `runtime` | `host` | `runtime.incus` |
 | `interactive-host` | `internal-session` | `session.asset.install` |
 | `source-git` | `hybrid` | `git.project` |
 | `event-handler` | `host` | `event.file.append` |
@@ -62,16 +61,16 @@ The v1 capability and placement pairs are:
 
 Each capability is selected at most once per instance for MVP. The grant
 names are typed broker verbs, not operating-system privileges or permission to
-run arbitrary host commands. Runtime and Git broker implementations must
-also enforce operation-specific scope and the [runtime grant ceiling](runtime-isolation.md)
-before their public methods become active. A package can request only grants
+run arbitrary host commands. The Git broker implementation must also enforce
+operation-specific scope and the [runtime grant ceiling](runtime-isolation.md)
+before its public methods become active. A package can request only grants
 assigned to its capability. Trusted activation grants must match the package's
 requests exactly; adding a grant requires manifest and trusted-config review.
 
 `runtime.kind` is one of `declarative`, `wasi-command`, or `assets`. The only
 current declarative operation is `event.file.append`; it is available only to
 an `event-handler`. `wasi-command` names a WebAssembly entry in the package;
-its implemented methods are the event handler, source-Git, and runtime methods
+its implemented methods are the event handler and source-Git methods
 described below. Asset packages
 carry fixed files for the session's systemd/attach or adapter contract.
 Core validates activation and typed asset plans before installing their fixed
@@ -337,81 +336,6 @@ receive ceiling. Source files are authoring material, not declared package
 files. These fixtures require real broker and transport validation before
 support is claimed.
 
-### WASI runtime ABI
-
-The `runtime` capability uses `host` placement, the `runtime.incus` grant, and
-a `wasi-command` entry. Trusted config is absent or `{}`. Core binds each
-invocation to exactly one session and to the configured confined local Incus
-user socket and project. The module sees no socket, instance name, image
-locator, device, host path, native argv, or administrative credential.
-
-The module receives one newline-terminated `p.command/v1` JSON object with
-`kind` and an opaque `scope` token. `kind` is one of `runtime.inspect`,
-`runtime.create`, `runtime.assemble`, `runtime.start`, `runtime.observe-host`,
-`runtime.attach`, `runtime.services`, `runtime.stop`, or `runtime.delete`.
-It returns `p.command-result/v1` with `status` `ready`, or `refused` and an
-optional message of at most 256 bytes. Unknown fields fail. A `ready` result
-does not supply authoritative state; core re-inspects Incus and checks the
-requested postcondition.
-
-`runtime.services` delegates exactly one core-bound session-user service
-inventory, bounded journal read, or start/stop/restart action through the
-optional typed services broker. The module receives no unit/action arguments;
-core captures and validates them before invocation. It requires the usual
-initial inspection, exact operation/scope checks, at most one service effect,
-and fresh native post-inspection. The native result remains core-owned; the
-module cannot synthesize service inventory or journal content. The
-[runtime boundary](runtime-isolation.md#project-user-services) owns service
-authority and isolation.
-
-The module uses the WASI Preview 1 `_start` entry and only the
-`p_broker_v1.call` host import. Every broker request has `schema`
-`p.broker/v1`, the current `scope`, and one closed `method` from the same eight
-names. It has no further fields. A successful response has `schema`
-`p.broker/v1`, `status` `ok`, `exists` (boolean), and `state` (Incus instance
-status when present). `runtime.observe-host` also returns bounded native
-`host_unit`, `host_ready`, `diagnostic`, and `diagnostic_available` fields.
-`runtime.inspect`, `runtime.observe-host`, and `runtime.attach` are read only.
-`runtime.attach` must be called exactly once for its matching invocation, after
-inspection. It checks native ownership, systemd readiness, and the selected
-root-owned unit and adapter assets through the image's fixed links. The native
-broker retains the structured fixed spec outside WASI; the module cannot select
-argv, sockets, or targets. Core repeats native checks before returning the spec.
-Each mutating method is
-permitted only for the matching command kind, after an inspection and at most
-once per invocation. The broker methods operate solely on the core-bound
-session. A module cannot change the target or turn an inspect into a delete.
-
-`runtime.assemble` receives no file path or bytes from the module. Native
-assembly installs only core-selected verified host, source, and optional agent asset plans,
-bounded session/workspace config, and the one session's Git material
-through the confined Incus file API on its owned stopped instance. Existing
-files must be identical or assembly refuses them. `runtime.observe-host`
-uses fixed native systemd and journal reads. Incus `Running` alone is never
-host readiness; a stopped journal that is absent, oversized, or unreadable
-produces an unavailable diagnostic without starting the instance.
-
-Core derives the instance name from the session UUID, requires immutable P
-identity metadata and a pinned image fingerprint, checks the confined project
-and default profile before mutations, and reads Incus state after operations.
-The native adapter is the sole owner of Incus calls. Interrupted calls are
-reconciled by inspecting Incus, without replaying a create blindly. The
-module may recognize a completed operation and return `ready` after its
-inspection without another mutation. Replacement modules may change this
-sequencing while remaining within the same closed effect set.
-
-Runtime commands have a 120-second total deadline, two dedicated concurrent
-slots, 16 MiB linear-memory limit, 4 KiB input/output/diagnostic/broker
-request/reply limits, and at most four broker calls. The longer deadline
-includes native Incus operations; it does not occupy event or Git command
-slots. No directories, environment variables, or network sockets are passed
-to the module. A timeout leaves native outcome unknown until fresh inspection.
-
-Build the bundled module with `GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build
--o runtime.wasm ./plugins/bundled/runtime-incus` and stage only
-`plugin.json` and `runtime.wasm` in its flat package directory. Source files
-are authoring material, not package files.
-
 ### Session asset plans
 
 An `interactive-host` asset package must contain exactly `p-session.target`,
@@ -439,9 +363,10 @@ safety.
 
 `p plugins list /absolute/catalog/path` scans immediate package directories
 and reports valid packages and rejections. It does not activate anything.
-The NixOS distribution ships all five first-party packages under
-`share/p/plugins` beside its `bin/p`: Incus runtime, tmux host, Git source,
-file-log handler and Codex adapter. Executable packages
+The NixOS distribution ships all four first-party packages under
+`share/p/plugins` beside its `bin/p`: tmux host, Git source, file-log handler
+and Codex adapter. Incus support is P's built-in runtime driver, not a
+package. Executable packages
 include their compiled WASI modules and only declared package files.
 `p version` reports the P and Go versions, the control protocol
 (`control_protocol`, such as `p.control/v2`), the plugin API version and the

@@ -14,12 +14,14 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
 // fakeImages is an in-memory image driver. It keeps images and the builders
-// a build left behind, and records every build that passed its gate.
+// a build left behind, and records every build that passed its gate. It
+// offers the image operations and finds no session runtime; any other call
+// panics.
 type fakeImages struct {
+	runtimedriver.Driver
 	mu         sync.Mutex
 	images     map[runtimedriver.ImageRef]runtimedriver.Image
 	builders   map[string]bool // build references whose builder remains
@@ -139,11 +141,8 @@ func (f *fakeImages) buildCount() int {
 	return len(f.builds)
 }
 
-// absentRuntime reports that no creating runtime exists.
-type absentRuntime struct{}
-
-func (absentRuntime) InspectCreated(context.Context, runtimeincus.Session) (runtimeincus.Observation, error) {
-	return runtimeincus.Observation{}, nil
+func (f *fakeImages) Inspect(context.Context, runtimedriver.Session) (runtimedriver.Observation, error) {
+	return runtimedriver.Observation{State: runtimedriver.StateAbsent}, nil
 }
 
 // imageFixture is a lifecycle with image builders configured, a real store
@@ -193,14 +192,14 @@ func newImageFixture(t *testing.T) *imageFixture {
 	}
 	t.Cleanup(func() { _ = raw.Close() })
 	driver := newFakeImages()
-	l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{backend: backend}, images: driver, instanceID: instance,
+	l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{backend: backend, info: testGitCapability().info}, driver: driver, instanceID: instance,
 		cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64), EndpointPrefix: "/var/lib/p-endpoints",
 			Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"}}}
 	return &imageFixture{l: l, driver: driver, raw: raw, commits: []string{tip, next}}
 }
 
 func imageTestSelection() control.CreationSelection {
-	return control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("1", 64), HostID: "host", HostSHA256: strings.Repeat("2", 64), SourceID: "source", SourceSHA256: strings.Repeat("3", 64)}
+	return control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("2", 64), SourceID: "source", SourceSHA256: strings.Repeat("3", 64)}
 }
 
 // create admits a creation of session branch from commit, assigned its
@@ -236,7 +235,7 @@ func (f *imageFixture) ensure(t *testing.T, op *api.Operation) (string, error) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return f.l.ensureImageWith(f.l.ctx, op, ev, absentRuntime{})
+	return f.l.ensureImage(f.l.ctx, op, ev)
 }
 
 func (f *imageFixture) evidence(t *testing.T, id string) control.CreationEvidence {

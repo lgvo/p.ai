@@ -78,14 +78,6 @@ let
     GO111MODULE=off GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
       -o "$out/bin/session-fixture" ./tests/integration/cmd/session-fixture
   '';
-  wasiRuntime = pkgs.runCommand "p-wasi-runtime-incus" { nativeBuildInputs = [ pkgs.go ]; } ''
-    export GOCACHE="$TMPDIR/go-cache" GOMODCACHE="$TMPDIR/go-modules"
-    export GOPROXY=off GOTOOLCHAIN=local
-    mkdir -p "$out"
-    cd ${pPackage.src}
-    GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -o "$out/runtime.wasm" ./plugins/bundled/runtime-incus
-    cp plugins/bundled/runtime-incus/plugin.json "$out/"
-  '';
   # Test-only immutable client shim: while the count file exists, append the
   # builder each image publish names (`--force-local --project P publish
   # NAME ...`), so a scenario counts its builds.
@@ -97,16 +89,6 @@ let
     fi
     exec ${pkgs.incus}/bin/incus "$@"
   '';
-  wasiRuntimeHostile =
-    pkgs.runCommand "p-wasi-runtime-hostile" { nativeBuildInputs = [ pkgs.go ]; }
-      ''
-        export GOCACHE="$TMPDIR/go-cache" GOMODCACHE="$TMPDIR/go-modules"
-        export GOPROXY=off GOTOOLCHAIN=local
-        mkdir -p "$out"
-        cd ${pPackage.src}
-        GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -o "$out/runtime.wasm" ./internal/plugin/testdata/runtime-hostile
-        cp internal/plugin/testdata/runtime-hostile/plugin.json "$out/"
-      '';
   wasiFilter =
     pkgs.runCommand "p-wasi-filter-log-fixture"
       {
@@ -216,9 +198,7 @@ let
       export P_TEST_GIT_PLUGIN=${wasiGit}
       export P_TEST_GIT_ALTERNATE=${wasiGitAlternate}
       export P_TEST_RUNTIME_IMAGE_FILE=${runtimeIdentity}
-      export P_TEST_RUNTIME_PLUGIN=${wasiRuntime}
       export P_TEST_INCUS_WRAPPER=${publishCountIncusWrapper}/bin/p-incus-publish-count-wrapper
-      export P_TEST_RUNTIME_HOSTILE=${wasiRuntimeHostile}
       export P_TEST_NIX_FIXTURE=${nixActivationFixture}
       export P_TEST_SELECTED_STEPS=${nixpkgs.lib.escapeShellArg (nixpkgs.lib.concatStringsSep "\n" selectedSteps)}
       export P_TEST_NFT_BINARY=${pkgs.nftables}/bin/nft
@@ -289,8 +269,6 @@ in
     nixActivationFixture
     runtimeFixture
     builderFixture
-    wasiRuntime
-    wasiRuntimeHostile
     wasiFilter
     wasiHostile
     wasiGit

@@ -41,23 +41,22 @@ func testSession() Session {
 }
 
 type fakeIncus struct {
-	instance              bool
-	status                string
-	altered               bool
-	unsafeProfile         bool
-	unsafeExpandedDevice  bool
-	unsafeExpandedConfig  bool
-	diskPaths             string
-	failCreateAfterEffect bool
-	endpointSource        string
-	endpointDeviceAdded   bool
-	grant                 *FilesystemGrant
-	grantDeviceAdded      bool
-	alterGrant            bool
-	staleGrantLists       int
-	imageArchitecture     string
-	socket                string
-	mutations             []string
+	instance             bool
+	status               string
+	altered              bool
+	unsafeProfile        bool
+	unsafeExpandedDevice bool
+	unsafeExpandedConfig bool
+	diskPaths            string
+	endpointSource       string
+	endpointDeviceAdded  bool
+	grant                *FilesystemGrant
+	grantDeviceAdded     bool
+	alterGrant           bool
+	staleGrantLists      int
+	imageArchitecture    string
+	socket               string
+	mutations            []string
 }
 
 func (f *fakeIncus) run(_ context.Context, _ string, argv, env []string) ([]byte, error) {
@@ -130,35 +129,12 @@ func (f *fakeIncus) run(_ context.Context, _ string, argv, env []string) ([]byte
 		}
 		return json.Marshal([]instanceJSON{{Name: "p-" + testUUID, Type: "container", Status: f.status, Config: config, ExpandedConfig: expanded, Devices: instanceDevices, ExpandedDevices: devices, Profiles: []string{"default"}}})
 	case "config":
-		if f.grant != nil && len(args) > 4 && args[4] == grantDeviceName(f.grant.Name) {
-			device := grantDevice(*f.grant)
-			want := []string{"config", "device", "add", "p-" + testUUID, grantDeviceName(f.grant.Name), "disk"}
-			for _, key := range []string{"source", "path", "readonly", "propagation", "shift", "recursive", "raw.mount.options"} {
-				if value, ok := device[key]; ok {
-					want = append(want, key+"="+value)
-				}
-			}
-			if !slices.Equal(args, want) {
-				return nil, errors.New("unsafe grant device command")
-			}
-			f.grantDeviceAdded = true
-			f.mutations = append(f.mutations, "grant")
-			return nil, nil
-		}
 		want := []string{"config", "device", "add", "p-" + testUUID, "p-endpoint", "disk", "source=" + f.endpointSource, "path=" + endpointStagingPath, "readonly=true", "propagation=private", "shift=false"}
 		if f.endpointSource == "" || !slices.Equal(args, want) {
 			return nil, errors.New("unsafe endpoint device command")
 		}
 		f.endpointDeviceAdded = true
 		f.mutations = append(f.mutations, "endpoint")
-		return nil, nil
-	case "init":
-		f.mutations = append(f.mutations, "init")
-		f.instance = true
-		f.status = "Stopped"
-		if f.failCreateAfterEffect {
-			return nil, errors.New("connection dropped")
-		}
 		return nil, nil
 	case "start":
 		f.mutations = append(f.mutations, "start")
@@ -209,33 +185,21 @@ func fakeBackend(f *fakeIncus) *Backend {
 	return &Backend{config: Config{Binary: "/bin/incus", UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints"}}, run: f.run, validate: func(Config) error { return nil }}
 }
 
-func TestLifecycleUsesObservedIncusState(t *testing.T) {
-	f := &fakeIncus{failCreateAfterEffect: true}
+func TestStopUsesObservedIncusState(t *testing.T) {
+	f := &fakeIncus{instance: true, status: "Running"}
 	f.socket = (&fakeGuest{t: t, instance: "p-" + testUUID, systemdUp: true}).serveFiles()
 	b := fakeBackend(f)
 	b.config.UserSocket = f.socket
 	s := testSession()
 	ctx := context.Background()
-	got, err := b.Create(ctx, s)
-	if err != nil || !got.Exists || got.Status != "Stopped" {
-		t.Fatalf("create recovery: %+v, %v", got, err)
-	}
-	if _, err = b.Create(ctx, s); err != nil {
-		t.Fatal(err)
-	}
-	got, err = b.Start(ctx, s)
-	if err != nil || got.Status != "Running" {
-		t.Fatalf("start: %+v, %v", got, err)
-	}
-	got, err = b.Stop(ctx, s)
+	got, err := b.Stop(ctx, s)
 	if err != nil || got.Status != "Stopped" {
 		t.Fatalf("stop: %+v, %v", got, err)
 	}
-	got, err = b.Delete(ctx, s)
-	if err != nil || got.Exists {
-		t.Fatalf("delete: %+v, %v", got, err)
+	if got, err = b.Stop(ctx, s); err != nil || got.Status != "Stopped" {
+		t.Fatalf("stop of a stopped runtime: %+v, %v", got, err)
 	}
-	if !slices.Equal(f.mutations, []string{"init", "start", "stop", "delete"}) {
+	if !slices.Equal(f.mutations, []string{"stop"}) {
 		t.Fatalf("unexpected mutations: %v", f.mutations)
 	}
 }
@@ -281,8 +245,10 @@ func TestExactFilesystemGrantDeviceAndSourceSwap(t *testing.T) {
 	if err := inspectRuntimeGrantSourceWith(localGrant, lstat); err == nil {
 		t.Fatal("swapped local source accepted")
 	}
-	if _, err := b.Start(context.Background(), s); err == nil {
-		t.Fatal("swapped grant source started")
+	// The checks Create and Start make before any effect.
+	b.checkGrantSource = func(FilesystemGrant) error { return inspectRuntimeGrantSourceWith(localGrant, lstat) }
+	if err := b.effectChecks(context.Background(), s); err == nil {
+		t.Fatal("swapped grant source passed the effect checks")
 	}
 	if len(f.mutations) != 0 {
 		t.Fatalf("source swap caused mutation: %v", f.mutations)
@@ -310,38 +276,38 @@ func TestConfinementAndIdentityDenials(t *testing.T) {
 	ctx := context.Background()
 	s := testSession()
 	f := &fakeIncus{unsafeProfile: true}
-	_, err := fakeBackend(f).Create(ctx, s)
+	err := fakeBackend(f).CheckConfinement(ctx)
 	if err == nil || len(f.mutations) != 0 {
 		t.Fatalf("unsafe profile accepted: %v", err)
 	}
-	f = &fakeIncus{instance: true, status: "Stopped", altered: true}
-	_, err = fakeBackend(f).Delete(ctx, s)
+	f = &fakeIncus{instance: true, status: "Running", altered: true}
+	_, err = fakeBackend(f).Stop(ctx, s)
 	if err == nil || len(f.mutations) != 0 {
-		t.Fatalf("foreign identity deleted: %v", err)
+		t.Fatalf("foreign identity stopped: %v", err)
 	}
 	for _, test := range []struct {
 		name    string
 		fixture fakeIncus
 	}{
-		{"inherited NIC", fakeIncus{instance: true, status: "Stopped", unsafeExpandedDevice: true}},
-		{"inherited privilege", fakeIncus{instance: true, status: "Stopped", unsafeExpandedConfig: true}},
+		{"inherited NIC", fakeIncus{instance: true, status: "Running", unsafeExpandedDevice: true}},
+		{"inherited privilege", fakeIncus{instance: true, status: "Running", unsafeExpandedConfig: true}},
 	} {
 		f = &test.fixture
-		_, err = fakeBackend(f).Delete(ctx, s)
+		_, err = fakeBackend(f).Stop(ctx, s)
 		if err == nil || len(f.mutations) != 0 {
 			t.Fatalf("%s reached mutation: %v", test.name, err)
 		}
 	}
 	for _, paths := range []string{"/", "/etc,/var/lib/p-vm/endpoints", "/var/lib/p-vm/endpoints,/srv/extra"} {
 		f = &fakeIncus{diskPaths: paths}
-		_, err = fakeBackend(f).Create(ctx, s)
+		err = fakeBackend(f).CheckConfinement(ctx)
 		if err == nil || len(f.mutations) != 0 {
 			t.Fatalf("broad or undeclared disk ceiling %q accepted: %v", paths, err)
 		}
 	}
 	f = &fakeIncus{}
 	s.ImageFingerprint = "alias"
-	_, err = fakeBackend(f).Create(ctx, s)
+	_, err = fakeBackend(f).Inspect(ctx, s)
 	if err == nil || !strings.Contains(err.Error(), "fingerprint") || len(f.mutations) != 0 {
 		t.Fatalf("image alias accepted: %v", err)
 	}
@@ -512,14 +478,14 @@ func TestEndpointBoundaryBlocksChangedSocket(t *testing.T) {
 		t.Fatalf("valid endpoint: %v", err)
 	}
 	f.endpointSource = source
-	if _, err := (Scoped{Backend: b, Session: s}).Inspect(context.Background()); err == nil {
-		t.Fatal("ordinary scoped inspection accepted incomplete endpoint")
+	if _, err := b.Inspect(context.Background(), s); err == nil {
+		t.Fatal("ordinary inspection accepted incomplete endpoint")
 	}
-	pending, err := (Scoped{Backend: b, Session: s}).InspectCreated(context.Background())
+	pending, err := b.InspectCreated(context.Background(), s)
 	if err != nil || !pending.Exists || pending.Status != "Stopped" {
 		t.Fatalf("exact pending instance observation: %+v %v", pending, err)
 	}
-	// The native Create path delegates this exact stopped repair to
+	// The driver's Create delegates this exact stopped repair to
 	// ensureEndpoint after its confinement check; this fixture exercises the
 	// endpoint mutation under a real local Unix socket without changing the
 	// production disk-ceiling policy to permit /tmp.
@@ -531,8 +497,9 @@ func TestEndpointBoundaryBlocksChangedSocket(t *testing.T) {
 	if err = os.Chmod(filepath.Join(source, "git.sock"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = b.Start(context.Background(), s); err == nil || len(f.mutations) != 0 {
-		t.Fatalf("changed endpoint reached Incus: %v, %v", err, f.mutations)
+	// The checks Create and Start make before any effect.
+	if err = b.effectChecks(context.Background(), s); err == nil || len(f.mutations) != 0 {
+		t.Fatalf("changed endpoint passed the effect checks: %v, %v", err, f.mutations)
 	}
 	if err = os.Chmod(filepath.Join(source, "git.sock"), 0666); err != nil {
 		t.Fatal(err)

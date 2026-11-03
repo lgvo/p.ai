@@ -53,7 +53,7 @@ timeout 10 p plugins run-event "$filter_activation" "$step_dir/ready.json" | jq 
 jq -e '.id == "event-3b" and .fields.condition == "ready"' "$log_file" >/dev/null
 test "$(stat -c '%a' "$log_file")" = 600
 
-jq '.plugins[0].grants=["runtime.incus"]' "$filter_activation" > "$step_dir/wrong-grant.json"
+jq '.plugins[0].grants=["git.project"]' "$filter_activation" > "$step_dir/wrong-grant.json"
 step03_expect_failure 'grants must exactly match' p plugins activate "$step_dir/wrong-grant.json"
 printf '\n' >> "$filter_pkg/filter.wasm"
 step03_expect_failure 'package digest mismatch' timeout 10 p plugins run-event "$filter_activation" "$step_dir/ready.json"

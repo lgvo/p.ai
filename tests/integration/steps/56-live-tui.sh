@@ -72,13 +72,20 @@ rpc session.services "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -e '.result.services|any(.name=="p-project-demo.service")' >/dev/null
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" services "$socket" "$step_dir/uuid"
 
-# Infrastructure names and free-form native actions never reach the manager.
+# Infrastructure names and free-form native actions never reach the manager:
+# the session has no such project service, and its host keeps running.
+host_pid=$(inc exec "p-$uuid" -- systemctl show -p MainPID --value p-interactive.service)
+test "$host_pid" -gt 1
 for unit in p-interactive.service p-session.target sshd.service ../p-project-demo.service; do
  if output=$(rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "$unit" '{uuid:$uuid,name:$name,action:"stop"}')"); then
   echo "accepted infrastructure unit $unit" >&2; exit 1
  fi
- jq -e '.error.message=="invalid" and .error.code == -32602 and .error.data.reason=="param" and .error.data.field=="name" and (has("result")|not)' <<< "$output" >/dev/null
+ # The runtime driver decides which names are project services; any other
+ # name is not found and never reaches the session's service manager.
+ jq -e '.error.message=="not_found" and .error.code == -32015 and .error.data.reason=="service" and .error.data.target=="session/'"$uuid"'" and (has("result")|not)' <<< "$output" >/dev/null
 done
+test "$(inc exec "p-$uuid" -- systemctl show -p MainPID --value p-interactive.service)" = "$host_pid"
+inc exec "p-$uuid" -- systemctl is-active --quiet p-interactive.service
 inc list "^p-$uuid$" --format json |
  jq -e 'length==1 and .[0].expanded_config["security.idmap.isolated"]=="true" and .[0].expanded_config["security.nesting"]=="false" and ([.[0].expanded_devices[]|select(.type=="nic")]|length)==0' >/dev/null
 

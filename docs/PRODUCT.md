@@ -97,7 +97,7 @@ P distinguishes capabilities by where they operate and what crosses the
 session boundary:
 
 - An internal session service runs within the session's isolation boundary and
-  is supervised through the runtime's systemd contract.
+  is supervised by the runtime, through the runtime driver.
 - An external session service runs outside the session and is provided through
   an explicitly granted network endpoint with service-native, session-scoped
   authentication. It may be local to the P instance or remotely operated.

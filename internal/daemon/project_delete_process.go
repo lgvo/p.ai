@@ -117,7 +117,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			}
 			continue
 		}
-		native, err := l.runtimeSession(ctx, session)
+		native, err := l.nativeSession(ctx, session)
 		if err != nil {
 			if !fail(ri, err) {
 				return
@@ -247,7 +247,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			if e != nil {
 				return e
 			}
-			native, e := l.runtimeSession(call, session)
+			native, e := l.nativeSession(call, session)
 			if e != nil {
 				return e
 			}
@@ -259,7 +259,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			}
 		}
 		for _, c := range ev.Images {
-			_, found, e := l.images.InspectImage(call, runtimedriver.ImageRef(c.Image.Ref))
+			_, found, e := l.driver.InspectImage(call, runtimedriver.ImageRef(c.Image.Ref))
 			if e != nil {
 				return imageFailure(e)
 			}
@@ -367,7 +367,7 @@ func (l *lifecycle) deleteProjectImage(ctx context.Context, c control.CommitImag
 	if found && !reflect.DeepEqual(current, c.Image) {
 		return refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, fmt.Errorf("index row of image %s changed", c.Image.Ref))
 	}
-	_, present, err := l.images.InspectImage(ctx, runtimedriver.ImageRef(c.Image.Ref))
+	_, present, err := l.driver.InspectImage(ctx, runtimedriver.ImageRef(c.Image.Ref))
 	if err != nil {
 		return imageFailure(err)
 	}
@@ -376,7 +376,7 @@ func (l *lifecycle) deleteProjectImage(ctx context.Context, c control.CommitImag
 			return refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, fmt.Errorf("image %s present after its reviewed or confirmed absence", c.Image.Ref))
 		}
 		var gateErr error
-		err = l.images.DeleteImage(ctx, indexedImage(c.Image), func() error { r.DeleteIssued = true; gateErr = persist(); return gateErr })
+		err = l.driver.DeleteImage(ctx, indexedImage(c.Image), func() error { r.DeleteIssued = true; gateErr = persist(); return gateErr })
 		if gateErr != nil {
 			return err
 		}

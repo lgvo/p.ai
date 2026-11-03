@@ -56,7 +56,7 @@ func (l *lifecycle) lockProjectDeleteSessions(ctx context.Context, sessions []co
 // sessions into the claim a project deletion reviews.
 func (l *lifecycle) reviewCommitImage(ctx context.Context, row control.CommitImage) (control.CommitImageClaim, error) {
 	claim := control.CommitImageClaim{Image: row, ObservedSize: row.Size}
-	img, found, err := l.images.InspectImage(ctx, runtimedriver.ImageRef(row.Ref))
+	img, found, err := l.driver.InspectImage(ctx, runtimedriver.ImageRef(row.Ref))
 	if err != nil {
 		return claim, imageFailure(err)
 	}
@@ -167,7 +167,7 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		if e := l.admitSessionWork(ctx, s.UUID, ""); e != nil {
 			return nil, e
 		}
-		native, e := l.runtimeSession(ctx, s)
+		native, e := l.nativeSession(ctx, s)
 		if e != nil {
 			return nil, e
 		}

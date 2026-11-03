@@ -53,8 +53,8 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 			return e
 		}
 		defer life.Close()
-		if !sameLeasedSelection(leasedPackages, life.runtimePlugin) || !sameLeasedAsset(leasedPackages, life.hostPlan) || !sameLeasedAsset(leasedPackages, life.sourcePlan) || life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
-			return errors.New("runtime/asset selection changed while acquiring package leases")
+		if !sameLeasedAsset(leasedPackages, life.hostPlan) || !sameLeasedAsset(leasedPackages, life.sourcePlan) || life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
+			return errors.New("asset selection changed while acquiring package leases")
 		}
 		life.events = events
 		life.origins, origins.Queue = origins, life.enqueue

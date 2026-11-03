@@ -10,6 +10,7 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // requireRefusal fails unless err is a refusal of kind with reason and
@@ -48,7 +49,7 @@ func TestStartOfASessionHeldByAnOperationNamesIt(t *testing.T) {
 	}
 	_, err = l.StartSession(ctx, session.UUID)
 	requireRefusal(t, err, api.KindConflict, api.ReasonOperationBlocked, api.TargetOperation(op.ID))
-	_, err = l.observeServices(ctx, session.UUID, "", "list")
+	_, err = l.SessionServices(ctx, session.UUID)
 	requireRefusal(t, err, api.KindConflict, api.ReasonOperationBlocked, api.TargetOperation(op.ID))
 }
 
@@ -66,13 +67,19 @@ func TestStartOfASessionWithoutItsGitPrincipalIsRefused(t *testing.T) {
 	requireRefusal(t, err, api.KindConflict, api.ReasonPrincipalMissing, api.TargetSession(session.UUID))
 }
 
+// unreachableRuntime is a runtime driver that cannot reach its backend.
+type unreachableRuntime struct{ runtimedriver.Driver }
+
+func (unreachableRuntime) Inspect(context.Context, runtimedriver.Session) (runtimedriver.Observation, error) {
+	return runtimedriver.Observation{}, runtimedriver.ErrUnavailable
+}
+
 func TestRuntimeFailureOnStopAnswersFailedRuntime(t *testing.T) {
 	l, session := servicesLifecycle(t)
-	// The lifecycle has no runtime plugin, so the runtime call fails as an
-	// unreachable runtime would.
+	l.driver = unreachableRuntime{l.driver}
 	_, err := l.StopSession(context.Background(), session.UUID)
 	requireRefusal(t, err, api.KindFailed, api.ReasonRuntime, "")
-	_, err = l.observeServices(context.Background(), session.UUID, "", "list")
+	_, err = l.SessionServices(context.Background(), session.UUID)
 	requireRefusal(t, err, api.KindFailed, api.ReasonRuntime, "")
 }
 

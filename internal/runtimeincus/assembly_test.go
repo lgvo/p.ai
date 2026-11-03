@@ -1,29 +1,17 @@
 package runtimeincus
 
 import (
-	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"net"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/nixenv"
-	"github.com/lgvo/p.ai/internal/plugin"
-	"github.com/lgvo/p.ai/internal/runtimekit"
-	"golang.org/x/crypto/ssh"
 )
 
 func TestStoppedAssemblyRequiresExactPrivateActivationMaterial(t *testing.T) {
@@ -161,160 +149,6 @@ func TestGuestEtcBootstrapAndUnsafeExistingState(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func assemblyFixture(t *testing.T) Assembly {
-	t.Helper()
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	der, err := x509.MarshalPKCS8PrivateKey(private)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pub, err := ssh.NewPublicKey(private.Public())
-	if err != nil {
-		t.Fatal(err)
-	}
-	file := func(role, destination string, mode uint32) plugin.AssetFile {
-		data := []byte(role + "\n")
-		h := sha256.Sum256(data)
-		return plugin.AssetFile{Role: role, Destination: destination, Mode: mode, SHA256: hex.EncodeToString(h[:]), Data: data}
-	}
-	return Assembly{
-		HostAssets: plugin.AssetPlan{Schema: "p.asset-plan/v1", PackageID: "org.p.tmux-host", PackageSHA256: strings.Repeat("a", 64), Scope: "internal-session", Files: []plugin.AssetFile{
-			file("p-session.target", "/etc/systemd/system/p-session.target", 0644), file("p-interactive.service", "/etc/systemd/system/p-interactive.service", 0644), file("p-attach", "/usr/libexec/p/attach", 0555),
-		}},
-		SourceAssets:  plugin.AssetPlan{Schema: "p.asset-plan/v1", PackageID: "org.p.git", PackageSHA256: strings.Repeat("b", 64), Scope: "internal-session", Files: []plugin.AssetFile{file("p-git-ssh", "/usr/libexec/p/git-ssh", 0555)}},
-		SessionConfig: runtimekit.Config{Schema: "p.runtime-session/v1", Activation: "base", Command: []string{"/bin/bash", "-l"}},
-		Workspace:     runtimekit.WorkspaceConfig{Schema: "p.workspace/v1", Repository: "team/app", Branch: "main"},
-		Identity:      pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), ServerPublicKey: string(bytes.TrimSpace(ssh.MarshalAuthorizedKey(pub))),
-	}
-}
-
-func TestAssemblyFixedPlanAndGeneratedSSH(t *testing.T) {
-	a := assemblyFixture(t)
-	files, err := validateAssembly(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	paths := map[string]guestFile{}
-	for _, f := range files {
-		paths[f.path] = f.file
-	}
-	if len(paths) != 9 || paths["/etc/p/git/identity"].uid != 1000 || paths["/etc/p/git/identity"].mode != 0400 || !bytes.Contains(paths["/etc/p/git/ssh_config"].data, []byte("ProxyCommand /usr/libexec/p/runtime-kit git-stream")) {
-		t.Fatalf("unsafe assembly files: %#v", paths)
-	}
-	a.HostAssets.Files[0].Data = []byte("tampered")
-	if _, err := validateAssembly(a); err == nil {
-		t.Fatal("changed verified asset accepted")
-	}
-	a = assemblyFixture(t)
-	a.SourceAssets.Files[0].Destination = "/tmp/git-ssh"
-	if _, err := validateAssembly(a); err == nil {
-		t.Fatal("package-selected target accepted")
-	}
-	a = assemblyFixture(t)
-	a.SessionConfig.Activation = "devshell"
-	if _, err := validateAssembly(a); err == nil {
-		t.Fatal("unimplemented devShell accepted")
-	}
-}
-
-func TestAssemblyBindsImageWorkspaceSelectionToDevShellActivation(t *testing.T) {
-	devshell := runtimekit.Config{Schema: "p.runtime-session/v2", Activation: "devshell", MaterialSHA256: strings.Repeat("e", 64), Command: []string{"/bin/bash", "-l"}}
-	base := runtimekit.Config{Schema: "p.runtime-session/v1", Activation: "base", Command: []string{"/bin/bash", "-l"}}
-	for _, tc := range []struct {
-		selection string
-		session   runtimekit.Config
-		accepted  bool
-	}{
-		{"no-flake", base, true},
-		{"no-default", base, true},
-		{"devshell", devshell, true},
-		{"no-flake", devshell, false},
-		{"no-default", devshell, false},
-		{"devshell", base, false},
-	} {
-		a := assemblyFixture(t)
-		a.Workspace = runtimekit.WorkspaceConfig{Schema: "p.workspace/v2", Repository: "team/app", Branch: "main", InitialOID: strings.Repeat("a", 40), EnvironmentSelection: tc.selection}
-		a.SessionConfig = tc.session
-		if _, err := validateAssembly(a); (err == nil) != tc.accepted {
-			t.Fatalf("%s with %s activation: %v, want accepted=%t", tc.selection, tc.session.Activation, err, tc.accepted)
-		}
-	}
-}
-
-func TestAssemblyPinsOptionalAgentAssetBeforeAnyGuestEffect(t *testing.T) {
-	a := assemblyFixture(t)
-	data := []byte("#!/bin/sh\nexit 0\n")
-	h := sha256.Sum256(data)
-	sha := hex.EncodeToString(h[:])
-	a.AgentAssets = &plugin.AssetPlan{Schema: "p.asset-plan/v1", PackageID: "org.p.codex-adapter", PackageSHA256: strings.Repeat("c", 64), Scope: "internal-session", Files: []plugin.AssetFile{{Role: "p-codex-adapter", Destination: "/usr/libexec/p/codex-adapter", Mode: 0555, SHA256: sha, Data: data}}}
-	a.SessionConfig = runtimekit.Config{Schema: "p.runtime-session/v3", Activation: "base", AgentSHA256: sha, Command: []string{"/bin/bash", "-l"}}
-	files, err := validateAssembly(a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, f := range files {
-		if f.path == "/etc/p/assets/p-codex-adapter" {
-			found = f.file.typ == "file" && f.file.uid == 0 && f.file.gid == 0 && f.file.mode == 0555 && bytes.Equal(f.file.data, data)
-		}
-	}
-	if !found {
-		t.Fatal("selected adapter not installed at fixed root-owned target")
-	}
-	a.AgentAssets.Files[0].Destination = "/workspace/agent"
-	if _, err := validateAssembly(a); err == nil {
-		t.Fatal("plugin-selected adapter destination accepted")
-	}
-	a.AgentAssets.Files[0].Destination = "/usr/libexec/p/codex-adapter"
-	a.AgentAssets.Files[0].Data = []byte("changed")
-	if _, err := validateAssembly(a); err == nil {
-		t.Fatal("changed adapter bytes accepted")
-	}
-	a.AgentAssets.Files[0].Data = data
-	a.SessionConfig.AgentSHA256 = strings.Repeat("d", 64)
-	if _, err := validateAssembly(a); err == nil {
-		t.Fatal("runtime config accepted a different adapter digest")
-	}
-}
-
-func TestAssemblyAcceptsOpenSSHSessionKey(t *testing.T) {
-	if _, err := exec.LookPath("ssh-keygen"); err != nil {
-		t.Skip("OpenSSH unavailable")
-	}
-	path := filepath.Join(t.TempDir(), "session")
-	cmd := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", path)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("ssh-keygen: %v: %s", err, out)
-	}
-	identity, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := assemblyFixture(t)
-	a.Identity = identity
-	if _, err := validateAssembly(a); err != nil {
-		t.Fatalf("OpenSSH session key refused: %v", err)
-	}
-}
-
-func TestAssemblyRejectsWorkspaceFromAnotherSessionBeforeIncus(t *testing.T) {
-	a := assemblyFixture(t)
-	f := &fakeIncus{instance: true, status: "Stopped"}
-	b := fakeBackend(f)
-	s := testSession()
-	s.ProjectPath = "other"
-	s.AssignedBranch = "main"
-	if _, err := b.Assemble(context.Background(), s, a); err == nil || !strings.Contains(err.Error(), "bound session intent") {
-		t.Fatalf("foreign workspace accepted: %v", err)
-	}
-	if len(f.mutations) != 0 {
-		t.Fatalf("Incus mutated on binding mismatch: %v", f.mutations)
 	}
 }
 

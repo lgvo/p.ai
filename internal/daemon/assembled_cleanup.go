@@ -15,7 +15,7 @@ import (
 // P does not look inside it: the plan states that it and everything in it is
 // lost.
 func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session control.Session, creator api.Operation) (*api.RemovalRuntime, error) {
-	source, err := l.runtimeSession(ctx, session)
+	source, err := l.nativeSession(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		block(errors.New("pinned creator module selection unavailable"))
 		return
 	}
-	source, err := l.runtimeSession(ctx, session)
+	source, err := l.nativeSession(ctx, session)
 	if err != nil {
 		block(err)
 		return

@@ -39,7 +39,7 @@ jq -e '.kind == "session.condition_changed" and .fields.condition == "ready"' "$
 
 jq '.plugins[0].grants=[]' "$activation" > "$P_TEST_TMP/missing.json"
 expect_failure_contains 'grants must exactly match' p plugins activate "$P_TEST_TMP/missing.json"
-jq '.plugins[0].grants += ["runtime.incus"]' "$activation" > "$P_TEST_TMP/extra.json"
+jq '.plugins[0].grants += ["git.project"]' "$activation" > "$P_TEST_TMP/extra.json"
 expect_failure_contains 'grants must exactly match' p plugins activate "$P_TEST_TMP/extra.json"
 
 printf 'changed\n' > "$plugin_dir/extra"

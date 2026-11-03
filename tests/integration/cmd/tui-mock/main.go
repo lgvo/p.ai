@@ -684,7 +684,7 @@ func (f *fixture) registerServices(t *control.MethodTable) {
 }
 
 // units is the project services of running session id, and the index of
-// unit among them. A unit that is named but absent is unavailable.
+// unit among them. A unit that is named but absent is not found.
 func (f *fixture) units(id, unit string) ([]api.ProjectService, int, error) {
 	s, err := f.session(id)
 	if err != nil {
@@ -700,9 +700,8 @@ func (f *fixture) units(id, unit string) ([]api.ProjectService, int, error) {
 		}
 	}
 	if unit != "" {
-		// The daemon reaches the session's user manager, which refuses an
-		// unknown unit.
-		return nil, -1, mockError(api.KindFailed, api.ReasonServices, "")
+		// The runtime driver finds no project service of that name.
+		return nil, -1, mockError(api.KindNotFound, api.ReasonService, api.TargetSession(id))
 	}
 	return services, -1, nil
 }

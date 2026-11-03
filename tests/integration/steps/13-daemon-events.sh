@@ -77,10 +77,7 @@ activate() {
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
 activate "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
-activate "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime-one.json" runtime.incus
-activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host-one.json" session.asset.install
-jq -s '{schema:"p.activation/v1",plugins:([.[0].plugins[0],.[1].plugins[0]])}' \
-  "$step_dir/runtime-one.json" "$step_dir/host-one.json" > "$step_dir/runtime.json"
+activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/runtime.json" session.asset.install
 event_package="$step_dir/file-log"
 cp -R "$P_TEST_SOURCE/plugins/bundled/file-log" "$event_package"
 chmod -R u+w "$event_package"
@@ -92,18 +89,17 @@ jq -n --arg path "$event_package" --arg digest "$event_digest" --arg log "$log_f
 p plugins activate "$step_dir/events.json" | jq -e '.[0].capability=="event-handler"' >/dev/null
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
-runtime_id=$(jq -er '.plugins[0].id' "$step_dir/runtime.json")
-host_id=$(jq -er '.plugins[1].id' "$step_dir/runtime.json")
+host_id=$(jq -er '.plugins[0].id' "$step_dir/runtime.json")
 git_id=$(jq -er '.plugins[0].id' "$step_dir/git.json")
 incus_binary=$(command -v incus)
 jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
   --arg git_id "$git_id" --arg runtime_activation "$step_dir/runtime.json" \
-  --arg runtime_id "$runtime_id" --arg host_id "$host_id" \
+  --arg host_id "$host_id" \
   --arg event_activation "$step_dir/events.json" --arg incus_binary "$incus_binary" \
   --arg prefix "$endpoint_prefix" --arg image "$fingerprint" \
   '{schema:"p.host/v1",state_dir:$state,
    git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0"},
-   runtime:{activation_path:$runtime_activation,runtime_plugin_id:$runtime_id,
+   runtime:{activation_path:$runtime_activation,
     host_plugin_id:$host_id,driver:{name:"incus",config:{binary:$incus_binary,
     user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},
     endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
@@ -374,7 +370,7 @@ if timeout 15 p daemon "$step_dir/host.invalid.json" > "$step_dir/invalid.out" 2
   exit 1
 fi
 grep -Fq 'selected event handler unavailable' "$step_dir/invalid.err"
-jq '.plugins[0].grants=["runtime.incus"]' "$step_dir/events.json" > "$step_dir/events.invalid.json"
+jq '.plugins[0].grants=["git.project"]' "$step_dir/events.json" > "$step_dir/events.invalid.json"
 jq --arg path "$step_dir/events.invalid.json" '.events.activation_path=$path' "$step_dir/host.json" > "$step_dir/host.invalid-grant.json"
 if timeout 15 p daemon "$step_dir/host.invalid-grant.json" > "$step_dir/grant.out" 2> "$step_dir/grant.err"; then
   echo 'daemon accepted an ungranted event handler' >&2

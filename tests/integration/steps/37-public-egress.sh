@@ -122,21 +122,17 @@ activate() {
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
 activate "$P_TEST_GIT_PLUGIN" "$step_dir/git.json" git.project
-activate "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime-one.json" runtime.incus
-activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host-one.json" session.asset.install
-jq -s '{schema:"p.activation/v1",plugins:([.[0].plugins[0],.[1].plugins[0]])}' \
-  "$step_dir/runtime-one.json" "$step_dir/host-one.json" > "$step_dir/runtime.json"
+activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/runtime.json" session.asset.install
 base_image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base_image}" -eq 64
 jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
   --arg git_id "$(jq -er '.plugins[0].id' "$step_dir/git.json")" \
   --arg runtime_activation "$step_dir/runtime.json" \
-  --arg runtime_id "$(jq -er '.plugins[0].id' "$step_dir/runtime.json")" \
-  --arg host_id "$(jq -er '.plugins[1].id' "$step_dir/runtime.json")" \
+  --arg host_id "$(jq -er '.plugins[0].id' "$step_dir/runtime.json")" \
   --arg incus_binary "$incus_real" --arg prefix "$endpoint_prefix" --arg image "$base_image" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0"},
-    runtime:{activation_path:$runtime_activation,runtime_plugin_id:$runtime_id,
+    runtime:{activation_path:$runtime_activation,
       host_plugin_id:$host_id,driver:{name:"incus",config:{binary:$incus_binary,
       user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],

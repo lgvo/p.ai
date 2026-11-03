@@ -6,6 +6,10 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // One request type per method, even where two methods take the same fields:
@@ -571,12 +575,20 @@ func validServiceSession(uuid string) error {
 	return nil
 }
 
-// validServiceName admits only a session-user p-project-*.service unit.
+// validServiceName admits a name any runtime could give a project service.
 func validServiceName(uuid, name string) error {
-	if !ValidProjectServiceUnit(name) {
+	if !ValidServiceName(name) {
 		return invalid("name")
 	}
 	return validServiceSession(uuid)
+}
+
+// ValidServiceName reports whether name can name a project service: 1 to
+// runtimedriver.MaxServiceName bytes of printable UTF-8. Which names a
+// session has, and in what form, is its runtime's business.
+func ValidServiceName(name string) bool {
+	return name != "" && len(name) <= runtimedriver.MaxServiceName && utf8.ValidString(name) &&
+		strings.IndexFunc(name, func(r rune) bool { return !unicode.IsPrint(r) }) < 0
 }
 
 // AttachmentClaimRequest redeems a pending attachment's token. Only the

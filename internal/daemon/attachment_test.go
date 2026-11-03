@@ -66,7 +66,7 @@ func TestAttachmentReleasePanicLeavesLifecycleLockFree(t *testing.T) {
 	if err = store.CreateProject(ctx, "app", policy); err != nil {
 		t.Fatal(err)
 	}
-	selection := control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("a", 64), HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
+	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
 	op, session, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: "attached", Project: "app", Branch: "work", Choice: "existing"}, strings.Repeat("d", 64), selection, func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 		return strings.Repeat("e", 40), true, nil
 	})

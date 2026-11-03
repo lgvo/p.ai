@@ -2,9 +2,16 @@ package runtimeincus
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/runtimedriver"
+	"golang.org/x/crypto/ssh"
 )
 
 // incusWorld is a stubbed Incus as the session driver reaches it: one
@@ -440,9 +448,7 @@ func (w *incusWorld) userCommand(in *worldInstance, command []string) ([]byte, e
 		}
 		return json.Marshal(rows)
 	case len(command) == 6 && systemctl("--no-pager", "--no-block", command[4], command[5]):
-		return nil, in.queue(command[4], command[5], false)
-	case len(command) == 5 && systemctl("--no-pager", command[3], command[4]):
-		return nil, in.queue(command[3], command[4], true)
+		return nil, in.queue(command[4], command[5])
 	case len(command) == 6 && command[0] == "/usr/libexec/p/journalctl" && slices.Equal(command[2:], []string{"--no-pager", "--output=short-iso", "-n", "100"}):
 		unit := strings.TrimPrefix(command[1], "--user-unit=")
 		in.reached = append(in.reached, unit)
@@ -466,8 +472,8 @@ func (w *incusWorld) exitStatusOne() error {
 }
 
 // queue takes a start, stop or restart job for a unit, loading an installed
-// one first; a waited job also finishes.
-func (in *worldInstance) queue(action, name string, wait bool) error {
+// one first.
+func (in *worldInstance) queue(action, name string) error {
 	in.reached = append(in.reached, name)
 	i := slices.IndexFunc(in.units, func(u worldUnit) bool { return u.name == name })
 	if i < 0 {
@@ -489,9 +495,6 @@ func (in *worldInstance) queue(action, name string, wait bool) error {
 		u.active, u.sub = "deactivating", "stop"
 	default:
 		return errors.New("Unknown command verb")
-	}
-	if wait {
-		u.settle()
 	}
 	return nil
 }
@@ -654,22 +657,43 @@ func sftpReply(id []byte, f guestFile, ok bool) []byte {
 }
 
 // testSessionSpec is a valid spec of a new session of the project team/app on
-// unborn main, created from the base image, with the assets and Git key of
-// a.
-func testSessionSpec(a Assembly) runtimedriver.Session {
-	var assets []runtimedriver.Asset
-	for _, f := range append(slices.Clone(a.HostAssets.Files), a.SourceAssets.Files...) {
-		assets = append(assets, runtimedriver.Asset{Role: f.Role, Mode: f.Mode, Data: f.Data, SHA256: f.SHA256})
+// unborn main, created from the base image, with the session assets every
+// session gets and a fresh Git key.
+func testSessionSpec(t *testing.T) runtimedriver.Session {
+	t.Helper()
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := ssh.NewPublicKey(private.Public())
+	if err != nil {
+		t.Fatal(err)
 	}
 	return runtimedriver.Session{
 		Ref:    runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: testUUID},
 		Labels: runtimedriver.Labels{runtimedriver.LabelProject: "team/app"},
 		Image:  testImage, Command: []string{"/bin/bash", "-l"},
-		Workspace: runtimedriver.Workspace{Repository: "team/app", Branch: "main"},
-		GitKey:    a.Identity, GitHostKey: a.ServerPublicKey,
-		Endpoints: "/var/lib/p-vm/endpoints/" + testUUID,
-		Assets:    assets,
+		Workspace:  runtimedriver.Workspace{Repository: "team/app", Branch: "main"},
+		GitKey:     pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}),
+		GitHostKey: string(bytes.TrimSpace(ssh.MarshalAuthorizedKey(pub))),
+		Endpoints:  "/var/lib/p-vm/endpoints/" + testUUID,
+		Assets: []runtimedriver.Asset{testAsset("p-session.target", 0644, nil), testAsset("p-interactive.service", 0644, nil),
+			testAsset("p-attach", 0555, nil), testAsset("p-git-ssh", 0555, nil)},
 	}
+}
+
+// testAsset is the session asset of role with mode; its bytes are data, or
+// the role's name when data is nil.
+func testAsset(role string, mode uint32, data []byte) runtimedriver.Asset {
+	if data == nil {
+		data = []byte(role + "\n")
+	}
+	sum := sha256.Sum256(data)
+	return runtimedriver.Asset{Role: role, Mode: mode, Data: data, SHA256: hex.EncodeToString(sum[:])}
 }
 
 // testGrant is a read-only directory grant under the host's grant ceiling.

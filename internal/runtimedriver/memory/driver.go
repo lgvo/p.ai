@@ -112,6 +112,28 @@ func (d *Driver) Inspect(_ context.Context, s runtimedriver.Session) (runtimedri
 	return o.observation(s), nil
 }
 
+// HostLog is the session host's last account of itself: why it is not
+// ready, or why it ended.
+func (d *Driver) HostLog(_ context.Context, t runtimedriver.Target) (string, error) {
+	if err := d.alive(); err != nil {
+		return "", err
+	}
+	if err := d.w.checkSession(t.Session); err != nil {
+		return "", err
+	}
+	w := d.w
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	o, err := w.observe(t.Session)
+	if err != nil || o == nil {
+		return "", err
+	}
+	if t.At != "" && o.incarnation != t.At {
+		return "", fmt.Errorf("%w: another incarnation", runtimedriver.ErrMismatch)
+	}
+	return o.host.diagnostic, nil
+}
+
 // observe reads the object at the session's address: nil when the address
 // finds nothing, and ErrMismatch when what is there is not s's runtime as
 // specified. Devices an interrupted Create had not installed yet are not a
@@ -141,8 +163,6 @@ func (o *object) observation(s runtimedriver.Session) runtimedriver.Observation 
 	obs := runtimedriver.Observation{State: o.observedState(), Incarnation: o.incarnation, Complete: o.complete(s)}
 	if o.state == runtimedriver.StateRunning {
 		obs.Host = runtimedriver.HostState{Ready: o.host.ready, Diagnostic: o.host.diagnostic}
-	} else {
-		obs.Host = runtimedriver.HostState{Diagnostic: o.host.diagnostic}
 	}
 	return obs
 }
@@ -179,6 +199,9 @@ func (d *Driver) Create(_ context.Context, s runtimedriver.Session, at runtimedr
 	}
 	if err := d.w.checkSession(s); err != nil {
 		return zero, err
+	}
+	if len(s.GitKey) == 0 {
+		return zero, errors.New("the session's Git key is required to create its runtime")
 	}
 	if at != "" {
 		return d.complete(s, at)

@@ -20,18 +20,16 @@ func TestConformance(t *testing.T) {
 // public egress substrate. Its controls act on the world as an
 // administrator, a crash or the guest would.
 type incusFixture struct {
-	t      *testing.T
-	world  *incusWorld
-	driver *Driver
-	// assembly holds the assets and Git key every session gets.
-	assembly        Assembly
+	t               *testing.T
+	world           *incusWorld
+	driver          *Driver
 	sessions, slots int
 }
 
 func newIncusFixture(t *testing.T) conformance.Fixture {
 	w := newIncusWorld(t)
 	w.public = testEgressSubstrate()
-	return &incusFixture{t: t, world: w, driver: w.driver(), assembly: assemblyFixture(t)}
+	return &incusFixture{t: t, world: w, driver: w.driver()}
 }
 
 func (f *incusFixture) Driver() runtimedriver.Driver { return f.driver }
@@ -45,7 +43,7 @@ func (f *incusFixture) Restart() {
 
 func (f *incusFixture) Session(o conformance.SessionOptions) runtimedriver.Session {
 	f.sessions++
-	s := testSessionSpec(f.assembly)
+	s := testSessionSpec(f.t)
 	s.Ref.ID = fmt.Sprintf("00000000-0000-4000-8000-%012d", f.sessions)
 	s.Endpoints = "/var/lib/p-vm/endpoints/" + s.Ref.ID
 	if o.Grant {

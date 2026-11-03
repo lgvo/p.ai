@@ -108,13 +108,6 @@ func validateConfig(m Manifest, data []byte) error {
 		}
 		return strictJSON(data, &config)
 	}
-	if m.Capability == "runtime" && m.Runtime.Kind == "wasi-command" {
-		var config struct{}
-		if len(data) == 0 {
-			return nil
-		}
-		return strictJSON(data, &config)
-	}
 	if m.Capability != "event-handler" || (m.Runtime.Kind != "declarative" && m.Runtime.Kind != "wasi-command") {
 		// The runner exists for other capability classes, but their typed core
 		// adapters are deliberately unavailable until each method is defined.

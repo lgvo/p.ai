@@ -216,7 +216,6 @@ in
         };
         runtime = {
           activation_path = "${pState}/activation.json";
-          runtime_plugin_id = "org.p.runtime.incus";
           host_plugin_id = "org.p.tmux-host";
           driver = {
             name = "incus";

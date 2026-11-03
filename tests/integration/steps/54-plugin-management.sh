@@ -32,7 +32,7 @@ cleanup() {
  # The outer runner removes this disposable fixture tree. Change only our
  # recorded exact directories after assertions; production packages stay 0500.
  local report digest path
- for report in git-stage runtime-stage host-stage event-stage update; do
+ for report in git-stage host-stage event-stage update; do
   if ! test -f "$step_dir/$report.json" || test -L "$step_dir/$report.json"; then
    continue
   fi
@@ -63,7 +63,6 @@ stage() {
  test "$(stat -c '%a' "$(jq -er '.package.path' "$output")/plugin.json")" = 400
 }
 stage "$P_TEST_GIT_PLUGIN" "$step_dir/git-stage.json"
-stage "$P_TEST_RUNTIME_PLUGIN" "$step_dir/runtime-stage.json"
 stage "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host-stage.json"
 cp -R "$P_TEST_SOURCE/plugins/bundled/file-log" "$step_dir/event-source"
 chmod -R u+w "$step_dir/event-source"
@@ -82,8 +81,7 @@ expect_failure 'opened package bytes differ' p plugins update "$step_dir/offline
 # Explicit trusted selections use printed paths/digests/grants, adding only
 # capability config reviewed here by the host owner.
 jq '{schema:"p.activation/v1",plugins:[.selection|.config={}]}' "$step_dir/git-stage.json" > "$step_dir/git.json"
-jq -s '{schema:"p.activation/v1",plugins:[(.[0].selection|.config={}), (.[1].selection|.config={})]}' \
- "$step_dir/runtime-stage.json" "$step_dir/host-stage.json" > "$step_dir/runtime.json"
+jq '{schema:"p.activation/v1",plugins:[.selection|.config={}]}' "$step_dir/host-stage.json" > "$step_dir/runtime.json"
 log="$step_dir/events.ndjson"
 jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path:$log,max_bytes:1048576}]}' "$step_dir/event-stage.json" > "$step_dir/events.json"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
@@ -91,7 +89,7 @@ jq -n --arg state "$state" --arg git "$step_dir/git.json" --arg runtime "$step_d
  --arg events "$step_dir/events.json" --arg prefix "$endpoint_prefix" --arg binary "$(command -v incus)" --arg image "$image" \
  '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$git,source_plugin_id:"org.p.git",listen:"127.0.0.1:0"},
  events:{activation_path:$events,plugin_id:"org.p.filelog"},
- runtime:{activation_path:$runtime,runtime_plugin_id:"org.p.runtime.incus",host_plugin_id:"org.p.tmux-host",driver:{name:"incus",config:{binary:$binary,
+ runtime:{activation_path:$runtime,host_plugin_id:"org.p.tmux-host",driver:{name:"incus",config:{binary:$binary,
  user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},endpoint_prefix:$prefix,
  disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,
  project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"
@@ -133,9 +131,9 @@ key_sha=$(sha256sum "$state/session_keys/$uuid" | cut -d ' ' -f1)
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].expanded_config["security.idmap.isolated"]=="true" and (.[0].expanded_config["security.nesting"] // "false")=="false"' >/dev/null
 stop_daemon
 expect_failure 'selected in trusted activation' p plugins remove "$step_dir/host.json" "$event_digest"
-runtime_digest=$(jq -er '.package.sha256' "$step_dir/runtime-stage.json")
-expect_failure 'durable session/operation/cache depends' p plugins remove "$step_dir/offline.json" "$runtime_digest"
-test -d "$(jq -er '.package.path' "$step_dir/runtime-stage.json")"
+host_digest=$(jq -er '.package.sha256' "$step_dir/host-stage.json")
+expect_failure 'durable session/operation/cache depends' p plugins remove "$step_dir/offline.json" "$host_digest"
+test -d "$(jq -er '.package.path' "$step_dir/host-stage.json")"
 p plugins update "$step_dir/host.json" "$event_digest" "$event_source" "$new_digest" > "$step_dir/update.json"
 jq -e --arg old "$event_digest" --arg new "$new_digest" '.previous_sha256==$old and .package.sha256==$new and .explicit_trusted_selection_required' "$step_dir/update.json" >/dev/null
 # Staging did not select the update: the old trusted activation is unchanged.

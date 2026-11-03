@@ -66,7 +66,6 @@ cannot add networking, mounts, commands, or other grants.
   "git": {"activation_path":"/absolute/private/git-activation.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:2222"},
   "runtime": {
     "activation_path": "/absolute/private/runtime-activation.json",
-    "runtime_plugin_id": "org.p.runtime.incus",
     "host_plugin_id": "org.p.tmux-host",
     "driver": {
       "name": "incus",
@@ -679,7 +678,7 @@ before UUID resources exist, or a base-image local creation in `principals-ready
 with its exact reviewed P Git key, active principal, and endpoint sockets present,
 and affirmative durable `runtime_init_state:"not-attempted"` evidence. Ordinary
 session creation records that state before the native boundary and changes it
-to `attempted` immediately before dispatch through the trusted broker gate.
+to `attempted` immediately before dispatch through the runtime driver's gate.
 Dispatch provenance and approved cleanup completion are monotonic in SQLite;
 a stale Retry/status update cannot erase either checkpoint. A missing runtime
 after an attempted init cannot prove that a delayed request
@@ -905,13 +904,19 @@ words for the state, for display only; on Incus it is systemd's active and sub
 state, such as `active (running)`, or `installed` for an installed unit that
 the user manager has not loaded.
 
-Only session-user `p-project-*.service` names are admitted. No host/system unit,
-P infrastructure unit, arbitrary command, credential path, journal path, native
-Incus target, or free-form systemctl action can be supplied. An established,
-ready owned runtime is required.
-The daemon holds its session/workspace guards, uses selected WASI
-`runtime.services`, executes fixed commands under guest UID/GID 1000, and checks
-native identity/generation before accepting results. An action holds the
+A `name` must be printable UTF-8 of 1 to 128 bytes, or the request answers
+`invalid` with field `name`. The runtime driver decides which names are project
+services: any other name answers `not_found` with reason `service` and the
+session as `target`, without reaching the session's service manager. On Incus
+only session-user `p-project-*.service` units are project services. No
+host/system unit, P infrastructure unit, arbitrary command, credential path,
+journal path, native Incus target, or free-form systemctl action can be
+supplied. An established session whose runtime runs with a ready session host
+is required.
+The daemon holds its session/workspace guards and calls the runtime driver at
+the runtime's current incarnation; the Incus driver executes fixed commands
+under guest UID/GID 1000 and checks native identity/generation before
+accepting results. An action holds the
 session's lifecycle lock and answers `retry` with reason `session_held` while
 another lifecycle request holds it. The inventory and logs reads answer
 `retry` while a lifecycle request holds the lock, but never cause a `retry`
@@ -920,9 +925,8 @@ runs its runtime commands to their end, for at most 30 seconds, even after its
 client cancels or disconnects, so a request that waits for it never meets an
 Incus exec the read left behind. A session
 that is not ready answers `conflict` with reason `session_not_running`. A
-failure of the session's user service manager, including an action on a unit it
-does not know, answers `failed` with reason `services`; a failure of Incus
-answers `failed` with reason `runtime`. See the
+failure of the session's user service manager answers `failed` with reason
+`services`; a failure of Incus answers `failed` with reason `runtime`. See the
 [runtime service boundary](runtime-isolation.md#project-user-services).
 
 Inventory combines loaded user units with installed user unit files, at most
@@ -930,8 +934,11 @@ Inventory combines loaded user units with installed user unit files, at most
 `stopped` with detail `installed`: the user manager unloads only inactive
 units. Unavailable or oversized inventory fails rather than returning a
 misleading clean subset. Logs reads request at most 100 recent journal entries
-and bound the encoded result; they may return a truncated tail. Actions are synchronous and not durable operation receipts;
-after an uncertain transport outcome inspect the unit before repeating.
+and bound the encoded result; they may return a truncated tail. An action
+returns once the runtime has queued it (on Incus, `systemctl --no-block`); the
+inventory then shows the service `starting` or `stopping` and later its
+result. Actions are not durable operations; starting a running service or
+stopping a stopped one does nothing.
 
 Origin-backed `session.create` additionally accepts optional
 `expected_origin_url`, bound alongside `expected_commit_oid` to the source the
@@ -1297,9 +1304,9 @@ starts a session that is not ready and waits for its start operation, since
 `session.attach` starts nothing. It restores local terminal settings on exit
 and forwards terminal size changes.
 
-`session.attach` returns a 30-second, one-use pending token after the selected
-runtime WASI capability and native checks approve the fixed
-`/usr/libexec/p/attach` command. The public spec grants no general Incus access.
+`session.attach` returns a 30-second, one-use pending token after native checks
+approve the fixed `/usr/libexec/p/attach` command. The public spec grants no
+general Incus access.
 The CLI transfers the token to a separate temporary `p attach-helper` process
 through an inherited private socket; the token never enters argv.
 
@@ -1455,11 +1462,12 @@ it.
 | `not_found` | `project` | The project does not exist. |
 | `not_found` | `branch` | The P branch does not exist. |
 | `not_found` | `source` | The source ref or commit to create from does not exist, is unborn, or is not reachable from a P branch. |
+| `not_found` | `service` | The session has no project service of that name; `target` names the session. |
 | `not_configured` | `git`, `runtime`, `services` | The capability is not configured; see the [connection agreement](#connection-agreement). |
 | `not_configured` | `public_egress` | The session's policy needs public egress, which this host does not configure. |
 | `not_configured` | `project_policy` | The host configuration has no policy for the project. |
-| `failed` | `runtime` | Incus or the runtime plugin failed or could not be observed. |
-| `failed` | `services` | The session's user service manager is unavailable or refused the command, for example for a unit it does not know. |
+| `failed` | `runtime` | Incus or the runtime driver failed or could not be observed. |
+| `failed` | `services` | The session's user service manager is unavailable or refused the command. |
 | `failed` | `git` | P's Git repository or the source-Git plugin failed. |
 | `failed` | `origin` | The origin could not be contacted, or refused an observation, fetch or push. |
 | `failed` | `plugin` | A selected plugin failed its recheck before use. |
