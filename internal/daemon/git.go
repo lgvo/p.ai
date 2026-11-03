@@ -24,11 +24,10 @@ import (
 )
 
 type gitCapability struct {
-	// backend serves what has not moved to the source driver yet: the
-	// image builder's bundle and P's SSH endpoint.
-	backend *gitservice.Backend
-	// driver is the source driver: P's repositories, heads and commits.
-	driver   sourcedriver.Driver
+	// driver is the source driver: P's repositories, heads, commits and
+	// the commit export, and the origin.
+	driver sourcedriver.Driver
+	// prepared is P's SSH endpoint, which gitservice still serves.
 	prepared *gitservice.PreparedServer
 	listener net.Listener
 	info     *api.GitInfo
@@ -105,7 +104,7 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 		SourcePluginID:  source.Package.Manifest.ID,
 		SourceSHA256:    source.Package.SHA256,
 	}
-	return &gitCapability{backend: backend, driver: driver, prepared: prepared, listener: listener, info: info, source: *source}, nil
+	return &gitCapability{driver: driver, prepared: prepared, listener: listener, info: info, source: *source}, nil
 }
 
 // newSourceDriver starts the source driver host configuration selects: the

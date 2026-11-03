@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 // runImageCase builds the commit's image through the image driver, starts
 // two independent roots from it, and deletes it.
-func runImageCase(ctx context.Context, git *gitservice.Backend, binary, state string, b *runtimeincus.Backend, base, commit string) error {
-	src, err := exportCommit(ctx, git, state, commit)
+func runImageCase(ctx context.Context, source sourcedriver.Driver, binary, state string, b *runtimeincus.Backend, base, commit string) error {
+	src, err := exportCommit(ctx, source, state, commit)
 	if err != nil {
 		return err
 	}

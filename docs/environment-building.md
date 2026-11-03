@@ -144,13 +144,16 @@ fingerprint, and image fingerprint before runtime creation completes.
 The build's one input is a Git bundle of the source commit. It never reads the
 user's current checkout or a session workspace.
 
-P's Git service writes the bundle into a private directory under P's state for
-that one build. It refuses a missing commit, an object that is not a commit,
-and a commit no P head reaches. A temporary bare repository borrows P's
-objects through its `objects/info/alternates` and holds the bundle's only ref,
-`refs/p/source`, so P's repository is only read. The bundle holds the commit
-and every commit it reaches. The export has a ten-minute deadline and never
-leaves a partial bundle; core removes the directory after the build.
+Core makes a private directory under P's state for that one build, and the
+source driver's `Export` writes the bundle into it. The driver refuses a
+missing commit, an object that is not a commit, and a commit no P head
+reaches, which the creation answers as a missing source (`not_found`, reason
+`source`); a failed Git read answers `failed`, reason `git`. The bundled Git
+driver's temporary bare repository borrows P's objects through its
+`objects/info/alternates` and holds the bundle's only ref, `refs/p/source`,
+so P's repository is only read. The bundle holds the commit and every commit
+it reaches. The export has a ten-minute deadline and never leaves a partial
+bundle; core removes the directory after the build.
 
 The driver streams the bundle through the confined Incus file API into the
 stopped builder at `/opt/p/build/source.bundle`, root-owned and read-only. The
@@ -265,10 +268,12 @@ deleting it.
 
 ### 1. Stage and transfer
 
-Core stages the Git bundle of the commit (see
-[source input](#source-input-and-lock-policy)) and asks the driver to build
-under a new build reference. After its checks the driver calls core's gate,
-creates the stopped builder from the pinned base, and transfers the bundle.
+Core has the source driver export the Git bundle of the commit into the
+build's staging directory (see
+[source input](#source-input-and-lock-policy)) and asks the runtime driver to
+build from it under a new build reference. After its checks the runtime
+driver calls core's gate, creates the stopped builder from the pinned base,
+and transfers the bundle.
 
 ### 2. Clone and resolve
 
@@ -658,9 +663,10 @@ this project's latest remote `main`, as recorded in
 
 ## API and channel boundary
 
-- **Git** supplies a bundle of the source commit to the builder, through the
-  Incus file API, and the session's assigned branch to its workspace after
-  runtime creation.
+- **Git** supplies a bundle of the source commit, which the source driver
+  exports and the runtime driver transfers to the builder through the Incus
+  file API, and the session's assigned branch to its workspace after runtime
+  creation.
 - **Host RPC** requests builds, observes bounded progress, and receives image
   identity; it never transports image bytes.
 - **Incus API/operations** create the builder, publish and delete the image,

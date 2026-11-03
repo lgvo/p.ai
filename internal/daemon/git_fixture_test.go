@@ -5,14 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
 	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
 )
 
@@ -41,39 +37,4 @@ func gitSource(t *testing.T, store *control.Store) (driver *sourcegit.Driver, re
 	tree := dispatchGit(t, repo, "mktree")
 	tip = dispatchGit(t, repo, "-c", "user.name=P fixture", "-c", "user.email=p@example.test", "commit-tree", tree, "-m", "fixture")
 	return driver, repo, tip
-}
-
-// gitserviceFixture is gitservice over store's state directory, serving the
-// source driver's repositories for what has not moved to the driver yet:
-// the image builder's bundle.
-func gitserviceFixture(t *testing.T, store *control.Store) *gitservice.Backend {
-	t.Helper()
-	state := store.StateDir()
-	dir := filepath.Join(state, "source-package")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"plugin.json", "p-git-ssh"} {
-		data, err := os.ReadFile(filepath.Join("../../plugins/bundled/source-git", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	build := exec.Command("go", "build", "-o", filepath.Join(dir, "git.wasm"), "../../plugins/bundled/source-git")
-	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build Git module: %v %s", err, out)
-	}
-	pkg, err := plugin.Conformance(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	backend, err := gitservice.New(store, state, []plugin.Active{{Package: pkg, Grants: []string{"git.project"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return backend
 }

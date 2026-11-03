@@ -15,7 +15,7 @@ import (
 
 // Refs outside refs/heads/ are not P's heads, a sibling namespace whose name
 // starts like it included: Branches does not list them, and a commit only
-// they hold is not reachable.
+// they hold is not reachable, so not exported.
 func TestOnlyHeadsAreBranchesAndReachCommits(t *testing.T) {
 	f := newFixture(t).(*fixture)
 	if _, err := f.driver.CreateRepository(t.Context(), "p"); err != nil {
@@ -34,6 +34,9 @@ func TestOnlyHeadsAreBranchesAndReachCommits(t *testing.T) {
 	}
 	if commit, err := f.driver.InspectCommit(t.Context(), "p", hidden); err != nil || commit != (sourcedriver.Commit{Present: true}) {
 		t.Fatalf("InspectCommit of a commit only other refs hold = %+v, %v; want present and not reachable", commit, err)
+	}
+	if e, err := f.driver.Export(t.Context(), "p", hidden, exportDirectory(t)); !errors.Is(err, sourcedriver.ErrConflict) {
+		t.Fatalf("Export of a commit only other refs hold = %+v, %v; want ErrConflict", e, err)
 	}
 }
 
@@ -102,5 +105,58 @@ func TestAReadCutOffByItsContextAnswersItsErrorPromptly(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 2*time.Second {
 		t.Fatalf("InspectBranch answered %v after its deadline", elapsed)
+	}
+}
+
+// A head Git cannot read, which its listings skip, is a failed read, never
+// an absent head: Branches fails, and so does every answer that a commit
+// no head reaches, though Git lists no head and exits 0. Only a commit an
+// intact head reaches is still read.
+func TestABrokenHeadIsAFailedReadNotAnAbsentHead(t *testing.T) {
+	for _, c := range []struct {
+		what string
+		// file and content are the loose ref written under refs/heads/;
+		// name is the branch InspectBranch reads, when one can name it.
+		file, content, name string
+	}{
+		{"a head whose ref Git cannot parse", "work", "zzzz\n", "work"},
+		{"a ref whose name Git refuses", "work..old", "", ""},
+		{"a head at an object the repository does not hold", "work", string(missingCommit) + "\n", "work"},
+	} {
+		t.Run(c.what, func(t *testing.T) {
+			f := newFixture(t).(*fixture)
+			if _, err := f.driver.CreateRepository(t.Context(), "p"); err != nil {
+				t.Fatal(err)
+			}
+			kept := f.Commit("p")
+			f.SetHead("p", "main", kept)
+			lost := f.Commit("p")
+			content := c.content
+			if content == "" {
+				content = string(lost) + "\n"
+			}
+			repo, _ := f.driver.repository("p")
+			if err := os.WriteFile(filepath.Join(repo, "refs", "heads", c.file), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ctx := t.Context()
+			if heads, err := f.driver.Branches(ctx, "p"); err == nil {
+				t.Errorf("Branches = %v, want an error", heads)
+			}
+			if c.name != "" {
+				if tip, ok, err := f.driver.InspectBranch(ctx, "p", c.name); err == nil {
+					t.Errorf("InspectBranch(%s) = %q, %v; want an error", c.name, tip, ok)
+				}
+			}
+			if commit, err := f.driver.InspectCommit(ctx, "p", lost); err == nil {
+				t.Errorf("InspectCommit of a commit no intact head reaches = %+v, want an error", commit)
+			}
+			if e, err := f.driver.Export(ctx, "p", lost, exportDirectory(t)); err == nil || errors.Is(err, sourcedriver.ErrConflict) {
+				t.Errorf("Export of a commit no intact head reaches = %+v, %v; want an error that is not ErrConflict", e, err)
+			}
+			if commit, err := f.driver.InspectCommit(ctx, "p", kept); err != nil || commit != (sourcedriver.Commit{Present: true, Reachable: true}) {
+				t.Errorf("InspectCommit of an intact head's tip = %+v, %v; want present and reachable", commit, err)
+			}
+		})
 	}
 }

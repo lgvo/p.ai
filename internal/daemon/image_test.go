@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
@@ -27,7 +27,8 @@ func TestASessionFromANewCommitBuildsAnImageTaggedWithIt(t *testing.T) {
 		t.Fatalf("builds: %d", f.driver.buildCount())
 	}
 	build := f.driver.builds[0]
-	if build.Ref.ID != control.BuildRef(op.ID, 1) || build.Source.Commit != f.commits[1] || build.Source.Ref != gitservice.BundleRef || !f.driver.bundles[0] {
+	// refs/p/source is the one ref of the bundled source driver's export.
+	if build.Ref.ID != control.BuildRef(op.ID, 1) || build.Source.Commit != f.commits[1] || build.Source.Ref != "refs/p/source" || !f.driver.bundles[0] {
 		t.Fatalf("build of another source: %+v", build)
 	}
 	if _, err := os.Stat(build.Source.Bundle); !errors.Is(err, os.ErrNotExist) {
@@ -265,6 +266,75 @@ func TestADefiniteBuildFailureEndsTheCycleAbsent(t *testing.T) {
 	}
 	if f.driver.buildCount() != 2 || f.driver.builds[1].Ref.ID != control.BuildRef(op.ID, 2) {
 		t.Fatalf("Retry after a definite failure did not build in a new cycle: %d builds", f.driver.buildCount())
+	}
+}
+
+// An export whose Git read fails answers failed, reason git: P's
+// repository failed, the source is not missing. Either the captured commit
+// is unreadable, or the only head that reaches it is.
+func TestAnExportWhoseGitReadFailsAnswersFailedGit(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		// unreadable makes part of f's repository unreadable and returns
+		// the commit to capture.
+		unreadable func(t *testing.T, f *imageFixture) string
+	}{
+		{"the captured commit is unreadable", func(t *testing.T, f *imageFixture) string {
+			corruptObject(t, f.repo, f.commits[1])
+			return f.commits[1]
+		}},
+		{"the only head that reaches it is unreadable", func(t *testing.T, f *imageFixture) string {
+			dispatchGit(t, f.repo, "update-ref", "-d", "refs/heads/main")
+			corruptObject(t, f.repo, f.commits[1])
+			return f.commits[0]
+		}},
+		{"the only head that reaches it is a malformed ref", func(t *testing.T, f *imageFixture) string {
+			dispatchGit(t, f.repo, "update-ref", "-d", "refs/heads/main")
+			if err := os.WriteFile(filepath.Join(f.repo, "refs", "heads", "next"), []byte("zzzz\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			return f.commits[0]
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newImageFixture(t)
+			op := f.create(t, "work", c.unreadable(t, f))
+			if _, err := f.ensure(t, &op); control.OperationReason(err) != api.ReasonGit {
+				t.Fatalf("export: %v, reason %s", err, control.OperationReason(err))
+			}
+			if f.driver.buildCount() != 0 {
+				t.Fatalf("built from an unreadable repository: %d builds", f.driver.buildCount())
+			}
+		})
+	}
+}
+
+// corruptObject overwrites the loose object of id in repo with bytes Git
+// cannot read.
+func corruptObject(t *testing.T, repo, id string) {
+	t.Helper()
+	object := filepath.Join(repo, "objects", id[:2], id[2:])
+	if err := os.Chmod(object, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(object, []byte("not a Git object"), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A captured commit no head reaches any more is a missing source, as a
+// creation's source that names no such commit is.
+func TestAnExportOfACommitNoHeadReachesAnswersTheSourceIsMissing(t *testing.T) {
+	f := newImageFixture(t)
+	loose := dispatchGit(t, f.repo, "-c", "user.name=P fixture", "-c", "user.email=p@example.test", "commit-tree", dispatchGit(t, f.repo, "mktree"), "-p", f.commits[1], "-m", "loose")
+	op := f.create(t, "work", loose)
+	_, err := f.ensure(t, &op)
+	var refusal *control.Refusal
+	if !errors.As(err, &refusal) || refusal.Kind != api.KindNotFound || refusal.Reason != api.ReasonSource {
+		t.Fatalf("export of a commit no head reaches: %v", err)
+	}
+	if f.driver.buildCount() != 0 {
+		t.Fatalf("built from a commit no head reaches: %d builds", f.driver.buildCount())
 	}
 }
 

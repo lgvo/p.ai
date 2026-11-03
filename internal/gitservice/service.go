@@ -177,13 +177,6 @@ func transportGitConfigArgs(service, hooksDir string, maxInputBytes int64) []str
 	return append(args, noImplicitMaintenanceArgs()...)
 }
 
-// gitBroker runs Git on one checked project repository for the bundle
-// export.
-type gitBroker struct {
-	backend *Backend
-	project string
-}
-
 func (b *Backend) checkRepository(ctx context.Context, project string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

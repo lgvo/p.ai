@@ -420,12 +420,13 @@ Whole-project deletion is defined in
 Project-controlled evaluation and builds run through the isolation boundary in
 [environment-building.md](environment-building.md).
 
-- P's Git service exports the source commit as a Git bundle: the commit and
-  every commit it reaches, under one ref, `refs/p/source`. A temporary bare
-  repository borrows P's objects through its alternates and holds that ref, so
-  P's repository is only read. The export takes no lock: P prunes no object,
-  so none the export reads can disappear underneath it. The bundle is written
-  into a private directory under P's state and removed after the build.
+- Core makes a private directory under P's state for the build, and the
+  source driver's `Export` writes the source commit into it as a Git bundle:
+  the commit and every commit it reaches, under one ref, `refs/p/source` in
+  the bundled Git driver. Its temporary bare repository borrows P's objects
+  through its alternates and holds that ref, so P's repository is only read.
+  The export takes no lock: P prunes no object, so none the export reads can
+  disappear underneath it. Core removes the directory after the build.
 - The runtime driver copies the bundle through the confined Incus file API
   into the stopped builder, root-owned and read-only. The builder clones it
   into its own `/workspace` and evaluates the commit from that clone; no tree

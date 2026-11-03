@@ -146,13 +146,14 @@ func (f *fakeImages) Inspect(context.Context, runtimedriver.Session) (runtimedri
 }
 
 // imageFixture is a lifecycle with image builders configured, a real store
-// and P repository for project "app", and the fake image driver. The
-// repository's main branch holds commits[0]; its next branch holds
+// and P repository for project "app" at repo, and the fake image driver.
+// The repository's main branch holds commits[0]; its next branch holds
 // commits[1], a child of commits[0].
 type imageFixture struct {
 	l       *lifecycle
 	driver  *fakeImages
 	raw     *sql.DB
+	repo    string
 	commits []string
 }
 
@@ -175,8 +176,6 @@ func newImageFixture(t *testing.T) *imageFixture {
 		t.Fatal(err)
 	}
 	source, repo, tip := gitSource(t, store)
-	// The image builder's bundle still comes from gitservice.
-	backend := gitserviceFixture(t, store)
 	dispatchGit(t, repo, "update-ref", "refs/heads/main", tip)
 	next := dispatchGit(t, repo, "-c", "user.name=P fixture", "-c", "user.email=p@example.test", "commit-tree", dispatchGit(t, repo, "mktree"), "-p", tip, "-m", "next")
 	dispatchGit(t, repo, "update-ref", "refs/heads/next", next)
@@ -190,10 +189,10 @@ func newImageFixture(t *testing.T) *imageFixture {
 	}
 	t.Cleanup(func() { _ = raw.Close() })
 	driver := newFakeImages()
-	l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{backend: backend, driver: source, info: testGitCapability().info}, driver: driver, instanceID: instance,
+	l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{driver: source, info: testGitCapability().info}, driver: driver, instanceID: instance,
 		cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64), EndpointPrefix: "/var/lib/p-endpoints",
 			Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"}}}
-	return &imageFixture{l: l, driver: driver, raw: raw, commits: []string{tip, next}}
+	return &imageFixture{l: l, driver: driver, raw: raw, repo: repo, commits: []string{tip, next}}
 }
 
 func imageTestSelection() control.CreationSelection {

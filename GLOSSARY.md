@@ -318,7 +318,7 @@ addressed in P's terms rather than Git's layout.
   observations, and each project's origin lock; the driver never opens P's
   database or reaches a runtime. Host configuration selects it as
   `git.driver`; its Git implementation runs inside the P daemon. The Git
-  service and the commit export do not go through it yet.
+  service does not go through it yet.
 - **Rules:** It acts only on P's repositories in its configured storage,
   changes a head only at an exact expected state, and claims nothing after an
   error.

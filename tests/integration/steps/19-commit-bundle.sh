@@ -1,14 +1,13 @@
 # shellcheck shell=bash
-# Step 7b1: the commit bundle an image build receives. The production Git
-# service exports a captured commit from P's repository into a private staging
-# directory; no builder or Nix expression runs here.
+# Step 7b1: the commit bundle an image build receives. The bundled source
+# driver's Export writes a captured commit from P's repository into a private
+# staging directory; no builder or Nix expression runs here.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-19"
 mkdir -m 0700 "$step_dir"
 state="$step_dir/state"
 mkdir -m 0700 "$state"
-activation="$step_dir/activation.json"
 on_error() {
   printf 'P_COMMIT_BUNDLE_FAIL line=%s status=%s\n' "$2" "$1" >&2
   for log in export.err refused.err; do
@@ -17,11 +16,6 @@ on_error() {
 }
 trap 'on_error "$?" "$LINENO"' ERR
 
-digest=$(p plugins conformance "$P_TEST_GIT_PLUGIN" | jq -er '.sha256')
-id=$(jq -er '.id' "$P_TEST_GIT_PLUGIN/plugin.json")
-jq -n --arg path "$P_TEST_GIT_PLUGIN" --arg digest "$digest" --arg id "$id" \
-  '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$activation"
-p plugins activate "$activation" | jq -e '.[0].capability == "source-git"' >/dev/null
 repo=$(timeout 25 bundle-fixture prepare "$state" app | jq -er '.repository_path')
 test -d "$repo/objects"
 work="$step_dir/work"
@@ -48,7 +42,7 @@ objects_before=$(git -C "$repo" count-objects -v)
 export_bundle() {
   local commit="$1" staging="$step_dir/staging-$2"
   mkdir -m 0700 "$staging"
-  timeout 25 bundle-fixture export "$state" "$activation" app "$commit" "$staging" \
+  timeout 25 bundle-fixture export "$state" app "$commit" "$staging" \
     > "$step_dir/$2.json" 2> "$step_dir/export.err"
   jq -e --arg commit "$commit" --arg path "$staging/source.bundle" \
     '.commit == $commit and .ref == "refs/p/source" and .path == $path' "$step_dir/$2.json" >/dev/null
@@ -101,7 +95,7 @@ test ! -e "$step_dir/clone-second/untracked"
 refuse() {
   local label="$1" commit="$2" staging="$step_dir/staging-$3"
   mkdir -m 0700 "$staging"
-  if timeout 25 bundle-fixture export "$state" "$activation" app "$commit" "$staging" \
+  if timeout 25 bundle-fixture export "$state" app "$commit" "$staging" \
     > "$step_dir/refused.json" 2> "$step_dir/refused.err"; then
     echo "bundle unexpectedly exported: $label" >&2
     exit 1

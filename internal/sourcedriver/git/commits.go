@@ -41,7 +41,11 @@ func (d *Driver) InspectCommit(ctx context.Context, project string, id sourcedri
 	return sourcedriver.Commit{Present: true, Reachable: reachable}, nil
 }
 
-// reachableFromHead reports whether some head reaches the commit id.
+// reachableFromHead reports whether some head reaches the commit id. A head
+// Git names proves it. Git names none also when it skipped a head it could
+// not read, sometimes without saying so, as for a head at an object the
+// repository does not hold: before answering that none does, it reads every
+// head as Branches does, which fails on such a head.
 func (d *Driver) reachableFromHead(ctx context.Context, repo string, id sourcedriver.OID) (bool, error) {
 	found, err := d.git(ctx, repo, len("refs/heads/")+4096+1, "for-each-ref", "--count=1", "--contains="+string(id), "--format=%(refname)", "refs/heads/")
 	if err != nil {
@@ -50,7 +54,16 @@ func (d *Driver) reachableFromHead(ctx context.Context, repo string, id sourcedr
 	if found.Exit != 0 {
 		return false, errors.New("Git could not tell which heads reach the commit")
 	}
-	return strings.HasPrefix(found.Stdout, "refs/heads/"), nil
+	if strings.HasPrefix(found.Stdout, "refs/heads/") {
+		return true, nil
+	}
+	if found.Incomplete {
+		return false, errors.New("Git could not tell which heads reach the commit")
+	}
+	if _, err := d.readHeads(ctx, repo); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (d *Driver) LosingCommits(ctx context.Context, project string, removed []string) (sourcedriver.Loss, error) {
@@ -97,7 +110,7 @@ func (d *Driver) losing(ctx context.Context, repo string, heads []sourcedriver.H
 		return nil, err
 	}
 	all, err := lines(listed.Stdout)
-	if listed.Exit != 0 || err != nil {
+	if listed.Exit != 0 || listed.Incomplete || err != nil {
 		return nil, errors.New("Git could not list the commits the heads reach")
 	}
 	if len(all) > sourcedriver.MaxLosingCommits {

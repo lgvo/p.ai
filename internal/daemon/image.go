@@ -12,6 +12,7 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 // ensureImage brings a creation with image builders to image-ready and
@@ -300,19 +301,16 @@ func (l *lifecycle) buildImage(ctx context.Context, op *api.Operation, ev *contr
 		return "", err
 	}
 	defer os.RemoveAll(dir)
-	bundle, err := l.git.backend.ExportBundle(ctx, op.Project, ev.CapturedOID, dir)
+	exported, err := l.exportSource(ctx, op.Project, ev.CapturedOID, dir)
 	if err != nil {
-		return "", control.Failed(api.ReasonGit, err)
-	}
-	if bundle.Commit != ev.CapturedOID {
-		return "", control.Failed(api.ReasonGit, errors.New("exported source differs from the captured commit"))
+		return "", err
 	}
 	address, err := l.reserveBuilderPublicIPv4(ctx, op.SessionUUID)
 	if err != nil {
 		return "", err
 	}
 	build := imageBuild(op.ID, cycle, key)
-	build.Source = runtimedriver.SourceExport{Bundle: bundle.Path, Ref: bundle.Ref, Commit: bundle.Commit}
+	build.Source = exported
 	build.Network = runtimedriver.Network{PublicIPv4: address}
 	attempted := false
 	var gateErr error
@@ -344,6 +342,24 @@ func (l *lifecycle) buildImage(ctx context.Context, op *api.Operation, ev *contr
 		return "", errors.New("another image was indexed for the commit during the build")
 	}
 	return ev.ImageFingerprint, nil
+}
+
+// exportSource has the source driver export the captured commit into dir,
+// the build's private staging directory, as the build's source. A commit
+// the driver refuses, one no head reaches any more, answers not_found,
+// reason source; any other failure, and an export of another commit,
+// answers failed, reason git.
+func (l *lifecycle) exportSource(ctx context.Context, project, commit, dir string) (runtimedriver.SourceExport, error) {
+	exported, err := l.git.driver.Export(ctx, project, sourcedriver.OID(commit), dir)
+	switch {
+	case errors.Is(err, sourcedriver.ErrConflict):
+		return runtimedriver.SourceExport{}, sourceMissing("the captured commit is not one a head reaches")
+	case err != nil:
+		return runtimedriver.SourceExport{}, control.Failed(api.ReasonGit, err)
+	case string(exported.Commit) != commit:
+		return runtimedriver.SourceExport{}, control.Failed(api.ReasonGit, errors.New("exported source differs from the captured commit"))
+	}
+	return runtimedriver.SourceExport{Bundle: exported.Bundle, Ref: exported.Ref, Commit: commit}, nil
 }
 
 // imageBuildDir makes a private directory under P's state for one build's

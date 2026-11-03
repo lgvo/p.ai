@@ -134,11 +134,12 @@ which separates building and storing images from session lifecycle: its
 
 Core names P's concepts: a build gets a new build reference, the image's
 labels (project, source commit, base image, system, builder version, build)
-and a Git bundle of the commit. The driver builds, stores, lists and deletes
-images, calls core's gate right before each mutation, and settles an effect
-whose outcome is unknown from native state. Each image records its devShell
-outcome beside its labels. Core keeps the commit-image index and the rule for
-deleting images ([environment building](environment-building.md)).
+and a Git bundle of the commit, which the source driver exported. The driver
+builds, stores, lists and deletes images, calls core's gate right before each
+mutation, and settles an effect whose outcome is unknown from native state.
+Each image records its devShell outcome beside its labels. Core keeps the
+commit-image index and the rule for deleting images
+([environment building](environment-building.md)).
 
 MVP has one implementation, `runtimeincus.Driver`, which runs in the daemon
 process. It clones the commit in a disposable restricted Incus builder,
@@ -345,12 +346,14 @@ daemon over the state directory; an in-memory driver
 (`internal/sourcedriver/conformance`) show that a driver keeps the contract,
 and the Git driver runs the suite on real Git. The daemon starts the driver
 and checks its storage and Git tools before serving. P's repositories, heads,
-commits, Git's syntax for names and origin URLs, the Git edits of a renamed
-session's clone, and the origin's observation, fetch, comparison and push go
-through it. Core holds each project's origin lock and decides what an origin
-operation may do; the driver performs it. The Git service and the commit
-export still go through the code below until the following steps move them
-onto the driver.
+commits, the commit export for image builds, Git's syntax for names and
+origin URLs, the Git edits of a renamed session's clone, and the origin's
+observation, fetch, comparison and push go through it. Core holds each
+project's origin lock and decides what an origin operation may do; the driver
+performs it. Core makes each build's private staging directory, the driver
+exports the commit's Git bundle into it, and core removes it after the build.
+The Git service still goes through the code below until a following step
+moves it onto the driver.
 
 The bundled `source-git` WASI package uses the versioned broker operations in
 [plugin contract](plugin-contract.md#wasi-source-git-abi) to sequence native

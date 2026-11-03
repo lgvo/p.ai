@@ -15,7 +15,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 15 cases:
+- Added 2026-11-01, updated 2026-11-03, 16 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -89,6 +89,9 @@
     publication workers onto `git.driver`, with the per-project origin lock in the store;
     they are unit-tested on the in-memory source driver. The image builder's bundle and P's
     SSH endpoint still use the concrete `*gitservice.Backend`.
+  - 2026-11-03: "step 9 S4: the commit export through the source driver" moved the image
+    build's bundle onto `git.driver`'s `Export`; the image step's unit tests run it on the
+    bundled driver over a real repository. Only P's SSH endpoint still uses gitservice.
 
 ## Long worker functions
 

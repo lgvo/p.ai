@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 const nativeValidFlake = `{
@@ -68,8 +68,8 @@ const nativeUnlockedFlake = `{ inputs.dep.url = "path:/workspace/dep"; outputs =
 const nixInstance = "a0000000-0000-4000-8000-000000000024"
 
 func runNixFixture(args []string, image bool) error {
-	if len(args) != 2 {
-		return errors.New("usage: builder-fixture ACTIVATION BASE-FINGERPRINT nix")
+	if len(args) != 1 {
+		return errors.New("usage: builder-fixture BASE-FINGERPRINT nix|nix-image")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 17*time.Minute)
 	defer cancel()
@@ -78,11 +78,10 @@ func runNixFixture(args []string, image bool) error {
 		return err
 	}
 	defer os.RemoveAll(state)
-	store, git, repo, err := openRepository(ctx, state, args[0])
+	source, repo, err := openRepository(ctx, state)
 	if err != nil {
 		return err
 	}
-	defer store.Close()
 	binary, err := exec.LookPath("incus")
 	if err != nil {
 		return err
@@ -91,13 +90,13 @@ func runNixFixture(args []string, image bool) error {
 	if err != nil {
 		return err
 	}
-	base := strings.TrimSpace(args[1])
+	base := strings.TrimSpace(args[0])
 	if image {
 		commit, err := seedNativeCommit(ctx, repo, nativeImageFlake, "valid-offline")
 		if err != nil {
 			return fmt.Errorf("image seed: %w", err)
 		}
-		if err := runImageCase(ctx, git, binary, state, b, base, commit); err != nil {
+		if err := runImageCase(ctx, source, binary, state, b, base, commit); err != nil {
 			return fmt.Errorf("image: %w", err)
 		}
 		fmt.Println("P_BUILDER_PRIVATE_IMAGE_PASS")
@@ -117,7 +116,7 @@ func runNixFixture(args []string, image bool) error {
 		if err != nil {
 			return fmt.Errorf("%s seed: %w", tc.name, err)
 		}
-		if err := runNixCase(ctx, git, binary, state, b, base, commit, tc.want); err != nil {
+		if err := runNixCase(ctx, source, binary, state, b, base, commit, tc.want); err != nil {
 			return fmt.Errorf("%s: %w", tc.name, err)
 		}
 	}
@@ -176,8 +175,8 @@ func seedNativeCommit(ctx context.Context, repo, flake, name string) (string, er
 
 // runNixCase takes one commit through the builder's lower-level steps:
 // create, transfer the bundle, start, clone, resolve and realize.
-func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state string, b *runtimeincus.Backend, base, commit, want string) error {
-	src, err := exportCommit(ctx, git, state, commit)
+func runNixCase(ctx context.Context, source sourcedriver.Driver, binary, state string, b *runtimeincus.Backend, base, commit, want string) error {
+	src, err := exportCommit(ctx, source, state, commit)
 	if err != nil {
 		return err
 	}

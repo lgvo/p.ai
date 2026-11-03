@@ -182,6 +182,35 @@ type gitResult struct {
 	// not run, was cut off by ctx or overflowed its output bound returns an
 	// error instead.
 	Exit int
+	// Incomplete is whether Git's standard error says its answer may leave
+	// something out: an error, or a ref it skipped as broken. Some reads
+	// say so and still exit 0: cat-file's batch answers an object it cannot
+	// read as missing, and for-each-ref leaves out a head whose ref or tip
+	// it cannot read. Other warnings, such as a deprecated setting, do not
+	// count.
+	Incomplete bool
+}
+
+// leftOut are the starts of the lines with which Git says that its answer
+// may leave something out. Git runs in the C locale, so they are not
+// translated.
+var leftOut = [][]byte{
+	[]byte("error:"),
+	[]byte("fatal:"),
+	[]byte("warning: ignoring broken ref "),
+	[]byte("warning: ignoring ref with broken name "),
+}
+
+// leavesOut reports whether Git's standard error holds one of leftOut.
+func leavesOut(stderr []byte) bool {
+	for line := range bytes.Lines(stderr) {
+		for _, start := range leftOut {
+			if bytes.HasPrefix(line, start) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // run runs git with args in dir under the repository environment plus env,
@@ -207,12 +236,13 @@ func (d *Driver) runInput(ctx context.Context, dir string, env []string, input s
 	if ctx.Err() != nil {
 		return gitResult{}, ctx.Err()
 	}
+	incomplete := leavesOut(stderr.buf.Bytes())
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() > 0 {
-		return gitResult{Stdout: stdout.buf.String(), Exit: exit.ExitCode()}, nil
+		return gitResult{Stdout: stdout.buf.String(), Exit: exit.ExitCode(), Incomplete: incomplete}, nil
 	}
 	if err != nil {
 		return gitResult{}, fmt.Errorf("git %s could not run: %w", args[0], err)
 	}
-	return gitResult{Stdout: stdout.buf.String()}, nil
+	return gitResult{Stdout: stdout.buf.String(), Incomplete: incomplete}, nil
 }

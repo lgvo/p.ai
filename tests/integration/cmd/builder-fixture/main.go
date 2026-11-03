@@ -17,11 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 )
 
@@ -35,14 +33,14 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 3 && args[2] == "nix" {
-		return runNixFixture(args[:2], false)
+	if len(args) == 2 && args[1] == "nix" {
+		return runNixFixture(args[:1], false)
 	}
-	if len(args) == 3 && args[2] == "nix-image" {
-		return runNixFixture(args[:2], true)
+	if len(args) == 2 && args[1] == "nix-image" {
+		return runNixFixture(args[:1], true)
 	}
-	if len(args) != 2 {
-		return errors.New("usage: builder-fixture ACTIVATION BASE-FINGERPRINT")
+	if len(args) != 1 {
+		return errors.New("usage: builder-fixture BASE-FINGERPRINT [nix|nix-image]")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	defer cancel()
@@ -51,16 +49,15 @@ func run(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(state)
-	store, git, repo, err := openRepository(ctx, state, args[0])
+	source, repo, err := openRepository(ctx, state)
 	if err != nil {
 		return err
 	}
-	defer store.Close()
 	commit, err := seedCommit(ctx, repo)
 	if err != nil {
 		return err
 	}
-	src, err := exportCommit(ctx, git, state, commit)
+	src, err := exportCommit(ctx, source, state, commit)
 	if err != nil {
 		return err
 	}
@@ -73,7 +70,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	r := runtimeincus.Builder{RequestUUID: uuid, ProjectPath: project, CommitOID: commit, BaseImageFingerprint: strings.TrimSpace(args[1]), ContractVersion: "1"}
+	r := runtimeincus.Builder{RequestUUID: uuid, ProjectPath: project, CommitOID: commit, BaseImageFingerprint: strings.TrimSpace(args[0]), ContractVersion: "1"}
 	name := "p-builder-" + uuid
 	// The VM's original dir pool is deliberately unsupported even though Incus
 	// accepts a root size string there without enforcing a quota.
@@ -149,32 +146,10 @@ func run(args []string) error {
 	return nil
 }
 
-// openRepository makes a P repository for the fixture project. The caller
-// closes the store.
-func openRepository(ctx context.Context, state, activation string) (*control.Store, *gitservice.Backend, string, error) {
-	store, err := control.OpenStore(state)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	git, repo, err := initRepository(ctx, store, state, activation)
-	if err != nil {
-		store.Close()
-		return nil, nil, "", err
-	}
-	return store, git, repo, nil
-}
-
-// initRepository makes the repository with the bundled source driver and
-// returns the Git service that exports its commits.
-func initRepository(ctx context.Context, store *control.Store, state, activation string) (*gitservice.Backend, string, error) {
-	active, err := plugin.LoadActivation(activation)
-	if err != nil {
-		return nil, "", err
-	}
-	git, err := gitservice.New(store, state, active)
-	if err != nil {
-		return nil, "", err
-	}
+// openRepository starts the bundled source driver over state and makes the
+// fixture project's repository with it. It returns the driver, which
+// exports the repository's commits, and the repository's path.
+func openRepository(ctx context.Context, state string) (sourcedriver.Driver, string, error) {
 	driver, err := bundledgit.Open(ctx, state)
 	if err != nil {
 		return nil, "", err
@@ -182,24 +157,24 @@ func initRepository(ctx context.Context, store *control.Store, state, activation
 	if _, err := driver.CreateRepository(ctx, project); err != nil {
 		return nil, "", err
 	}
-	return git, bundledgit.RepositoryPath(state, project), nil
+	return driver, bundledgit.RepositoryPath(state, project), nil
 }
 
-// exportCommit writes the commit's bundle into a private directory, as core
-// stages it for a build.
-func exportCommit(ctx context.Context, git *gitservice.Backend, state, commit string) (runtimedriver.SourceExport, error) {
+// exportCommit has the source driver export the commit into a private
+// directory, as core stages it for a build.
+func exportCommit(ctx context.Context, source sourcedriver.Driver, state, commit string) (runtimedriver.SourceExport, error) {
 	dir, err := os.MkdirTemp(state, "export-")
 	if err != nil {
 		return runtimedriver.SourceExport{}, err
 	}
-	bundle, err := git.ExportBundle(ctx, project, commit, dir)
+	exported, err := source.Export(ctx, project, sourcedriver.OID(commit), dir)
 	if err != nil {
 		return runtimedriver.SourceExport{}, fmt.Errorf("export commit bundle: %w", err)
 	}
-	if bundle.Commit != commit || bundle.Ref != gitservice.BundleRef {
-		return runtimedriver.SourceExport{}, fmt.Errorf("bundle names another commit: %+v", bundle)
+	if string(exported.Commit) != commit {
+		return runtimedriver.SourceExport{}, fmt.Errorf("bundle names another commit: %+v", exported)
 	}
-	return runtimedriver.SourceExport{Bundle: bundle.Path, Ref: bundle.Ref, Commit: bundle.Commit}, nil
+	return runtimedriver.SourceExport{Bundle: exported.Bundle, Ref: exported.Ref, Commit: commit}, nil
 }
 
 func newUUID() (string, error) {

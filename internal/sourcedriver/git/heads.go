@@ -95,7 +95,7 @@ func (d *Driver) readHeads(ctx context.Context, repo string) ([]sourcedriver.Hea
 	if err != nil {
 		return nil, err
 	}
-	if listed.Exit != 0 {
+	if listed.Exit != 0 || listed.Incomplete {
 		return nil, errors.New("Git could not list the heads")
 	}
 	all, err := lines(listed.Stdout)
@@ -171,7 +171,7 @@ func (d *Driver) objectTypes(ctx context.Context, repo string, ids []sourcedrive
 		return nil, err
 	}
 	answers, err := lines(read.Stdout)
-	if read.Exit != 0 || err != nil || len(answers) != len(unique) {
+	if read.Exit != 0 || read.Incomplete || err != nil || len(answers) != len(unique) {
 		return nil, errors.New("Git could not read the objects' types")
 	}
 	types := make(map[sourcedriver.OID]string, len(unique))
