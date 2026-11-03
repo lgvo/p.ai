@@ -231,13 +231,9 @@ func (l *lifecycle) completeReplacementCleanup(ctx context.Context, op *api.Oper
 	if c == nil || !c.Valid() || c.Completed || c.OldUUID != ev.SupersedesUUID || c.OldOperationID != ev.SupersedesOperationID || c.OldUUID == op.SessionUUID || op.Committed {
 		return control.ErrConflict
 	}
-	slot := l.sessionLockSlot(c.OldUUID)
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-slot:
+	if err = l.holdSession(ctx, op.ID, c.OldUUID); err != nil {
+		return err
 	}
-	defer func() { slot <- struct{}{} }()
 	old, err := l.store.GetOperation(ctx, c.OldOperationID)
 	if err != nil || old.Status != "superseded" || old.Kind != "session.create" || old.SessionUUID != c.OldUUID || old.Project != op.Project {
 		return control.ErrConflict

@@ -60,7 +60,7 @@ func TestRemovalRefusalsNameTheirNextStep(t *testing.T) {
 	}
 	attached, reviewed, blocked := f.sessions[0].UUID, f.sessions[1].UUID, f.sessions[2].UUID
 	selection := control.CreationSelection{RuntimeID: "runtime", RuntimeSHA256: strings.Repeat("a", 64), HostID: "host", HostSHA256: strings.Repeat("b", 64), SourceID: "source", SourceSHA256: strings.Repeat("c", 64)}
-	_, creating, err := f.m.store.BeginSessionCreate(f.ctx, control.ReserveSessionRequest{Key: "session-creating", Project: "app", Branch: "creating", Choice: "existing"}, strings.Repeat("d", 64), selection,
+	creation, creating, err := f.m.store.BeginSessionCreate(f.ctx, control.ReserveSessionRequest{Key: "session-creating", Project: "app", Branch: "creating", Choice: "existing"}, strings.Repeat("d", 64), selection,
 		func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil
 		})
@@ -109,7 +109,8 @@ func TestRemovalRefusalsNameTheirNextStep(t *testing.T) {
 		reason, target       string
 	}{
 		{"an attached session's review", "session.removal.preview", preview(attached), api.KindConflict, api.ReasonAttachmentActive, "session/" + attached},
-		{"a session being created", "session.removal.preview", preview(creating.UUID), api.KindConflict, api.ReasonSessionNotEstablished, "session/" + creating.UUID},
+		// The journal's admission check names the creation that holds it.
+		{"a session being created", "session.removal.preview", preview(creating.UUID), api.KindRetry, api.ReasonSessionHeld, "operation/" + creation.ID},
 		{"a session held by a blocked removal", "session.removal.preview", preview(blocked), api.KindConflict, api.ReasonOperationBlocked, "operation/" + op.ID},
 		{"an unknown session", "session.removal.preview", preview(absent), api.KindNotFound, api.ReasonSession, "session/" + absent},
 		{"an attached session's confirmation", "session.discard", confirm("attached", attached, discardToken), api.KindConflict, api.ReasonAttachmentActive, "session/" + attached},

@@ -38,10 +38,16 @@ type lifecycle struct {
 	ctx                    context.Context
 	mu                     sync.Mutex
 	working                map[string]bool
+	onlyRunning            map[string]bool // queued resumptions: run only while still running
 	pending                []string
 	queueSlots             chan struct{}
 	sessionLocks           map[string]chan struct{}
 	sessionReads           map[string]*readsInFlight
+	holdMu                 sync.Mutex
+	holds                  map[string][]heldSession // what each operation's worker holds
+	holders                map[string]string        // the operation whose worker holds each session
+	waitMu                 sync.Mutex
+	waiters                map[string]map[chan struct{}]bool // operation.wait calls, by operation
 	confinementCheck       func(context.Context) error
 	startActive            map[string]bool
 	attachments            map[string]*attachment
@@ -50,7 +56,6 @@ type lifecycle struct {
 	eventMu                sync.Mutex
 	observed               map[string]observedFacts
 	eventContexts          map[string]eventContext
-	progress               map[string]string
 	changedPolicies        map[string]bool
 	commitLocks            map[string]chan struct{}
 	releases               map[string]bool // projects whose image release runs; true asks for another run
@@ -211,6 +216,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 		}
 		after = next
 	}
+	store.ObserveJournal(l)
 	return l, nil
 }
 
@@ -274,14 +280,10 @@ func policyNotConfigured(project string) error {
 
 func (l *lifecycle) Close() { l.endpoints.Close() }
 
-// Recovery and polling read the same unfinished operations with distinct
-// eligibility rules: recovery may reconcile eligible blocked intents once,
-// while periodic polling only dispatches running work.
+// Recover resumes the journal's work at start: every running operation, in
+// the order the journal accepted them. A blocked operation waits for Retry,
+// at start as while the daemon runs.
 func (l *lifecycle) Recover() error {
-	ops, err := l.store.UnfinishedOperations(l.ctx)
-	if err != nil {
-		return err
-	}
 	after := ""
 	for {
 		sessions, next, e := l.store.ListSessions(l.ctx, after, 100)
@@ -307,19 +309,8 @@ func (l *lifecycle) Recover() error {
 		}
 		after = next
 	}
-	for _, op := range ops {
-		if kind := operationKinds[op.Kind]; kind.resumeAtStart != nil {
-			resume, err := kind.resumeAtStart(l, l.ctx, op)
-			if err != nil {
-				return err
-			}
-			if !resume {
-				continue
-			}
-		}
-		if err = l.enqueue(op.ID); err != nil {
-			return err
-		}
+	if err := l.resumeRunning(); err != nil {
+		return err
 	}
 	go l.schedule()
 	// Images left unused while the daemon was down go once recovery is under way.
@@ -338,6 +329,9 @@ func (l *lifecycle) Recover() error {
 		after = next
 	}
 }
+
+// schedule resumes running work every second: an operation whose worker
+// ended without recording its end, or that admission held back, runs again.
 func (l *lifecycle) schedule() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -346,30 +340,52 @@ func (l *lifecycle) schedule() {
 		case <-l.ctx.Done():
 			return
 		case <-ticker.C:
-			ops, err := l.store.UnfinishedOperations(l.ctx)
-			if err != nil {
+			if err := l.resumeRunning(); err != nil {
 				log.Printf("lifecycle reconciliation: %v", err)
-				continue
-			}
-			for _, op := range ops {
-				if op.Status == "running" {
-					_ = l.enqueue(op.ID)
-				}
 			}
 		}
 	}
+}
+
+// resumeRunning queues every running operation in acceptance order. One that
+// admission refuses now, or that cannot be read, stays recorded, and the next
+// round tries it again.
+func (l *lifecycle) resumeRunning() error {
+	ops, err := l.store.UnfinishedOperations(l.ctx)
+	if err != nil {
+		return err
+	}
+	for _, op := range ops {
+		if op.Status != "running" {
+			continue
+		}
+		var refusal *control.Refusal
+		if err := l.queue(op.ID, true); err != nil && !errors.As(err, &refusal) {
+			log.Printf("resuming operation %s: %v", op.ID, err)
+		}
+	}
+	return nil
 }
 
 // enqueue queues operation id for a worker. Once the daemon is stopping it
 // queues nothing and succeeds: the operation stays recorded, and the next
 // start resumes it (Recover), so the request that recorded it still returns
 // it.
-func (l *lifecycle) enqueue(id string) error {
+func (l *lifecycle) enqueue(id string) error { return l.queue(id, false) }
+
+// queue queues operation id as enqueue does. With onlyRunning, as resumption
+// asks, its worker runs only if the operation still reads running when the
+// worker starts, after any earlier worker of it ended: one whose worker
+// blocked it since resumption listed it waits for Retry.
+func (l *lifecycle) queue(id string, onlyRunning bool) error {
 	if l.ctx.Err() != nil {
 		return nil
 	}
 	if l.store != nil {
 		op, err := l.store.GetOperation(l.ctx, id)
+		if err == nil && onlyRunning && op.Status != "running" {
+			return nil
+		}
 		if err == nil {
 			if kind := operationKinds[op.Kind]; kind.admit != nil {
 				err = kind.admit(l, l.ctx, op)
@@ -388,12 +404,21 @@ func (l *lifecycle) enqueue(id string) error {
 		return nil
 	}
 	if l.working[id] {
+		if !onlyRunning {
+			delete(l.onlyRunning, id) // a request's own enqueue asks for no more
+		}
 		return nil
 	}
 	// Accepted work stays pending when all workers are busy. The working map
 	// deduplicates both queued and executing IDs; the durable journal supplies
 	// the same intents again on restart.
 	l.working[id] = true
+	if onlyRunning {
+		if l.onlyRunning == nil {
+			l.onlyRunning = map[string]bool{}
+		}
+		l.onlyRunning[id] = true
+	}
 	l.pending = append(l.pending, id)
 	l.dispatchLocked()
 	return nil
@@ -412,6 +437,8 @@ func (l *lifecycle) dispatchLocked() {
 		id := l.pending[0]
 		l.pending[0] = ""
 		l.pending = l.pending[1:]
+		onlyRunning := l.onlyRunning[id]
+		delete(l.onlyRunning, id)
 		go func() {
 			defer func() {
 				l.mu.Lock()
@@ -420,7 +447,7 @@ func (l *lifecycle) dispatchLocked() {
 				<-l.queueSlots
 				l.dispatchLocked()
 			}()
-			l.process(id)
+			l.process(id, onlyRunning)
 		}()
 	}
 }
@@ -484,7 +511,7 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 		return nil, ctx.Err()
 	case <-slot:
 	default:
-		return nil, control.Retry(api.ReasonSessionHeld, "")
+		return nil, l.heldRefusal(id)
 	}
 	release := func() { slot <- struct{}{} }
 	l.mu.Lock()
@@ -501,29 +528,146 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 	return release, nil
 }
 
-// checkNoSessionChange refuses work on a session while an unfinished cleanup,
-// discard, delete or rename holds it: retry while that operation runs,
-// conflict once it is blocked and waits for Retry.
-func (l *lifecycle) checkNoSessionChange(ctx context.Context, sessionUUID string) error {
+// heldRefusal refuses a request on session id, whose lock is taken: retry,
+// naming the operation whose worker holds it, if one does.
+func (l *lifecycle) heldRefusal(id string) error {
+	l.holdMu.Lock()
+	defer l.holdMu.Unlock()
+	if holder := l.holders[id]; holder != "" {
+		return control.Retry(api.ReasonSessionHeld, api.TargetOperation(holder))
+	}
+	return control.Retry(api.ReasonSessionHeld, "")
+}
+
+// admitSessionWork is the journal's admission check for work on session:
+// while an unfinished operation other than except holds it, retry naming that
+// operation while it runs, conflict once it is blocked and waits for Retry.
+func (l *lifecycle) admitSessionWork(ctx context.Context, session, except string) error {
 	if l.store == nil {
 		return nil
 	} // unit-only lifecycle seam; production always owns a Store
-	op, active, err := l.store.ActiveSessionChange(ctx, sessionUUID)
-	if err != nil {
-		return err
+	return l.store.AdmitSessionWork(ctx, session, except)
+}
+
+// heldSession is a session an operation's worker holds, with its lock.
+type heldSession struct {
+	session string
+	slot    chan struct{}
+}
+
+// holdSession holds session for operation opID's worker, waiting while a
+// request or another worker holds it. The hold belongs to the operation: the
+// journal releases it just before it records the operation's end (Ending),
+// and process releases what a worker still holds when it returns without one.
+func (l *lifecycle) holdSession(ctx context.Context, opID, session string) error {
+	slot := l.sessionLockSlot(session)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-slot:
 	}
-	if active {
-		return holderRefusal(op)
+	l.holdMu.Lock()
+	defer l.holdMu.Unlock()
+	if l.holds == nil {
+		l.holds, l.holders = map[string][]heldSession{}, map[string]string{}
 	}
+	l.holds[opID] = append(l.holds[opID], heldSession{session, slot})
+	l.holders[session] = opID
 	return nil
 }
 
-// holderRefusal refuses a request on what the unfinished operation op holds.
-func holderRefusal(op api.Operation) error {
-	if op.Status == "running" {
-		return control.Retry(api.ReasonSessionHeld, api.TargetOperation(op.ID))
+// releaseHolds releases every session operation opID's worker holds. It takes
+// only holdMu, never l.mu: the journal calls it while its transaction holds
+// the store's one connection, and l.mu is held around store calls elsewhere.
+func (l *lifecycle) releaseHolds(opID string) {
+	l.holdMu.Lock()
+	defer l.holdMu.Unlock()
+	for _, held := range l.holds[opID] {
+		delete(l.holders, held.session)
+		held.slot <- struct{}{}
 	}
-	return control.Conflict(api.ReasonOperationBlocked, api.TargetOperation(op.ID))
+	delete(l.holds, opID)
+}
+
+// Ending releases what operation id's worker holds, before the journal
+// records its end.
+func (l *lifecycle) Ending(id string) { l.releaseHolds(id) }
+
+// Changed emits the progress event of op's committed status change from
+// status from, and wakes the calls waiting for op.
+func (l *lifecycle) Changed(op api.Operation, from string) {
+	if phase := progressPhase(from, op.Status); phase != "" && op.Kind != "" {
+		l.recordProgress(op, phase)
+	}
+	l.wake(op.ID)
+}
+
+// progressPhase is the operation.progress phase of a status change, or empty
+// when the change emits none.
+func progressPhase(from, to string) string {
+	switch {
+	case from == "":
+		return "accepted"
+	case from == to:
+		return ""
+	case to == "running":
+		return "running"
+	case to == "superseded":
+		return "cancelled"
+	default:
+		return to
+	}
+}
+
+// WaitOperation returns operation id as soon as it is not running, or when
+// timeout passes with it still running. It reads the journal before and after
+// waiting, never while: the journal's commits wake it.
+func (l *lifecycle) WaitOperation(ctx context.Context, id string, timeout time.Duration) (api.Operation, error) {
+	woken := make(chan struct{}, 1)
+	l.waitMu.Lock()
+	if l.waiters == nil {
+		l.waiters = map[string]map[chan struct{}]bool{}
+	}
+	if l.waiters[id] == nil {
+		l.waiters[id] = map[chan struct{}]bool{}
+	}
+	l.waiters[id][woken] = true
+	l.waitMu.Unlock()
+	defer func() {
+		l.waitMu.Lock()
+		delete(l.waiters[id], woken)
+		if len(l.waiters[id]) == 0 {
+			delete(l.waiters, id)
+		}
+		l.waitMu.Unlock()
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		op, err := l.store.GetOperation(ctx, id)
+		if err != nil || op.Status != "running" {
+			return op, err
+		}
+		select {
+		case <-ctx.Done():
+			return api.Operation{}, ctx.Err()
+		case <-timer.C:
+			return l.store.GetOperation(ctx, id)
+		case <-woken:
+		}
+	}
+}
+
+// wake wakes the calls waiting for operation id.
+func (l *lifecycle) wake(id string) {
+	l.waitMu.Lock()
+	defer l.waitMu.Unlock()
+	for woken := range l.waiters[id] {
+		select {
+		case woken <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // readsInFlight counts the admitted reads of one session.
@@ -539,7 +683,7 @@ func (l *lifecycle) readSession(id string) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if len(slot) == 0 {
-		return nil, control.Retry(api.ReasonSessionHeld, "")
+		return nil, l.heldRefusal(id)
 	}
 	if l.sessionReads == nil {
 		l.sessionReads = map[string]*readsInFlight{}
@@ -748,7 +892,6 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 			}
 			op.Status = "running"
 			op.Reason, op.Diagnostic = "", ""
-			l.recordProgress(op, "running")
 		}
 		if err = l.enqueue(op.ID); err != nil {
 			return op, err
@@ -757,10 +900,15 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 	return op, nil
 }
 
-func (l *lifecycle) process(id string) {
+// process runs the work of operation id. Resumed work (onlyRunning) runs only
+// while the operation reads running.
+func (l *lifecycle) process(id string, onlyRunning bool) {
+	// Deferred first, so it runs last: a worker that returns without
+	// recording its operation's end, or panics, lets go of what it holds.
+	defer l.releaseHolds(id)
 	defer l.recoverOperation(id)
 	op, err := l.store.GetOperation(l.ctx, id)
-	if err != nil {
+	if err != nil || onlyRunning && op.Status != "running" {
 		return
 	}
 	if kind, ok := operationKinds[op.Kind]; ok {
@@ -781,12 +929,9 @@ func (l *lifecycle) recoverOperation(id string) {
 		return
 	}
 	log.Printf("operation %s work panicked: %v\n%s", id, value, debug.Stack())
-	op, err := l.store.BlockAfterPanic(l.ctx, id, fmt.Sprintf("operation work panicked: %v", value))
-	if err != nil {
+	if _, err := l.store.BlockAfterPanic(l.ctx, id, fmt.Sprintf("operation work panicked: %v", value)); err != nil {
 		log.Printf("operation %s stays as it was after the panic: %v", id, err)
-		return
 	}
-	l.recordProgress(op, "blocked")
 }
 
 func (l *lifecycle) processCreation(op api.Operation) {
@@ -796,20 +941,16 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		return
 	}
 	if op.Kind == "session.create" {
-		var release func()
-		op, release, err = l.lockCreationOperation(ctx, op, l.store.GetOperation)
+		op, err = l.lockCreationOperation(ctx, op, l.store.GetOperation)
 		if err != nil {
 			return
 		}
-		defer release()
 	}
 	fail := func(err error) {
 		if ctx.Err() != nil {
 			return
 		}
-		if l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(err), err.Error()) == nil {
-			l.recordProgress(op, "blocked")
-		}
+		_ = l.store.AdvanceOperation(ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(err), err.Error())
 	}
 	if op.Kind == "session.create" && op.Phase == "replacement-cleanup" {
 		if err = l.completeReplacementCleanup(ctx, &op); err != nil {
@@ -862,7 +1003,6 @@ func (l *lifecycle) processCreation(op api.Operation) {
 				return
 			}
 			if !bootstrap {
-				l.recordProgress(op, "completed")
 				return
 			}
 			l.recordCreatingSession(created)
@@ -1070,7 +1210,6 @@ func (l *lifecycle) processCreation(op api.Operation) {
 	if err = l.store.CompleteCreation(ctx, op.ID); err != nil {
 		fail(err)
 	} else {
-		l.recordProgress(op, "completed")
 		_, _ = l.InspectSession(ctx, op.SessionUUID)
 	}
 }
@@ -1149,7 +1288,6 @@ func (l *lifecycle) advance(op *api.Operation, phase string, committed bool) err
 	op.Phase = phase
 	op.Committed = committed
 	op.Status = "running"
-	l.recordProgress(*op, "running")
 	return nil
 }
 
@@ -1447,7 +1585,7 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 			release()
 		}
 	}()
-	if err := l.checkNoSessionChange(ctx, id); err != nil {
+	if err := l.admitSessionWork(ctx, id, ""); err != nil {
 		return api.SessionView{}, err
 	}
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
@@ -1566,7 +1704,7 @@ func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView
 	if l.hasAttachment(id) {
 		return api.SessionView{}, control.Conflict(api.ReasonAttachmentActive, api.TargetSession(id))
 	}
-	if err := l.checkNoSessionChange(ctx, id); err != nil {
+	if err := l.admitSessionWork(ctx, id, ""); err != nil {
 		return api.SessionView{}, err
 	}
 	s, err := l.store.GetSession(ctx, id)

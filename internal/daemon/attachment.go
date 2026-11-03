@@ -111,7 +111,7 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAt
 		return zero, err
 	}
 	defer release()
-	if err := l.checkNoSessionChange(ctx, id); err != nil {
+	if err := l.admitSessionWork(ctx, id, ""); err != nil {
 		return zero, err
 	}
 	spec, err := l.freshAttachSpec(ctx, id)
@@ -206,7 +206,7 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *con
 		return api.AttachmentLaunch{}, err
 	}
 	defer release()
-	if err := l.checkNoSessionChange(ctx, session); err != nil {
+	if err := l.admitSessionWork(ctx, session, ""); err != nil {
 		return api.AttachmentLaunch{}, err
 	}
 	l.mu.Lock()
@@ -260,7 +260,7 @@ func (l *lifecycle) ConfirmAttachment(ctx context.Context, conn *control.Connect
 		return err
 	}
 	defer release()
-	if err := l.checkNoSessionChange(ctx, a.session); err != nil {
+	if err := l.admitSessionWork(ctx, a.session, ""); err != nil {
 		return err
 	}
 	// Fresh checks at confirmation also refuse host/ownership drift during launch.

@@ -24,12 +24,15 @@ CREATE TABLE sessions (
  UNIQUE(project_path, branch)
 );
 
+-- seq is the order the journal accepted operations in: never reused, so a
+-- listing continues correctly after the rows before its cursor are deleted.
 CREATE TABLE operations (
- id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE,
+ seq INTEGER PRIMARY KEY AUTOINCREMENT,
+ id TEXT NOT NULL UNIQUE, idempotency_key TEXT NOT NULL UNIQUE,
  kind TEXT NOT NULL, project_path TEXT NOT NULL,
  session_uuid TEXT, request_json TEXT NOT NULL,
  request_sha256 TEXT NOT NULL, intent_json TEXT NOT NULL,
- status TEXT NOT NULL CHECK(status IN ('running','blocked','failed','unknown','superseded','completed')),
+ status TEXT NOT NULL CHECK(status IN ('running','blocked','failed','superseded','completed')),
  phase TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0 CHECK(committed IN (0,1)),
  evidence_json TEXT, reason TEXT NOT NULL DEFAULT '', diagnostic TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -38,12 +41,12 @@ CREATE TABLE operations (
 -- creator shares its session with one assembled cleanup, which holds a
 -- reversible guard on it until it commits.
 CREATE UNIQUE INDEX active_session_operation ON operations(session_uuid)
- WHERE session_uuid IS NOT NULL AND status IN ('running','blocked','unknown')
+ WHERE session_uuid IS NOT NULL AND status IN ('running','blocked')
  AND NOT (kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object');
 CREATE UNIQUE INDEX active_assembled_cleanup ON operations(session_uuid)
- WHERE status IN ('running','blocked','unknown') AND
+ WHERE status IN ('running','blocked') AND
  kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object';
-CREATE UNIQUE INDEX one_project_delete ON operations(project_path) WHERE kind='project.delete' AND status IN ('running','blocked','unknown');
+CREATE UNIQUE INDEX one_project_delete ON operations(project_path) WHERE kind='project.delete' AND status IN ('running','blocked');
 -- A session's creation, found by its session: which commit a session was
 -- started from decides whether its commit's image is still in use.
 CREATE INDEX session_creation ON operations(session_uuid) WHERE kind='session.create';
@@ -140,7 +143,7 @@ CREATE TABLE retired_lifecycle_requests (
 -- An assembled cleanup's guard holds only until its atomic DELETE
 -- commitment, which alone retires the blocked creator and its authority.
 CREATE VIEW assembled_cleanup_guards AS SELECT id,session_uuid FROM operations
- WHERE status IN ('running','blocked','unknown') AND
+ WHERE status IN ('running','blocked') AND
  kind='session.create.cleanup' AND committed=0 AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object';
 
 -- Triggers, by the table they guard
@@ -164,18 +167,18 @@ CREATE TRIGGER session_insert_excludes_rename_reservation BEFORE INSERT ON sessi
  WHEN EXISTS(SELECT 1 FROM git_ref_guards g JOIN operations o ON o.id=g.operation_id
    WHERE g.project_path=NEW.project_path AND g.branch=NEW.branch
    AND o.kind IN ('session.rename','project.retained.rename','project.retained.delete')
-   AND o.status IN ('running','blocked','unknown'))
+   AND o.status IN ('running','blocked'))
  BEGIN SELECT RAISE(ABORT,'constraint failed: branch reserved by lifecycle'); END;
 CREATE TRIGGER assembled_cleanup_preserves_assignment BEFORE UPDATE OF registry_state,branch ON sessions
  WHEN EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.session_uuid=OLD.uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='session.create.cleanup'
- AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
+ AND w.status IN ('running','blocked') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
  AND NOT (w.committed=1 AND w.phase='delete-issued' AND OLD.branch=NEW.branch AND NEW.registry_state='removing'))
  BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;
 CREATE TRIGGER assembled_cleanup_preserves_session BEFORE DELETE ON sessions
  WHEN EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.session_uuid=OLD.uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=OLD.uuid AND w.kind='session.create.cleanup'
- AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
+ AND w.status IN ('running','blocked') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
  AND NOT (w.committed=1 AND w.phase='local-complete' AND json_extract(w.evidence_json,'$.runtime_absent')=1
  AND json_extract(w.evidence_json,'$.local_complete')=1))
  BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;
@@ -221,18 +224,18 @@ CREATE TRIGGER rename_requires_established BEFORE INSERT ON operations
 -- active-operation exclusion stays in place, and the creator cannot advance,
 -- even through a stale writer.
 CREATE TRIGGER assembled_cleanup_excludes_other_insert BEFORE INSERT ON operations
- WHEN NEW.session_uuid IS NOT NULL AND NEW.status IN ('running','blocked','unknown') AND
+ WHEN NEW.session_uuid IS NOT NULL AND NEW.status IN ('running','blocked') AND
  (EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.session_uuid=NEW.session_uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.session_uuid=NEW.session_uuid AND w.kind='session.create.cleanup'
- AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object') OR
+ AND w.status IN ('running','blocked') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object') OR
  (NEW.kind='session.create.cleanup' AND COALESCE(json_type(NEW.evidence_json,'$.review.runtime'),'')='object' AND
- EXISTS(SELECT 1 FROM operations o WHERE o.session_uuid=NEW.session_uuid AND o.status IN ('running','blocked','unknown')
+ EXISTS(SELECT 1 FROM operations o WHERE o.session_uuid=NEW.session_uuid AND o.status IN ('running','blocked')
  AND o.id!=json_extract(NEW.evidence_json,'$.review.old_operation_id'))))
  BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;
 CREATE TRIGGER assembled_cleanup_excludes_other_update BEFORE UPDATE ON operations
  WHEN EXISTS(SELECT 1 FROM assembled_cleanup_guards w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid) OR
  EXISTS(SELECT 1 FROM operations w WHERE w.id!=OLD.id AND w.session_uuid=OLD.session_uuid AND w.kind='session.create.cleanup'
- AND w.status IN ('running','blocked','unknown') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
+ AND w.status IN ('running','blocked') AND COALESCE(json_type(w.evidence_json,'$.review.runtime'),'')='object'
  AND NOT (w.committed=1 AND w.phase='delete-issued' AND OLD.kind='session.create'
  AND OLD.id=json_extract(w.evidence_json,'$.review.old_operation_id') AND NEW.status='superseded' AND NEW.phase='superseded'))
  BEGIN SELECT RAISE(ABORT,'constraint failed: assembled cleanup active'); END;

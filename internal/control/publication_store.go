@@ -60,21 +60,13 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (st
 		if err != nil {
 			return "", err
 		}
+		// The journal's admission check: an unfinished operation, its
+		// creation included, holds the session.
+		if err = sessionHolderTx(ctx, s.db, r.Source, ""); err != nil {
+			return "", err
+		}
 		if registry != "established" {
 			return "", Conflict(api.ReasonSessionNotEstablished, api.TargetSession(r.Source))
-		}
-		// An unfinished operation holds the session: retry while it runs, a
-		// person acts once it is blocked.
-		var holder, status string
-		err = s.db.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE session_uuid=? AND status IN ('running','blocked','unknown') LIMIT 1`, r.Source).Scan(&holder, &status)
-		if err == nil {
-			if status == "running" {
-				return "", Retry(api.ReasonSessionHeld, api.TargetOperation(holder))
-			}
-			return "", Conflict(api.ReasonOperationBlocked, api.TargetOperation(holder))
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return "", err
 		}
 		var guarded int
 		err = s.db.QueryRowContext(ctx, `SELECT 1 FROM git_ref_guards WHERE project_path=? AND branch=?`, r.Project, branch).Scan(&guarded)

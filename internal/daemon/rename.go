@@ -23,7 +23,7 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	if prior, replayed, err := replayRequest(l, ctx, req.Key, control.KindSessionRename, req); err != nil || replayed {
 		return prior, err
 	}
-	if err := l.checkNoSessionChange(ctx, req.UUID); err != nil {
+	if err := l.admitSessionWork(ctx, req.UUID, ""); err != nil {
 		return api.Operation{}, err
 	}
 	s, err := l.store.GetSession(ctx, req.UUID)

@@ -111,7 +111,7 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (api.Cr
 		if control.AssembledCreationForCleanup(s, op, l.cfg.BaseImageFingerprint) != nil || ev.Selection != l.selection() {
 			unsafe("blocked_stopped_standalone_base_image_assembly_ready_creator_required")
 		}
-		if l.checkNoSessionChange(ctx, uuid) != nil {
+		if l.admitSessionWork(ctx, uuid, op.ID) != nil {
 			unsafe("active_workspace_or_cleanup_guard")
 		}
 	} else if !control.SafeCreateCleanupEvidence(p.OldRequest, ev) {
@@ -164,7 +164,7 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (api.Cr
 }
 func hexDigest(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
 func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (api.CreateCleanupPreview, error) {
-	release, err := l.lockCreationSession(ctx, uuid)
+	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
 		return api.CreateCleanupPreview{}, err
 	}
@@ -217,7 +217,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	if op, found, e := replay(); found || e != nil {
 		return op, e
 	}
-	release, err := l.lockCreationSession(ctx, uuid)
+	release, err := l.lockSession(ctx, uuid)
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -260,18 +260,13 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 		return op, err
 	}
 	l.withLock(func() { delete(l.createCleanupPreviews, token) })
-	l.recordProgress(op, "running")
 	return op, l.enqueue(op.ID)
 }
 func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 	ctx := l.ctx
-	slot := l.sessionLockSlot(observed.SessionUUID)
-	select {
-	case <-ctx.Done():
+	if l.holdSession(ctx, observed.ID, observed.SessionUUID) != nil {
 		return
-	case <-slot:
 	}
-	defer func() { slot <- struct{}{} }()
 	op, err := l.store.GetOperation(ctx, observed.ID)
 	if err != nil || op.Kind != "session.create.cleanup" || op.Status != "running" && op.Status != "blocked" {
 		return
@@ -346,9 +341,7 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 		})
 		if err != nil {
 			block(err)
-			return
 		}
-		l.recordProgress(op, "completed")
 	default:
 		block(errors.New("cleanup checkpoint unavailable"))
 	}

@@ -28,7 +28,7 @@ REQUIRED_METHODS = {
     "project.branches", "project.retained_branches", "origin.refresh", "origin.sources",
     "project.create", "session.create", "session.inspect", "session.start", "session.stop",
     "session.rename", "session.removal.preview",
-    "session.discard", "session.delete", "operation.inspect", "operation.retry",
+    "session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
     "session.services", "session.service.action", "session.service.logs",
     "session.attach", "attachment.claim", "attachment.confirm",
 }

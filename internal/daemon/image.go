@@ -450,6 +450,5 @@ func (l *lifecycle) persistImageEvidence(op *api.Operation, ev control.CreationE
 		return err
 	}
 	op.Phase, op.Evidence, op.Committed, op.Status = phase, data, true, "running"
-	l.recordProgress(*op, "running")
 	return nil
 }

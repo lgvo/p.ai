@@ -329,7 +329,53 @@ type OperationListRequest struct {
 }
 
 func (r OperationListRequest) Validate() error {
-	return validPage(r.Limit, 20, r.After)
+	if err := validPage(r.Limit, 20, r.After); err != nil {
+		return err
+	}
+	if !validOperationCursor(r.After) {
+		return invalid("after")
+	}
+	return nil
+}
+
+// validOperationCursor reports whether after is a cursor operation.list
+// returned as next, or empty for the first page. The cursor is opaque to
+// clients; the daemon writes it as the acceptance sequence of the page's last
+// operation.
+func validOperationCursor(after string) bool {
+	if after == "" {
+		return true
+	}
+	if after[0] == '0' {
+		return false
+	}
+	for _, c := range after {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(after) <= 19
+}
+
+// OperationWaitRequest waits for operation ID to leave running, for at most
+// Timeout seconds.
+type OperationWaitRequest struct {
+	ID      string `json:"id"`
+	Timeout int    `json:"timeout"`
+}
+
+// MaxWaitSeconds is the longest operation.wait: it leaves time to answer
+// inside the server's 30-second request deadline.
+const MaxWaitSeconds = 25
+
+func (r OperationWaitRequest) Validate() error {
+	if err := validOperationID(r.ID); err != nil {
+		return err
+	}
+	if r.Timeout < 1 || r.Timeout > MaxWaitSeconds {
+		return invalid("timeout")
+	}
+	return nil
 }
 
 type OperationInspectRequest struct {

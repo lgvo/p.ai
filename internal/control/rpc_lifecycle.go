@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
@@ -89,6 +90,9 @@ type LifecycleAPI interface {
 	CreateProject(context.Context, BlankProjectRequest) (api.Operation, error)
 	CreateSession(context.Context, ReserveSessionRequest) (api.Operation, error)
 	Retry(context.Context, string) (api.Operation, error)
+	// WaitOperation returns the operation as soon as it is not running, or
+	// when the timeout passes with it still running.
+	WaitOperation(context.Context, string, time.Duration) (api.Operation, error)
 	InspectSession(context.Context, string) (api.SessionView, error)
 	StartSession(context.Context, string) (api.SessionView, error)
 	StopSession(context.Context, string) (api.SessionView, error)
@@ -185,14 +189,17 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 		if e != nil {
 			return api.OperationListResult{}, e
 		}
-		summaries := make([]api.OperationSummary, 0, len(ops))
-		for _, op := range ops {
-			summaries = append(summaries, SummarizeOperation(op))
-		}
-		return boundedPage(summaries, next, func(v api.OperationSummary) string { return v.ID },
-			func(summaries []api.OperationSummary, next string) api.OperationListResult {
+		return boundedPage(ops, next, func(o ListedOperation) string { return o.Cursor },
+			func(ops []ListedOperation, next string) api.OperationListResult {
+				summaries := make([]api.OperationSummary, 0, len(ops))
+				for _, o := range ops {
+					summaries = append(summaries, SummarizeOperation(o.Operation))
+				}
 				return api.OperationListResult{Operations: summaries, Next: next}
 			})
+	})
+	Register(t, api.OperationWait, func(ctx context.Context, r api.OperationWaitRequest) (api.OperationResult, error) {
+		return operationResult(life.WaitOperation(ctx, r.ID, time.Duration(r.Timeout)*time.Second))
 	})
 	Register(t, api.OperationRetry, func(ctx context.Context, r api.OperationRetryRequest) (api.OperationResult, error) {
 		return operationResult(life.Retry(ctx, r.ID))

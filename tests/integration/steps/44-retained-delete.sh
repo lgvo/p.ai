@@ -123,14 +123,14 @@ branches() { rpc project.branches "$(jq -nc --arg project "$1" '{project:$projec
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+170))
   while ((SECONDS < deadline)); do
-    result=$(inspect_operation "$id")
+    result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
     if { test "$status" = blocked || test "$status" = completed; } && test "$status" != "$expected"; then
       echo "unexpected operation state: $result" >&2
       return 1
     fi
-    sleep 0.4
+    if test "$status" != running; then sleep 0.4; fi
   done
   echo "operation $id did not reach $expected" >&2
   return 1

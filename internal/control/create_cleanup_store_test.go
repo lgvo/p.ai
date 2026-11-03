@@ -106,7 +106,7 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 		t.Fatalf("cleanup key reused for another review answered %v", e)
 	}
 	var count int
-	if e = s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE session_uuid=? AND status IN ('running','blocked','unknown')`, old.SessionUUID).Scan(&count); e != nil || count != 1 {
+	if e = s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE session_uuid=? AND status IN ('running','blocked')`, old.SessionUUID).Scan(&count); e != nil || count != 1 {
 		t.Fatal("active operation invariant violated")
 	}
 	var saved CreateCleanupEvidence

@@ -40,3 +40,16 @@ func callMethod[Req api.Request, Res any](t *testing.T, ctx context.Context, h H
 	}
 	return res, nil
 }
+
+// insertOperation records r through the journal, as a request would.
+func insertOperation(ctx context.Context, s *Store, r operationRecord) error {
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return err
+	}
+	defer j.Rollback()
+	if err = j.insert(ctx, r); err != nil {
+		return err
+	}
+	return j.commit(ctx)
+}

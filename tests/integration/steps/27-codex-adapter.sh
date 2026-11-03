@@ -102,11 +102,11 @@ uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$create
 inspect() { rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"; }
 deadline=$((SECONDS+150))
 while ((SECONDS < deadline)); do
-  result=$(rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')")
+  result=$(rpc operation.wait "$(jq -nc --arg id "$op" '{id:$id,timeout:20}')")
   status=$(jq -er '.result.operation.status' <<< "$result")
   if test "$status" = completed; then break; fi
   if test "$status" = blocked; then echo "Codex creation blocked: $result" >&2; exit 1; fi
-  sleep 0.4
+  if test "$status" != running; then sleep 0.4; fi
 done
 test "$status" = completed
 deadline=$((SECONDS+80))
@@ -159,11 +159,11 @@ uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$crea
 test "$uuid_b" != "$uuid"
 deadline=$((SECONDS+150))
 while ((SECONDS < deadline)); do
-  result_b=$(rpc operation.inspect "$(jq -nc --arg id "$op_b" '{id:$id}')")
+  result_b=$(rpc operation.wait "$(jq -nc --arg id "$op_b" '{id:$id,timeout:20}')")
   status_b=$(jq -er '.result.operation.status' <<< "$result_b")
   if test "$status_b" = completed; then break; fi
   if test "$status_b" = blocked; then echo "Codex B creation blocked: $result_b" >&2; exit 1; fi
-  sleep 0.4
+  if test "$status_b" != running; then sleep 0.4; fi
 done
 test "$status_b" = completed
 inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \

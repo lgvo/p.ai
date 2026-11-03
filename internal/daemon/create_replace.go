@@ -76,20 +76,6 @@ func confirmChanged(err error) error {
 	return &control.Refusal{Kind: api.KindPreconditionFailed, Reason: api.ReasonChanged, Cause: errors.Join(err, control.ErrConflict)}
 }
 
-// lockCreationSession takes the session lock of the failed creation of
-// session uuid. While its creation still runs, the creation's worker holds
-// the lock, and the refusal names that operation.
-func (l *lifecycle) lockCreationSession(ctx context.Context, uuid string) (func(), error) {
-	release, err := l.lockSession(ctx, uuid)
-	var refusal *control.Refusal
-	if err != nil && errors.As(err, &refusal) && refusal.Kind == api.KindRetry && refusal.Target == "" {
-		if op, e := l.store.CreationForSession(ctx, uuid); e == nil && op.Status == "running" {
-			return nil, control.Retry(api.ReasonSessionHeld, api.TargetOperation(op.ID))
-		}
-	}
-	return release, err
-}
-
 // storeReview keeps the review of a failed creation for its confirmation.
 // The reviews expire after two minutes; while 128 unexpired ones are held, a
 // new review is refused until one expires.
@@ -261,7 +247,7 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 }
 
 func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (api.CreateReplacePreview, error) {
-	release, err := l.lockCreationSession(ctx, oldUUID)
+	release, err := l.lockSession(ctx, oldUUID)
 	if err != nil {
 		return api.CreateReplacePreview{}, err
 	}
@@ -304,7 +290,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	if prior, found, e := l.store.ReplayCreateReplacement(ctx, key, oldUUID, tokenHash); e != nil || found {
 		return prior, e
 	}
-	release, err := l.lockCreationSession(ctx, oldUUID)
+	release, err := l.lockSession(ctx, oldUUID)
 	if err != nil {
 		return api.Operation{}, err
 	}

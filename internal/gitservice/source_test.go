@@ -144,7 +144,7 @@ func TestSelectedWASIOriginCaptureCreatesFirstPHeadAfterRestart(t *testing.T) {
 	assertDenied(op.ID, "different-project", req.Branch, captured)
 	assertDenied(op.ID, "app", "arbitrary-branch", captured)
 	assertDenied(op.ID, "app", req.Branch, moved)
-	for _, invalid := range []struct{ status, phase string }{{"running", "reserved"}, {"unknown", "source-ready"}} {
+	for _, invalid := range []struct{ status, phase string }{{"running", "reserved"}} {
 		if err := store.AdvanceOperation(ctx, op.ID, invalid.status, invalid.phase, false, op.Evidence, "", "test invalid authority"); err != nil {
 			t.Fatal(err)
 		}

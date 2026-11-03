@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -36,4 +37,19 @@ func apiArguments(args []string) (string, string, json.RawMessage, error) {
 		params = json.RawMessage(args[1])
 	}
 	return socket, args[0], params, nil
+}
+
+// apiDeadline is the time p api gives one call. operation.wait may take its
+// whole timeout, so its call gets the timeout plus 5 seconds to connect,
+// agree the protocol and read the reply; any other call 10 seconds.
+func apiDeadline(method string, params json.RawMessage) time.Duration {
+	if method == api.OperationWait.Name {
+		var wait struct {
+			Timeout int `json:"timeout"`
+		}
+		if json.Unmarshal(params, &wait) == nil && wait.Timeout >= 1 && wait.Timeout <= api.MaxWaitSeconds {
+			return time.Duration(wait.Timeout)*time.Second + 5*time.Second
+		}
+	}
+	return 10 * time.Second
 }

@@ -142,3 +142,19 @@ func TestClientCommandsRefuseInvalidOverride(t *testing.T) {
 		}
 	}
 }
+
+func TestAPIDeadlineCoversAWaitAndItsConnection(t *testing.T) {
+	for _, test := range []struct {
+		method, params string
+		want           time.Duration
+	}{
+		{"operation.wait", `{"id":"op","timeout":20}`, 25 * time.Second},
+		{"operation.wait", `{"id":"op","timeout":25}`, 30 * time.Second},
+		{"operation.wait", `{"id":"op","timeout":99}`, 10 * time.Second},
+		{"operation.inspect", `{"id":"op"}`, 10 * time.Second},
+	} {
+		if got := apiDeadline(test.method, json.RawMessage(test.params)); got != test.want {
+			t.Errorf("%s %s: %s, want %s", test.method, test.params, got, test.want)
+		}
+	}
+}

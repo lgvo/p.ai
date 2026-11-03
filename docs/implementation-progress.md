@@ -1,5 +1,49 @@
 # MVP implementation progress
 
+## TUI operation wait — 2026-11-03
+
+Step 4 of the interface rework adds `operation.wait {id, timeout}`, which
+answers as soon as the operation is not `running`. On the progress page the
+TUI now follows the operation a change or Retry returns with 20-second waits
+instead of `operation.inspect` and a poll on every 3-second tick. A wait that
+answers `running` waits again and keeps the intent to enter a created session.
+Opening an operation from O still reads it with `operation.inspect`. The
+3-second inventory refresh keeps the phase of a running operation current
+during a wait, and reads again an operation that is not running when the
+inventory lists it in another status, such as after another client's Retry.
+
+LLM experience review (mock socket only): the LLM ran `./dev/tui-mock --dataset
+small --theme dark` through `tui-observe.py` from an export of `da9d917` and
+from one of this change, at 120×35, 80×24 and 48×16. It retried the blocked
+operation from O, followed a Rename to completion, created a session and
+entered it, left with q or Esc during a slowed follow, and had the follow
+answer `retry`/`deadline` and `failed`/`runtime`. `mock.configure` slowed
+`operation.inspect` before and `operation.wait` after by up to five seconds.
+The page's text is identical before and after at every size. Each change was
+followed by one wait, and Back left the page without pulling the user into the
+created session. The page of a blocked operation no longer polls: before, it
+showed "Waiting for daemon… (Back leaves accepted work running)" every three
+seconds and ignored `r` during the poll; now it stays still. The review found
+that the page then no longer followed a change made elsewhere: when another
+client retried the blocked operation, the page still read `blocked` with its
+reason and `r retry operation` eight seconds later, where before the next tick
+showed it completed. That was fixed and the path repeated at 120×35 and 80×24:
+the page now shows the operation completed within one refresh, after one
+`operation.inspect`; Retry and Create still complete. Three issues that
+predate this change stay open: at 48×16 the waiting line is clipped after
+"accepted work", and now stays on screen for the whole wait; an error answered
+by the follow drops the intent to enter a created session, and the page's only
+"try again" is `r`; and while O's inspect is in flight the header is empty.
+The mock never has a running operation, so a wait answering `running`, the
+20-second timeout, the phase follow and the tick starting a wait again after an
+error were not reached. Component checks: `internal/tui`, the mock and
+`internal/errtext` passed. `TestWaitThatEndsRunningWaitsAgainAndKeepsTheIntentToAttach`
+covers the repeated wait; `TestProgressPageFollowsTheInventory` covers the
+phase follow, the wait after an error and the re-read of an operation changed
+elsewhere. `just tui-tests` passed 8 terminal, 9 observer and 12 mock tests
+before and after the fix.
+Evidence: [checkpoint](llm-interactive-review/tui/operation-wait/checkpoint.json).
+
 ## TUI image reasons — 2026-11-03
 
 Moving step 1 (commit images) onto step 3 adds two operation reasons,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -193,11 +194,12 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 	if !validOID(oid) || (req.Choice == "existing") != existed || (req.ExpectedOriginURL != "" && selectionResult.OriginURL != req.ExpectedOriginURL) || (req.OriginRef != "" && (selectionResult.OriginURL == "" || selectionResult.OriginRef != req.OriginRef || oid != req.ExpectedCommitOID)) || (req.OriginRef == "" && (selectionResult.OriginURL != "" || selectionResult.OriginRef != "")) {
 		return api.Operation{}, Session{}, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, Session{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var policy, policyHash string
 	err = tx.QueryRowContext(ctx, `SELECT policy_json,policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, req.Project).Scan(&policy, &policyHash)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -232,10 +234,10 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	rec := operationRecord{ID: oidID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: sid, Request: request, Intent: creationIntent(req, sid), Phase: "source-ready", Evidence: evJSON, Now: now}
-	if err = insertOperation(ctx, tx, rec); err != nil {
+	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, Session{}, classifyWrite(err)
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, Session{}, err
 	}
 	return rec.operation(), Session{UUID: sid, Project: req.Project, Branch: req.Branch, Registry: "creating", Policy: json.RawMessage(policy), PolicySHA256: policyHash}, nil
@@ -308,7 +310,7 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	}
 	var present int
 	var holder, holderStatus string
-	err := s.db.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE kind='project.create' AND project_path=? AND status IN ('running','blocked','unknown') LIMIT 1`, req.Project).Scan(&holder, &holderStatus)
+	err := s.db.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE kind='project.create' AND project_path=? AND status IN ('running','blocked') LIMIT 1`, req.Project).Scan(&holder, &holderStatus)
 	if err == nil {
 		// Another creation of the project is unfinished: wait while it runs,
 		// or Retry it once it is blocked.
@@ -361,9 +363,16 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	}
 	rec := operationRecord{ID: opID, Key: req.Key, Kind: KindProjectCreate, Project: req.Project, Session: operationSession, Request: request,
 		Intent: api.OperationIntent{Project: req.Project, Session: operationSession, URL: req.URL}, Phase: "repo-pending", Evidence: evJSON, Now: now}
-	err = insertOperation(ctx, s.db, rec)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
+		return api.Operation{}, err
+	}
+	defer j.Rollback()
+	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
+	}
+	if err = j.commit(ctx); err != nil {
+		return api.Operation{}, err
 	}
 	return rec.operation(), nil
 }
@@ -375,11 +384,12 @@ func (s *Store) CommitBlankProject(ctx context.Context, opID string) (Session, e
 		return Session{}, err
 	}
 	defer s.gitAuthority.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return Session{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var op api.Operation
 	var evRaw string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,session_uuid,phase,evidence_json FROM operations WHERE id=? AND kind='project.create'`, opID).Scan(&op.Project, &op.SessionUUID, &op.Phase, &evRaw)
@@ -409,10 +419,10 @@ func (s *Store) CommitBlankProject(ctx context.Context, opID string) (Session, e
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_unborn_grants(session_uuid,state) VALUES(?,'pending')`, op.SessionUUID); err != nil {
 		return Session{}, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET phase='branch-assigned',committed=1,updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = j.update(ctx, opID, `UPDATE operations SET phase='branch-assigned',committed=1,updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return Session{}, err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return Session{}, err
 	}
 	return Session{UUID: op.SessionUUID, Project: op.Project, Branch: "main", Registry: "creating", Policy: ev.Policy, PolicySHA256: ev.PolicySHA256}, nil
@@ -430,11 +440,12 @@ func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []plu
 		return Session{}, false, err
 	}
 	defer s.gitAuthority.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return Session{}, false, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var project, phase, requestJSON, evidenceJSON string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,phase,request_json,evidence_json FROM operations WHERE id=? AND kind='project.create'`, opID).Scan(&project, &phase, &requestJSON, &evidenceJSON)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -459,10 +470,10 @@ func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []plu
 		return Session{}, false, err
 	}
 	if len(refs) != 0 {
-		if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, now, opID); err != nil {
+		if _, err = j.update(ctx, opID, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, now, opID); err != nil {
 			return Session{}, false, err
 		}
-		return Session{}, false, tx.Commit()
+		return Session{}, false, j.commit(ctx)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES(?,?,'main','creating',?,?)`, ev.BootstrapUUID, project, string(ev.Policy), ev.PolicySHA256); err != nil {
 		return Session{}, false, classifyWrite(err)
@@ -473,10 +484,10 @@ func (s *Store) CommitOriginProject(ctx context.Context, opID string, refs []plu
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_unborn_grants(session_uuid,state) VALUES(?,'pending')`, ev.BootstrapUUID); err != nil {
 		return Session{}, false, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET session_uuid=?,phase='branch-assigned',committed=1,updated_at=? WHERE id=?`, ev.BootstrapUUID, now, opID); err != nil {
+	if _, err = j.update(ctx, opID, `UPDATE operations SET session_uuid=?,phase='branch-assigned',committed=1,updated_at=? WHERE id=?`, ev.BootstrapUUID, now, opID); err != nil {
 		return Session{}, false, err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return Session{}, false, err
 	}
 	return Session{UUID: ev.BootstrapUUID, Project: project, Branch: "main", Registry: "creating", Policy: ev.Policy, PolicySHA256: ev.PolicySHA256}, true, nil
@@ -520,22 +531,46 @@ func (s *Store) CreationForSession(ctx context.Context, id string) (api.Operatio
 	}
 	return s.GetOperation(ctx, opID)
 }
-func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]api.Operation, string, error) {
-	if limit < 1 || limit > 100 || len(after) > 128 {
+
+// ListedOperation is an operation of a listing, with the cursor that
+// continues the listing after it.
+type ListedOperation struct {
+	Operation api.Operation
+	Cursor    string
+}
+
+// ListOperations pages the journal in the order it accepted operations.
+// after is the cursor a previous page returned as next: the acceptance
+// sequence of its last operation, which stays valid when that operation's row
+// is deleted.
+func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]ListedOperation, string, error) {
+	if limit < 1 || limit > 100 {
 		return nil, "", ErrInvalid
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE id>? ORDER BY id COLLATE BINARY LIMIT ?`, after, limit+1)
+	var from int64
+	if after != "" {
+		n, err := strconv.ParseInt(after, 10, 64)
+		if err != nil || n < 1 || strconv.FormatInt(n, 10) != after {
+			return nil, "", Invalid("after")
+		}
+		from = n
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT seq,id FROM operations WHERE seq>? ORDER BY seq LIMIT ?`, from, limit+1)
 	if err != nil {
 		return nil, "", err
 	}
 	defer rows.Close()
-	var ids []string
+	type entry struct {
+		seq int64
+		id  string
+	}
+	var entries []entry
 	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
+		var e entry
+		if err = rows.Scan(&e.seq, &e.id); err != nil {
 			return nil, "", err
 		}
-		ids = append(ids, id)
+		entries = append(entries, e)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, "", err
@@ -544,17 +579,17 @@ func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]
 		return nil, "", err
 	}
 	next := ""
-	if len(ids) > limit {
-		next = ids[limit-1]
-		ids = ids[:limit]
+	if len(entries) > limit {
+		next = strconv.FormatInt(entries[limit-1].seq, 10)
+		entries = entries[:limit]
 	}
-	ops := make([]api.Operation, 0, len(ids))
-	for _, id := range ids {
-		op, e := s.GetOperation(ctx, id)
-		if e != nil {
-			return nil, "", e
+	ops := make([]ListedOperation, 0, len(entries))
+	for _, e := range entries {
+		op, err := s.GetOperation(ctx, e.id)
+		if err != nil {
+			return nil, "", err
 		}
-		ops = append(ops, op)
+		ops = append(ops, ListedOperation{Operation: op, Cursor: strconv.FormatInt(e.seq, 10)})
 	}
 	return ops, next, nil
 }
@@ -648,11 +683,12 @@ func (s *Store) SessionStartDiagnostic(ctx context.Context, id string) (string, 
 
 // CompleteCreation commits the established row and operation result atomically.
 func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var sid, kind, status string
 	err = tx.QueryRowContext(ctx, `SELECT session_uuid,kind,status FROM operations WHERE id=?`, opID).Scan(&sid, &kind, &status)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -682,11 +718,11 @@ func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
 	if n != 1 {
 		return ErrConflict
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID)
+	_, err = j.update(ctx, opID, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID)
 	if err != nil {
 		return classifyWrite(err)
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 func Evidence(op api.Operation) (CreationEvidence, error) {

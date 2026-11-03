@@ -18,9 +18,6 @@ type operationKind struct {
 	// admit refuses to schedule an operation that must not run now; nil admits
 	// every one.
 	admit func(l *lifecycle, ctx context.Context, op api.Operation) error
-	// resumeAtStart reports whether daemon start resumes an unfinished
-	// operation without an explicit Retry; nil resumes every one.
-	resumeAtStart func(l *lifecycle, ctx context.Context, op api.Operation) (bool, error)
 	// removal is the condition of a session this kind is removing; empty when
 	// the kind removes no session.
 	removal string
@@ -34,7 +31,7 @@ func init() {
 	operationKinds = map[string]operationKind{
 		control.KindProjectCreate: {process: (*lifecycle).processCreation},
 		control.KindSessionCreate: {process: (*lifecycle).processCreation,
-			refuseRetry: creationAwaitsCleanup, admit: creationAwaitsCleanup, resumeAtStart: resumeCreationAtStart},
+			refuseRetry: creationAwaitsCleanup, admit: creationAwaitsCleanup},
 		control.KindProjectDelete:  {process: (*lifecycle).processProjectDelete, removal: "deleting"},
 		control.KindSessionDiscard: {process: (*lifecycle).processDiscard, removal: "discarding"},
 		control.KindSessionDelete:  {process: (*lifecycle).processDiscard, removal: "deleting"},
@@ -51,18 +48,7 @@ func creationAwaitsCleanup(l *lifecycle, ctx context.Context, op api.Operation) 
 	if op.Status == "completed" || op.Status == "superseded" {
 		return nil
 	}
-	return l.checkNoSessionChange(ctx, op.SessionUUID)
-}
-
-// resumeCreationAtStart leaves creations held by an assembled cleanup, and
-// blocked early local creations, for an explicit Retry.
-func resumeCreationAtStart(l *lifecycle, ctx context.Context, op api.Operation) (bool, error) {
-	if err := l.checkNoSessionChange(ctx, op.SessionUUID); errors.Is(err, control.ErrConflict) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	return !deferBlockedCreationUntilRetry(op), nil
+	return l.admitSessionWork(ctx, op.SessionUUID, op.ID)
 }
 
 func cleanupFoundStale(_ *lifecycle, _ context.Context, op api.Operation) error {

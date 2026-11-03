@@ -24,13 +24,12 @@ var journalKinds = []string{
 	"session.rename", "project.retained.rename", "project.retained.delete",
 }
 
-// Each kind gets one row per status. Rows are inserted A..F, so rowid order is
-// A, B, C while created_at order is B, C, A.
+// Each kind gets one row per status. Rows are accepted A..E, kind after
+// kind; their created_at order differs, so only acceptance can give the order.
 var journalRows = []struct{ name, status string }{
-	{"A", "running"}, {"B", "blocked"}, {"C", "unknown"},
-	{"D", "failed"}, {"E", "completed"}, {"F", "superseded"},
+	{"A", "running"}, {"B", "blocked"}, {"C", "failed"}, {"D", "completed"}, {"E", "superseded"},
 }
-var journalCreated = map[string]int{"A": 3, "B": 1, "C": 2, "D": 4, "E": 5, "F": 6}
+var journalCreated = map[string]int{"A": 3, "B": 1, "C": 2, "D": 4, "E": 5}
 
 func dropOperationInsertTriggers(t *testing.T, s *Store) {
 	t.Helper()
@@ -55,16 +54,19 @@ func dropOperationInsertTriggers(t *testing.T, s *Store) {
 	}
 }
 
-func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
+func TestUnfinishedOperationsListRunningAndBlockedInAcceptanceOrder(t *testing.T) {
 	s, _ := openTestStore(t)
 	ctx := context.Background()
 	if err := s.CreateProject(ctx, "team/app", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	// Rows of every kind without their sessions, sources or reviews.
+	// Rows of every kind without their sessions, sources or reviews, accepted
+	// with the kinds interleaved and created_at running backwards.
 	dropOperationInsertTriggers(t, s)
-	for i, kind := range journalKinds {
-		for _, row := range journalRows {
+	var want []string
+	for _, row := range journalRows {
+		for i := len(journalKinds) - 1; i >= 0; i-- {
+			kind := journalKinds[i]
 			created := fmt.Sprintf("2026-01-01T00:%02d:%02dZ", i, journalCreated[row.name])
 			// Project deletions allow one active row per project.
 			project := "team/" + strings.ReplaceAll(kind, ".", "-") + "-" + row.name
@@ -72,28 +74,10 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 			 VALUES(?,?,?,?,NULL,'{}','x','{}',?,'forged',0,NULL,?,?)`, kind+":"+row.name, kind+":"+row.name, kind, project, row.status, created, created); err != nil {
 				t.Fatal(err)
 			}
+			if row.status == "running" || row.status == "blocked" {
+				want = append(want, kind+":"+row.name)
+			}
 		}
-	}
-	byCreated := func(kinds ...string) []string {
-		var ids []string
-		for _, kind := range kinds {
-			ids = append(ids, kind+":B", kind+":C", kind+":A")
-		}
-		return ids
-	}
-	byRowid := func(kind string) []string { return []string{kind + ":A", kind + ":B", kind + ":C"} }
-	// Recovery order: creations, project deletions, removals, renames, then
-	// retained renames and deletes. Each group keeps its own order.
-	var want []string
-	for _, group := range [][]string{
-		byCreated("project.create", "session.create"),
-		byCreated("project.delete"),
-		byCreated("session.discard", "session.delete", "session.create.cleanup"),
-		byCreated("session.rename"),
-		byRowid("project.retained.rename"),
-		byRowid("project.retained.delete"),
-	} {
-		want = append(want, group...)
 	}
 	ops, err := s.UnfinishedOperations(ctx)
 	if err != nil {
@@ -105,6 +89,19 @@ func TestUnfinishedOperationsSelectKindsStatusesAndOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("unfinished operations:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestJournalRefusesTheUnknownStatus(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateProject(ctx, "team/app", []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	dropOperationInsertTriggers(t, s)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,intent_json,status,phase,created_at,updated_at)
+	 VALUES('op','key','session.rename','team/app','{}','x','{}','unknown','forged','now','now')`); err == nil {
+		t.Fatal("the journal recorded an unknown status")
 	}
 }
 

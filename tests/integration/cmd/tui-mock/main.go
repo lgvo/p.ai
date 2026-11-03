@@ -356,6 +356,14 @@ func (f *fixture) registerReads(t *control.MethodTable) {
 		}
 		return api.OperationResult{Operation: op}, nil
 	})
+	// The fixture's operations never run, so a wait answers at once.
+	control.Register(t, api.OperationWait, func(_ context.Context, r api.OperationWaitRequest) (api.OperationResult, error) {
+		op, ok := f.ops[r.ID]
+		if !ok {
+			return api.OperationResult{}, mockError(api.KindNotFound, api.ReasonOperation, api.TargetOperation(r.ID))
+		}
+		return api.OperationResult{Operation: op}, nil
+	})
 	control.Register(t, api.OperationRetry, func(_ context.Context, r api.OperationRetryRequest) (api.OperationResult, error) {
 		op, ok := f.ops[r.ID]
 		if !ok {

@@ -148,7 +148,7 @@
   above), so each family's saturation can be characterized first.
 - Left by: the agent, by rule (a restructuring not pursued; the plan review cut it because its
   behavior cannot be characterized before the change).
-- Added 2026-11-01, updated 2026-11-03, 7 cases:
+- Added 2026-11-01, updated 2026-11-03, 8 cases:
   - 2026-11-01: "complete rework of P's implementation" cut it from step 5 after review.
   - 2026-11-02: "recover from a panic in a request handler" had to make the same lock change
     in each copy: the token read in all ten, the token delete in nine, the insert in seven.
@@ -206,13 +206,13 @@
 
 ## Operation status updates and kind lists are still written per site
 
-- Where: internal/control (26 `UPDATE operations` statements across the `*_store.go` files;
-  `ActiveSessionChange` in session_change.go and `SessionRemovalKind` in removal_kind.go
-  list kinds in SQL; commit_images.go `commitSessionsWhere` and the `session_creation` index
-  name `session.create` in SQL; schema.sql triggers name kinds and phases)
-- Problem: Inserts, the key rule and the unfinished listing have one owner in
-  operation_journal.go, but status and phase changes are still written by each kind's store
-  methods, and two queries keep their own lists of which kinds guard or remove a session.
+- Where: internal/control (26 `UPDATE operations` statements across the `*_store.go` files,
+  each run through `journalTx.update`; `SessionRemovalKind` in removal_kind.go lists kinds in
+  SQL; commit_images.go `commitSessionsWhere` and the `session_creation` index name
+  `session.create` in SQL; schema.sql triggers name kinds and phases)
+- Problem: Inserts, the key rule, the unfinished listing and the reporting of status changes
+  have one owner in operation_journal.go, but each kind's store methods still write their own
+  `UPDATE` statement, and a query keeps its own list of which kinds remove a session.
 - Evidence: 20 of the 26 updates filter only on `id` (see the state-safety entry on
   check-then-act); the kind lists repeat the constants in operation_journal.go by hand.
 - Risk: adding a kind or a status rule needs coordinated edits that nothing checks.
@@ -221,7 +221,7 @@
 - Fix when: the next new operation kind, or together with the check-then-act fix.
 - Left by: the agent, by rule (a restructuring not pursued: step 4 of REWORK-PLAN.md was
   scoped to inserts, the key rule and the unfinished listing).
-- Added 2026-11-01, updated 2026-11-03, 7 cases:
+- Added 2026-11-01, updated 2026-11-03, 8 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 4.
   - 2026-11-02: "collapse the 21 migrations into one schema file" moved the triggers that
     name kinds and phases from the migrations into schema.sql, unchanged.
@@ -240,6 +240,9 @@
     started from a commit, and the `session_creation` index in schema.sql that serves it.
   - 2026-11-03: "a reason beside the diagnostic" added the `reason` column to every status
     update by hand, in each kind's store methods, and one more update, `BlockAfterPanic`.
+  - 2026-11-03: "waiting" ran every insert and update through one journal transaction that
+    reports status changes, and replaced `ActiveSessionChange`'s kind list with one
+    admission check over every kind; the statements themselves stay per site.
 
 ## Incus instance inventory and metadata keys are written per caller
 

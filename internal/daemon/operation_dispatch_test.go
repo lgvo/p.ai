@@ -26,7 +26,7 @@ var dispatchKinds = []string{
 	"session.rename", "project.retained.rename", "project.retained.delete",
 }
 
-var dispatchStatuses = []string{"running", "blocked", "unknown", "failed", "completed", "superseded"}
+var dispatchStatuses = []string{"running", "blocked", "failed", "completed", "superseded"}
 
 type journalFixture struct {
 	store *control.Store
@@ -209,40 +209,29 @@ func TestRetrySchedulesUnfinishedKnownOperations(t *testing.T) {
 	}
 }
 
-func TestRecoverSchedulesUnfinishedOperationsInKindOrder(t *testing.T) {
+func TestRecoverResumesRunningOperationsInAcceptanceOrder(t *testing.T) {
 	f := newJournalFixture(t)
 	ids := map[string]string{}
+	var want []string
 	n := 0
-	// Insert kinds in reverse, so a kind's position in the queue comes from
-	// recovery's kind order rather than from the journal's row order.
-	for i := len(dispatchKinds) - 1; i >= 0; i-- {
-		kind := dispatchKinds[i]
-		for _, status := range dispatchStatuses {
+	// Kinds are accepted in reverse and their statuses interleaved, so only
+	// acceptance order gives the queue's order.
+	for _, status := range dispatchStatuses {
+		for i := len(dispatchKinds) - 1; i >= 0; i-- {
+			kind := dispatchKinds[i]
 			n++
 			ids[kind+" "+status] = f.operation(t, kind, status, "", sessionUUID(n), false)
-		}
-	}
-	// A blocked early local creation stays dormant until an explicit Retry; a
-	// later one is resumed. Both are newer than every row above.
-	request, _ := json.Marshal(control.ReserveSessionRequest{Key: "early", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"})
-	evidence, _ := json.Marshal(control.CreationEvidence{CapturedOID: strings.Repeat("a", 40), ImageFingerprint: strings.Repeat("d", 64), RefCASIntent: true, RuntimeInitState: "not-attempted"})
-	f.operationWith(t, "app", "session.create", "blocked", "source-ready", sessionUUID(n+1), false, string(request), string(evidence))
-	later := f.operationWith(t, "app", "session.create", "blocked", "runtime-created", sessionUUID(n+2), true, string(request), string(evidence))
-	unfinished := func(kinds ...string) []string {
-		var want []string
-		for _, kind := range kinds {
-			for _, status := range []string{"running", "blocked", "unknown"} {
+			if status == "running" {
 				want = append(want, ids[kind+" "+status])
 			}
 		}
-		return want
 	}
-	var want []string
-	want = append(want, unfinished("session.create", "project.create")...)
-	want = append(want, later)
-	want = append(want, unfinished("project.delete",
-		"session.create.cleanup", "session.delete", "session.discard", "session.rename",
-		"project.retained.rename", "project.retained.delete")...)
+	// A blocked creation waits for Retry whatever its phase, as every
+	// blocked operation does.
+	request, _ := json.Marshal(control.ReserveSessionRequest{Key: "early", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"})
+	evidence, _ := json.Marshal(control.CreationEvidence{CapturedOID: strings.Repeat("a", 40), ImageFingerprint: strings.Repeat("d", 64), RefCASIntent: true, RuntimeInitState: "not-attempted"})
+	f.operationWith(t, "app", "session.create", "blocked", "source-ready", sessionUUID(n+1), false, string(request), string(evidence))
+	f.operationWith(t, "app", "session.create", "blocked", "runtime-created", sessionUUID(n+2), true, string(request), string(evidence))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -259,7 +248,7 @@ func TestRecoverSchedulesUnfinishedOperationsInKindOrder(t *testing.T) {
 				}
 			}
 		}
-		t.Fatalf("recovery queue:\n got %s\nwant %d operations", strings.Join(names, ", "), len(want))
+		t.Fatalf("recovery queue:\n got %s\nwant %d running operations", strings.Join(names, ", "), len(want))
 	}
 }
 

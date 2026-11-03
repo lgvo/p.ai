@@ -109,10 +109,10 @@ start_daemon() {
 wait_completed() {
  local id="$1" deadline=$((SECONDS+120)) response
  while ((SECONDS<deadline)); do
-  response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
+  response=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
   if jq -e '.result.operation.status=="completed"' <<< "$response" >/dev/null; then return; fi
   if jq -e '.result.operation.status=="blocked" or .result.operation.status=="failed"' <<< "$response" >/dev/null; then jq -c '.result.operation|{status,phase,diagnostic}' <<< "$response" >&2; return 1; fi
-  sleep 0.2
+  if jq -e '.result.operation.status!="running"' <<< "$response" >/dev/null; then sleep 0.2; fi
  done
  return 1
 }

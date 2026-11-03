@@ -37,7 +37,7 @@ func (l *lifecycle) PreviewRemoval(ctx context.Context, req control.RemovalPrevi
 	if l.hasAttachment(req.UUID) {
 		return api.RemovalPreview{}, control.Conflict(api.ReasonAttachmentActive, target)
 	}
-	if err := l.checkNoSessionChange(ctx, req.UUID); err != nil {
+	if err := l.admitSessionWork(ctx, req.UUID, ""); err != nil {
 		return api.RemovalPreview{}, err
 	}
 	session, err := l.store.GetSession(ctx, req.UUID)

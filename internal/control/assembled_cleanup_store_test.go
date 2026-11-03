@@ -235,7 +235,7 @@ func TestAssembledCleanupSQLiteReopenAtomicRetirementAndForwardCompletion(t *tes
 	if _, err = s.GetSession(ctx, creator.SessionUUID); !errors.Is(err, ErrNotFound) {
 		t.Fatal("completed cleanup retained assignment", err)
 	}
-	if _, active, err := s.ActiveSessionChange(ctx, creator.SessionUUID); err != nil || active {
+	if err := s.AdmitSessionWork(ctx, creator.SessionUUID, creator.ID); err != nil {
 		t.Fatal("completed cleanup retained guard", err)
 	}
 }
@@ -268,7 +268,7 @@ func TestAssembledCleanupStalePrecommitReleasesOnlyItsOwnGuardAcrossRestart(t *t
 	if old.Status != "blocked" || session.Registry != "creating" || !active {
 		t.Fatal("pre-deletion stale refusal changed original creator authority")
 	}
-	if _, active, err := s.ActiveSessionChange(ctx, creator.SessionUUID); err != nil || active {
+	if err := s.AdmitSessionWork(ctx, creator.SessionUUID, creator.ID); err != nil {
 		t.Fatal("settled stale precommit guard retained", err)
 	}
 	if err = s.AdvanceOperation(ctx, op.ID, "running", "validated", false, op.Evidence, "", ""); !errors.Is(err, ErrConflict) {

@@ -67,11 +67,6 @@ func (l *lifecycle) blockDiscard(op api.Operation, cause error) {
 		diagnostic = cause.Error()
 	}
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), diagnostic)
-	logDiscardProgress(l, op, "blocked")
-}
-
-func logDiscardProgress(l *lifecycle, op api.Operation, status string) {
-	l.recordProgress(op, status)
 }
 
 // discardSourceMatches reports whether o is still the reviewed container. Its
@@ -121,9 +116,7 @@ func (l *lifecycle) rollbackStaleDiscard(op api.Operation, ev control.DiscardEvi
 	}
 	if err != nil {
 		l.blockDiscard(op, err)
-		return
 	}
-	l.recordProgress(op, "failed")
 }
 
 func (l *lifecycle) processDiscard(op api.Operation) {
@@ -340,9 +333,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 			return l.discardAssignedTip(c, ev)
 		}); err != nil {
 			l.blockDiscard(op, err)
-			return
 		}
-		l.recordProgress(op, "completed")
 		return
 	case "branch-delete-issued":
 		l.blockDiscard(op, control.OutcomeUnknown(errors.New("P ref delete outcome unresolved")))
@@ -355,9 +346,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 			return l.deleteAssignedAbsent(c, ev)
 		}); err != nil {
 			l.blockDiscard(op, err)
-			return
 		}
-		l.recordProgress(op, "completed")
 		return
 	default:
 		l.blockDiscard(op, errors.New("discard phase unavailable"))

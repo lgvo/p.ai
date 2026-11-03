@@ -310,7 +310,6 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			return l.projectDeleteRepositoryAbsent(op.Project, ev.RepositoryParent)
 		})
 		if err == nil {
-			l.recordProgress(op, "completed")
 			l.forgetProjectDeletePreviews(op.Project)
 			func() {
 				l.eventMu.Lock()
@@ -330,9 +329,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 	if reason == "" {
 		reason = api.ReasonInternal
 	}
-	if persist("blocked", reason, diagnostic) == nil {
-		l.recordProgress(op, "blocked")
-	}
+	_ = persist("blocked", reason, diagnostic)
 }
 
 // deleteProjectImage deletes one reviewed image of a project deletion and

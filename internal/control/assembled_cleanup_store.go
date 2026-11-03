@@ -111,11 +111,12 @@ func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed api.O
 	if err := verify(ctx); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	op, err := operationByIDTx(ctx, tx, observed.ID)
 	if err != nil || op.Status != "running" || op.Committed || op.Phase != "validated" || digest(op.Evidence) != digest(observed.Evidence) {
 		return ErrConflict
@@ -126,10 +127,10 @@ func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed api.O
 	var ev CreateCleanupEvidence
 	_ = json.Unmarshal(op.Evidence, &ev)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET committed=1,phase='delete-issued',updated_at=? WHERE id=?`, now, op.ID); err != nil {
+	if _, err = j.update(ctx, op.ID, `UPDATE operations SET committed=1,phase='delete-issued',updated_at=? WHERE id=?`, now, op.ID); err != nil {
 		return classifyWrite(err)
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=?`, "cleanup by "+op.ID, now, ev.Review.OldOperationID); err != nil {
+	if _, err = j.update(ctx, ev.Review.OldOperationID, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=?`, "cleanup by "+op.ID, now, ev.Review.OldOperationID); err != nil {
 		return classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=?`, op.SessionUUID); err != nil {
@@ -138,7 +139,7 @@ func (s *Store) CommitAssembledCleanupDelete(ctx context.Context, observed api.O
 	if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE role='session' AND session_uuid=?`, op.SessionUUID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 // FailStaleAssembledCleanup releases only this precommit intent; the original
@@ -148,11 +149,12 @@ func (s *Store) FailStaleAssembledCleanup(ctx context.Context, observed api.Oper
 		return err
 	}
 	defer s.gitAuthority.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	op, err := operationByIDTx(ctx, tx, observed.ID)
 	if err != nil || op.Committed || op.Phase != "stale-cleanup" || digest(op.Evidence) != digest(observed.Evidence) {
 		return ErrConflict
@@ -164,10 +166,10 @@ func (s *Store) FailStaleAssembledCleanup(ctx context.Context, observed api.Oper
 		return err
 	}
 	diagnostic = api.BoundDiagnostic(diagnostic)
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
+	if _, err = j.update(ctx, op.ID, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 func boolInt(value bool) int {

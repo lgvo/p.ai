@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	"syscall"
-	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/attachment"
@@ -114,7 +113,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), apiDeadline(method, params))
 		defer cancel()
 		response, err := api.CallRaw(ctx, socket, method, params)
 		if err != nil {

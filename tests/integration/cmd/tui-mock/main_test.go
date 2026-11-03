@@ -259,7 +259,7 @@ func TestFixtureServesOnlyProtocolAndFixtureMethods(t *testing.T) {
 	for _, m := range []string{"system.hello", "system.health", "project.list", "session.list", "operation.list",
 		"project.branches", "project.retained_branches", "origin.refresh", "origin.sources", "project.create",
 		"session.create", "session.inspect", "session.start", "session.stop", "session.rename",
-		"session.removal.preview", "session.discard", "session.delete", "operation.inspect", "operation.retry",
+		"session.removal.preview", "session.discard", "session.delete", "operation.inspect", "operation.wait", "operation.retry",
 		"session.services", "session.service.action", "session.service.logs", "session.attach",
 		"attachment.claim", "attachment.confirm", "attachment.ping"} {
 		served[m] = true

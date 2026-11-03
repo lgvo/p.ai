@@ -41,11 +41,12 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 	if err := observe(ctx); err != nil {
 		return api.Operation{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var active int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=? AND registry_state='active'`, r.Project).Scan(&active)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -70,7 +71,7 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	rec := operationRecord{ID: id, Key: r.Key, Kind: KindRetainedRename, Project: r.Project, Request: raw,
 		Intent: api.OperationIntent{Project: r.Project, Branch: r.OldBranch, NewBranch: r.NewBranch}, Phase: "reserved", Evidence: raw, Now: now}
-	err = insertOperation(ctx, tx, rec)
+	err = j.insert(ctx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -79,7 +80,7 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 			return api.Operation{}, withTarget(classifyWrite(err), api.TargetBranch(r.Project, branch))
 		}
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	return rec.operation(), nil
@@ -124,11 +125,12 @@ func (s *Store) TransitionRetainedRename(ctx context.Context, id, from, to strin
 	if err = verify(ctx, r); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	if err = s.retainedRenameGuards(ctx, tx, id, r); err != nil {
 		return err
 	}
@@ -150,14 +152,14 @@ func (s *Store) TransitionRetainedRename(ctx context.Context, id, from, to strin
 	if to == "completed" {
 		status = "completed"
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE operations SET status=?,phase=?,committed=?,updated_at=? WHERE id=? AND phase=? AND status='running'`, status, to, committed, time.Now().UTC().Format(time.RFC3339Nano), id, from)
+	n, err := j.update(ctx, id, `UPDATE operations SET status=?,phase=?,committed=?,updated_at=? WHERE id=? AND phase=? AND status='running'`, status, to, committed, time.Now().UTC().Format(time.RFC3339Nano), id, from)
 	if err != nil {
 		return classifyWrite(err)
 	}
-	if n, _ := result.RowsAffected(); n != 1 {
+	if n != 1 {
 		return ErrConflict
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 func (s *Store) FailRetainedRenamePreEffect(ctx context.Context, id string) error {
@@ -173,11 +175,12 @@ func (s *Store) FailRetainedRenamePreEffect(ctx context.Context, id string) erro
 	if op.Kind != "project.retained.rename" || op.Status != "running" || op.Phase != "reserved" || op.Committed || json.Unmarshal(op.Request, &r) != nil {
 		return ErrConflict
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	if err = s.retainedRenameGuards(ctx, tx, id, r); err != nil {
 		return err
 	}
@@ -186,9 +189,9 @@ func (s *Store) FailRetainedRenamePreEffect(ctx context.Context, id string) erro
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic='retained branch rename input changed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id)
+	_, err = j.update(ctx, id, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic='retained branch rename input changed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }

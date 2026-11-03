@@ -16,13 +16,15 @@
   `RowsAffected`, inside the transaction that verified.
 - Fix when: any new writer of `operations` outside the Git authority lock.
 - Left by: the agent, by rule (a problem outside the change; the rework keeps behavior).
-- Added 2026-11-01, updated 2026-11-02, 3 cases:
+- Added 2026-11-01, updated 2026-11-03, 4 cases:
   - 2026-11-01: "complete rework of P's implementation" found it while mapping control.
   - 2026-11-02: "remove session repair" deleted record_repair_store.go,
     principal_repair_store.go and the other repair stores, which held 11 of the 36
     `UPDATE operations` sites; the remaining transition methods are unchanged.
   - 2026-11-02: "deletions without inspection" changed the phases `FailRenamePrecommit` and
     `CompleteRename` accept; both still read, verify and update in separate steps.
+  - 2026-11-03: "waiting" ran these updates through the journal's one write path, which
+    reports the status changes they make; their `WHERE` clauses and steps are unchanged.
 
 ## Per-session state outlives its session
 

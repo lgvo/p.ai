@@ -49,11 +49,11 @@ wait_health() {
 wait_completed() {
  local id="$1" response status deadline=$((SECONDS+150))
  while ((SECONDS<deadline)); do
-  response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
+  response=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
   status=$(jq -er '.result.operation.status' <<< "$response")
   if test "$status" = completed; then return; fi
   if test "$status" = blocked || test "$status" = failed; then jq -c '.result.operation|{id,status,phase,diagnostic}' <<< "$response" >&2; return 1; fi
-  sleep 0.2
+  if test "$status" != running; then sleep 0.2; fi
  done
  return 1
 }

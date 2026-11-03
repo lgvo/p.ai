@@ -120,13 +120,13 @@ start_daemon() {
 wait_operation() {
   local id="$1" response status deadline=$((SECONDS+300))
   while ((SECONDS < deadline)); do
-    response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
+    response=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$response")
     if test "$status" = completed; then printf '%s\n' "$response"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = unknown; then
       echo "distribution operation did not complete: $response" >&2; return 1
     fi
-    sleep 0.3
+    if test "$status" != running; then sleep 0.3; fi
   done
   return 1
 }

@@ -30,14 +30,14 @@ created=$(rpc project.create "$(jq -nc --arg key "${P_LAB_KEY:-p-lab-repository-
 operation=$(jq -er '.result.operation.id' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
 while :; do
-  observed=$(rpc operation.inspect "$(jq -nc --arg id "$operation" '{id:$id}')")
+  observed=$(rpc operation.wait "$(jq -nc --arg id "$operation" '{id:$id,timeout:15}')")
   status=$(jq -er '.result.operation.status' <<< "$observed")
   if test "$status" = completed; then break; fi
   if test "$status" = blocked || test "$status" = failed || ((SECONDS >= deadline)); then
     jq -c '.result.operation|{id,status,phase,diagnostic}' <<< "$observed" >&2
     exit 1
   fi
-  sleep 1
+  if test "$status" != running; then sleep 1; fi
 done
 rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 until rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |

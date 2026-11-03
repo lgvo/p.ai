@@ -68,11 +68,12 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	if len(evidence) > 2048 {
 		return api.Operation{}, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var project, branch, registry, policy string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, r.UUID).Scan(&project, &branch, &registry, &policy)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -102,7 +103,7 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	rec := operationRecord{ID: id, Key: r.Key, Kind: KindSessionRename, Project: project, Session: r.UUID, Request: request,
 		Intent: api.OperationIntent{Project: project, Session: r.UUID, Branch: branch, NewBranch: r.NewBranch}, Phase: "reserved", Evidence: evidence, Now: now}
-	err = insertOperation(ctx, tx, rec)
+	err = j.insert(ctx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
@@ -111,7 +112,7 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 			return api.Operation{}, withTarget(classifyWrite(err), api.TargetBranch(project, name))
 		}
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	return rec.operation(), nil
@@ -130,11 +131,12 @@ func (s *Store) FailRenamePrecommit(ctx context.Context, opID, reason, diagnosti
 		return err
 	}
 	defer s.gitAuthority.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var project, phase, evRaw string
 	var committed int
 	err = tx.QueryRowContext(ctx, `SELECT project_path,phase,committed,evidence_json FROM operations WHERE id=? AND kind='session.rename' AND status IN ('running','blocked')`, opID).Scan(&project, &phase, &committed, &evRaw)
@@ -158,10 +160,10 @@ func (s *Store) FailRenamePrecommit(ctx context.Context, opID, reason, diagnosti
 			return ErrConflict
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason=?,diagnostic=?,updated_at=? WHERE id=?`, reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = j.update(ctx, opID, `UPDATE operations SET status='failed',phase='stale',reason=?,diagnostic=?,updated_at=? WHERE id=?`, reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 // UpdateRenameAssignment is after the new P ref and workspace mapping prove
@@ -185,11 +187,12 @@ func (s *Store) UpdateRenameAssignment(ctx context.Context, opID string, verify 
 	if err := verify(ctx, e); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	for _, branch := range []string{e.OldBranch, e.NewBranch} {
 		var owner string
 		if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM git_ref_guards WHERE project_path=? AND branch=?`, e.Project, branch).Scan(&owner); err != nil || owner != opID {
@@ -203,10 +206,10 @@ func (s *Store) UpdateRenameAssignment(ctx context.Context, opID string, verify 
 	if n, _ := result.RowsAffected(); n != 1 {
 		return ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET phase='assignment-updated',updated_at=? WHERE id=? AND phase='workspace-renamed'`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = j.update(ctx, opID, `UPDATE operations SET phase='assignment-updated',updated_at=? WHERE id=? AND phase='workspace-renamed'`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 // CompleteRename releases both guards only after the caller proves the old P
@@ -231,11 +234,12 @@ func (s *Store) CompleteRename(ctx context.Context, opID string, verify func(con
 	if err := verify(ctx, e); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var branch, registry string
 	if err := tx.QueryRowContext(ctx, `SELECT branch,registry_state FROM sessions WHERE uuid=? AND project_path=?`, op.SessionUUID, e.Project).Scan(&branch, &registry); err != nil || branch != e.NewBranch || registry != "established" {
 		return ErrConflict
@@ -249,8 +253,8 @@ func (s *Store) CompleteRename(ctx context.Context, opID string, verify func(con
 			return ErrConflict
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='completed',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err := j.update(ctx, opID, `UPDATE operations SET status='completed',phase='completed',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }

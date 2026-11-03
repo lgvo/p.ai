@@ -29,6 +29,8 @@ type Store struct {
 	stateDir     string
 	gitAuthority sync.RWMutex
 	statusMu     sync.Mutex
+	observer     JournalObserver
+	journalMu    sync.Mutex // orders the reports of the journal's commits
 	attachments  map[string]int
 	statusRates  map[string]statusRate
 	attemptRates map[string]statusRate
@@ -55,7 +57,7 @@ var schemaSQL string
 // schemaVersion marks a database built from schemaSQL. P does not migrate
 // state: every schema change raises it, and openStore refuses a database of
 // any other version.
-const schemaVersion = 27
+const schemaVersion = 28
 
 func OpenStore(stateDir string) (_ *Store, err error) {
 	return openStore(stateDir, CheckTrustedAncestors)
@@ -326,11 +328,12 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 	if err != nil {
 		return op, session, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return op, session, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	replay, err := keyRecordsRequest(ctx, tx, req.Key, KindSessionCreate, requestJSON)
 	if err != nil {
 		return op, session, err
@@ -377,11 +380,11 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	rec := operationRecord{ID: op.ID, Key: req.Key, Kind: KindSessionCreate, Project: req.Project, Session: session.UUID, Request: requestJSON, Intent: creationIntent(req, session.UUID), Phase: "reserved", Now: now}
-	err = insertOperation(ctx, tx, rec)
+	err = j.insert(ctx, rec)
 	if err != nil {
 		return op, session, classifyWrite(err)
 	}
-	if err := tx.Commit(); err != nil {
+	if err := j.commit(ctx); err != nil {
 		return op, session, err
 	}
 	return rec.operation(), session, nil
@@ -517,7 +520,7 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 		return ErrInvalid
 	}
 	switch status {
-	case "running", "blocked", "failed", "unknown", "superseded", "completed":
+	case "running", "blocked", "failed", "superseded", "completed":
 	default:
 		return ErrInvalid
 	}
@@ -528,11 +531,12 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	if len(evidence) > 0 && !json.Valid(evidence) {
 		return ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var kind, sessionID, oldStatus, oldPhase, oldEvidence string
 	var oldCommitted int
 	err = tx.QueryRowContext(ctx, "SELECT kind,COALESCE(session_uuid,''),status,committed,phase,COALESCE(evidence_json,'') FROM operations WHERE id=?", id).Scan(&kind, &sessionID, &oldStatus, &oldCommitted, &oldPhase, &oldEvidence)
@@ -584,19 +588,15 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 			return fmt.Errorf("%w: unresolved creation must remain running or blocked", ErrConflict)
 		}
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE operations SET status=?,phase=?,committed=?,evidence_json=?,reason=?,diagnostic=?,updated_at=?
-	 WHERE id=?`, status, phase, committed, nullableJSON(evidence), reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), id)
+	n, err := j.update(ctx, id, `UPDATE operations SET status=?,phase=?,committed=?,evidence_json=?,reason=?,diagnostic=?,updated_at=? WHERE id=?`,
+		status, phase, committed, nullableJSON(evidence), reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return classifyWrite(err)
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return err
 	}
 	if n == 0 {
 		return NotFound(api.ReasonOperation, api.TargetOperation(id))
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 // reasonFits reports whether an operation of status may record reason: a

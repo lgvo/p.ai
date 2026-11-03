@@ -60,11 +60,12 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	if err = verify(ctx, e); err != nil {
 		return api.Operation{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var row int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=? AND registry_state='active'`, r.Project).Scan(&row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -91,14 +92,14 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	evRaw, _ := json.Marshal(e)
 	rec := operationRecord{ID: id, Key: r.Key, Kind: KindRetainedDelete, Project: r.Project, Request: raw,
 		Intent: api.OperationIntent{Project: r.Project, Branch: r.Branch}, Phase: "guarded", Evidence: evRaw, Now: now}
-	err = insertOperation(ctx, tx, rec)
+	err = j.insert(ctx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, r.Project, r.Branch, id); err != nil {
 		return api.Operation{}, withTarget(classifyWrite(err), api.TargetBranch(r.Project, r.Branch))
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	return rec.operation(), nil
@@ -126,19 +127,20 @@ func (s *Store) IssueRetainedDelete(ctx context.Context, id string, verify func(
 	if err = verify(ctx, e); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	if err = s.retainedDeleteGuard(ctx, tx, id, e); err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE operations SET phase='ref-delete-issued',committed=1,updated_at=? WHERE id=? AND status='running' AND phase='guarded'`, time.Now().UTC().Format(time.RFC3339Nano), id)
+	_, err = j.update(ctx, id, `UPDATE operations SET phase='ref-delete-issued',committed=1,updated_at=? WHERE id=? AND status='running' AND phase='guarded'`, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return err
 	}
 	return effect()
@@ -177,21 +179,22 @@ func (s *Store) FailRetainedDeleteStale(ctx context.Context, id string) error {
 	if op.Kind != "project.retained.delete" || op.Status != "running" || op.Phase != "guarded" || op.Committed || json.Unmarshal(op.Evidence, &e) != nil {
 		return ErrConflict
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	if err = s.retainedDeleteGuard(ctx, tx, id, e); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE project_path=? AND branch=? AND operation_id=?`, e.Project, e.Branch, id); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic='retained branch delete review changed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+	if _, err = j.update(ctx, id, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic='retained branch delete review changed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 func (s *Store) CompleteRetainedDelete(ctx context.Context, id string, verify func(context.Context, RetainedDeleteEvidence) error) error {
@@ -213,19 +216,20 @@ func (s *Store) CompleteRetainedDelete(ctx context.Context, id string, verify fu
 	if err = verify(ctx, e); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	if err = s.retainedDeleteGuard(ctx, tx, id, e); err != nil {
 		return err
 	}
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE project_path=? AND branch=? AND operation_id=?`, e.Project, e.Branch, id); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='completed',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+	if _, err = j.update(ctx, id, `UPDATE operations SET status='completed',phase='completed',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }

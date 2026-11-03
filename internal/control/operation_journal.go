@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -24,58 +23,36 @@ const (
 	KindRetainedDelete = "project.retained.delete"
 )
 
-// unfinishedGroups lists unfinished operations in recovery order. Each group
-// keeps the order its listing has always used: creation time, or insertion
-// order (rowid).
-var unfinishedGroups = []struct {
-	kinds   []string
-	orderBy string
-}{
-	{[]string{KindProjectCreate, KindSessionCreate}, "created_at"},
-	{[]string{KindProjectDelete}, "created_at"},
-	{[]string{KindSessionDiscard, KindSessionDelete, KindCreateCleanup}, "created_at"},
-	{[]string{KindSessionRename}, "created_at"},
-	{[]string{KindRetainedRename}, "rowid"},
-	{[]string{KindRetainedDelete}, "rowid"},
-}
-
-// UnfinishedOperations lists every running, blocked or unknown operation in
-// recovery order.
+// UnfinishedOperations lists every running or blocked operation in the order
+// the journal accepted them.
 func (s *Store) UnfinishedOperations(ctx context.Context) ([]api.Operation, error) {
-	var ops []api.Operation
-	for _, group := range unfinishedGroups {
-		args := make([]any, len(group.kinds))
-		for i, kind := range group.kinds {
-			args[i] = kind
-		}
-		marks := strings.TrimSuffix(strings.Repeat("?,", len(group.kinds)), ",")
-		rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE kind IN (`+marks+`) AND status IN ('running','blocked','unknown') ORDER BY `+group.orderBy, args...)
-		if err != nil {
-			return nil, err
-		}
-		var ids []string
-		for rows.Next() {
-			var id string
-			if err = rows.Scan(&id); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			ids = append(ids, id)
-		}
-		if err = rows.Err(); err != nil {
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE status IN ('running','blocked') ORDER BY seq`)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		if err = rows.Close(); err != nil {
+		ids = append(ids, id)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	ops := make([]api.Operation, 0, len(ids))
+	for _, id := range ids {
+		op, err := s.GetOperation(ctx, id)
+		if err != nil {
 			return nil, err
 		}
-		for _, id := range ids {
-			op, err := s.GetOperation(ctx, id)
-			if err != nil {
-				return nil, err
-			}
-			ops = append(ops, op)
-		}
+		ops = append(ops, op)
 	}
 	return ops, nil
 }
@@ -103,11 +80,6 @@ func keyRecordsRequest(ctx context.Context, q queryRower, key, kind string, requ
 	return true, nil
 }
 
-// execer is the database or an open transaction.
-type execer interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
 // operationRecord is a new journal row; every operation starts running.
 type operationRecord struct {
 	ID, Key, Kind, Project string
@@ -127,8 +99,50 @@ func (r operationRecord) operation() api.Operation {
 		Evidence: json.RawMessage(r.Evidence), CreatedAt: r.Now, UpdatedAt: r.Now}
 }
 
-// insertOperation records a new operation; it is the journal's only insert.
-func insertOperation(ctx context.Context, x execer, r operationRecord) error {
+// JournalObserver hears of the journal's status changes. The daemon sets it
+// once with ObserveJournal, before it serves.
+type JournalObserver interface {
+	// Ending runs just before the commit that takes operation id out of
+	// running. The daemon releases the sessions the operation's worker holds
+	// there: once the end is recorded nothing of the operation holds them,
+	// and until it is recorded the journal refuses work that would compete.
+	Ending(id string)
+	// Changed runs after the commit of each status change of op, its
+	// acceptance included; from is the status before, empty for a new
+	// operation.
+	Changed(op api.Operation, from string)
+}
+
+// ObserveJournal sets the observer of the journal's status changes.
+func (s *Store) ObserveJournal(o JournalObserver) { s.observer = o }
+
+// journalTx is a transaction that writes the journal. Every write of an
+// operation's row goes through insert or update, so commit reports each
+// status change to the observer: the one write path that ends operations,
+// emits their progress and wakes their waiters.
+type journalTx struct {
+	*sql.Tx
+	store   *Store
+	changes []statusChange
+}
+
+// statusChange is one change of an operation's status in a journalTx, with
+// the operation as the transaction leaves it.
+type statusChange struct {
+	id, from, to string
+	op           api.Operation
+}
+
+func (s *Store) beginJournal(ctx context.Context) (*journalTx, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &journalTx{Tx: tx, store: s}, nil
+}
+
+// insert records new operation r, running; it is the journal's only insert.
+func (j *journalTx) insert(ctx context.Context, r operationRecord) error {
 	var session any
 	if r.Session != "" {
 		session = r.Session
@@ -137,22 +151,100 @@ func insertOperation(ctx context.Context, x execer, r operationRecord) error {
 	if err != nil {
 		return err
 	}
-	_, err = x.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
+	_, err = j.ExecContext(ctx, `INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,created_at,updated_at)
 	 VALUES(?,?,?,?,?,?,?,?,'running',?,?,?,?,?)`, r.ID, r.Key, r.Kind, r.Project, session, string(r.Request), digest(r.Request), string(intent), r.Phase, r.Committed, nullableJSON(r.Evidence), r.Now, r.Now)
+	if err == nil {
+		j.changes = append(j.changes, statusChange{id: r.ID, to: "running"})
+	}
 	return err
+}
+
+// update runs query, an UPDATE of operation id's row, and records the status
+// change it makes. It returns the number of rows the statement changed.
+func (j *journalTx) update(ctx context.Context, id, query string, args ...any) (int64, error) {
+	from, err := j.status(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	result, err := j.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	to, err := j.status(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if from != to {
+		j.changes = append(j.changes, statusChange{id: id, from: from, to: to})
+	}
+	return n, nil
+}
+
+// status is operation id's status in the transaction, empty for no row.
+func (j *journalTx) status(ctx context.Context, id string) (string, error) {
+	var status string
+	err := j.QueryRowContext(ctx, `SELECT status FROM operations WHERE id=?`, id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return status, err
+}
+
+// commit commits the transaction. Before it, the observer releases what the
+// operations it ends hold; after it, the observer hears of every status
+// change, with each operation as this transaction left it. journalMu keeps
+// the reports of successive commits in their commit order.
+func (j *journalTx) commit(ctx context.Context) error {
+	observer := j.store.observer
+	if observer == nil {
+		return j.Commit()
+	}
+	for i, c := range j.changes {
+		op, err := operationByIDTx(ctx, j.Tx, c.id)
+		if err != nil {
+			return err
+		}
+		j.changes[i].op = op
+	}
+	for _, c := range j.changes {
+		if c.from == "running" && c.to != "running" {
+			observer.Ending(c.id)
+		}
+	}
+	j.store.journalMu.Lock()
+	defer j.store.journalMu.Unlock()
+	if err := j.Commit(); err != nil {
+		return err
+	}
+	for _, c := range j.changes {
+		observer.Changed(c.op, c.from)
+	}
+	return nil
 }
 
 // BlockAfterPanic records running operation id blocked with reason internal
 // and diagnostic, after its work panicked. It changes nothing else: the
 // operation keeps its phase, evidence and guards, and waits for Retry.
 func (s *Store) BlockAfterPanic(ctx context.Context, id, diagnostic string) (api.Operation, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE operations SET status='blocked',reason=?,diagnostic=?,updated_at=? WHERE id=? AND status='running'`,
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	defer j.Rollback()
+	n, err := j.update(ctx, id, `UPDATE operations SET status='blocked',reason=?,diagnostic=?,updated_at=? WHERE id=? AND status='running'`,
 		api.ReasonInternal, api.BoundDiagnostic(diagnostic), time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	if n, err := result.RowsAffected(); err != nil || n != 1 {
-		return api.Operation{}, errors.Join(err, ErrConflict)
+	if n != 1 {
+		return api.Operation{}, ErrConflict
+	}
+	if err = j.commit(ctx); err != nil {
+		return api.Operation{}, err
 	}
 	return s.GetOperation(ctx, id)
 }

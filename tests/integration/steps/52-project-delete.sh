@@ -159,11 +159,11 @@ jq -e '.error.message=="method_not_found" and .error.code==-32601' <<< "$loss" >
 wait_operation() {
  local id="$1" want="$2" result status deadline=$((SECONDS+190))
  while ((SECONDS<deadline)); do
-  result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
+  result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
   status=$(jq -er '.result.operation.status' <<< "$result")
   if test "$status" = "$want"; then printf '%s\n' "$result"; return; fi
   if test "$status" = blocked || test "$status" = failed || test "$status" = completed; then jq -c '.result.operation|{id,status,phase,diagnostic}' <<< "$result" >&2; return 1; fi
-  sleep 0.3
+  if test "$status" != running; then sleep 0.3; fi
  done
  return 1
 }

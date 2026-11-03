@@ -18,7 +18,7 @@ rpc() {
   # Only observations retry an explicit authority conflict. Mutations keep
   # their normal idempotency and confirmation semantics.
   case "$1" in
-   system.health|project.list|session.list|operation.inspect)
+   system.health|project.list|session.list|operation.wait)
     if test "$SECONDS" -lt "$deadline" && jq -e '.error.message=="retry"' <<< "$response" >/dev/null 2>&1; then
      sleep 0.1; continue
     fi ;;
@@ -78,11 +78,11 @@ removed=$(rpc project.delete.confirm "$(jq -nc --arg project "$project" --arg to
 op=$(jq -er '.result.operation.id' <<< "$removed")
 deadline=$((SECONDS+100))
 while true; do
- operation=$(rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')")
+ operation=$(rpc operation.wait "$(jq -nc --arg id "$op" '{id:$id,timeout:20}')")
  status=$(jq -er '.result.operation.status' <<< "$operation")
  if test "$status" = completed; then break; fi
  test "$status" != failed && test "$status" != blocked
- test "$SECONDS" -lt "$deadline"; sleep 0.2
+ test "$SECONDS" -lt "$deadline"; if test "$status" != running; then sleep 0.2; fi
 done
 rpc project.list '{"limit":100}' | jq -e --arg project "$project" '.result.projects|all(.path!=$project)' >/dev/null
 printf 'P_NOTES_TUI_PASS real-PTY sample-application native-services SQL branches attach persistence reviewed-cleanup\n'

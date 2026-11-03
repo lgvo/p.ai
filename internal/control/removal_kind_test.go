@@ -10,7 +10,7 @@ import (
 
 func TestSessionRemovalKindUsesCommittedCurrentAuthority(t *testing.T) {
 	for _, kind := range []string{"session.discard", "session.delete", "session.create.cleanup", "project.delete"} {
-		for _, status := range []string{"running", "blocked", "unknown"} {
+		for _, status := range []string{"running", "blocked"} {
 			t.Run(kind+"/"+status, func(t *testing.T) {
 				s, _ := openTestStore(t)
 				ctx := context.Background()

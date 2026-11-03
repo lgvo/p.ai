@@ -110,11 +110,12 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	if !time.Now().Before(expiry) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var oldKind, oldStatus, oldPhase, oldProject, oldSession, oldEvidence string
 	var oldCommitted int
 	err = tx.QueryRowContext(ctx, `SELECT kind,status,phase,project_path,COALESCE(session_uuid,''),COALESCE(evidence_json,''),committed
@@ -178,7 +179,7 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 		return api.Operation{}, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "replaced by "+newID, now, intent.OldOperationID); err != nil {
+	if _, err = j.update(ctx, intent.OldOperationID, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "replaced by "+newID, now, intent.OldOperationID); err != nil {
 		return api.Operation{}, err
 	}
 	if intent.Cleanup != nil {
@@ -214,10 +215,10 @@ func (s *Store) ReplaceBlockedCreate(ctx context.Context, intent CreateReplaceIn
 	recorded := creationIntent(intent.New, newSessionID)
 	recorded.ReplacesSession, recorded.ReplacesBranch = intent.OldUUID, oldRequest.Branch
 	rec := operationRecord{ID: newID, Key: intent.New.Key, Kind: KindSessionCreate, Project: project, Session: newSessionID, Request: request, Intent: recorded, Phase: phase, Evidence: evidence, Now: now}
-	if err = insertOperation(ctx, tx, rec); err != nil {
+	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	return rec.operation(), nil

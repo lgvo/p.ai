@@ -247,11 +247,12 @@ CREATE=$(api project.create "$(jq -nc --arg project "$PROJECT" --arg key "$KEY" 
   '{key:$key,project:$project}')")
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
 SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
+api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
 ```
 
-Creation continues in the daemon after the request returns. Repeat the last
-inspection until the operation is `completed`. If it is `blocked` or `failed`,
+Creation continues in the daemon after the request returns. The wait returns
+as soon as the operation is no longer `running`, or after 20 seconds with it
+still `running`; repeat it until the operation is `completed`. If it is `blocked` or `failed`,
 read its `reason`, `phase` and `diagnostic` before proceeding; the TUI says
 what the reason means and what to do. Do not enter an incomplete
 session or issue another Create to hide the failure.
@@ -301,7 +302,7 @@ CREATE=$(api session.create "$(jq -nc --arg project "$PROJECT" \
   '{key:"demo-feature-1",project:$project,branch:"feature",choice:"new",source:"refs/heads/main"}')")
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
 FEATURE_SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
+api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
 ```
 
 Wait for completion as before, then `attach "$FEATURE_SESSION"`. This session
@@ -330,7 +331,7 @@ session automatically: choose a source after observing it.
 ```bash
 CREATE=$(api project.create '{"key":"app-create-1","project":"app","url":"ssh://git.example.com/team/app.git"}')
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
+api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
 ```
 
 Replace the example URL before creating. Wait for the operation to complete
@@ -354,7 +355,7 @@ CREATE=$(api session.create "$(jq -nc --arg commit "$ORIGIN_COMMIT" \
   '{key:"app-work-1",project:"app",branch:"work",choice:"new",origin_ref:"refs/heads/main",expected_commit_oid:$commit}')")
 OPERATION=$(jq -er '.result.operation.id' <<< "$CREATE")
 APP_SESSION=$(jq -er '.result.operation.session_uuid' <<< "$CREATE")
-api operation.inspect "$(jq -nc --arg id "$OPERATION" '{id:$id}')"
+api operation.wait "$(jq -nc --arg id "$OPERATION" '{id:$id,timeout:20}')"
 ```
 
 Wait for completion and check readiness before `attach "$APP_SESSION"`. See the
@@ -531,10 +532,10 @@ REMOVE=$(api "session.$ACTION" "$(jq -nc --arg uuid "$SESSION" \
   --arg token "$TOKEN" --arg key "demo-$ACTION-1" \
   '{key:$key,uuid:$uuid,confirmation_token:$token}')")
 REMOVE_OPERATION=$(jq -er '.result.operation.id' <<< "$REMOVE")
-api operation.inspect "$(jq -nc --arg id "$REMOVE_OPERATION" '{id:$id}')"
+api operation.wait "$(jq -nc --arg id "$REMOVE_OPERATION" '{id:$id,timeout:20}')"
 ```
 
-Inspect until complete. Acceptance of a confirmation is not proof that cleanup
+Wait until complete. Acceptance of a confirmation is not proof that cleanup
 finished. Changed facts or expired tokens require a fresh preview: P rechecks
 the branch tip and the runtime identity before committing removal. Starting or
 stopping the session after the preview does not invalidate it. An already

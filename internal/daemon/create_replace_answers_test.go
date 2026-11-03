@@ -44,11 +44,12 @@ func failedCreationFixture(t *testing.T) (*lifecycle, api.Operation) {
 func TestFailedCreationReviewsNameTheRunningCreationThatHoldsTheSession(t *testing.T) {
 	l, op := failedCreationFixture(t)
 	ctx := context.Background()
-	held, err := l.lockSession(ctx, op.SessionUUID)
+	// The creation's worker holds the session for its operation.
+	err := l.holdSession(ctx, op.ID, op.SessionUUID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer held()
+	defer l.releaseHolds(op.ID)
 	_, err = l.PreviewCreateCleanup(ctx, op.SessionUUID)
 	wantRefusal(t, "cleanup review", err, api.KindRetry, api.ReasonSessionHeld, api.TargetOperation(op.ID))
 	_, err = l.PreviewCreateReplace(ctx, op.SessionUUID, control.ReserveSessionRequest{Key: "replace", Project: "app", Branch: "work", Choice: "existing"})

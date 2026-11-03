@@ -40,7 +40,7 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	// An unfinished operation holds the project: a running one for a moment,
 	// a blocked one until a person retries it.
 	var opID, opStatus string
-	err = q.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE project_path=? AND status IN ('running','blocked','unknown') ORDER BY id LIMIT 1`, project).Scan(&opID, &opStatus)
+	err = q.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE project_path=? AND status IN ('running','blocked') ORDER BY id LIMIT 1`, project).Scan(&opID, &opStatus)
 	if err == nil {
 		if opStatus == "running" {
 			return nil, "", Retry(api.ReasonProjectHeld, api.TargetOperation(opID))
@@ -163,11 +163,12 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	if err := verify(ctx); err != nil {
 		return api.Operation{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	old, err := getOperationTx(ctx, tx, req.Key)
 	if err == nil {
 		if old.Kind != "project.delete" || digest(old.Request) != digest(raw) {
@@ -233,10 +234,10 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	}
 	rec := operationRecord{ID: id, Key: req.Key, Kind: KindProjectDelete, Project: req.Project, Request: raw,
 		Intent: api.OperationIntent{Project: req.Project}, Phase: "ensure-absent", Committed: true, Evidence: proof, Now: now}
-	if err = insertOperation(ctx, tx, rec); err != nil {
+	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	return rec.operation(), nil
@@ -249,11 +250,12 @@ func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation,
 		return ErrInvalid
 	}
 	diagnostic = api.BoundDiagnostic(diagnostic)
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	old, err := operationByIDTx(ctx, tx, observed.ID)
 	var prev ProjectDeleteEvidence
 	if err != nil || old.Kind != "project.delete" || old.Phase != "ensure-absent" || !old.Committed || old.Status != "running" && old.Status != "blocked" || digest(old.Evidence) != digest(observed.Evidence) || json.Unmarshal(old.Evidence, &prev) != nil || projectDeleteIdentities(prev) != projectDeleteIdentities(next) {
@@ -269,10 +271,10 @@ func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation,
 	if len(raw) > maxProjectDeleteEvidenceBytes {
 		return ErrInvalid
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status=?,evidence_json=?,reason=?,diagnostic=?,updated_at=? WHERE id=?`, status, string(raw), reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), old.ID); err != nil {
+	if _, err = j.update(ctx, old.ID, `UPDATE operations SET status=?,evidence_json=?,reason=?,diagnostic=?,updated_at=? WHERE id=?`, status, string(raw), reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), old.ID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operation, verify func(context.Context) error) error {
 	if verify == nil {
@@ -285,11 +287,12 @@ func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operatio
 	if err := verify(ctx); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	op, err := operationByIDTx(ctx, tx, observed.ID)
 	var ev ProjectDeleteEvidence
 	if err != nil || op.Kind != "project.delete" || op.Status != "running" || op.Phase != "ensure-absent" || !op.Committed || digest(op.Evidence) != digest(observed.Evidence) || json.Unmarshal(op.Evidence, &ev) != nil || !validProjectDeleteEvidence(ev) {
@@ -304,7 +307,7 @@ func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operatio
 	if tx.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, op.Project).Scan(&state) != nil || state != "deleting" {
 		return ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET phase='finalizing' WHERE id=?`, op.ID); err != nil {
+	if _, err = j.update(ctx, op.ID, `UPDATE operations SET phase='finalizing' WHERE id=?`, op.ID); err != nil {
 		return err
 	}
 	if err = retireProjectRequestsTx(ctx, tx, op.Project, op.ID); err != nil {
@@ -329,10 +332,10 @@ func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operatio
 	if _, err = tx.ExecContext(ctx, `DELETE FROM operations WHERE project_path=? AND id!=?`, op.Project, op.ID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='completed',evidence_json=NULL,reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
+	if _, err = j.update(ctx, op.ID, `UPDATE operations SET status='completed',phase='completed',evidence_json=NULL,reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
 		return err
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return err
 	}
 	s.statusMu.Lock()

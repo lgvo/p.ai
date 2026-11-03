@@ -10,12 +10,18 @@ import (
 
 func validUUID(value string) bool { return api.ValidUUID(value) }
 
-// sessionHolderTx refuses a new operation on session while an unfinished one
-// holds it: retry while that operation runs, conflict once it is blocked.
-// Both name it.
-func sessionHolderTx(ctx context.Context, q queryRower, session string) error {
+// The journal's one admission check: work that would compete with an
+// unfinished operation on the same session is refused, retry naming it while
+// it runs, conflict once it is blocked and waits for Retry. Requests that act
+// on that operation itself (a key replay, Retry, the replacement or cleanup of
+// a blocked creation) name it as except and pass.
+
+// sessionHolderTx refuses work on session while an unfinished operation other
+// than except holds it: a running one is named before a blocked one.
+func sessionHolderTx(ctx context.Context, q queryRower, session, except string) error {
 	var id, status string
-	err := q.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE session_uuid=? AND status IN ('running','blocked','unknown') ORDER BY id LIMIT 1`, session).Scan(&id, &status)
+	err := q.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE session_uuid=? AND id!=? AND status IN ('running','blocked')
+	 ORDER BY status='running' DESC, seq LIMIT 1`, session, except).Scan(&id, &status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -28,22 +34,11 @@ func sessionHolderTx(ctx context.Context, q queryRower, session string) error {
 	return Conflict(api.ReasonOperationBlocked, api.TargetOperation(id))
 }
 
-// ActiveSessionChange returns the unfinished cleanup, discard, delete or
-// rename of a session. While one exists, the session is not started, stopped,
-// attached or changed by anything else.
-func (s *Store) ActiveSessionChange(ctx context.Context, sessionUUID string) (api.Operation, bool, error) {
-	if !validUUID(sessionUUID) {
-		return api.Operation{}, false, ErrInvalid
+// AdmitSessionWork refuses work on session while an unfinished operation
+// other than except holds it.
+func (s *Store) AdmitSessionWork(ctx context.Context, session, except string) error {
+	if !validUUID(session) {
+		return ErrInvalid
 	}
-	var id string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM operations WHERE session_uuid=? AND kind IN ('session.create.cleanup','session.discard','session.delete','session.rename')
-	 AND status IN ('running','blocked','unknown')`, sessionUUID).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, false, nil
-	}
-	if err != nil {
-		return api.Operation{}, false, err
-	}
-	op, err := s.GetOperation(ctx, id)
-	return op, err == nil, err
+	return sessionHolderTx(ctx, s.db, session, except)
 }

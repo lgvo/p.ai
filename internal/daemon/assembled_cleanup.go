@@ -110,7 +110,6 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 			block(e)
 			return
 		}
-		l.recordProgress(op, "failed")
 	}
 	if op.Status == "blocked" {
 		if err = advance(op.Phase); err != nil {
@@ -196,7 +195,6 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 			block(err)
 			return
 		}
-		l.recordProgress(op, "completed")
 	case "delete-issued":
 		block(control.OutcomeUnknown(fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", r.InstanceName, r.IncusUUID, r.Generation)))
 	case "stale-cleanup":

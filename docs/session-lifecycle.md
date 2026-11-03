@@ -436,14 +436,14 @@ The same preview call serves the early and the assembled path.
 
 Proceed only when `eligible` is true and the ref and resource identities match
 what you intend to preserve/remove. Copy the returned token into an explicit
-confirmation with a fresh cleanup key, then poll its returned operation ID:
+confirmation with a fresh cleanup key, then wait for its returned operation ID:
 
 ```sh
 token=$(jq -er '.result.preview.confirmation_token' cleanup-preview.json)
 p api "$socket" session.create.cleanup.confirm \
   "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" \
       '{uuid:$uuid,key:"reviewed-cleanup-1",confirmation_token:$token}')"
-p api "$socket" operation.inspect '{"id":"CLEANUP_OPERATION_UUID"}'
+p api "$socket" operation.wait '{"id":"CLEANUP_OPERATION_UUID","timeout":20}'
 # If accepted cleanup blocks, inspect its diagnostic, correct the observed
 # condition, and resume this same intent:
 p api "$socket" operation.retry '{"id":"CLEANUP_OPERATION_UUID"}'
@@ -825,7 +825,10 @@ operation loses contact with an authority. It obtains the relevant locks and:
 - checks a commit image only when an operation needs to create an instance;
 - validates local Git authorization state;
 - asks participating plugins for required principal and resource state; and
-- resumes an already authorized operation according to its recorded phase.
+- resumes an already authorized running operation according to its recorded
+  phase, in the order the journal accepted them. A blocked operation, of any
+  kind, records a condition its worker could not resolve alone; a restart is
+  no evidence that it changed, so it waits for `operation.retry`.
 
 Automatic reconciliation may finish an operation the user already authorized,
 restore a missing local authorization record without widening it, or update an
@@ -845,7 +848,7 @@ retained branch:
 
 | Inconsistency | What happens and what to do |
 |---|---|
-| Incomplete authorized operation | Reconciliation or `operation.retry` resumes its defined forward/rollback path. |
+| Incomplete authorized operation | Reconciliation resumes a running one, and `operation.retry` a blocked one, along its defined forward/rollback path. |
 | Stale runtime locator | Outside MVP: instance names are derived from the session UUID, and no mutable locator is stored. P reports the missing expected runtime; a same-UUID runtime under another name blocks removal, and P does not adopt it. |
 | Missing runtime, assigned P branch intact | Start refuses. Discard with the explicit missing-runtime acknowledgement described in [destructive preflight](#destructive-preflight), then create a new session on the retained branch. Delete accepts the same acknowledgement when the branch should go too. |
 | Missing, revoked, or changed session Git principal or key | Start refuses. Discard, then create a new session on the retained branch. Discard removes the runtime, so rescue uncommitted work from it by hand first. |

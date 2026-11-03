@@ -166,7 +166,7 @@ inspect_session() {
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+160))
   while ((SECONDS < deadline)); do
-    result=$(inspect_operation "$id")
+    result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status | select(type=="string" and length>0)' <<< "$result")
     if jq -e --arg id "$id" --arg status "$expected" \
       '.result.operation.id==$id and .result.operation.status==$status' <<< "$result" >/dev/null; then
@@ -177,7 +177,7 @@ wait_operation() {
       echo "operation reached unexpected terminal status: $result" >&2
       return 1
     fi
-    sleep 0.4
+    if test "$status" != running; then sleep 0.4; fi
   done
   echo "operation did not reach $expected: $id" >&2
   return 1

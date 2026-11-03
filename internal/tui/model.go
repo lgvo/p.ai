@@ -135,6 +135,29 @@ func (m Model) run(call daemonCall) tea.Cmd {
 		return actionDone{epoch, call.method, result, e}
 	}
 }
+
+// followInventory follows the operation on the progress page through the
+// refreshed inventory. A running operation's wait reports its end, so only
+// its phase is taken; one that is not running and that the inventory reads
+// in another status changed elsewhere, such as by another client's Retry, and
+// is read again.
+func (m *Model) followInventory() tea.Cmd {
+	if m.page != "progress" || m.operationID == "" {
+		return nil
+	}
+	for _, op := range m.data.operations {
+		switch {
+		case op.ID != m.operationID:
+		case m.operation.Status == "running":
+			if op.Status == "running" {
+				m.operation.Phase = op.Phase
+			}
+		case op.Status != m.operation.Status && !m.working:
+			return m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: m.operationID}))
+		}
+	}
+	return nil
+}
 func (m *Model) navigate(page string) {
 	m.helpRemovalRead = nil
 	m.page = page
@@ -430,6 +453,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			if m.page == "sessions" {
 				m.restoreSelection()
 			}
+			return m, m.followInventory()
 		}
 	case tick:
 		cmds := []tea.Cmd{tickCmd()}
@@ -441,7 +465,11 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 			switch m.page {
 			case "progress":
 				if m.operationID != "" && m.operation.Status != "completed" {
-					cmds = append(cmds, m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: m.operationID})))
+					// A wait follows a running operation; one that ended in an
+					// error starts again here.
+					if m.operation.Status == "running" {
+						cmds = append(cmds, m.begin(waitFor(m.operationID)))
+					}
 				} else if m.removal == nil && m.contextSession.UUID != "" && (m.contextSession.Condition == "starting" || m.attachOnComplete) {
 					cmds = append(cmds, m.begin(callOf(api.SessionInspect, api.SessionInspectRequest{UUID: m.contextSession.UUID})))
 				}

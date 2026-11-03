@@ -340,6 +340,12 @@ func TestPublicationErrorsAnswerTheirKind(t *testing.T) {
 		{"session held by a blocked operation", func(t *testing.T, s *Store, _ *fakePublication, _ OriginAPI, _ PublicationRequest) {
 			holdSession(t, s, session, "blocked")
 		}, nil, wantError(api.KindConflict, api.ReasonOperationBlocked, "operation/op-holder")},
+		// The journal's one admission check names a session's unfinished
+		// creation as it names any other holder.
+		{"session being created", func(t *testing.T, s *Store, _ *fakePublication, _ OriginAPI, _ PublicationRequest) {
+			holdSession(t, s, session, "running")
+			mustExec(t, s, `UPDATE sessions SET registry_state='creating' WHERE uuid='`+session+`'`)
+		}, nil, wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-holder")},
 		{"unknown project", nil, func(r *PublicationRequest) { r.Project = "missing" }, wantError(api.KindNotFound, api.ReasonProject, "project/missing")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -370,7 +376,7 @@ func mustExec(t *testing.T, s *Store, statement string) {
 func holdSession(t *testing.T, s *Store, session, status string) {
 	t.Helper()
 	ctx := context.Background()
-	if err := insertOperation(ctx, s.db, operationRecord{ID: "op-holder", Key: "holder", Kind: KindSessionRename, Project: "app", Session: session,
+	if err := insertOperation(ctx, s, operationRecord{ID: "op-holder", Key: "holder", Kind: KindSessionRename, Project: "app", Session: session,
 		Request: []byte(`{}`), Phase: "rename", Now: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}

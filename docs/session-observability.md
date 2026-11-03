@@ -256,7 +256,12 @@ or `none` for a cleared nullable value. `session.policy_changed` carries
 `policy_condition` with `current`, `outdated`, or `invalid`.
 `operation.progress` carries a coarse `phase`: `accepted`, `running`,
 `blocked`, `completed`, `failed`, or `cancelled`. These are event reductions,
-not the journal's internal workflow phase names. The event envelope has a
+not the journal's internal workflow phase names. The journal emits one per
+status change of every operation kind, from its one write path: `accepted`
+when it records the operation, `running` when Retry resumes a blocked one,
+`blocked`, `failed` or `completed` when it reaches that status, and
+`cancelled` when it is superseded. A phase change inside a kind emits
+nothing. The event envelope has a
 version, ID, occurrence time, instance identity, and optional project,
 session, and branch context; it cannot contain arbitrary metadata or a raw
 agent report.

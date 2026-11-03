@@ -148,7 +148,7 @@ func TestConstraintFailuresAnswerTheirRefusal(t *testing.T) {
 	s, _, first := setupDiscardStore(t)
 	rec := operationRecord{ID: "op-collide", Key: "collide", Kind: "session.delete", Project: first.Project, Session: first.SessionUUID,
 		Request: []byte(`{}`), Phase: "guard-pending", Now: time.Now().UTC().Format(time.RFC3339Nano)}
-	err := classifyWrite(insertOperation(ctx, s.db, rec))
+	err := classifyWrite(insertOperation(ctx, s, rec))
 	if a := answerError(ctx, err); a.Kind() != api.KindRetry || a.Reason() != api.ReasonSessionHeld {
 		t.Fatalf("a second active operation on the session answered %v (%v)", a, err)
 	}

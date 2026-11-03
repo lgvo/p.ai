@@ -83,7 +83,7 @@ token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"tui56-final-delete",project:"tui56",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
 deadline=$((SECONDS+100))
-while ! rpc operation.inspect "$(jq -nc --arg id "$op" '{id:$id}')" | jq -e '.result.operation.status=="completed"' >/dev/null; do
+while ! rpc operation.wait "$(jq -nc --arg id "$op" '{id:$id,timeout:20}')" | jq -e '.result.operation.status=="completed"' >/dev/null; do
  test "$SECONDS" -lt "$deadline"; sleep 0.2
 done
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null

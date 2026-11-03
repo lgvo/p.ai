@@ -130,11 +130,11 @@ inspect() { rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"; }
 wait_operation() {
   local id="$1" result status deadline=$((SECONDS+160))
   while ((SECONDS < deadline)); do
-    result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
+    result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
     if test "$status" = blocked; then echo "operation blocked: $result" >&2; return 1; fi
-    sleep 0.4
+    if test "$status" != running; then sleep 0.4; fi
   done
   echo "operation did not complete: $id" >&2
   return 1

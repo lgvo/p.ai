@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -516,5 +517,91 @@ func TestStoppedOperationShowsWhatItsReasonMeans(t *testing.T) {
 	}
 	if got := operationDetail("running", "", "detail"); !reflect.DeepEqual(got, []string{"detail"}) {
 		t.Fatalf("a running operation's detail %q", got)
+	}
+}
+
+// TestWaitThatEndsRunningWaitsAgainAndKeepsTheIntentToAttach follows a
+// creation: a wait answering running is a result, so the TUI waits again and
+// still enters the session once the creation completes.
+func TestWaitThatEndsRunningWaitsAgainAndKeepsTheIntentToAttach(t *testing.T) {
+	var waited []api.OperationWaitRequest
+	client := &fakeClient{fn: func(method string, p any) (any, error) {
+		if method == api.OperationWait.Name {
+			waited = append(waited, p.(api.OperationWaitRequest))
+		}
+		return nil, nil
+	}}
+	m := fixture()
+	m.client = client
+	created := reply(t, m.epoch, "session.create", `{"operation":{"id":"creation","kind":"session.create","session_uuid":"`+waitingID+`","status":"running"}}`)
+	updated, cmd := m.Update(created)
+	m = updated.(Model)
+	if m.page != "progress" || !m.attachOnComplete || cmd == nil {
+		t.Fatalf("creation did not start waiting: page %s attach %v", m.page, m.attachOnComplete)
+	}
+	cmd()
+	still := reply(t, m.epoch, "operation.wait", `{"operation":{"id":"creation","kind":"session.create","session_uuid":"`+waitingID+`","status":"running","phase":"principals-ready"}}`)
+	updated, cmd = m.Update(still)
+	m = updated.(Model)
+	if !m.attachOnComplete || cmd == nil || m.pendingMethod != api.OperationWait.Name {
+		t.Fatalf("a running answer ended the wait: attach %v pending %s", m.attachOnComplete, m.pendingMethod)
+	}
+	cmd()
+	if len(waited) != 2 || waited[1].ID != "creation" || waited[1].Timeout != waitSeconds {
+		t.Fatalf("waits %+v", waited)
+	}
+	done := reply(t, m.epoch, "operation.wait", `{"operation":{"id":"creation","kind":"session.create","session_uuid":"`+waitingID+`","status":"completed"}}`)
+	updated, _ = m.Update(done)
+	m = updated.(Model)
+	if m.pendingMethod != api.SessionInspect.Name || m.contextSession.UUID != waitingID {
+		t.Fatalf("completion did not move on to entry: pending %s", m.pendingMethod)
+	}
+}
+
+func TestWaitFitsTheCallBudget(t *testing.T) {
+	ctx, cancel := callContext()
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	if budget := time.Until(deadline); budget < waitSeconds*time.Second+4*time.Second {
+		t.Fatalf("a %d-second wait leaves %s of a %s budget to connect and reply", waitSeconds, budget-waitSeconds*time.Second, budget)
+	}
+}
+
+// TestProgressPageFollowsTheInventory: while a wait is in flight the page
+// takes the running operation's phase from the 3-second refresh; an operation
+// that is not running and changed elsewhere is read again; and a wait that
+// ended in an error starts again on the next tick.
+func TestProgressPageFollowsTheInventory(t *testing.T) {
+	m := fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.navigate("progress")
+	m.operationID = "op"
+	m.operation = api.Operation{ID: "op", Kind: "session.rename", Status: "running", Phase: "reserved"}
+	m.working, m.pendingMethod = true, api.OperationWait.Name
+	inventory := func(status, phase string) loaded {
+		data := m.data
+		data.operations = []api.OperationSummary{{ID: "op", Kind: "session.rename", Status: status, Phase: phase}}
+		return loaded{data: data}
+	}
+	updated, _ := m.Update(inventory("running", "workspace-renamed"))
+	m = updated.(Model)
+	if m.operation.Phase != "workspace-renamed" || m.pendingMethod != api.OperationWait.Name {
+		t.Fatalf("phase %s, pending %s", m.operation.Phase, m.pendingMethod)
+	}
+	// The wait ends in an error; the next tick waits again.
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.OperationWait.Name, err: errors.New("transport")})
+	m = updated.(Model)
+	updated, _ = m.Update(tick{})
+	m = updated.(Model)
+	if m.pendingMethod != api.OperationWait.Name {
+		t.Fatalf("the tick did not wait again: pending %s", m.pendingMethod)
+	}
+	// A blocked operation another client retried is read again.
+	m.working, m.pendingMethod = false, ""
+	m.operation.Status = "blocked"
+	updated, _ = m.Update(inventory("completed", "completed"))
+	m = updated.(Model)
+	if m.pendingMethod != api.OperationInspect.Name {
+		t.Fatalf("a change made elsewhere was not read: pending %s", m.pendingMethod)
 	}
 }

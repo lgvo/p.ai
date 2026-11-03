@@ -16,7 +16,7 @@ func (s *Store) SessionRemovalKind(ctx context.Context, uuid string) (string, er
  JOIN operations o ON o.project_path=s.project_path AND
  ((p.registry_state='active' AND o.session_uuid=s.uuid AND o.kind IN ('session.discard','session.delete','session.create.cleanup'))
  OR (o.kind='project.delete' AND p.registry_state='deleting'))
- WHERE s.uuid=? AND s.registry_state='removing' AND o.committed=1 AND o.status IN ('running','blocked','unknown')
+ WHERE s.uuid=? AND s.registry_state='removing' AND o.committed=1 AND o.status IN ('running','blocked')
  ORDER BY CASE WHEN o.kind='project.delete' THEN 0 ELSE 1 END LIMIT 2`, uuid)
 	if err != nil {
 		return "", err

@@ -53,11 +53,12 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	if err = verify(ctx); err != nil {
 		return api.Operation{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	old, err := operationByIDTx(ctx, tx, p.OldOperationID)
 	if err != nil {
 		return api.Operation{}, reviewChanged(err)
@@ -111,7 +112,7 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if !assembled {
-		if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "cleanup by "+id, now, old.ID); err != nil {
+		if _, err = j.update(ctx, old.ID, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "cleanup by "+id, now, old.ID); err != nil {
 			return api.Operation{}, err
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=? AND registry_state='creating'`, p.UUID); err != nil {
@@ -131,13 +132,13 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	}
 	rec := operationRecord{ID: id, Key: req.Key, Kind: KindCreateCleanup, Project: old.Project, Session: p.UUID, Request: raw,
 		Intent: api.OperationIntent{Project: old.Project, Session: p.UUID, Branch: p.OldRequest.Branch}, Phase: phase, Committed: committed, Evidence: evidence, Now: now}
-	if err = insertOperation(ctx, tx, rec); err != nil {
+	if err = j.insert(ctx, rec); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, old.Project, branch, id); err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	return rec.operation(), nil
@@ -167,11 +168,12 @@ func (s *Store) CompleteCreateCleanup(ctx context.Context, id string, verify fun
 	if err = verify(ctx, ev); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	current, err := operationByIDTx(ctx, tx, id)
 	if err != nil || current.Status != "running" || current.Phase != "local-complete" || digest(current.Evidence) != digest(observed.Evidence) {
 		return ErrConflict
@@ -196,10 +198,10 @@ func (s *Store) CompleteCreateCleanup(ctx context.Context, id string, verify fun
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE operation_id=?`, id); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='cleaned',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+	if _, err = j.update(ctx, id, `UPDATE operations SET status='completed',phase='cleaned',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 func operationByIDTx(ctx context.Context, tx *sql.Tx, id string) (api.Operation, error) {

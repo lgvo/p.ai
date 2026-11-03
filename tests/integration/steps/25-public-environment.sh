@@ -133,18 +133,17 @@ p_instance=$(rpc system.hello | jq -er '.result.instance_id | select(length==36)
 
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
 session_uuid() { jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"; }
-inspect_operation() { rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"; }
 inspect_session() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
 wait_operation() {
   local id="$1" expected="$2" result status deadline=$((SECONDS+300))
   while ((SECONDS < deadline)); do
-    result=$(inspect_operation "$id")
+    result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
     if { test "$status" = blocked || test "$status" = completed; } && test "$status" != "$expected"; then
       echo "unexpected operation status: $result" >&2; return 1
     fi
-    sleep 0.4
+    if test "$status" != running; then sleep 0.4; fi
   done
   echo "operation $id did not reach $expected" >&2
   return 1

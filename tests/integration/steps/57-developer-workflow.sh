@@ -15,7 +15,7 @@ inc() { timeout 60 incus --force-local --project user-1000 "$@"; }
 service_control() { /run/wrappers/bin/sudo -n "$P_TEST_SERVICE_CONTROL_BINARY" "$1"; }
 rpc() {
  local response status deadline=$((SECONDS+40)) read_only=false
- case "$1" in system.health|session.inspect|session.services|session.service.logs|operation.inspect) read_only=true ;; esac
+ case "$1" in system.health|session.inspect|session.services|session.service.logs|operation.wait) read_only=true ;; esac
  while true; do
   if response=$(timeout 150 p api "$socket" "$@"); then
    printf '%s\n' "$response"; return
@@ -55,11 +55,11 @@ wait_health() {
 wait_completed() {
  local id=$1 result status deadline=$((SECONDS+300))
  while ((SECONDS<deadline)); do
-  result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
+  result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
   status=$(jq -er '.result.operation.status' <<< "$result")
   if test "$status" = completed; then return; fi
   if test "$status" = failed || test "$status" = blocked; then printf '%s\n' "$result" >&2; return 1; fi
-  sleep 0.2
+  if test "$status" != running; then sleep 0.2; fi
  done
  return 1
 }

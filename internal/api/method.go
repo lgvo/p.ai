@@ -69,6 +69,7 @@ var (
 	SessionStop                  = Method[SessionStopRequest, SessionResult]{"session.stop"}
 	OperationInspect             = Method[OperationInspectRequest, OperationResult]{"operation.inspect"}
 	OperationList                = Method[OperationListRequest, OperationListResult]{"operation.list"}
+	OperationWait                = Method[OperationWaitRequest, OperationResult]{"operation.wait"}
 	OperationRetry               = Method[OperationRetryRequest, OperationResult]{"operation.retry"}
 	SessionAttach                = Method[SessionAttachRequest, PendingAttachment]{"session.attach"}
 	SessionRemovalPreview        = Method[SessionRemovalPreviewRequest, RemovalPreviewResult]{"session.removal.preview"}
@@ -120,6 +121,7 @@ func Methods() []MethodInfo {
 		info(SessionStop, CapabilityRuntime),
 		info(OperationInspect, CapabilityRuntime),
 		info(OperationList, CapabilityRuntime),
+		info(OperationWait, CapabilityRuntime),
 		info(OperationRetry, CapabilityRuntime),
 		info(SessionAttach, CapabilityRuntime),
 		info(SessionRemovalPreview, CapabilityRuntime),

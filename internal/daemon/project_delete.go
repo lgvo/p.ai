@@ -386,7 +386,6 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 		return api.Operation{}, err
 	}
 	l.withLock(func() { delete(l.projectDeletePreviews, req.ConfirmationToken) })
-	l.recordProgress(accepted, "running")
 	return accepted, l.enqueue(accepted.ID)
 }
 

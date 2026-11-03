@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -47,6 +48,9 @@ func (l coreLife) CreateSession(_ context.Context, r ReserveSessionRequest) (api
 }
 func (l coreLife) Retry(_ context.Context, id string) (api.Operation, error) {
 	return api.Operation{ID: id}, l.record("Retry %s", id)
+}
+func (l coreLife) WaitOperation(_ context.Context, id string, timeout time.Duration) (api.Operation, error) {
+	return api.Operation{ID: id, Status: "completed"}, l.record("WaitOperation %s %s", id, timeout)
 }
 func (l coreLife) InspectSession(_ context.Context, id string) (api.SessionView, error) {
 	return api.SessionView{UUID: id, Condition: "ready"}, l.record("InspectSession %s", id)
@@ -439,10 +443,11 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 	h, store := surfaceHandlerFor(t, true, fullLife{coreLife{&surfaceCalls{}}})
 	dropOperationInsertTriggers(t, store)
 	long := strings.Repeat("d", 600)
+	// Accepted out of their IDs' order: the journal lists them as accepted.
 	for _, row := range []struct{ id, kind, session, status, phase, diagnostic string }{
+		{"op-c", "session.discard", surfaceUUID2, "running", "reserved", long},
 		{"op-a", "project.retained.rename", "", "completed", "completed", ""},
 		{"op-b", "session.rename", surfaceUUID, "blocked", "stale", long},
-		{"op-c", "session.discard", surfaceUUID2, "running", "reserved", long},
 	} {
 		if _, err := store.db.Exec(`INSERT INTO operations(id,idempotency_key,kind,project_path,session_uuid,request_json,request_sha256,intent_json,status,phase,committed,evidence_json,diagnostic,created_at,updated_at)
 		 VALUES(?,?,?,'team/app',NULLIF(?,''),'{"key":"k"}','x','{"project":"team/app"}',?,?,1,'{"e":1}',?,'2026-01-01T00:00:00Z','2026-01-02T00:00:00Z')`,
@@ -467,10 +472,19 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 		{"operation.inspect", `{"id":"op-b"}`, `{"operation":{"id":"op-b","idempotency_key":"key-op-b","kind":"session.rename","project":"team/app","session_uuid":"` + surfaceUUID +
 			`","intent":{"project":"team/app"},"request":{"key":"k"},"status":"blocked","phase":"stale","committed":true,"evidence":{"e":1},"diagnostic":"` + long + `","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}}`},
 		// A summary shows the same diagnostic as operation.inspect.
-		{"operation.list", `{"limit":2}`, `{"operations":[` + summary("op-a", "project.retained.rename", "", "completed", "completed", "") + "," +
-			summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long) + `],"next":"op-b"}`},
-		{"operation.list", `{"limit":2,"after":"op-b"}`, `{"operations":[` + summary("op-c", "session.discard", surfaceUUID2, "running", "reserved", long) + `],"next":""}`},
+		{"operation.list", `{"limit":2}`, `{"operations":[` + summary("op-c", "session.discard", surfaceUUID2, "running", "reserved", long) + "," +
+			summary("op-a", "project.retained.rename", "", "completed", "completed", "") + `],"next":"2"}`},
+		{"operation.list", `{"limit":2,"after":"2"}`, `{"operations":[` + summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long) + `],"next":""}`},
+		// The cursor stays valid once the page's last operation is deleted.
+		{"delete op-a", "", ""},
+		{"operation.list", `{"limit":2,"after":"2"}`, `{"operations":[` + summary("op-b", "session.rename", surfaceUUID, "blocked", "stale", long) + `],"next":""}`},
 	} {
+		if test.method == "delete op-a" {
+			if _, err := store.db.Exec(`DELETE FROM operations WHERE id='op-a'`); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
 		result, rpcErr := h(context.Background(), test.method, json.RawMessage(test.params))
 		if rpcErr != nil {
 			t.Fatalf("%s %s: %+v", test.method, test.params, rpcErr)

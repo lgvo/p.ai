@@ -78,11 +78,12 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 	if len(evidence) > 4096 {
 		return api.Operation{}, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	if replay, err := keyRecordsRequest(ctx, tx, req.Key, "session."+ev.Action, request); err != nil {
 		return api.Operation{}, err
 	} else if replay {
@@ -104,7 +105,7 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 	if !time.Now().Before(expires) {
 		return api.Operation{}, Stale(api.ReasonExpired)
 	}
-	if err = sessionHolderTx(ctx, tx, req.UUID); err != nil {
+	if err = sessionHolderTx(ctx, tx, req.UUID, ""); err != nil {
 		return api.Operation{}, err
 	}
 	id, err := newUUID()
@@ -114,11 +115,11 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	rec := operationRecord{ID: id, Key: req.Key, Kind: "session." + ev.Action, Project: ev.Project, Session: req.UUID, Request: request,
 		Intent: api.OperationIntent{Project: ev.Project, Session: req.UUID, Branch: ev.Branch}, Phase: "guard-pending", Evidence: evidence, Now: now}
-	err = insertOperation(ctx, tx, rec)
+	err = j.insert(ctx, rec)
 	if err != nil {
 		return api.Operation{}, classifyWrite(err)
 	}
-	if err = tx.Commit(); err != nil {
+	if err = j.commit(ctx); err != nil {
 		return api.Operation{}, err
 	}
 	return rec.operation(), nil
@@ -143,11 +144,12 @@ func (s *Store) commitRemoval(ctx context.Context, opID, action string, verifyRe
 		return err
 	}
 	defer s.gitAuthority.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var sessionID, project, phase, status, evRaw string
 	err = tx.QueryRowContext(ctx, `SELECT session_uuid,project_path,phase,status,evidence_json FROM operations WHERE id=? AND kind=?`, opID, "session."+action).Scan(&sessionID, &project, &phase, &status, &evRaw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -186,10 +188,10 @@ func (s *Store) commitRemoval(ctx context.Context, opID, action string, verifyRe
 	if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE role='session' AND session_uuid=?`, sessionID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET phase='removal-committed',committed=1,updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = j.update(ctx, opID, `UPDATE operations SET phase='removal-committed',committed=1,updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 // Stale precommit confirmation restores the established assignment and
@@ -206,11 +208,12 @@ func (s *Store) failStaleRemoval(ctx context.Context, opID, action, diagnostic s
 		return err
 	}
 	defer s.gitAuthority.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var project, sessionID, phase, evRaw string
 	var committed int
 	err = tx.QueryRowContext(ctx, `SELECT project_path,session_uuid,phase,committed,evidence_json FROM operations WHERE id=? AND kind=?`, opID, "session."+action).Scan(&project, &sessionID, &phase, &committed, &evRaw)
@@ -234,10 +237,10 @@ func (s *Store) failStaleRemoval(ctx context.Context, opID, action, diagnostic s
 	if err = tx.QueryRowContext(ctx, `SELECT registry_state FROM sessions WHERE uuid=?`, sessionID).Scan(&registry); err != nil || registry != "established" {
 		return ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = j.update(ctx, opID, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic=?,updated_at=? WHERE id=?`, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }
 
 // CompleteDiscard releases the assignment only after the guarded P ref still
@@ -261,11 +264,12 @@ func (s *Store) completeRemoval(ctx context.Context, opID, action string, verify
 		return err
 	}
 	defer s.gitAuthority.Unlock()
-	tx, err := s.db.BeginTx(ctx, nil)
+	j, err := s.beginJournal(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer j.Rollback()
+	tx := j.Tx
 	var sessionID, project, phase, status, evRaw string
 	err = tx.QueryRowContext(ctx, `SELECT session_uuid,project_path,phase,status,evidence_json FROM operations WHERE id=? AND kind=?`, opID, "session."+action).Scan(&sessionID, &project, &phase, &status, &evRaw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -307,8 +311,8 @@ func (s *Store) completeRemoval(ctx context.Context, opID, action string, verify
 	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE project_path=? AND branch=? AND operation_id=?`, project, ev.Branch, opID); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase=?,committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, terminal, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
+	if _, err = j.update(ctx, opID, `UPDATE operations SET status='completed',phase=?,committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, terminal, time.Now().UTC().Format(time.RFC3339Nano), opID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return j.commit(ctx)
 }

@@ -86,7 +86,7 @@ func (s *Store) checkSessionCapacity(ctx context.Context, observe CapacityObserv
 	// session row, whether origin-backed or blank. Count the rowless intent.
 	rows, err = s.db.QueryContext(ctx, `SELECT o.id,o.project_path,o.evidence_json FROM operations o
 	 LEFT JOIN sessions s ON s.uuid=o.session_uuid
-	 WHERE o.kind='project.create' AND s.uuid IS NULL AND o.status IN ('running','blocked','unknown')`)
+	 WHERE o.kind='project.create' AND s.uuid IS NULL AND o.status IN ('running','blocked')`)
 	if err != nil {
 		return err
 	}

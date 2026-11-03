@@ -80,15 +80,15 @@ func (l *lifecycle) observeView(v api.SessionView) {
 	}
 }
 
+// recordCreation records the context of the session a new creation op makes,
+// and reports a session creation's session creating. The journal reported op
+// accepted when it recorded it.
 func (l *lifecycle) recordCreation(op api.Operation, branch string) {
 	if l.events == nil {
 		return
 	}
 	l.eventMu.Lock()
 	defer l.eventMu.Unlock()
-	if l.progress == nil {
-		l.progress = make(map[string]string)
-	}
 	if l.observed == nil {
 		l.observed = make(map[string]observedFacts)
 	}
@@ -96,15 +96,11 @@ func (l *lifecycle) recordCreation(op api.Operation, branch string) {
 		l.eventContexts = make(map[string]eventContext)
 	}
 	l.eventContexts[op.SessionUUID] = eventContext{op.Project, branch}
-	if l.progress[op.ID] != "" {
+	if _, seen := l.observed[op.SessionUUID]; seen || op.Kind != "session.create" {
 		return
 	}
-	l.progress[op.ID] = "accepted"
-	l.events.emit("operation.progress", op.Project, op.SessionUUID, branch, "phase", "accepted")
-	if op.Kind == "session.create" {
-		l.observed[op.SessionUUID] = observedFacts{condition: "creating", policy: "current"}
-		l.events.emit("session.condition_changed", op.Project, op.SessionUUID, branch, "condition", "creating")
-	}
+	l.observed[op.SessionUUID] = observedFacts{condition: "creating", policy: "current"}
+	l.events.emit("session.condition_changed", op.Project, op.SessionUUID, branch, "condition", "creating")
 }
 
 func (l *lifecycle) recordCreatingSession(s control.Session) {
@@ -127,24 +123,24 @@ func (l *lifecycle) recordCreatingSession(s control.Session) {
 	l.events.emit("session.condition_changed", s.Project, s.UUID, s.Branch, "condition", "creating")
 }
 
+// recordProgress emits op's operation.progress event of phase. The event
+// names the branch of op's session as last observed, or for a session not yet
+// observed the branch the operation's caller named.
 func (l *lifecycle) recordProgress(op api.Operation, phase string) {
 	if l.events == nil {
 		return
 	}
 	l.eventMu.Lock()
 	defer l.eventMu.Unlock()
-	if l.progress == nil {
-		l.progress = make(map[string]string)
+	branch := ""
+	if op.SessionUUID != "" {
+		context, known := l.eventContexts[op.SessionUUID]
+		branch = context.branch
+		if !known {
+			branch = op.Intent.Branch
+		}
 	}
-	if l.progress[op.ID] == phase {
-		return
-	}
-	l.progress[op.ID] = phase
-	if phase == "blocked" || phase == "completed" || phase == "failed" || phase == "cancelled" {
-		delete(l.progress, op.ID)
-	}
-	context := l.eventContexts[op.SessionUUID]
-	l.events.emit("operation.progress", op.Project, op.SessionUUID, context.branch, "phase", phase)
+	l.events.emit("operation.progress", op.Project, op.SessionUUID, branch, "phase", phase)
 }
 
 // attachmentChanged is called only after the attachment reducer succeeds.

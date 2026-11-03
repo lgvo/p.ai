@@ -339,6 +339,9 @@ func (l statusLife) CreateSession(context.Context, ReserveSessionRequest) (api.O
 func (l statusLife) Retry(context.Context, string) (api.Operation, error) {
 	return api.Operation{}, ErrInvalid
 }
+func (l statusLife) WaitOperation(context.Context, string, time.Duration) (api.Operation, error) {
+	return api.Operation{}, ErrInvalid
+}
 func (l statusLife) StartSession(ctx context.Context, id string) (api.SessionView, error) {
 	return l.InspectSession(ctx, id)
 }

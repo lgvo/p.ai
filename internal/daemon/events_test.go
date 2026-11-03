@@ -150,11 +150,13 @@ func TestProjectCreationEventWaitsForSessionCommit(t *testing.T) {
 	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
 	defer d.Close()
 	l := &lifecycle{events: d}
-	op := api.Operation{ID: "op", Kind: "project.create", Project: "app", SessionUUID: "session"}
-	l.recordCreation(op, "")
-	if e := nextEvent(t, got); e.Kind != "operation.progress" || e.Branch != "" {
+	op := api.Operation{ID: "op", Kind: "project.create", Project: "app", SessionUUID: "session", Status: "running"}
+	// The journal reports the accepted creation; it names no branch yet.
+	l.Changed(op, "")
+	if e := nextEvent(t, got); e.Kind != "operation.progress" || e.Fields["phase"] != "accepted" || e.Branch != "" {
 		t.Fatalf("premature session event: %+v", e)
 	}
+	l.recordCreation(op, "")
 	select {
 	case e := <-got:
 		t.Fatalf("premature session event: %+v", e)

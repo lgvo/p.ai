@@ -289,10 +289,18 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.operationID = op.ID
 		m.attachOnComplete = v.method == api.SessionCreate.Name || v.method == api.ProjectCreate.Name
 		m.navigate("progress")
-		return m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: m.operationID}))
-	case api.OperationInspect.Name:
+		return m.begin(waitFor(m.operationID))
+	case api.OperationInspect.Name, api.OperationWait.Name:
 		r := resultOf(v, api.OperationInspect)
+		if v.method == api.OperationWait.Name {
+			r = resultOf(v, api.OperationWait)
+		}
 		m.operation = r.Operation
+		if r.Operation.Status == "running" {
+			// A wait that ends with the operation still running is a result:
+			// wait again, keeping the intent to attach.
+			return m.begin(waitFor(r.Operation.ID))
+		}
 		if r.Operation.Status == "completed" {
 			if m.attachOnComplete && r.Operation.SessionUUID != "" {
 				m.contextSession.UUID = r.Operation.SessionUUID
@@ -382,6 +390,15 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.notice = ""
 	}
 	return nil
+}
+
+// waitSeconds is how long one operation.wait call waits. With connecting,
+// the hello and the reply it fits callContext's 25-second budget.
+const waitSeconds = 20
+
+// waitFor waits for operation id to leave running.
+func waitFor(id string) daemonCall {
+	return callOf(api.OperationWait, api.OperationWaitRequest{ID: id, Timeout: waitSeconds})
 }
 
 // operationOf is the operation that a change returned.

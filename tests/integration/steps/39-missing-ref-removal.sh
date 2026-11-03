@@ -114,13 +114,12 @@ operation_id() { jq -er '.result.operation.id | select(length==36)' <<< "$1"; }
 wait_operation() {
   local id="$1" response status deadline=$((SECONDS+180))
   while ((SECONDS < deadline)); do
-    response=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
+    response=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$response")
     if test "$status" = completed; then printf '%s\n' "$response"; return; fi
     if test "$status" = blocked || test "$status" = failed || test "$status" = superseded || test "$status" = unknown; then
       echo "unexpected operation status: $response" >&2; return 1
     fi
-    sleep 0.3
   done
   echo "operation $id did not complete" >&2
   return 1

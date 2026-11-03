@@ -476,8 +476,9 @@ committed P tip is eligible for publication.
 
 With trusted runtime configuration, the following lifecycle subset is also
 available. A create response returns a durable operation immediately. The
-daemon continues creation under its own context. Clients inspect the
-operation until it is `completed` or `blocked`. `operation.retry` resumes the
+daemon continues creation under its own context. Clients follow the
+operation with `operation.wait` until it is no longer `running`.
+`operation.retry` resumes the
 same captured request, UUID, source commit, policy, and selected plugin
 digests. It reuses the recorded image when available. If that image is gone
 before an instance exists, Retry rebuilds it from the same captured commit; an
@@ -495,8 +496,9 @@ failed-create cleanup followed by a separate Create.
 | `session.create.cleanup.preview` | `{"uuid":"blocked-session-UUID"}` | `preview` with the old immutable request and evidence digest, assigned ref, image, tracked builder state, provisional resources, `external_mounts:"preserved"`, `shared_images:"preserved"`, eligibility and reasons; an eligible preview includes a two-minute confirmation token. |
 | `session.create.cleanup.confirm` | `{"uuid":"blocked-session-UUID","key":"cleanup-idempotency-key","confirmation_token":"<32 lowercase hex>"}` | one `session.create.cleanup` operation on the old UUID; exact accepted key/token replay works during cleanup and after restart. |
 | `operation.inspect` | `{"id":"operation-UUID"}` | `operation` with status, phase, a `reason` and `diagnostic` once it is blocked or failed, and immutable evidence. |
+| `operation.wait` | `{"id":"operation-UUID","timeout":1..25}`, whole seconds | `operation`, as inspect returns it, as soon as its status is not `running`, or when the timeout passes with it still `running`. See [Waiting for an operation](#waiting-for-an-operation). |
 | `operation.retry` | Same as inspect | `operation`; schedules supported blocked-operation recovery using its persisted exact intent. |
-| `operation.list` | `{"limit":1..20,"after":"optional-operation-UUID"}` | concise operation summaries (without request/evidence, with the same `reason` and `diagnostic`), `next` in bytewise ID order. |
+| `operation.list` | `{"limit":1..20,"after":"optional-cursor"}` | concise operation summaries (without request/evidence, with the same `reason` and `diagnostic`) in the order the journal accepted them, and `next`, an opaque cursor: pass it back as `after` unchanged. It stays valid when the operation it follows is deleted. `next` is empty at the end. |
 | `session.inspect` | `{"uuid":"session-UUID"}` | `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
 | `session.list` | `{"limit":1..8,"after":"optional-session-UUID"}` | `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
 | `session.start` | `{"uuid":"session-UUID"}` | `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused with `retry` by that watcher. |
@@ -520,6 +522,37 @@ creation; `replaces_session` and `replaces_branch` for a replacement, naming
 the retired creation and the branch it held; and `url` for a project created
 with an origin. A client that repeats a change with the same key can compare
 it without reading live state.
+
+### Waiting for an operation
+
+`operation.wait` returns as soon as the operation is `completed`, `failed`,
+`superseded` or `blocked`: a blocked operation needs a person or a Retry, not
+more time. Otherwise it returns when its timeout passes, with the operation
+still `running`; that answer is a result, not an error, and the client waits
+again. The daemon wakes a wait when the journal commits the operation's next
+status, not by polling, and `rpc.cancel` ends a wait early. An unknown ID
+answers `not_found`; a timeout outside 1 to 25 answers `invalid` with field
+`timeout`. The 25-second limit leaves time to answer inside the server's
+30-second request deadline. A client's own deadline must cover the whole call:
+connecting, the hello, the timeout and the reply. `p api` gives a wait its
+timeout plus 5 seconds instead of its usual 10, and the TUI, whose calls each
+have 25 seconds, waits with a timeout of 20.
+
+An operation is never seen finished while its worker still holds its session:
+the worker's hold ends just before the journal records the operation's end.
+Work on a session that would compete with an unfinished operation on it
+answers `retry` with reason `session_held` naming the operation while it
+runs, and `conflict` with reason `operation_blocked` once it is blocked.
+Requests that act on that operation itself pass: a replay of its key,
+`operation.retry`, and the replacement or cleanup of a blocked creation. So
+once a wait returns an operation's end, a request on its session meets
+neither its worker nor its journal entry.
+
+At start the daemon resumes every `running` operation, in the order the
+journal accepted them; a `blocked` operation of any kind waits for
+`operation.retry`, at start as while the daemon runs. The journal emits one
+`operation.progress` event per status change of every operation
+([session observability](session-observability.md#typed-p-events)).
 
 An operation that ends `blocked` or `failed` carries `reason`, the code of why
 it stopped, beside `diagnostic`, its detail; any other operation carries no
@@ -604,9 +637,9 @@ or workspace data.
 
 Preview is read-only. Ineligible previews return reasons without a token.
 Eligible tokens expire after two minutes and are held by the issuing daemon;
-restart invalidates an unconsumed token. A blocked early local request, including
-base-image `principals-ready`, stays blocked across restart until explicit Retry or exact Create replay; startup
-does not resume branch assignment or native creation. Established endpoint
+restart invalidates an unconsumed token. A blocked creation, like every
+blocked operation, stays blocked across restart until explicit Retry or exact
+Create replay; startup does not resume branch assignment or native creation. Established endpoint
 consumers may be reopened during recovery. Confirmation rechecks the exact
 reviewed request, source and target/old ref facts, policy, image, plugin selection,
 old evidence, resource identity, and native absence. Stale facts or an expired
@@ -815,10 +848,11 @@ Use `kind:"delete"` to include branch-loss evidence. P does not inspect the
 container before removal; there is no workspace loss inspection method. A
 present runtime may be running or stopped; any other native status answers
 `conflict` with reason `runtime_unsettled`. A pending or confirmed attachment
-answers `conflict` with reason `attachment_active`. Another active change to
-the session (discard, delete, rename or failed-create cleanup) answers `retry`
-with reason `session_held` while it runs and `conflict` with reason
-`operation_blocked` once it is blocked, both naming the operation.
+answers `conflict` with reason `attachment_active`. Another unfinished
+operation on the session, such as its creation, a discard, delete, rename or
+failed-create cleanup, answers `retry` with reason `session_held` while it
+runs and `conflict` with reason `operation_blocked` once it is blocked, both
+naming the operation.
 
 When Incus authoritatively reports the runtime absent, pass
 `"acknowledge_missing_runtime":true`. The result then has
