@@ -96,7 +96,7 @@ image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 jq -n --arg state "$state" --arg activation "$step_dir/activation.json" \
   --arg incus_binary "$(command -v incus)" --arg prefix "$endpoint_prefix" --arg image "$image" \
   '{schema:"p.host/v1",state_dir:$state,
-    git:{activation_path:$activation,source_plugin_id:"org.p.git",listen:"127.0.0.1:0"},
+    git:{activation_path:$activation,source_plugin_id:"org.p.git",listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
     runtime:{activation_path:$activation,
       host_plugin_id:"org.p.tmux-host",agent_adapter:{activation_path:$activation,plugin_id:"org.p.codex-adapter"},
       driver:{name:"incus",config:{binary:$incus_binary,user_socket:"/var/lib/incus/unix.socket.user",

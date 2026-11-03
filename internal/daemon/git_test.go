@@ -2,11 +2,14 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/control"
 )
 
 type fakeServerIdentity struct{ fingerprint string }
@@ -114,5 +117,27 @@ func TestKeyPersistsAndRejectsUnsafeReplacement(t *testing.T) {
 	}
 	if _, _, err := loadOrCreateKey(path); err == nil {
 		t.Fatal("accepted symlink")
+	}
+}
+
+func TestSourceDriverStartsOnlyWithItsOwnConfigOverPrivateStorage(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	git := func(config string) *control.GitConfig {
+		return &control.GitConfig{Driver: control.SourceDriverConfig{Name: control.GitDriver, Config: json.RawMessage(config)}}
+	}
+	if _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{"unknown":1}`)}); err == nil {
+		t.Fatal("the driver started with a setting it does not know")
+	}
+	if _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err != nil {
+		t.Fatalf("the driver did not start over private storage: %v", err)
+	}
+	if err := os.Chmod(state, 0770); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err == nil {
+		t.Fatal("the driver started over storage others can write")
 	}
 }

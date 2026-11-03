@@ -30,7 +30,7 @@ An optional trusted Git selection activates the real source-Git package and
 its host Git service:
 
 ```json
-{"schema":"p.host/v1","state_dir":"/absolute/private/p-state","git":{"activation_path":"/absolute/private/activation.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:2222"}}
+{"schema":"p.host/v1","state_dir":"/absolute/private/p-state","git":{"activation_path":"/absolute/private/activation.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}}}
 ```
 
 The activation file must be an owner-owned private regular file under trusted
@@ -40,6 +40,14 @@ package digest is checked during loading and again at each invocation. Changes
 to the activation file take effect after daemon restart. `listen` is a numeric
 loopback TCP address with an explicit port; port `0` asks the OS for a free
 loopback port and `system.inspect` reports the actual endpoint.
+
+`git.driver` names the source driver P uses and carries that driver's own
+settings in `config`, which only the driver reads. P has one driver, `git`,
+built into P, which keeps P's repositories in the state directory; its
+`config` is an empty object, and the driver refuses any setting. Loading the
+host configuration checks only that the driver is `git` and that `config` is
+an object. At daemon start the driver refuses unknown settings and checks
+that its storage is private to the daemon user and that Git runs.
 
 The state directory holds persistent `git_server_key` and `git_client_key`
 Ed25519 private files at mode `0600`. The daemon registers the latter as its
@@ -63,7 +71,7 @@ cannot add networking, mounts, commands, or other grants.
 {
   "schema": "p.host/v1",
   "state_dir": "/absolute/private/p-state",
-  "git": {"activation_path":"/absolute/private/git-activation.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:2222"},
+  "git": {"activation_path":"/absolute/private/git-activation.json","source_plugin_id":"org.p.git","listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}},
   "runtime": {
     "activation_path": "/absolute/private/runtime-activation.json",
     "host_plugin_id": "org.p.tmux-host",

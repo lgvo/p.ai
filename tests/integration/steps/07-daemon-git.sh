@@ -111,7 +111,7 @@ stop_fixture
 test ! -e "$fixture_socket"
 
 jq -n --arg state "$state" --arg activation "$activation" --arg id "$package_id" \
-  '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$activation,source_plugin_id:$id,listen:"127.0.0.1:0"}}' > "$config"
+  '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$activation,source_plugin_id:$id,listen:"127.0.0.1:0",driver:{name:"git",config:{}}}}' > "$config"
 
 rpc() { timeout 15 p api "$socket" "$@"; }
 start_daemon() {

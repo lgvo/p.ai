@@ -303,6 +303,25 @@ terms rather than its backend's.
 - **Rules:** It acts only on objects carrying its P instance's labels, stores
   those labels immutably, and claims nothing after an error.
 
+### Source driver
+
+The trusted code that owns P's repositories and every Git effect for P core,
+addressed in P's terms rather than Git's layout.
+
+- **Related:** [Runtime driver](#runtime-driver), [origin](#origin).
+- **Boundaries:** It is part of trusted P, not a plugin. Its contract covers
+  repositories, heads and their compare-and-swap, commits and their export for
+  image builds, Git's syntax for the names P stores, the Git edits that rename
+  a session's clone, the Git service behind P's endpoint, and the origin
+  transport. Core keeps lifecycle state, Git authority (principals, leases,
+  guards and grants), the SSH server and its keys, and the origin URL and
+  observations; the driver never opens P's database or reaches a runtime.
+  Host configuration selects it as `git.driver`; its Git implementation runs
+  inside the P daemon. So far the daemon only starts and checks it.
+- **Rules:** It acts only on P's repositories in its configured storage,
+  changes a head only at an exact expected state, and claims nothing after an
+  error.
+
 ### Session
 
 P's durable identity for one piece of branch work, represented by an immutable

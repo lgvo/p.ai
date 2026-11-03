@@ -87,7 +87,7 @@ jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 jq -n --arg state "$state" --arg git "$step_dir/git.json" --arg runtime "$step_dir/runtime.json" \
  --arg events "$step_dir/events.json" --arg prefix "$endpoint_prefix" --arg binary "$(command -v incus)" --arg image "$image" \
- '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$git,source_plugin_id:"org.p.git",listen:"127.0.0.1:0"},
+ '{schema:"p.host/v1",state_dir:$state,git:{activation_path:$git,source_plugin_id:"org.p.git",listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
  events:{activation_path:$events,plugin_id:"org.p.filelog"},
  runtime:{activation_path:$runtime,host_plugin_id:"org.p.tmux-host",driver:{name:"incus",config:{binary:$binary,
  user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},endpoint_prefix:$prefix,

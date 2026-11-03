@@ -18,11 +18,16 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
+	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
 	"golang.org/x/crypto/ssh"
 )
 
 type gitCapability struct {
-	backend  *gitservice.Backend
+	backend *gitservice.Backend
+	// driver is the source driver; the daemon moves its Git work onto it
+	// one part at a time.
+	driver   sourcedriver.Driver
 	prepared *gitservice.PreparedServer
 	listener net.Listener
 	info     *api.GitInfo
@@ -51,6 +56,10 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 		return nil, errors.New("selected source-Git plugin or grant is unavailable")
 	}
 	backend, err := gitservice.New(store, cfg.StateDir, []plugin.Active{*source})
+	if err != nil {
+		return nil, err
+	}
+	driver, err := newSourceDriver(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +104,22 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 		SourcePluginID:  source.Package.Manifest.ID,
 		SourceSHA256:    source.Package.SHA256,
 	}
-	return &gitCapability{backend: backend, prepared: prepared, listener: listener, info: info, source: *source}, nil
+	return &gitCapability{backend: backend, driver: driver, prepared: prepared, listener: listener, info: info, source: *source}, nil
+}
+
+// newSourceDriver starts the source driver host configuration selects: the
+// bundled Git driver, in process, over the state directory, which keeps P's
+// repositories where gitservice serves them. It refuses to start a driver
+// whose storage or Git tools fail its check.
+func newSourceDriver(ctx context.Context, cfg control.HostConfig) (sourcedriver.Driver, error) {
+	driver, err := sourcegit.New(cfg.StateDir, cfg.Git.Driver.Config)
+	if err != nil {
+		return nil, fmt.Errorf("source driver: %w", err)
+	}
+	if err := driver.Check(ctx); err != nil {
+		return nil, fmt.Errorf("source driver: %w", err)
+	}
+	return driver, nil
 }
 
 type serverIdentityStore interface {

@@ -329,6 +329,24 @@ Server policy enforces:
 P does not implement the pack protocol. Read-side queries shell out to Git;
 `go-git` remains an optional fallback only if profiling justifies it.
 
+The source driver, `internal/sourcedriver`, is the seam that is to own P's
+repositories and every Git effect, as the runtime driver owns runtime
+machinery. Core addresses it in P's terms through the operations in
+[`internal/sourcedriver/driver.go`](../internal/sourcedriver/driver.go): the
+host (`Describe`, `Check`), Git's syntax for the names P stores
+(`CheckNames`), repositories, heads with compare-and-swap, commits (including
+the commit `Export` for image builds), the Git edits that rename a session's
+clone (`RenameWorkspace`), the Git service behind P's endpoint (`ServeGit`),
+the origin, and `Settle` for an effect whose outcome is unknown. Host
+configuration selects it by name in `git.driver` ([control API](control-api.md)).
+The only driver is `git`, `internal/sourcedriver/git`, which runs inside the
+daemon over the state directory; an in-memory driver
+(`internal/sourcedriver/memory`) and a conformance suite
+(`internal/sourcedriver/conformance`) show that a driver keeps the contract,
+and the Git driver runs the suite on real Git. The daemon starts the driver
+and checks its storage and Git tools before serving; its Git work still goes
+through the code below until the following steps move it onto the driver.
+
 The bundled `source-git` WASI package uses the versioned broker operations in
 [plugin contract](plugin-contract.md#wasi-source-git-abi) to sequence bare
 repository initialization, bounded ref reads, and native transport plans. The

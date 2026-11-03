@@ -112,7 +112,7 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
   --arg agent_id "$(jq -er '.plugins[0].id' "$step_dir/agent.json")" \
   --arg incus_binary "$incus_wrapper" --arg prefix "$endpoint_prefix" --arg image "$base" \
   '{schema:"p.host/v1",state_dir:$state,
-    git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0"},
+    git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
     runtime:{activation_path:$runtime_activation,
       host_plugin_id:$host_id,
       agent_adapter:{activation_path:$agent_activation,plugin_id:$agent_id},

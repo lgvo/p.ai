@@ -209,11 +209,34 @@ func StoredProjectPolicyShapeSHA(raw json.RawMessage) (string, error) {
 	return sha, err
 }
 
-// GitConfig selects a reviewed source-Git package and a private host listener.
+// GitConfig selects a reviewed source-Git package, the source driver and a
+// private host listener.
 type GitConfig struct {
-	ActivationPath string `json:"activation_path"`
-	SourcePluginID string `json:"source_plugin_id"`
-	Listen         string `json:"listen"`
+	ActivationPath string             `json:"activation_path"`
+	SourcePluginID string             `json:"source_plugin_id"`
+	Listen         string             `json:"listen"`
+	Driver         SourceDriverConfig `json:"driver"`
+}
+
+// GitDriver names the bundled Git source driver, compiled into P and the
+// only source driver P knows.
+const GitDriver = "git"
+
+// SourceDriverConfig selects the source driver P uses, by name, and carries
+// that driver's own settings. Only the driver interprets Config.
+type SourceDriverConfig struct {
+	Name   string          `json:"name"`
+	Config json.RawMessage `json:"config"`
+}
+
+func (d SourceDriverConfig) validate() error {
+	if d.Name != GitDriver {
+		return fmt.Errorf("git.driver.name must be %q", GitDriver)
+	}
+	if config := bytes.TrimSpace(d.Config); len(config) == 0 || config[0] != '{' {
+		return errors.New("git.driver.config must be a JSON object")
+	}
+	return nil
 }
 
 // CheckTrustedAncestors rejects paths below an untrusted writable or symlinked
@@ -308,6 +331,9 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 		n, err := strconv.Atoi(port)
 		if err != nil || n < 0 || n > 65535 {
 			return cfg, errors.New("git.listen requires a valid TCP port")
+		}
+		if err := cfg.Git.Driver.validate(); err != nil {
+			return cfg, err
 		}
 	}
 	if cfg.Events != nil {

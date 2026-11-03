@@ -32,7 +32,7 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" \
   --arg incus_binary "$incus_binary" --arg prefix "$endpoint_prefix" \
   --arg image "$fingerprint" \
   '{schema:"p.host/v1",state_dir:$state,
-   git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0"},
+   git:{activation_path:$git_activation,source_plugin_id:$git_id,listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
    runtime:{activation_path:$runtime_activation,
     host_plugin_id:$host_id,driver:{name:"incus",config:{binary:$incus_binary,
     user_socket:"/var/lib/incus/unix.socket.user",project:"user-1000"}},
