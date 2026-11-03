@@ -7,7 +7,6 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
 // DiscardSession answers a discard of session uuid: its plan, or the
@@ -87,7 +86,7 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 	if session.Registry != "established" {
 		return control.Conflict(api.ReasonSessionNotEstablished, target)
 	}
-	native, err := l.nativeSession(ctx, session)
+	spec, native, err := l.sessionSpecs(ctx, session)
 	if err != nil {
 		return err
 	}
@@ -96,7 +95,7 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 		return control.Failed(api.ReasonRuntime, err) // unreachable is not missing
 	}
 	if !observed.Exists {
-		if err := l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
+		if err := proveRuntimeAbsent(ctx, l.driver, spec); err != nil {
 			return runtimeFailure(err, target)
 		}
 		d.Runtime.Condition = "missing"
@@ -139,7 +138,7 @@ func removableStatus(status string) bool {
 // the session that is present where its absence was to be proven is a
 // conflict on target; anything else is a runtime failure.
 func runtimeFailure(err error, target string) error {
-	var present *runtimeincus.RuntimePresentError
+	var present *runtimePresentError
 	if errors.As(err, &present) {
 		return &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonRuntimePresent, Target: target, Cause: err}
 	}

@@ -657,26 +657,6 @@ func (b *Backend) builderLeftover(ctx context.Context, request string) (instance
 	return builder, true, nil
 }
 
-// instanceInventory reads every instance of the Incus project, P's or not.
-func (b *Backend) instanceInventory(ctx context.Context) ([]instanceJSON, error) {
-	raw, err := b.command(ctx, "list", "--format", "json")
-	if err != nil {
-		return nil, err
-	}
-	var instances []instanceJSON
-	if err := decode(raw, &instances); err != nil || len(instances) > 64 {
-		return nil, errors.Join(err, errors.New("Incus container inventory unavailable"))
-	}
-	seen := make(map[string]bool, len(instances))
-	for _, in := range instances {
-		if in.Name == "" || seen[in.Name] {
-			return nil, errors.New("Incus container inventory ambiguous")
-		}
-		seen[in.Name] = true
-	}
-	return instances, nil
-}
-
 // carriesBuild says whether an instance is, by name or by label, a builder
 // of the build reference.
 func carriesBuild(in instanceJSON, request string) bool {

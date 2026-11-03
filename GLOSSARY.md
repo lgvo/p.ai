@@ -296,8 +296,9 @@ terms rather than its backend's.
   builds, session runtimes, the workspace of a stopped session, terminals and
   project services; host configuration selects it as `runtime.driver`. Its
   Incus implementation runs inside the P daemon. So far images, session
-  inspection, creation, start and stop, and project services go through it;
-  other runtime effects still reach Incus directly.
+  inspection, creation, start and stop, project services, the boundary check
+  and the inventory that admission and the proofs of absence read go through
+  it; terminals, removal and rename still reach Incus directly.
 - **Rules:** It acts only on objects carrying its P instance's labels, stores
   those labels immutably, and claims nothing after an error.
 

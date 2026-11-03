@@ -706,12 +706,7 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 			}
 		}
 	}
-	incusUUID := in.Config["volatile.uuid"]
-	generation := in.Config["volatile.uuid.generation"]
-	if !uuidPattern.MatchString(incusUUID) || in.ExpandedConfig["volatile.uuid"] != incusUUID ||
-		!uuidPattern.MatchString(generation) || in.ExpandedConfig["volatile.uuid.generation"] != generation {
-		incusUUID, generation = "", ""
-	}
+	incusUUID, generation := volatileIdentity(in)
 	observation = Observation{Exists: true, Name: in.Name, Status: in.Status, Fingerprint: s.ImageFingerprint,
 		IncusUUID: incusUUID, Generation: generation, EndpointMounted: endpointMounted, GrantsMounted: len(mounted) == len(s.Grants), MountedGrants: mounted, PublicNIC: publicNIC}
 	return observation, nil
@@ -841,7 +836,7 @@ func (b *Backend) initSession(ctx context.Context, s Session, beforeInit func() 
 	// A missing deterministic name does not prove the session runtime absent:
 	// an external rename can leave its UUID labels on another instance. Check
 	// the full project before recording or sending an ordinary session init.
-	if err := b.ConfirmSessionRuntimeAbsent(ctx, s); err != nil {
+	if err := b.sessionIdentityFree(ctx, s); err != nil {
 		return Observation{}, err
 	}
 	if err := beforeInit(); err != nil {

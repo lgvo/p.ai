@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -328,7 +329,7 @@ func TestPublicNICIsExactAndNoneHasNoNIC(t *testing.T) {
 func TestPublicAddressPreflightRejectsForeignAndOpaqueNIC(t *testing.T) {
 	c := testEgressSubstrate()
 	s := Session{SessionUUID: "550e8400-e29b-41d4-a716-446655440000", PublicIPv4: "10.233.0.10/24"}
-	peer := instanceJSON{Name: "foreign", Type: "container", ExpandedDevices: map[string]map[string]string{
+	peer := instanceJSON{Name: "foreign", Type: "container", Config: map[string]string{}, ExpandedConfig: map[string]string{}, ExpandedDevices: map[string]map[string]string{
 		"network": {"type": "nic", "network": c.Network, "ipv4.address": "10.233.0.11"},
 	}}
 	b := &Backend{config: Config{Binary: "/bin/incus", UserSocket: "/confined/socket", Project: "user-1000", PublicEgress: c}, validate: func(Config) error { return nil }}
@@ -364,5 +365,34 @@ func TestPublicAddressPreflightRejectsForeignAndOpaqueNIC(t *testing.T) {
 	peer.Name = "p-" + s.SessionUUID
 	if err := b.checkPublicAddressCollision(context.Background(), "p-"+s.SessionUUID, s.PublicIPv4); err != nil {
 		t.Fatalf("own NIC is separately inspected: %v", err)
+	}
+}
+
+// The address preflight reads the project through the driver's one
+// inventory reader: it sees every instance within the inventory bound, and a
+// listing that reader refuses refuses the address.
+func TestPublicAddressPreflightReadsTheWholeInventory(t *testing.T) {
+	c := testEgressSubstrate()
+	peer := func(name, address string) instanceJSON {
+		return instanceJSON{Name: name, Type: "container", Config: map[string]string{}, ExpandedConfig: map[string]string{},
+			ExpandedDevices: map[string]map[string]string{"network": {"type": "nic", "network": c.Network, "ipv4.address": address}}}
+	}
+	var peers []instanceJSON
+	b := &Backend{config: Config{Binary: "/bin/incus", UserSocket: "/confined/socket", Project: "user-1000", PublicEgress: c}, validate: func(Config) error { return nil }}
+	b.run = func(context.Context, string, []string, []string) ([]byte, error) { return json.Marshal(peers) }
+	for i := range 5 {
+		peers = append(peers, peer(fmt.Sprintf("peer-%d", i), "10.233.0.11"))
+	}
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+testUUID, "10.233.0.10/24"); err != nil {
+		t.Fatalf("five peers on other addresses refused the address: %v", err)
+	}
+	peers[4] = peer("peer-4", "10.233.0.10")
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+testUUID, "10.233.0.10/24"); err == nil {
+		t.Fatal("the fifth peer's NIC on the address was not seen")
+	}
+	peers[4] = peer("peer-4", "10.233.0.11")
+	peers[4].Type = "virtual-machine"
+	if err := b.checkPublicAddressCollision(context.Background(), "p-"+testUUID, "10.233.0.10/24"); err == nil {
+		t.Fatal("a listing the inventory reader refuses passed the address preflight")
 	}
 }

@@ -15,8 +15,9 @@ var inventoryCases = []testCase{
 		if !found {
 			t.Fatal("Inventory has no object carrying the session's reference")
 		}
-		if !maps.Equal(o.Labels, s.Labels) || o.Incarnation != r.Incarnation || o.State != runtimedriver.StateRunning {
-			t.Fatalf("Inventory lists %+v, want labels %v at %s, running", o, s.Labels, r.Incarnation)
+		if o.Labels[runtimedriver.LabelInstance] == "" || !maps.Equal(withoutInstance(o.Labels), s.Labels) ||
+			o.Incarnation != r.Incarnation || o.State != runtimedriver.StateRunning {
+			t.Fatalf("Inventory lists %+v, want labels %v and the instance's at %s, running", o, s.Labels, r.Incarnation)
 		}
 	}},
 	{"inventory states the scope's capacity", func(t *testing.T, f Fixture) {
@@ -28,7 +29,9 @@ var inventoryCases = []testCase{
 			t.Fatalf("Inventory states capacity %d, want %d", inv.Capacity, want)
 		}
 	}},
-	{"inventory lists objects that are not this instance's, with their labels as stored", func(t *testing.T, f Fixture) {
+	{"inventory lists objects that are not this instance's, with their references and labels as stored", func(t *testing.T, f Fixture) {
+		own := f.Session(SessionOptions{})
+		created(t, f, own)
 		unlabeled := f.Inventory().AddUnlabeled()
 		foreignRef := f.Session(SessionOptions{}).Ref
 		foreignLabels := runtimedriver.Labels{runtimedriver.LabelProject: "another-instance-project"}
@@ -37,9 +40,12 @@ var inventoryCases = []testCase{
 		if !found || o.Ref != (runtimedriver.Ref{}) || len(o.Labels) != 0 {
 			t.Fatalf("the unlabeled object is listed as %+v (found %t), want no reference and no labels", o, found)
 		}
+		mine, _ := inventoried(t, f, func(o runtimedriver.Object) bool { return o.Ref == own.Ref })
 		o, found = inventoried(t, f, func(o runtimedriver.Object) bool { return o.Name == foreign })
-		if !found || o.Ref != (runtimedriver.Ref{}) || !maps.Equal(o.Labels, foreignLabels) {
-			t.Fatalf("another instance's object is listed as %+v (found %t), want no reference and labels %v", o, found, foreignLabels)
+		if !found || o.Ref != foreignRef || !maps.Equal(withoutInstance(o.Labels), foreignLabels) ||
+			o.Labels[runtimedriver.LabelInstance] == "" || o.Labels[runtimedriver.LabelInstance] == mine.Labels[runtimedriver.LabelInstance] {
+			t.Fatalf("another instance's object is listed as %+v (found %t), want %s %s labeled %v by an instance other than %q",
+				o, found, foreignRef.Kind, foreignRef.ID, foreignLabels, mine.Labels[runtimedriver.LabelInstance])
 		}
 	}},
 	{"a runtime renamed away from its address is listed with its reference", func(t *testing.T, f Fixture) {
@@ -89,4 +95,11 @@ func inventoried(t *testing.T, f Fixture, match func(runtimedriver.Object) bool)
 		}
 	}
 	return runtimedriver.Object{}, false
+}
+
+// withoutInstance is labels without LabelInstance: the labels core gave.
+func withoutInstance(labels runtimedriver.Labels) runtimedriver.Labels {
+	given := maps.Clone(labels)
+	delete(given, runtimedriver.LabelInstance)
+	return given
 }

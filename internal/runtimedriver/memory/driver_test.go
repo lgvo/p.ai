@@ -225,3 +225,10 @@ func TestAnInventoryHoldingAnOversizedNameOrDescriptionIsAnError(t *testing.T) {
 		}
 	}
 }
+
+func TestAnInventoryNeverStatesACapacityOverItsBound(t *testing.T) {
+	d := memory.NewDriver(memory.NewWorld(memory.Config{Capacity: runtimedriver.MaxObjects + 1}))
+	if _, err := d.Inventory(t.Context()); err == nil {
+		t.Fatal("an inventory stated a capacity over MaxObjects")
+	}
+}

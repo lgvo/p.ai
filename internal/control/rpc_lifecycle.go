@@ -191,7 +191,7 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 				return api.SessionListResult{Sessions: views, Next: next}
 			})
 	})
-	if service, ok := life.(ServiceAPI); ok {
+	if service, ok := offeredServices(life); ok {
 		addServiceMethods(t, service)
 	}
 	if attachment, ok := life.(AttachmentAPI); ok {

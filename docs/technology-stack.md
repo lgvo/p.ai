@@ -101,9 +101,10 @@ driver's own settings ([control API](control-api.md)). The only driver is
 in-memory driver (`internal/runtimedriver/memory`) and a conformance suite
 (`internal/runtimedriver/conformance`) show that a driver keeps the contract;
 the Incus driver runs the suite over a stubbed Incus. Core so far reaches
-images, session inspection, creation, start and stop, and project services
-through the driver; terminals, removal, rename and the proofs of absence still
-go to Incus through direct `runtimeincus` calls.
+images, session inspection, creation, start and stop, project services, the
+boundary check and the inventory through the driver, and computes admission
+and the proofs of absence from `Inspect` and `Inventory`; terminals, removal
+and rename still go to Incus through direct `runtimeincus` calls.
 
 The Incus driver is always bound to the configured local confined user
 project. It uses deterministic instance names and P metadata, passes structured

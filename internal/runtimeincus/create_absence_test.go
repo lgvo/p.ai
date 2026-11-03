@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -44,6 +45,40 @@ func TestCreateRefusesBeforeItsGateUnlessTheProjectIsFreeOfTheSession(t *testing
 				t.Fatalf("ambiguous absence reached the gate or Incus: error=%v gated=%v mutations=%v", err, gated, w.mutations())
 			}
 		})
+	}
+}
+
+// A renamed runtime carrying the session's UUID is a mismatch whichever P
+// instance labeled it, and refuses Create before its gate.
+func TestCreateRefusesARenamedRuntimeOfTheSessionWhoeverLabeledIt(t *testing.T) {
+	for _, instance := range []string{testInstance, otherInstance, ""} {
+		w := newIncusWorld(t)
+		config := map[string]string{"user.p.session_uuid": testUUID, "user.p.project_path": "team/app"}
+		if instance != "" {
+			config["user.p.instance_uuid"] = instance
+		}
+		w.mu.Lock()
+		w.addInstance("externally-renamed", "Stopped", config)
+		w.mu.Unlock()
+		gated := false
+		_, err := w.driver().Create(context.Background(), testSessionSpec(t), "", func() error { gated = true; return nil })
+		if !errors.Is(err, runtimedriver.ErrMismatch) || gated || len(w.mutations()) != 0 {
+			t.Fatalf("labeled by %q: error=%v gated=%v mutations=%v", instance, err, gated, w.mutations())
+		}
+	}
+}
+
+// Create reads the whole project within the inventory bound: other
+// instances, more than the four its proof once read, do not block it.
+func TestCreateSucceedsBesideOtherInstances(t *testing.T) {
+	w := newIncusWorld(t)
+	w.mu.Lock()
+	for i := range 6 {
+		w.addInstance(fmt.Sprintf("peer-%d", i), "Running", nil)
+	}
+	w.mu.Unlock()
+	if got, err := w.driver().Create(context.Background(), testSessionSpec(t), "", func() error { return nil }); err != nil || got.State != runtimedriver.StateStopped {
+		t.Fatalf("Create beside six other instances = %+v, %v", got, err)
 	}
 }
 

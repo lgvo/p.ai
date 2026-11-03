@@ -8,9 +8,19 @@ import (
 
 // ServiceAPI observes and acts on a session's project services.
 type ServiceAPI interface {
+	// ServicesOffered reports whether the runtime offers project services.
+	// When it does not, the services capability is not configured.
+	ServicesOffered() bool
 	SessionServices(ctx context.Context, uuid string) (api.SessionServicesResult, error)
 	SessionServiceAction(ctx context.Context, uuid, name, action string) (api.SessionServiceActionResult, error)
 	SessionServiceLogs(ctx context.Context, uuid, name string) (api.SessionServiceLogsResult, error)
+}
+
+// offeredServices is life's ServiceAPI when its runtime offers project
+// services.
+func offeredServices(life LifecycleAPI) (ServiceAPI, bool) {
+	service, ok := life.(ServiceAPI)
+	return service, ok && service.ServicesOffered()
 }
 
 // addServiceMethods serves the project services methods.

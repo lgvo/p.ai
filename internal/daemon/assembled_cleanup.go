@@ -15,7 +15,7 @@ import (
 // P does not look inside it: the plan states that it and everything in it is
 // lost.
 func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session control.Session, creator api.Operation) (*api.RemovalRuntime, error) {
-	source, err := l.nativeSession(ctx, session)
+	spec, source, err := l.sessionSpecs(ctx, session)
 	if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session c
 	if err != nil || !observed.Exists || observed.Status != "Stopped" || observed.IncusUUID == "" || observed.Generation == "" {
 		return nil, errors.Join(err, errors.New("failed creation stopped runtime unavailable"))
 	}
-	if err = l.runtime.CheckAssembledCreationSource(ctx, source, creator.ID, observed.IncusUUID, observed.Generation); err != nil {
+	if err = proveAssembledSource(ctx, l.driver, spec, creator.ID, recordedIncarnation(observed.IncusUUID, observed.Generation)); err != nil {
 		return nil, err
 	}
 	return &api.RemovalRuntime{Condition: "present", IncusProject: l.incus.Project, InstanceName: "p-" + session.UUID,
@@ -58,7 +58,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		block(errors.New("pinned creator module selection unavailable"))
 		return
 	}
-	source, err := l.nativeSession(ctx, session)
+	spec, source, err := l.sessionSpecs(ctx, session)
 	if err != nil {
 		block(err)
 		return
@@ -75,11 +75,9 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		return nil
 	}
 	proveSource := func(call context.Context) error {
-		return l.runtime.CheckAssembledCreationSource(call, source, ev.Review.OldOperationID, r.IncusUUID, r.Generation)
+		return proveAssembledSource(call, l.driver, spec, ev.Review.OldOperationID, recordedIncarnation(r.IncusUUID, r.Generation))
 	}
-	proveAbsent := func(call context.Context) error {
-		return l.createCleanupNativeAbsent(call, op.SessionUUID, ev.Review, ev.InstanceUUID)
-	}
+	proveAbsent := func(call context.Context) error { return l.failedCreationAbsent(call, op.SessionUUID, ev.Review) }
 	verifyRefs := func(call context.Context) error {
 		tip, exists, e := l.git.backend.InspectBranchRef(call, op.Project, session.Branch)
 		if e != nil || !exists || tip != ev.Review.AssignedBranch.OID {

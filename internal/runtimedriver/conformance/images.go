@@ -110,6 +110,22 @@ var imageCases = []testCase{
 			t.Fatalf("Start after DeleteImage = %+v, %v; want a ready host", o, err)
 		}
 	}},
+	{"the builder an unsettled build left is in the inventory with the build's reference and labels", func(t *testing.T, f Fixture) {
+		b := f.Images().Build()
+		f.Images().DelayBuild()
+		if _, err := f.Driver().BuildImage(t.Context(), b, func() error { return nil }); !errors.Is(err, runtimedriver.ErrUnknownOutcome) {
+			t.Fatalf("delayed BuildImage = %v, want ErrUnknownOutcome", err)
+		}
+		o, found := inventoried(t, f, func(o runtimedriver.Object) bool { return o.Ref == b.Ref })
+		if !found || o.Labels[runtimedriver.LabelInstance] == "" {
+			t.Fatalf("the builder is listed as %+v (found %t), want it with the instance's label", o, found)
+		}
+		for _, l := range []string{runtimedriver.LabelBuild, runtimedriver.LabelProject, runtimedriver.LabelSourceCommit, runtimedriver.LabelBaseImage} {
+			if o.Labels[l] != b.Labels[l] {
+				t.Fatalf("the builder's label %s is %q, want %q", l, o.Labels[l], b.Labels[l])
+			}
+		}
+	}},
 	{"a delayed build stays unknown and holds its reference until it lands, then settles applied", func(t *testing.T, f Fixture) {
 		b := f.Images().Build()
 		land := f.Images().DelayBuild()

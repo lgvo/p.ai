@@ -65,6 +65,7 @@ func (l coreLife) StopSession(_ context.Context, id string) (api.SessionChangeRe
 // fullLife implements every optional lifecycle API as well.
 type fullLife struct{ coreLife }
 
+func (l fullLife) ServicesOffered() bool { return true }
 func (l fullLife) SessionServices(_ context.Context, id string) (api.SessionServicesResult, error) {
 	return api.SessionServicesResult{UUID: id, Services: []api.ProjectService{}, ObservedAt: "now"}, l.record("SessionServices %s", id)
 }
@@ -124,10 +125,18 @@ const (
 	surfaceGit
 	surfaceCoreLifecycle
 	surfaceFullLifecycle
+	surfaceNoServices
 )
 
+// noServicesLife implements every optional lifecycle API over a runtime
+// that offers no project services.
+type noServicesLife struct{ fullLife }
+
+func (noServicesLife) ServicesOffered() bool { return false }
+
 // surfaceHandler builds the handler as daemon.Serve does for each host
-// configuration: no Git, Git without runtime, and Git with runtime.
+// configuration: no Git, Git without runtime, Git with runtime, and Git with
+// a runtime that offers no project services.
 func surfaceHandler(t *testing.T, config surfaceConfig) (Handler, *surfaceCalls) {
 	t.Helper()
 	calls := &surfaceCalls{}
@@ -142,6 +151,8 @@ func surfaceHandler(t *testing.T, config surfaceConfig) (Handler, *surfaceCalls)
 		life = coreLife{calls}
 	case surfaceFullLifecycle:
 		life = fullLife{coreLife{calls}}
+	case surfaceNoServices:
+		life = noServicesLife{fullLife{coreLife{calls}}}
 	}
 	h, _ := surfaceHandlerFor(t, config != surfaceStateOnly, life, ops)
 	return h, calls
@@ -194,6 +205,7 @@ func TestHelloReportsEachConfiguration(t *testing.T) {
 		{"git", surfaceGit, []api.Capability{api.CapabilityGit}},
 		{"core lifecycle", surfaceCoreLifecycle, []api.Capability{api.CapabilityGit, api.CapabilityRuntime}},
 		{"full lifecycle", surfaceFullLifecycle, []api.Capability{api.CapabilityGit, api.CapabilityRuntime, api.CapabilityServices}},
+		{"runtime without project services", surfaceNoServices, []api.Capability{api.CapabilityGit, api.CapabilityRuntime}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, _ := surfaceHandler(t, test.config)
@@ -224,6 +236,7 @@ func TestEveryProtocolMethodIsServedOrNotConfigured(t *testing.T) {
 		{"state only", surfaceStateOnly, map[api.Capability]bool{"": true}},
 		{"git", surfaceGit, map[api.Capability]bool{"": true, api.CapabilityGit: true}},
 		{"full lifecycle", surfaceFullLifecycle, map[api.Capability]bool{"": true, api.CapabilityGit: true, api.CapabilityRuntime: true, api.CapabilityServices: true}},
+		{"runtime without project services", surfaceNoServices, map[api.Capability]bool{"": true, api.CapabilityGit: true, api.CapabilityRuntime: true}},
 	} {
 		h, _ := surfaceHandler(t, test.config)
 		for _, m := range api.Methods() {

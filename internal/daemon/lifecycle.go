@@ -49,7 +49,7 @@ type lifecycle struct {
 	holders          map[string]string        // the operation whose worker holds each session
 	waitMu           sync.Mutex
 	waiters          map[string]map[chan struct{}]bool // operation.wait calls, by operation
-	confinementCheck func(context.Context) error
+	confinementCheck func(context.Context) error       // the driver's Check before a policy decision
 	attachments      map[string]*attachment
 	onAttachment     func(context.Context, string, int, bool)
 	events           *eventDelivery
@@ -150,14 +150,15 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	if err = runtime.CheckConfinement(ctx); err != nil {
+	driver := runtimeincus.NewDriver(runtime)
+	if err = driver.Check(ctx); err != nil {
 		return nil, err
 	}
 	endpoints, err := newEndpointManager(cfg.EndpointPrefix, git.info.Endpoint, store)
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, runtime: runtime, driver: runtimeincus.NewDriver(runtime), hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, incus: incus, git: git, runtime: runtime, driver: driver, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -1215,19 +1216,6 @@ func sessionGrants(policy control.ProjectPolicy) []runtimedriver.Grant {
 	return grants
 }
 
-// nativeFilesystemGrants are the grants of a stored policy as session
-// capacity inspects them, until migration step M3 counts capacity from the
-// driver's inventory.
-func nativeFilesystemGrants(policy control.ProjectPolicy) []runtimeincus.FilesystemGrant {
-	grants := make([]runtimeincus.FilesystemGrant, 0, len(policy.FilesystemMounts))
-	for _, g := range policy.FilesystemMounts {
-		id := g.SourceIdentity
-		grants = append(grants, runtimeincus.FilesystemGrant{Name: g.Name, Source: g.Source, Type: g.Type, Access: g.Access, Executable: g.Executable,
-			Device: id.Device, Inode: id.Inode, OwnerUID: id.OwnerUID, OwnerGID: id.OwnerGID})
-	}
-	return grants
-}
-
 func (l *lifecycle) advance(op *api.Operation, phase string, committed bool) error {
 	if phaseRank(op.Phase) > phaseRank(phase) {
 		return nil
@@ -1300,18 +1288,28 @@ func (l *lifecycle) sessionSpec(ctx context.Context, s control.Session) (runtime
 	if err != nil {
 		return runtimedriver.Session{}, err
 	}
+	spec := l.runtimeSpec(s.UUID, s.Project, image, sessionGrants(policy), publicIPv4)
+	spec.Command = policy.Command
+	spec.Workspace.Branch, spec.Workspace.Commit = s.Branch, commit
+	spec.GitHostKey = l.git.info.HostPublicKey
+	spec.Assets = l.sessionAssets()
+	return spec, nil
+}
+
+// runtimeSpec is the part of a session's spec that names its runtime and
+// that Inspect compares: its reference, project, image, endpoint directory,
+// grants and network. A proof about a runtime that may not exist needs no
+// more.
+func (l *lifecycle) runtimeSpec(uuid, project, image string, grants []runtimedriver.Grant, publicIPv4 string) runtimedriver.Session {
 	return runtimedriver.Session{
-		Ref:        runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: s.UUID},
-		Labels:     runtimedriver.Labels{runtimedriver.LabelProject: s.Project},
-		Image:      runtimedriver.ImageRef(image),
-		Command:    policy.Command,
-		Workspace:  runtimedriver.Workspace{Repository: s.Project, Branch: s.Branch, Commit: commit},
-		GitHostKey: l.git.info.HostPublicKey,
-		Endpoints:  filepath.Join(l.cfg.EndpointPrefix, s.UUID),
-		Grants:     sessionGrants(policy),
-		Network:    runtimedriver.Network{PublicIPv4: publicIPv4},
-		Assets:     l.sessionAssets(),
-	}, nil
+		Ref:       runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: uuid},
+		Labels:    runtimedriver.Labels{runtimedriver.LabelProject: project},
+		Image:     runtimedriver.ImageRef(image),
+		Workspace: runtimedriver.Workspace{Repository: project},
+		Endpoints: filepath.Join(l.cfg.EndpointPrefix, uuid),
+		Grants:    grants,
+		Network:   runtimedriver.Network{PublicIPv4: publicIPv4},
+	}
 }
 
 // sessionAssets are the files of the selected interactive host, source and
@@ -1331,11 +1329,19 @@ func (l *lifecycle) sessionAssets() []runtimedriver.Asset {
 // nativeSession is the Incus backend's session of s, for the backend calls
 // that later migration steps move into the driver.
 func (l *lifecycle) nativeSession(ctx context.Context, s control.Session) (runtimeincus.Session, error) {
+	_, native, err := l.sessionSpecs(ctx, s)
+	return native, err
+}
+
+// sessionSpecs is the driver's spec of s and the Incus backend's session of
+// it, for code that makes backend calls next to driver ones.
+func (l *lifecycle) sessionSpecs(ctx context.Context, s control.Session) (runtimedriver.Session, runtimeincus.Session, error) {
 	spec, err := l.sessionSpec(ctx, s)
 	if err != nil {
-		return runtimeincus.Session{}, err
+		return runtimedriver.Session{}, runtimeincus.Session{}, err
 	}
-	return l.runtime.NativeSession(spec)
+	native, err := l.runtime.NativeSession(spec)
+	return spec, native, err
 }
 
 // publicSessionIPv4 is the public egress address of a session with policy,

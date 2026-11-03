@@ -187,7 +187,7 @@ func newMethodTable(c HandlerConfig) *MethodTable {
 	}
 	if c.Lifecycle != nil {
 		capabilities = append(capabilities, api.CapabilityRuntime)
-		if _, ok := c.Lifecycle.(ServiceAPI); ok {
+		if _, ok := offeredServices(c.Lifecycle); ok {
 			capabilities = append(capabilities, api.CapabilityServices)
 		}
 	}

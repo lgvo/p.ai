@@ -9,7 +9,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
 type localReplacementSource interface {
@@ -97,7 +96,7 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 			return nil, control.ErrConflict
 		}
 	}
-	err = l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: s.UUID, ProjectPath: s.Project, ContractVersion: "1", ImageFingerprint: ev.ImageFingerprint}, op.ID)
+	err = proveFailedCreationAbsent(ctx, l.driver, l.runtimeSpec(s.UUID, s.Project, ev.ImageFingerprint, nil, ""), op.ID)
 	return cleanup, err
 }
 

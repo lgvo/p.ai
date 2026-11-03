@@ -74,9 +74,19 @@ proves these properties; the conformance suite
 | Identity | Labels stored and returned exactly; an incarnation stable across stop and start, new on re-create or restore. | `user.p.*` keys, `volatile.uuid` and its generation, image properties. |
 | Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints` and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. | Disk devices within the project's ceilings ([filesystem grants](#filesystem-grants)). |
 
-So far core reaches images, session inspection, creation, start and stop, and
-project services through the driver. Terminals, removal, rename and the proofs
-of absence still reach Incus directly.
+So far core reaches images, session inspection, creation, start and stop,
+project services, the boundary check and the inventory through the driver,
+and computes admission and the proofs of absence from the driver's `Inspect`
+and `Inventory`. Terminals, removal and rename still reach Incus directly.
+
+A proof of absence runs inside a boundary `Check` has just proven. A runtime
+is gone only when `Inspect` finds nothing at its address and a complete
+inventory holds no object carrying its reference, whichever P instance
+labeled it, since an external rename can move a runtime away from its
+address. The Incus driver's inventory is one read of the whole Incus project,
+at most 64 instances, P's or not. More instances, an instance that is not a
+container, or P labels that its expanded configuration does not repeat
+exactly make it an error, never a shorter list.
 
 ## Incus boundary
 
@@ -96,13 +106,16 @@ passes either socket into a builder or session. Running P as a user that also
 has unrestricted Incus administration is an unsupported isolation posture.
 
 Session creation and project bootstrap are admitted only when one more
-container fits beneath the configured Incus project container limit. Admission
-counts actual project containers and durable session or creation reservations
-without a matching visible instance, including unresolved attempts. An exactly
-verified builder occupies its associated pending session's slot; it is not
-counted twice. Unassociated or ambiguous containers count as separate
-occupants. A replacement creation needs no room beyond the reservations
-already counted. The reservation check and new durable intent must be
+container fits beneath the configured Incus project container limit, which the
+driver's inventory states as its capacity; P accepts a limit of at most 64.
+Admission counts every object the inventory lists and the durable session or
+creation reservations that no listed object holds, including unresolved
+attempts. A reservation's runtime holds its slot when the driver's `Inspect`
+of its spec finds it, and a pending session's builder when it carries the
+creation's build reference with its project, commit and base image labels;
+neither is counted twice. Every other container counts as a separate
+occupant, foreign ones included. A replacement creation needs no room beyond
+the reservations already counted. The reservation check and new durable intent must be
 serialized. This admission rule does not grant exclusive ownership of spare
 Incus capacity: external activity or older instances can still fill the
 project, and P never raises the ceiling or removes unrelated instances to make

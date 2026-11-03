@@ -12,7 +12,6 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -246,7 +245,7 @@ func (l *lifecycle) completeReplacementCleanup(ctx context.Context, op *api.Oper
 		return control.ErrConflict
 	}
 	prove := func(call context.Context) error {
-		return l.runtime.ConfirmFailedCreateEffectsAbsent(call, runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: c.OldUUID, ProjectPath: op.Project, ContractVersion: "1", ImageFingerprint: c.OldImageFingerprint}, c.OldOperationID)
+		return proveFailedCreationAbsent(call, l.driver, l.runtimeSpec(c.OldUUID, op.Project, c.OldImageFingerprint, nil, ""), c.OldOperationID)
 	}
 	if err = cleanupReplacementLocal(ctx, l.store.StateDir(), l.endpoints, c, prove); err != nil {
 		return err

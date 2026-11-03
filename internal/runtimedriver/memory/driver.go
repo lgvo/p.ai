@@ -76,11 +76,17 @@ func (d *Driver) Inventory(context.Context) (runtimedriver.Inventory, error) {
 		w.partial = false
 		return runtimedriver.Inventory{}, errors.New("the backend's listing of the scope was incomplete")
 	}
+	if len(w.objects) > runtimedriver.MaxObjects || w.config.Capacity > runtimedriver.MaxObjects {
+		return runtimedriver.Inventory{}, errors.New("the scope holds more objects than an inventory lists")
+	}
 	inv := runtimedriver.Inventory{Capacity: w.config.Capacity, Objects: []runtimedriver.Object{}}
 	for _, o := range w.objects {
-		obj := runtimedriver.Object{Name: o.name, Labels: maps.Clone(o.labels), Incarnation: o.incarnation, State: o.observedState()}
-		if o.instance == thisInstance {
-			obj.Ref = o.ref
+		obj := runtimedriver.Object{Name: o.name, Ref: o.ref, Labels: maps.Clone(o.labels), Incarnation: o.incarnation, State: o.observedState()}
+		if o.instance != "" {
+			if obj.Labels == nil {
+				obj.Labels = runtimedriver.Labels{}
+			}
+			obj.Labels[runtimedriver.LabelInstance] = o.instance
 		}
 		inv.Objects = append(inv.Objects, obj)
 	}
@@ -99,7 +105,7 @@ func (d *Driver) Inspect(_ context.Context, s runtimedriver.Session) (runtimedri
 	if err := d.alive(); err != nil {
 		return runtimedriver.Observation{}, err
 	}
-	if err := d.w.checkSession(s); err != nil {
+	if err := d.w.checkRuntime(s); err != nil {
 		return runtimedriver.Observation{}, err
 	}
 	w := d.w

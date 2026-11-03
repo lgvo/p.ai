@@ -15,6 +15,7 @@ type serviceProbe struct {
 	calls int
 }
 
+func (p *serviceProbe) ServicesOffered() bool { return true }
 func (p *serviceProbe) SessionServices(_ context.Context, id string) (api.SessionServicesResult, error) {
 	p.calls++
 	return api.SessionServicesResult{UUID: id}, nil

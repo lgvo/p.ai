@@ -12,7 +12,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
 func (l *lifecycle) reviewCreateCleanupLocal(ctx context.Context, op api.Operation, s control.Session) (*api.CreateReplacementCleanup, error) {
@@ -62,10 +61,11 @@ func checkCreateCleanupLocalAbsent(state string, endpoints *endpointManager, uui
 	return nil
 }
 
-// createCleanupNativeAbsent proves that no runtime or builder of session
-// uuid's failed creation, planned as d, remains.
-func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, uuid string, d api.CreateCleanupDetails, instance string) error {
-	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: instance, SessionUUID: uuid, ProjectPath: d.OldRequest.Project, ContractVersion: "1", ImageFingerprint: d.ImageFingerprint}, lastBuild(d.OldOperationID, d.EnvironmentBuilder))
+// failedCreationAbsent proves that the failed creation of session uuid that
+// a cleanup planned as d left no runtime and no builder of its latest build.
+func (l *lifecycle) failedCreationAbsent(ctx context.Context, uuid string, d api.CreateCleanupDetails) error {
+	spec := l.runtimeSpec(uuid, d.OldRequest.Project, d.ImageFingerprint, nil, "")
+	return proveFailedCreationAbsent(ctx, l.driver, spec, lastBuild(d.OldOperationID, d.EnvironmentBuilder))
 }
 
 // lastBuild names the creation's latest build, the only one whose builder
@@ -180,7 +180,7 @@ func (l *lifecycle) planCreateCleanup(ctx context.Context, uuid string, p *api.P
 			d.Provisional.Runtime, d.Provisional.Builder, d.Provisional.RuntimeLocal = "present", "absent", "will_be_removed"
 			p.Loss = append(p.Loss, containerLoss(uuid))
 		}
-	} else if e = l.createCleanupNativeAbsent(ctx, uuid, *d, l.instanceID); e != nil {
+	} else if e = l.failedCreationAbsent(ctx, uuid, *d); e != nil {
 		refuse(api.ReasonNativeEffectsUnsettled)
 	} else {
 		d.Provisional.Runtime = "absent"
@@ -231,9 +231,7 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 		}
 		op.Status = "running"
 	}
-	prove := func(call context.Context) error {
-		return l.createCleanupNativeAbsent(call, op.SessionUUID, ev.Review, ev.InstanceUUID)
-	}
+	prove := func(call context.Context) error { return l.failedCreationAbsent(call, op.SessionUUID, ev.Review) }
 	if err = prove(ctx); err != nil {
 		block(err)
 		return

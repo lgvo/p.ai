@@ -329,10 +329,10 @@ creations from one commit build at most one image and the others reuse it. The
 image holds nothing of one session; the session's instance and later phases
 remain specific to its UUID ([environment building](environment-building.md#lookup-concurrency-and-image-lifetime)).
 
-Before it records or sends the runtime init, creation proves that the complete
-confined-project inventory holds no runtime carrying the session UUID. A
-missing deterministic name is not enough: a renamed runtime is never treated as
-permission to create a duplicate.
+Before it records or sends the runtime init, the driver's `Create` proves that
+nothing in its whole scope carries the session UUID. A missing deterministic
+name is not enough: a renamed runtime is never treated as permission to create
+a duplicate.
 
 ### Failure, cancellation, and retry
 
@@ -389,7 +389,8 @@ original local committed-source Create must be blocked at `assembly-ready`,
 with the captured base image and immutable plugin/policy selection unchanged
 and a standalone policy: network `none` and no filesystem grants. Its
 container must already be stopped, have its exact native UUID/generation, and
-be the sole matching owned runtime in the full inventory.
+be the only object in the driver's complete inventory carrying the session
+UUID, with none carrying the creation's build reference.
 Origin/bootstrap, environment-builder/publication, replacement history and
 uncertain earlier init are outside that path. P does not look inside the
 container: the plan states that the container and everything in it will be
@@ -401,9 +402,10 @@ failed creation into an established session.
 The host API supports explicit cleanup of a blocked local committed-source
 Create before runtime init was dispatched, including an invalid immutable Nix
 resolution after its exact owned builder was removed and positively verified
-absent. Both runtime and builder must be absent under the complete native
-identity inventory. The durable builder cycle must distinguish a settled
-removal from an unobserved init attempt; historical or uncertain evidence cannot
+absent. Both runtime and builder must be absent: the driver's `Inspect` finds
+no runtime at the session's address, and its complete inventory holds nothing
+carrying the session UUID or the latest build's reference. The durable builder
+cycle must distinguish a settled removal from an unobserved init attempt; historical or uncertain evidence cannot
 be upgraded by an absence observation. A cycle recorded `abandoned`, settled as
 not accepted while its leftovers may remain, permits cleanup only after
 recovery deletes them and records the cycle `absent`. An affirmative cycle-zero
@@ -722,16 +724,17 @@ If Incus authoritatively reports the runtime missing, the plan states that
 runtime-local state is already lost: it lists the runtime's contents in
 `gone`, not in `loss`, and running the plan proves the caller saw that. The
 missing-runtime dry run and run, the local authority commit, and final record
-removal require full confined-project inventory proof that no runtime carries
-the session UUID. A renamed or competing runtime refuses ordinary removal; it
-is neither adopted nor deleted through the missing-name path. If Incus is
-unavailable, P reports the unavailable authority and returns no plan. An
-already-accepted removal remains incomplete with its session identity, durable
-operation and existing authorization restrictions intact. Retry or
-reconciliation may resume that same operation when Incus returns. P never
-claims successful deletion, forgets uncertain resources or creates replacement
-machinery while existence is uncertain. Manual Incus investigation is
-supported; MVP has no abandonment override.
+removal require the proof of absence: the driver's `Inspect` finds nothing at
+the runtime's address and its complete inventory holds no object carrying the
+session UUID, whichever P instance labeled it. A renamed or competing runtime
+refuses ordinary removal; it is neither adopted nor deleted through the
+missing-name path. If Incus is unavailable, P reports the unavailable
+authority and returns no plan. An already-accepted removal remains incomplete
+with its session identity, durable operation and existing authorization
+restrictions intact. Retry or reconciliation may resume that same operation
+when Incus returns. P never claims successful deletion, forgets uncertain
+resources or creates replacement machinery while existence is uncertain.
+Manual Incus investigation is supported; MVP has no abandonment override.
 
 ### Branch loss
 

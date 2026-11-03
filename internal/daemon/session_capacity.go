@@ -4,100 +4,95 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // observeSessionCapacity is invoked under the store's project/ref admission
-// lock. A verified builder occupies its pending session's single reservation;
-// every other physical container still counts, including foreign instances.
+// lock, inside a boundary the driver's Check has just proven. Every object
+// in scope counts, foreign ones included; a reservation's own runtime, or the
+// builder of its creation's build, holds the reservation's slot instead of
+// counting twice.
 func (l *lifecycle) observeSessionCapacity(ctx context.Context, reservations []control.CapacityReservation) (control.CapacityObservation, error) {
-	physical, err := l.runtime.SessionCapacity(ctx)
+	if err := l.driver.Check(ctx); err != nil {
+		return control.CapacityObservation{}, err
+	}
+	inv, err := l.driver.Inventory(ctx)
 	if err != nil {
 		return control.CapacityObservation{}, control.Failed(api.ReasonRuntime, err)
 	}
-	return associateSessionCapacity(ctx, reservations, physical, l.instanceID, l.cfg.EndpointPrefix,
-		l.runtime.InspectCreated, l.runtime.InspectBuilder, l.builderPublicIPv4, l.publicSessionIPv4)
-}
-
-func associateSessionCapacity(ctx context.Context, reservations []control.CapacityReservation, physical runtimeincus.SessionCapacity,
-	instanceID, endpointPrefix string,
-	inspectSession func(context.Context, runtimeincus.Session) (runtimeincus.Observation, error),
-	inspectBuilder func(context.Context, runtimeincus.Builder) (runtimeincus.BuilderObservation, error),
-	builderAddress func(context.Context, string) (string, error),
-	publicAddress ...func(context.Context, string, control.ProjectPolicy) (string, error)) (control.CapacityObservation, error) {
-	names := make(map[string]bool, len(physical.Instances))
-	for _, instance := range physical.Instances {
-		names[instance.Name] = true
-	}
-	observed := control.CapacityObservation{Limit: physical.Limit, PhysicalCount: len(physical.Instances), Occupied: make(map[string]bool)}
+	observed := control.CapacityObservation{Limit: inv.Capacity, PhysicalCount: len(inv.Objects), Occupied: make(map[string]bool)}
 	for _, reservation := range reservations {
-		if names["p-"+reservation.SessionUUID] {
-			policy, policyErr := control.ParseStoredProjectPolicy(reservation.Policy)
-			if policyErr != nil {
-				continue // physical slot remains counted; future init remains reserved
-			}
-			publicIPv4 := ""
-			if policy.Network == "public-egress" {
-				if len(publicAddress) != 1 {
-					continue
-				}
-				publicIPv4, policyErr = publicAddress[0](ctx, reservation.SessionUUID, policy)
-				if policyErr != nil {
-					continue
-				}
-			}
-			image := ""
-			switch reservation.Kind {
-			case "project.create":
-				var ev control.BlankProjectEvidence
-				if json.Unmarshal(reservation.Evidence, &ev) != nil {
-					return control.CapacityObservation{}, errors.New("project capacity identity unavailable")
-				}
-				image = ev.ImageFingerprint
-			case "session.create":
-				var ev control.CreationEvidence
-				if json.Unmarshal(reservation.Evidence, &ev) != nil {
-					return control.CapacityObservation{}, errors.New("session capacity identity unavailable")
-				}
-				image = ev.ImageFingerprint
-			default:
-				return control.CapacityObservation{}, errors.New("session capacity operation unavailable")
-			}
-			session := runtimeincus.Session{InstanceUUID: instanceID, SessionUUID: reservation.SessionUUID,
-				ProjectPath: reservation.Project, ContractVersion: "1", ImageFingerprint: image,
-				EndpointSource: filepath.Join(endpointPrefix, reservation.SessionUUID), Grants: nativeFilesystemGrants(policy), PublicIPv4: publicIPv4}
-			if native, e := inspectSession(ctx, session); e == nil && native.Exists {
-				observed.Occupied[reservation.SessionUUID] = true
-				continue
-			}
-		}
-		if reservation.Kind != "session.create" {
-			continue
-		}
-		// Only the build of an attempted or abandoned cycle can hold a builder.
-		var ev control.CreationEvidence
-		if json.Unmarshal(reservation.Evidence, &ev) != nil || ev.Environment == nil || ev.CapturedOID == "" ||
-			ev.EnvironmentBuilder == nil || ev.EnvironmentBuilder.State != "attempted" && ev.EnvironmentBuilder.State != "abandoned" {
-			continue
-		}
-		build := control.BuildRef(reservation.OperationID, ev.EnvironmentBuilder.Cycle)
-		if !names["p-builder-"+build] {
-			continue
-		}
-		address, err := builderAddress(ctx, reservation.SessionUUID)
+		occupied, err := l.reservationOccupied(ctx, inv, reservation)
 		if err != nil {
-			continue // physical slot remains counted
+			return control.CapacityObservation{}, err
 		}
-		builder := runtimeincus.Builder{RequestUUID: build, ProjectPath: reservation.Project,
-			CommitOID: ev.CapturedOID, BaseImageFingerprint: ev.Environment.BaseFingerprint,
-			ContractVersion: "1", PublicIPv4: address}
-		if native, err := inspectBuilder(ctx, builder); err == nil && native.Exists {
+		if occupied {
 			observed.Occupied[reservation.SessionUUID] = true
 		}
 	}
 	return observed, nil
+}
+
+// reservationOccupied says whether an object of inv holds the reservation's
+// slot: the session's runtime, when Inspect of its spec finds it, or the
+// builder of its creation's attempted or abandoned build, carrying the
+// build's reference with the creation's project, commit and base image.
+func (l *lifecycle) reservationOccupied(ctx context.Context, inv runtimedriver.Inventory, reservation control.CapacityReservation) (bool, error) {
+	if len(carrying(inv, runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: reservation.SessionUUID})) != 0 {
+		policy, err := control.ParseStoredProjectPolicy(reservation.Policy)
+		if err != nil {
+			return false, nil // its object stays counted; a future init stays reserved
+		}
+		publicIPv4, err := l.publicSessionIPv4(ctx, reservation.SessionUUID, policy)
+		if err != nil {
+			return false, nil
+		}
+		image, err := reservationImage(reservation)
+		if err != nil {
+			return false, err
+		}
+		spec := l.runtimeSpec(reservation.SessionUUID, reservation.Project, image, sessionGrants(policy), publicIPv4)
+		if o, err := l.driver.Inspect(ctx, spec); err == nil && o.State != runtimedriver.StateAbsent {
+			return true, nil
+		}
+	}
+	if reservation.Kind != "session.create" {
+		return false, nil
+	}
+	// Only the build of an attempted or abandoned cycle can hold a builder.
+	var ev control.CreationEvidence
+	if json.Unmarshal(reservation.Evidence, &ev) != nil || ev.Environment == nil || ev.CapturedOID == "" ||
+		ev.EnvironmentBuilder == nil || ev.EnvironmentBuilder.State != "attempted" && ev.EnvironmentBuilder.State != "abandoned" {
+		return false, nil
+	}
+	build := runtimedriver.Ref{Kind: runtimedriver.KindBuild, ID: control.BuildRef(reservation.OperationID, ev.EnvironmentBuilder.Cycle)}
+	for _, o := range carrying(inv, build) {
+		if o.Labels[runtimedriver.LabelProject] == reservation.Project && o.Labels[runtimedriver.LabelSourceCommit] == ev.CapturedOID &&
+			o.Labels[runtimedriver.LabelBaseImage] == ev.Environment.BaseFingerprint {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// reservationImage is the image a reservation's creation captured.
+func reservationImage(reservation control.CapacityReservation) (string, error) {
+	switch reservation.Kind {
+	case "project.create":
+		var ev control.BlankProjectEvidence
+		if json.Unmarshal(reservation.Evidence, &ev) != nil {
+			return "", errors.New("project capacity identity unavailable")
+		}
+		return ev.ImageFingerprint, nil
+	case "session.create":
+		var ev control.CreationEvidence
+		if json.Unmarshal(reservation.Evidence, &ev) != nil {
+			return "", errors.New("session capacity identity unavailable")
+		}
+		return ev.ImageFingerprint, nil
+	}
+	return "", errors.New("session capacity operation unavailable")
 }

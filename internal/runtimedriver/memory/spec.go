@@ -16,22 +16,29 @@ import (
 // checkSession refuses a spec the driver cannot realize exactly. It reads
 // only the spec and the World's configuration.
 func (w *World) checkSession(s runtimedriver.Session) error {
+	if err := w.checkRuntime(s); err != nil {
+		return err
+	}
+	if len(s.Command) == 0 || s.GitHostKey == "" || s.Workspace.Branch == "" {
+		return errors.New("the session's command, Git host key and branch are required")
+	}
+	return checkAssets(s.Assets)
+}
+
+// checkRuntime refuses a spec that does not name a runtime exactly: the parts
+// Inspect compares, its reference, project, image, endpoint directory,
+// grants and network.
+func (w *World) checkRuntime(s runtimedriver.Session) error {
 	if s.Ref.Kind != runtimedriver.KindSession || s.Ref.ID == "" {
 		return errors.New("invalid session reference")
 	}
 	if s.Labels[runtimedriver.LabelProject] == "" {
 		return errors.New("the session's project label is missing")
 	}
-	if len(s.Command) == 0 || s.GitHostKey == "" || s.Workspace.Branch == "" {
-		return errors.New("the session's command, Git host key and branch are required")
-	}
 	if !path.IsAbs(s.Endpoints) || path.Clean(s.Endpoints) != s.Endpoints {
 		return errors.New("the endpoint directory must be an absolute clean path")
 	}
 	if err := checkGrants(s.Grants); err != nil {
-		return err
-	}
-	if err := checkAssets(s.Assets); err != nil {
 		return err
 	}
 	if s.Image == "" {

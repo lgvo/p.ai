@@ -69,15 +69,21 @@ func (l *lifecycle) reviewCommitImage(ctx context.Context, row control.CommitIma
 	claim.RelatedDigest, err = l.store.CommitSessionsDigest(ctx, row.Key.Project, row.Key.Commit)
 	return claim, err
 }
-func projectDeleteNamedResources(sessions []api.ProjectDeleteSession, images []control.CommitImageClaim) (map[string]bool, map[string]bool) {
-	names, refs := map[string]bool{}, map[string]bool{}
+
+// projectDeleteReviewed is what a project deletion review accepts in scope:
+// each present session's runtime at the incarnation the review saw, and the
+// reviewed images.
+func projectDeleteReviewed(sessions []api.ProjectDeleteSession, images []control.CommitImageClaim) (map[runtimedriver.Ref]runtimedriver.Incarnation, map[runtimedriver.ImageRef]bool) {
+	runtimes, refs := map[runtimedriver.Ref]runtimedriver.Incarnation{}, map[runtimedriver.ImageRef]bool{}
 	for _, s := range sessions {
-		names[s.Runtime.InstanceName] = true
+		if s.Runtime.Condition == "present" {
+			runtimes[runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: s.Session.UUID}] = recordedIncarnation(s.Runtime.IncusUUID, s.Runtime.Generation)
+		}
 	}
 	for _, c := range images {
-		refs[c.Image.Ref] = true
+		refs[runtimedriver.ImageRef(c.Image.Ref)] = true
 	}
-	return names, refs
+	return runtimes, refs
 }
 
 // DeleteProject answers a deletion of project: its plan, or the operation of
@@ -167,7 +173,7 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		if e := l.admitSessionWork(ctx, s.UUID, ""); e != nil {
 			return nil, e
 		}
-		native, e := l.nativeSession(ctx, s)
+		spec, native, e := l.sessionSpecs(ctx, s)
 		if e != nil {
 			return nil, e
 		}
@@ -200,7 +206,7 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 			ps.Runtime.OriginalStatus = observed.Status
 			p.Loss = append(p.Loss, containerLoss(s.UUID))
 		} else {
-			if e = l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); e != nil {
+			if e = proveRuntimeAbsent(ctx, l.driver, spec); e != nil {
 				return nil, runtimeFailure(e, target)
 			}
 			ps.Condition = "missing"
@@ -231,8 +237,8 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		claims = append(claims, claim)
 	}
 	d.Images = control.CommitImageClaimViews(claims)
-	names, images := projectDeleteNamedResources(d.Sessions, claims)
-	if err = l.runtime.CheckProjectDeletionInventory(ctx, project, names, images); err != nil {
+	runtimes, images := projectDeleteReviewed(d.Sessions, claims)
+	if err = proveProjectReviewed(ctx, l.driver, project, runtimes, images); err != nil {
 		return nil, control.Failed(api.ReasonRuntime, err)
 	}
 	repo, err := l.git.backend.RepositoryPath(project)

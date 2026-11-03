@@ -3,7 +3,7 @@
 ## Lifecycle workers depend on concrete runtime, store and Git types
 
 - Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
-- Problem: Workers call a concrete `*runtimeincus.Backend` (18 methods, about 47 calls),
+- Problem: Workers call a concrete `*runtimeincus.Backend` (11 methods, about 26 calls),
   `*control.Store` and `*gitCapability`, so no worker can run against a stand-in.
 - Evidence: daemon statement coverage is 18.7%; every `process*` worker except
   `processCreateCleanup` and `processRetainedRename` is at 0%.
@@ -13,7 +13,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 10 cases:
+- Added 2026-11-01, updated 2026-11-03, 11 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -59,6 +59,12 @@
     `runtimedriver.Driver` and unit-tested them on the in-memory driver; the removal,
     rename, capacity and attachment workers still call the backend, now through
     `NativeSession` for the session spec, which took the runtime to 18 methods and 47 calls.
+  - 2026-11-03: "core computes the proofs from the driver's inventory" moved admission and
+    the proofs of absence to `Inspect` and `Inventory` (runtime_proofs.go,
+    session_capacity.go, unit-tested on the in-memory driver) and the policy decisions'
+    confinement check to `Check`; removal, rename and attachment still call the backend,
+    which took the runtime to 11 methods and 26 calls. The workers that call the proofs are
+    still checked only by VM scenarios.
 
 ## Long worker functions
 
@@ -70,7 +76,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 8 cases:
+- Added 2026-11-01, updated 2026-11-03, 9 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -93,6 +99,9 @@
   - 2026-11-03: "the daemon reaches sessions and services through the runtime driver" moved
     the runtime part of `processCreation` into `createRuntime`, cutting it from 285 lines to
     205; it still exceeds 150 lines.
+  - 2026-11-03: "core computes the proofs from the driver's inventory" replaced the proof
+    calls in `processProjectDelete`, `processDiscard` and `processAssembledCreateCleanup`
+    one for one; their lengths are unchanged.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
@@ -182,7 +191,7 @@
   gitservice, plugin and runtimeincus), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 7 cases:
+- Added 2026-11-01, updated 2026-11-03, 8 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -202,6 +211,10 @@
   - 2026-11-03: "the runtime driver interface" moved the Incus settings into
     `runtime.driver`, whose `config` control passes through unread, a change to host
     configuration that meets "Fix when"; the move was outside that step.
+  - 2026-11-03: "core computes the proofs from the driver's inventory" made the server
+    report the services capability only when the lifecycle's `ServicesOffered` says the
+    driver offers project services (rpc.go, rpc_lifecycle.go, rpc_services.go); the server
+    stayed in control.
 
 ## Operation status updates and kind lists are still written per site
 
@@ -243,24 +256,28 @@
     reports status changes, and replaced `ActiveSessionChange`'s kind list with one
     admission check over every kind; the statements themselves stay per site.
 
-## Incus instance inventory and metadata keys are written per caller
+## Incus metadata keys are written per caller, and the inventory refuses an unrendered instance
 
-- Where: internal/runtimeincus create_replace.go, project_delete.go, runtime_absence.go,
-  workspace_creator.go, session_capacity.go, egress.go `checkPublicAddressCollision`; the
-  `user.p.*` metadata keys across the package
-- Problem: Six functions each run `incus list --format json`, decode, bound and validate
-  the instances with their own rules, and metadata keys such as `user.p.session_uuid`
-  (8 times in runtimeincus) are string literals.
-- Evidence: listed while mapping the adapters on 2026-11-01; the bounds differ (4 or 64), see
-  TO-DECIDE.md "Four-instance bound in Incus inventory checks".
-- Risk: an inventory or confinement fix reaches one caller and misses another; a mistyped key
-  silently matches nothing.
-- Fix: one inventory reader returning validated instances under a caller-given bound, and the
-  metadata keys as constants; characterize each caller first.
-- Fix when: the next change to an inventory check or to P's Incus metadata.
+- Where: internal/runtimeincus backend.go `initSession` and `validIdentity`, builder.go
+  `createBuilder` and `validBuilderIdentity`, driver.go `builderLeftover` and
+  `carriesBuild`, inventory.go `sessionLabelKeys`, `builderLabelKeys` and
+  `instanceInventory`
+- Problem: The `user.p.*` metadata keys are string literals where an instance is labeled
+  and where it is checked, and inventory.go lists the same keys again to read them back as
+  the driver's labels. `instanceInventory` refuses the placeholder Incus lists for an
+  instance it cannot render, where `Backend.inspect` lists again until it renders.
+- Evidence: listed while mapping the adapters on 2026-11-01; on 2026-11-03 the session and
+  builder keys are written in `incus init` argv and read back in four other places, and
+  VM scenario 51 showed the placeholder while Incus cleaned up after a guest's poweroff.
+- Risk: a mistyped or renamed key silently matches nothing, so a labeled runtime or builder
+  goes missing from the inventory that capacity and the proofs of absence read; capacity,
+  the proofs and Create refuse while an instance powers off, where they could wait.
+- Fix: the metadata keys as constants, one table per object kind that both labeling and
+  reading use; the inventory waits out the placeholder as `Backend.inspect` does.
+- Fix when: the next change to P's Incus metadata or to the inventory reader.
 - Left by: the agent, by rule (a restructuring not pursued: step 8 of REWORK-PLAN.md was
   dropped after measurement).
-- Added 2026-11-01, updated 2026-11-03, 5 cases:
+- Added 2026-11-01, updated 2026-11-03, 6 cases:
   - 2026-11-01: "complete rework of P's implementation" dropped step 8.
   - 2026-11-02: "remove session repair" moved `ConfirmSessionRuntimeAbsent`, which removal
     keeps using, from record_repair.go to runtime_absence.go unchanged.
@@ -275,4 +292,11 @@
     the six inventory readers still refuse that placeholder and session_capacity.go counts it
     without its builder labels, so a check that meets an instance's poweroff refuses, or
     counts a builder as a session, where it could wait.
+  - 2026-11-03: "core computes the proofs from the driver's inventory" removed the five
+    scans and made `instanceInventory` (inventory.go) the one reader of the project's
+    instances, with one bound of 64 for `Inventory`, Create's identity check, the builds'
+    reads and `checkPublicAddressCollision`, which ends the per-caller inventory half of
+    this entry and the miscounted builder; the metadata keys are still literals,
+    inventory.go's label tables are a second list of them, and `instanceInventory` still
+    refuses the placeholder of an instance Incus cannot render.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -300,26 +301,22 @@ func TestServiceNamesTheSessionDoesNotHaveNeverReachItsServices(t *testing.T) {
 // has them not configured, each after one call that is never retried.
 func TestServicesFailuresAnswerTheirKindOnce(t *testing.T) {
 	for _, c := range []struct {
-		name     string
-		services bool
-		arrange  func(*driverFixture)
-		service  string
-		want     func(*driverFixture) *api.Error
+		name    string
+		arrange func(*driverFixture)
+		service string
+		want    func(*driverFixture) *api.Error
 	}{
-		{"no such service", true, func(*driverFixture) {}, "p-project-gone.service", func(f *driverFixture) *api.Error {
+		{"no such service", func(*driverFixture) {}, "p-project-gone.service", func(f *driverFixture) *api.Error {
 			e := api.NewError(api.KindNotFound, api.ReasonService)
 			e.Data.Target = api.TargetSession(f.session.UUID)
 			return e
 		}},
-		{"unreachable service manager", true, func(f *driverFixture) { f.world.BreakServiceManager(f.ref()) }, "p-project-db.service", func(*driverFixture) *api.Error {
+		{"unreachable service manager", func(f *driverFixture) { f.world.BreakServiceManager(f.ref()) }, "p-project-db.service", func(*driverFixture) *api.Error {
 			return api.NewError(api.KindFailed, api.ReasonServices)
-		}},
-		{"driver without services", false, func(*driverFixture) {}, "p-project-db.service", func(*driverFixture) *api.Error {
-			return api.NewError(api.KindNotConfigured, api.ReasonServices)
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			f := newDriverFixture(t, runtimedriver.Capabilities{Services: c.services})
+			f := newDriverFixture(t, runtimedriver.Capabilities{Services: true})
 			f.createRuntime()
 			if _, err := memory.NewDriver(f.world).Start(f.ctx, f.spec()); err != nil {
 				t.Fatal(err)
@@ -344,6 +341,36 @@ func TestServicesFailuresAnswerTheirKindOnce(t *testing.T) {
 	}
 }
 
+// TestADriverWithoutServicesLeavesTheCapabilityUnconfigured: hello does not
+// report project services when the driver does not offer them, and their
+// methods answer that the capability is not configured, never reaching the
+// driver.
+func TestADriverWithoutServicesLeavesTheCapabilityUnconfigured(t *testing.T) {
+	f := newDriverFixture(t, runtimedriver.Capabilities{})
+	calls := &serviceCalls{Driver: memory.NewDriver(f.world)}
+	f.l.driver = calls
+	h := control.NewHandler(control.HandlerConfig{Store: f.l.store, Lifecycle: f.l})
+	request, err := json.Marshal(api.HelloRequest{Protocol: api.Protocol})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, rpcErr := h(f.ctx, "system.hello", request)
+	if rpcErr != nil {
+		t.Fatalf("hello: %+v", rpcErr)
+	}
+	if hello := raw.(api.HelloResult); slices.Contains(hello.Capabilities, api.CapabilityServices) {
+		t.Fatalf("hello reports %v without a driver that offers services", hello.Capabilities)
+	}
+	params, err := json.Marshal(api.SessionServiceActionRequest{UUID: f.session.UUID, Name: "p-project-db.service", Action: "restart"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := api.NewError(api.KindNotConfigured, string(api.CapabilityServices))
+	if _, answer := h(f.ctx, "session.service.action", params); answer == nil || answer.Error() != want.Error() || calls.calls != 0 {
+		t.Fatalf("answer %v after %d driver calls, want %v and none", answer, calls.calls, want)
+	}
+}
+
 // stoppedIncomplete is a driver that sees the session's runtime stopped and
 // missing part of its spec.
 type stoppedIncomplete struct{ *memory.Driver }
@@ -365,7 +392,9 @@ func TestServicesOfASessionThatIsNotReadyNeverReachTheDriver(t *testing.T) {
 		arrange func(*driverFixture) runtimedriver.Driver
 		failed  bool
 	}{
-		{"absent runtime", func(f *driverFixture) runtimedriver.Driver { return memory.NewDriver(memory.NewWorld(memory.Config{})) }, false},
+		{"absent runtime", func(f *driverFixture) runtimedriver.Driver {
+			return memory.NewDriver(memory.NewWorld(memory.Config{Capabilities: runtimedriver.Capabilities{Services: true}}))
+		}, false},
 		{"stopped runtime", func(f *driverFixture) runtimedriver.Driver {
 			d := memory.NewDriver(f.world)
 			if _, err := d.Stop(f.ctx, f.spec()); err != nil {

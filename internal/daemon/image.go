@@ -416,21 +416,6 @@ func (l *lifecycle) reserveBuilderPublicIPv4(ctx context.Context, sessionID stri
 	return l.cfg.PublicEgress.PublicEgressGuestIPv4(slot)
 }
 
-// builderPublicIPv4 is the address a session's builder holds, if any.
-func (l *lifecycle) builderPublicIPv4(ctx context.Context, sessionID string) (string, error) {
-	if l.cfg.PublicEgress == nil {
-		return "", nil
-	}
-	slot, err := l.store.PublicAddressSlot(ctx, sessionID)
-	if errors.Is(err, control.ErrNotFound) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return l.cfg.PublicEgress.PublicEgressGuestIPv4(slot)
-}
-
 func (l *lifecycle) persistImageEvidence(op *api.Operation, ev control.CreationEvidence, phase string) error {
 	data, err := json.Marshal(ev)
 	if err != nil || len(data) > 16384 {

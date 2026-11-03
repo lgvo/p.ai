@@ -67,6 +67,10 @@ type incusWorld struct {
 	// unsafeProfile gives the default profile a NIC, which breaks the
 	// project's confinement.
 	unsafeProfile bool
+	// containerLimit is the project's limits.containers; "" leaves it unset.
+	containerLimit string
+	// partialList truncates the next listing of the whole project.
+	partialList bool
 	// initialized and transitions count, by session UUID, the inits that
 	// created an instance and the starts and stops that reached one.
 	initialized, transitions map[string]int
@@ -119,7 +123,7 @@ const worldHostReady = "active/running/success"
 
 func newIncusWorld(t *testing.T) *incusWorld {
 	t.Helper()
-	w := &incusWorld{t: t, initialized: map[string]int{}, transitions: map[string]int{}}
+	w := &incusWorld{t: t, initialized: map[string]int{}, transitions: map[string]int{}, containerLimit: "8"}
 	w.addImage(builderImageJSON{Fingerprint: testImage, Type: "container", Architecture: "x86_64", Size: 4096, Properties: map[string]string{"os": "NixOS"}},
 		map[string]guestFile{"/": {typ: "directory", uid: 0, gid: 0, mode: 0755}})
 	w.socket, w.stopServing = w.serve()
@@ -267,6 +271,9 @@ func (w *incusWorld) command(args []string) ([]byte, error) {
 		if w.public != nil {
 			config["restricted.devices.nic"], config["restricted.networks.access"] = "managed", w.public.Network
 		}
+		if w.containerLimit != "" {
+			config["limits.containers"] = w.containerLimit
+		}
 		return json.Marshal([]projectJSON{{Name: "user-1000", Config: config}})
 	case slices.Equal(args, []string{"profile", "list", "--format", "json"}):
 		devices := map[string]map[string]string{"root": {"type": "disk", "path": "/", "pool": "default"}}
@@ -283,7 +290,12 @@ func (w *incusWorld) command(args []string) ([]byte, error) {
 		}
 		return json.Marshal(images)
 	case len(args) == 3 && args[0] == "list" && args[1] == "--format":
-		return w.list("")
+		listing, err := w.list("")
+		if w.partialList {
+			w.partialList = false
+			listing = listing[:len(listing)/2]
+		}
+		return listing, err
 	case len(args) == 4 && args[0] == "list" && args[2] == "--format" && listNamePattern.MatchString(args[1]):
 		return w.list(listNamePattern.FindStringSubmatch(args[1])[1])
 	case args[0] == "init":
@@ -327,6 +339,20 @@ func (in *worldInstance) json() instanceJSON {
 func (w *incusWorld) newUUID() string {
 	w.incarnations++
 	return fmt.Sprintf("%08x-0000-4000-8000-%012x", w.incarnations, w.incarnations)
+}
+
+// addInstance adds an instance that P did not create, as an administrator
+// would, with Incus's volatile identity added to config. Called with w.mu
+// held.
+func (w *incusWorld) addInstance(name, status string, config map[string]string) *worldInstance {
+	config = maps.Clone(config)
+	if config == nil {
+		config = map[string]string{}
+	}
+	config["volatile.uuid"], config["volatile.uuid.generation"] = w.newUUID(), w.newUUID()
+	in := &worldInstance{name: name, status: status, config: config, devices: map[string]map[string]string{}, files: map[string]guestFile{}}
+	w.instances = append(w.instances, in)
+	return in
 }
 
 func (w *incusWorld) init(args []string) error {

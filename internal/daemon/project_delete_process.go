@@ -117,14 +117,14 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			}
 			continue
 		}
-		native, err := l.nativeSession(ctx, session)
+		spec, native, err := l.sessionSpecs(ctx, session)
 		if err != nil {
 			if !fail(ri, err) {
 				return
 			}
 			continue
 		}
-		prove := func(call context.Context) error { return l.runtime.ConfirmSessionRuntimeAbsent(call, native) }
+		prove := func(call context.Context) error { return proveRuntimeAbsent(call, l.driver, spec) }
 		actual, err := l.runtime.Inspect(ctx, native)
 		if err != nil {
 			if !fail(ri, err) {
@@ -239,7 +239,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		}
 	}
 	verifyResources := func(call context.Context) error {
-		if e := l.runtime.CheckProjectDeletionInventory(call, op.Project, map[string]bool{}, map[string]bool{}); e != nil {
+		if e := proveProjectReviewed(call, l.driver, op.Project, nil, nil); e != nil {
 			return e
 		}
 		for _, ps := range ev.Sessions {
@@ -247,11 +247,11 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			if e != nil {
 				return e
 			}
-			native, e := l.nativeSession(call, session)
+			spec, _, e := l.sessionSpecs(call, session)
 			if e != nil {
 				return e
 			}
-			if e = l.runtime.ConfirmSessionRuntimeAbsent(call, native); e != nil {
+			if e = proveRuntimeAbsent(call, l.driver, spec); e != nil {
 				return e
 			}
 			if e = l.createCleanupLocalAbsent(ps.Session.UUID); e != nil {

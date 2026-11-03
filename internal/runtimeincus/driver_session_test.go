@@ -422,12 +422,11 @@ func TestOperationsOfLaterMigrationStepsAreUnsupported(t *testing.T) {
 	d := newIncusWorld(t).driver()
 	ctx := context.Background()
 	target := runtimedriver.Target{Session: testSessionSpec(t)}
-	_, inventory := d.Inventory(ctx)
 	_, terminal := d.OpenTerminal(ctx, target, runtimedriver.Size{Width: 80, Height: 24})
 	_, read := d.ReadWorkspace(ctx, target, "README.md", 1024)
 	_, settle := d.Settle(ctx, runtimedriver.Effect{Kind: runtimedriver.EffectCreate, Target: target})
 	for name, err := range map[string]error{
-		"inventory": inventory, "terminal": terminal, "read": read, "settle": settle,
+		"terminal": terminal, "read": read, "settle": settle,
 		"write":  d.WriteWorkspace(ctx, target, "README.md", runtimedriver.File{Type: runtimedriver.FileRegular}, func() error { return nil }),
 		"remove": d.RemoveWorkspace(ctx, target, "README.md", func() error { return nil }),
 		"delete": d.Delete(ctx, target.Session.Ref, "", func() error { return nil }),

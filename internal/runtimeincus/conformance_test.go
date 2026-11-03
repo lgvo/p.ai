@@ -3,6 +3,7 @@ package runtimeincus
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -10,10 +11,10 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimedriver/conformance"
 )
 
-// The Incus driver implements the sessions and services groups in this
-// migration step; later steps add the others.
+// The Incus driver implements the sessions, inventory and services groups in
+// this migration step; later steps add the others.
 func TestConformance(t *testing.T) {
-	conformance.Run(t, []conformance.Group{conformance.Sessions, conformance.Services}, newIncusFixture)
+	conformance.Run(t, []conformance.Group{conformance.Sessions, conformance.Inventory, conformance.Services}, newIncusFixture)
 }
 
 // incusFixture is the Incus driver over a stubbed Incus whose host has the
@@ -60,7 +61,7 @@ func (f *incusFixture) Session(o conformance.SessionOptions) runtimedriver.Sessi
 func (f *incusFixture) Sessions() conformance.SessionControls    { return f }
 func (f *incusFixture) Recovery() conformance.RecoveryControls   { return nil }
 func (f *incusFixture) Deletion() conformance.DeletionControls   { return nil }
-func (f *incusFixture) Inventory() conformance.InventoryControls { return nil }
+func (f *incusFixture) Inventory() conformance.InventoryControls { return f }
 func (f *incusFixture) Workspace() conformance.WorkspaceControls { return nil }
 func (f *incusFixture) Terminals() conformance.TerminalControls  { return nil }
 func (f *incusFixture) Services() conformance.ServiceControls    { return f }
@@ -162,6 +163,61 @@ func (f *incusFixture) files(r runtimedriver.Ref) *unixFileAPI {
 	f.world.mu.Lock()
 	defer f.world.mu.Unlock()
 	return &unixFileAPI{socket: f.world.socket, project: "user-1000", instance: name}
+}
+
+// Inventory.
+
+// otherInstance is another P instance sharing the Incus project.
+const otherInstance = "99999999-9999-4999-8999-999999999999"
+
+// Capacity is the project's limits.containers.
+func (f *incusFixture) Capacity() int {
+	f.world.mu.Lock()
+	defer f.world.mu.Unlock()
+	limit, err := strconv.Atoi(f.world.containerLimit)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return limit
+}
+
+func (f *incusFixture) AddUnlabeled() string {
+	f.world.mu.Lock()
+	defer f.world.mu.Unlock()
+	return f.world.addInstance(fmt.Sprintf("foreign-%d", len(f.world.instances)), "Stopped", nil).name
+}
+
+// AddOtherInstance adds a stopped container that another P instance labeled
+// with r and labels under the keys that P instance writes.
+func (f *incusFixture) AddOtherInstance(r runtimedriver.Ref, labels runtimedriver.Labels) string {
+	keys := map[runtimedriver.Kind]map[string]string{
+		runtimedriver.KindSession: {"ref": "user.p.session_uuid", runtimedriver.LabelProject: "user.p.project_path", "instance": "user.p.instance_uuid"},
+		runtimedriver.KindBuild:   {"ref": "user.p.builder_request_uuid", runtimedriver.LabelProject: "user.p.builder_project_path", "instance": "user.p.instance"},
+	}[r.Kind]
+	config := map[string]string{keys["ref"]: r.ID, keys["instance"]: otherInstance}
+	for label, value := range labels {
+		key, ok := keys[label]
+		if !ok || label == "ref" || label == "instance" {
+			f.t.Fatalf("the fixture cannot store label %s", label)
+		}
+		config[key] = value
+	}
+	f.world.mu.Lock()
+	defer f.world.mu.Unlock()
+	return f.world.addInstance(fmt.Sprintf("foreign-%d", len(f.world.instances)), "Stopped", config).name
+}
+
+// Terminate leaves the runtime listed while its delete stops it, as Incus
+// shows an instance whose delete is in progress.
+func (f *incusFixture) Terminate(r runtimedriver.Ref) {
+	f.runtime(r, func(in *worldInstance) { in.status = "Stopping" })
+}
+
+// PartialInventory truncates the next listing of the whole project part way.
+func (f *incusFixture) PartialInventory() {
+	f.world.mu.Lock()
+	defer f.world.mu.Unlock()
+	f.world.partialList = true
 }
 
 // Services.

@@ -208,13 +208,17 @@ func TestBuilderAddressSlotIsHeldOnlyUntilTheImageIsReady(t *testing.T) {
 	if _, err := ensureWith(l, &op, ev, failing); err == nil {
 		t.Fatal("changed identity accepted")
 	}
-	if address, err := l.builderPublicIPv4(l.ctx, op.SessionUUID); err != nil || address != "10.233.0.10/24" {
-		t.Fatalf("builder address released before the image was ready: %q %v", address, err)
+	slot, err := l.store.PublicAddressSlot(l.ctx, op.SessionUUID)
+	if err != nil {
+		t.Fatalf("builder address released before the image was ready: %v", err)
+	}
+	if address, err := l.cfg.PublicEgress.PublicEgressGuestIPv4(slot); err != nil || address != "10.233.0.10/24" {
+		t.Fatalf("builder holds another address: %q %v", address, err)
 	}
 	if _, err := ensureWith(l, &op, ev, &retainedRuntime{spec: spec, exists: true}); err != nil {
 		t.Fatal(err)
 	}
-	if address, err := l.builderPublicIPv4(l.ctx, op.SessionUUID); err != nil || address != "" {
-		t.Fatalf("builder address kept after the image was ready: %q %v", address, err)
+	if slot, err := l.store.PublicAddressSlot(l.ctx, op.SessionUUID); !errors.Is(err, control.ErrNotFound) {
+		t.Fatalf("builder address kept after the image was ready: slot %d %v", slot, err)
 	}
 }

@@ -40,10 +40,37 @@ func mismatch(text string) error { return withKind(runtimedriver.ErrMismatch, te
 // generation, which a snapshot restore changes. It is empty when Incus has
 // not set them.
 func incarnationOf(o Observation) runtimedriver.Incarnation {
-	if o.IncusUUID == "" || o.Generation == "" {
+	return incarnation(o.IncusUUID, o.Generation)
+}
+
+func incarnation(incusUUID, generation string) runtimedriver.Incarnation {
+	if incusUUID == "" || generation == "" {
 		return ""
 	}
-	return runtimedriver.Incarnation(o.IncusUUID + "/" + o.Generation)
+	return runtimedriver.Incarnation(incusUUID + "/" + generation)
+}
+
+// volatileIdentity is an instance's Incus UUID and generation, both empty
+// unless both are UUIDs that its config and expanded config agree on.
+func volatileIdentity(in instanceJSON) (incusUUID, generation string) {
+	incusUUID, generation = in.Config["volatile.uuid"], in.Config["volatile.uuid.generation"]
+	if !uuidPattern.MatchString(incusUUID) || in.ExpandedConfig["volatile.uuid"] != incusUUID ||
+		!uuidPattern.MatchString(generation) || in.ExpandedConfig["volatile.uuid.generation"] != generation {
+		return "", ""
+	}
+	return incusUUID, generation
+}
+
+// stateOf is the driver's state of an instance's Incus status: a starting,
+// stopping, frozen or failed instance is present, in another state.
+func stateOf(status string) runtimedriver.State {
+	switch status {
+	case "Running":
+		return runtimedriver.StateRunning
+	case "Stopped":
+		return runtimedriver.StateStopped
+	}
+	return runtimedriver.StateOther
 }
 
 // Check proves the Incus project's confinement and, when configured, the
@@ -127,14 +154,7 @@ func observeRuntime(s Session, o Observation) runtimedriver.Observation {
 	if !o.Exists {
 		return runtimedriver.Observation{State: runtimedriver.StateAbsent}
 	}
-	out := runtimedriver.Observation{State: runtimedriver.StateOther, Incarnation: incarnationOf(o), Complete: devicesComplete(s, o)}
-	switch o.Status {
-	case "Running":
-		out.State = runtimedriver.StateRunning
-	case "Stopped":
-		out.State = runtimedriver.StateStopped
-	}
-	return out
+	return runtimedriver.Observation{State: stateOf(o.Status), Incarnation: incarnationOf(o), Complete: devicesComplete(s, o)}
 }
 
 // Create with no incarnation refuses a runtime that already exists, proves
@@ -456,11 +476,6 @@ func (d *Driver) Stop(ctx context.Context, s runtimedriver.Session) (runtimedriv
 		return runtimedriver.Observation{}, err
 	}
 	return observeRuntime(native, o), nil
-}
-
-// Inventory comes with the absence proofs in migration step M3.
-func (d *Driver) Inventory(context.Context) (runtimedriver.Inventory, error) {
-	return runtimedriver.Inventory{}, runtimedriver.ErrUnsupported
 }
 
 // HostLog reads the session host's journal: through systemd in a running

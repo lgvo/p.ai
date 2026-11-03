@@ -16,6 +16,10 @@ import (
 // maxServicesResult bounds the encoded result of a services method.
 const maxServicesResult = 48000
 
+// ServicesOffered is what the driver describes: without project services,
+// the services capability is not configured.
+func (l *lifecycle) ServicesOffered() bool { return l.driver.Describe().Services }
+
 func (l *lifecycle) SessionServices(ctx context.Context, id string) (api.SessionServicesResult, error) {
 	var services []runtimedriver.Service
 	err := l.onServices(ctx, id, false, func(call context.Context, t runtimedriver.Target) (err error) {

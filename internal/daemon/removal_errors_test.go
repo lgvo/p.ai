@@ -12,7 +12,7 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/runtimedriver/memory"
 )
 
 // TestRemovalAuthorityFailuresKeepTheirMeaning checks how a removal answers a
@@ -25,7 +25,7 @@ func TestRemovalAuthorityFailuresKeepTheirMeaning(t *testing.T) {
 		}
 		return r.Kind, r.Reason
 	}
-	present := &runtimeincus.RuntimePresentError{}
+	present := &runtimePresentError{}
 	for _, test := range []struct {
 		name   string
 		err    error
@@ -85,7 +85,7 @@ func TestRemovalRefusalsNameTheirNextStep(t *testing.T) {
 	if _, err = f.m.store.BeginDiscard(f.ctx, req, ev, strings.Repeat("c", 64), noRecheck); err != nil {
 		t.Fatal(err)
 	}
-	l := &lifecycle{ctx: f.ctx, store: f.m.store, instanceID: instance,
+	l := &lifecycle{ctx: f.ctx, store: f.m.store, instanceID: instance, driver: memory.NewDriver(memory.NewWorld(memory.Config{})),
 		attachments: map[string]*attachment{strings.Repeat("a", 64): {session: attached, expires: time.Now().Add(time.Minute)}}}
 	h := control.NewHandler(control.HandlerConfig{Lifecycle: l})
 	call := func(method, uuid, extra string) (any, *api.Error) {

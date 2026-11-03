@@ -140,7 +140,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard session identity changed")))
 		return
 	}
-	source, err := l.nativeSession(ctx, session)
+	spec, source, err := l.sessionSpecs(ctx, session)
 	if err != nil || source.ImageFingerprint != ev.ImageFingerprint && !ev.MissingRuntime {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard runtime selection changed")))
 		return
@@ -172,7 +172,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 				l.rollbackStaleDiscard(op, ev, errors.New("missing runtime reappeared"))
 				return
 			}
-			if e = l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
+			if e = proveRuntimeAbsent(ctx, l.driver, spec); e != nil {
 				l.blockDiscard(op, e)
 				return
 			}
@@ -223,7 +223,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		verify := func(c context.Context, facts control.DiscardEvidence) error {
 			if facts.MissingRuntime {
-				if e := l.runtime.ConfirmSessionRuntimeAbsent(c, source); e != nil {
+				if e := proveRuntimeAbsent(c, l.driver, spec); e != nil {
 					return e
 				}
 			}
@@ -246,7 +246,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		fallthrough
 	case "removal-committed":
 		if ev.MissingRuntime {
-			if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
+			if e := proveRuntimeAbsent(ctx, l.driver, spec); e != nil {
 				l.blockDiscard(op, errors.Join(e, errors.New("missing discard runtime reappeared")))
 				return
 			}
@@ -290,7 +290,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		fallthrough
 	case "runtime-absent":
-		if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
+		if e := proveRuntimeAbsent(ctx, l.driver, spec); e != nil {
 			l.blockDiscard(op, errors.Join(e, errors.New("discard runtime absence unavailable")))
 			return
 		}
@@ -312,7 +312,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 			// This phase can be resumed directly after restart, bypassing the
 			// preceding runtime-absent check. Never delete the P ref while a
 			// renamed or reappearing session runtime makes absence unverified.
-			if e := l.runtime.ConfirmSessionRuntimeAbsent(ctx, source); e != nil {
+			if e := proveRuntimeAbsent(ctx, l.driver, spec); e != nil {
 				l.blockDiscard(op, e)
 				return
 			}
@@ -327,7 +327,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 			break
 		}
 		if err = l.store.CompleteDiscard(ctx, op.ID, func(c context.Context, project, branch, tip string) error {
-			if e := l.runtime.ConfirmSessionRuntimeAbsent(c, source); e != nil {
+			if e := proveRuntimeAbsent(c, l.driver, spec); e != nil {
 				return e
 			}
 			return l.discardAssignedTip(c, ev)
@@ -340,7 +340,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		return
 	case "branch-absent":
 		if err = l.store.CompleteDelete(ctx, op.ID, func(c context.Context, project, branch, tip string) error {
-			if e := l.runtime.ConfirmSessionRuntimeAbsent(c, source); e != nil {
+			if e := proveRuntimeAbsent(c, l.driver, spec); e != nil {
 				return e
 			}
 			return l.deleteAssignedAbsent(c, ev)

@@ -304,21 +304,12 @@ func (b *Backend) checkPublicAddressCollision(ctx context.Context, self, address
 	if address == "" {
 		return nil
 	}
-	raw, err := b.command(ctx, "list", "--format", "json")
+	instances, err := b.instanceInventory(ctx)
 	if err != nil {
-		return err
-	}
-	var instances []instanceJSON
-	if err := decode(raw, &instances); err != nil || len(instances) > 4 {
-		return errors.New("public egress address inventory unavailable")
+		return fmt.Errorf("public egress address inventory unavailable: %w", err)
 	}
 	want := strings.TrimSuffix(address, "/24")
-	seen := map[string]bool{}
 	for _, in := range instances {
-		if in.Name == "" || seen[in.Name] || in.Type != "container" {
-			return errors.New("public egress address inventory ambiguous")
-		}
-		seen[in.Name] = true
 		if in.Name == self {
 			continue // exact identity is separately checked by inspection
 		}

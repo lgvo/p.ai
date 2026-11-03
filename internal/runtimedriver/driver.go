@@ -39,13 +39,16 @@ type Driver interface {
 	// state.
 	Check(ctx context.Context) error
 	// Inventory lists every object in scope, P's or not, including ones
-	// being deleted, with labels as stored, within the bound it states. It
-	// returns an error rather than a partial list.
+	// being deleted, with labels as stored, and the scope's capacity. It
+	// returns an error rather than a partial list, and for a scope holding
+	// more than MaxObjects objects.
 	Inventory(ctx context.Context) (Inventory, error)
 
 	// Inspect reads the runtime of s. It reports StateAbsent only when its
 	// direct address for s.Ref finds nothing, and ErrMismatch for an object
-	// that carries the reference but differs from the spec.
+	// that carries the reference but differs from the spec. It reads only the
+	// parts of s that name the runtime, its reference, labels, image,
+	// endpoint directory, grants and network, so core may leave the rest out.
 	Inspect(ctx context.Context, s Session) (Observation, error)
 	// Create with no incarnation looks through the whole scope first, so a
 	// natively renamed runtime blocks it, calls g, initializes the runtime,
@@ -183,6 +186,10 @@ const (
 	LabelSystem         = "system"
 	LabelBuilderVersion = "builder_version"
 	LabelBuild          = "build"
+	// LabelInstance names the P instance that labeled an object. Core never
+	// gives it: the driver stores its own instance with every runtime and
+	// builder and reports it among the labels of each Object.
+	LabelInstance = "instance"
 )
 
 // Session is core's spec of one session's runtime. The driver decides where
@@ -290,10 +297,13 @@ type HostError struct{ Diagnostic string }
 
 func (e *HostError) Error() string { return e.Diagnostic }
 
+// MaxObjects bounds an inventory, and so the capacity a scope may state.
+const MaxObjects = 64
+
 // Inventory is every object in the driver's scope.
 type Inventory struct {
 	// Capacity is how many runtimes, sessions and builders together, the
-	// scope admits; 0 when the backend states no limit.
+	// scope admits, at most MaxObjects; 0 when the backend states no limit.
 	Capacity int
 	Objects  []Object
 }
@@ -301,14 +311,19 @@ type Inventory struct {
 // Object is one runtime or builder in scope, P's or not.
 type Object struct {
 	Name string // the backend's own name, for diagnostics only
-	// Ref is this P instance's reference read from the object's labels; it
-	// is empty when the object carries none.
+	// Ref is the P reference read from the object's labels, whichever P
+	// instance wrote them; it is empty when the object carries none.
 	Ref Ref
-	// Labels are the P labels stored with the object, verbatim, whichever
-	// P instance wrote them.
+	// Labels are the P labels stored with the object, verbatim, and
+	// LabelInstance naming the P instance that wrote them. A session's
+	// runtime carries LabelProject. A builder carries LabelBuild,
+	// LabelProject, LabelSourceCommit and LabelBaseImage, and may carry its
+	// build's other labels. An object no P instance labeled has none.
 	Labels      Labels
 	Incarnation Incarnation
-	State       State
+	// State is the object's state as Inspect reports it: one being
+	// deleted, starting, stopping or frozen is StateOther.
+	State State
 }
 
 // Size is a terminal's size in character cells.
