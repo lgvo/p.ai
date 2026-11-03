@@ -33,19 +33,3 @@
     the check: it still needs VM-local fixtures for the flake input, the binary cache and
     the DNS-over-HTTPS upstreams, so "Fix when" now names only the next public-egress
     acceptance claim.
-
-## An observer test waits a fixed tenth of a second for a redraw
-
-- Where: tests/integration/tui-observe-test.py, `test_real_pty_expansion_renders_tabs_in_detail_column`
-- Problem: The test resizes a real PTY and reads the frame after a fixed 0.1-second wait; the
-  child redraws only when its SIGWINCH handler runs, so on a loaded machine the frame can still
-  be blank.
-- Evidence: 2026-11-03, `just tui-tests` failed once in three runs ("'      ' != 'DETAIL'") while
-  two VM gates ran on the machine; the other runs passed. It tests the observation tool, not the
-  product.
-- Risk: `just tui-tests` fails at random under load and can hide a real failure behind reruns.
-- Fix: wait until the frame shows the redraw, with a deadline, instead of a fixed delay.
-- Fix when: the next change to tui-observe.py or its tests, or the next time it fails a gate.
-- Left by: the agent, by rule (a problem outside the change).
-- Added 2026-11-03, 1 case:
-  - 2026-11-03: "waiting" saw it fail once while running the TUI tests for its third commit.

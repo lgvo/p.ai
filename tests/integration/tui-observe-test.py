@@ -115,11 +115,21 @@ signal.signal(signal.SIGWINCH,resized)
 os.write(1,b'compact')
 time.sleep(5)
 """
+        def pump_until(condition):
+            deadline = time.monotonic() + 5
+            while not condition() and time.monotonic() < deadline:
+                terminal.pump(.02)
+
         with tempfile.TemporaryDirectory() as out:
             terminal = observer.Observer([sys.executable, "-c", child], out, 48, 16)
             try:
-                terminal.pump(.1)
-                result = terminal.handle({"op": "resize", "cols": 120, "rows": 35, "wait": .1})
+                # The child prints only once its SIGWINCH handler is installed,
+                # and redraws only when that handler runs.
+                pump_until(lambda: terminal.screen.display[0].startswith("compact"))
+                terminal.handle({"op": "resize", "cols": 120, "rows": 35, "wait": 0})
+                pump_until(lambda: terminal.screen.display[0][80:86] == "DETAIL"
+                           and terminal.screen.cursor.x == 86)
+                result = terminal.handle({"op": "observe", "wait": 0})
                 frame = json.loads(Path(result["frame"] + ".json").read_text())
                 self.assertEqual("".join(c["data"] for c in frame["cells"][0][80:86]), "DETAIL")
                 self.assertEqual(frame["cursor"]["x"], 86)
