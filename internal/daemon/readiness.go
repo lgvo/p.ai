@@ -73,7 +73,7 @@ done:
 	if mustStop && parent.Err() == nil {
 		stopCtx, stopCancel := context.WithTimeout(parent, 45*time.Second)
 		defer stopCancel()
-		if err := stop(stopCtx); err != nil {
+		if err := stop(stopCtx); err != nil && !seenStopped(stopCtx, observe) {
 			reason = fmt.Errorf("%v; stopping failed: %w", reason, err)
 		}
 	}
@@ -81,4 +81,22 @@ done:
 		reason = errors.New("interactive host unavailable")
 	}
 	return reason
+}
+
+// seenStopped observes the instance until it shows stopped, and reports
+// whether it did before ctx ended or the instance went missing. A stop can
+// fail while the instance stops anyway, as when the guest powers itself off at
+// the same time, and a startup failure is reported with the instance stopped.
+func seenStopped(ctx context.Context, observe func(context.Context) (plugin.RuntimeState, error)) bool {
+	for {
+		state, err := observe(ctx)
+		if err == nil && (!state.Exists || state.Status == "Stopped") {
+			return state.Exists
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }

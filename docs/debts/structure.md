@@ -261,7 +261,7 @@
 - Fix when: the next change to an inventory check or to P's Incus metadata.
 - Left by: the agent, by rule (a restructuring not pursued: step 8 of REWORK-PLAN.md was
   dropped after measurement).
-- Added 2026-11-01, updated 2026-11-02, 4 cases:
+- Added 2026-11-01, updated 2026-11-03, 5 cases:
   - 2026-11-01: "complete rework of P's implementation" dropped step 8.
   - 2026-11-02: "remove session repair" moved `ConfirmSessionRuntimeAbsent`, which removal
     keeps using, from record_repair.go to runtime_absence.go unchanged.
@@ -270,4 +270,10 @@
   - 2026-11-02: "give builders public internet access only" made
     `checkPublicAddressCollision` serve builders too (it now takes the instance to skip and
     the address); its inventory reading and bound are unchanged.
+  - 2026-11-03: "wait out abandoned execs and unrendered instances" (step 0k) taught the
+    single-instance read in backend.go `Backend.inspect` to list again while Incus shows its
+    placeholder for an instance it cannot render (status `Error`, no configuration); five of
+    the six inventory readers still refuse that placeholder and session_capacity.go counts it
+    without its builder labels, so a check that meets an instance's poweroff refuses, or
+    counts a builder as a session, where it could wait.
 

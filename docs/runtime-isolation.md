@@ -620,6 +620,12 @@ P stops a running session or builder container in three steps:
 P then checks that the container is stopped. A failed start, stop or delete
 keeps Incus's own bounded error text.
 
+While Incus cannot render an instance, as during its cleanup after a poweroff
+the guest started, it lists a placeholder with status `Error` and no
+configuration. P lists the instance again every 100 milliseconds, for at most
+5 seconds, before it checks the instance's identity; a placeholder that
+persists answers `failed` with reason `runtime`, never an identity mismatch.
+
 Discard removes the verified Incus instance, its private root, endpoint
 directory, and session credentials while retaining the P branch. After the
 removal commit point, discard and delete force-stop a running instance before

@@ -12,6 +12,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/control"
 )
 
 const testUUID = "550e8400-e29b-41d4-a716-446655440000"
@@ -603,5 +606,43 @@ func TestInspectCreatedRetainsExactCapturedDevices(t *testing.T) {
 				t.Fatalf("inspection mutated native runtime: %v", f.mutations)
 			}
 		})
+	}
+}
+
+// unrenderedInstance is what incus list showed in the VM for a session's
+// container while Incus cleaned up after a poweroff the guest started: the
+// entry Incus answers for an instance it cannot render.
+const unrenderedInstance = `[{"architecture":"","config":null,"devices":null,"ephemeral":false,"profiles":null,"stateful":false,"description":"","created_at":"0001-01-01T00:00:00Z","name":"p-` + testUUID + `","status":"Error","status_code":112,"last_used_at":"0001-01-01T00:00:00Z","location":"none","type":"container","project":"user-1000","backups":null,"state":null,"snapshots":null}]`
+
+func TestStopWaitsOutAnInstanceIncusCannotRenderForAMoment(t *testing.T) {
+	f := &fakeIncus{instance: true, status: "Stopped"}
+	b := fakeBackend(f)
+	placeholders := 5
+	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if len(argv) > 3 && argv[3] == "list" && placeholders > 0 {
+			placeholders--
+			return []byte(unrenderedInstance), nil
+		}
+		return f.run(ctx, binary, argv, env)
+	}
+	got, err := b.Stop(context.Background(), testSession())
+	if err != nil || got.Status != "Stopped" || placeholders != 0 {
+		t.Fatalf("stop gave up on an instance Incus could not render for a moment: %+v %v (%d placeholders left)", got, err, placeholders)
+	}
+}
+
+func TestInspectAnswersRuntimeFailedWhileIncusCannotRenderTheInstance(t *testing.T) {
+	f := &fakeIncus{instance: true, status: "Stopped"}
+	b := fakeBackend(f)
+	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
+		if len(argv) > 3 && argv[3] == "list" {
+			return []byte(unrenderedInstance), nil
+		}
+		return f.run(ctx, binary, argv, env)
+	}
+	_, err := b.Inspect(context.Background(), testSession())
+	var refusal *control.Refusal
+	if !errors.As(err, &refusal) || refusal.Kind != api.KindFailed || refusal.Reason != api.ReasonRuntime || strings.Contains(err.Error(), "identity mismatch") {
+		t.Fatalf("an instance Incus cannot render did not answer runtime failed: %v", err)
 	}
 }

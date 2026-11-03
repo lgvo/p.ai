@@ -342,8 +342,11 @@ preserved; releasing its reservation does not delete or reset the ref.
 
 After `branch-assigned`, P never silently loses the request, session identity,
 or branch. A failed creation remains visible in `creating` state with one
-durable `blocked` operation. Systemd has already stopped a container whose
-activation or host startup failed.
+durable `blocked` operation. A container whose activation or host startup
+failed is already stopped: systemd shuts it down, or P stops it, and P records
+the failure once it observes the container stopped. A stop that P does not
+observe taking effect within 45 seconds is named in the diagnostic
+(`stopping failed`).
 
 Retry means the exact immutable request: the same operation, UUID, branch
 choice (existing or new), captured tip/source commit, normalized policy

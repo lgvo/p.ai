@@ -82,6 +82,47 @@ func TestReadinessRetriesBootObservationAndStopsFailure(t *testing.T) {
 	}
 }
 
+// A stop can fail while the instance stops anyway, as when Incus cleans up
+// after a poweroff the guest started; a startup failure is reported once the
+// instance is seen stopped.
+func TestReadinessFailureIsReportedOnceTheInstanceIsSeenStopped(t *testing.T) {
+	stopped, observedAfterStop, seenStopped := false, 0, false
+	err := awaitHostReady(context.Background(), time.Second, func(context.Context) (plugin.RuntimeState, error) {
+		if !stopped {
+			return plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "failed/failed", DiagnosticAvailable: true, Diagnostic: "host failed"}, nil
+		}
+		observedAfterStop++
+		if observedAfterStop == 1 {
+			return plugin.RuntimeState{}, errors.New("Incus instance state unavailable")
+		}
+		seenStopped = true
+		return plugin.RuntimeState{Exists: true, Status: "Stopped"}, nil
+	}, func(context.Context) error { stopped = true; return errors.New("Incus instance state unavailable") })
+	if err == nil || !strings.Contains(err.Error(), "host failed") || strings.Contains(err.Error(), "stopping failed") || !seenStopped {
+		t.Fatalf("startup failure not reported once the instance was seen stopped: seen=%t err=%v", seenStopped, err)
+	}
+}
+
+func TestReadinessFailureNamesAStopNotSeenToTakeEffect(t *testing.T) {
+	stopped := false
+	parent, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	answer := make(chan error, 1)
+	go func() {
+		answer <- awaitHostReady(parent, time.Second, func(context.Context) (plugin.RuntimeState, error) {
+			return plugin.RuntimeState{Exists: true, Status: "Running", HostUnit: "failed/failed"}, nil
+		}, func(context.Context) error { stopped = true; return errors.New("Incus state postcondition failed") })
+	}()
+	select {
+	case err := <-answer:
+		if err == nil || !stopped || !strings.Contains(err.Error(), "stopping failed: Incus state postcondition failed") {
+			t.Fatalf("a stop not seen to take effect is not named: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("readiness kept observing after the stop's bound")
+	}
+}
+
 func TestSessionMutationLockSerializesStartStop(t *testing.T) {
 	l := &lifecycle{}
 	release, err := l.lockSession(context.Background(), "session")

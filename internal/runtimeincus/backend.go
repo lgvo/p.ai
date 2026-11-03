@@ -17,6 +17,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/control"
 )
 
 const maxOutput = 1 << 20
@@ -580,6 +583,7 @@ type instanceJSON struct {
 	Name            string                       `json:"name"`
 	Type            string                       `json:"type"`
 	Status          string                       `json:"status"`
+	StatusCode      int                          `json:"status_code"`
 	Config          map[string]string            `json:"config"`
 	ExpandedConfig  map[string]string            `json:"expanded_config"`
 	Devices         map[string]map[string]string `json:"devices"`
@@ -603,12 +607,8 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 	if err := validateSession(b.config, s); err != nil {
 		return observation, err
 	}
-	raw, err := b.command(ctx, "list", "^"+b.name(s)+"$", "--format", "json")
+	instances, err := b.listRendered(ctx, b.name(s))
 	if err != nil {
-		return observation, err
-	}
-	var instances []instanceJSON
-	if err := decode(raw, &instances); err != nil {
 		return observation, err
 	}
 	if len(instances) == 0 {
@@ -701,6 +701,42 @@ func (b *Backend) inspect(ctx context.Context, s Session, allowPendingMount bool
 	observation = Observation{Exists: true, Name: in.Name, Status: in.Status, Fingerprint: s.ImageFingerprint,
 		IncusUUID: incusUUID, Generation: generation, EndpointMounted: endpointMounted, GrantsMounted: len(mounted) == len(s.Grants), MountedGrants: mounted, PublicNIC: publicNIC}
 	return observation, nil
+}
+
+// listRendered lists the instance named name. For an instance it cannot
+// render, as while it cleans up after a poweroff the guest started, Incus
+// lists a placeholder with status Error and no configuration for about half a
+// second; the list is read again until the instance renders, for at most 5 s.
+func (b *Backend) listRendered(ctx context.Context, name string) ([]instanceJSON, error) {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		raw, err := b.command(ctx, "list", "^"+name+"$", "--format", "json")
+		if err != nil {
+			return nil, err
+		}
+		var instances []instanceJSON
+		if err := decode(raw, &instances); err != nil {
+			return nil, err
+		}
+		if len(instances) != 1 || !unrendered(instances[0]) {
+			return instances, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+		if time.Now().After(deadline) {
+			return nil, control.Failed(api.ReasonRuntime, errors.New("Incus instance state unavailable"))
+		}
+	}
+}
+
+// unrendered reports whether in is the placeholder Incus lists for a
+// container it cannot render (Incus's api.Error status code is 112).
+func unrendered(in instanceJSON) bool {
+	return in.Type == "container" && in.Status == "Error" && in.StatusCode == 112 && in.Config == nil && in.ExpandedConfig == nil &&
+		in.Devices == nil && in.ExpandedDevices == nil && in.Profiles == nil
 }
 
 func validIdentity(c map[string]string, s Session) bool {
