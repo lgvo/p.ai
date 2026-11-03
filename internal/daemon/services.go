@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
@@ -52,6 +53,13 @@ func (l *lifecycle) observeServices(ctx context.Context, id, unit, action string
 	var err error
 	if action == "list" || action == "logs" {
 		release, err = l.readSession(id)
+		// A read runs its runtime commands to their end even when its client
+		// goes, so a change that waits for the read never meets them:
+		// cancelling a command kills its incus client, and an exec Incus has
+		// already created stays on the instance for up to 10 s.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
 	} else {
 		release, err = l.lockSession(ctx, id)
 	}

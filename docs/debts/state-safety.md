@@ -45,26 +45,6 @@
     finished one, a failed start's diagnostic is read from it, and the
     `session.start.diag:<uuid>` `metadata` rows are gone. The rate maps remain.
 
-## Removing a running session blocks while another Incus operation runs on it
-
-- Where: internal/runtimeincus discard.go `StopForDiscardExact` and `DeleteForDiscardExact`
-  (`workspaceResourceBusy`); the TUI's services poll, which runs `incus exec` on the
-  selected session every few seconds
-- Problem: Discard or Delete of a running session checks that no Incus operation is active
-  on the container before its forced stop and refuses otherwise. A services read that
-  started just before the removal was accepted is such an operation, so the removal
-  blocks with "discard source has active Incus operation" instead of waiting for it.
-- Evidence: VM scenario 58 (notes TUI) failed once this way in step 3's gate on
-  2026-11-03 and passed on rerun; the TUI was observing the selected session's
-  services, the likely holder.
-- Risk: a removal from the TUI blocks now and then and needs Retry; scenario 58 is flaky.
-- Fix: wait for a bounded time for the container's active operations to end before
-  refusing, or make a change hold the session's reads out until its effect is issued.
-- Fix when: the next change to removal, or when scenario 58 fails this way again.
-- Left by: the agent, by rule (a problem outside the change).
-- Added 2026-11-03, 1 case:
-  - 2026-11-03: "errors that name the next step" met it in the VM gate.
-
 ## Project deletion evidence admits fewer images than the review's cap
 
 - Where: internal/control project_delete.go `MaxProjectDeleteImages`,

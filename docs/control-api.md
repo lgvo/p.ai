@@ -849,7 +849,10 @@ native identity/generation before accepting results. An action holds the
 session's lifecycle lock and answers `retry` with reason `session_held` while
 another lifecycle request holds it. The inventory and logs reads answer
 `retry` while a lifecycle request holds the lock, but never cause a `retry`
-answer: a request that takes the lock waits for running reads to end. A session
+answer: a request that takes the lock waits for running reads to end. A read
+runs its runtime commands to their end, for at most 30 seconds, even after its
+client cancels or disconnects, so a request that waits for it never meets an
+Incus exec the read left behind. A session
 that is not ready answers `conflict` with reason `session_not_running`. A
 failure of the session's user service manager, including an action on a unit it
 does not know, answers `failed` with reason `services`; a failure of Incus

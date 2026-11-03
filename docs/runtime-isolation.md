@@ -623,9 +623,13 @@ keeps Incus's own bounded error text.
 Discard removes the verified Incus instance, its private root, endpoint
 directory, and session credentials while retaining the P branch. After the
 removal commit point, discard and delete force-stop a running instance before
-deleting it. Discard never deletes an image itself; once no session started
-from the session's commit remains, the daemon's release step deletes that
-commit's image
+deleting it. Before it inspects the instance for the stop and for the delete,
+P polls Incus's operation list, for at most 15 seconds, until it shows no
+unfinished operation on the instance: an exec whose client was killed before it
+connected stays listed for up to 10 seconds. An operation still unfinished
+after the wait blocks the removal until Retry. Discard never deletes an image
+itself; once no session started from the session's commit remains, the
+daemon's release step deletes that commit's image
 ([environment building](environment-building.md#lookup-concurrency-and-image-lifetime)).
 
 Confirmed failed-creation cleanup of an assembled runtime deletes only the

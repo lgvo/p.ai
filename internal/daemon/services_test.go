@@ -46,26 +46,31 @@ func servicesLifecycle(t *testing.T) (*lifecycle, control.Session) {
 
 // servicesRequestInFlight starts a services request on session that pauses at
 // its confinement check, the first runtime observation it makes, until end is
-// called. Later confinement checks pass at once.
-func servicesRequestInFlight(t *testing.T, l *lifecycle, session, unit, action string) (end func()) {
+// called or the context the check runs on ends, as an incus client is killed
+// when its context ends. Later confinement checks pass at once.
+func servicesRequestInFlight(t *testing.T, l *lifecycle, request context.Context, session, unit, action string) (end func()) {
 	t.Helper()
 	paused, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var mu sync.Mutex
 	first := true
-	l.confinementCheck = func(context.Context) error {
+	l.confinementCheck = func(call context.Context) error {
 		mu.Lock()
 		pause := first
 		first = false
 		mu.Unlock()
 		if pause {
 			close(paused)
-			<-resume
+			select {
+			case <-resume:
+			case <-call.Done():
+				return call.Err()
+			}
 		}
 		return nil
 	}
 	go func() {
 		defer close(done)
-		_, _ = l.observeServices(context.Background(), session, unit, action)
+		_, _ = l.observeServices(request, session, unit, action)
 	}()
 	<-paused
 	ended := false
@@ -88,7 +93,7 @@ func TestStopWaitsForAServicesReadInsteadOfBeingRefused(t *testing.T) {
 	} {
 		t.Run(c.action, func(t *testing.T) {
 			l, session := servicesLifecycle(t)
-			end := servicesRequestInFlight(t, l, session.UUID, c.unit, c.action)
+			end := servicesRequestInFlight(t, l, ctx, session.UUID, c.unit, c.action)
 			if _, err := l.observeServices(ctx, session.UUID, "", "list"); errors.Is(err, control.ErrConflict) {
 				t.Fatalf("a services %s in flight refused another read", c.action)
 			}
@@ -129,9 +134,45 @@ func TestStopWaitsForAServicesReadInsteadOfBeingRefused(t *testing.T) {
 	}
 }
 
+// Cancelling a read kills its incus client, and Incus keeps an exec it has
+// already created on the instance for up to 10 s, so the read's runtime work
+// must end before a Stop, and a removal after it, can go on.
+func TestStopWaitsForTheRuntimeWorkOfAServicesReadItsClientCancelled(t *testing.T) {
+	for _, c := range []struct{ action, unit string }{
+		{"list", ""},
+		{"logs", "p-project-notes-db.service"},
+	} {
+		t.Run(c.action, func(t *testing.T) {
+			l, session := servicesLifecycle(t)
+			request, cancel := context.WithCancel(context.Background())
+			end := servicesRequestInFlight(t, l, request, session.UUID, c.unit, c.action)
+			cancel()
+			answer := make(chan error, 1)
+			go func() {
+				_, err := l.StopSession(context.Background(), session.UUID)
+				answer <- err
+			}()
+			select {
+			case err := <-answer:
+				t.Fatalf("Stop answered while the runtime work of a cancelled services %s ran: %v", c.action, err)
+			case <-time.After(200 * time.Millisecond):
+			}
+			end()
+			select {
+			case err := <-answer:
+				if errors.Is(err, control.ErrConflict) {
+					t.Fatalf("Stop was refused after a cancelled services %s: %v", c.action, err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatalf("Stop did not go on after the runtime work of a cancelled services %s ended", c.action)
+			}
+		})
+	}
+}
+
 func TestStopIsRefusedDuringAServiceAction(t *testing.T) {
 	l, session := servicesLifecycle(t)
-	servicesRequestInFlight(t, l, session.UUID, "p-project-notes-db.service", "restart")
+	servicesRequestInFlight(t, l, context.Background(), session.UUID, "p-project-notes-db.service", "restart")
 	answer := make(chan error, 1)
 	go func() {
 		_, err := l.StopSession(context.Background(), session.UUID)
@@ -149,7 +190,7 @@ func TestStopIsRefusedDuringAServiceAction(t *testing.T) {
 
 func TestServicesReadIsRefusedWhileAServiceActionHoldsTheSession(t *testing.T) {
 	l, session := servicesLifecycle(t)
-	servicesRequestInFlight(t, l, session.UUID, "p-project-notes-db.service", "restart")
+	servicesRequestInFlight(t, l, context.Background(), session.UUID, "p-project-notes-db.service", "restart")
 	if _, err := l.observeServices(context.Background(), session.UUID, "", "list"); !errors.Is(err, control.ErrConflict) {
 		t.Fatalf("services read admitted while a service action held the session: %v", err)
 	}
