@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
@@ -215,11 +213,11 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		}
 		d.Sessions = append(d.Sessions, ps)
 	}
-	loss, err := l.git.backend.ProjectRemovalLoss(ctx, project)
+	loss, err := l.git.driver.LosingCommits(ctx, project, nil)
 	if err != nil {
-		return nil, gitFailure(err)
+		return nil, control.HeadsFailure(err)
 	}
-	d.BranchLoss = deleteReview(loss)
+	d.BranchLoss = removalReview("refs/heads/*", loss)
 	p.Loss = append(p.Loss, branchLoss(api.TargetProject(project), d.BranchLoss)...)
 	p.Loss = append(p.Loss, unreachableObjectsLoss(project))
 	rows, more, err := l.store.ListCommitImages(ctx, project, control.CommitImageKey{}, control.MaxProjectDeleteImages)
@@ -241,21 +239,14 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 	if err = proveProjectReviewed(ctx, l.driver, project, runtimes, images); err != nil {
 		return nil, control.Failed(api.ReasonRuntime, err)
 	}
-	repo, err := l.git.backend.RepositoryPath(project)
+	repo, err := l.git.driver.InspectRepository(ctx, project)
 	if err != nil {
 		return nil, control.Failed(api.ReasonGit, err)
 	}
-	d.Repository, err = replacementLocalIdentity(repo)
-	if err != nil {
-		return nil, err
+	if !repo.Exists || !control.ValidRepositoryIncarnation(repo.Incarnation) {
+		return nil, control.Failed(api.ReasonGit, errors.New("the project's repository has no incarnation to delete"))
 	}
-	d.RepositoryParent, err = replacementLocalIdentity(filepath.Dir(repo))
-	if err != nil {
-		return nil, err
-	}
-	if d.Repository.Mode&0170000 != 0040000 || d.Repository.Mode&0022 != 0 || d.RepositoryParent.Mode != 0040700 {
-		return nil, control.ErrConflict
-	}
+	d.RepositoryIncarnation = repo.Incarnation
 	if err = l.boundProjectDeleteEvidence(*d, claims); err != nil {
 		return nil, err
 	}
@@ -274,7 +265,7 @@ func (l *lifecycle) boundProjectDeleteEvidence(d api.ProjectDeleteDetails, claim
 // projectDeleteEvidence is the evidence that deletes the plan d, with its
 // image claims: every planned resource, remaining.
 func (l *lifecycle) projectDeleteEvidence(d api.ProjectDeleteDetails, images []control.CommitImageClaim) control.ProjectDeleteEvidence {
-	ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.incus.Project, StateSHA256: d.StateSHA256, Sessions: append([]api.ProjectDeleteSession(nil), d.Sessions...), Images: images, Repository: d.Repository, RepositoryParent: d.RepositoryParent}
+	ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.incus.Project, StateSHA256: d.StateSHA256, Sessions: append([]api.ProjectDeleteSession(nil), d.Sessions...), Images: images, RepositoryIncarnation: d.RepositoryIncarnation}
 	reviewed, _ := json.Marshal(d)
 	ev.ReviewSHA256 = hexDigest(reviewed)
 	for i := range ev.Sessions {
@@ -287,15 +278,14 @@ func (l *lifecycle) projectDeleteEvidence(d api.ProjectDeleteDetails, images []c
 	return ev
 }
 
-func (l *lifecycle) projectDeleteRepositoryAbsent(project string, parent api.ReplacementLocalIdentity) error {
-	repo, e := l.git.backend.RepositoryPath(project)
-	if e != nil {
-		return e
+// projectDeleteRepositoryAbsent proves that nothing is at project's
+// repository address any more.
+func (l *lifecycle) projectDeleteRepositoryAbsent(ctx context.Context, project string) error {
+	repo, err := l.git.driver.InspectRepository(ctx, project)
+	if err != nil {
+		return control.Failed(api.ReasonGit, err)
 	}
-	if e = matchReplacementLocal(filepath.Dir(repo), parent, false); e != nil {
-		return e
-	}
-	if _, e = os.Lstat(repo); !errors.Is(e, os.ErrNotExist) {
+	if repo.Exists {
 		return control.ErrConflict
 	}
 	return nil

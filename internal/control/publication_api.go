@@ -10,6 +10,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 type PublicationScope interface {
@@ -36,6 +37,18 @@ type publicationInputs struct {
 // A run records the publication as an operation of kind origin.publish and
 // queues it: its worker publishes (RunPublication).
 func (a OriginAPI) Publish(ctx context.Context, r api.OriginPublishRequest) (api.ChangeResult[api.PublicationPreview], error) {
+	result, err := a.publish(ctx, r)
+	// The worker takes the origin scope and the Git authority that the run
+	// held: queue it once they are released.
+	if err != nil || result.Operation == nil || result.Operation.Status != "running" {
+		return result, err
+	}
+	return result, a.Queue(result.Operation.ID)
+}
+
+// publish answers publication r: the plan of a dry run, or the operation a
+// run recorded.
+func (a OriginAPI) publish(ctx context.Context, r api.OriginPublishRequest) (api.ChangeResult[api.PublicationPreview], error) {
 	req := PublicationRequest{ExpectedOriginURL: r.ExpectedOriginURL, Key: r.Key, Project: r.Project, Kind: r.Kind, Source: r.Source,
 		SourceOID: r.SourceOID, DestinationRef: r.DestinationRef, IfMatch: r.IfMatch}
 	if !validPublicationRequest(req) {
@@ -53,10 +66,28 @@ func (a OriginAPI) Publish(ctx context.Context, r api.OriginPublishRequest) (api
 	if err != nil {
 		return api.ChangeResult[api.PublicationPreview]{}, err
 	}
+	replay := func(ctx context.Context) (api.Operation, bool, error) {
+		return a.Store.recorded(ctx, req.Key, KindOriginPublish, request)
+	}
+	// A recorded run is answered from SQLite alone, before the source driver
+	// checks the request's names.
+	if !r.DryRun() {
+		op, found, err := replay(ctx)
+		if err != nil {
+			return api.ChangeResult[api.PublicationPreview]{}, err
+		}
+		if found {
+			return api.ChangeResult[api.PublicationPreview]{Operation: &op}, nil
+		}
+	}
+	destination, err := a.checkPublicationNames(ctx, r)
+	if err != nil {
+		return api.ChangeResult[api.PublicationPreview]{}, err
+	}
 	var scope PublicationScope
 	change := Change[api.PublicationPreview]{
 		Action:   api.OriginPublish.Name,
-		Target:   api.TargetOriginBranch(r.Project, strings.TrimPrefix(r.DestinationRef, "refs/heads/")),
+		Target:   api.TargetOriginBranch(r.Project, destination),
 		Instance: instance,
 		Inputs:   publicationInputs{ExpectedOriginURL: r.ExpectedOriginURL, Kind: r.Kind, Source: r.Source, SourceOID: r.SourceOID},
 		Hold: func(ctx context.Context, fn func(context.Context) error) error {
@@ -81,9 +112,7 @@ func (a OriginAPI) Publish(ctx context.Context, r api.OriginPublishRequest) (api
 			}
 			return nil
 		},
-		Replay: func(ctx context.Context) (api.Operation, bool, error) {
-			return a.Store.recorded(ctx, req.Key, KindOriginPublish, request)
-		},
+		Replay: replay,
 		Begin: func(ctx context.Context, run Run[api.PublicationPreview]) (api.Operation, error) {
 			return a.Store.BeginPublication(ctx, req, run.Hash, func(ctx context.Context) (string, error) {
 				_, ref, err := a.publicationContext(ctx, req, "")
@@ -91,13 +120,25 @@ func (a OriginAPI) Publish(ctx context.Context, r api.OriginPublishRequest) (api
 			})
 		},
 	}
-	result, err := change.Do(ctx, r.ChangeRequest)
-	// The worker takes the origin scope and the Git authority that the run
-	// held: queue it once they are released.
-	if err != nil || result.Operation == nil || result.Operation.Status != "running" {
-		return result, err
+	return change.Do(ctx, r.ChangeRequest)
+}
+
+// checkPublicationNames has the source driver check publication r's names:
+// a retained source branch, the source commit and the destination. It
+// returns the destination as the origin branch's name.
+func (a OriginAPI) checkPublicationNames(ctx context.Context, r api.OriginPublishRequest) (string, error) {
+	var fields []NameField
+	if r.Kind == "retained" {
+		fields = append(fields, NameField{"source", sourcedriver.Name{Kind: sourcedriver.NameBranch, Value: r.Source}})
 	}
-	return result, a.Queue(result.Operation.ID)
+	fields = append(fields,
+		NameField{"source_oid", sourcedriver.Name{Kind: sourcedriver.NameCommit, Value: r.SourceOID}},
+		NameField{"destination_ref", sourcedriver.Name{Kind: sourcedriver.NameDestination, Value: r.DestinationRef}})
+	names, err := CheckNames(ctx, a.Driver, fields...)
+	if err != nil {
+		return "", err
+	}
+	return names[len(names)-1].Value, nil
 }
 
 // planPublication observes the origin in scope and compares the destination

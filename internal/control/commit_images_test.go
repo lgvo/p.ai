@@ -81,8 +81,8 @@ func TestPutCommitImageRefusesAnIndexedKeyOrReference(t *testing.T) {
 func TestPutCommitImageRefusesMalformedRows(t *testing.T) {
 	cases := map[string]func(*CommitImage){
 		"project":              func(c *CommitImage) { c.Key.Project = "/abs" },
-		"short commit":         func(c *CommitImage) { c.Key.Commit = strings.Repeat("a", 39) },
-		"zero commit":          func(c *CommitImage) { c.Key.Commit = strings.Repeat("0", 40) },
+		"long commit":          func(c *CommitImage) { c.Key.Commit = strings.Repeat("a", 65); c.Labels["source_commit"] = c.Key.Commit },
+		"unprintable commit":   func(c *CommitImage) { c.Key.Commit = "a\n"; c.Labels["source_commit"] = c.Key.Commit },
 		"base":                 func(c *CommitImage) { c.Key.BaseImage = "base" },
 		"system":               func(c *CommitImage) { c.Key.System = "riscv64-linux" },
 		"empty builder":        func(c *CommitImage) { c.Key.BuilderVersion = "" },

@@ -5,13 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 func projectDeleteAbsent(r control.ProjectDeleteResource) bool {
@@ -285,30 +284,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 				return
 			}
 		} else {
-			repo, e := l.git.backend.RepositoryPath(op.Project)
-			if e == nil {
-				e = matchReplacementLocal(filepath.Dir(repo), ev.RepositoryParent, false)
-			}
-			if e == nil {
-				e = matchReplacementLocal(repo, ev.Repository, true)
-			}
-			if e == nil {
-				if _, statErr := os.Lstat(repo); statErr == nil {
-					if projectDeleteAbsent(ev.Resources[last]) {
-						e = errors.New("repository reappeared after confirmed absence")
-					} else {
-						ev.Resources[last].DeleteIssued = true
-						if e = persist("running", "", ""); e == nil {
-							e = os.RemoveAll(repo)
-						}
-					}
-				} else if !errors.Is(statErr, os.ErrNotExist) {
-					e = statErr
-				}
-			}
-			if e == nil {
-				e = l.projectDeleteRepositoryAbsent(op.Project, ev.RepositoryParent)
-			}
+			e := l.deleteProjectRepository(ctx, op.Project, ev.RepositoryIncarnation, &ev.Resources[last], func() error { return persist("running", "", "") })
 			if e != nil {
 				if !fail(last, e) {
 					return
@@ -329,7 +305,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			if e := verifyResources(call); e != nil {
 				return e
 			}
-			return l.projectDeleteRepositoryAbsent(op.Project, ev.RepositoryParent)
+			return l.projectDeleteRepositoryAbsent(call, op.Project)
 		})
 		if err == nil {
 			l.forgetProject(op.Project)
@@ -352,6 +328,36 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		reason = api.ReasonInternal
 	}
 	_ = persist("blocked", reason, diagnostic)
+}
+
+// deleteProjectRepository deletes project's repository at the incarnation
+// the deletion reviewed, recording the delete as issued right before it
+// starts, and proves it absent. A repository present again after its
+// confirmed absence is never deleted, and another incarnation the source
+// driver refuses: neither is the reviewed one.
+func (l *lifecycle) deleteProjectRepository(ctx context.Context, project, incarnation string, r *control.ProjectDeleteResource, persist func() error) error {
+	current, err := l.git.driver.InspectRepository(ctx, project)
+	if err != nil {
+		return control.Failed(api.ReasonGit, err)
+	}
+	if current.Exists {
+		if projectDeleteAbsent(*r) {
+			return errors.New("repository reappeared after confirmed absence")
+		}
+		reviewed := sourcedriver.Repository{Project: project, Exists: true, Incarnation: incarnation}
+		var gateErr error
+		err = l.git.driver.DeleteRepository(ctx, reviewed, func() error { r.DeleteIssued = true; gateErr = persist(); return gateErr })
+		if gateErr != nil {
+			return gateErr
+		}
+		if errors.Is(err, sourcedriver.ErrConflict) {
+			return refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, fmt.Errorf("the project's repository is not the reviewed one: %w", err))
+		}
+		if err != nil {
+			return control.Failed(api.ReasonGit, err)
+		}
+	}
+	return l.projectDeleteRepositoryAbsent(ctx, project)
 }
 
 // deleteProjectImage deletes one reviewed image of a project deletion and

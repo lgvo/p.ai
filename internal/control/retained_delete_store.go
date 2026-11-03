@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
@@ -34,7 +33,7 @@ func validRetainedDeleteRequest(r RetainedDeleteRequest) bool {
 	return len(r.Key) > 0 && len(r.Key) <= 128 && validProject(r.Project) && validBranch(r.Branch) && api.ValidChangeTag(r.IfMatch)
 }
 func validRetainedDeleteEvidence(e RetainedDeleteEvidence) bool {
-	return validProject(e.Project) && validBranch(e.Branch) && validOID(e.Tip) && strings.Trim(e.Tip, "0") != "" && validFingerprint(e.ReviewSHA256) && validUUID(e.InstanceUUID)
+	return validProject(e.Project) && validBranch(e.Branch) && validOID(e.Tip) && validFingerprint(e.ReviewSHA256) && validUUID(e.InstanceUUID)
 }
 
 // BeginRetainedDelete reserves the one unassigned ref of run r, whose plan

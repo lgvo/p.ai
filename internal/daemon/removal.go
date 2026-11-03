@@ -6,7 +6,6 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
@@ -113,18 +112,13 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 		d.Runtime.ImageFingerprint, d.Runtime.OriginalStatus = string(spec.Image), originalStatus(observed.State)
 		p.Loss = append(p.Loss, containerLoss(uuid))
 	}
-	var loss gitservice.BranchRemovalLoss
-	if action == "delete" {
-		loss, err = l.git.backend.BranchRemovalLoss(ctx, session.Project, session.Branch, true)
-	} else {
-		loss, err = l.git.backend.AssignedBranchSnapshot(ctx, session.Project, session.Branch, true)
-	}
+	review, err := l.branchRemovalReview(ctx, session.Project, session.Branch, action == "delete")
 	if err != nil {
-		return gitFailure(err)
+		return err
 	}
-	d.AssignedTip, d.AssignedRefMissing = loss.AssignedTip, loss.AssignedTip == ""
+	d.AssignedTip, d.AssignedRefMissing = review.AssignedTip, review.AssignedTip == ""
 	if action == "delete" {
-		d.BranchLoss = deleteReview(loss)
+		d.BranchLoss = review
 		p.Loss = append(p.Loss, branchLoss(api.TargetBranch(session.Project, session.Branch), d.BranchLoss)...)
 	}
 	return nil
@@ -153,13 +147,4 @@ func runtimeFailure(err error, target string) error {
 		return &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonRuntimePresent, Target: target, Cause: err}
 	}
 	return control.Failed(api.ReasonRuntime, err)
-}
-
-// gitFailure answers a failed read of P's repository: refs that moved while
-// they were read can be read again.
-func gitFailure(err error) error {
-	if errors.Is(err, gitservice.ErrRefsMoving) {
-		return &control.Refusal{Kind: api.KindRetry, Reason: api.ReasonRefsMoved, Cause: err}
-	}
-	return control.Failed(api.ReasonGit, err)
 }

@@ -110,7 +110,7 @@ CONFIG
 url=pdev@origin-fixture:full.git
 project=publication
 source_ref=refs/heads/publish
-p_repo=$(origin-fixture prepare-publish "$state" "$step_dir/bundled.json" "$project")
+p_repo=$(origin-fixture prepare-publish "$state" "$project")
 git -C "$work" push -q "$p_repo" "$source:$source_ref"
 test "$(git -C "$p_repo" rev-parse "$source_ref")" = "$source"
 test "$(git -C "$p_repo" symbolic-ref HEAD)" = refs/heads/main

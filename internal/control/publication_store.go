@@ -6,10 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/lgvo/p.ai/internal/api"
-	"strings"
 	"time"
-
-	"github.com/lgvo/p.ai/internal/plugin"
 )
 
 // PublicationRequest binds a publication to one exact P tip and one origin
@@ -27,7 +24,7 @@ type PublicationRequest struct {
 }
 
 func validPublicationRequest(r PublicationRequest) bool {
-	if r.ExpectedOriginURL == "" || len(r.ExpectedOriginURL) > 2048 || !validProject(r.Project) || !validOID(r.SourceOID) || !strings.HasPrefix(r.DestinationRef, "refs/heads/") || !plugin.ValidGitOriginRef(r.DestinationRef) {
+	if r.ExpectedOriginURL == "" || len(r.ExpectedOriginURL) > 2048 || !validProject(r.Project) || !validOID(r.SourceOID) || !api.BoundedName(r.DestinationRef, api.MaxRefBytes) {
 		return false
 	}
 	if r.Kind == "session" {

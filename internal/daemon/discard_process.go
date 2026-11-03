@@ -16,8 +16,14 @@ import (
 
 var errDiscardRefsChanged = errors.New("P refs changed after the removal was validated")
 
-func discardPRefsDigest(refs []plugin.GitRef) (string, error) {
-	data, err := json.Marshal(refs)
+// discardPRefsDigest is the digest of every head of P's repository as a
+// removal reviewed them, each named by its full ref.
+func discardPRefsDigest(refs []api.PRef) (string, error) {
+	views := make([]plugin.GitRef, 0, len(refs))
+	for _, ref := range refs {
+		views = append(views, plugin.GitRef{Ref: ref.Name, OID: ref.OID})
+	}
+	data, err := json.Marshal(views)
 	if err != nil {
 		return "", err
 	}
@@ -32,7 +38,7 @@ func (l *lifecycle) verifyDiscardRefs(ctx context.Context, ev control.DiscardEvi
 		}
 		return err
 	}
-	current, err := l.git.backend.AssignedBranchSnapshot(ctx, ev.Project, ev.Branch, true)
+	current, err := l.branchRemovalReview(ctx, ev.Project, ev.Branch, false)
 	if err != nil {
 		return err
 	}
@@ -101,7 +107,7 @@ func (l *lifecycle) stopRemovalSource(ctx context.Context, op *api.Operation, ev
 }
 
 func (l *lifecycle) discardAssignedTip(ctx context.Context, ev control.DiscardEvidence) error {
-	tip, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.Branch)
+	tip, exists, err := l.inspectBranch(ctx, ev.Project, ev.Branch)
 	if err != nil {
 		return err
 	}
@@ -118,7 +124,7 @@ func (l *lifecycle) discardAssignedTip(ctx context.Context, ev control.DiscardEv
 }
 
 func (l *lifecycle) deleteAssignedAbsent(ctx context.Context, ev control.DiscardEvidence) error {
-	tip, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.Branch)
+	tip, exists, err := l.inspectBranch(ctx, ev.Project, ev.Branch)
 	if err != nil {
 		return err
 	}
@@ -126,6 +132,32 @@ func (l *lifecycle) deleteAssignedAbsent(ctx context.Context, ev control.Discard
 		return control.ErrConflict
 	}
 	return nil
+}
+
+// deleteAssignedBranch deletes the assigned branch of a session's delete at
+// its reviewed tip, recording branch-delete-issued right before. A branch
+// the review found absent is proven absent instead: nothing is deleted, and
+// the delete records the same phases.
+func (l *lifecycle) deleteAssignedBranch(ctx context.Context, op *api.Operation, ev control.DiscardEvidence) error {
+	issued := func() error { return l.advanceDiscard(op, ev, "branch-delete-issued") }
+	if ev.AssignedTip != "" {
+		return l.deleteBranch(ctx, ev.Project, ev.Branch, ev.AssignedTip, issued)
+	}
+	if err := l.deleteAssignedAbsent(ctx, ev); err != nil {
+		return err
+	}
+	return issued()
+}
+
+// settleAssignedBranchDelete settles a session delete's branch deletion
+// that was issued and whose outcome was never recorded: it succeeds only
+// when the source driver settles it applied, or, for a branch the review
+// found absent, when the branch is still absent.
+func (l *lifecycle) settleAssignedBranchDelete(ctx context.Context, ev control.DiscardEvidence) error {
+	if ev.AssignedTip == "" {
+		return l.deleteAssignedAbsent(ctx, ev)
+	}
+	return l.settleHead(ctx, deletion(ev.Project, ev.Branch, ev.AssignedTip), errors.New("P ref delete outcome unresolved"))
 }
 
 // rollbackStaleDiscard fails a removal whose reviewed facts changed before its
@@ -205,7 +237,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 			l.rollbackStaleDiscard(op, ev, errors.New("runtime generation or state changed"))
 			return
 		}
-		refs, e := l.git.backend.AssignedBranchSnapshot(ctx, ev.Project, ev.Branch, true)
+		refs, e := l.branchRemovalReview(ctx, ev.Project, ev.Branch, false)
 		if e != nil {
 			l.blockDiscard(op, e)
 			return
@@ -353,7 +385,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 				l.blockDiscard(op, e)
 				return
 			}
-			if err = l.git.backend.DeleteAssignedBranchExact(ctx, ev.Project, ev.Branch, ev.AssignedTip, func() error { return l.advanceDiscard(&op, ev, "branch-delete-issued") }); err != nil {
+			if err = l.deleteAssignedBranch(ctx, &op, ev); err != nil {
 				l.blockDiscard(op, err)
 				return
 			}
@@ -373,8 +405,14 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		return
 	case "branch-delete-issued":
-		l.blockDiscard(op, control.OutcomeUnknown(errors.New("P ref delete outcome unresolved")))
-		return
+		if err = l.settleAssignedBranchDelete(ctx, ev); err != nil {
+			l.blockDiscard(op, err)
+			return
+		}
+		if err = l.advanceDiscard(&op, ev, "branch-absent"); err != nil {
+			l.blockDiscard(op, err)
+			return
+		}
 	case "branch-absent":
 		if err = l.store.CompleteDelete(ctx, op.ID, func(c context.Context, project, branch, tip string) error {
 			if e := proveRuntimeAbsent(c, l.driver, spec); e != nil {

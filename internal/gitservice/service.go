@@ -1,12 +1,10 @@
 package gitservice
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"os"
@@ -34,7 +32,6 @@ type Backend struct {
 	gitPath   string
 	selection plugin.Active
 	sessions  chan struct{}
-	initMu    sync.Mutex
 	originMu  sync.Map // project -> *originLock; also used by future P-controlled GC
 }
 
@@ -127,10 +124,6 @@ func (b *Backend) repository(project string) (string, error) {
 	return filepath.Join(b.stateDir, "repositories", hex.EncodeToString(name[:])+".git"), nil
 }
 
-// RepositoryPath exposes the core-selected physical path to trusted lifecycle
-// composition. SSH clients and WASI packages receive only logical names.
-func (b *Backend) RepositoryPath(project string) (string, error) { return b.repository(project) }
-
 func privateDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -143,20 +136,14 @@ func privateDirectory(path string) error {
 	return nil
 }
 
-func (b *Backend) checkRepositoryParents(project string, create bool) error {
+func (b *Backend) checkRepositoryParents(project string) error {
 	if !validProject(project) {
 		return control.ErrInvalid
 	}
 	if err := privateDirectory(b.stateDir); err != nil {
 		return err
 	}
-	path := filepath.Join(b.stateDir, "repositories")
-	if create {
-		if err := os.Mkdir(path, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-			return err
-		}
-	}
-	return privateDirectory(path)
+	return privateDirectory(filepath.Join(b.stateDir, "repositories"))
 }
 
 func (b *Backend) gitEnv(extra ...string) []string {
@@ -192,200 +179,11 @@ func transportGitConfigArgs(service, hooksDir string, maxInputBytes int64) []str
 	return append(args, noImplicitMaintenanceArgs()...)
 }
 
-// InitBare creates only the Git substrate. Lifecycle code must journal and
-// register project creation separately before this repository is served.
-func (b *Backend) InitBare(ctx context.Context, project string) error {
-	if err := b.revalidate(); err != nil {
-		return err
-	}
-	b.initMu.Lock()
-	defer b.initMu.Unlock()
-	repo, err := b.repository(project)
-	if err != nil {
-		return err
-	}
-	if err := b.checkRepositoryParents(project, true); err != nil {
-		return err
-	}
-	if _, err := os.Lstat(repo); err == nil {
-		return control.ErrConflict
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	temp, err := os.MkdirTemp(filepath.Dir(repo), ".p-git-init-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(temp)
-	cmd := exec.CommandContext(ctx, b.gitPath, "init", "--bare", "--initial-branch=main", temp)
-	cmd.Env = b.gitEnv()
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("bare Git init failed: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	if err := verifyBareDir(temp); err != nil {
-		return err
-	}
-	head := exec.CommandContext(ctx, b.gitPath, "-C", temp, "symbolic-ref", "HEAD")
-	head.Env = b.gitEnv()
-	out, err := head.Output()
-	if err != nil || strings.TrimSpace(string(out)) != "refs/heads/main" {
-		return errors.New("initialized bare repository has invalid HEAD")
-	}
-	return os.Rename(temp, repo)
-}
-
-// EnsureBare is the source-git plugin operation. It does not register a P
-// project or report lifecycle creation complete.
-func (b *Backend) EnsureBare(ctx context.Context, project string) error {
-	_, err := plugin.RunSourceGit(ctx, b.selection, plugin.GitCommand{Kind: "git.project.ensure", Project: project, InitialHead: "refs/heads/main"}, &gitBroker{backend: b, project: project})
-	return err
-}
-
-// ListRefs returns ordinary heads observed by Git through the selected
-// package's bounded paging sequence.
-func (b *Backend) ListRefs(ctx context.Context, project string, limit int) ([]plugin.GitRef, error) {
-	refs, _, err := b.ListRefsPage(ctx, project, "", limit)
-	return refs, err
-}
-
-// ListRefsPage uses Git's bytewise ref cursor. An empty next value means no
-// further ordinary head was observed at this read boundary.
-func (b *Backend) ListRefsPage(ctx context.Context, project, after string, limit int) ([]plugin.GitRef, string, error) {
-	refs, next, _, err := b.ListRefsPageObserved(ctx, project, after, limit)
-	return refs, next, err
-}
-
-// ListRefsPageObserved reports attempted native ref queries, including failed
-// queries, without allowing callers to supply Git commands or ref data.
-func (b *Backend) ListRefsPageObserved(ctx context.Context, project, after string, limit int) ([]plugin.GitRef, string, int, error) {
-	if limit < 1 || limit > 8 || after != "" && (!strings.HasPrefix(after, "refs/heads/") || !validBranch(strings.TrimPrefix(after, "refs/heads/"))) {
-		return nil, "", 0, control.ErrInvalid
-	}
-	if _, err := b.checkRepository(ctx, project); err != nil {
-		return nil, "", 0, err
-	}
-	broker := &gitBroker{backend: b, project: project, after: after}
-	outcome, err := plugin.RunSourceGit(ctx, b.selection, plugin.GitCommand{Kind: "git.refs.list", Project: project, Limit: limit}, broker)
-	if err != nil {
-		return nil, "", broker.refQueries, err
-	}
-	next := ""
-	if !broker.exhausted && len(outcome.Refs) > 0 {
-		next = broker.after
-	}
-	return outcome.Refs, next, broker.refQueries, nil
-}
-
+// gitBroker runs Git on one checked project repository for the bundle
+// export.
 type gitBroker struct {
-	backend        *Backend
-	project        string
-	source         plugin.GitSourceSelector
-	branch         string
-	commitOID      string
-	beforeDelete   func() error
-	capturedOrigin bool
-	after          string
-	refOffset      int
-	refQueries     int
-	exhausted      bool
-}
-
-func (g *gitBroker) Inspect(ctx context.Context) (plugin.GitInspection, error) {
-	repo, err := g.backend.repository(g.project)
-	if err != nil {
-		return plugin.GitInspection{}, err
-	}
-	if _, err := os.Lstat(repo); errors.Is(err, os.ErrNotExist) {
-		return plugin.GitInspection{Exists: false}, nil
-	} else if err != nil {
-		return plugin.GitInspection{}, err
-	}
-	if _, err := g.backend.checkRepository(ctx, g.project); err != nil {
-		return plugin.GitInspection{}, err
-	}
-	cmd := exec.CommandContext(ctx, g.backend.gitPath, "-C", repo, "symbolic-ref", "HEAD")
-	cmd.Env = g.backend.gitEnv()
-	out, err := cmd.Output()
-	if err != nil {
-		return plugin.GitInspection{}, err
-	}
-	return plugin.GitInspection{Exists: true, Head: strings.TrimSpace(string(out))}, nil
-}
-
-func (g *gitBroker) Init(ctx context.Context) error { return g.backend.InitBare(ctx, g.project) }
-func (g *gitBroker) SetHead(ctx context.Context) error {
-	repo, err := g.backend.checkRepository(ctx, g.project)
-	if err != nil {
-		return err
-	}
-	cmd := exec.CommandContext(ctx, g.backend.gitPath, "-C", repo, "symbolic-ref", "HEAD", "refs/heads/main")
-	cmd.Env = g.backend.gitEnv()
-	return cmd.Run()
-}
-
-// Bound native observations independently of the smaller WASI reply. Git
-// 2.55's --start-after can replay loose heads when a refs/heads-* sibling
-// exists, so each read uses a bounded heads-only observation and a core cursor.
-const maxObservedHeads = 1024
-const maxRefObservationBytes = 300 * 1024
-
-type refOutput struct {
-	buffer bytes.Buffer
-}
-
-func (w *refOutput) Write(p []byte) (int, error) {
-	if len(p) > maxRefObservationBytes-w.buffer.Len() {
-		return 0, errors.New("Git ref output exceeded limit")
-	}
-	return w.buffer.Write(p)
-}
-
-func (g *gitBroker) NextRefs(ctx context.Context, offset, size int) ([]plugin.GitRef, bool, error) {
-	if offset != g.refOffset || size < 1 || size > 8 || offset+size > 8 || g.exhausted {
-		return nil, false, control.ErrInvalid
-	}
-	repo, err := g.backend.repository(g.project)
-	if err != nil {
-		return nil, false, err
-	}
-	cmd := exec.CommandContext(ctx, g.backend.gitPath, "-C", repo, "for-each-ref", "--count="+strconv.Itoa(maxObservedHeads+1), "--format=%(refname) %(objectname)", "refs/heads/")
-	cmd.Env = g.backend.gitEnv()
-	var out refOutput
-	cmd.Stdout = &out
-	g.refQueries++
-	if err := cmd.Run(); err != nil {
-		return nil, false, errors.New("Git ref inspection failed")
-	}
-	lines := strings.Split(strings.TrimSuffix(out.buffer.String(), "\n"), "\n")
-	if out.buffer.Len() == 0 {
-		lines = nil
-	}
-	if len(lines) > maxObservedHeads {
-		return nil, false, errors.New("Git ref observation exceeds 1024 heads")
-	}
-	refs := make([]plugin.GitRef, 0, size)
-	previous, more := "", false
-	for _, line := range lines {
-		parts := strings.Split(line, " ")
-		if len(parts) != 2 || !strings.HasPrefix(parts[0], "refs/heads/") || !validBranch(strings.TrimPrefix(parts[0], "refs/heads/")) || !validOID(parts[1]) || parts[0] <= previous {
-			return nil, false, errors.New("invalid Git ref observation")
-		}
-		previous = parts[0]
-		if parts[0] <= g.after {
-			continue
-		}
-		if len(refs) == size {
-			more = true
-			continue
-		}
-		refs = append(refs, plugin.GitRef{Ref: parts[0], OID: parts[1]})
-	}
-	if len(refs) > 0 {
-		g.after = refs[len(refs)-1].Ref
-	}
-	g.refOffset += len(refs)
-	g.exhausted = !more
-	return refs, g.exhausted, nil
+	backend *Backend
+	project string
 }
 
 func (b *Backend) checkRepository(ctx context.Context, project string) (string, error) {
@@ -396,7 +194,7 @@ func (b *Backend) checkRepository(ctx context.Context, project string) (string, 
 	if err != nil {
 		return "", err
 	}
-	if err := b.checkRepositoryParents(project, false); err != nil {
+	if err := b.checkRepositoryParents(project); err != nil {
 		return "", err
 	}
 	if err := verifyBareDir(repo); err != nil {
@@ -595,7 +393,7 @@ func (b *Backend) handle(auth ssh.Context, channel gossh.Channel, service, proje
 	if err != nil {
 		return 1
 	}
-	planOutcome, err := plugin.RunSourceGit(auth, b.selection, plugin.GitCommand{Kind: "git.transport.plan", Project: project, Service: service, Ceilings: &plugin.GitTransportPlan{MaxInputBytes: plugin.GitCoreInputCeiling, MaxDurationMS: plugin.GitCoreDurationMS}}, &gitBroker{backend: b, project: project})
+	planOutcome, err := plugin.RunSourceGit(auth, b.selection, plugin.GitCommand{Kind: "git.transport.plan", Project: project, Service: service, Ceilings: &plugin.GitTransportPlan{MaxInputBytes: plugin.GitCoreInputCeiling, MaxDurationMS: plugin.GitCoreDurationMS}}, nil)
 	if err != nil {
 		return 1
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 )
 
 const project = "builder-lab"
@@ -163,6 +164,8 @@ func openRepository(ctx context.Context, state, activation string) (*control.Sto
 	return store, git, repo, nil
 }
 
+// initRepository makes the repository with the bundled source driver and
+// returns the Git service that exports its commits.
 func initRepository(ctx context.Context, store *control.Store, state, activation string) (*gitservice.Backend, string, error) {
 	active, err := plugin.LoadActivation(activation)
 	if err != nil {
@@ -172,11 +175,14 @@ func initRepository(ctx context.Context, store *control.Store, state, activation
 	if err != nil {
 		return nil, "", err
 	}
-	if err := git.InitBare(ctx, project); err != nil {
+	driver, err := bundledgit.Open(ctx, state)
+	if err != nil {
 		return nil, "", err
 	}
-	repo, err := git.RepositoryPath(project)
-	return git, repo, err
+	if _, err := driver.CreateRepository(ctx, project); err != nil {
+		return nil, "", err
+	}
+	return git, bundledgit.RepositoryPath(state, project), nil
 }
 
 // exportCommit writes the commit's bundle into a private directory, as core

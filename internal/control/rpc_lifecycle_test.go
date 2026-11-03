@@ -65,7 +65,7 @@ func TestRenameRPCUsesClosedRequest(t *testing.T) {
 	tip := strings.Repeat("a", 40)
 	for _, raw := range []string{
 		`{"v":1,"key":"rename","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + tip + `"}`,
-		`{"key":"rename","uuid":"` + uuid + `","new_branch":"../escape","expected_old_tip":"` + tip + `"}`,
+		`{"key":"rename","uuid":"` + uuid + `","new_branch":"next\nx","expected_old_tip":"` + tip + `"}`,
 		`{"key":"rename","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":""}`,
 		`{"key":"rename","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + tip + `","path":"/workspace"}`,
 		`{"key":"rename","key":"rename","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + tip + `"}`,

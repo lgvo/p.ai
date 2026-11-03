@@ -187,20 +187,22 @@ jq -n --arg state "$state" --arg git_activation "$step_dir/git.json" --arg git_i
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 
 
-# Resolve every executable before the broker narrows PATH to this wrapper.
+# Resolve every executable before the source driver narrows Git's PATH to this
+# wrapper's directory. The driver creates a head as --git-dir=REPO update-ref
+# --no-deref REF NEW ZERO.
 host_git=$(command -v git)
 mkdir -m 0700 "$step_dir/bin"
 printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"
 printf 'host_git=%q\nfixture=%q\n' "$host_git" "$step_dir" >> "$step_dir/bin/git"
 cat >> "$step_dir/bin/git" <<'WRAPPER'
 set -euo pipefail
-if test "$#" -eq 7 && test "$3" = update-ref && test "$4" = --no-deref; then
-  if test "$5" = refs/heads/work && test -f "$fixture/git-fault-before"; then
+if test "$#" -eq 6 && test "${1%%=*}" = --git-dir && test "$2" = update-ref && test "$3" = --no-deref; then
+  if test "$4" = refs/heads/work && test -f "$fixture/git-fault-before"; then
     # Public worker attempted its planned zero-old CAS, but no Git effect ran.
     : > "$fixture/git-fault-seen"
     exit 128
   fi
-  if test "$5" = refs/heads/retained && test -f "$fixture/git-fault-after"; then
+  if test "$4" = refs/heads/retained && test -f "$fixture/git-fault-after"; then
     # Execute the real local Git CAS, then simulate loss of its success reply.
     # The ref is retained; no UUID endpoint/key/runtime effect has occurred.
     "$host_git" "$@"

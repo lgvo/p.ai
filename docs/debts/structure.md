@@ -15,7 +15,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 11 cases:
+- Added 2026-11-01, updated 2026-11-03, 14 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -74,6 +74,16 @@
     workers are now unit-tested on the in-memory driver with a real store and Git
     repository (runtime_removal_test.go, rename_test.go), which needed no store or Git
     stand-in.
+  - 2026-11-03: "step 9 S2: rename's workspace phases over `RenameWorkspace`" moved the
+    rename worker's heads and clone edits onto the source driver (`git.driver`); its unit
+    tests now run on the in-memory source and runtime drivers with a real store, and no
+    Git repository.
+  - 2026-11-03: "step 9 S2: repositories, heads and commits through the source driver"
+    moved creation's repository and branch assignment, retained rename and deletion,
+    discard, delete and project deletion onto `git.driver`; retained rename and deletion,
+    branch assignment and settling a lost head effect are unit-tested on the in-memory
+    source driver, and `processRetainedDelete` is no longer at 0%. The origin, the image
+    builder's bundle and P's SSH endpoint still use the concrete `*gitservice.Backend`.
 
 ## Long worker functions
 
@@ -85,7 +95,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 10 cases:
+- Added 2026-11-01, updated 2026-11-03, 12 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -117,6 +127,13 @@
     took `processDiscard` from 239 lines to 252, `processAssembledCreateCleanup` from 170 to
     181, `processRename` from 201 to 219 and `processProjectDelete` from 310 to 305
     (counted from `func` to the closing brace).
+  - 2026-11-03: "step 9 S2: rename's workspace phases over `RenameWorkspace`" took
+    `processRename` from 219 lines to 214: the source driver computes the clone's edits,
+    and core settles the one edit its gate recorded.
+  - 2026-11-03: "step 9 S2: repositories, heads and commits through the source driver"
+    moved the repository's deletion into `deleteProjectRepository`, taking
+    `processProjectDelete` from 305 lines to 282, and settling a resumed branch deletion
+    took `processDiscard` from 252 to 258; `processCreation` stays at 199.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
@@ -210,7 +227,7 @@
   gitservice, plugin and runtimeincus), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 8 cases:
+- Added 2026-11-01, updated 2026-11-03, 9 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -234,6 +251,9 @@
     report the services capability only when the lifecycle's `ServicesOffered` says the
     driver offers project services (rpc.go, rpc_lifecycle.go, rpc_services.go); the server
     stayed in control.
+  - 2026-11-03: "step 9 S2: repositories, heads and commits through the source driver"
+    made rpc.go page `project.branches` and `project.retained_branches` over the source
+    driver's `Branches` and map its errors (`HeadsFailure`); the server stayed in control.
 
 ## Operation status updates and kind lists are still written per site
 
@@ -321,3 +341,25 @@
   - 2026-11-03: "removal, rename and creation recovery through the driver" gave the driver
     a session `Delete` whose `sessionRuntime` reads `user.p.instance_uuid` as one more
     literal.
+
+## The CLI parses branch names and commit IDs by the bundled driver's rules
+
+- Where: internal/api validate.go `ValidBranch` and `ValidOID`; their callers in cmd/p,
+  names.go `parseBranchName` and `sourceRef`, risky.go (`--to` of a publication)
+- Problem: Core leaves the syntax of branch names and commit IDs to the source driver
+  (`CheckNames`), but the CLI still parses its arguments by the bundled Git driver's rules
+  (gitnames), through `api.ValidBranch` and `api.ValidOID`: it refuses a branch name that
+  rule refuses, and takes an argument of a commit ID's form as a commit, not a branch.
+- Evidence: step 9 S2 removed every use of the two functions from core and kept them for
+  cmd/p only.
+- Risk: with a source driver of another backend, the CLI refuses locally a branch the
+  driver accepts, or reads a branch whose name looks like a commit ID as that commit.
+- Fix: the CLI sends names as given and shows the daemon's `invalid` answer with its field,
+  and says which of a commit or a branch it means; then `ValidBranch` and `ValidOID` go.
+- Fix when: a source driver of another backend, or the next change to the CLI's argument
+  parsing.
+- Left by: the agent, by rule (a shortcut the change takes: S2 moves core's checks, and
+  cmd/p is another package's).
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "step 9 S2: Git's syntax leaves core" made the request types bound names
+    only and the handlers ask `CheckNames`; the CLI keeps the bundled driver's rules.

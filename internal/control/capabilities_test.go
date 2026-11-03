@@ -3,16 +3,18 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/api"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
+	sourcememory "github.com/lgvo/p.ai/internal/sourcedriver/memory"
 )
 
 type fixtureGitReader struct{}
 
-func (fixtureGitReader) ListRefsPage(_ context.Context, project, after string, limit int) ([]plugin.GitRef, string, error) {
-	return []plugin.GitRef{{Ref: "refs/heads/main", OID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "", nil
+func (fixtureGitReader) Branches(context.Context, string) ([]sourcedriver.Head, error) {
+	return []sourcedriver.Head{{Name: "main", Tip: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, nil
 }
 
 func TestConfiguredReadOnlyProjectMethods(t *testing.T) {
@@ -61,6 +63,63 @@ func TestConfiguredReadOnlyProjectMethods(t *testing.T) {
 	inspect, rpcErr := callMethod(t, ctx, handler, api.SystemInspect, api.SystemInspectRequest{})
 	if rpcErr != nil || inspect.Git == nil || inspect.Git.Endpoint != "127.0.0.1:2222" {
 		t.Fatalf("missing Git connection details: %+v %+v", inspect, rpcErr)
+	}
+}
+
+// TestProjectBranchesPagesTheSourceDriversHeads pages project.branches over
+// the source driver's heads: full refs in byte order after the cursor, at
+// most limit of them, and next only while more heads follow.
+func TestProjectBranchesPagesTheSourceDriversHeads(t *testing.T) {
+	store, _ := openTestStore(t)
+	ctx := context.Background()
+	if err := store.CreateProject(ctx, "team/app", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	world := sourcememory.NewWorld()
+	driver := sourcememory.NewDriver(world)
+	if _, err := driver.CreateRepository(ctx, "team/app"); err != nil {
+		t.Fatal(err)
+	}
+	tip := world.Commit("team/app")
+	world.SetHeads("team/app", []string{"b", "a", "c/d", "e"}, tip)
+	handler := NewHandler(HandlerConfig{Store: store, Git: driver, GitInfo: &api.GitInfo{Endpoint: "127.0.0.1:2222"}})
+	page := func(after string, limit int) (api.ProjectBranchesResult, *api.Error) {
+		result, answer := callMethod(t, ctx, handler, api.ProjectBranches, api.ProjectBranchesRequest{Project: "team/app", After: after, Limit: limit})
+		return result, answer
+	}
+	refs := func(r api.ProjectBranchesResult) []string {
+		var names []string
+		for _, ref := range r.Refs {
+			if ref.OID != string(tip) {
+				t.Fatalf("ref %s at %s, want %s", ref.Ref, ref.OID, tip)
+			}
+			names = append(names, ref.Ref)
+		}
+		return names
+	}
+	for _, test := range []struct {
+		after string
+		limit int
+		refs  []string
+		next  string
+	}{
+		{"", 2, []string{"refs/heads/a", "refs/heads/b"}, "refs/heads/b"},
+		{"refs/heads/b", 2, []string{"refs/heads/c/d", "refs/heads/e"}, ""},
+		{"refs/heads/a", 3, []string{"refs/heads/b", "refs/heads/c/d", "refs/heads/e"}, ""},
+		{"refs/heads/e", 8, nil, ""},
+	} {
+		result, answer := page(test.after, test.limit)
+		if answer != nil || !reflect.DeepEqual(refs(result), test.refs) || result.Next != test.next || result.Refs == nil {
+			t.Errorf("page after %q limit %d: %+v %v, want %v next %q", test.after, test.limit, result, answer, test.refs, test.next)
+		}
+	}
+	world.MoveDuringRead("team/app", "a", world.Commit("team/app", tip))
+	if _, answer := page("", 8); answer == nil || answer.Kind() != api.KindRetry || answer.Reason() != api.ReasonRefsMoved {
+		t.Errorf("heads moving during the read answered %v, want retry refs_moved", answer)
+	}
+	driver.Kill()
+	if _, answer := page("", 8); answer == nil || answer.Kind() != api.KindFailed || answer.Reason() != api.ReasonGit {
+		t.Errorf("a source driver that cannot read answered %v, want failed git", answer)
 	}
 }
 

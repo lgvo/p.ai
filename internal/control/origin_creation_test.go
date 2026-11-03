@@ -233,7 +233,7 @@ func TestOriginCreationRPCStrictInputs(t *testing.T) {
 	for _, input := range []string{
 		`{"key":"b","project":"app","branch":"work","choice":"existing","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `"}`,
 		`{"key":"b","project":"app","branch":"work","choice":"new","source":"refs/heads/main","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `"}`,
-		`{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"bad"}`,
+		`{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + strings.Repeat("a", 65) + `"}`,
 		`{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `","extra":1}`,
 	} {
 		if e := call("session.create", input); e == nil || e.Kind() != "invalid" {

@@ -22,9 +22,6 @@ type command struct {
 	Kind           string `json:"kind"`
 	Scope          string `json:"scope"`
 	Project        string `json:"project"`
-	Branch         string `json:"branch,omitempty"`
-	InitialHead    string `json:"initial_head,omitempty"`
-	Limit          int    `json:"limit,omitempty"`
 	Service        string `json:"service,omitempty"`
 	OriginRef      string `json:"origin_ref,omitempty"`
 	SourceRef      string `json:"source_ref,omitempty"`
@@ -39,14 +36,6 @@ type command struct {
 type response struct {
 	Schema string `json:"schema"`
 	Status string `json:"status"`
-	Exists *bool  `json:"exists,omitempty"`
-	Head   string `json:"head,omitempty"`
-	Refs   []struct {
-		Ref string `json:"ref"`
-		OID string `json:"oid"`
-	} `json:"refs,omitempty"`
-	Exhausted    *bool `json:"exhausted,omitempty"`
-	PageComplete *bool `json:"page_complete,omitempty"`
 }
 
 func strict(data []byte, value any) bool {
@@ -77,38 +66,8 @@ func invoke(scope, method string, fields map[string]any) (response, bool) {
 
 func execute(request command) bool {
 	switch request.Kind {
-	case "git.project.ensure":
-		if request.InitialHead != "refs/heads/main" || request.Limit != 0 || request.Service != "" || request.Ceilings != nil {
-			return false
-		}
-		state, ok := invoke(request.Scope, "git.repo.inspect", map[string]any{})
-		if !ok || state.Exists == nil {
-			return false
-		}
-		if *state.Exists {
-			return state.Head == request.InitialHead
-		}
-		if _, ok = invoke(request.Scope, "git.repo.init", map[string]any{}); !ok {
-			return false
-		}
-		_, ok = invoke(request.Scope, "git.repo.set-head", map[string]any{})
-		return ok
-	case "git.refs.list":
-		if request.Limit < 1 || request.Limit > 8 || request.InitialHead != "" || request.Service != "" || request.Ceilings != nil {
-			return false
-		}
-		for range request.Limit {
-			page, ok := invoke(request.Scope, "git.refs.next", map[string]any{"page_size": 1})
-			if !ok || page.PageComplete == nil || page.Exhausted == nil {
-				return false
-			}
-			if *page.PageComplete {
-				return true
-			}
-		}
-		return false
 	case "git.transport.plan":
-		if request.InitialHead != "" || request.Limit != 0 || (request.Service != "upload" && request.Service != "receive") || request.Ceilings == nil || request.Ceilings.MaxInputBytes < 1 || request.Ceilings.MaxDurationMS < 1 {
+		if (request.Service != "upload" && request.Service != "receive") || request.Ceilings == nil || request.Ceilings.MaxInputBytes < 1 || request.Ceilings.MaxDurationMS < 1 {
 			return false
 		}
 		fields := map[string]any{}
@@ -118,19 +77,19 @@ func execute(request command) bool {
 		_, ok := invoke(request.Scope, "git.transport.prepare", fields)
 		return ok
 	case "git.origin.observe":
-		if request.OriginRef != "" || request.CommitOID != "" || request.InitialHead != "" || request.Limit != 0 || request.Service != "" || request.Ceilings != nil {
+		if request.OriginRef != "" || request.CommitOID != "" || request.Service != "" || request.Ceilings != nil {
 			return false
 		}
 		_, ok := invoke(request.Scope, "git.origin.observe", map[string]any{})
 		return ok
 	case "git.origin.fetch":
-		if request.OriginRef == "" || request.CommitOID == "" || request.InitialHead != "" || request.Limit != 0 || request.Service != "" || request.Ceilings != nil {
+		if request.OriginRef == "" || request.CommitOID == "" || request.Service != "" || request.Ceilings != nil {
 			return false
 		}
 		_, ok := invoke(request.Scope, "git.origin.fetch", map[string]any{})
 		return ok
 	case "git.origin.publish":
-		if request.SourceRef == "" || request.DestinationRef == "" || request.CommitOID == "" || request.OriginRef != "" || request.InitialHead != "" || request.Limit != 0 || request.Service != "" || request.Ceilings != nil {
+		if request.SourceRef == "" || request.DestinationRef == "" || request.CommitOID == "" || request.OriginRef != "" || request.Service != "" || request.Ceilings != nil {
 			return false
 		}
 		_, ok := invoke(request.Scope, "git.origin.publish", map[string]any{})

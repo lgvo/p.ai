@@ -150,6 +150,11 @@ func parseHead(line string) (sourcedriver.Head, error) {
 	return sourcedriver.Head{Name: name, Tip: sourcedriver.OID(fields[0])}, nil
 }
 
+// maxTypeAnswer bounds Git's answer for one object: the longest ID, a
+// SHA-256 one, and its longest word, which Git writes for an ID it cannot
+// tell from another; "missing" is one shorter.
+const maxTypeAnswer = 64 + len(" ambiguous\n")
+
 // objectTypes reads the type of each object, "missing" for an object the
 // repository does not hold.
 func (d *Driver) objectTypes(ctx context.Context, repo string, ids []sourcedriver.OID) (map[sourcedriver.OID]string, error) {
@@ -161,7 +166,7 @@ func (d *Driver) objectTypes(ctx context.Context, repo string, ids []sourcedrive
 	for _, id := range unique {
 		input.WriteString(string(id) + "\n")
 	}
-	read, err := d.gitInput(ctx, repo, input.String(), len(unique)*(64+len(" commit\n")), "cat-file", "--batch-check=%(objectname) %(objecttype)")
+	read, err := d.gitInput(ctx, repo, input.String(), len(unique)*maxTypeAnswer, "cat-file", "--batch-check=%(objectname) %(objecttype)")
 	if err != nil {
 		return nil, err
 	}

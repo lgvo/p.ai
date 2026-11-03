@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -55,19 +54,18 @@ func retainedBranches(ctx context.Context, r api.ProjectRetainedBranchesRequest,
 	if !active {
 		return api.RetainedBranchesResult{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
 	}
-	refs, next, err := origins.Git.ListRefsPage(ctx, r.Project, r.After, r.Limit)
+	heads, next, err := branchesPage(ctx, origins.Git, r.Project, r.After, r.Limit)
 	if err != nil {
-		return api.RetainedBranchesResult{}, Failed(api.ReasonGit, err)
+		return api.RetainedBranchesResult{}, err
 	}
-	branches := make([]api.RetainedBranch, 0, len(refs))
-	for _, ref := range refs {
-		name := strings.TrimPrefix(ref.Ref, "refs/heads/")
-		retained, e := origins.Store.IsRetainedBranch(ctx, r.Project, name)
+	branches := make([]api.RetainedBranch, 0, len(heads))
+	for _, head := range heads {
+		retained, e := origins.Store.IsRetainedBranch(ctx, r.Project, head.Name)
 		if e != nil {
 			return api.RetainedBranchesResult{}, e
 		}
 		if retained {
-			branches = append(branches, api.RetainedBranch{Branch: name, Ref: ref.Ref, OID: ref.OID})
+			branches = append(branches, api.RetainedBranch{Branch: head.Name, Ref: headRef(head), OID: string(head.Tip)})
 		}
 	}
 	return boundedPage(branches, next, func(v api.RetainedBranch) string { return v.Ref },

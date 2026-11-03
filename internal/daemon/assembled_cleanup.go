@@ -82,7 +82,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 	}
 	proveAbsent := func(call context.Context) error { return l.failedCreationAbsent(call, op.SessionUUID, ev.Review) }
 	verifyRefs := func(call context.Context) error {
-		tip, exists, e := l.git.backend.InspectBranchRef(call, op.Project, session.Branch)
+		tip, exists, e := l.inspectBranch(call, op.Project, session.Branch)
 		if e != nil || !exists || tip != ev.Review.AssignedBranch.OID {
 			return errors.Join(e, control.ErrConflict)
 		}
@@ -199,7 +199,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 			if e := l.createCleanupLocalAbsent(op.SessionUUID); e != nil {
 				return e
 			}
-			tip, exists, e := l.git.backend.InspectBranchRef(call, op.Project, session.Branch)
+			tip, exists, e := l.inspectBranch(call, op.Project, session.Branch)
 			if e != nil || !exists || tip != ev.Review.AssignedBranch.OID {
 				return errors.Join(e, control.ErrConflict)
 			}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 // RenameRequest is immutable across idempotent retries. The expected tip is a
@@ -20,31 +21,55 @@ type RenameRequest struct {
 }
 
 type RenameEvidence struct {
-	Project           string `json:"project"`
-	OldBranch         string `json:"old_branch"`
-	NewBranch         string `json:"new_branch"`
-	OldTip            string `json:"old_tip"`
-	WorkspaceTip      string `json:"workspace_tip,omitempty"`
-	ConfigAfterSHA256 string `json:"config_after_sha256,omitempty"`
-	PolicySHA256      string `json:"policy_sha256"`
-	InstanceUUID      string `json:"instance_uuid"`
-	ImageFingerprint  string `json:"image_fingerprint"`
-	BaseFingerprint   string `json:"base_fingerprint"`
-	IncusUUID         string `json:"incus_uuid"`
-	Generation        string `json:"generation"`
-	// BackupRemoveIssued records that the removal of the workspace backup
-	// was sent; every later attempt settles it first.
-	BackupRemoveIssued bool `json:"backup_remove_issued,omitempty"`
+	Project   string `json:"project"`
+	OldBranch string `json:"old_branch"`
+	NewBranch string `json:"new_branch"`
+	OldTip    string `json:"old_tip"`
+	// Plan is the source driver's plan for renaming the session's clone,
+	// recorded with the backup's write: every later answer of the rename
+	// must return it.
+	Plan             string `json:"plan,omitempty"`
+	PolicySHA256     string `json:"policy_sha256"`
+	InstanceUUID     string `json:"instance_uuid"`
+	ImageFingerprint string `json:"image_fingerprint"`
+	BaseFingerprint  string `json:"base_fingerprint"`
+	IncusUUID        string `json:"incus_uuid"`
+	Generation       string `json:"generation"`
+	// Edit is the clone edit last sent, which its gate records: an attempt
+	// that finds it settles it, and never sends it again.
+	Edit RenameEdit `json:"edit,omitzero"`
+}
+
+// RenameEdit is one edit of a renamed session's clone: the goal it serves,
+// its path in the workspace, and whether it removes the path or writes a
+// file there.
+type RenameEdit struct {
+	Goal   sourcedriver.Goal `json:"goal"`
+	Path   string            `json:"path"`
+	Remove bool              `json:"remove,omitempty"`
 }
 
 func ValidRenameRequest(r RenameRequest) bool { return api.SessionRenameRequest(r).Validate() == nil }
 
 func validRenameEvidence(e RenameEvidence) bool {
 	return validProject(e.Project) && validBranch(e.OldBranch) && validBranch(e.NewBranch) && e.OldBranch != e.NewBranch &&
-		validOID(e.OldTip) && (e.WorkspaceTip == "" || validOID(e.WorkspaceTip)) &&
-		(e.ConfigAfterSHA256 == "" || validFingerprint(e.ConfigAfterSHA256)) && validFingerprint(e.PolicySHA256) &&
-		validUUID(e.InstanceUUID) && validFingerprint(e.ImageFingerprint) && validFingerprint(e.BaseFingerprint) &&
-		validUUID(e.IncusUUID) && validUUID(e.Generation)
+		validOID(e.OldTip) && (e.Plan == "" || api.BoundedName(e.Plan, sourcedriver.MaxPlan)) && validRenameEdit(e.Edit) &&
+		validFingerprint(e.PolicySHA256) && validUUID(e.InstanceUUID) && validFingerprint(e.ImageFingerprint) &&
+		validFingerprint(e.BaseFingerprint) && validUUID(e.IncusUUID) && validUUID(e.Generation)
+}
+
+// maxRenameEditPath bounds a recorded edit's path, so that the evidence's
+// 2048 bytes hold it beside the plan, the branches and the identities.
+const maxRenameEditPath = 256
+
+func validRenameEdit(e RenameEdit) bool {
+	switch e.Goal {
+	case "":
+		return e == RenameEdit{}
+	case sourcedriver.GoalPrepared, sourcedriver.GoalRenamed, sourcedriver.GoalDone:
+		return api.BoundedName(e.Path, maxRenameEditPath)
+	}
+	return false
 }
 
 // BeginRename serializes ref observation, session reservation and both guards

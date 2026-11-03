@@ -89,6 +89,52 @@ func TestCreationCleanupCompletionAndIdentityCannotBeRewound(t *testing.T) {
 	}
 }
 
+// A creation that recorded its new branch's creation as sent keeps that
+// record: a stale writer cannot erase it, also after a restart, so recovery
+// settles the creation before it is sent again.
+func TestBranchCreationSentCannotBeErasedAcrossRestart(t *testing.T) {
+	s, dir := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateProject(ctx, "app", json.RawMessage(`{"network":"none"}`)); err != nil {
+		t.Fatal(err)
+	}
+	req := ReserveSessionRequest{Key: "sent", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"}
+	stale, _, err := s.BeginSessionCreate(ctx, req, strings.Repeat("a", 64), testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
+		return strings.Repeat("b", 40), false, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev, err := Evidence(stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev.BranchCreateIssued = true
+	sent, _ := json.Marshal(ev)
+	if err = s.AdvanceOperation(ctx, stale.ID, "running", stale.Phase, stale.Committed, sent, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.AdvanceOperation(ctx, stale.ID, "blocked", stale.Phase, stale.Committed, stale.Evidence, "internal", "stale worker failure"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a stale writer erased the sent creation: %v", err)
+	}
+	s.Close()
+	s, err = testScopedOpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	durable, err := s.GetOperation(ctx, stale.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev, err = Evidence(durable); err != nil || !ev.BranchCreateIssued {
+		t.Fatalf("the restart lost the sent creation: %+v %v", ev, err)
+	}
+	if err = s.AdvanceOperation(ctx, stale.ID, "running", stale.Phase, stale.Committed, stale.Evidence, "", ""); !errors.Is(err, ErrConflict) {
+		t.Fatalf("a stale writer erased the sent creation after the restart: %v", err)
+	}
+}
+
 func TestBuilderCyclesMoveForwardOnly(t *testing.T) {
 	state := func(cycle uint64, s string) *CreationBuilderState {
 		return &CreationBuilderState{Cycle: cycle, State: s}

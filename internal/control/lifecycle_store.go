@@ -15,6 +15,9 @@ import (
 
 // CreationEvidence is immutable selection data made under the Git authority
 // lock. It is stored before an absent-ref CAS or runtime side effect.
+// BranchCreateIssued records, right before the source driver is asked to
+// create the new branch, that the creation was sent: a creation recorded as
+// sent is settled before it is sent again.
 type CreationEvidence struct {
 	CapturedOID           string                        `json:"captured_oid,omitempty"`
 	BranchExisted         bool                          `json:"branch_existed"`
@@ -23,6 +26,7 @@ type CreationEvidence struct {
 	EnvironmentBuilder    *CreationBuilderState         `json:"environment_builder,omitempty"`
 	RuntimeInitState      string                        `json:"runtime_init_state,omitempty"`
 	RefCASIntent          bool                          `json:"ref_cas_intent,omitempty"`
+	BranchCreateIssued    bool                          `json:"branch_create_issued,omitempty"`
 	Selection             CreationSelection             `json:"selection"`
 	OriginURL             string                        `json:"origin_url,omitempty"`
 	OriginRef             string                        `json:"origin_ref,omitempty"`
@@ -244,7 +248,10 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 }
 
 func validFingerprint(s string) bool { return api.ValidFingerprint(s) }
-func validOID(s string) bool         { return api.ValidOID(s) }
+
+// validOID is core's bound for a commit ID, whose syntax the source driver
+// decides (CheckNames).
+func validOID(s string) bool { return api.BoundedName(s, api.MaxCommitBytes) }
 
 type BlankProjectRequest struct {
 	Key     string `json:"key"`

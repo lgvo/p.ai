@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 )
 
 func TestCompletedCreateReplayDoesNotQueueRemovedSession(t *testing.T) {
@@ -47,9 +46,12 @@ func TestCompletedCreateReplayDoesNotQueueRemovedSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The empty backend and absent worker map would fail if completed replay
-	// attempted source capture, capacity inspection, or worker admission.
-	l := &lifecycle{ctx: f.ctx, store: f.m.store, git: &gitCapability{backend: &gitservice.Backend{}}, cfg: control.RuntimeConfig{ProjectPolicies: map[string]control.ProjectPolicy{}}}
+	// The source driver is down and the worker map absent: completed replay
+	// would fail if it checked names, captured the source, inspected
+	// capacity or admitted a worker.
+	_, source := memorySource(t)
+	source.Kill()
+	l := &lifecycle{ctx: f.ctx, store: f.m.store, git: &gitCapability{driver: source}, cfg: control.RuntimeConfig{ProjectPolicies: map[string]control.ProjectPolicy{}}}
 	got, err := l.CreateSession(f.ctx, req)
 	if err != nil || got.ID != original.ID || got.Status != "completed" || got.SessionUUID != s.UUID {
 		t.Fatalf("daemon replay failed: %+v %v", got, err)

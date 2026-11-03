@@ -24,9 +24,10 @@ import (
 )
 
 type gitCapability struct {
+	// backend serves what has not moved to the source driver yet: the
+	// origin, the image builder's bundle and P's SSH endpoint.
 	backend *gitservice.Backend
-	// driver is the source driver; the daemon moves its Git work onto it
-	// one part at a time.
+	// driver is the source driver: P's repositories, heads and commits.
 	driver   sourcedriver.Driver
 	prepared *gitservice.PreparedServer
 	listener net.Listener
@@ -120,6 +121,89 @@ func newSourceDriver(ctx context.Context, cfg control.HostConfig) (sourcedriver.
 		return nil, fmt.Errorf("source driver: %w", err)
 	}
 	return driver, nil
+}
+
+// inspectBranch reads head branch of project exactly: its tip, or "" and
+// false when nothing holds the name. A symbolic ref holding the name is also
+// control.ErrConflict, which callers compare; a failed read answers failed,
+// reason git.
+func (l *lifecycle) inspectBranch(ctx context.Context, project, branch string) (string, bool, error) {
+	tip, exists, err := l.git.driver.InspectBranch(ctx, project, branch)
+	switch {
+	case errors.Is(err, sourcedriver.ErrConflict):
+		return "", false, errors.Join(err, control.ErrConflict)
+	case err != nil:
+		return "", false, control.Failed(api.ReasonGit, err)
+	}
+	return string(tip), exists, nil
+}
+
+// createBranch creates head branch of project at commit at, only if nothing
+// holds the name, calling gate right before the effect.
+func (l *lifecycle) createBranch(ctx context.Context, project, branch, at string, gate sourcedriver.Gate) error {
+	return l.headEffect(ctx, creation(project, branch, at), gate, func(g sourcedriver.Gate) error {
+		return l.git.driver.CreateBranch(ctx, project, branch, sourcedriver.OID(at), g)
+	})
+}
+
+// deleteBranch deletes head branch of project only while it names tip,
+// calling gate right before the effect.
+func (l *lifecycle) deleteBranch(ctx context.Context, project, branch, tip string, gate sourcedriver.Gate) error {
+	return l.headEffect(ctx, deletion(project, branch, tip), gate, func(g sourcedriver.Gate) error {
+		return l.git.driver.DeleteBranch(ctx, project, branch, sourcedriver.OID(tip), g)
+	})
+}
+
+// headEffect sends head effect e through the source driver with gate. A
+// failure of the gate is returned as it is. An effect whose outcome is
+// unknown is settled, never sent again; any other failure of the driver
+// answers failed, reason git.
+func (l *lifecycle) headEffect(ctx context.Context, e sourcedriver.Effect, gate sourcedriver.Gate, send func(sourcedriver.Gate) error) error {
+	var gateErr error
+	err := send(func() error {
+		gateErr = gate()
+		return gateErr
+	})
+	switch {
+	case err == nil:
+		return nil
+	case gateErr != nil:
+		return gateErr
+	case errors.Is(err, sourcedriver.ErrUnknownOutcome):
+		return l.settleHead(ctx, e, err)
+	}
+	return control.Failed(api.ReasonGit, err)
+}
+
+// creation is the creation of head branch of project at commit at, as Settle
+// takes it.
+func creation(project, branch, at string) sourcedriver.Effect {
+	return sourcedriver.Effect{Kind: sourcedriver.EffectCreateBranch, Project: project, Branch: branch, New: sourcedriver.OID(at)}
+}
+
+// deletion is the deletion of head branch of project at tip, as Settle takes
+// it.
+func deletion(project, branch, tip string) sourcedriver.Effect {
+	return sourcedriver.Effect{Kind: sourcedriver.EffectDeleteBranch, Project: project, Branch: branch, Old: sourcedriver.OID(tip)}
+}
+
+// errHeadNotApplied: the source driver settled a head effect as never
+// applied.
+var errHeadNotApplied = errors.New("the head effect did not happen")
+
+// settleHead settles head effect e, whose outcome is unknown because of
+// cause. It succeeds only when the source driver settles e applied. An effect
+// that did not happen fails with reason git; any other answer leaves the
+// outcome unknown. Core keeps its guard and never sends e again.
+func (l *lifecycle) settleHead(ctx context.Context, e sourcedriver.Effect, cause error) error {
+	settled, err := l.git.driver.Settle(ctx, e)
+	switch {
+	case err == nil && settled == sourcedriver.Applied:
+		return nil
+	case err == nil && settled == sourcedriver.NotApplied:
+		return control.Failed(api.ReasonGit, errors.Join(cause, errHeadNotApplied))
+	}
+	return control.OutcomeUnknown(errors.Join(cause, err))
 }
 
 type serverIdentityStore interface {

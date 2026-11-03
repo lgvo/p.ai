@@ -160,7 +160,7 @@ func (r OriginSourcesRequest) Validate() error {
 		return invalid("project")
 	case r.Limit < 1 || r.Limit > 16:
 		return invalid("limit")
-	case r.After != "" && !validOriginRef(r.After):
+	case !validRefCursor(r.After):
 		return invalid("after")
 	}
 	return nil
@@ -194,11 +194,11 @@ func validPublication(url, project, kind, source, oid, destination string) error
 		return invalid("project")
 	case kind != "session" && kind != "retained":
 		return invalid("kind")
-	case !(kind == "session" && len(source) == 36 || kind == "retained" && ValidBranch(source)):
+	case !(kind == "session" && len(source) == 36 || kind == "retained" && BoundedName(source, MaxBranchBytes)):
 		return invalid("source")
-	case !ValidOID(oid):
+	case !BoundedName(oid, MaxCommitBytes):
 		return invalid("source_oid")
-	case !strings.HasPrefix(destination, "refs/heads/") || !validOriginRef(destination):
+	case !BoundedName(destination, MaxRefBytes):
 		return invalid("destination_ref")
 	}
 	return nil
@@ -255,18 +255,18 @@ func (r SessionCreateRequest) Validate() error {
 		return invalid("key")
 	case !ValidProject(r.Project):
 		return invalid("project")
-	case !ValidBranch(r.Branch):
+	case !BoundedName(r.Branch, MaxBranchBytes):
 		return invalid("branch")
 	case r.Choice != "existing" && r.Choice != "new":
 		return invalid("choice")
 	case len(r.ExpectedOriginURL) > 2048 || r.ExpectedOriginURL != "" && r.OriginRef == "":
 		return invalid("expected_origin_url")
-	case r.Choice == "existing" && r.Source != "", r.Choice == "new" && r.OriginRef == "" && (r.Source == "" || len(r.Source) > 255),
+	case r.Choice == "existing" && r.Source != "", r.Choice == "new" && r.OriginRef == "" && !BoundedName(r.Source, MaxSourceBytes),
 		r.Choice == "new" && r.OriginRef != "" && r.Source != "":
 		return invalid("source")
-	case r.Choice == "existing" && r.OriginRef != "", r.OriginRef != "" && !validOriginRef(r.OriginRef):
+	case r.Choice == "existing" && r.OriginRef != "", r.OriginRef != "" && !BoundedName(r.OriginRef, MaxRefBytes):
 		return invalid("origin_ref")
-	case r.OriginRef == "" && r.ExpectedCommitOID != "", r.OriginRef != "" && !ValidOID(r.ExpectedCommitOID):
+	case r.OriginRef == "" && r.ExpectedCommitOID != "", r.OriginRef != "" && !BoundedName(r.ExpectedCommitOID, MaxCommitBytes):
 		return invalid("expected_commit_oid")
 	}
 	return nil
@@ -426,9 +426,9 @@ func (r SessionRenameRequest) Validate() error {
 		return invalid("key")
 	case !ValidUUID(r.UUID):
 		return invalid("uuid")
-	case !ValidBranch(r.NewBranch):
+	case !BoundedName(r.NewBranch, MaxBranchBytes):
 		return invalid("new_branch")
-	case !ValidOID(r.ExpectedOldTip):
+	case !BoundedName(r.ExpectedOldTip, MaxCommitBytes):
 		return invalid("expected_old_tip")
 	}
 	return nil
@@ -448,11 +448,11 @@ func (r ProjectRetainedRenameRequest) Validate() error {
 		return invalid("key")
 	case !ValidProject(r.Project):
 		return invalid("project")
-	case !ValidBranch(r.OldBranch):
+	case !BoundedName(r.OldBranch, MaxBranchBytes):
 		return invalid("old_branch")
-	case !ValidBranch(r.NewBranch) || r.OldBranch == r.NewBranch:
+	case !BoundedName(r.NewBranch, MaxBranchBytes) || r.OldBranch == r.NewBranch:
 		return invalid("new_branch")
-	case !ValidOID(r.ExpectedOldTip):
+	case !BoundedName(r.ExpectedOldTip, MaxCommitBytes):
 		return invalid("expected_old_tip")
 	}
 	return nil
@@ -484,7 +484,7 @@ func (r ProjectRetainedDeleteRequest) Validate() error {
 	switch {
 	case !ValidProject(r.Project):
 		return invalid("project")
-	case !ValidBranch(r.Branch):
+	case !BoundedName(r.Branch, MaxBranchBytes):
 		return invalid("branch")
 	}
 	return r.ChangeRequest.Validate()

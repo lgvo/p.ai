@@ -1,7 +1,8 @@
 # shellcheck shell=bash
-# Runs inside the disposable product-test VM. The private fixture invokes
-# source-Git backend methods against seeded repositories; these are test-only
-# calls and do not implement public project or session lifecycle operations.
+# Runs inside the disposable product-test VM. The private fixture resolves
+# creation sources and creates heads through the bundled source driver, as core
+# does, against seeded repositories; these are test-only calls and do not
+# implement public project or session lifecycle operations.
 umask 077
 set -E
 step_dir="$P_TEST_TMP/step-08"
@@ -197,23 +198,6 @@ test "$(git -C "$repo" rev-parse refs/heads/namespace-parent)" = "$first"
 test "$(git -C "$repo" rev-parse refs/heads/namespace-child/leaf)" = "$first"
 test "$(git -C "$repo" rev-parse refs/heads/main)" = "$third"
 test "$(heads "$other_repo")" = "$other_before"
-
-# The independently authored alternate package does not implement the new
-# commands. Replacing the package must refuse them with no native fallback.
-alternate="$step_dir/alternate.json"
-alternate_digest=$(p plugins conformance "$P_TEST_GIT_ALTERNATE" | jq -er '.sha256')
-alternate_id=$(jq -er '.id' "$P_TEST_GIT_ALTERNATE/plugin.json")
-jq -n --arg path "$P_TEST_GIT_ALTERNATE" --arg digest "$alternate_digest" --arg id "$alternate_id" \
-  '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$alternate"
-stop_fixture
-test ! -e "$socket"
-start_fixture "$alternate"
-fixture '{"schema":"p.git-fixture/v1","kind":"ping"}' | jq -e '.result.status == "ready"' >/dev/null
-expect_observe_denied app branch refs/heads/main 'alternate package source observation'
-expect_create_denied "$repo" app alternate-cannot-create "$second" 'alternate package branch creation'
-test "$(git -C "$repo" rev-parse refs/heads/main)" = "$third"
-test "$(git -C "$repo" symbolic-ref refs/heads/resolved-link)" = refs/heads/main
-test "$(git -C "$repo" symbolic-ref refs/heads/dangling-link)" = refs/heads/does-not-exist
 
 stop_fixture
 test ! -e "$socket"

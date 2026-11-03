@@ -284,5 +284,6 @@ expect_error invalid param origin.change '{"key":"bad","key":"bad","project":"ap
 expect_error invalid param origin.refresh '{"Project":"app"}' field=Project
 expect_error invalid param origin.inspect '{"project":"app","extra":true}' field=extra
 expect_error invalid param origin.sources '{"project":"app","limit":17}' field=limit
-expect_error invalid param origin.sources '{"project":"app","limit":1,"after":"refs/heads/../bad"}' field=after
+# A page cursor is only bounded by core: a control character is past its bound.
+expect_error invalid param origin.sources '{"project":"app","limit":1,"after":"refs/heads/bad\tname"}' field=after
 echo P_ORIGIN_LIFECYCLE_PASS

@@ -21,6 +21,7 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 )
 
 func main() {
@@ -61,10 +62,7 @@ func run(a []string) error {
 	if err != nil {
 		return err
 	}
-	repo, err := backend.RepositoryPath(project)
-	if err != nil {
-		return err
-	}
+	repo := bundledgit.RepositoryPath(state, project)
 	existed := false
 	if _, err := os.Stat(repo); err == nil {
 		existed = true
@@ -114,7 +112,11 @@ func run(a []string) error {
 			return errors.New("selected ref absent")
 		}
 		if !existed {
-			if e := backend.InitBare(ctx, project); e != nil {
+			driver, e := bundledgit.Open(ctx, state)
+			if e != nil {
+				return e
+			}
+			if _, e := driver.CreateRepository(ctx, project); e != nil {
 				return e
 			}
 		}

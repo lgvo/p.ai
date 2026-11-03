@@ -42,54 +42,22 @@ type GitOriginPublisher interface {
 	PublishOrigin(context.Context) (string, error)
 }
 
-// GitSourceSelector is selected by core from a validated create request.
-// Branch values are full ordinary P refs; commit values are full object IDs.
-type GitSourceSelector struct {
-	Kind  string `json:"kind"`
-	Value string `json:"value"`
-}
-
-type GitInspection struct {
-	Exists bool   `json:"exists"`
-	Head   string `json:"head,omitempty"`
-}
-
 type GitTransportPlan struct {
 	MaxInputBytes int64 `json:"max_input_bytes"`
 	MaxDurationMS int64 `json:"max_duration_ms"`
 }
 
-// GitBroker is the typed host effect surface of a source-git WASI package.
-// Its methods operate only on the invocation's core-selected project.
-type GitBroker interface {
-	Inspect(context.Context) (GitInspection, error)
-	Init(context.Context) error
-	SetHead(context.Context) error
-	NextRefs(context.Context, int, int) ([]GitRef, bool, error)
-	ObserveSource(context.Context) (string, error)
-	CreateBranch(context.Context) error
-}
-
-// GitBranchDeleter is available only for a core-pinned, expected-old branch
-// deletion. The selected package can request this one effect, never supply a
-// ref or object ID through the broker request.
-type GitBranchDeleter interface{ DeleteBranch(context.Context) error }
-
 type GitCommand struct {
-	Schema         string             `json:"schema"`
-	Kind           string             `json:"kind"`
-	Scope          string             `json:"scope"`
-	Project        string             `json:"project"`
-	InitialHead    string             `json:"initial_head,omitempty"`
-	Limit          int                `json:"limit,omitempty"`
-	Service        string             `json:"service,omitempty"`
-	Ceilings       *GitTransportPlan  `json:"ceilings,omitempty"`
-	Source         *GitSourceSelector `json:"source,omitempty"`
-	Branch         string             `json:"branch,omitempty"`
-	CommitOID      string             `json:"commit_oid,omitempty"`
-	OriginRef      string             `json:"origin_ref,omitempty"`
-	SourceRef      string             `json:"source_ref,omitempty"`
-	DestinationRef string             `json:"destination_ref,omitempty"`
+	Schema         string            `json:"schema"`
+	Kind           string            `json:"kind"`
+	Scope          string            `json:"scope"`
+	Project        string            `json:"project"`
+	Service        string            `json:"service,omitempty"`
+	Ceilings       *GitTransportPlan `json:"ceilings,omitempty"`
+	CommitOID      string            `json:"commit_oid,omitempty"`
+	OriginRef      string            `json:"origin_ref,omitempty"`
+	SourceRef      string            `json:"source_ref,omitempty"`
+	DestinationRef string            `json:"destination_ref,omitempty"`
 }
 
 type GitResult struct {
@@ -102,26 +70,17 @@ type GitBrokerRequest struct {
 	Schema        string `json:"schema"`
 	Method        string `json:"method"`
 	Scope         string `json:"scope"`
-	PageSize      *int   `json:"page_size,omitempty"`
 	MaxInputBytes *int64 `json:"max_input_bytes,omitempty"`
 	MaxDurationMS *int64 `json:"max_duration_ms,omitempty"`
 }
 
 type GitBrokerResponse struct {
-	Schema       string    `json:"schema"`
-	Status       string    `json:"status"`
-	Exists       *bool     `json:"exists,omitempty"`
-	Head         string    `json:"head,omitempty"`
-	Refs         *[]GitRef `json:"refs,omitempty"`
-	Exhausted    *bool     `json:"exhausted,omitempty"`
-	PageComplete *bool     `json:"page_complete,omitempty"`
-	CommitOID    string    `json:"commit_oid,omitempty"`
+	Schema string `json:"schema"`
+	Status string `json:"status"`
 }
 
 type GitOutcome struct {
-	Refs              []GitRef
 	Plan              GitTransportPlan
-	BrokerCalls       int
 	CommitOID         string
 	OriginRefs        []GitOriginRef
 	PublicationStatus string
@@ -130,9 +89,13 @@ type GitOutcome struct {
 const GitCoreInputCeiling int64 = 1 << 30
 const GitCoreDurationMS int64 = 600000
 
-// RunSourceGit runs a package-authored operation sequence. The returned refs
-// and plan come only from broker observations, never from module output.
-func RunSourceGit(parent context.Context, selected Active, command GitCommand, broker GitBroker) (GitOutcome, error) {
+// RunSourceGit runs a package-authored operation sequence. The returned refs,
+// commit and plan come only from broker observations, never from module
+// output. broker holds the host's effects for the command, each operating
+// only on the invocation's core-selected project: a GitOriginBroker for
+// origin observation and fetch, a GitOriginPublisher for publication;
+// transport planning uses none.
+func RunSourceGit(parent context.Context, selected Active, command GitCommand, broker any) (GitOutcome, error) {
 	var outcome GitOutcome
 	release, leaseErr := LeasePackage(selected.Package.Path)
 	if leaseErr != nil {
@@ -155,7 +118,7 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 		return outcome, errors.New("source-git execution timed out")
 	}
 	m := selected.Package.Manifest
-	if m.Capability != "source-git" || m.Runtime.Kind != "wasi-command" || !slices.Equal(selected.Grants, []string{"git.project"}) || broker == nil {
+	if m.Capability != "source-git" || m.Runtime.Kind != "wasi-command" || !slices.Equal(selected.Grants, []string{"git.project"}) {
 		return outcome, errors.New("unsupported source-git capability")
 	}
 	if err := validateConfig(m, selected.Config); err != nil {
@@ -171,40 +134,20 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 		return outcome, errors.New("unexpected publication ref")
 	}
 	switch command.Kind {
-	case "git.project.ensure":
-		if command.InitialHead != "refs/heads/main" || command.Limit != 0 || command.Service != "" || command.Ceilings != nil || command.Source != nil || command.Branch != "" || command.CommitOID != "" {
-			return outcome, errors.New("invalid ensure request")
-		}
-	case "git.refs.list":
-		if command.Limit < 1 || command.Limit > 8 || command.InitialHead != "" || command.Service != "" || command.Ceilings != nil || command.Source != nil || command.Branch != "" || command.CommitOID != "" {
-			return outcome, errors.New("invalid ref list request")
-		}
 	case "git.transport.plan":
-		if (command.Service != "upload" && command.Service != "receive") || command.InitialHead != "" || command.Limit != 0 || command.Ceilings == nil || command.Ceilings.MaxInputBytes <= 0 || command.Ceilings.MaxInputBytes > GitCoreInputCeiling || command.Ceilings.MaxDurationMS <= 0 || command.Ceilings.MaxDurationMS > GitCoreDurationMS || command.Source != nil || command.Branch != "" || command.CommitOID != "" {
+		if (command.Service != "upload" && command.Service != "receive") || command.Ceilings == nil || command.Ceilings.MaxInputBytes <= 0 || command.Ceilings.MaxInputBytes > GitCoreInputCeiling || command.Ceilings.MaxDurationMS <= 0 || command.Ceilings.MaxDurationMS > GitCoreDurationMS || command.CommitOID != "" {
 			return outcome, errors.New("invalid transport request")
 		}
-	case "git.source.observe":
-		if command.Source == nil || !validGitSource(*command.Source) || command.InitialHead != "" || command.Limit != 0 || command.Service != "" || command.Ceilings != nil || command.Branch != "" || command.CommitOID != "" {
-			return outcome, errors.New("invalid source observation request")
-		}
-	case "git.branch.create":
-		if !validGitBranch(command.Branch) || !validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID) || command.InitialHead != "" || command.Limit != 0 || command.Service != "" || command.Ceilings != nil || command.Source != nil {
-			return outcome, errors.New("invalid branch creation request")
-		}
-	case "git.branch.delete":
-		if !validGitBranch(command.Branch) || command.CommitOID != "" && (!validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID)) || command.InitialHead != "" || command.Limit != 0 || command.Service != "" || command.Ceilings != nil || command.Source != nil {
-			return outcome, errors.New("invalid branch deletion request")
-		}
 	case "git.origin.observe":
-		if command.InitialHead != "" || command.Limit != 0 || command.Service != "" || command.Ceilings != nil || command.Source != nil || command.Branch != "" || command.CommitOID != "" || command.OriginRef != "" {
+		if command.Service != "" || command.Ceilings != nil || command.CommitOID != "" || command.OriginRef != "" {
 			return outcome, errors.New("invalid origin observation request")
 		}
 	case "git.origin.fetch":
-		if !ValidGitOriginRef(command.OriginRef) || !validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID) || command.InitialHead != "" || command.Limit != 0 || command.Service != "" || command.Ceilings != nil || command.Source != nil || command.Branch != "" {
+		if !ValidGitOriginRef(command.OriginRef) || !validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID) || command.Service != "" || command.Ceilings != nil {
 			return outcome, errors.New("invalid origin fetch request")
 		}
 	case "git.origin.publish":
-		if !validGitBranchRef(command.SourceRef) || !validGitBranchRef(command.DestinationRef) || !validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID) || command.InitialHead != "" || command.Limit != 0 || command.Service != "" || command.Ceilings != nil || command.Source != nil || command.Branch != "" {
+		if !validGitBranchRef(command.SourceRef) || !validGitBranchRef(command.DestinationRef) || !validGitOID(command.CommitOID) || allZeroGitOID(command.CommitOID) || command.Service != "" || command.Ceilings != nil {
 			return outcome, errors.New("invalid origin publication request")
 		}
 	default:
@@ -232,14 +175,10 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	}
 	defer runtime.Close(ctx)
 	var brokerFailure error
-	callCount, offset, prepared := 0, 0, false
-	inspected, initialized, headSet := false, false, false
-	observed, createAttempted, created, deleteAttempted, deleted, observedOID := false, false, false, false, false, ""
+	callCount, prepared, observedOID := 0, false, ""
 	originObserved, originFetched, originPublished := false, false, false
 	publicationStatus := ""
 	var originRefs []GitOriginRef
-	var accumulated []GitRef
-	var exhausted bool
 	plan := GitTransportPlan{MaxInputBytes: GitCoreInputCeiling, MaxDurationMS: GitCoreDurationMS}
 	mod := runtime.NewHostModuleBuilder("p_broker_v1")
 	mod.NewFunctionBuilder().WithFunc(func(callCtx context.Context, module api.Module, reqPtr, reqLen, replyPtr, replyCap uint32) int32 {
@@ -265,59 +204,8 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 		}
 		reply := GitBrokerResponse{Schema: GitBrokerSchema, Status: "ok"}
 		switch req.Method {
-		case "git.repo.inspect":
-			if command.Kind != "git.project.ensure" || inspected || req.PageSize != nil || req.MaxInputBytes != nil || req.MaxDurationMS != nil {
-				brokerFailure = errors.New("inspect refused")
-				return -1
-			}
-			observation, e := broker.Inspect(callCtx)
-			if e != nil {
-				brokerFailure = e
-				return -1
-			}
-			inspected = true
-			reply.Exists, reply.Head = &observation.Exists, observation.Head
-		case "git.repo.init":
-			if command.Kind != "git.project.ensure" || !inspected || initialized || req.PageSize != nil || req.MaxInputBytes != nil || req.MaxDurationMS != nil {
-				brokerFailure = errors.New("init refused")
-				return -1
-			}
-			if e := broker.Init(callCtx); e != nil {
-				brokerFailure = e
-				return -1
-			}
-			initialized = true
-		case "git.repo.set-head":
-			if command.Kind != "git.project.ensure" || !initialized || headSet || req.PageSize != nil || req.MaxInputBytes != nil || req.MaxDurationMS != nil {
-				brokerFailure = errors.New("set-head refused")
-				return -1
-			}
-			if e := broker.SetHead(callCtx); e != nil {
-				brokerFailure = e
-				return -1
-			}
-			headSet = true
-		case "git.refs.next":
-			if command.Kind != "git.refs.list" || exhausted || offset >= command.Limit || req.PageSize == nil || *req.PageSize < 1 || *req.PageSize > 8 || req.MaxInputBytes != nil || req.MaxDurationMS != nil {
-				brokerFailure = errors.New("ref page refused")
-				return -1
-			}
-			size := *req.PageSize
-			if size > command.Limit-offset {
-				size = command.Limit - offset
-			}
-			refs, done, e := broker.NextRefs(callCtx, offset, size)
-			if e != nil || len(refs) > size {
-				brokerFailure = errors.New("ref page failed")
-				return -1
-			}
-			accumulated = append(accumulated, refs...)
-			offset += len(refs)
-			exhausted = done || len(refs) == 0
-			pageComplete := offset >= command.Limit || exhausted
-			reply.Refs, reply.Exhausted, reply.PageComplete = &refs, &exhausted, &pageComplete
 		case "git.transport.prepare":
-			if command.Kind != "git.transport.plan" || prepared || req.PageSize != nil || req.MaxInputBytes != nil && (*req.MaxInputBytes <= 0 || *req.MaxInputBytes > command.Ceilings.MaxInputBytes) || req.MaxDurationMS != nil && (*req.MaxDurationMS <= 0 || *req.MaxDurationMS > command.Ceilings.MaxDurationMS) {
+			if command.Kind != "git.transport.plan" || prepared || req.MaxInputBytes != nil && (*req.MaxInputBytes <= 0 || *req.MaxInputBytes > command.Ceilings.MaxInputBytes) || req.MaxDurationMS != nil && (*req.MaxDurationMS <= 0 || *req.MaxDurationMS > command.Ceilings.MaxDurationMS) {
 				brokerFailure = errors.New("transport plan refused")
 				return -1
 			}
@@ -328,44 +216,6 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 				plan.MaxDurationMS = *req.MaxDurationMS
 			}
 			prepared = true
-		case "git.source.observe":
-			if command.Kind != "git.source.observe" || observed || !plainGitBrokerRequest(req) {
-				brokerFailure = errors.New("source observation refused")
-				return -1
-			}
-			oid, e := broker.ObserveSource(callCtx)
-			if e != nil {
-				brokerFailure = e
-				return -1
-			}
-			if !validGitOID(oid) {
-				brokerFailure = errors.New("source observation failed")
-				return -1
-			}
-			observed, observedOID, reply.CommitOID = true, oid, oid
-		case "git.branch.create":
-			if command.Kind != "git.branch.create" || createAttempted || !plainGitBrokerRequest(req) {
-				brokerFailure = errors.New("branch creation refused")
-				return -1
-			}
-			createAttempted = true // never reissue after an uncertain first effect
-			if e := broker.CreateBranch(callCtx); e != nil {
-				brokerFailure = e
-				return -1
-			}
-			created = true
-		case "git.branch.delete":
-			deletion, ok := broker.(GitBranchDeleter)
-			if command.Kind != "git.branch.delete" || deleteAttempted || !ok || !plainGitBrokerRequest(req) {
-				brokerFailure = errors.New("branch deletion refused")
-				return -1
-			}
-			deleteAttempted = true // never reissue after an uncertain first effect
-			if e := deletion.DeleteBranch(callCtx); e != nil {
-				brokerFailure = e
-				return -1
-			}
-			deleted = true
 		case "git.origin.observe":
 			origin, ok := broker.(GitOriginBroker)
 			if command.Kind != "git.origin.observe" || originObserved || !ok || !plainGitBrokerRequest(req) {
@@ -443,39 +293,12 @@ func RunSourceGit(parent context.Context, selected Active, command GitCommand, b
 	if result.Status != "ready" {
 		return outcome, errors.New("invalid source-git status")
 	}
-	outcome.BrokerCalls = callCount
 	switch command.Kind {
-	case "git.project.ensure":
-		if !inspected {
-			return outcome, errors.New("source-git skipped inspection")
-		}
-		observation, e := broker.Inspect(ctx)
-		if e != nil || !observation.Exists || observation.Head != "refs/heads/main" {
-			return outcome, errors.New("source-git ensure postcondition failed")
-		}
-	case "git.refs.list":
-		if !exhausted && offset < command.Limit {
-			return outcome, errors.New("source-git ref list incomplete")
-		}
-		outcome.Refs = accumulated
 	case "git.transport.plan":
 		if !prepared {
 			return outcome, errors.New("source-git transport plan missing")
 		}
 		outcome.Plan = plan
-	case "git.source.observe":
-		if !observed {
-			return outcome, errors.New("source-git skipped source observation")
-		}
-		outcome.CommitOID = observedOID
-	case "git.branch.create":
-		if !created {
-			return outcome, errors.New("source-git skipped branch creation")
-		}
-	case "git.branch.delete":
-		if !deleted {
-			return outcome, errors.New("source-git skipped branch deletion")
-		}
 	case "git.origin.observe":
 		if !originObserved {
 			return outcome, errors.New("source-git skipped origin observation")
@@ -538,7 +361,7 @@ func ValidGitOriginRef(ref string) bool {
 }
 
 func plainGitBrokerRequest(req GitBrokerRequest) bool {
-	return req.PageSize == nil && req.MaxInputBytes == nil && req.MaxDurationMS == nil
+	return req.MaxInputBytes == nil && req.MaxDurationMS == nil
 }
 
 func validGitOID(oid string) bool {
@@ -560,32 +383,4 @@ func allZeroGitOID(oid string) bool {
 		}
 	}
 	return true
-}
-
-func validGitBranch(branch string) bool {
-	if branch == "" || len(branch) > 200 {
-		return false
-	}
-	for _, part := range bytes.Split([]byte(branch), []byte{'/'}) {
-		if len(part) == 0 || part[0] == '.' || part[len(part)-1] == '.' || bytes.HasSuffix(part, []byte(".lock")) {
-			return false
-		}
-		for _, c := range part {
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
-				return false
-			}
-		}
-	}
-	return !bytes.Contains([]byte(branch), []byte(".."))
-}
-
-func validGitSource(source GitSourceSelector) bool {
-	switch source.Kind {
-	case "branch":
-		return len(source.Value) > len("refs/heads/") && bytes.HasPrefix([]byte(source.Value), []byte("refs/heads/")) && validGitBranch(source.Value[len("refs/heads/"):])
-	case "commit":
-		return validGitOID(source.Value) && !allZeroGitOID(source.Value)
-	default:
-		return false
-	}
 }

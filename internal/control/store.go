@@ -272,7 +272,9 @@ func normalizedObject(data json.RawMessage) (json.RawMessage, error) {
 
 func validProject(path string) bool { return api.ValidProject(path) }
 
-func validBranch(branch string) bool { return api.ValidBranch(branch) }
+// validBranch is core's bound for a P branch's name, whose syntax the source
+// driver decides (CheckNames).
+func validBranch(branch string) bool { return api.BoundedName(branch, api.MaxBranchBytes) }
 
 // CreateProject records registry and normalized trusted policy together. Git
 // creation is not exposed until its cross-authority workflow is implemented.

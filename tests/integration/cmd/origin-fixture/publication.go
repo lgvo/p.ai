@@ -11,6 +11,7 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 )
 
 // publish composes the production substrate only. It does not simulate a
@@ -122,32 +123,21 @@ func publish(a []string) error {
 	}{mode, preview, result})
 }
 
-// preparePublish creates only the local bare P repository. The caller seeds
-// its ordinary source head with normal Git and owns all scenario assertions.
+// preparePublish creates only the local bare P repository, with the bundled
+// source driver. The caller seeds its ordinary source head with normal Git
+// and owns all scenario assertions.
 func preparePublish(a []string) error {
-	if len(a) != 3 {
-		return errors.New("prepare-publish STATE ACTIVATION PROJECT")
+	if len(a) != 2 {
+		return errors.New("prepare-publish STATE PROJECT")
 	}
-	store, err := control.OpenStore(a[0])
+	ctx := context.Background()
+	driver, err := bundledgit.Open(ctx, a[0])
 	if err != nil {
 		return err
 	}
-	defer store.Close()
-	active, err := plugin.LoadActivation(a[1])
-	if err != nil {
+	if _, err := driver.CreateRepository(ctx, a[1]); err != nil {
 		return err
 	}
-	backend, err := gitservice.New(store, a[0], active)
-	if err != nil {
-		return err
-	}
-	if err := backend.InitBare(context.Background(), a[2]); err != nil {
-		return err
-	}
-	repo, err := backend.RepositoryPath(a[2])
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(os.Stdout, repo)
+	_, err = fmt.Fprintln(os.Stdout, bundledgit.RepositoryPath(a[0], a[1]))
 	return err
 }

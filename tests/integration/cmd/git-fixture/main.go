@@ -1,6 +1,7 @@
 // git-fixture is a VM-only driver for the Git substrate. It seeds synthetic
-// SQLite authority state and invokes backend operations for integration tests;
-// it does not create a session runtime or implement public lifecycle methods.
+// SQLite authority state, serves P's Git endpoint with the production Git
+// service, and invokes the bundled source driver for integration tests; it
+// does not create a session runtime or implement public lifecycle methods.
 package main
 
 import (
@@ -19,29 +20,39 @@ import (
 	"time"
 
 	"charm.land/ssh"
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
+	"github.com/lgvo/p.ai/tests/integration/internal/bundledgit"
 	gossh "golang.org/x/crypto/ssh"
 )
 
 const schema = "p.git-fixture/v1"
 
 type request struct {
-	Schema      string                    `json:"schema"`
-	Kind        string                    `json:"kind"`
-	Project     string                    `json:"project,omitempty"`
-	Branch      string                    `json:"branch,omitempty"`
-	Choice      string                    `json:"choice,omitempty"`
-	Source      string                    `json:"source,omitempty"`
-	Selector    *plugin.GitSourceSelector `json:"selector,omitempty"`
-	CommitOID   string                    `json:"commit_oid,omitempty"`
-	Key         string                    `json:"key,omitempty"`
-	PublicKey   string                    `json:"public_key,omitempty"`
-	SessionUUID string                    `json:"session_uuid,omitempty"`
-	OperationID string                    `json:"operation_id,omitempty"`
-	After       string                    `json:"after,omitempty"`
-	Limit       int                       `json:"limit,omitempty"`
+	Schema      string    `json:"schema"`
+	Kind        string    `json:"kind"`
+	Project     string    `json:"project,omitempty"`
+	Branch      string    `json:"branch,omitempty"`
+	Choice      string    `json:"choice,omitempty"`
+	Source      string    `json:"source,omitempty"`
+	Selector    *selector `json:"selector,omitempty"`
+	CommitOID   string    `json:"commit_oid,omitempty"`
+	Key         string    `json:"key,omitempty"`
+	PublicKey   string    `json:"public_key,omitempty"`
+	SessionUUID string    `json:"session_uuid,omitempty"`
+	OperationID string    `json:"operation_id,omitempty"`
+	After       string    `json:"after,omitempty"`
+	Limit       int       `json:"limit,omitempty"`
+}
+
+// selector is a creation source: a branch, as its full head ref, or a
+// commit ID.
+type selector struct {
+	Kind  string `json:"kind"` // branch or commit
+	Value string `json:"value"`
 }
 
 type response struct {
@@ -160,6 +171,13 @@ func serve(stateDir, activationPath, address, hostKeyPath string) error {
 	if err != nil {
 		return err
 	}
+	driver, err := bundledgit.Open(context.Background(), stateDir)
+	if err != nil {
+		return err
+	}
+	// The refs request goes through the control API's project.branches, so
+	// the scenario exercises the production paging over the driver's heads.
+	handler := control.NewHandler(control.HandlerConfig{Store: store, Git: driver, GitInfo: &api.GitInfo{}})
 	keyBytes, err := os.ReadFile(hostKeyPath)
 	if err != nil || len(keyBytes) > 16384 {
 		return errors.New("host SSH private key unreadable or too large")
@@ -214,7 +232,7 @@ func serve(stateDir, activationPath, address, hostKeyPath string) error {
 		if err != nil {
 			return <-gitDone
 		}
-		go serveCall(ctx, conn, store, backend)
+		go serveCall(ctx, conn, store, driver, handler)
 		select {
 		case err := <-gitDone:
 			return err
@@ -223,7 +241,7 @@ func serve(stateDir, activationPath, address, hostKeyPath string) error {
 	}
 }
 
-func serveCall(parent context.Context, conn net.Conn, store *control.Store, backend *gitservice.Backend) {
+func serveCall(parent context.Context, conn net.Conn, store *control.Store, driver sourcedriver.Driver, handler control.Handler) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
 	line, err := bufio.NewReaderSize(conn, 4097).ReadSlice('\n')
@@ -240,7 +258,7 @@ func serveCall(parent context.Context, conn net.Conn, store *control.Store, back
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	result, err := dispatch(ctx, store, backend, req)
+	result, err := dispatch(ctx, store, driver, handler, req)
 	if err != nil {
 		_ = json.NewEncoder(conn).Encode(response{Error: err.Error()})
 		return
@@ -248,22 +266,18 @@ func serveCall(parent context.Context, conn net.Conn, store *control.Store, back
 	_ = json.NewEncoder(conn).Encode(response{OK: true, Result: result})
 }
 
-func dispatch(ctx context.Context, store *control.Store, backend *gitservice.Backend, r request) (any, error) {
+func dispatch(ctx context.Context, store *control.Store, driver sourcedriver.Driver, handler control.Handler, r request) (any, error) {
 	switch r.Kind {
 	case "ping":
 		return map[string]string{"status": "ready"}, nil
 	case "project":
-		if err := backend.EnsureBare(ctx, r.Project); err != nil {
+		if _, err := driver.CreateRepository(ctx, r.Project); err != nil {
 			return nil, err
 		}
 		if err := store.CreateProject(ctx, r.Project, json.RawMessage(`{}`)); err != nil {
 			return nil, err
 		}
-		repo, err := backend.RepositoryPath(r.Project)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]string{"project": r.Project, "repository_path": repo}, nil
+		return map[string]string{"project": r.Project, "repository_path": bundledgit.RepositoryPath(store.StateDir(), r.Project)}, nil
 	case "host-key":
 		fingerprint, err := readPublic(r.PublicKey)
 		if err != nil {
@@ -315,28 +329,85 @@ func dispatch(ctx context.Context, store *control.Store, backend *gitservice.Bac
 		}
 		return map[string]string{"status": "removing"}, nil
 	case "refs":
-		refs, next, calls, err := backend.ListRefsPageObserved(ctx, r.Project, r.After, r.Limit)
+		params, err := json.Marshal(api.ProjectBranchesRequest{Project: r.Project, After: r.After, Limit: r.Limit})
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"refs": refs, "next": next, "broker_calls": calls}, nil
+		result, answer := handler(ctx, api.ProjectBranches.Name, params)
+		if answer != nil {
+			return nil, answer
+		}
+		page := result.(api.ProjectBranchesResult)
+		return map[string]any{"refs": page.Refs, "next": page.Next}, nil
 	case "observe-source":
 		if r.Selector == nil {
 			return nil, errors.New("source selector is required")
 		}
-		oid, err := backend.ObserveSource(ctx, r.Project, *r.Selector)
+		oid, err := observeSource(ctx, driver, r.Project, *r.Selector)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]string{"commit_oid": oid}, nil
+		return map[string]string{"commit_oid": string(oid)}, nil
 	case "create-branch":
-		if err := backend.CreateBranch(ctx, r.Project, r.Branch, r.CommitOID); err != nil {
+		if err := createBranch(ctx, driver, r.Project, r.Branch, r.CommitOID); err != nil {
 			return nil, err
 		}
 		return map[string]string{"branch": r.Branch, "commit_oid": r.CommitOID}, nil
 	default:
 		return nil, errors.New("unknown fixture operation")
 	}
+}
+
+// observeSource resolves a creation source as core does for a local
+// creation: a branch must name a head, and the commit, its tip or the one
+// given, must be one a head reaches. The driver must read the value as the
+// selector's kind.
+func observeSource(ctx context.Context, driver sourcedriver.Driver, project string, s selector) (sourcedriver.OID, error) {
+	names, err := driver.CheckNames(ctx, []sourcedriver.Name{{Kind: sourcedriver.NameCreationSource, Value: s.Value}})
+	if err != nil {
+		return "", err
+	}
+	id := sourcedriver.OID(names[0].Value)
+	switch kind := names[0].Kind; {
+	case s.Kind == "branch" && kind == sourcedriver.NameBranch:
+		tip, exists, err := driver.InspectBranch(ctx, project, names[0].Value)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return "", errors.New("the source branch has no head")
+		}
+		id = tip
+	case s.Kind == "commit" && kind == sourcedriver.NameCommit:
+	default:
+		return "", errors.New("the source is not of the selector's kind")
+	}
+	if err := reachable(ctx, driver, project, id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// createBranch creates a head only at a commit some head already reaches,
+// the rule for a local creation's source.
+func createBranch(ctx context.Context, driver sourcedriver.Driver, project, branch, commit string) error {
+	if _, err := driver.CheckNames(ctx, []sourcedriver.Name{{Kind: sourcedriver.NameBranch, Value: branch}, {Kind: sourcedriver.NameCommit, Value: commit}}); err != nil {
+		return err
+	}
+	id := sourcedriver.OID(commit)
+	if err := reachable(ctx, driver, project, id); err != nil {
+		return err
+	}
+	return driver.CreateBranch(ctx, project, branch, id, func() error { return nil })
+}
+
+// reachable refuses an ID that is not a commit some head reaches.
+func reachable(ctx context.Context, driver sourcedriver.Driver, project string, id sourcedriver.OID) error {
+	commit, err := driver.InspectCommit(ctx, project, id)
+	if err == nil && !(commit.Present && commit.Reachable) {
+		err = errors.New("no head reaches the commit")
+	}
+	return err
 }
 
 func call(socket, payload string) error {

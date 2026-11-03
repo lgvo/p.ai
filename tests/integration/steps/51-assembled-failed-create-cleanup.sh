@@ -143,8 +143,9 @@ printf 'host_git=%q\nfixture=%q\np_binary=%q\njq_binary=%q\nsleep_binary=%q\n' "
 cat >> "$step_dir/bin/git" <<'GIT_WRAPPER'
 set -euo pipefail
 # Fixture-only pause of the cleanup worker's first precommit ref read, so the
-# test can move the assigned branch after the run was accepted.
-if test -f "$fixture/stale-arm" && test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify && test "$5" = --quiet && test "$6" = refs/heads/work; then
+# test can move the assigned branch after the run was accepted. The source
+# driver reads a head as --git-dir=REPO show-ref --verify --quiet REF.
+if test -f "$fixture/stale-arm" && test "$#" -eq 5 && test "${1%%=*}" = --git-dir && test "$2" = show-ref && test "$3" = --verify && test "$4" = --quiet && test "$5" = refs/heads/work; then
  read -r session_uuid < "$fixture/stale-arm"
  if "$p_binary" api "$fixture/state/control.sock" operation.list '{"limit":20}' |
  "$jq_binary" -e --arg uuid "$session_uuid" '.result.operations|any(.[];.kind=="session.create.cleanup" and .session_uuid==$uuid and .phase=="validated" and .status=="running")' >/dev/null; then
@@ -156,7 +157,7 @@ if test -f "$fixture/stale-arm" && test "$#" -eq 6 && test "$3" = show-ref && te
   test -f "$fixture/stale-release" || exit 124
  fi
 fi
-if test -f "$fixture/completion-arm" && test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify && test "$5" = --quiet && test "$6" = refs/heads/work; then
+if test -f "$fixture/completion-arm" && test "$#" -eq 5 && test "${1%%=*}" = --git-dir && test "$2" = show-ref && test "$3" = --verify && test "$4" = --quiet && test "$5" = refs/heads/work; then
  read -r cleanup_id < "$fixture/completion-arm"
  if "$p_binary" api "$fixture/state/control.sock" operation.inspect "$("$jq_binary" -nc --arg id "$cleanup_id" '{id:$id}')" |
  "$jq_binary" -e '.result.operation.kind=="session.create.cleanup" and .result.operation.phase=="local-complete" and .result.operation.status=="running"' >/dev/null; then

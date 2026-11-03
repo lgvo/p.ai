@@ -22,6 +22,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
@@ -42,8 +43,45 @@ type rpcResponse struct {
 	Error   *api.Error      `json:"error,omitempty"`
 }
 
+// GitReader reads P's heads: the source driver's Branches, which control
+// pages itself for project.branches and project.retained_branches.
 type GitReader interface {
-	ListRefsPage(context.Context, string, string, int) ([]plugin.GitRef, string, error)
+	Branches(ctx context.Context, project string) ([]sourcedriver.Head, error)
+}
+
+// branchesPage is the page of project's heads whose full refs follow cursor
+// after in byte order, at most limit of them; next is the full ref of the
+// last head returned while more heads follow it, otherwise empty.
+func branchesPage(ctx context.Context, git GitReader, project, after string, limit int) ([]sourcedriver.Head, string, error) {
+	heads, err := git.Branches(ctx, project)
+	if err != nil {
+		return nil, "", HeadsFailure(err)
+	}
+	page := []sourcedriver.Head{}
+	for _, head := range heads {
+		if headRef(head) <= after {
+			continue
+		}
+		if len(page) == limit {
+			return page, headRef(page[len(page)-1]), nil
+		}
+		page = append(page, head)
+	}
+	return page, "", nil
+}
+
+// headRef is the full ref of a head, as the wire formats that carry full
+// refs name it.
+func headRef(head sourcedriver.Head) string { return "refs/heads/" + head.Name }
+
+// HeadsFailure answers a failed read of P's heads: heads that moved between
+// the source driver's reads can be read again, so it answers retry with
+// reason refs_moved; any other failure is Git's.
+func HeadsFailure(err error) error {
+	if errors.Is(err, sourcedriver.ErrConflict) {
+		return &Refusal{Kind: api.KindRetry, Reason: api.ReasonRefsMoved, Cause: err}
+	}
+	return Failed(api.ReasonGit, err)
 }
 
 // Handler answers one control-API request. The connection dispatches the
@@ -260,12 +298,13 @@ func addProjectReads(t *MethodTable, store *Store, git GitReader) {
 		if !active {
 			return api.ProjectBranchesResult{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
 		}
-		refs, next, err := git.ListRefsPage(ctx, r.Project, r.After, r.Limit)
+		heads, next, err := branchesPage(ctx, git, r.Project, r.After, r.Limit)
 		if err != nil {
-			return api.ProjectBranchesResult{}, Failed(api.ReasonGit, err)
+			return api.ProjectBranchesResult{}, err
 		}
-		if refs == nil {
-			refs = []plugin.GitRef{}
+		refs := make([]plugin.GitRef, 0, len(heads))
+		for _, head := range heads {
+			refs = append(refs, plugin.GitRef{Ref: headRef(head), OID: string(head.Tip)})
 		}
 		return api.ProjectBranchesResult{Project: r.Project, Refs: refs, Next: next}, nil
 	})

@@ -75,7 +75,8 @@ committing the project record, P:
 2. contacts the origin non-interactively with trusted host OpenSSH authority;
 3. obtains a successful advertised-ref observation, even when it contains no
    refs;
-4. creates and verifies the P bare repository; and
+4. has the source driver create the project's repository (`CreateRepository`,
+   which converges, so a Retry may repeat it); and
 5. records the project, origin identity, and fresh observation together.
 
 An unreachable, unauthorized, invalid, or ambiguously authenticated origin
@@ -90,8 +91,8 @@ project was created.
 
 ### Blank
 
-The request supplies only the project path. P creates an empty bare repository
-whose symbolic `HEAD` names `refs/heads/main`, then atomically reserves one
+The request supplies only the project path. The source driver creates an empty
+repository whose default branch is `main`, then P atomically reserves one
 bootstrap session UUID assigned to the unborn `main` branch.
 
 The bootstrap session uses the immutable P base image because there is no
@@ -180,6 +181,13 @@ reviewed plan is refused; a change after the run was accepted fails the
 operation as stale before the ref is deleted. P never reclaims, renames,
 publishes, or deletes retained branches automatically.
 
+Rename and deletion change heads only through the source driver, which
+creates a head only where nothing holds the name and deletes one only at its
+expected tip (`CreateBranch`, `DeleteBranch`). P records each change as issued
+right before the driver makes it. A change whose outcome was lost is never
+sent again: the operation goes on once the driver settles it as applied
+(`Settle`), and otherwise stays blocked at its issued phase.
+
 ## Project deletion
 
 **Delete project and all P data** is one bulk destructive action. It means that
@@ -206,7 +214,9 @@ one aggregate plan containing:
 - for every session whose runtime is missing, the statement that its contents
   are already gone; an unreachable runtime returns no plan;
 - every assigned and retained P ref and the commits that lose their last P
-  reference;
+  reference, as the source driver reads them (`LosingCommits`);
+- the incarnation of the project's repository, which the source driver reports
+  and which is opaque to P;
 - session and project credentials;
 - project-scoped builders and every commit image of the project; and
 - the external mounts whose contents P will not delete.
@@ -229,6 +239,13 @@ session authority, stops running sessions, and attempts every owned
 deletion. Each step has the same monotonic
 desired result: absent. Already-absent resources are success; there is no
 rollback or reconstruction of a resource deleted by an earlier attempt.
+
+The repository goes last, through the source driver: P records its deletion
+as issued, the driver deletes the repository at the planned incarnation only
+(`DeleteRepository`), and P proves it absent with `InspectRepository`. A
+repository made again since the plan is another incarnation, which the driver
+refuses to delete; the deletion blocks and keeps it. A repository present again
+after its confirmed absence blocks the deletion too.
 
 The operation reports each target as `deleted`, `already_absent`, `remaining`,
 or `unreachable`. Partial success is expected. Retry runs the same authorized

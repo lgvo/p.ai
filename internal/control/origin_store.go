@@ -120,7 +120,7 @@ func encodeOriginRefs(refs []plugin.GitOriginRef) ([]byte, error) {
 	}
 	previous := ""
 	for _, r := range refs {
-		if !plugin.ValidGitOriginRef(r.Ref) || r.Ref <= previous || !validOID(r.OID) || !validOID(r.CommitOID) || len(r.OID) != len(r.CommitOID) {
+		if !api.BoundedName(r.Ref, api.MaxRefBytes) || r.Ref <= previous || !validOID(r.OID) || !validOID(r.CommitOID) {
 			return nil, ErrInvalid
 		}
 		previous = r.Ref

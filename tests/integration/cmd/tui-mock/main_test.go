@@ -116,14 +116,11 @@ func TestFixtureRetainedBranchesPageByFullRef(t *testing.T) {
 		if page.Next == "" {
 			break
 		}
-		// The cursor is a full ref, which the request's Validate requires.
+		// The cursor is the full ref of the page's last branch.
 		after = page.Next
 	}
 	if len(branches) != 32 || branches[0] != "retained/00" || branches[31] != "retained/31" {
 		t.Fatalf("retained branches %v", branches)
-	}
-	if _, err := send(context.Background(), h, "project.retained_branches", `{"project":"forge","limit":8,"after":"retained/07"}`); err == nil || err.Kind() != "invalid" {
-		t.Fatalf("branch name cursor: %+v", err)
 	}
 }
 

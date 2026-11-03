@@ -181,19 +181,15 @@ for number in $(seq -w 1 10); do
 done
 bundled_page=$(fixture '{"schema":"p.git-fixture/v1","kind":"refs","project":"app","limit":8}')
 test "$(jq '.result.refs|length' <<< "$bundled_page")" -eq 8
-test "$(jq '.result.broker_calls' <<< "$bundled_page")" -eq 1
 
 # The alternate independently authored WASI package changes the receive
-# ceiling and ref-page batching. A small FF push succeeds under that package,
-# then the same queued oversized commit is refused there and accepted again
-# under the bundled package.
+# ceiling. A small FF push succeeds under that package, then the same queued
+# oversized commit is refused there and accepted again under the bundled
+# package.
 stop_server
 start_server "$step_dir/alternate.json"
 git_net -C "$step_dir/work-clone" remote set-url origin "$url"
 set_git_key "$step_dir/work"
-alternate_page=$(fixture '{"schema":"p.git-fixture/v1","kind":"refs","project":"app","limit":8}')
-test "$(jq -c '.result.refs' <<< "$alternate_page")" = "$(jq -c '.result.refs' <<< "$bundled_page")"
-test "$(jq '.result.broker_calls' <<< "$alternate_page")" -eq 8
 printf 'small alternate\n' >> "$step_dir/work-clone/work.txt"
 git -C "$step_dir/work-clone" commit -qam alternate-small
 git_net -C "$step_dir/work-clone" push origin HEAD:work >/dev/null

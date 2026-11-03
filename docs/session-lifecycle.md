@@ -132,7 +132,7 @@ the assigned branch's current tip remain the source authority.
 | Fact | Authority | SQLite's role |
 |---|---|---|
 | Session UUID, branch assignment, intended operation | SQLite | authoritative |
-| Commits, branch existence, branch tip | P bare Git repository | indexes expected ref and observed tip |
+| Commits, branch existence, branch tip | The source driver's backend: P's repository of the project, which core reads and changes only through the source driver | indexes expected ref and observed tip |
 | Workspace files and local refs | Incus instance root | records no duplicate file state |
 | Instance existence, state, root storage, and runtime operation | Incus | records project and deterministic instance name |
 | Commit image bytes, reference and labels | The runtime driver's backend: the Incus image store | indexes (project, commit, base image, system, builder version) to the image reference |
@@ -253,7 +253,9 @@ host context. Rename reads and writes the clone's Git administration files
 only through the runtime driver's workspace operations on the stopped session
 at the incarnation it recorded
 ([runtime and isolation](runtime-isolation.md#non-activating-workspace-access)).
-A driver that cannot provide them cannot implement rename.
+A driver that cannot provide them cannot implement rename. Which files to read
+and which edits to make is the source driver's to decide (`RenameWorkspace`),
+from the files core read for it; the two drivers never reach each other.
 
 ## Create
 
@@ -284,11 +286,20 @@ accept session-specific grant overrides. Their branch preconditions differ:
   the same rules as any other branch. A branch with a session must be opened
   through that session, even if the session is stopped. No source parameter
   is needed: P captures the chosen branch's tip under the project/ref lock.
-- **New branch:** the destination must be a valid, absent Git branch name,
-  or the user may request a timestamp suggestion. Source must resolve to a
-  committed object reachable from the P repository or a freshly observed
-  origin ref. When source is a named branch, the destination must differ from
-  it. Only this path creates a branch ref.
+- **New branch:** the destination must be a branch name the source driver
+  accepts and absent from P's repository, or the user may request a
+  timestamp suggestion. Source must resolve to a committed object reachable
+  from a head of the P repository, or a freshly observed origin ref. When
+  source is a named branch, the destination must differ from it. Only this
+  path creates a branch ref.
+
+The source driver checks the request's branch, source, origin ref and
+expected commit ID (`CheckNames`) after P looks up the request's idempotency
+key and before it records anything: a replayed request is answered from P's
+records alone, and a value the driver refuses answers `invalid` naming its
+field. The driver also classifies the source as a branch or a commit ID; P
+reads a branch's tip with `InspectBranch` and a commit with `InspectCommit`,
+and a failed read answers `failed`, reason `git`, never a missing source.
 
 Dirty checkout state is never creation input. Claiming an existing branch does
 not reset its tip, rewrite its history, or restore an old session's runtime.
@@ -323,6 +334,14 @@ otherwise the substrate-only environment applies.
 | `workspace-ready` | Put `/workspace` on the assigned branch with its P upstream, starting from the commit image's clone, and install only session-scoped endpoints. Without a commit image, create a standalone clone of the assigned branch from P. |
 | `systemd-ready` | Start the container; require activation and `p-interactive.service` readiness. Failure records diagnostics and returns the container to stopped. |
 | `established` | Verify branch, workspace, runtime, credentials, and required capabilities; set registry state established. |
+
+A new branch's creation is recorded as sent right before the source driver
+gets it. A creation found sent, after a lost answer, a Retry or a restart, is
+settled first (`Settle`): one that applied goes on once the branch is exact,
+one that never applied is sent again, and while the driver cannot tell the
+creation stays blocked with reason `outcome_unknown`, whatever the branch
+shows. Its replacement and cleanup wait for that settlement too: until the
+driver can tell, their plans are refused with `outcome_unknown`.
 
 Every session started from one commit is created from that commit's image. A
 per-commit lock serializes lookup, build and acceptance, so concurrent
@@ -609,13 +628,14 @@ Rename changes the actual session-owned Git branch while preserving the UUID,
 project, Incus instance, workspace contents, parent image, credentials,
 and selected plugin bindings. It never renames or deletes an origin ref.
 
-The new branch name must pass Git validation and be absent from the project's
-`refs/heads/*`. The session must be established and stopped, its current P ref
-and runtime must be reachable, and its workspace must contain the assigned
-local branch. A session in any status other than stopped is refused with
-`conflict`, reason `session_not_stopped`, before an operation starts; P never
-freezes it. P does not reset,
-clean, commit, or switch unrelated work to make rename pass.
+The new branch name must pass the source driver's name check (`CheckNames`,
+before anything is recorded; a replayed request is answered without it) and be
+absent from the project's `refs/heads/*`. The session must be established and
+stopped, its current P ref and runtime must be reachable, and its workspace
+must contain the assigned local branch. A session in any status other than
+stopped is refused with `conflict`, reason `session_not_stopped`, before an
+operation starts; P never freezes it. P does not reset, clean, commit, or
+switch unrelated work to make rename pass.
 
 The workspace must be on the assigned branch with `origin` tracking that
 branch in P. A mismatch is a precommit refusal with bounded expected/actual
@@ -635,7 +655,7 @@ Under the lifecycle and project/ref locks:
 |---|---|
 | `reserved` | Persist old/new refs and expected old P tip; reserve the new name. |
 | `guarded` | Reject pushes to both old and new refs. |
-| `workspace-prepared` | Verify the exact runtime is still stopped; back up the workspace branch and configuration and record the planned local change. A session started since the request fails as stale before any effect. |
+| `workspace-prepared` | Verify the exact runtime is still stopped; write the backup of the workspace branch and configuration that the source driver plans, and record its plan of the local change. A session started since the request fails as stale before any effect. |
 | `new-ref-created` | Atomically create the new P ref at the expected old P tip. This is rename's commit point. |
 | `workspace-renamed` | Rename the local branch without changing its tip or files; update upstream/push configuration. |
 | `assignment-updated` | Change SQLite and server-side principal policy to the new branch address. |
@@ -644,28 +664,31 @@ Under the lifecycle and project/ref locks:
 
 The workspace branch may contain commits ahead of the P ref. Renaming preserves
 them locally; the next permitted push fast-forwards the new P ref. The operation
-records both server and workspace tips so verification does not mistake this
-ordinary ahead state for corruption.
+records the expected P tip and the source driver's plan, which fixes the
+workspace tip, so verification does not mistake this ordinary ahead state for
+corruption. Every later answer of the source driver for the rename must return
+that plan.
 
 ### Rename recovery
 
 Before a native or Git effect is attempted, a proven refusal may release the
 reservation and retain the old mapping. An attempted backup write or
 new-ref creation with an unknown outcome keeps both guards until its exact
-outcome is established. Each write and removal in the workspace passes a gate
-that records the rename's phase, or for the backup's removal, that the removal
-was sent. One whose reply was lost is settled through
-the runtime driver and never sent again: the phase advances only when the
-driver finds the file exactly as intended, and otherwise the rename stays
-blocked. A recovery that finds the backup write or the workspace rename issued
-first has the driver settle every edit it may have sent, as the clone and the
-backup plan it, then verifies; an edit it finds missing is reported unresolved
-rather than written again. Every attempt after the backup's removal was sent
-first settles that removal. The new-ref-create-issued phase can already have
-created the new P ref, so it cannot roll back on an immediate absence
-observation. At and after a verified `new-ref-created`,
-recovery completes forward to the new name. Start and attach remain blocked
-while the operation is unresolved.
+outcome is established. Each workspace edit the source driver returns, a write
+or a removal, passes a gate that records the rename's phase and the edit's
+path. One whose reply was lost is settled through the runtime driver at once
+and never sent again: the rename goes on only when the runtime driver finds the
+file exactly as the edit intended, and otherwise it stays blocked. A recovery
+that finds an edit recorded goes on only when the source driver asks for no
+further edit toward that phase's goal and the runtime driver settles the
+recorded edit applied for the file now there; an edit still missing is reported
+unresolved rather than written again. Every attempt after the backup's removal
+was sent first settles that removal. The new-ref-create-issued phase can
+already have created the new P ref, so it cannot roll back on an immediate
+absence observation; only the source driver's settlement of the creation,
+with the new ref then exact, moves it forward. At and after a verified
+`new-ref-created`, recovery completes forward to the new name. Start and attach
+remain blocked while the operation is unresolved.
 
 If another process altered a guarded ref or the workspace mapping despite the
 guards, P does not guess. It leaves the runtime stopped and reports the
@@ -838,12 +861,15 @@ deletes the assigned P branch.
 After runtime removal verifies, P:
 
 1. checks that the guarded branch still has the planned object ID;
-2. atomically deletes that ref with an expected-old-value check;
+2. records the deletion as issued and has the source driver delete that head
+   only while it names the planned object ID (`DeleteBranch`);
 3. ends the assignment and removes the session row; and
 4. retains bounded operation diagnostics after all required cleanup verifies.
 
 When the assigned ref was already missing at the dry run, steps 1 and 2 have
-nothing to delete.
+nothing to delete: P proves the branch still absent and sends no deletion. A
+deletion whose outcome was lost is never sent again; the delete goes on only
+once the source driver settles it as applied (`Settle`), also on a Retry.
 
 Delete never deletes or renames an origin ref, external mount contents, or
 another P ref containing the same commits. It never deletes an image itself;

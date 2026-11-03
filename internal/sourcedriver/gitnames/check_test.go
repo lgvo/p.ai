@@ -16,10 +16,10 @@ const (
 	sha256ID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
-// The accepted and refused values of each kind, from today's rules:
-// validBranch (api, gitservice), ValidateRenameBranch, ValidGitOriginRef,
-// ValidateOriginURL (origin_test.go), the creation source selector and
-// validOID.
+// The accepted and refused values of each kind, from the rules core and
+// gitservice applied before the source driver: validBranch (api,
+// gitservice), ValidateRenameBranch, ValidGitOriginRef, ValidateOriginURL
+// (origin_test.go), the creation source selector and validOID.
 var accepted = map[sourcedriver.NameKind][]string{
 	sourcedriver.NameBranch: {"main", "feature/x", "a.b", "A_b-1", "x/y/z", "-lead", "HEAD", strings.Repeat("b", 200)},
 	sourcedriver.NameRenameBranch: {"main", "renamed", "archive", "team/topic-1",

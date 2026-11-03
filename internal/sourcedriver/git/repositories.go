@@ -175,10 +175,10 @@ func readIncarnation(repo string) (string, error) {
 }
 
 // CreateRepository converges: it keeps an existing repository whose HEAD
-// names main, as today's git.project.ensure does, and otherwise makes the
-// repository in a temporary directory and renames it into place, so the
-// address holds a complete repository or nothing. It holds the
-// repositories lock throughout, so no deletion interleaves.
+// names main, and otherwise makes the repository in a temporary directory
+// and renames it into place, so the address holds a complete repository or
+// nothing. It holds the repositories lock throughout, so no deletion
+// interleaves.
 func (d *Driver) CreateRepository(ctx context.Context, project string) (sourcedriver.Repository, error) {
 	repo, err := d.repository(project)
 	if err != nil {

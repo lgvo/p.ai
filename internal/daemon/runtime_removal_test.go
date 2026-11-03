@@ -233,11 +233,7 @@ func newCreatedFixture(t *testing.T) *sessionFixture {
 	if err = store.CreateProject(ctx, "app", snapshot); err != nil {
 		t.Fatal(err)
 	}
-	backend, tip := dispatchGitFixture(t, store)
-	repo, err := backend.RepositoryPath("app")
-	if err != nil {
-		t.Fatal(err)
-	}
+	source, repo, tip := gitSource(t, store)
 	dispatchGit(t, repo, "update-ref", "refs/heads/work", tip)
 	// A socket path must stay short.
 	prefix, err := os.MkdirTemp("/tmp", "p-removal-")
@@ -252,7 +248,9 @@ func newCreatedFixture(t *testing.T) *sessionFixture {
 	world := memory.NewWorld(memory.Config{})
 	driver := newIncusShaped(world)
 	git := testGitCapability()
-	git.backend = backend
+	git.driver = source
+	// Project deletion still takes the origin's lock in gitservice.
+	git.backend = gitserviceFixture(t, store)
 	l := &lifecycle{ctx: ctx, store: store, driver: driver, git: git, endpoints: endpoints, working: map[string]bool{},
 		instanceID: "99999999-9999-4999-8999-999999999999", incus: runtimeincus.DriverConfig{Project: "user-1000"},
 		hostPlan:   plugin.AssetPlan{PackageID: "host", PackageSHA256: strings.Repeat("b", 64)},
@@ -318,7 +316,7 @@ func (f *sessionFixture) operation(id string) api.Operation {
 
 func (f *sessionFixture) branchExists() bool {
 	f.t.Helper()
-	_, exists, err := f.l.git.backend.InspectBranchRef(f.ctx, "app", "work")
+	_, exists, err := f.l.git.driver.InspectBranch(f.ctx, "app", "work")
 	if err != nil {
 		f.t.Fatal(err)
 	}

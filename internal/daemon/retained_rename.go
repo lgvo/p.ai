@@ -8,6 +8,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 func (l *lifecycle) RenameRetainedBranch(ctx context.Context, r control.RetainedRenameRequest) (api.Operation, error) {
@@ -17,10 +18,10 @@ func (l *lifecycle) RenameRetainedBranch(ctx context.Context, r control.Retained
 	if prior, replayed, err := replayRequest(l, ctx, r.Key, control.KindRetainedRename, r); err != nil || replayed {
 		return prior, err
 	}
-	if err := l.checkBranchName(ctx, "old_branch", r.OldBranch); err != nil {
-		return api.Operation{}, err
-	}
-	if err := l.checkBranchName(ctx, "new_branch", r.NewBranch); err != nil {
+	if _, err := control.CheckNames(ctx, l.git.driver,
+		control.NameField{Field: "old_branch", Name: sourcedriver.Name{Kind: sourcedriver.NameRenameBranch, Value: r.OldBranch}},
+		control.NameField{Field: "new_branch", Name: sourcedriver.Name{Kind: sourcedriver.NameRenameBranch, Value: r.NewBranch}},
+		control.NameField{Field: "expected_old_tip", Name: sourcedriver.Name{Kind: sourcedriver.NameCommit, Value: r.ExpectedOldTip}}); err != nil {
 		return api.Operation{}, err
 	}
 	op, err := l.store.BeginRetainedRename(ctx, r, func(ctx context.Context) error {
@@ -36,11 +37,11 @@ func (l *lifecycle) RenameRetainedBranch(ctx context.Context, r control.Retained
 }
 
 func (l *lifecycle) verifyRetainedRenameRefs(ctx context.Context, r control.RetainedRenameRequest, phase string) error {
-	old, oldExists, err := l.git.backend.InspectBranchRef(ctx, r.Project, r.OldBranch)
+	old, oldExists, err := l.inspectBranch(ctx, r.Project, r.OldBranch)
 	if err != nil {
 		return err
 	}
-	newTip, newExists, err := l.git.backend.InspectBranchRef(ctx, r.Project, r.NewBranch)
+	newTip, newExists, err := l.inspectBranch(ctx, r.Project, r.NewBranch)
 	if errors.Is(err, control.ErrConflict) && phase == "before" {
 		// A symbolic ref occupies the new name.
 		return control.Conflict(api.ReasonBranchExists, api.TargetBranch(r.Project, r.NewBranch))
@@ -58,11 +59,11 @@ func (l *lifecycle) verifyRetainedRenameRefs(ctx context.Context, r control.Reta
 		case newExists || newTip != "":
 			return control.Conflict(api.ReasonBranchExists, api.TargetBranch(r.Project, r.NewBranch))
 		}
-		present, err := l.git.backend.PCommitPresent(ctx, r.Project, r.ExpectedOldTip)
+		commit, err := l.git.driver.InspectCommit(ctx, r.Project, sourcedriver.OID(r.ExpectedOldTip))
 		if err != nil {
-			return err
+			return control.Failed(api.ReasonGit, err)
 		}
-		if !present {
+		if !commit.Present {
 			return control.ErrConflict
 		}
 	case "created":
@@ -100,17 +101,26 @@ func (l *lifecycle) processRetainedRename(op api.Operation) {
 	for step := 0; step < 8; step++ {
 		switch op.Phase {
 		case "reserved":
-			err := l.store.TransitionRetainedRename(ctx, op.ID, "reserved", "new-ref-create-issued", true, func(ctx context.Context, saved control.RetainedRenameRequest) error {
-				// An old branch gone before the effect changed the input, like
-				// any other mismatch: the rename fails as stale.
-				err := l.verifyRetainedRenameRefs(ctx, saved, "before")
-				if errors.Is(err, control.ErrNotFound) {
-					return control.Stale(api.ReasonChanged)
-				}
+			// The gate checks the old head at the expected tip and the new
+			// name free, and records the creation's intent.
+			issued := false
+			err := l.createBranch(ctx, r.Project, r.NewBranch, r.ExpectedOldTip, func() error {
+				err := l.store.TransitionRetainedRename(ctx, op.ID, "reserved", "new-ref-create-issued", true, func(ctx context.Context, saved control.RetainedRenameRequest) error {
+					// An old branch gone before the effect changed the input, like
+					// any other mismatch: the rename fails as stale.
+					err := l.verifyRetainedRenameRefs(ctx, saved, "before")
+					if errors.Is(err, control.ErrNotFound) {
+						return control.Stale(api.ReasonChanged)
+					}
+					return err
+				})
+				issued = err == nil
 				return err
 			})
-			if err != nil {
-				if errors.Is(err, control.ErrConflict) {
+			if !issued {
+				// Nothing was created: a new name taken meanwhile changed the
+				// input too.
+				if errors.Is(err, control.ErrConflict) || errors.Is(err, sourcedriver.ErrConflict) {
 					if e := l.store.FailRetainedRenamePreEffect(ctx, op.ID); e == nil {
 						return
 					} else {
@@ -121,11 +131,18 @@ func (l *lifecycle) processRetainedRename(op api.Operation) {
 				return
 			}
 			op.Phase, op.Committed = "new-ref-create-issued", true
-			if err = l.git.backend.CreateRenameBranchExact(ctx, r.Project, r.OldBranch, r.NewBranch, r.ExpectedOldTip); err != nil {
+			if err != nil {
 				l.blockRetainedRename(op, err)
 				return
 			}
 		case "new-ref-create-issued":
+			// The creation may have been admitted after its answer was lost:
+			// only the source driver's settlement, then the exact heads, prove
+			// it.
+			if err := l.settleHead(ctx, creation(r.Project, r.NewBranch, r.ExpectedOldTip), nil); err != nil {
+				l.blockRetainedRename(op, err)
+				return
+			}
 			if err := l.store.TransitionRetainedRename(ctx, op.ID, "new-ref-create-issued", "new-ref-created", true, func(ctx context.Context, saved control.RetainedRenameRequest) error {
 				return l.verifyRetainedRenameRefs(ctx, saved, "created")
 			}); err != nil {
@@ -134,18 +151,26 @@ func (l *lifecycle) processRetainedRename(op api.Operation) {
 			}
 			op.Phase = "new-ref-created"
 		case "new-ref-created":
-			if err := l.store.TransitionRetainedRename(ctx, op.ID, "new-ref-created", "old-ref-delete-issued", true, func(ctx context.Context, saved control.RetainedRenameRequest) error {
-				return l.verifyRetainedRenameRefs(ctx, saved, "created")
-			}); err != nil {
-				l.blockRetainedRename(op, err)
-				return
+			issued := false
+			err := l.deleteBranch(ctx, r.Project, r.OldBranch, r.ExpectedOldTip, func() error {
+				err := l.store.TransitionRetainedRename(ctx, op.ID, "new-ref-created", "old-ref-delete-issued", true, func(ctx context.Context, saved control.RetainedRenameRequest) error {
+					return l.verifyRetainedRenameRefs(ctx, saved, "created")
+				})
+				issued = err == nil
+				return err
+			})
+			if issued {
+				op.Phase = "old-ref-delete-issued"
 			}
-			op.Phase = "old-ref-delete-issued"
-			if err := l.git.backend.DeleteAssignedBranchExact(ctx, r.Project, r.OldBranch, r.ExpectedOldTip, func() error { return nil }); err != nil {
+			if err != nil {
 				l.blockRetainedRename(op, err)
 				return
 			}
 		case "old-ref-delete-issued":
+			if err := l.settleHead(ctx, deletion(r.Project, r.OldBranch, r.ExpectedOldTip), nil); err != nil {
+				l.blockRetainedRename(op, err)
+				return
+			}
 			if err := l.store.TransitionRetainedRename(ctx, op.ID, "old-ref-delete-issued", "old-ref-deleted", true, func(ctx context.Context, saved control.RetainedRenameRequest) error {
 				return l.verifyRetainedRenameRefs(ctx, saved, "deleted")
 			}); err != nil {

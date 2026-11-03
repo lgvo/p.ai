@@ -10,6 +10,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 type OriginObserver interface {
@@ -24,6 +25,9 @@ type OriginAPI struct {
 	Store  *Store
 	Runner OriginRunner
 	Git    GitReader
+	// Driver is the source driver, which checks the names a publication
+	// takes.
+	Driver sourcedriver.Driver
 	// Queue hands a recorded origin operation to the daemon's workers.
 	Queue func(id string) error
 }

@@ -45,8 +45,8 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 	if !sameLeasedSelection(leasedPackages, git.source) {
 		return errors.New("source selection changed while acquiring package leases")
 	}
-	origins := &control.OriginAPI{Store: store, Runner: originRunner{backend: git.backend}, Git: git.backend}
-	surface := control.HandlerConfig{Store: store, Git: git.backend, GitInfo: git.info, Origins: origins}
+	origins := &control.OriginAPI{Store: store, Runner: originRunner{backend: git.backend}, Git: git.driver, Driver: git.driver}
+	surface := control.HandlerConfig{Store: store, Git: git.driver, GitInfo: git.info, Origins: origins}
 	if cfg.Runtime != nil {
 		life, e := newLifecycle(scope, *cfg.Runtime, store, git)
 		if e != nil {

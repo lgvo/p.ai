@@ -943,18 +943,7 @@ control project.delete (runtime)
           image_present boolean
           observed_size integer
           related_digest string
-        repository_identity object
-          device integer
-          inode integer
-          uid integer
-          mode integer
-          links integer
-        repository_parent_identity object
-          device integer
-          inode integer
-          uid integer
-          mode integer
-          links integer
+        repository_incarnation string
     change_tag string (optional)
     operation object (optional)
       id string

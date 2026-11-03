@@ -9,17 +9,18 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
-type localReplacementSource interface {
-	InspectBranchRef(context.Context, string, string) (string, bool, error)
-	CaptureLocalSource(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error)
-}
-
-func observeCreateReplacementSources(ctx context.Context, git localReplacementSource, old, req control.ReserveSessionRequest, oldOID string) (api.CreateReplaceBranch, api.CreateReplaceBranch, string, error) {
+// observeCreateReplacementSources reads the old creation's branch and the
+// new request's target branch, and captures the new request's source, which
+// the source driver classified as source. The old creation's head must still
+// be its own, and the target must read the same before and after the
+// capture.
+func (l *lifecycle) observeCreateReplacementSources(ctx context.Context, old, req control.ReserveSessionRequest, source sourcedriver.Name, oldOID string) (api.CreateReplaceBranch, api.CreateReplaceBranch, string, error) {
 	oldBranch := api.CreateReplaceBranch{Ref: "refs/heads/" + old.Branch}
 	target := api.CreateReplaceBranch{Ref: "refs/heads/" + req.Branch}
-	oid, exists, err := git.InspectBranchRef(ctx, old.Project, old.Branch)
+	oid, exists, err := l.inspectBranch(ctx, old.Project, old.Branch)
 	if err != nil {
 		return oldBranch, target, "", control.Failed(api.ReasonGit, err)
 	}
@@ -27,7 +28,7 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 	if old.Branch == req.Branch {
 		target = oldBranch
 	} else {
-		oid, exists, err = git.InspectBranchRef(ctx, req.Project, req.Branch)
+		oid, exists, err = l.inspectBranch(ctx, req.Project, req.Branch)
 		if err != nil {
 			return oldBranch, target, "", control.Failed(api.ReasonGit, err)
 		}
@@ -38,11 +39,11 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 	if old.Choice == "new" && oldBranch.Exists && oldBranch.OID != oldOID {
 		return oldBranch, target, "", control.ErrConflict
 	}
-	captured, err := git.CaptureLocalSource(ctx, req)
+	captured, err := l.captureLocalSource(ctx, req, source)
 	if err != nil {
-		return oldBranch, target, "", control.Failed(api.ReasonGit, err)
+		return oldBranch, target, "", err
 	}
-	oid, exists, err = git.InspectBranchRef(ctx, req.Project, req.Branch)
+	oid, exists, err = l.inspectBranch(ctx, req.Project, req.Branch)
 	if err != nil {
 		return oldBranch, target, "", control.Failed(api.ReasonGit, err)
 	}
@@ -105,11 +106,28 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 // operation for a run, whose key is also the new creation's.
 func (l *lifecycle) ReplaceCreation(ctx context.Context, oldUUID string, choices api.CreationChoices, req api.ChangeRequest) (api.ChangeResult[api.CreateReplaceDetails], error) {
 	create := choices.Create(req.Key)
+	// checked is the new request's source as the source driver classified
+	// it. Its names are checked once, on the call's first plan, after a
+	// run's replay lookup and never inside the store's recheck: the check
+	// gives the same answer every time.
+	var checked *sourcedriver.Name
 	change := control.Change[api.CreateReplaceDetails]{
 		Action: api.SessionCreateReplace.Name, Target: api.TargetSession(oldUUID), Instance: l.instanceID, Inputs: choices,
 		Hold: l.holdingSession(oldUUID),
 		Plan: func(ctx context.Context, p *api.Plan[api.CreateReplaceDetails]) error {
-			return l.planCreateReplace(ctx, oldUUID, choices, p)
+			if checked == nil {
+				// The new request's key is a run's, and no fact of its plan.
+				req := choices.Create("replacement")
+				if !control.ValidSessionCreateRequest(req) {
+					return control.ErrInvalid
+				}
+				source, err := l.checkCreationNames(ctx, req)
+				if err != nil {
+					return err
+				}
+				checked = &source
+			}
+			return l.planCreateReplace(ctx, oldUUID, choices, *checked, p)
 		},
 		// A replay reads only the recorded creation: cleanup may hold the
 		// retired session's lock for its whole recovery.
@@ -137,8 +155,9 @@ func (l *lifecycle) ReplaceCreation(ctx context.Context, oldUUID string, choices
 }
 
 // planCreateReplace plans replacing the blocked creation of session oldUUID
-// with a new creation of choices into p.
-func (l *lifecycle) planCreateReplace(ctx context.Context, oldUUID string, choices api.CreationChoices, p *api.Plan[api.CreateReplaceDetails]) error {
+// with a new creation of choices into p. source is the new creation's source
+// as the source driver classified it.
+func (l *lifecycle) planCreateReplace(ctx context.Context, oldUUID string, choices api.CreationChoices, source sourcedriver.Name, p *api.Plan[api.CreateReplaceDetails]) error {
 	selection := l.selection()
 	// The new request's key is a run's, and no fact of its plan.
 	req := choices.Create("replacement")
@@ -147,9 +166,6 @@ func (l *lifecycle) planCreateReplace(ctx context.Context, oldUUID string, choic
 		NewImageFingerprint: l.cfg.BaseImageFingerprint, NewSelection: api.CreationSelection(selection),
 		NewEnvironment: (*api.EnvironmentIntent)(l.environmentIntent())}
 	refuse := func(code string) { p.Refusals = append(p.Refusals, api.Refusal{Code: code}) }
-	if !control.ValidSessionCreateRequest(req) {
-		return control.ErrInvalid
-	}
 	s, err := l.store.GetSession(ctx, oldUUID)
 	if err != nil {
 		return err
@@ -179,6 +195,9 @@ func (l *lifecycle) planCreateReplace(ctx context.Context, oldUUID string, choic
 	if !control.ReplaceableCreationPhase(op, ev) || !control.ReplaceableCreationEvidence(oldReq, ev) {
 		refuse(api.ReasonOldEffectNotProvenAbsent)
 	}
+	if l.sentCreationUnsettled(ctx, op, oldReq, ev) {
+		refuse(api.ReasonOutcomeUnknown)
+	}
 	policy, hash, err := l.store.ProjectPolicyRecord(ctx, s.Project)
 	if err != nil || len(policy) == 0 {
 		refuse(api.ReasonCurrentPolicyUnavailable)
@@ -188,7 +207,7 @@ func (l *lifecycle) planCreateReplace(ctx context.Context, oldUUID string, choic
 	if _, configured := l.cfg.PolicyForProject(s.Project); !configured || l.currentProjectPolicy(ctx, s.Project) != nil {
 		refuse(api.ReasonCurrentPolicyUnavailable)
 	}
-	oldBranch, target, tip, sourceErr := observeCreateReplacementSources(ctx, l.git.backend, oldReq, req, ev.CapturedOID)
+	oldBranch, target, tip, sourceErr := l.observeCreateReplacementSources(ctx, oldReq, req, source, ev.CapturedOID)
 	d.OldBranch, d.NewBranch = oldBranch, target
 	if !oldBranch.Observed {
 		d.Provisional.AssignedRef = "unavailable"

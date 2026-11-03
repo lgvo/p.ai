@@ -67,7 +67,7 @@
   back from the index, or let the evidence bound alone decide and drop the separate cap.
 - Fix when: a project deletion is refused this way, or the deletion evidence next changes.
 - Left by: the agent, by rule (a problem outside the change).
-- Added 2026-11-03, updated 2026-11-03, 3 cases:
+- Added 2026-11-03, updated 2026-11-03, 4 cases:
   - 2026-11-03: "one diagnostic limit" found it while checking that the evidence fits at
     the new diagnostic limit.
   - 2026-11-03: "one image per source commit", moved onto step 3, replaced environment
@@ -78,6 +78,10 @@
     `planProjectDelete` refuses a plan that does not fit with `bound_exceeded` where
     `boundProjectDeleteReview` answered `conflict`. The 24 KiB bound and the cap of twenty
     images are unchanged.
+  - 2026-11-03: "step 9 S2: repositories, heads and commits through the source driver"
+    changed the deletion evidence again, which meets "Fix when", without the fix: the
+    repository's two directory identities became its incarnation, a string. Eight images
+    still fit at four sessions with the longest names.
 
 ## A builder admitted after its creation's reply was lost is never collected
 
@@ -106,11 +110,10 @@
     `Inventory` list builders with their build references, which meets "Fix when"; collecting
     orphans was outside that step and the next.
 
-## A failed Git read of a creation's source answers that the source is missing
+## A failed Git read of an exported commit answers that the source is missing
 
-- Where: internal/gitservice source.go `commitType`, `reachableFromHead` and
-  `gitBroker.ObserveSource`, through `sourceGit`; their callers `Backend.ObserveSource` and
-  bundle.go `ExportBundle`
+- Where: internal/gitservice source.go `commitType` and `reachableFromHead`, through
+  `sourceGit`; their caller bundle.go `ExportBundle`
 - Problem: Each treats any failure of its `git` command as a missing source and answers
   `not_found`, reason `source`. A corrupt object, an unreadable repository or a Git that
   cannot run therefore answers that the source does not exist, instead of `failed`, reason
@@ -119,13 +122,16 @@
   exit status, so its callers cannot tell an absent object or ref from a failed read;
   `sourceMissing` answers both.
 - Risk: a client told to stop because the source is gone when it should check P's Git
-  repository; a session creation or a commit image's export from a corrupt repository
-  blocks with reason `source` instead of `git`.
-- Fix: have the Git broker report Git's exit status, and answer `failed git` for a failure
-  other than an absent object or ref.
-- Fix when: the source driver's `InspectCommit` and `InspectBranch` take these reads over
-  (rework step 9, S2).
+  repository; a commit image's export from a corrupt repository blocks with reason
+  `source` instead of `git`.
+- Fix: answer `failed git` for a failure other than an absent object or ref, as a
+  creation's source reads through the source driver now do.
+- Fix when: the source driver's `Export` takes the bundle over (rework step 9, S4).
 - Left by: the maintainer's orchestrator, handed back from step 3's review.
-- Added 2026-11-03, 1 case:
+- Added 2026-11-03, updated 2026-11-03, 2 cases:
   - 2026-11-03: "errors that name the next step" typed these reads' refusal as `not_found
     source`; its review found that a failed Git command answers the same.
+  - 2026-11-03: "step 9 S2: repositories, heads and commits through the source driver"
+    moved a creation's source reads to `InspectBranch` and `InspectCommit`, whose failed
+    read answers `failed git`, and removed `ObserveSource`; the bundle export still reads
+    the commit through gitservice until S4.

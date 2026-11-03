@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 const renameTestUUID = "550e8400-e29b-41d4-a716-446655440000"
@@ -97,7 +98,7 @@ func TestRenamePostCommitForwardSurvivesSQLiteRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ev.WorkspaceTip, ev.ConfigAfterSHA256 = strings.Repeat("d", 40), strings.Repeat("e", 64)
+	ev.Plan = strings.Repeat("d", 40) + " " + strings.Repeat("e", 64)
 	op = renameAdvance(t, s, op, ev, "new-ref-created", true)
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
@@ -179,6 +180,33 @@ func TestRenamePrecommitFailureReleasesGuardsButCreateIssuedRetainsThem(t *testi
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE operation_id=?`, op.ID).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("uncertain guard count: %d %v", count, err)
+	}
+}
+
+func TestRenameEvidenceKeepsItsPlanAndEditWithinCoresBounds(t *testing.T) {
+	s, _, r, ev := renameStoreFixture(t)
+	ctx := context.Background()
+	observe := func(context.Context) error { return nil }
+	for name, change := range map[string]func(*RenameEvidence){
+		"a plan beyond the source driver's bound": func(e *RenameEvidence) { e.Plan = strings.Repeat("p", sourcedriver.MaxPlan+1) },
+		"a plan with a control character":         func(e *RenameEvidence) { e.Plan = "plan\n" },
+		"an edit toward no goal":                  func(e *RenameEvidence) { e.Edit = RenameEdit{Path: ".git/HEAD"} },
+		"an edit toward an unknown goal":          func(e *RenameEvidence) { e.Edit = RenameEdit{Goal: "elsewhere", Path: ".git/HEAD"} },
+		"an edit without a path":                  func(e *RenameEvidence) { e.Edit = RenameEdit{Goal: sourcedriver.GoalRenamed, Remove: true} },
+		"an edit path beyond its bound": func(e *RenameEvidence) {
+			e.Edit = RenameEdit{Goal: sourcedriver.GoalRenamed, Path: ".git/" + strings.Repeat("p", 252)}
+		},
+	} {
+		bad := ev
+		change(&bad)
+		if _, err := s.BeginRename(ctx, r, bad, observe); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("evidence with %s was recorded: %v", name, err)
+		}
+	}
+	ev.Plan = strings.Repeat("p", sourcedriver.MaxPlan)
+	ev.Edit = RenameEdit{Goal: sourcedriver.GoalPrepared, Path: ".git/" + strings.Repeat("p", 251)}
+	if _, err := s.BeginRename(ctx, r, ev, observe); err != nil {
+		t.Fatalf("evidence with a plan and an edit at their bounds: %v", err)
 	}
 }
 

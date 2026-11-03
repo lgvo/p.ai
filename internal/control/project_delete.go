@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -62,16 +65,17 @@ type ProjectDeleteResource struct {
 // Only exact known resource identities and a review digest survive acceptance;
 // loss snapshots are historical display evidence, not a rollback workflow.
 type ProjectDeleteEvidence struct {
-	InstanceUUID     string                       `json:"instance_uuid"`
-	BaseFingerprint  string                       `json:"base_fingerprint"`
-	IncusProject     string                       `json:"incus_project"`
-	StateSHA256      string                       `json:"state_sha256"`
-	ReviewSHA256     string                       `json:"review_sha256"`
-	Sessions         []api.ProjectDeleteSession   `json:"sessions"`
-	Images           []CommitImageClaim           `json:"images"`
-	Repository       api.ReplacementLocalIdentity `json:"repository_identity"`
-	RepositoryParent api.ReplacementLocalIdentity `json:"repository_parent_identity"`
-	Resources        []ProjectDeleteResource      `json:"resources"`
+	InstanceUUID    string                     `json:"instance_uuid"`
+	BaseFingerprint string                     `json:"base_fingerprint"`
+	IncusProject    string                     `json:"incus_project"`
+	StateSHA256     string                     `json:"state_sha256"`
+	ReviewSHA256    string                     `json:"review_sha256"`
+	Sessions        []api.ProjectDeleteSession `json:"sessions"`
+	Images          []CommitImageClaim         `json:"images"`
+	// RepositoryIncarnation is the incarnation of the project's repository
+	// the deletion reviewed; only that one is deleted.
+	RepositoryIncarnation string                  `json:"repository_incarnation"`
+	Resources             []ProjectDeleteResource `json:"resources"`
 }
 
 // ProjectDeleteAPI deletes projects, a risky change: a dry run plans it, and
@@ -115,11 +119,22 @@ func ResourceDiagnostic(d string) string {
 	return d
 }
 
+// ValidRepositoryIncarnation reports whether s can be a repository's
+// incarnation as P records it: opaque to P, so only bounded, as SQLite and
+// the logs need.
+func ValidRepositoryIncarnation(s string) bool {
+	return s != "" && len(s) <= maxRepositoryIncarnation && utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl)
+}
+
+// maxRepositoryIncarnation bounds a repository's incarnation.
+const maxRepositoryIncarnation = 128
+
 func projectDeleteResourceAbsent(r ProjectDeleteResource) bool {
 	return r.Status == "deleted" || r.Status == "already_absent"
 }
 func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
-	if !validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) || ev.IncusProject == "" || !validFingerprint(ev.StateSHA256) || !validFingerprint(ev.ReviewSHA256) || len(ev.Sessions) > 4 || len(ev.Images) > MaxProjectDeleteImages || len(ev.Resources) != 2*len(ev.Sessions)+len(ev.Images)+1 {
+	if !validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) || ev.IncusProject == "" || !validFingerprint(ev.StateSHA256) || !validFingerprint(ev.ReviewSHA256) || len(ev.Sessions) > 4 || len(ev.Images) > MaxProjectDeleteImages || len(ev.Resources) != 2*len(ev.Sessions)+len(ev.Images)+1 ||
+		!ValidRepositoryIncarnation(ev.RepositoryIncarnation) {
 		return false
 	}
 	seen := map[string]bool{}

@@ -22,7 +22,7 @@ id=$(jq -er '.id' "$P_TEST_GIT_PLUGIN/plugin.json")
 jq -n --arg path "$P_TEST_GIT_PLUGIN" --arg digest "$digest" --arg id "$id" \
   '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:["git.project"],config:{}}]}' > "$activation"
 p plugins activate "$activation" | jq -e '.[0].capability == "source-git"' >/dev/null
-repo=$(timeout 25 bundle-fixture prepare "$state" "$activation" app | jq -er '.repository_path')
+repo=$(timeout 25 bundle-fixture prepare "$state" app | jq -er '.repository_path')
 test -d "$repo/objects"
 work="$step_dir/work"
 git clone -q "$repo" "$work" 2> "$step_dir/clone.err"

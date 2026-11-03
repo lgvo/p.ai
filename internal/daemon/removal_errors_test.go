@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -11,8 +12,8 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/runtimedriver/memory"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 // TestRemovalAuthorityFailuresKeepTheirMeaning checks how a removal answers a
@@ -34,8 +35,8 @@ func TestRemovalAuthorityFailuresKeepTheirMeaning(t *testing.T) {
 	}{
 		{"a present runtime", runtimeFailure(present, "session/x"), api.KindConflict, api.ReasonRuntimePresent},
 		{"an Incus failure", runtimeFailure(errors.New("incus down"), "session/x"), api.KindFailed, api.ReasonRuntime},
-		{"refs moving during the read", gitFailure(gitservice.ErrRefsMoving), api.KindRetry, api.ReasonRefsMoved},
-		{"a Git failure", gitFailure(errors.New("git down")), api.KindFailed, api.ReasonGit},
+		{"heads moving during the read", control.HeadsFailure(fmt.Errorf("the heads moved: %w", sourcedriver.ErrConflict)), api.KindRetry, api.ReasonRefsMoved},
+		{"a Git failure", control.HeadsFailure(fmt.Errorf("git down: %w", sourcedriver.ErrUnavailable)), api.KindFailed, api.ReasonGit},
 	} {
 		if kind, reason := refusal(test.err); kind != test.kind || reason != test.reason {
 			t.Errorf("%s answered %s %s, want %s %s", test.name, kind, reason, test.kind, test.reason)

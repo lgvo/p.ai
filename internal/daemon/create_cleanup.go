@@ -144,12 +144,15 @@ func (l *lifecycle) planCreateCleanup(ctx context.Context, uuid string, p *api.P
 	} else if !control.SafeCreateCleanupEvidence(d.OldRequest, ev) {
 		refuse(api.ReasonDispatchUnsettled)
 	}
+	if l.sentCreationUnsettled(ctx, op, d.OldRequest, ev) {
+		refuse(api.ReasonOutcomeUnknown)
+	}
 	var working bool
 	l.withLock(func() { working = l.working[op.ID] || l.hasAttachmentLocked(uuid) })
 	if working {
 		refuse(api.ReasonCreationWorkerOrAttachmentActive)
 	}
-	oid, exists, e := l.git.backend.InspectBranchRef(ctx, s.Project, s.Branch)
+	oid, exists, e := l.inspectBranch(ctx, s.Project, s.Branch)
 	d.AssignedBranch = api.CreateReplaceBranch{Ref: "refs/heads/" + s.Branch, Observed: e == nil, Exists: exists, OID: oid}
 	if e != nil || !exists {
 		refuse(api.ReasonAssignedRefUnavailable)
@@ -263,7 +266,7 @@ func (l *lifecycle) processCreateCleanup(observed api.Operation) {
 			if e := l.createCleanupLocalAbsent(op.SessionUUID); e != nil {
 				return e
 			}
-			oid, exists, e := l.git.backend.InspectBranchRef(call, op.Project, review.Review.OldRequest.Branch)
+			oid, exists, e := l.inspectBranch(call, op.Project, review.Review.OldRequest.Branch)
 			if e != nil || !exists || oid != review.Review.AssignedBranch.OID {
 				return control.ErrConflict
 			}

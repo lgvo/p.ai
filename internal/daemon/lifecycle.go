@@ -762,6 +762,10 @@ func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectR
 	}
 	return op, nil
 }
+
+// CreateSession records creation req and queues it. A recorded request is
+// answered from SQLite alone; a new one has the source driver check its Git
+// names first, then captures its source under the store's Git authority.
 func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessionRequest) (api.Operation, error) {
 	if !control.ValidSessionCreateRequest(req) {
 		return api.Operation{}, control.ErrInvalid
@@ -770,116 +774,118 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 	if errors.Is(priorErr, control.ErrConflict) {
 		return api.Operation{}, priorErr
 	}
-	if errors.Is(priorErr, control.ErrNotFound) {
+	if priorErr == nil {
+		// Its source was captured when it was recorded.
+		return l.beginSessionCreate(ctx, req, false, func(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error) {
+			return control.CapturedSource{}, control.ErrConflict
+		})
+	}
+	newRequest := errors.Is(priorErr, control.ErrNotFound)
+	if newRequest {
 		if err := l.currentProjectPolicy(ctx, req.Project); err != nil {
 			return api.Operation{}, err
 		}
 	}
-	if req.OriginRef != "" {
-		if priorErr == nil {
-			op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error) {
-				return control.CapturedSource{}, control.ErrConflict
-			}, l.observeSessionCapacity, l.environmentIntent())
-			if err != nil {
-				return op, err
-			}
-			if op.Status != "completed" && op.Status != "superseded" {
-				if err = l.enqueue(op.ID); err != nil {
-					return op, err
-				}
-			}
-			return op, nil
-		}
-		var op api.Operation
-		var err error
-		err = l.git.backend.WithOrigin(ctx, req.Project, func(scope *gitservice.OriginScope) error {
-			state, _, e := l.store.Origin(ctx, req.Project)
-			if e != nil {
-				return e
-			}
-			if state.URL == "" {
-				return control.Conflict(api.ReasonOriginNotSet, api.TargetProject(req.Project))
-			}
-			if req.ExpectedOriginURL != "" && state.URL != req.ExpectedOriginURL {
-				return control.Stale(api.ReasonChanged)
-			}
-			refs, e := scope.Observe(ctx, state.URL)
-			writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancel()
-			if e != nil {
-				_ = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, nil, "origin refresh failed; check SSH identity, host key, URL and access")
-				return control.Failed(api.ReasonOrigin, e)
-			}
-			if e = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, refs, ""); e != nil {
-				return e
-			}
-			var selected *plugin.GitOriginRef
-			for i := range refs {
-				if refs[i].Ref == req.OriginRef {
-					selected = &refs[i]
-					break
-				}
-			}
-			if selected == nil || selected.CommitOID != req.ExpectedCommitOID {
-				// The origin no longer has the ref, or it moved from the
-				// commit the client observed.
-				return control.Stale(api.ReasonChanged)
-			}
-			fetchFailed := false
-			op, _, e = l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(ctx context.Context, r control.ReserveSessionRequest) (control.CapturedSource, error) {
-				branch := api.TargetBranch(r.Project, r.Branch)
-				_, exists, e := l.git.backend.InspectBranchRef(ctx, r.Project, r.Branch)
-				if errors.Is(e, control.ErrConflict) {
-					return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
-				}
-				if e != nil {
-					return control.CapturedSource{}, control.Failed(api.ReasonGit, e)
-				}
-				if exists {
-					return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
-				}
-				oid, e := scope.Fetch(ctx, r.OriginRef, r.ExpectedCommitOID)
-				if e != nil {
-					fetchFailed = true
-					return control.CapturedSource{}, control.Failed(api.ReasonOrigin, e)
-				}
-				return control.CapturedSource{OID: oid, OriginURL: state.URL, OriginRef: r.OriginRef}, nil
-			}, l.observeSessionCapacity, l.environmentIntent())
-			if fetchFailed {
-				failedCtx, cancelFailed := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-				_ = l.store.StoreOriginRefresh(failedCtx, req.Project, state.URL, nil, "origin fetch failed; check source ref and access")
-				cancelFailed()
-			}
-			return e
-		})
-		if err != nil {
-			return op, err
-		}
-		if errors.Is(priorErr, control.ErrNotFound) {
-			l.recordCreation(op, req.Branch)
-		}
-		if op.Status != "completed" && op.Status != "superseded" {
-			if err = l.enqueue(op.ID); err != nil {
-				return op, err
-			}
-		}
-		return op, nil
+	source, err := l.checkCreationNames(ctx, req)
+	if err != nil {
+		return api.Operation{}, err
 	}
-	op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(),
-		l.git.backend.CaptureLocalSource, l.observeSessionCapacity, l.environmentIntent())
+	if req.OriginRef == "" {
+		return l.beginSessionCreate(ctx, req, newRequest, func(ctx context.Context, r control.ReserveSessionRequest) (control.CapturedSource, error) {
+			return l.captureLocalSource(ctx, r, source)
+		})
+	}
+	var op api.Operation
+	err = l.git.backend.WithOrigin(ctx, req.Project, func(scope *gitservice.OriginScope) error {
+		state, _, e := l.store.Origin(ctx, req.Project)
+		if e != nil {
+			return e
+		}
+		if state.URL == "" {
+			return control.Conflict(api.ReasonOriginNotSet, api.TargetProject(req.Project))
+		}
+		if req.ExpectedOriginURL != "" && state.URL != req.ExpectedOriginURL {
+			return control.Stale(api.ReasonChanged)
+		}
+		refs, e := scope.Observe(ctx, state.URL)
+		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if e != nil {
+			_ = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, nil, "origin refresh failed; check SSH identity, host key, URL and access")
+			return control.Failed(api.ReasonOrigin, e)
+		}
+		if e = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, refs, ""); e != nil {
+			return e
+		}
+		var selected *plugin.GitOriginRef
+		for i := range refs {
+			if refs[i].Ref == req.OriginRef {
+				selected = &refs[i]
+				break
+			}
+		}
+		if selected == nil || selected.CommitOID != req.ExpectedCommitOID {
+			// The origin no longer has the ref, or it moved from the
+			// commit the client observed.
+			return control.Stale(api.ReasonChanged)
+		}
+		fetchFailed := false
+		op, _, e = l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(ctx context.Context, r control.ReserveSessionRequest) (control.CapturedSource, error) {
+			branch := api.TargetBranch(r.Project, r.Branch)
+			_, exists, e := l.inspectBranch(ctx, r.Project, r.Branch)
+			if errors.Is(e, control.ErrConflict) {
+				return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
+			}
+			if e != nil {
+				return control.CapturedSource{}, control.Failed(api.ReasonGit, e)
+			}
+			if exists {
+				return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
+			}
+			oid, e := scope.Fetch(ctx, r.OriginRef, r.ExpectedCommitOID)
+			if e != nil {
+				fetchFailed = true
+				return control.CapturedSource{}, control.Failed(api.ReasonOrigin, e)
+			}
+			return control.CapturedSource{OID: oid, OriginURL: state.URL, OriginRef: r.OriginRef}, nil
+		}, l.observeSessionCapacity, l.environmentIntent())
+		if fetchFailed {
+			failedCtx, cancelFailed := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			_ = l.store.StoreOriginRefresh(failedCtx, req.Project, state.URL, nil, "origin fetch failed; check source ref and access")
+			cancelFailed()
+		}
+		return e
+	})
 	if err != nil {
 		return op, err
 	}
-	if errors.Is(priorErr, control.ErrNotFound) {
+	return l.queueSessionCreate(op, req, newRequest)
+}
+
+// beginSessionCreate records creation req, with capture reading its source,
+// and queues it. newRequest says that no operation had req's key before.
+func (l *lifecycle) beginSessionCreate(ctx context.Context, req control.ReserveSessionRequest, newRequest bool, capture func(context.Context, control.ReserveSessionRequest) (control.CapturedSource, error)) (api.Operation, error) {
+	op, _, err := l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), capture, l.observeSessionCapacity, l.environmentIntent())
+	if err != nil {
+		return op, err
+	}
+	return l.queueSessionCreate(op, req, newRequest)
+}
+
+// queueSessionCreate queues creation op of req unless it ended. A new
+// request's creation is also one the daemon reports.
+func (l *lifecycle) queueSessionCreate(op api.Operation, req control.ReserveSessionRequest, newRequest bool) (api.Operation, error) {
+	if newRequest {
 		l.recordCreation(op, req.Branch)
 	}
 	if op.Status != "completed" && op.Status != "superseded" {
-		if err = l.enqueue(op.ID); err != nil {
+		if err := l.enqueue(op.ID); err != nil {
 			return op, err
 		}
 	}
 	return op, nil
 }
+
 func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error) {
 	op, err := l.store.GetOperation(ctx, id)
 	if err != nil {
@@ -1007,8 +1013,8 @@ func (l *lifecycle) processCreation(op api.Operation) {
 				if e != nil {
 					return e
 				}
-				if e = l.git.backend.EnsureBare(ctx, op.Project); e != nil {
-					return e
+				if _, e = l.git.driver.CreateRepository(ctx, op.Project); e != nil {
+					return control.Failed(api.ReasonGit, e)
 				}
 				created, bootstrap, e = l.store.CommitOriginProject(ctx, op.ID, refs)
 				return e
@@ -1022,8 +1028,8 @@ func (l *lifecycle) processCreation(op api.Operation) {
 			}
 			l.recordCreatingSession(created)
 		} else {
-			if err = l.git.backend.EnsureBare(ctx, op.Project); err != nil {
-				fail(err)
+			if _, err = l.git.driver.CreateRepository(ctx, op.Project); err != nil {
+				fail(control.Failed(api.ReasonGit, err))
 				return
 			}
 			created, commitErr := l.store.CommitBlankProject(ctx, op.ID)
@@ -1064,7 +1070,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 				fail(errors.New("invalid creation request"))
 				return
 			}
-			if e = ensureBranchAssigned(ctx, l.git.backend, op.ID, req, initialOID); e != nil {
+			if e = l.ensureBranchAssigned(ctx, &op, req, initialOID); e != nil {
 				fail(e)
 				return
 			}
@@ -1072,12 +1078,18 @@ func (l *lifecycle) processCreation(op api.Operation) {
 				fail(e)
 				return
 			}
+			// Assigning a new branch records its creation as sent: later
+			// steps record evidence from op's, never from the earlier copy.
+			if creationEvidence, e = control.Evidence(op); e != nil {
+				fail(e)
+				return
+			}
 		}
 	}
 	if op.Kind == "project.create" {
-		tip, exists, e := l.git.backend.InspectBranchRef(ctx, session.Project, "main")
+		tip, exists, e := l.inspectBranch(ctx, session.Project, "main")
 		if e != nil {
-			fail(e)
+			fail(control.Failed(api.ReasonGit, e))
 			return
 		}
 		if phaseRank(op.Phase) < phaseRank("workspace-ready") && (exists || tip != "") {
@@ -1086,9 +1098,9 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		}
 	}
 	if op.Kind == "session.create" {
-		tip, exists, e := l.git.backend.InspectBranchRef(ctx, session.Project, session.Branch)
+		tip, exists, e := l.inspectBranch(ctx, session.Project, session.Branch)
 		if e != nil {
-			fail(e)
+			fail(control.Failed(api.ReasonGit, e))
 			return
 		}
 		if phaseRank(op.Phase) < phaseRank("workspace-ready") && (!exists || tip != initialOID) {

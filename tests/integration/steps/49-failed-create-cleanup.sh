@@ -224,8 +224,9 @@ printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"
 printf 'host_git=%q\nfixture=%q\nsleep_binary=%q\np_binary=%q\njq_binary=%q\n'  "$host_git" "$step_dir" "$(command -v sleep)" "$(command -v p)" "$(command -v jq)" >> "$step_dir/bin/git"
 cat >> "$step_dir/bin/git" <<'WRAPPER'
 set -euo pipefail
-if test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify &&
- test "$5" = --quiet && test "$6" = refs/heads/work && test -f "$fixture/cleanup-arm"; then
+# The source driver reads a head as --git-dir=REPO show-ref --verify --quiet REF.
+if test "$#" -eq 5 && test "${1%%=*}" = --git-dir && test "$2" = show-ref && test "$3" = --verify &&
+ test "$4" = --quiet && test "$5" = refs/heads/work && test -f "$fixture/cleanup-arm"; then
  read -r uuid < "$fixture/cleanup-arm"
  # Read the standard public operation view while the worker is outside its
  # SQLite transaction. The pause requires an already durable cleanup phase.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/plugin"
+	sourcememory "github.com/lgvo/p.ai/internal/sourcedriver/memory"
 )
 
 type fakePublication struct {
@@ -136,9 +137,51 @@ func publicationFixture(t *testing.T) (*Store, *fakePublication, *OriginAPI, Pub
 	// The store's own tests record r with its tag; a client's run takes the
 	// tag from its dry run (publish).
 	r := PublicationRequest{ExpectedOriginURL: "ssh://host/repo", Key: "publish-once", Project: "app", Kind: "session", Source: "550e8400-e29b-41d4-a716-446655440000", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main", IfMatch: testTag(time.Hour)}
-	a := &OriginAPI{Store: s, Runner: f}
+	a := &OriginAPI{Store: s, Runner: f, Driver: sourcememory.NewDriver(sourcememory.NewWorld())}
 	runQueued(a)
 	return s, f, a, r
+}
+
+// TestPublicationRefusesNamesTheSourceDriverRefuses checks that the dry run
+// and the run of a publication whose retained source branch, source commit
+// or destination the source driver refuses answer invalid naming that field,
+// before the origin is contacted or anything is recorded.
+func TestPublicationRefusesNamesTheSourceDriverRefuses(t *testing.T) {
+	for _, test := range []struct {
+		field  string
+		change func(r *PublicationRequest)
+	}{
+		{"source", func(r *PublicationRequest) { r.Kind, r.Source = "retained", "a..b" }},
+		{"source_oid", func(r *PublicationRequest) { r.SourceOID = "not-a-commit" }},
+		{"destination_ref", func(r *PublicationRequest) { r.DestinationRef = "refs/tags/v1" }},
+	} {
+		s, f, a, r := publicationFixture(t)
+		ctx := context.Background()
+		test.change(&r)
+		for _, change := range []api.ChangeRequest{{}, {Key: r.Key, IfMatch: r.IfMatch}} {
+			_, err := a.Publish(ctx, publishRequest(r, change))
+			if answer := answerError(ctx, err); answer == nil || answer.Kind() != api.KindInvalid || answer.Data.Field != test.field {
+				t.Errorf("a publication with an invalid %s (run %t) answered %v", test.field, change.Key != "", err)
+			}
+		}
+		if _, err := s.GetOperationByKey(ctx, r.Key); !errors.Is(err, ErrNotFound) || f.observes != 0 {
+			t.Errorf("a publication with an invalid %s recorded its key (%v) or read the origin %d times", test.field, err, f.observes)
+		}
+	}
+}
+
+// TestPublicationReplaysARecordedRunWithoutTheSourceDriver checks that a
+// recorded run is answered from SQLite alone: its operation comes back while
+// the source driver is down.
+func TestPublicationReplaysARecordedRunWithoutTheSourceDriver(t *testing.T) {
+	_, f, a, r := publicationFixture(t)
+	read := readBack(t, a)
+	op, tag, err := publish(a, r)
+	first := read(op, err)
+	a.Driver.(*sourcememory.Driver).Kill()
+	if replay := read(runPublication(a, r, tag)); replay.ID != first.ID || replay.Status != "completed" || f.pushes != 1 {
+		t.Fatalf("replay with the source driver down: %+v pushes=%d", replay, f.pushes)
+	}
 }
 func TestPublicationDurableReplayAndCrossJournalKeys(t *testing.T) {
 	s, f, a, r := publicationFixture(t)

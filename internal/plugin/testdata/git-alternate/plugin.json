@@ -5,7 +5,7 @@
   "api": "1.0",
   "capability": "source-git",
   "placement": "hybrid",
-  "description": "Independent source adapter with single-ref queries and a 64 KiB receive ceiling",
+  "description": "Independent source adapter with a 64 KiB receive ceiling",
   "runtime": {"kind": "wasi-command", "entry": "git.wasm"},
   "requests": ["git.project"]
 }

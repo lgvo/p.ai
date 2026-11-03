@@ -57,20 +57,20 @@ type RetainedDeleteDetails struct {
 }
 
 // ProjectDeleteDetails is the plan of deleting a whole project: every
-// session, image and the repository it removes. Attachments is always
-// empty: an attached session refuses the deletion.
+// session, image and the repository it removes, the repository at the
+// incarnation the source driver reported, which is opaque to P. Attachments
+// is always empty: an attached session refuses the deletion.
 type ProjectDeleteDetails struct {
-	Project             string                   `json:"project"`
-	Outcome             string                   `json:"outcome"`
-	StateSHA256         string                   `json:"state_sha256"`
-	ProjectPolicySHA256 string                   `json:"project_policy_sha256"`
-	ExternalMounts      []FilesystemGrant        `json:"external_mounts_preserved"`
-	Sessions            []ProjectDeleteSession   `json:"sessions"`
-	Attachments         []string                 `json:"attachments"`
-	BranchLoss          *RemovalBranchLoss       `json:"branch_loss"`
-	Images              []CommitImageClaim       `json:"images"`
-	Repository          ReplacementLocalIdentity `json:"repository_identity"`
-	RepositoryParent    ReplacementLocalIdentity `json:"repository_parent_identity"`
+	Project               string                 `json:"project"`
+	Outcome               string                 `json:"outcome"`
+	StateSHA256           string                 `json:"state_sha256"`
+	ProjectPolicySHA256   string                 `json:"project_policy_sha256"`
+	ExternalMounts        []FilesystemGrant      `json:"external_mounts_preserved"`
+	Sessions              []ProjectDeleteSession `json:"sessions"`
+	Attachments           []string               `json:"attachments"`
+	BranchLoss            *RemovalBranchLoss     `json:"branch_loss"`
+	Images                []CommitImageClaim     `json:"images"`
+	RepositoryIncarnation string                 `json:"repository_incarnation"`
 }
 
 // ProjectDeleteSession is one session that project deletion removes, and the

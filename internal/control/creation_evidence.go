@@ -23,6 +23,9 @@ func monotonicCreationEvidence(oldPhase string, oldRaw, newRaw json.RawMessage) 
 			return ErrConflict
 		}
 	}
+	if old.BranchCreateIssued && !next.BranchCreateIssued {
+		return ErrConflict
+	}
 	if err := monotonicBuilderState(old.EnvironmentBuilder, next.EnvironmentBuilder); err != nil {
 		return err
 	}

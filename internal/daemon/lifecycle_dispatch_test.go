@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,11 +12,10 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
+	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
 )
 
-// Exercise real journal, guards, selected source plugin and Git ref effects.
+// Exercise real journal, guards and the bundled source driver's head effects.
 // Creation workers wait on real session locks to occupy every worker slot;
 // their completion must drain pending renames without periodic polling.
 func TestLifecycleDispatchSaturation(t *testing.T) {
@@ -33,11 +32,7 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 			if err = store.CreateProject(ctx, "app", []byte(`{}`)); err != nil {
 				t.Fatal(err)
 			}
-			backend, tip := dispatchGitFixture(t, store)
-			repo, err := backend.RepositoryPath("app")
-			if err != nil {
-				t.Fatal(err)
-			}
+			driver, repo, tip := gitSource(t, store)
 			var ops []api.Operation
 			for i := 0; i < 21; i++ {
 				old := fmt.Sprintf("old-%d", i)
@@ -48,7 +43,7 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 				}
 				ops = append(ops, op)
 			}
-			l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{backend: backend}, working: map[string]bool{}, queueSlots: make(chan struct{}, 8)}
+			l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{driver: driver}, working: map[string]bool{}, queueSlots: make(chan struct{}, 8)}
 			blockers := dispatchBlockers(t, ctx, store)
 			releases := dispatchHold(t, l, blockers)
 			for _, op := range blockers {
@@ -79,17 +74,14 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				pkg, err := plugin.Conformance(filepath.Join(state, "source-package"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				backend, err = gitservice.New(store, state, []plugin.Active{{Package: pkg, Grants: []string{"git.project"}}})
+				// The restarted daemon's driver over the same storage.
+				driver, err = sourcegit.New(state, json.RawMessage(`{}`))
 				if err != nil {
 					t.Fatal(err)
 				}
 				ctx, cancel = context.WithCancel(context.Background())
 				defer cancel()
-				l = &lifecycle{ctx: ctx, store: store, git: &gitCapability{backend: backend}, working: map[string]bool{}, queueSlots: make(chan struct{}, 8)}
+				l = &lifecycle{ctx: ctx, store: store, git: &gitCapability{driver: driver}, working: map[string]bool{}, queueSlots: make(chan struct{}, 8)}
 				releases = dispatchHold(t, l, blockers)
 				if err = l.Recover(); err != nil {
 					t.Fatal(err)
@@ -129,10 +121,10 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 			}
 			for i := range ops {
 				old, newName := fmt.Sprintf("old-%d", i), fmt.Sprintf("new-%d", i)
-				if _, exists, err := backend.InspectBranchRef(ctx, "app", old); err != nil || exists {
+				if _, exists, err := driver.InspectBranch(ctx, "app", old); err != nil || exists {
 					t.Fatalf("old ref survived: %s %v", old, err)
 				}
-				if got, exists, err := backend.InspectBranchRef(ctx, "app", newName); err != nil || !exists || got != tip {
+				if got, exists, err := driver.InspectBranch(ctx, "app", newName); err != nil || !exists || string(got) != tip {
 					t.Fatalf("new ref incorrect: %s %s %v", newName, got, err)
 				}
 				// Released guards permit a new reservation for the renamed branch.
@@ -145,46 +137,6 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 	}
 }
 
-func dispatchGitFixture(t *testing.T, store *control.Store) (*gitservice.Backend, string) {
-	t.Helper()
-	state := store.StateDir()
-	dir := filepath.Join(state, "source-package")
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"plugin.json", "p-git-ssh"} {
-		data, err := os.ReadFile(filepath.Join("../../plugins/bundled/source-git", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = os.WriteFile(filepath.Join(dir, name), data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	build := exec.Command("go", "build", "-o", filepath.Join(dir, "git.wasm"), "../../plugins/bundled/source-git")
-	build.Env = append(os.Environ(), "GOOS=wasip1", "GOARCH=wasm", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build Git module: %v %s", err, out)
-	}
-	pkg, err := plugin.Conformance(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	backend, err := gitservice.New(store, state, []plugin.Active{{Package: pkg, Grants: []string{"git.project"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = backend.EnsureBare(context.Background(), "app"); err != nil {
-		t.Fatal(err)
-	}
-	repo, err := backend.RepositoryPath("app")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tree := dispatchGit(t, repo, "mktree")
-	tip := dispatchGit(t, repo, "-c", "user.name=P fixture", "-c", "user.email=p@example.test", "commit-tree", tree, "-m", "fixture")
-	return backend, tip
-}
 func dispatchGit(t *testing.T, repo string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"--git-dir=" + repo}, args...)...)

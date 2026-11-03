@@ -20,7 +20,7 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 	if e := s.CreateProject(ctx, "bulk", json.RawMessage(`{}`)); e != nil {
 		t.Fatal(e)
 	}
-	ev := ProjectDeleteEvidence{InstanceUUID: "11111111-1111-4111-8111-111111111111", BaseFingerprint: strings.Repeat("b", 64), IncusProject: "user-1000", ReviewSHA256: strings.Repeat("f", 64), Repository: api.ReplacementLocalIdentity{Inode: 1, Mode: 040700}, RepositoryParent: api.ReplacementLocalIdentity{Inode: 2, Mode: 040700}}
+	ev := ProjectDeleteEvidence{InstanceUUID: "11111111-1111-4111-8111-111111111111", BaseFingerprint: strings.Repeat("b", 64), IncusProject: "user-1000", ReviewSHA256: strings.Repeat("f", 64), RepositoryIncarnation: strings.Repeat("9", 32)}
 	for _, branch := range []string{"main", "work"} {
 		op, session, e := s.ReserveSession(ctx, ReserveSessionRequest{Key: "create-" + branch, Project: "bulk", Branch: branch, Choice: "new", Source: "refs/heads/seed"})
 		if e != nil {

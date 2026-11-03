@@ -286,6 +286,16 @@ sent for each valid request, with the same ID, `jsonrpc:"2.0"`, and exactly one
 of `result` or `error`. Responses may arrive out of order. JSON object keys
 must be unique at every depth.
 
+Branch names, refs, creation sources and commit IDs have only bounds in
+`Validate`: valid UTF-8 without ASCII control characters, of at most 200
+bytes for a P branch, 523 for a ref, 255 for a creation source and 64 for a
+commit ID. Their syntax is the source driver's. A method that takes them asks
+the driver after it looks up the request's idempotency key, when it has one,
+so a recorded request is answered from P's records alone, and before it
+records anything; a value the driver refuses answers `invalid` with reason
+`param` and the field. A page's `after` cursor is only bounded: it is
+compared, never recorded.
+
 The CLI's task commands, such as `p session create` and `p operation wait`,
 are the clients for ordinary work; `p help` lists them and the
 [user guide](user-guide.md) walks through them. Each opens a connection per
@@ -457,7 +467,7 @@ With trusted Git configuration, two more read-only methods are available:
 | Method | Params | Result | Meaning |
 |---|---|---|---|
 | `project.list` | `{"limit":1..100,"after":"optional/project"}` | `projects` (`path`, `registry_state`), `next` | Lists registered projects in bytewise path order. `next` is empty at the end. |
-| `project.branches` | `{"project":"project/path","limit":1..8,"after":"optional/refs/heads/name"}` | `project`, `refs` (`ref`, `oid`), `next` | Lists user-visible branches of an active registered project through the selected source-Git package and real Git. `next` is empty at the end. |
+| `project.branches` | `{"project":"project/path","limit":1..8,"after":"optional/refs/heads/name"}` | `project`, `refs` (`ref`, `oid`), `next` | Lists user-visible branches of an active registered project through the source driver. `next` is empty at the end. |
 
 `rpc.cancel` takes `{"id":<request-id>}`. It cancels a pending request
 on the same connection. As a notification it has no reply. As a request it
@@ -1200,8 +1210,12 @@ Delete applies the same pre-commit stale checks, and a changed `branch_loss`
 is also stale. The exact runtime, endpoint, and key cleanup is the same. After
 runtime absence, it removes only the assigned P branch through an
 expected-old-tip check; sibling P refs and origin refs remain. With a missing
-assigned ref it has nothing to remove in P's repository. A mismatched or
-uncertain branch effect stays guarded for investigation.
+assigned ref it has nothing to remove in P's repository: it proves the branch
+still absent. A branch removal whose outcome was lost is never sent again: it
+stays guarded and blocked, with reason `outcome_unknown`, until the source
+driver settles it as applied, also on a Retry; one the driver settles as not
+done blocks with reason `git`. A mismatched branch effect stays guarded for
+investigation.
 
 `session.rename` accepts
 `{"key":"idempotency-key","uuid":"session-UUID","new_branch":"renamed","expected_old_tip":"<40-hex P commit>"}`
@@ -1271,8 +1285,9 @@ The plan's `details` hold `project`, `outcome`
 (`delete_project_and_all_p_data`), `state_sha256`, `project_policy_sha256`,
 `external_mounts_preserved` (the filesystem grants whose contents P keeps),
 `sessions`, `attachments` (always empty, because an attachment refuses the
-plan), `branch_loss`, `images`, `repository_identity` and
-`repository_parent_identity`. Each entry of `sessions` has the `session`
+plan), `branch_loss`, `images` and `repository_incarnation`, the incarnation
+of the project's repository as the source driver reports it, opaque to P.
+Each entry of `sessions` has the `session`
 record, its `condition` (`running`, `stopped` or `missing`), its `runtime` as
 for session removal, and `credentials`: the exact identities of its key and
 endpoint entries. `branch_loss` covers every assigned and retained P ref and
@@ -1313,7 +1328,11 @@ may available name and full inventory checks positively prove absence after a
 crash; a still-present, renamed, competing or uncertain source keeps cleanup
 blocked for investigation. Indexed commit images are deleted exactly, through
 the runtime driver, only after runtime absence, and their index rows with
-them. The repository and registry disappear last. The base image, other
+them. The repository and registry disappear last: the source driver deletes
+the repository at the planned incarnation only, after P records the delete as
+issued, and P proves it absent through the driver. A repository made again
+since the plan is not the reviewed one: the deletion blocks with
+`precondition_failed`, reason `changed`, and keeps it. The base image, other
 projects and their images, external grant contents and delivered logs remain.
 Completion clears bulky claims and old raw requests/evidence, retaining a
 minimal completed result and immutable retired
@@ -1454,7 +1473,7 @@ it.
 | `retry` | `too_many_requests` | The connection has 16 requests in flight. |
 | `retry` | `deadline` | The daemon's 30-second deadline passed. |
 | `retry` | `project_held` | Another request or a running operation holds the project: another creation of it, another `project.delete` call on it, or, for `project.delete`, any running operation in it. `target` names the operation when there is one. |
-| `retry` | `refs_moved` | P's branches moved while the daemon read them. |
+| `retry` | `refs_moved` | P's branches moved while the source driver read them. |
 | `conflict` | `attachment_active` | A terminal is attached to the session, or an attachment is pending. |
 | `conflict` | `session_not_established` | The session is still being created, is being removed, or was never created. |
 | `conflict` | `session_not_stopped` | The change needs a stopped session: Rename. |
@@ -1494,7 +1513,7 @@ it.
 | `not_configured` | `project_policy` | The host configuration has no policy for the project. |
 | `failed` | `runtime` | Incus or the runtime driver failed or could not be observed. |
 | `failed` | `services` | The session's user service manager is unavailable or refused the command. |
-| `failed` | `git` | P's Git repository or the source-Git plugin failed. |
+| `failed` | `git` | P's Git repository, the source driver or the source-Git plugin failed, or a head change the source driver settled as not done. |
 | `failed` | `origin` | The origin could not be contacted, or refused an observation, fetch or push. |
 | `failed` | `plugin` | A selected plugin failed its recheck before use. |
 
@@ -1528,6 +1547,11 @@ it plans is a refusal code in its plan, such as `attachment_active`,
 | `session.create.cleanup` | `exact_stopped_runtime_unavailable` | The creator's container is not the exact stopped one P made; the daemon's log has the cause. |
 | `session.create.cleanup` | `native_runtime_or_builder_present_ambiguous_or_unreachable` | A container or builder of the creation exists, is ambiguous, or could not be checked. |
 
+A replacement or cleanup of a creation that sent its new branch's creation
+and whose outcome the source driver cannot settle yet, or cannot reach to
+settle, is also refused with `outcome_unknown`; once the driver settles it,
+applied or not, the plan is as before.
+
 ### Capability boundary
 
 Without trusted runtime configuration, lifecycle mutations and inspection
@@ -1538,5 +1562,5 @@ P has no session repair methods; [session lifecycle](session-lifecycle.md#incons
 describes what to do instead. Branch/upstream mismatch correction is manual,
 with P rechecking on the next attempt. Abandonment and its associated
 tombstone/orphan-cleanup/forget workflow are outside MVP. `project.branches`
-and `project.retained_branches` observe Git refs through the configured source
-package; they do not mutate lifecycle state.
+and `project.retained_branches` page over the heads the source driver reads;
+they do not mutate lifecycle state.

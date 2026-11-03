@@ -65,7 +65,7 @@ func TestRunnersRefuseMisbehavingModules(t *testing.T) {
 		}, map[string]string{"loop": "plugin execution timed out or was cancelled", "flood": "plugin output exceeds limit", "exit": "plugin execution failed"}},
 		{"source Git", func(ctx context.Context, mode string) error {
 			active := selected(t, "testdata/git-alternate/plugin.json", "git.wasm", mode, []string{"git.project"}, nil)
-			_, err := RunSourceGit(ctx, active, GitCommand{Kind: "git.origin.observe", Project: "team/app"}, &originFixture{sourceFixture: &sourceFixture{}})
+			_, err := RunSourceGit(ctx, active, GitCommand{Kind: "git.origin.observe", Project: "team/app"}, &originFixture{})
 			return err
 		}, map[string]string{"loop": "source-git execution timed out", "flood": "source-git output exceeded limit", "exit": "source-git execution failed"}},
 	}

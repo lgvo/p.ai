@@ -7,9 +7,9 @@ import (
 	"github.com/lgvo/p.ai/internal/sourcedriver/gitnames"
 )
 
-// CheckNames applies Git's syntax for P's names. A branch a rename creates
-// must also pass `git check-ref-format --branch`, as today's
-// ValidateRenameBranch requires.
+// CheckNames applies Git's syntax for P's names. A branch a rename creates,
+// or a retained branch a change names, must also pass
+// `git check-ref-format --branch`.
 func (d *Driver) CheckNames(ctx context.Context, names []sourcedriver.Name) ([]sourcedriver.Name, error) {
 	return gitnames.Check(names, func(name string) (bool, error) { return d.checkRefFormat(ctx, name) })
 }

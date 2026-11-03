@@ -2,12 +2,32 @@ package api
 
 import (
 	"strings"
+	"unicode/utf8"
 
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver/gitnames"
 )
 
 // The checks below are the bounds every request type applies in Validate.
 // Control applies the same checks to the records it stores.
+
+// The bounds of the values whose syntax the source driver decides: branch
+// and ref names, creation sources and commit IDs. Core only stores and
+// compares them; a handler has the driver check the rest (CheckNames) after
+// its replay lookup.
+const (
+	MaxBranchBytes = 200 // a P branch's name
+	MaxRefBytes    = 523 // a full ref: an origin's, or a page cursor of refs
+	MaxSourceBytes = 255 // a creation source
+	MaxCommitBytes = 64  // a commit ID
+)
+
+// BoundedName reports whether value is within core's bounds for a name of
+// at most max bytes: valid UTF-8 without ASCII control characters, 1 to max
+// bytes long. Whether it is a valid name is the source driver's to say.
+func BoundedName(value string, max int) bool {
+	return value != "" && len(value) <= max && utf8.ValidString(value) &&
+		strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) < 0
+}
 
 // ValidProject reports whether path is a P project path: up to 255 bytes of
 // slash-separated names of letters, digits, '-', '_' and '.'.
@@ -26,33 +46,6 @@ func ValidProject(path string) bool {
 		}
 	}
 	return true
-}
-
-// ValidBranch reports whether branch is an ordinary P branch name.
-func ValidBranch(branch string) bool {
-	if len(branch) == 0 || len(branch) > 200 || strings.HasSuffix(branch, ".lock") || strings.Contains(branch, "..") || strings.Contains(branch, "@{") {
-		return false
-	}
-	for _, c := range strings.Split(branch, "/") {
-		if c == "" || strings.HasPrefix(c, ".") || strings.HasSuffix(c, ".") || strings.HasSuffix(c, ".lock") {
-			return false
-		}
-		for _, r := range c {
-			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// ValidOID reports whether s is a nonzero SHA-1 or SHA-256 object ID in
-// lowercase hex.
-func ValidOID(s string) bool {
-	if len(s) != 40 && len(s) != 64 {
-		return false
-	}
-	return lowerHex(s) && strings.Trim(s, "0") != ""
 }
 
 // ValidUUID reports whether value is a UUID in lowercase canonical form.
@@ -89,10 +82,9 @@ func lowerHex(s string) bool {
 // validKey accepts an idempotency key of 1 to 128 bytes.
 func validKey(key string) bool { return len(key) >= 1 && len(key) <= 128 }
 
-// validBranchCursor accepts an empty cursor or the full ref of a P branch.
-func validBranchCursor(after string) bool {
-	return after == "" || strings.HasPrefix(after, "refs/heads/") && ValidBranch(strings.TrimPrefix(after, "refs/heads/"))
-}
+// validRefCursor accepts an empty cursor or one within a ref's bounds: a
+// cursor is compared, never recorded.
+func validRefCursor(after string) bool { return after == "" || BoundedName(after, MaxRefBytes) }
 
 // invalid is the error a request's Validate returns for field, or for no
 // single field when field is empty.
@@ -116,11 +108,21 @@ func validBranchPage(project, after string, limit int) error {
 		return invalid("project")
 	case limit < 1 || limit > 8:
 		return invalid("limit")
-	case !validBranchCursor(after):
+	case !validRefCursor(after):
 		return invalid("after")
 	}
 	return nil
 }
 
-// validOriginRef is the external origin's branch or tag syntax.
-func validOriginRef(ref string) bool { return plugin.ValidGitOriginRef(ref) }
+// ValidBranch and ValidOID are the client's parsing of P's default names:
+// the CLI parses the branch names and commit IDs of its arguments by the
+// bundled Git driver's rules. Core never uses them; the source driver checks
+// names (CheckNames).
+
+// ValidBranch reports whether branch is a P branch name by the bundled
+// driver's rule.
+func ValidBranch(branch string) bool { return gitnames.Branch(branch) }
+
+// ValidOID reports whether s is a commit ID by the bundled driver's rule: a
+// nonzero SHA-1 or SHA-256 object ID in lowercase hex.
+func ValidOID(s string) bool { return gitnames.OID(s) }

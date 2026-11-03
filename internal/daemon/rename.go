@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest) (api.Operation, error) {
@@ -23,6 +26,11 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	if prior, replayed, err := replayRequest(l, ctx, req.Key, control.KindSessionRename, req); err != nil || replayed {
 		return prior, err
 	}
+	if _, err := control.CheckNames(ctx, l.git.driver,
+		control.NameField{Field: "new_branch", Name: sourcedriver.Name{Kind: sourcedriver.NameRenameBranch, Value: req.NewBranch}},
+		control.NameField{Field: "expected_old_tip", Name: sourcedriver.Name{Kind: sourcedriver.NameCommit, Value: req.ExpectedOldTip}}); err != nil {
+		return api.Operation{}, err
+	}
 	if err := l.admitSessionWork(ctx, req.UUID, ""); err != nil {
 		return api.Operation{}, err
 	}
@@ -35,9 +43,6 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	}
 	if s.Branch == req.NewBranch {
 		return api.Operation{}, control.Conflict(api.ReasonBranchExists, api.TargetBranch(s.Project, req.NewBranch))
-	}
-	if err := l.checkBranchName(ctx, "new_branch", req.NewBranch); err != nil {
-		return api.Operation{}, err
 	}
 	spec, err := l.sessionSpec(ctx, s)
 	if err != nil {
@@ -56,9 +61,6 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 		ImageFingerprint: string(spec.Image), BaseFingerprint: l.cfg.BaseImageFingerprint,
 		IncusUUID: incusUUID, Generation: generation}
 	verify := func(ctx context.Context) error {
-		if err := l.checkBranchName(ctx, "new_branch", ev.NewBranch); err != nil {
-			return err
-		}
 		return control.Failed(api.ReasonGit, l.verifyRenamePRefs(ctx, ev, false))
 	}
 	op, err := l.store.BeginRename(ctx, req, ev, verify)
@@ -69,17 +71,6 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 		return op, err
 	}
 	return op, nil
-}
-
-// checkBranchName has Git check name, the request's field: a name Git
-// refuses answers invalid naming field, and a failure to check it answers
-// failed with reason git.
-func (l *lifecycle) checkBranchName(ctx context.Context, field, name string) error {
-	err := l.git.backend.ValidateRenameBranch(ctx, name)
-	if errors.Is(err, control.ErrInvalid) {
-		return control.Invalid(field)
-	}
-	return control.Failed(api.ReasonGit, err)
 }
 
 // renameSourceRefusal refuses to rename session whose runtime was observed
@@ -107,15 +98,166 @@ func renameSourceExact(o runtimedriver.Observation, ev control.RenameEvidence) b
 	return renameSourceStopped(o) && o.Incarnation == recordedIncarnation(ev.IncusUUID, ev.Generation)
 }
 
+// renameUID is the session user, who owns the clone.
+const renameUID = 1000
+
+// maxRenameReads bounds the rounds of reads one answer of the source driver
+// asks for: a driver that keeps asking fails the rename instead of holding
+// it.
+const maxRenameReads = 16
+
 // renameClone is the clone of the session a rename changes, at the
-// incarnation the rename recorded.
-func (l *lifecycle) renameClone(spec runtimedriver.Session, ev control.RenameEvidence) renameClone {
-	return renameClone{driver: l.driver, target: runtimedriver.Target{Session: spec, At: recordedIncarnation(ev.IncusUUID, ev.Generation)}}
+// incarnation the rename recorded. The source driver decides the rename's
+// Git edits from the clone's files; core reads and writes them through the
+// runtime driver, whose workspace operations act only on a stopped session
+// at that incarnation.
+type renameClone struct {
+	runtime runtimedriver.Driver
+	source  sourcedriver.Driver
+	target  runtimedriver.Target
+	// rename names the rename, its branches and the session user; each call
+	// sets its goal and plan.
+	rename sourcedriver.WorkspaceRename
 }
 
-// renamePlan is the workspace plan a rename recorded.
-func renamePlan(ev control.RenameEvidence) workspaceRenamePlan {
-	return workspaceRenamePlan{HeadOID: ev.WorkspaceTip, ConfigAfterSHA256: ev.ConfigAfterSHA256}
+// renameClone is the clone that rename op changes.
+func (l *lifecycle) renameClone(spec runtimedriver.Session, ev control.RenameEvidence, op string) renameClone {
+	return renameClone{runtime: l.driver, source: l.git.driver,
+		target: runtimedriver.Target{Session: spec, At: recordedIncarnation(ev.IncusUUID, ev.Generation)},
+		rename: sourcedriver.WorkspaceRename{ID: op, Old: ev.OldBranch, New: ev.NewBranch, User: renameUID}}
+}
+
+// ask is the source driver's answer toward goal for the clone as it is now,
+// with the files it read: core reads each path the driver asks for within
+// the bound it gives, and calls again with them, until the driver answers
+// with edits.
+func (c renameClone) ask(ctx context.Context, goal sourcedriver.Goal, plan string) (sourcedriver.WorkspaceEdits, map[string]runtimedriver.File, error) {
+	r := c.rename
+	r.Goal, r.Plan = goal, plan
+	read := map[string]runtimedriver.File{}
+	var files []sourcedriver.WorkspaceFile
+	for range maxRenameReads {
+		answer, err := c.source.RenameWorkspace(ctx, r, files)
+		if err != nil || len(answer.Read) == 0 {
+			return answer, read, err
+		}
+		for _, p := range slices.Sorted(maps.Keys(answer.Read)) {
+			f, err := c.runtime.ReadWorkspace(ctx, c.target, p, answer.Read[p])
+			if err != nil {
+				return sourcedriver.WorkspaceEdits{}, nil, err
+			}
+			read[p] = f
+			files = append(files, sourcedriver.WorkspaceFile{Path: p, File: sourceFile(f)})
+		}
+	}
+	return sourcedriver.WorkspaceEdits{}, nil, errors.New("rename workspace reads exceed their bound")
+}
+
+// holds proves the clone at goal: the source driver asks for no edit and
+// returns plan.
+func (c renameClone) holds(ctx context.Context, goal sourcedriver.Goal, plan string) error {
+	answer, _, err := c.ask(ctx, goal, plan)
+	if err != nil {
+		return err
+	}
+	if len(answer.Edits) != 0 || answer.Plan != plan {
+		return fmt.Errorf("rename workspace is not %s as planned", goal)
+	}
+	return nil
+}
+
+// reach takes the clone to goal and returns the rename's plan: it makes the
+// source driver's edits in order, each after issued records it with the
+// plan, then proves the goal holds. plan is the plan recorded, or empty
+// before an answer returned one.
+func (c renameClone) reach(ctx context.Context, goal sourcedriver.Goal, plan string, issued func(control.RenameEdit, string) error) (string, error) {
+	answer, _, err := c.ask(ctx, goal, plan)
+	if err != nil {
+		return "", err
+	}
+	if plan != "" && answer.Plan != plan {
+		return "", fmt.Errorf("rename workspace plan changed toward %s", goal)
+	}
+	for _, e := range answer.Edits {
+		recorded := control.RenameEdit{Goal: goal, Path: e.Path, Remove: e.File.Type == sourcedriver.FileAbsent}
+		if err := c.edit(ctx, e, func() error { return issued(recorded, answer.Plan) }); err != nil {
+			return "", err
+		}
+	}
+	return answer.Plan, c.holds(ctx, goal, answer.Plan)
+}
+
+// edit makes one of the source driver's edits after gate: a regular file
+// written, or a path removed. An edit whose outcome was lost is settled at
+// once, by what it was to leave, and never sent again: only one the runtime
+// driver settles applied lets the rename go on.
+func (c renameClone) edit(ctx context.Context, e sourcedriver.WorkspaceFile, gate runtimedriver.Gate) error {
+	effect := runtimedriver.Effect{Kind: runtimedriver.EffectRemove, Target: c.target, Path: e.Path}
+	sent := false
+	var err error
+	switch e.File.Type {
+	case sourcedriver.FileAbsent:
+		err = c.runtime.RemoveWorkspace(ctx, c.target, e.Path, tracked(gate, &sent))
+	case sourcedriver.FileRegular:
+		effect.Kind = runtimedriver.EffectWrite
+		effect.Content = runtimedriver.File{Type: runtimedriver.FileRegular, UID: e.File.UID, GID: e.File.GID, Mode: e.File.Mode, Data: e.File.Data}
+		err = c.runtime.WriteWorkspace(ctx, c.target, e.Path, effect.Content, tracked(gate, &sent))
+	default:
+		return fmt.Errorf("rename edit of %s is neither a file nor a removal", e.Path)
+	}
+	if err == nil || !sent {
+		return err
+	}
+	return c.settle(ctx, effect, fmt.Errorf("%s %s outcome unresolved: %w", e.Path, effect.Kind, err))
+}
+
+// settle succeeds only when the runtime driver settles e applied; otherwise
+// it returns unresolved, with what the driver said.
+func (c renameClone) settle(ctx context.Context, e runtimedriver.Effect, unresolved error) error {
+	settled, err := c.runtime.Settle(ctx, e)
+	if err == nil && settled == runtimedriver.Applied {
+		return nil
+	}
+	return errors.Join(unresolved, err)
+}
+
+// settleEdit settles e, the edit toward goal that a gate recorded and whose
+// outcome was lost. The rename goes on only when the source driver asks for
+// no edit toward goal and the runtime driver settles e applied for the file
+// now at its path; e is never sent again.
+func (c renameClone) settleEdit(ctx context.Context, e control.RenameEdit, goal sourcedriver.Goal, plan string) error {
+	if e.Goal != goal {
+		return fmt.Errorf("rename workspace edit toward %s unrecorded", goal)
+	}
+	answer, read, err := c.ask(ctx, goal, plan)
+	if err != nil {
+		return err
+	}
+	now, found := read[e.Path]
+	if len(answer.Edits) != 0 || answer.Plan != plan || !found {
+		return fmt.Errorf("%s edit outcome unresolved", e.Path)
+	}
+	effect := runtimedriver.Effect{Kind: runtimedriver.EffectWrite, Target: c.target, Path: e.Path, Content: now}
+	if e.Remove {
+		effect = runtimedriver.Effect{Kind: runtimedriver.EffectRemove, Target: c.target, Path: e.Path}
+	}
+	return c.settle(ctx, effect, fmt.Errorf("%s edit outcome unresolved", e.Path))
+}
+
+// sourceFileTypes are the runtime driver's file types as the source driver
+// names them.
+var sourceFileTypes = map[runtimedriver.FileType]sourcedriver.FileType{
+	runtimedriver.FileAbsent:    sourcedriver.FileAbsent,
+	runtimedriver.FileRegular:   sourcedriver.FileRegular,
+	runtimedriver.FileDirectory: sourcedriver.FileDirectory,
+	runtimedriver.FileSymlink:   sourcedriver.FileSymlink,
+	runtimedriver.FileOther:     sourcedriver.FileOther,
+}
+
+// sourceFile is a file of the clone the runtime driver read, as the source
+// driver takes it.
+func sourceFile(f runtimedriver.File) sourcedriver.File {
+	return sourcedriver.File{Type: sourceFileTypes[f.Type], UID: f.UID, GID: f.GID, Mode: f.Mode, Data: f.Data}
 }
 
 // The caller either holds gitAuthority or is only making a preflight
@@ -124,7 +266,7 @@ func renamePlan(ev control.RenameEvidence) workspaceRenamePlan {
 // is a changed precondition and a taken new name a conflict; after it, a
 // mismatch breaks the rename's own invariant.
 func (l *lifecycle) verifyRenamePRefs(ctx context.Context, ev control.RenameEvidence, oldAbsent bool) error {
-	old, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.OldBranch)
+	old, exists, err := l.inspectBranch(ctx, ev.Project, ev.OldBranch)
 	if err != nil {
 		return err
 	}
@@ -135,7 +277,7 @@ func (l *lifecycle) verifyRenamePRefs(ctx context.Context, ev control.RenameEvid
 	} else if !exists || old != ev.OldTip {
 		return control.Stale(api.ReasonChanged)
 	}
-	newTip, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.NewBranch)
+	newTip, exists, err := l.inspectBranch(ctx, ev.Project, ev.NewBranch)
 	if errors.Is(err, control.ErrConflict) && !oldAbsent {
 		// A symbolic ref occupies the new name.
 		return control.Conflict(api.ReasonBranchExists, api.TargetBranch(ev.Project, ev.NewBranch))
@@ -154,11 +296,11 @@ func (l *lifecycle) verifyRenamePRefs(ctx context.Context, ev control.RenameEvid
 }
 
 func (l *lifecycle) renameNewRefExact(ctx context.Context, ev control.RenameEvidence) error {
-	old, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.OldBranch)
+	old, exists, err := l.inspectBranch(ctx, ev.Project, ev.OldBranch)
 	if err != nil || !exists || old != ev.OldTip {
 		return errors.Join(err, control.ErrConflict)
 	}
-	newTip, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.NewBranch)
+	newTip, exists, err := l.inspectBranch(ctx, ev.Project, ev.NewBranch)
 	if err != nil || !exists || newTip != ev.OldTip {
 		return errors.Join(err, control.ErrConflict)
 	}
@@ -185,12 +327,17 @@ func (l *lifecycle) advanceRename(op *api.Operation, ev control.RenameEvidence, 
 	return nil
 }
 
-// backupRemoveIssued is the gate of the backup's removal: it records the
-// removal in ev and op.
-func (l *lifecycle) backupRemoveIssued(op *api.Operation, ev *control.RenameEvidence) runtimedriver.Gate {
-	return func() error {
-		ev.BackupRemoveIssued = true
-		return l.advanceRename(op, *ev, op.Phase, op.Committed)
+// editIssued is the gate of a clone edit: it records the edit and the
+// rename's plan in ev and moves op to phase.
+func (l *lifecycle) editIssued(op *api.Operation, ev *control.RenameEvidence, phase string, committed bool) func(control.RenameEdit, string) error {
+	return func(e control.RenameEdit, plan string) error {
+		next := *ev
+		next.Edit, next.Plan = e, plan
+		if err := l.advanceRename(op, next, phase, committed); err != nil {
+			return err
+		}
+		*ev = next
+		return nil
 	}
 }
 
@@ -201,7 +348,7 @@ func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameE
 		return
 	}
 	if op.Phase == "workspace-prepared" {
-		if err := clone.removeBackup(ctx, op.ID, l.backupRemoveIssued(&op, &ev)); err != nil {
+		if _, err := clone.reach(ctx, sourcedriver.GoalDone, ev.Plan, l.editIssued(&op, &ev, op.Phase, op.Committed)); err != nil {
 			l.blockRename(op, errors.Join(cause, err))
 			return
 		}
@@ -209,7 +356,7 @@ func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameE
 	// A replaced or started source does not prevent releasing these two ref
 	// guards after a definite no-effect precommit refusal.
 	reason, diagnostic := api.ReasonChanged, "rename precommit input changed"
-	var mismatch *workspaceAssignmentMismatchError
+	var mismatch *sourcedriver.WorkspaceMismatch
 	if errors.As(cause, &mismatch) {
 		reason, diagnostic = api.ReasonWorkspaceMismatch, mismatch.Error()
 	}
@@ -240,20 +387,15 @@ func (l *lifecycle) processRename(op api.Operation) {
 		l.blockRename(op, errors.Join(err, errors.New("rename runtime selection changed")))
 		return
 	}
-	clone := l.renameClone(source, ev)
-	if ev.BackupRemoveIssued {
-		if err := clone.settleBackupRemoved(ctx, op.ID); err != nil {
+	clone := l.renameClone(source, ev, op.ID)
+	// Rollback and completion remove the backup without leaving their
+	// phase: a removal whose gate recorded it is settled before anything
+	// else.
+	if ev.Edit.Goal == sourcedriver.GoalDone {
+		if err := clone.settleEdit(ctx, ev.Edit, sourcedriver.GoalDone, ev.Plan); err != nil {
 			l.blockRename(op, err)
 			return
 		}
-	}
-	// issued records that the clone's rename began, right before its first
-	// write; later writes find it recorded.
-	issued := func() error {
-		if op.Phase == "workspace-rename-issued" {
-			return nil
-		}
-		return l.advanceRename(&op, ev, "workspace-rename-issued", true)
 	}
 	for step := 0; step < 18; step++ {
 		switch op.Phase {
@@ -272,32 +414,26 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.rollbackRenamePrecommit(op, ev, clone, errors.Join(err, errors.New("rename source changed or started")))
 				return
 			}
-			plan, err := clone.prepare(ctx, op.ID, ev.OldBranch, ev.NewBranch,
-				func() error { return l.advanceRename(&op, ev, "prepare-issued", false) })
+			plan, err := clone.reach(ctx, sourcedriver.GoalPrepared, "", l.editIssued(&op, &ev, "prepare-issued", false))
 			if err != nil {
 				l.rollbackRenamePrecommit(op, ev, clone, err)
 				return
 			}
-			ev.WorkspaceTip, ev.ConfigAfterSHA256 = plan.HeadOID, plan.ConfigAfterSHA256
+			ev.Plan, ev.Edit = plan, control.RenameEdit{}
 			if err := l.advanceRename(&op, ev, "workspace-prepared", false); err != nil {
 				l.blockRename(op, err)
 				return
 			}
 		case "prepare-issued":
 			// A write whose reply was lost can land after an immediate miss.
-			// Only the exact already-written backup, settled by the driver,
-			// authorizes forward motion; anything else remains guarded for
-			// explicit resolution.
-			if err := clone.settlePrepared(ctx, op.ID, ev.OldBranch, ev.NewBranch); err != nil {
+			// Only the backup in place, its write settled by the runtime
+			// driver, authorizes forward motion; anything else remains
+			// guarded for explicit resolution.
+			if err := clone.settleEdit(ctx, ev.Edit, sourcedriver.GoalPrepared, ev.Plan); err != nil {
 				l.blockRename(op, err)
 				return
 			}
-			plan, err := clone.verifyPrepared(ctx, op.ID, ev.OldBranch, ev.NewBranch)
-			if err != nil {
-				l.blockRename(op, err)
-				return
-			}
-			ev.WorkspaceTip, ev.ConfigAfterSHA256 = plan.HeadOID, plan.ConfigAfterSHA256
+			ev.Edit = control.RenameEdit{}
 			if err := l.advanceRename(&op, ev, "workspace-prepared", false); err != nil {
 				l.blockRename(op, err)
 				return
@@ -307,16 +443,17 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.rollbackRenamePrecommit(op, ev, clone, err)
 				return
 			}
-			plan, err := clone.verifyPrepared(ctx, op.ID, ev.OldBranch, ev.NewBranch)
-			if err != nil || plan != renamePlan(ev) {
+			if err := clone.holds(ctx, sourcedriver.GoalPrepared, ev.Plan); err != nil {
 				l.rollbackRenamePrecommit(op, ev, clone, errors.Join(err, errors.New("prepared workspace changed")))
 				return
 			}
-			if err := l.advanceRename(&op, ev, "new-ref-create-issued", false); err != nil {
-				l.blockRename(op, err)
-				return
+			err := l.createBranch(ctx, ev.Project, ev.NewBranch, ev.OldTip, func() error {
+				return l.advanceRename(&op, ev, "new-ref-create-issued", false)
+			})
+			if err == nil {
+				err = l.renameNewRefExact(ctx, ev)
 			}
-			if err := l.git.backend.CreateRenameBranchExact(ctx, ev.Project, ev.OldBranch, ev.NewBranch, ev.OldTip); err != nil {
+			if err != nil {
 				l.blockRename(op, err)
 				return
 			}
@@ -325,9 +462,14 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 		case "new-ref-create-issued":
-			// A request may have been admitted after a timeout. Positive exact
-			// new-ref presence is the only automatic forward proof.
-			if err := l.renameNewRefExact(ctx, ev); err != nil {
+			// A creation may have been admitted after its reply was lost. Only
+			// the source driver's settlement, and the new head then exact,
+			// prove it.
+			err := l.settleHead(ctx, creation(ev.Project, ev.NewBranch, ev.OldTip), nil)
+			if err == nil {
+				err = l.renameNewRefExact(ctx, ev)
+			}
+			if err != nil {
 				l.blockRename(op, err)
 				return
 			}
@@ -340,25 +482,21 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.blockRename(op, err)
 				return
 			}
-			plan, err := clone.apply(ctx, op.ID, ev.OldBranch, ev.NewBranch, issued)
-			if err != nil || plan != renamePlan(ev) {
+			if _, err := clone.reach(ctx, sourcedriver.GoalRenamed, ev.Plan, l.editIssued(&op, &ev, "workspace-rename-issued", true)); err != nil {
 				l.blockRename(op, errors.Join(err, errors.New("workspace rename postcondition unavailable")))
 				return
 			}
+			ev.Edit = control.RenameEdit{}
 			if err := l.advanceRename(&op, ev, "workspace-renamed", true); err != nil {
 				l.blockRename(op, err)
 				return
 			}
 		case "workspace-rename-issued":
-			if err := clone.settleRenamed(ctx, op.ID, ev.OldBranch, ev.NewBranch); err != nil {
-				l.blockRename(op, err)
-				return
-			}
-			plan, err := clone.apply(ctx, op.ID, ev.OldBranch, ev.NewBranch, nil)
-			if err != nil || plan != renamePlan(ev) {
+			if err := clone.settleEdit(ctx, ev.Edit, sourcedriver.GoalRenamed, ev.Plan); err != nil {
 				l.blockRename(op, errors.Join(err, errors.New("workspace rename effect ambiguous")))
 				return
 			}
+			ev.Edit = control.RenameEdit{}
 			if err := l.advanceRename(&op, ev, "workspace-renamed", true); err != nil {
 				l.blockRename(op, err)
 				return
@@ -368,7 +506,7 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.blockRename(op, err)
 				return
 			}
-			if err := clone.verifyRenamed(ctx, op.ID, ev.OldBranch, ev.NewBranch, renamePlan(ev)); err != nil {
+			if err := clone.holds(ctx, sourcedriver.GoalRenamed, ev.Plan); err != nil {
 				l.blockRename(op, err)
 				return
 			}
@@ -382,10 +520,9 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.blockRename(op, err)
 				return
 			}
-			err := l.git.backend.DeleteAssignedBranchExact(ctx, ev.Project, ev.OldBranch, ev.OldTip, func() error {
+			if err := l.deleteBranch(ctx, ev.Project, ev.OldBranch, ev.OldTip, func() error {
 				return l.advanceRename(&op, ev, "old-ref-delete-issued", true)
-			})
-			if err != nil {
+			}); err != nil {
 				l.blockRename(op, err)
 				return
 			}
@@ -394,7 +531,11 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 		case "old-ref-delete-issued":
-			if err := l.verifyRenamePRefs(ctx, ev, true); err != nil {
+			err := l.settleHead(ctx, deletion(ev.Project, ev.OldBranch, ev.OldTip), nil)
+			if err == nil {
+				err = l.verifyRenamePRefs(ctx, ev, true)
+			}
+			if err != nil {
 				l.blockRename(op, err)
 				return
 			}
@@ -403,14 +544,15 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 		case "old-ref-deleted":
-			if err := clone.verifyRenamed(ctx, op.ID, ev.OldBranch, ev.NewBranch, renamePlan(ev)); err != nil {
+			if err := clone.holds(ctx, sourcedriver.GoalRenamed, ev.Plan); err != nil {
 				l.blockRename(op, err)
 				return
 			}
-			if err := clone.removeBackup(ctx, op.ID, l.backupRemoveIssued(&op, &ev)); err != nil {
+			if _, err := clone.reach(ctx, sourcedriver.GoalDone, ev.Plan, l.editIssued(&op, &ev, op.Phase, op.Committed)); err != nil {
 				l.blockRename(op, err)
 				return
 			}
+			ev.Edit = control.RenameEdit{}
 			if err := l.advanceRename(&op, ev, "backup-absent", true); err != nil {
 				l.blockRename(op, err)
 				return

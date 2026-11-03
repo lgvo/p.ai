@@ -9,14 +9,12 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/sourcedriver"
 )
 
 func TestSessionDeleteReviewReadsNoOrigin(t *testing.T) {
 	tip := strings.Repeat("a", 40)
-	review := deleteReview(gitservice.BranchRemovalLoss{AssignedRef: "refs/heads/work", AssignedTip: tip,
-		CommitsLosingPReachability: []string{tip}, PRefs: []plugin.GitRef{{Ref: "refs/heads/work", OID: tip}}})
+	review := removalReview("refs/heads/work", sourcedriver.Loss{Heads: []sourcedriver.Head{{Name: "work", Tip: sourcedriver.OID(tip)}}, Commits: []sourcedriver.OID{sourcedriver.OID(tip)}})
 	raw, err := json.Marshal(review)
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +23,7 @@ func TestSessionDeleteReviewReadsNoOrigin(t *testing.T) {
 	if err = json.Unmarshal(raw, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if _, found := fields["origin"]; found || len(review.PRefs) != 1 || review.CommitsLosingPReachability[0] != tip {
+	if _, found := fields["origin"]; found || len(review.PRefs) != 1 || review.PRefs[0] != (api.PRef{Name: "refs/heads/work", OID: tip}) || review.CommitsLosingPReachability[0] != tip {
 		t.Fatalf("session Delete review: %s", raw)
 	}
 }

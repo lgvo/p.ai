@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -40,9 +41,7 @@ func TestRequestBounds(t *testing.T) {
 		{"project page with a bad cursor", ProjectListRequest{Limit: 1, After: "/abs"}, false},
 		{"branch page", ProjectBranchesRequest{Project: "team/app", Limit: 8, After: "refs/heads/main"}, true},
 		{"branch page over 8", ProjectBranchesRequest{Project: "team/app", Limit: 9}, false},
-		{"branch page with a bare branch cursor", ProjectBranchesRequest{Project: "team/app", Limit: 8, After: "main"}, false},
 		{"retained page", ProjectRetainedBranchesRequest{Project: "team/app", Limit: 8, After: "refs/heads/saved"}, true},
-		{"retained page with a bare branch cursor", ProjectRetainedBranchesRequest{Project: "team/app", Limit: 8, After: "saved"}, false},
 		{"origin set", OriginChangeRequest{Key: "k", Project: "team/app", Kind: "set", URL: "ssh://host/repo"}, true},
 		{"origin remove", OriginChangeRequest{Key: "k", Project: "team/app", Kind: "remove", ExpectedURL: "ssh://host/repo"}, true},
 		{"origin remove with a URL", OriginChangeRequest{Key: "k", Project: "team/app", Kind: "remove", URL: "ssh://host/repo"}, false},
@@ -52,7 +51,6 @@ func TestRequestBounds(t *testing.T) {
 		{"origin sources", OriginSourcesRequest{Project: "team/app", Limit: 16, After: "refs/tags/v1"}, true},
 		{"origin sources over 16", OriginSourcesRequest{Project: "team/app", Limit: 17}, false},
 		{"publish dry run", publish, true},
-		{"publish dry run to a tag", OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "session", Source: uuid, SourceOID: oid, DestinationRef: "refs/tags/v1"}, false},
 		{"publish dry run without the origin", OriginPublishRequest{Project: "team/app", Kind: "session", Source: uuid, SourceOID: oid, DestinationRef: "refs/heads/main"}, false},
 		{"publish run", OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "session", Source: uuid, SourceOID: oid, DestinationRef: "refs/heads/main", ChangeRequest: ChangeRequest{Key: key, IfMatch: tag}}, true},
 		{"publish run with a long key", OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "session", Source: uuid, SourceOID: oid, DestinationRef: "refs/heads/main", ChangeRequest: ChangeRequest{Key: key + "k", IfMatch: tag}}, false},
@@ -63,7 +61,6 @@ func TestRequestBounds(t *testing.T) {
 		{"session create from the origin", SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: oid, ExpectedOriginURL: "ssh://host/repo"}, true},
 		{"session create of an existing branch with a source", SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "existing", Source: "refs/heads/main"}, false},
 		{"session create with an origin URL but no origin ref", SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "new", Source: "refs/heads/main", ExpectedOriginURL: "ssh://host/repo"}, false},
-		{"session create with a bad branch", SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work..x", Choice: "existing"}, false},
 		{"session inspect", SessionInspectRequest{UUID: uuid}, true},
 		{"session start of a short id", SessionStartRequest{UUID: "short"}, false},
 		{"session stop", SessionStopRequest{UUID: uuid}, true},
@@ -81,14 +78,12 @@ func TestRequestBounds(t *testing.T) {
 		{"delete run with a token", SessionDeleteRequest{UUID: uuid, ChangeRequest: ChangeRequest{Key: "k", IfMatch: token}}, false},
 		{"delete run", SessionDeleteRequest{UUID: uuid, ChangeRequest: run}, true},
 		{"rename", SessionRenameRequest{Key: "k", UUID: uuid, NewBranch: "next", ExpectedOldTip: oid}, true},
-		{"rename to the zero commit", SessionRenameRequest{Key: "k", UUID: uuid, NewBranch: "next", ExpectedOldTip: strings.Repeat("0", 40)}, false},
 		{"retained rename", ProjectRetainedRenameRequest{Key: "k", Project: "team/app", OldBranch: "old", NewBranch: "new", ExpectedOldTip: oid}, true},
 		{"retained rename to the same name", ProjectRetainedRenameRequest{Key: "k", Project: "team/app", OldBranch: "same", NewBranch: "same", ExpectedOldTip: oid}, false},
 		{"project delete dry run", ProjectDeleteRequest{Project: "team/app"}, true},
 		{"project delete run", ProjectDeleteRequest{Project: "team/app", ChangeRequest: run}, true},
 		{"project delete of a bad project", ProjectDeleteRequest{Project: "../app"}, false},
 		{"retained delete dry run", ProjectRetainedDeleteRequest{Project: "team/app", Branch: "saved"}, true},
-		{"retained delete of a hidden branch", ProjectRetainedDeleteRequest{Project: "team/app", Branch: ".hidden"}, false},
 		{"retained delete run", ProjectRetainedDeleteRequest{Project: "team/app", Branch: "saved", ChangeRequest: run}, true},
 		{"replace dry run", SessionCreateReplaceRequest{OldUUID: uuid, CreationChoices: choices}, true},
 		{"replace with a bad choice", SessionCreateReplaceRequest{OldUUID: uuid, CreationChoices: CreationChoices{Project: "team/app", Branch: "work", Choice: "maybe"}}, false},
@@ -119,6 +114,77 @@ func TestRequestBounds(t *testing.T) {
 	} {
 		if err := test.req.Validate(); (err == nil) != test.valid {
 			t.Errorf("%s: Validate() = %v, want valid %v", test.name, err, test.valid)
+		}
+	}
+}
+
+// The names whose syntax the source driver decides (branch and ref names,
+// creation sources, commit IDs) are only bounded by Validate: 1 to the
+// field's bound of bytes of valid UTF-8 without ASCII control characters.
+// The driver's CheckNames refuses the rest, after the handler's replay
+// lookup.
+func TestNameFieldsAreBoundedNotParsed(t *testing.T) {
+	uuid := "550e8400-e29b-41d4-a716-446655440000"
+	oid := strings.Repeat("a", 40)
+	for _, test := range []struct {
+		field string
+		bound int
+		with  func(string) Request
+	}{
+		{"branch", 200, func(v string) Request {
+			return SessionCreateRequest{Key: "k", Project: "team/app", Branch: v, Choice: "existing"}
+		}},
+		{"source", 255, func(v string) Request {
+			return SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "new", Source: v}
+		}},
+		{"origin_ref", 523, func(v string) Request {
+			return SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "new", OriginRef: v, ExpectedCommitOID: oid}
+		}},
+		{"expected_commit_oid", 64, func(v string) Request {
+			return SessionCreateRequest{Key: "k", Project: "team/app", Branch: "work", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: v}
+		}},
+		{"new_branch", 200, func(v string) Request {
+			return SessionRenameRequest{Key: "k", UUID: uuid, NewBranch: v, ExpectedOldTip: oid}
+		}},
+		{"expected_old_tip", 64, func(v string) Request {
+			return SessionRenameRequest{Key: "k", UUID: uuid, NewBranch: "next", ExpectedOldTip: v}
+		}},
+		{"old_branch", 200, func(v string) Request {
+			return ProjectRetainedRenameRequest{Key: "k", Project: "team/app", OldBranch: v, NewBranch: "archive", ExpectedOldTip: oid}
+		}},
+		{"new_branch", 200, func(v string) Request {
+			return ProjectRetainedRenameRequest{Key: "k", Project: "team/app", OldBranch: "saved", NewBranch: v, ExpectedOldTip: oid}
+		}},
+		{"expected_old_tip", 64, func(v string) Request {
+			return ProjectRetainedRenameRequest{Key: "k", Project: "team/app", OldBranch: "saved", NewBranch: "archive", ExpectedOldTip: v}
+		}},
+		{"branch", 200, func(v string) Request { return ProjectRetainedDeleteRequest{Project: "team/app", Branch: v} }},
+		{"source", 200, func(v string) Request {
+			return OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "retained", Source: v, SourceOID: oid, DestinationRef: "refs/heads/main"}
+		}},
+		{"source_oid", 64, func(v string) Request {
+			return OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "retained", Source: "saved", SourceOID: v, DestinationRef: "refs/heads/main"}
+		}},
+		{"destination_ref", 523, func(v string) Request {
+			return OriginPublishRequest{ExpectedOriginURL: "ssh://host/repo", Project: "team/app", Kind: "retained", Source: "saved", SourceOID: oid, DestinationRef: v}
+		}},
+		// A page's cursor is compared, never recorded.
+		{"after", 523, func(v string) Request { return ProjectBranchesRequest{Project: "team/app", Limit: 8, After: v} }},
+		{"after", 523, func(v string) Request { return ProjectRetainedBranchesRequest{Project: "team/app", Limit: 8, After: v} }},
+		{"after", 523, func(v string) Request { return OriginSourcesRequest{Project: "team/app", Limit: 16, After: v} }},
+	} {
+		name := fmt.Sprintf("%T %s", test.with(""), test.field)
+		// Git refuses each of these, and the driver decides.
+		for _, v := range []string{"a..b", "refs/heads/a..b", ".hidden", strings.Repeat("0", 40), "雪", strings.Repeat("x", test.bound)} {
+			if err := test.with(v).Validate(); err != nil {
+				t.Errorf("%s %.24q: Validate() = %v, want it left to the source driver", name, v, err)
+			}
+		}
+		for _, v := range []string{strings.Repeat("x", test.bound+1), "a\x00b", "a\x1fb", "a\nb", "a\x7fb", "a\xffb"} {
+			var e *Error
+			if err := test.with(v).Validate(); !errors.As(err, &e) || e.Kind() != KindInvalid || e.Data.Field != test.field {
+				t.Errorf("%s %.24q: Validate() = %v, want invalid %s", name, v, err, test.field)
+			}
 		}
 	}
 }

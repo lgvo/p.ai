@@ -194,16 +194,19 @@ printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"
 printf 'host_git=%q\nfixture=%q\nsleep_binary=%q\n' "$host_git" "$step_dir" "$sleep_binary" >> "$step_dir/bin/git"
 cat >> "$step_dir/bin/git" <<'WRAPPER'
 set -euo pipefail
-if test -e "$fixture/git-arm" && test "$#" -eq 6 &&
-   test "$3" = show-ref && test "$4" = --verify &&
-   test "$5" = --quiet && test "$6" = refs/heads/work; then
+# The source driver reads a head as --git-dir=REPO show-ref --verify --quiet REF.
+if test -e "$fixture/git-arm" && test "$#" -eq 5 && test "${1%%=*}" = --git-dir &&
+   test "$2" = show-ref && test "$3" = --verify &&
+   test "$4" = --quiet && test "$5" = refs/heads/work; then
   count=0
   if test -f "$fixture/git-count"; then read -r count < "$fixture/git-count"; fi
   count=$((count+1))
   printf '%s\n' "$count" > "$fixture/git-count"
-  if test "$count" -eq 2; then
-    # First quiet read is public Create's capture. Second is its worker's
-    # ensureBranchAssigned. Pause before reading the advanced destination.
+  if test "$count" -eq 3; then
+    # Public Create's capture reads the branch twice: once for the existing
+    # choice, once to resolve it as the source. The third read is its
+    # worker's ensureBranchAssigned. Pause before reading the advanced
+    # destination.
     : > "$fixture/git-paused"
     deadline=$((SECONDS+30))
     until test -e "$fixture/git-release"; do

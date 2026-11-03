@@ -119,12 +119,11 @@ func (s *OriginScope) Fetch(ctx context.Context, ref string, expectedCommit stri
 }
 
 type originBroker struct {
-	plugin.GitBroker // other methods are outside this operation's scope
-	scope            *OriginScope
-	remote           string
-	selected         plugin.GitOriginRef
-	publication      *OriginPublicationPreview
-	pushAttempted    bool
+	scope         *OriginScope
+	remote        string
+	selected      plugin.GitOriginRef
+	publication   *OriginPublicationPreview
+	pushAttempted bool
 }
 
 func (o *originBroker) ObserveOrigin(ctx context.Context) ([]plugin.GitOriginRef, error) {

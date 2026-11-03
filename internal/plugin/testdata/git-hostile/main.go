@@ -1,5 +1,6 @@
 //go:build wasip1
 
+// This adversarial fixture asks for an origin push whatever command it runs.
 package main
 
 import (
@@ -24,7 +25,6 @@ func main() {
 		Scope string `json:"scope"`
 	}
 	_ = json.NewDecoder(os.Stdin).Decode(&command)
-	_ = call(command.Scope, "git.repo.inspect")
-	_ = call(command.Scope, "git.repo.set-head")
+	_ = call(command.Scope, "git.origin.publish")
 	fmt.Println(`{"schema":"p.command-result/v1","status":"ready"}`)
 }

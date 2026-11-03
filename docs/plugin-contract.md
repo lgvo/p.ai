@@ -141,7 +141,10 @@ example appends only ready-condition events.
 The `source-git` capability uses `hybrid` placement, the `git.project` grant,
 and a `wasi-command` entry. Trusted source-Git config is absent or `{}`; no
 other config fields are accepted. Its module implements source-operation sequencing
-through the closed broker methods below. Core owns authorization, operation
+through the closed broker methods below: the transport plan of P's Git service
+and the origin's observation, fetch and publication. P's repositories, heads
+and commits are the source driver's, not this module's
+([technology stack](technology-stack.md)). Core owns authorization, operation
 intent, repository locations, credentials, and ref guards. The broker invokes
 real Git; Git owns objects, refs, ancestry, and its wire protocol. SSH
 authentication and stream handling remain trusted substrate. A declarative
@@ -157,20 +160,15 @@ never a filesystem path. The additional fields depend on `kind`:
 
 | Kind | Additional fields | Operation scope |
 |---|---|---|
-| `git.project.ensure` | `initial_head`: `refs/heads/main` | Ensure the authorized blank bare repository exists with the required symbolic HEAD |
-| `git.refs.list` | `limit`: integer from 1 through 8 | Read the next page of user-visible branch refs from the cursor held by core |
 | `git.transport.plan` | `service`: `upload` or `receive`; `ceilings`: positive integer `max_input_bytes` and `max_duration_ms` | Prepare the already authenticated, authorized SSH Git stream |
-| `git.source.observe` | `source`: `{ "kind": "branch", "value": "refs/heads/<name>" }` or `{ "kind": "commit", "value": "<full object ID>" }` | Capture a committed source selected by core from an ordinary P branch or a full commit ID reachable from an ordinary P head |
-| `git.branch.create` | `branch`: valid ordinary P branch name; `commit_oid`: captured full commit ID | Create only the absent ordinary P branch at that commit, under core's create intent and project/ref lock |
-| `git.branch.delete` | `branch`: valid ordinary P branch name; optional `commit_oid`: confirmed old tip (omitted for an unborn absent ref) | Delete only the assigned P branch under core's durable Delete intent and ref guard, using an expected-old-tip compare-and-swap; an unborn branch must remain absent |
 | `git.origin.observe` | None | Contact the core-selected SSH URL and capture one complete advertised branch/tag observation, including an empty one |
 | `git.origin.fetch` | `origin_ref`: one advertised `refs/heads/<name>` or `refs/tags/<name>`; `commit_oid`: its captured peeled commit ID | Fetch that exact core-selected observation into the P object cache, without writing a P ref |
 | `git.origin.publish` | `source_ref`: exact ordinary P head; `commit_oid`: captured source tip; `destination_ref`: one explicit origin head | Invoke one normal, non-force origin push only after core's same-scope observation and comparison authorize an absent destination or fast-forward |
 
-For example, an initialization request is:
+For example, a transport plan request is:
 
 ```json
-{"schema":"p.command/v1","kind":"git.project.ensure","scope":"invocation-token","project":"example","initial_head":"refs/heads/main"}
+{"schema":"p.command/v1","kind":"git.transport.plan","scope":"invocation-token","project":"example","service":"receive","ceilings":{"max_input_bytes":1073741824,"max_duration_ms":600000}}
 ```
 
 The only successful command result is
@@ -181,73 +179,19 @@ authorization decisions, or native command arguments.
 
 Every broker request has `schema` `p.broker/v1`, `method`, and the current
 `scope` token, plus only the fields listed below. Scope is bound to the host
-invocation and cannot be transferred or reused. Each successful reply has
-`schema` `p.broker/v1` and `status` `ok`, plus the listed result fields:
+invocation and cannot be transferred or reused. Each successful reply is
+exactly `schema` `p.broker/v1` and `status` `ok`:
 
-| Broker method | Allowed command kind | Request fields beyond the envelope | Reply fields beyond the envelope |
-|---|---|---|---|
-| `git.repo.inspect` | `git.project.ensure` | None | `exists`: boolean; `head`: symbolic ref, or empty for an absent repository |
-| `git.repo.init` | `git.project.ensure` | None | None |
-| `git.repo.set-head` | `git.project.ensure` | None | None |
-| `git.refs.next` | `git.refs.list` | `page_size`: integer from 1 through 8 | `refs`: array of `{ "ref": "refs/heads/main", "oid": "<Git object ID>" }`; `exhausted`: boolean; `page_complete`: boolean |
-| `git.transport.prepare` | `git.transport.plan` | Optional positive integer `max_input_bytes` and `max_duration_ms`, each at most its core ceiling | None |
-| `git.source.observe` | `git.source.observe` | None | `commit_oid`: observed full commit ID |
-| `git.branch.create` | `git.branch.create` | None | None |
-| `git.branch.delete` | `git.branch.delete` | None | None |
-| `git.origin.observe` | `git.origin.observe` | None | None |
-| `git.origin.fetch` | `git.origin.fetch` | None | None |
-| `git.origin.publish` | `git.origin.publish` | None | None |
+| Broker method | Allowed command kind | Request fields beyond the envelope |
+|---|---|---|
+| `git.transport.prepare` | `git.transport.plan` | Optional positive integer `max_input_bytes` and `max_duration_ms`, each at most its core ceiling |
+| `git.origin.observe` | `git.origin.observe` | None |
+| `git.origin.fetch` | `git.origin.fetch` | None |
+| `git.origin.publish` | `git.origin.publish` | None |
 
-Source and destination fields are supplied by core in the command, never in a
-broker request. The module may sequence an operation but cannot substitute a
-selector, ref, OID, repository, or native Git argument. A source observation
-accepts an existing P branch only when its current tip is a commit. A commit
-selector must be a full object ID naming a commit reachable from an ordinary
-`refs/heads/` ref at observation time. Unborn and missing branches, non-commit
-objects, and commits reachable only through tags or hidden refs are refused.
-Reading an existing branch never mutates its ref. A moved source is a new
-observation; the captured ID is the input to later creation.
-
-Branch creation verifies that the captured ID still names a commit reachable
-from an ordinary P head, then calls native Git's atomic `update-ref` with the
-all-zero old ID. It never resets an existing ref. An existing destination is a
-conflict even when its tip equals the captured ID; only core's durable create
-intent may determine whether that effect is an idempotent replay. A failed
-module invocation does not undo a completed Git update; core reconciles its
-intent against Git before retrying. These methods do not authorize an origin
-fetch or session lifecycle transition.
-
-Core supplies all repository locations and the requested HEAD. Initialization
-creates only the operation's authorized bare repository; setting HEAD uses
-the command's `initial_head`. Existing incompatible repositories are refused.
-The module can inspect before initializing and can recognize an already
-completed operation. It cannot choose another repository, HEAD, principal,
-endpoint, executable, argv, environment, hook, or credential. Initialization
-and HEAD mutation each run at most once per invocation. Core verifies the
-bare-repository and symbolic-HEAD postconditions before accepting `ready`.
-A module failure does not roll back completed Git effects; core's operation
-intent and reconciliation own recovery.
-
-For ref listing, core holds the caller's cursor and accumulates the actual Git
-observations. Each `git.refs.next` advances that cursor in bytewise ref-name
-order and returns at most the smaller of `page_size` and the remaining
-command limit. `exhausted` means Git has no further visible branch refs;
-`page_complete` means the requested limit or exhaustion has been reached.
-Further reads after completion fail. Core accepts `ready` only at completion
-and returns its accumulated observations and continuation cursor to the
-caller. The module controls query batching without being able to fabricate
-Git results. A changed repository between queries is an ordinary new Git
-observation, not a stable snapshot; destructive decisions must re-inspect
-under their own core operation scope.
-
-Each `git.refs.next` runs a fresh native Git query restricted to
-`refs/heads/`. For the MVP, ref listing supports at most 1,024 heads per
-repository. A query observes at most 1,025 heads, using the extra entry to
-detect overflow, and retains at most 300 KiB of native stdout within the
-command deadline. Exceeding either bound fails the operation without returning
-a partial page. Core filters this bounded observation against its bytewise
-cursor; it does not reuse a prefetched observation across broker calls.
-Native query diagnostics count attempted Git ref queries, including failures.
+Refs and object IDs are supplied by core in the command, never in a broker
+request. The module may sequence an operation but cannot substitute a ref,
+OID, repository, or native Git argument.
 
 Transport preparation reserves exactly one plan for the invocation's existing
 authorized stream. Omitted limits use core's ceilings; supplied limits can
@@ -317,11 +261,9 @@ not install it; session installation and workspace wiring require later
 runtime validation.
 
 Conformance must exercise a separately built module through ordinary digest
-selection without rebuilding core. A replacement that reads one ref per
-broker call instead of the bundled batch size must produce the same real Git
-page through a different observed call sequence. A replacement that lowers
-the receive byte budget must reject a real over-budget push that the bundled
-module permits within core's ceiling. Changed package IDs or declarative
+selection without rebuilding core. A replacement that lowers the receive byte
+budget must reject a real over-budget push that the bundled module permits
+within core's ceiling. Changed package IDs or declarative
 limits alone are insufficient evidence. Invalid modules must never start a
 transport, and every existing principal, assignment, fast-forward, and ref-
 guard check still applies to both packages.
@@ -331,10 +273,9 @@ Build the bundled entry with `GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build
 `git.wasm`, and the declared `p-git-ssh` asset in the flat package directory.
 The independently compiled fixture at
 `internal/plugin/testdata/git-alternate` stages only its own `plugin.json`
-and `git.wasm`; its executable code selects one-ref queries and a 64 KiB
-receive ceiling. Source files are authoring material, not declared package
-files. These fixtures require real broker and transport validation before
-support is claimed.
+and `git.wasm`; its executable code selects a 64 KiB receive ceiling. Source
+files are authoring material, not declared package files. These fixtures
+require real broker and transport validation before support is claimed.
 
 ### Session asset plans
 

@@ -228,14 +228,16 @@ wait_ready() {
   return 1
 }
 # Pause only Delete's read after durable secrets cleanup, before its ref effect
-# marker. The broker clears PATH, so use shell builtins and absolute utilities.
+# marker: the source driver's read of the head right before its deletion. The
+# driver runs Git with only Git's directory on PATH, so use shell builtins and
+# absolute utilities.
 mkdir -m 0700 "$step_dir/bin"
 printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"
 printf 'host_git=%q\nfixture=%q\nsleep_binary=%q\n' "$host_git" "$step_dir" "$(command -v sleep)" >> "$step_dir/bin/git"
 cat >> "$step_dir/bin/git" <<'WRAPPER'
 set -euo pipefail
-if test "$#" -eq 6 && test "$3" = show-ref && test "$4" = --verify &&
-   test "$5" = --quiet && test "$6" = refs/heads/main && test -f "$fixture/delete-read-arm"; then
+if test "$#" -eq 5 && test "${1%%=*}" = --git-dir && test "$2" = show-ref && test "$3" = --verify &&
+   test "$4" = --quiet && test "$5" = refs/heads/main && test -f "$fixture/delete-read-arm"; then
   read -r wanted < "$fixture/delete-read-arm"
   if test -n "$wanted" && test ! -e "$fixture/state/session_keys/$wanted"; then
     : > "$fixture/delete-read-paused"

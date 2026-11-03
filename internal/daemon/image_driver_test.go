@@ -174,11 +174,9 @@ func newImageFixture(t *testing.T) *imageFixture {
 	if err = store.CreateProject(ctx, "app", policy); err != nil {
 		t.Fatal(err)
 	}
-	backend, tip := dispatchGitFixture(t, store)
-	repo, err := backend.RepositoryPath("app")
-	if err != nil {
-		t.Fatal(err)
-	}
+	source, repo, tip := gitSource(t, store)
+	// The image builder's bundle still comes from gitservice.
+	backend := gitserviceFixture(t, store)
 	dispatchGit(t, repo, "update-ref", "refs/heads/main", tip)
 	next := dispatchGit(t, repo, "-c", "user.name=P fixture", "-c", "user.email=p@example.test", "commit-tree", dispatchGit(t, repo, "mktree"), "-p", tip, "-m", "next")
 	dispatchGit(t, repo, "update-ref", "refs/heads/next", next)
@@ -192,7 +190,7 @@ func newImageFixture(t *testing.T) *imageFixture {
 	}
 	t.Cleanup(func() { _ = raw.Close() })
 	driver := newFakeImages()
-	l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{backend: backend, info: testGitCapability().info}, driver: driver, instanceID: instance,
+	l := &lifecycle{ctx: ctx, store: store, git: &gitCapability{backend: backend, driver: source, info: testGitCapability().info}, driver: driver, instanceID: instance,
 		cfg: control.RuntimeConfig{BaseImageFingerprint: strings.Repeat("a", 64), EndpointPrefix: "/var/lib/p-endpoints",
 			Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"}}}
 	return &imageFixture{l: l, driver: driver, raw: raw, commits: []string{tip, next}}

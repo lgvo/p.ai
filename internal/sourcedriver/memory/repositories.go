@@ -64,9 +64,8 @@ func (w *World) inspect(project string) (sourcedriver.Repository, error) {
 	return sourcedriver.Repository{Project: project, Exists: true, Incarnation: r.incarnation}, nil
 }
 
-// CreateRepository keeps an existing repository whose HEAD names main, as
-// today's git.project.ensure does, and refuses one whose HEAD names another
-// branch.
+// CreateRepository keeps an existing repository whose HEAD names main and
+// refuses one whose HEAD names another branch.
 func (d *Driver) CreateRepository(_ context.Context, project string) (sourcedriver.Repository, error) {
 	if err := d.alive(); err != nil {
 		return sourcedriver.Repository{}, err
