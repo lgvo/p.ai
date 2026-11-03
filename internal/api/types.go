@@ -223,6 +223,17 @@ type SessionResult struct {
 	Session SessionView `json:"session"`
 }
 
+// SessionChangeResult is the result of session.start and session.stop. A
+// change that records an operation answers Changed with it; one that finds the
+// session already as asked records nothing and answers its current view; and
+// one sent while an operation of the same kind is unfinished answers that
+// operation, unchanged.
+type SessionChangeResult struct {
+	Changed   bool         `json:"changed"`
+	Operation *Operation   `json:"operation,omitempty"`
+	Session   *SessionView `json:"session,omitempty"`
+}
+
 type SessionListResult struct {
 	Sessions []SessionView `json:"sessions"`
 	Next     string        `json:"next"`

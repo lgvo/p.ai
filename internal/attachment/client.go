@@ -17,12 +17,51 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Client requests the decision, transfers the secret on an inherited private
-// socket, and carries terminal bytes. It has no native Incus authority.
+// waitSeconds is how long one operation.wait call of the client waits.
+const waitSeconds = 20
+
+// start starts session id unless it is ready and waits for its start:
+// session.attach accepts only a ready session.
+func start(ctx context.Context, c api.Caller, id string) error {
+	result, err := api.Do(ctx, c, api.SessionStart, api.SessionStartRequest{UUID: id})
+	if err != nil {
+		return errors.New(errtext.Sentence(err))
+	}
+	if result.Operation == nil {
+		return nil
+	}
+	op := *result.Operation
+	for op.Status == "running" {
+		waited, err := api.Do(ctx, c, api.OperationWait, api.OperationWaitRequest{ID: op.ID, Timeout: waitSeconds})
+		if err != nil {
+			return errors.New(errtext.Sentence(err))
+		}
+		op = waited.Operation
+	}
+	if op.Status == "completed" {
+		return nil
+	}
+	sentence := errtext.Operation(op.Status, op.Reason)
+	if sentence == "" {
+		sentence = "The session's start " + op.Status + "."
+	}
+	if op.Diagnostic != "" {
+		sentence += " Diagnostic: " + op.Diagnostic
+	}
+	return errors.New(sentence)
+}
+
+// Client starts the session if it needs it, requests the decision, transfers
+// the secret on an inherited private socket, and carries terminal bytes. It
+// has no native Incus authority.
 func Client(ctx context.Context, socket, id string) error {
 	control, err := api.Dial(ctx, socket)
 	if err != nil {
 		return errors.New(errtext.Sentence(err))
+	}
+	if err = start(ctx, control, id); err != nil {
+		control.Close()
+		return err
 	}
 	pending, err := api.Do(ctx, control, api.SessionAttach, api.SessionAttachRequest{UUID: id})
 	control.Close()

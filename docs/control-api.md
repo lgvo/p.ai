@@ -501,9 +501,9 @@ failed-create cleanup followed by a separate Create.
 | `operation.list` | `{"limit":1..20,"after":"optional-cursor"}` | concise operation summaries (without request/evidence, with the same `reason` and `diagnostic`) in the order the journal accepted them, and `next`, an opaque cursor: pass it back as `after` unchanged. It stays valid when the operation it follows is deleted. `next` is empty at the end. |
 | `session.inspect` | `{"uuid":"session-UUID"}` | `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
 | `session.list` | `{"limit":1..8,"after":"optional-session-UUID"}` | `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
-| `session.start` | `{"uuid":"session-UUID"}` | `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused with `retry` by that watcher. |
-| `session.stop` | Same as Start | `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments answer `conflict` with reason `attachment_active`. |
-| `session.attach` | Same as Start | `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
+| `session.start` | `{"uuid":"session-UUID"}` | `changed`, with `operation` or `session`: a new `session.start` operation (`changed:true`), which completes once the session host is ready or fails with the runtime's `reason` and `diagnostic`; the unfinished start of the session (`changed:false`); or, for a session already ready, its view and nothing recorded (`changed:false`). See [Start and stop](#start-and-stop). |
+| `session.stop` | Same as Start | The same shape: a new `session.stop` operation, which completes once the runtime is stopped; the unfinished stop; or, for a stopped session, its view. The runtime filesystem is retained. Pending or confirmed attachments answer `conflict` with reason `attachment_active`. |
+| `session.attach` | Same as Start | `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`, for a ready session. It starts nothing: a session that is not ready answers `conflict` with reason `session_not_running`, and one with an unfinished start `retry` naming it. Start the session and wait for its operation first; `p attach` does. |
 
 Session listing reads a complete registry page before inspecting its sessions.
 An inspection reporting a missing record is omitted only after confirming that
@@ -522,6 +522,31 @@ creation; `replaces_session` and `replaces_branch` for a replacement, naming
 the retired creation and the branch it held; and `url` for a project created
 with an origin. A client that repeats a change with the same key can compare
 it without reading live state.
+
+### Start and stop
+
+`session.start` and `session.stop` record operations of kinds `session.start`
+and `session.stop`, and answer `{"changed":…,"operation":…}` or
+`{"changed":…,"session":…}`:
+
+| The session | Answer |
+|---|---|
+| Already ready (start) or already stopped (stop) | `changed:false` and the current `session` view; nothing is recorded |
+| A start (or stop) of it is unfinished | `changed:false` and that `operation` |
+| Otherwise, once admitted | `changed:true` and the new `operation` |
+
+So start and stop take no idempotency key: sent again they converge, and the
+answer says whether anything happened. Their operation's
+`idempotency_key` is its own ID. Before recording, start checks what the
+session needs to run (established, its policy current, its Git principal
+registered and active, its key, endpoints and runtime), and stop that no
+attachment is pending or confirmed; a failed check records nothing. A
+session keeps only its newest finished start or stop: recording one deletes
+the older finished one. While a start or stop is unfinished,
+`session.inspect` and `session.list` report the session `starting` or
+`stopping`, whatever the runtime shows, and other work on the session is
+refused as for any unfinished operation. A failed start's diagnostic is the
+session's `diagnostic` while it is not ready.
 
 ### Waiting for an operation
 
@@ -996,8 +1021,10 @@ publication keys refuses instead of recreating deleted authority.
 
 Run `p attach SESSION_UUID` on the P host using the configured control socket,
 or `p attach /absolute/control.sock SESSION_UUID` to select it explicitly.
-Run it directly or inside a client-initiated SSH terminal. The CLI restores local
-terminal settings on exit and forwards terminal size changes.
+Run it directly or inside a client-initiated SSH terminal. The CLI first
+starts a session that is not ready and waits for its start operation, since
+`session.attach` starts nothing. It restores local terminal settings on exit
+and forwards terminal size changes.
 
 `session.attach` returns a 30-second, one-use pending token after the selected
 runtime WASI capability and native checks approve the fixed

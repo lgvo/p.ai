@@ -94,8 +94,10 @@ type LifecycleAPI interface {
 	// when the timeout passes with it still running.
 	WaitOperation(context.Context, string, time.Duration) (api.Operation, error)
 	InspectSession(context.Context, string) (api.SessionView, error)
-	StartSession(context.Context, string) (api.SessionView, error)
-	StopSession(context.Context, string) (api.SessionView, error)
+	// StartSession and StopSession record an operation that starts or stops
+	// the session, or record nothing when it is already as asked.
+	StartSession(context.Context, string) (api.SessionChangeResult, error)
+	StopSession(context.Context, string) (api.SessionChangeResult, error)
 }
 
 type RenameAPI interface {
@@ -139,13 +141,11 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 		view, err := life.InspectSession(ctx, r.UUID)
 		return session(ctx, view, err)
 	})
-	Register(t, api.SessionStart, func(ctx context.Context, r api.SessionStartRequest) (api.SessionResult, error) {
-		view, err := life.StartSession(ctx, r.UUID)
-		return session(ctx, view, err)
+	Register(t, api.SessionStart, func(ctx context.Context, r api.SessionStartRequest) (api.SessionChangeResult, error) {
+		return life.StartSession(ctx, r.UUID)
 	})
-	Register(t, api.SessionStop, func(ctx context.Context, r api.SessionStopRequest) (api.SessionResult, error) {
-		view, err := life.StopSession(ctx, r.UUID)
-		return session(ctx, view, err)
+	Register(t, api.SessionStop, func(ctx context.Context, r api.SessionStopRequest) (api.SessionChangeResult, error) {
+		return life.StopSession(ctx, r.UUID)
 	})
 	Register(t, api.SessionList, func(ctx context.Context, r api.SessionListRequest) (api.SessionListResult, error) {
 		sessions, next, e := store.ListSessions(ctx, r.After, r.Limit)

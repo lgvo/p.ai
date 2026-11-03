@@ -16,8 +16,10 @@ func TestAttachmentPendingClaimExpiryAndStopExclusion(t *testing.T) {
 	token := strings.Repeat("a", 64)
 	pending := &attachment{session: "session", expires: time.Now().Add(time.Minute), spec: plugin.AttachSpec{Project: "p", Instance: "fixed", Argv: []string{"/usr/libexec/p/attach"}}}
 	l := &lifecycle{attachments: map[string]*attachment{token: pending}}
-	// Stop must reject before touching native/runtime authority or the store.
-	if _, err := l.StopSession(ctx, "session"); !errors.Is(err, control.ErrConflict) {
+	// Stop must reject before touching native/runtime authority; it reads
+	// only the journal, which holds nothing for the session.
+	stopping := &lifecycle{store: newJournalFixture(t).store, attachments: map[string]*attachment{token: {session: sessionUUID(1), expires: time.Now().Add(time.Minute)}}}
+	if _, err := stopping.StopSession(ctx, sessionUUID(1)); !errors.Is(err, control.ErrConflict) {
 		t.Fatal("pending attachment did not block stop", err)
 	}
 	conn := &control.Connection{}

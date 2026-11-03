@@ -173,7 +173,8 @@ wait_operation() {
       printf '%s\n' "$result"
       return
     fi
-    if { test "$status" = blocked || test "$status" = completed; } && test "$status" != "$expected"; then
+    if { test "$status" = blocked || test "$status" = completed || test "$status" = failed; } &&
+      test "$status" != "$expected"; then
       echo "operation reached unexpected terminal status: $result" >&2
       return 1
     fi
@@ -181,6 +182,15 @@ wait_operation() {
   done
   echo "operation did not reach $expected: $id" >&2
   return 1
+}
+# change_session METHOD UUID STATUS: METHOD, session.start or session.stop,
+# records an operation of its kind for session UUID, which ends in STATUS;
+# prints the operation's last answer.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id" "$3"
 }
 wait_condition() {
   local uuid="$1" expected="$2" result condition last='no observation' deadline=$((SECONDS+80))
@@ -360,12 +370,11 @@ store_path=$(exec_p "$work_uuid" nix-store --add /workspace/README)
 key_hash=$(inc file pull "p-$work_uuid/etc/p/git/identity" - | sha256sum | cut -d' ' -f1)
 main_endpoint_inode=$(stat -c '%d:%i' "$endpoint_prefix/$main_uuid")
 work_endpoint_inode=$(stat -c '%d:%i' "$endpoint_prefix/$work_uuid")
-rpc session.stop "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.stop "$work_uuid" completed >/dev/null
+wait_condition "$work_uuid" stopped >/dev/null
 inc list "p-$work_uuid" --format json | jq -e --arg name "p-$work_uuid" \
   'any(.[]; .name==$name and .status=="Stopped")' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="starting"' >/dev/null
+change_session session.start "$work_uuid" completed >/dev/null
 wait_condition "$work_uuid" ready >/dev/null
 test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$local_oid"
 test "$(exec_p "$work_uuid" git symbolic-ref -q HEAD || true)" = ''
@@ -392,8 +401,8 @@ test "$(exec_p "$work_uuid" git ls-remote origin refs/heads/main | cut -f1)" = "
 
 # A registered private session key must block Start rather than silently
 # rotate. Restore the same key, then exercise ordinary Start recovery.
-rpc session.stop "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.stop "$work_uuid" completed >/dev/null
+wait_condition "$work_uuid" stopped >/dev/null
 mv "$state/session_keys/$work_uuid" "$step_dir/work-key.saved"
 if rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" \
   > "$step_dir/unexpected.out" 2> "$step_dir/refused.err"; then
@@ -407,18 +416,21 @@ mv "$step_dir/work-key.saved" "$state/session_keys/$work_uuid"
 test "$(sha256sum "$state/session_keys/$work_uuid" | cut -d' ' -f1)" = "$key_hash"
 
 # Remove the host gate while stopped, so the same trusted unit fails to
-# activate. The watcher must stop the guest and publish a bounded diagnostic.
+# activate. The start fails with the runtime's diagnostic, stops the guest,
+# and the session shows that bounded diagnostic.
 inc file delete "p-$work_uuid/etc/p/test-release"
-rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="starting"' >/dev/null
+failed_operation=$(change_session session.start "$work_uuid" failed)
+jq -e '.result.operation.reason=="runtime" and
+  (.result.operation.diagnostic|type=="string" and length>0)' <<< "$failed_operation" >/dev/null
 failed_start=$(wait_condition "$work_uuid" stopped)
 jq -e '.result.session.diagnostic|type=="string" and length>0 and length<=1024' \
   <<< "$failed_start" >/dev/null
 inc list "p-$work_uuid" --format json | jq -e --arg name "p-$work_uuid" \
   'any(.[]; .name==$name and .status=="Stopped")' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="starting"' >/dev/null
+restart_id=$(rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" | jq -er \
+  '.result | select(.changed==true and .operation.kind=="session.start") | .operation.id')
 release_on_running "$work_uuid"
+wait_operation "$restart_id" completed >/dev/null
 wait_condition "$work_uuid" ready >/dev/null
 test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$local_oid"
 test "$(exec_p "$work_uuid" cat dirty)" = dirty

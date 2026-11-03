@@ -605,3 +605,67 @@ func TestProgressPageFollowsTheInventory(t *testing.T) {
 		t.Fatalf("a change made elsewhere was not read: pending %s", m.pendingMethod)
 	}
 }
+
+// TestStartAndStopFollowTheirOperations: Enter on a stopped session follows
+// the start operation and enters the session once it reads ready; a stop
+// follows its operation to "Stopped"; a session already as asked records
+// nothing and moves on at once.
+func TestStartAndStopFollowTheirOperations(t *testing.T) {
+	m := fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.contextSession = m.data.sessions[0]
+	m.enterSession()
+	started := reply(t, m.epoch, "session.start", `{"changed":true,"operation":{"id":"start","kind":"session.start","session_uuid":"`+stoppedID+`","status":"running","phase":"starting"}}`)
+	updated, _ := m.Update(started)
+	m = updated.(Model)
+	if m.page != "progress" || m.operationID != "start" || m.pendingMethod != api.OperationWait.Name || !m.attachOnComplete {
+		t.Fatalf("start was not followed: page %s op %s pending %s", m.page, m.operationID, m.pendingMethod)
+	}
+	updated, _ = m.Update(reply(t, m.epoch, "operation.wait", `{"operation":{"id":"start","kind":"session.start","session_uuid":"`+stoppedID+`","status":"completed","phase":"ready"}}`))
+	m = updated.(Model)
+	if m.pendingMethod != api.SessionInspect.Name {
+		t.Fatalf("a completed start did not read the session: pending %s", m.pendingMethod)
+	}
+
+	m = fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.contextSession = m.data.sessions[1]
+	m.navigate("confirm")
+	updated, _ = m.Update(reply(t, m.epoch, "session.stop", `{"changed":true,"operation":{"id":"stop","kind":"session.stop","session_uuid":"`+runningID+`","status":"running","phase":"stopping"}}`))
+	m = updated.(Model)
+	if m.page != "progress" || m.pendingMethod != api.OperationWait.Name || m.attachOnComplete {
+		t.Fatalf("stop was not followed: page %s pending %s", m.page, m.pendingMethod)
+	}
+	updated, _ = m.Update(reply(t, m.epoch, "operation.wait", `{"operation":{"id":"stop","kind":"session.stop","session_uuid":"`+runningID+`","status":"completed","phase":"stopped"}}`))
+	m = updated.(Model)
+	if m.notice != "Stopped. Files and branch retained." {
+		t.Fatalf("notice %q", m.notice)
+	}
+	// The page reads as the session's readiness, as it did before Stop
+	// recorded an operation.
+	if _, lines, _ := m.inspectionContent(); len(lines) < 3 || lines[0] != "a / feature" || lines[2] != "Condition: stopped" {
+		t.Fatalf("stop page %q", lines)
+	}
+	// A completed stop opened from O is only observed: no Stopped notice,
+	// and the operation's own layout whatever session was last acted on.
+	m.data.operations = []api.OperationSummary{{ID: "stop", Kind: "session.stop", SessionUUID: runningID, Status: "completed"}}
+	m.navigate("operations")
+	m, _ = press(m, "enter")
+	if m.contextSession.UUID != "" {
+		t.Fatal("an opened operation kept the session last acted on")
+	}
+	m.notice = ""
+	updated, _ = m.Update(reply(t, m.epoch, "operation.inspect", `{"operation":{"id":"stop","kind":"session.stop","session_uuid":"`+runningID+`","status":"completed","phase":"stopped"}}`))
+	m = updated.(Model)
+	if m.notice == "Stopped. Files and branch retained." {
+		t.Fatal("an observed stop was reported as the page's own")
+	}
+
+	m = fixture()
+	m.navigate("confirm")
+	updated, _ = m.Update(reply(t, m.epoch, "session.stop", `{"changed":false,"session":{"uuid":"`+stoppedID+`","session_condition":"stopped"}}`))
+	m = updated.(Model)
+	if m.notice != "Stopped. Files and branch retained." || m.operationID != "" {
+		t.Fatalf("an already stopped session: notice %q op %q", m.notice, m.operationID)
+	}
+}

@@ -108,11 +108,19 @@ wait_operation() {
     result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
-    if test "$status" = blocked; then echo "operation blocked: $result" >&2; return 1; fi
+    if test "$status" = blocked || test "$status" = failed; then echo "operation $status: $result" >&2; return 1; fi
     if test "$status" != running; then sleep 0.4; fi
   done
   echo "operation did not complete: $id" >&2
   return 1
+}
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id"
 }
 wait_ready() {
   local uuid="$1" result condition last='no observation' deadline=$((SECONDS+80))
@@ -335,11 +343,10 @@ start_daemon
 assert_preserved "$uuid_a" "$stable_a"
 assert_preserved "$uuid_b" "$stable_b"
 query "$uuid_b" after-kill session.identity | jq -e --arg uuid "$uuid_b" '.result.uuid==$uuid' >/dev/null
-rpc session.stop "$(jq -nc --arg uuid "$uuid_a" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.stop "$uuid_a"
+inspect "$uuid_a" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 assert_preserved "$uuid_a" "$stable_a"
-rpc session.start "$(jq -nc --arg uuid "$uuid_a" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="starting"' >/dev/null
+change_session session.start "$uuid_a"
 wait_ready "$uuid_a"
 assert_preserved "$uuid_a" "$stable_a"
 assert_preserved "$uuid_b" "$stable_b"

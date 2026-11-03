@@ -55,11 +55,11 @@ func (l coreLife) WaitOperation(_ context.Context, id string, timeout time.Durat
 func (l coreLife) InspectSession(_ context.Context, id string) (api.SessionView, error) {
 	return api.SessionView{UUID: id, Condition: "ready"}, l.record("InspectSession %s", id)
 }
-func (l coreLife) StartSession(_ context.Context, id string) (api.SessionView, error) {
-	return api.SessionView{UUID: id, Condition: "starting"}, l.record("StartSession %s", id)
+func (l coreLife) StartSession(_ context.Context, id string) (api.SessionChangeResult, error) {
+	return api.SessionChangeResult{Changed: true, Operation: &api.Operation{ID: "start-" + id, Kind: "session.start", Status: "running"}}, l.record("StartSession %s", id)
 }
-func (l coreLife) StopSession(_ context.Context, id string) (api.SessionView, error) {
-	return api.SessionView{UUID: id, Condition: "stopped"}, l.record("StopSession %s", id)
+func (l coreLife) StopSession(_ context.Context, id string) (api.SessionChangeResult, error) {
+	return api.SessionChangeResult{Session: &api.SessionView{UUID: id, Condition: "stopped"}}, l.record("StopSession %s", id)
 }
 
 // fullLife implements every optional lifecycle API as well.
@@ -292,8 +292,8 @@ func TestLifecycleMethodsRouteDecodedRequests(t *testing.T) {
 		{"project.retained.delete.confirm", `{"key":"k","project":"team/app","branch":"saved","confirmation_token":"` + token + `"}`, "ConfirmRetainedDelete k team/app saved " + token, []string{"operation"}, "retained-delete"},
 		{"operation.retry", `{"id":"op-1"}`, "Retry op-1", []string{"operation"}, "op-1"},
 		{"session.inspect", `{"uuid":"` + uuid + `"}`, "InspectSession " + uuid, []string{"session"}, uuid},
-		{"session.start", `{"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"session"}, uuid},
-		{"session.stop", `{"uuid":"` + uuid + `"}`, "StopSession " + uuid, []string{"session"}, uuid},
+		{"session.start", `{"uuid":"` + uuid + `"}`, "StartSession " + uuid, []string{"changed", "operation"}, ""},
+		{"session.stop", `{"uuid":"` + uuid + `"}`, "StopSession " + uuid, []string{"changed", "session"}, ""},
 		{"session.services", `{"uuid":"` + uuid + `"}`, "SessionServices " + uuid, []string{"observed_at", "services", "uuid"}, ""},
 		{"session.service.logs", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `"}`, "SessionServiceLogs " + uuid + " " + surfaceUnit, []string{"name", "observed_at", "uuid"}, ""},
 		{"session.service.action", `{"uuid":"` + uuid + `","name":"` + surfaceUnit + `","action":"restart"}`, "SessionServiceAction " + uuid + " " + surfaceUnit + " restart", []string{"name", "observed_at", "uuid"}, ""},

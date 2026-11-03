@@ -290,28 +290,12 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		m.attachOnComplete = v.method == api.SessionCreate.Name || v.method == api.ProjectCreate.Name
 		m.navigate("progress")
 		return m.begin(waitFor(m.operationID))
-	case api.OperationInspect.Name, api.OperationWait.Name:
-		r := resultOf(v, api.OperationInspect)
-		if v.method == api.OperationWait.Name {
-			r = resultOf(v, api.OperationWait)
-		}
-		m.operation = r.Operation
-		if r.Operation.Status == "running" {
-			// A wait that ends with the operation still running is a result:
-			// wait again, keeping the intent to attach.
-			return m.begin(waitFor(r.Operation.ID))
-		}
-		if r.Operation.Status == "completed" {
-			if m.attachOnComplete && r.Operation.SessionUUID != "" {
-				m.contextSession.UUID = r.Operation.SessionUUID
-				m.operationID = ""
-				return m.begin(callOf(api.SessionInspect, api.SessionInspectRequest{UUID: r.Operation.SessionUUID}))
-			}
-			m.attachOnComplete = false
-			m.notice = "Operation completed. Back returns to sessions."
-			m.refreshing = true
-			return m.refresh()
-		}
+	case api.OperationInspect.Name:
+		// An operation opened from O, or read again after a change made
+		// elsewhere, is observed: the page did not ask for it.
+		return m.followOperation(resultOf(v, api.OperationInspect).Operation, false)
+	case api.OperationWait.Name:
+		return m.followOperation(resultOf(v, api.OperationWait).Operation, true)
 	case api.SessionRemovalPreview.Name:
 		p := resultOf(v, api.SessionRemovalPreview).Preview
 		if p.ConfirmationToken == "" || m.removal == nil || p.SessionUUID != m.removal.UUID || p.Kind != m.removal.Kind || !p.Runtime.RuntimeDataLost {
@@ -327,25 +311,25 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 		}
 		m.removal = nil
 		m.navigate("review")
-	case api.SessionStart.Name, api.SessionInspect.Name, api.SessionStop.Name:
-		r := sessionOf(v)
-		m.contextSession = r.Session
+	case api.SessionStart.Name, api.SessionStop.Name:
+		r := resultOf(v, api.SessionStart)
 		if v.method == api.SessionStop.Name {
-			m.lastInteraction[r.Session.UUID] = time.Now()
-			m.attachOnComplete = false
-			m.operationID = ""
-			m.navigate("progress")
-			m.notice = "Stopped. Files and branch retained."
-			m.refreshing = true
-			return m.refresh()
+			r = resultOf(v, api.SessionStop)
 		}
-		if m.attachOnComplete && r.Session.Condition == "ready" {
-			return m.launchAttachment()
+		m.navigate("progress")
+		if r.Operation != nil {
+			// A new start or stop, or the unfinished one of the same kind.
+			m.operationID = r.Operation.ID
+			return m.followOperation(*r.Operation, true)
 		}
-		if r.Session.Condition != "ready" && r.Session.Condition != "starting" {
-			m.attachOnComplete = false
-			m.notice = "Session is " + r.Session.Condition + ": " + r.Session.Diagnostic
+		// Already as asked: nothing was recorded.
+		m.operationID = ""
+		if v.method == api.SessionStop.Name {
+			return m.stopped(r.Session.UUID)
 		}
+		return m.sessionObserved(*r.Session)
+	case api.SessionInspect.Name:
+		return m.sessionObserved(resultOf(v, api.SessionInspect).Session)
 	case api.SessionServices.Name:
 		r := resultOf(v, api.SessionServices)
 		if r.UUID != m.contextSession.UUID {
@@ -419,16 +403,57 @@ func operationOf(v actionDone) api.Operation {
 	}
 }
 
-// sessionOf is the session that start, stop or inspect returned.
-func sessionOf(v actionDone) api.SessionResult {
-	switch v.method {
-	case api.SessionStart.Name:
-		return resultOf(v, api.SessionStart)
-	case api.SessionStop.Name:
-		return resultOf(v, api.SessionStop)
+// followOperation shows op on the progress page and follows it to its end: a
+// running operation is waited for, again while a wait answers it still
+// running, and keeps the intent to enter its session; a completed start or
+// creation enters the session once it reads ready. requested is false for an
+// operation the page only observes, such as one opened from O: its end is
+// reported as completed, never as the page's own Stop.
+func (m *Model) followOperation(op api.Operation, requested bool) tea.Cmd {
+	m.operation = op
+	switch op.Status {
+	case "running":
+		return m.begin(waitFor(op.ID))
+	case "completed":
 	default:
-		return resultOf(v, api.SessionInspect)
+		m.attachOnComplete = false
+		return nil
 	}
+	if op.Kind == api.SessionStop.Name && requested {
+		return m.stopped(op.SessionUUID)
+	}
+	if m.attachOnComplete && op.SessionUUID != "" {
+		m.contextSession.UUID = op.SessionUUID
+		m.operationID = ""
+		return m.begin(callOf(api.SessionInspect, api.SessionInspectRequest{UUID: op.SessionUUID}))
+	}
+	m.attachOnComplete = false
+	m.notice = "Operation completed. Back returns to sessions."
+	m.refreshing = true
+	return m.refresh()
+}
+
+// stopped reports session id stopped.
+func (m *Model) stopped(id string) tea.Cmd {
+	m.lastInteraction[id] = time.Now()
+	m.attachOnComplete = false
+	m.notice = "Stopped. Files and branch retained."
+	m.refreshing = true
+	return m.refresh()
+}
+
+// sessionObserved shows session s, read once its start needs none or has
+// completed, and enters it when it is ready and entry was asked.
+func (m *Model) sessionObserved(s api.SessionView) tea.Cmd {
+	m.contextSession = s
+	if m.attachOnComplete && s.Condition == "ready" {
+		return m.launchAttachment()
+	}
+	if s.Condition != "ready" {
+		m.attachOnComplete = false
+		m.notice = "Session is " + s.Condition + ": " + s.Diagnostic
+	}
+	return nil
 }
 
 // removalReview states the loss by category. P does not look inside the

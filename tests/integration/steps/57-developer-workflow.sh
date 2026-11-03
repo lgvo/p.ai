@@ -20,9 +20,9 @@ rpc() {
   if response=$(timeout 150 p api "$socket" "$@"); then
    printf '%s\n' "$response"; return
   else status=$?; fi
-  # Start/reconciliation watchers briefly retain lifecycle authority after
-  # readiness is observed. Retry only explicit retry answers, never hide
-  # other refusals or redispatch mutations here.
+  # An unfinished operation on the session, such as a reconciliation, holds
+  # it. Retry only explicit retry answers, never hide other refusals or
+  # redispatch mutations here.
   if test "$read_only" = true && test "$SECONDS" -lt "$deadline" && \
    jq -e '.error.message=="retry"' <<< "$response" >/dev/null 2>&1; then sleep 0.1; continue; fi
   if test "$read_only" = true; then
@@ -70,11 +70,20 @@ wait_ready() {
  done
 }
 stop_session() {
- local deadline=$((SECONDS+45)) response
+ local deadline=$((SECONDS+45)) response stop
  while ! response=$(rpc session.stop "$(params)"); do
   jq -e '.error.message=="retry"' <<< "$response" >/dev/null
   test "$SECONDS" -lt "$deadline"; sleep 0.2
  done
+ stop=$(jq -er '.result | select(.changed==true and .operation.kind=="session.stop") | .operation.id' <<< "$response")
+ wait_completed "$stop"
+ rpc session.inspect "$(params)" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+}
+start_session() {
+ local start
+ start=$(rpc session.start "$(params)" |
+  jq -er '.result | select(.changed==true and .operation.kind=="session.start") | .operation.id')
+ wait_completed "$start"
 }
 wait_sql() {
  local query=$1 expected=$2 deadline=$((SECONDS+30))
@@ -302,7 +311,7 @@ inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"
 service_control restart
 wait_health
 rpc session.inspect "$(params)" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(params)" >/dev/null
+start_session
 wait_ready
 test "$(guest git rev-parse HEAD)" = "$local_oid"
 test "$(guest cat notes-dirty)" = dirty-A
@@ -335,7 +344,7 @@ stop_session
 renamed=$(rpc session.rename "$rename_params")
 op=$(jq -er '.result.operation.id' <<< "$renamed")
 wait_completed "$op"
-rpc session.start "$(params)" >/dev/null
+start_session
 wait_ready
 test "$(guest git branch --show-current)" = retained-notes
 test "$(guest git config branch.retained-notes.merge)" = refs/heads/retained-notes

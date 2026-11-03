@@ -172,7 +172,8 @@ The public session condition is the reconciled projection defined in
 [session observability](session-observability.md#session-condition). Registry
 state supplies `creating`, `discarding`, and `deleting`; Incus plus current
 `p-interactive.service` inspection supplies `starting`, `ready`, `stopped`,
-`missing`, or `unreachable` for an established session. It is not a second
+`missing`, or `unreachable` for an established session, except that an
+unfinished start or stop operation supplies `starting` or `stopping`. It is not a second
 independently mutable lifecycle field.
 
 Activation or persistent-host failure shuts the container down, so P does not
@@ -211,8 +212,6 @@ Reusing it with different input is rejected.
 Attach and detach are the live exception: the RPC connection and its pending
 token or confirmed lease provide their identity, so P does not journal them as
 durable operations.
-Any start required by attach is still a normal Incus-owned start request; P may
-expose its generic operation handle without persisting a second phase machine.
 
 ## Concurrency
 
@@ -933,10 +932,10 @@ owns the release rule and its mechanics.
 | Operation | Commit point | Before commit point | At/after commit point |
 |---|---|---|---|
 | Create | Existing P branch assigned, new branch created and assigned, or unborn bootstrap reserved | Cancel/clean reservation when safe; preserve pre-existing branch | Retain one blocked request; Retry cleans verified partial resources and reconstructs the same immutable request; changed input explicitly supersedes it with a new creation |
-| Start | None in P; Incus/systemd own the operation | No duplicate P workflow | Inspect Incus and `p-interactive.service`; success is ready, failure returns the container to stopped and another Start retries |
+| Start | None; the `session.start` operation records the request | Nothing to undo: Incus/systemd own the start | The worker starts the runtime and waits for `p-interactive.service`; success completes the operation once ready, failure records it failed with the diagnostic and returns the container to stopped, and another Start records a new operation |
 | Attach | Pending token confirmed and promoted | Expire pending token without presence/status clear | Helper retains the lease through teardown while reachable; lease loss starts immediate transport-bound teardown before that helper can attach again |
 | Rename | New P ref created | Release reservation and retain old mapping | Complete forward to new ref under guards |
-| Stop | None in P; Incus owns the operation | No duplicate P workflow | Inspect Incus; report stopped or expose retry |
+| Stop | None; the `session.stop` operation records the request | Nothing to undo: Incus owns the stop | The worker stops the runtime; the operation completes once it is stopped, or fails with the diagnostic |
 | Discard | Runtime removal committed | Revalidate or cancel without loss | Complete runtime/credential cleanup; retain branch |
 | Delete | Runtime removal committed | Revalidate or cancel without loss | Complete cleanup and confirmed branch deletion |
 

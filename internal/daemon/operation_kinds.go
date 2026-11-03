@@ -39,6 +39,8 @@ func init() {
 		control.KindSessionRename:  {process: (*lifecycle).processRename},
 		control.KindRetainedRename: {process: (*lifecycle).processRetainedRename},
 		control.KindRetainedDelete: {process: (*lifecycle).processRetainedDelete},
+		control.KindSessionStart:   {process: (*lifecycle).processSessionChange},
+		control.KindSessionStop:    {process: (*lifecycle).processSessionChange},
 	}
 }
 

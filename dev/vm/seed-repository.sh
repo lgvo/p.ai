@@ -29,17 +29,25 @@ test -n "$source_commit"
 created=$(rpc project.create "$(jq -nc --arg key "${P_LAB_KEY:-p-lab-repository-v1}" --arg project "$project" '{key:$key,project:$project}')")
 operation=$(jq -er '.result.operation.id' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
-while :; do
-  observed=$(rpc operation.wait "$(jq -nc --arg id "$operation" '{id:$id,timeout:15}')")
-  status=$(jq -er '.result.operation.status' <<< "$observed")
-  if test "$status" = completed; then break; fi
-  if test "$status" = blocked || test "$status" = failed || ((SECONDS >= deadline)); then
-    jq -c '.result.operation|{id,status,phase,diagnostic}' <<< "$observed" >&2
-    exit 1
-  fi
-  if test "$status" != running; then sleep 1; fi
-done
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+# wait_operation ID: operation ID completes before the seeding deadline.
+wait_operation() {
+  local observed status
+  while :; do
+    observed=$(rpc operation.wait "$(jq -nc --arg id "$1" '{id:$id,timeout:15}')")
+    status=$(jq -er '.result.operation.status' <<< "$observed")
+    if test "$status" = completed; then return; fi
+    if test "$status" = blocked || test "$status" = failed || ((SECONDS >= deadline)); then
+      jq -c '.result.operation|{id,status,phase,diagnostic}' <<< "$observed" >&2
+      exit 1
+    fi
+    if test "$status" != running; then sleep 1; fi
+  done
+}
+wait_operation "$operation"
+# An interrupted seeding may have left the session stopped: its start records
+# an operation. A ready session records nothing.
+started=$(rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')")
+if start=$(jq -er '.result.operation.id' <<< "$started"); then wait_operation "$start"; fi
 until rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null; do
   if ((SECONDS >= deadline)); then echo 'Repository session did not become ready.' >&2; exit 1; fi

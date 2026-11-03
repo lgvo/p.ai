@@ -1,5 +1,82 @@
 # MVP implementation progress
 
+## TUI start and stop operations — 2026-11-03
+
+Step 4 of the interface rework records `session.start` and `session.stop` as
+operations. Both answer `{changed, operation?, session?}`. A session that is
+already ready or stopped answers `changed: false` with its view and records
+nothing. Otherwise the answer is a new operation, or the unfinished one of the
+same kind, which the client follows with `operation.wait`. In the TUI, Enter
+starts the session, follows the start to completion, reads the session and
+enters it once it is ready. s then y stops it and follows the stop to "Stopped.
+Files and branch retained." The page of a start or stop reads as the session's
+readiness, with `starting` or `stopping` while it runs. The tick no longer
+polls `session.inspect`, and the list and Details show `stopping` like the
+other transitional conditions. `p attach` now starts the session and waits
+before it attaches. The mock answers each start or stop with a completed
+operation and keeps only a session's newest one, as the daemon does.
+
+LLM experience review (mock socket only): the LLM first ran the prototype's
+selected browser. There, Enter on a stopped session shows a boot log and then
+the terminal, Stop shows a shutdown log and returns to the picker, and s on a
+stopped session says "Session is already stopped." Then it ran `./dev/tui-mock
+--dataset small --theme dark` through `tui-observe.py` from an export of
+commit 1 and from one of this change, at 120×35, 80×24 and 48×16. It entered a
+stopped session and a ready one, ran a command and detached with Ctrl-B d. It
+stopped a running session and a stopped one, and left a slowed start and a
+slowed stop. It also had start answer `failed`/`runtime` and stop answer
+`retry`/`session_held`. `mock.configure` slowed `session.start`,
+`session.stop`, `session.inspect` and `session.attach` by up to five seconds.
+Apart from session names and IDs, every matched page except the page after a
+recorded Stop (S1) read the same before and after. This covers the Stop
+confirmation and its waiting line, the start's waiting page at all three
+sizes, and the handoff page while `p attach` works. It also covers entry,
+detach, a ready session entered at once, Back during a start or stop, which
+neither enters nor reads anything more, and the start and stop errors. The
+review found five problems; three were fixed and their paths repeated:
+
+- S1 (fixed): after a recorded Stop, the page switched to the operation
+  layout. It named the session only by UUID, showed a Key equal to the
+  operation ID and said "Retry resumes exact captured intent; changed inputs
+  need a new request.", while an already stopped session kept the old page. Now
+  both read "forge / fix/token-refresh", the session, "Condition: stopped" and
+  "Stopped. Files and branch retained." at 120×35, 80×24 and 48×16, as before
+  this change, with one empty row fewer.
+- S3 (fixed): opening a completed `session.stop` from O repeated "Stopped."
+  and marked the session as just used, which reorders it within its project.
+  Now it reads "Operation completed. Back returns to sessions."
+- S4 (fixed, mock fidelity): the mock kept every start and stop, so O grew to
+  seven rows and the blocked rename moved down to third. After three starts
+  and four stops of two sessions, O now lists three rows.
+
+The repeat found one new problem, S6, which was fixed and repeated at
+120×35: from O, a completed start or stop of the session the TUI last acted
+on read as that session's readiness, without the operation's kind or ID and
+with "Leaving startup prevents automatic entry when it finishes.", while
+another session's opened as an operation. Opening an O row now forgets the
+session last acted on, so both open as operations, and the recorded Stop page
+still reads as before. Two problems that predate this change stay open. S2: s on a
+stopped session asks for confirmation and then reports "Stopped." as if it had
+stopped it; the prototype says "Session is already stopped.", and the TUI does
+not yet use `changed: false` to tell these apart. S5: when the start that `p
+attach` now sends answers an error, the TUI's redraw erases its sentence at
+once, and the page shows only "Attachment ended: exit status 1". The 48×16
+clipping and the `r retry operation` hint stay open from earlier reviews, and
+O's rows still name no branch.
+
+The mock never has a running or failed start or stop, and no session in it
+can be `stopping`. So the review could not reach the `operation.wait` follow,
+the page of a running or failed start, or a `stopping` row. By reading the
+code, a running start's page reads "Condition: starting", a failed one adds
+its reason sentence and diagnostic, and `stopping` takes the warning color.
+Component checks: `internal/tui`, the mock, `internal/errtext` and
+`internal/attachment` passed before and after the fixes.
+`TestStartAndStopFollowTheirOperations` covers the wait for a running start
+and stop, the Stop page's readiness lines, a completed stop opened from O and
+its layout, and an already stopped session. `just tui-tests` passed 8
+terminal, 9 observer and 12 mock tests before and after each fix.
+Evidence: [checkpoint](llm-interactive-review/tui/start-stop-operations/checkpoint.json).
+
 ## TUI operation wait — 2026-11-03
 
 Step 4 of the interface rework adds `operation.wait {id, timeout}`, which

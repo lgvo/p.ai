@@ -484,6 +484,23 @@ func registerChange[Req api.Request](t *control.MethodTable, f *fixture, m api.M
 	})
 }
 
+// sessionChange records a completed start or stop, kind, of session s; its
+// key is its own ID, and it replaces the session's older one, as the
+// daemon's do.
+func (f *fixture) sessionChange(kind string, s api.SessionView, request any) *api.Operation {
+	for id, old := range f.ops {
+		if old.SessionUUID == s.UUID && (old.Kind == api.SessionStart.Name || old.Kind == api.SessionStop.Name) {
+			delete(f.ops, id)
+		}
+	}
+	raw, _ := json.Marshal(request)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	id := uuid.NewString()
+	op := api.Operation{ID: id, Key: id, Kind: kind, Project: s.Project, SessionUUID: s.UUID, Status: "completed", Phase: "complete", Request: raw, CreatedAt: now, UpdatedAt: now}
+	f.ops[id] = op
+	return &op
+}
+
 func (f *fixture) registerLifecycle(t *control.MethodTable) {
 	registerChange(t, f, api.ProjectCreate, func(r api.ProjectCreateRequest) string { return r.Key }, func(r api.ProjectCreateRequest) (api.SessionView, error) {
 		if _, ok := f.projects[r.Project]; ok {
@@ -526,27 +543,35 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 		s, err := f.session(r.UUID)
 		return api.SessionResult{Session: s}, err
 	})
-	control.Register(t, api.SessionStart, func(_ context.Context, r api.SessionStartRequest) (api.SessionResult, error) {
+	// Start and stop, like the daemon's, record nothing for a session already
+	// as asked; otherwise the fixture's operation completes at once.
+	control.Register(t, api.SessionStart, func(_ context.Context, r api.SessionStartRequest) (api.SessionChangeResult, error) {
 		s, err := f.session(r.UUID)
 		if err != nil {
-			return api.SessionResult{}, err
+			return api.SessionChangeResult{}, err
+		}
+		if s.Condition == "ready" {
+			return api.SessionChangeResult{Session: &s}, nil
 		}
 		s.Condition = "ready"
 		f.sessions[s.UUID] = s
-		return api.SessionResult{Session: s}, nil
+		return api.SessionChangeResult{Changed: true, Operation: f.sessionChange(api.SessionStart.Name, s, r)}, nil
 	})
-	control.Register(t, api.SessionStop, func(_ context.Context, r api.SessionStopRequest) (api.SessionResult, error) {
+	control.Register(t, api.SessionStop, func(_ context.Context, r api.SessionStopRequest) (api.SessionChangeResult, error) {
 		s, err := f.session(r.UUID)
 		if err != nil {
-			return api.SessionResult{}, err
+			return api.SessionChangeResult{}, err
 		}
 		if s.AttachedCount != 0 {
-			return api.SessionResult{}, mockError(api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(r.UUID))
+			return api.SessionChangeResult{}, mockError(api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(r.UUID))
+		}
+		if s.Condition == "stopped" {
+			return api.SessionChangeResult{Session: &s}, nil
 		}
 		f.native.stopSession(s.UUID)
 		s.Condition = "stopped"
 		f.sessions[s.UUID] = s
-		return api.SessionResult{Session: s}, nil
+		return api.SessionChangeResult{Changed: true, Operation: f.sessionChange(api.SessionStop.Name, s, r)}, nil
 	})
 	registerChange(t, f, api.SessionRename, func(r api.SessionRenameRequest) string { return r.Key }, func(r api.SessionRenameRequest) (api.SessionView, error) {
 		s, err := f.session(r.UUID)

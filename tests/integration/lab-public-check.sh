@@ -13,24 +13,39 @@ guest() {
     --env HOME=/home/p --env XDG_RUNTIME_DIR=/run/user/1000 \
     --env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus -- "$@"
 }
+# start_session: session.start; the operation it records, or finds
+# unfinished, completes before the deadline. A session already ready records
+# nothing.
+start_session() {
+  local response operation status=running
+  response=$(rpc session.start "$params")
+  if operation=$(jq -er '.result.operation.id' <<< "$response"); then
+    while test "$status" = running; do
+      test "$SECONDS" -lt "$deadline"
+      status=$(rpc operation.wait "$(jq -nc --arg id "$operation" '{id:$id,timeout:20}')" |
+        jq -er '.result.operation.status')
+    done
+    if test "$status" != completed; then echo "notes session start ended $status" >&2; return 1; fi
+  fi
+}
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 systemctl is-active --quiet p-lab-repository p-lab-notes
 test -e /var/lib/p-demo/lab-notes-ready
 rpc project.list '{"limit":8}' | jq -e '.result.projects | length==2 and any(.path=="p-ai") and any(.path=="notes")' >/dev/null
 rpc session.list '{"limit":8}' | jq -e --arg uuid "$uuid" \
   '.result.sessions | length==2 and any(.project=="p-ai" and .branch=="main") and any(.uuid==$uuid and .project=="notes" and .branch=="main")' >/dev/null
+deadline=$((SECONDS+90))
 case "${1-}" in
   prepare) test ! -e "$record" ;;
   check)
     test "$(jq -er '.uuid' "$record")" = "$uuid"
     test "$(jq -er '.boot' "$record")" != "$(cat /proc/sys/kernel/random/boot_id)"
     if test "$(rpc session.inspect "$params" | jq -er '.result.session.session_condition')" = stopped; then
-      rpc session.start "$params" >/dev/null
+      start_session
     fi
     ;;
   *) echo 'Usage: bash /etc/p-lab-public-check.sh prepare|check (test-owned disk only)' >&2; exit 2 ;;
 esac
-deadline=$((SECONDS+90))
 until rpc session.inspect "$params" | jq -e '.result.session.session_condition=="ready"' >/dev/null; do
   test "$SECONDS" -lt "$deadline"; sleep .2
 done

@@ -130,6 +130,14 @@ wait_operation() {
   done
   return 1
 }
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id" >/dev/null
+}
 wait_ready() {
   local target="$1" deadline=$((SECONDS+90))
   while ((SECONDS < deadline)); do
@@ -200,13 +208,14 @@ rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     .reason=="turn complete" and .adapter=="codex" and .adapter_version=="0.151.0" and
     .receive_sequence>$prior' >/dev/null
 echo P_BUNDLED_CODEX_EVENT_FIXTURE_PASS
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
+change_session session.stop "$uuid"
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 stop_daemon
 start_daemon
 repo_hash=$(printf %s bundled-distribution | sha256sum | cut -d' ' -f1)
 test "$(GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null git --git-dir="$state/repositories/$repo_hash.git" rev-parse refs/heads/main)" = "$oid"
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+change_session session.start "$uuid"
 wait_ready "$uuid"
 test "$(guest "$uuid" git rev-parse HEAD)" = "$oid"
 jq -se --arg uuid "$uuid" 'any(.[]; .schema=="p.event/v1" and .session==$uuid and .kind=="session.condition_changed")' "$log_file" >/dev/null

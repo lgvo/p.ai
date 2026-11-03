@@ -54,9 +54,10 @@ func TestStartOfASessionHeldByAnOperationNamesIt(t *testing.T) {
 
 func TestStopWithAnAttachmentIsRefusedAsAttachmentActive(t *testing.T) {
 	token := strings.Repeat("a", 64)
-	l := &lifecycle{attachments: map[string]*attachment{token: {session: "session", expires: time.Now().Add(time.Minute)}}}
-	_, err := l.StopSession(context.Background(), "session")
-	requireRefusal(t, err, api.KindConflict, api.ReasonAttachmentActive, api.TargetSession("session"))
+	session := sessionUUID(1)
+	l := &lifecycle{store: newJournalFixture(t).store, attachments: map[string]*attachment{token: {session: session, expires: time.Now().Add(time.Minute)}}}
+	_, err := l.StopSession(context.Background(), session)
+	requireRefusal(t, err, api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(session))
 }
 
 func TestStartOfASessionWithoutItsGitPrincipalIsRefused(t *testing.T) {

@@ -290,7 +290,34 @@ control session.start (runtime)
   request
     uuid string
   result
-    session object
+    changed boolean
+    operation object (optional)
+      id string
+      idempotency_key string
+      kind string
+      project string
+      session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
+      request raw
+      status string
+      phase string
+      committed boolean
+      evidence raw (optional)
+      reason string (optional)
+      diagnostic string (optional)
+      created_at string
+      updated_at string
+    session object (optional)
       uuid string
       project string
       branch string
@@ -319,7 +346,34 @@ control session.stop (runtime)
   request
     uuid string
   result
-    session object
+    changed boolean
+    operation object (optional)
+      id string
+      idempotency_key string
+      kind string
+      project string
+      session_uuid string (optional)
+      intent object
+        project string
+        session string (optional)
+        branch string (optional)
+        new_branch string (optional)
+        choice string (optional)
+        source string (optional)
+        origin_ref string (optional)
+        replaces_session string (optional)
+        replaces_branch string (optional)
+        url string (optional)
+      request raw
+      status string
+      phase string
+      committed boolean
+      evidence raw (optional)
+      reason string (optional)
+      diagnostic string (optional)
+      created_at string
+      updated_at string
+    session object (optional)
       uuid string
       project string
       branch string

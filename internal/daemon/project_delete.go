@@ -134,13 +134,11 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 	acknowledged := 0
 	for _, s := range sessions {
 		target := api.TargetSession(s.UUID)
-		var attached, starting bool
-		l.withLock(func() { attached, starting = l.hasAttachmentLocked(s.UUID), l.startActive[s.UUID] })
-		if attached {
+		if l.hasAttachment(s.UUID) {
 			return p, nil, control.Conflict(api.ReasonAttachmentActive, target)
 		}
-		if starting {
-			return p, nil, control.Retry(api.ReasonSessionHeld, target)
+		if e := l.admitSessionWork(ctx, s.UUID, ""); e != nil {
+			return p, nil, e
 		}
 		native, e := l.runtimeSession(ctx, s)
 		if e != nil {

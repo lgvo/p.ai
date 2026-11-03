@@ -67,10 +67,12 @@ wait_ready() {
  return 1
 }
 stop_when_idle() {
- local response status deadline=$((SECONDS+40))
+ local response status stop deadline=$((SECONDS+40))
  while ((SECONDS<deadline)); do
   if response=$(timeout 150 p api "$socket" session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"); then
-   jq -e '.result.session.session_condition=="stopped"' <<< "$response" >/dev/null
+   stop=$(jq -er '.result | select(.changed==true and .operation.kind=="session.stop") | .operation.id' <<< "$response")
+   wait_completed "$stop"
+   rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
    return
   else
    status=$?
@@ -118,7 +120,9 @@ stop_when_idle
 service_control restart
 wait_health
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+start=$(rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
+ jq -er '.result | select(.changed==true and .operation.kind=="session.start") | .operation.id')
+wait_completed "$start"
 wait_ready
 test "$(guest git rev-parse HEAD)" = "$tip"
 test "$(guest cat /home/p/service-private)" = dummy-private

@@ -16,13 +16,23 @@ guest() {
     --env HOME=/home/p --env XDG_RUNTIME_DIR=/run/user/1000 \
     --env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus -- "$@"
 }
-# A source seed may have finished before an interrupted service setup.
+# A source seed may have finished before an interrupted service setup and
+# left the session stopped: its start records an operation, waited for here.
 params=$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')
 observed=$(timeout 20 p api session.inspect "$params")
-if test "$(jq -er '.result.session.session_condition' <<< "$observed")" = stopped; then
-  timeout 20 p api session.start "$params" >/dev/null
-fi
 deadline=$((SECONDS+180))
+if test "$(jq -er '.result.session.session_condition' <<< "$observed")" = stopped; then
+  started=$(timeout 20 p api session.start "$params")
+  if operation=$(jq -er '.result.operation.id' <<< "$started"); then
+    status=running
+    while test "$status" = running; do
+      if ((SECONDS >= deadline)); then echo 'Notes session start did not end.' >&2; exit 1; fi
+      status=$(timeout 30 p api operation.wait "$(jq -nc --arg id "$operation" '{id:$id,timeout:20}')" |
+        jq -er '.result.operation.status')
+    done
+    if test "$status" != completed; then echo "Notes session start ended $status." >&2; exit 1; fi
+  fi
+fi
 until timeout 20 p api session.inspect "$params" | jq -e '.result.session.session_condition=="ready"' >/dev/null; do
   if ((SECONDS >= deadline)); then echo 'Notes session did not become ready.' >&2; exit 1; fi
   sleep 1

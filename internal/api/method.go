@@ -65,8 +65,8 @@ var (
 	SessionCreate                = Method[SessionCreateRequest, OperationResult]{"session.create"}
 	SessionInspect               = Method[SessionInspectRequest, SessionResult]{"session.inspect"}
 	SessionList                  = Method[SessionListRequest, SessionListResult]{"session.list"}
-	SessionStart                 = Method[SessionStartRequest, SessionResult]{"session.start"}
-	SessionStop                  = Method[SessionStopRequest, SessionResult]{"session.stop"}
+	SessionStart                 = Method[SessionStartRequest, SessionChangeResult]{"session.start"}
+	SessionStop                  = Method[SessionStopRequest, SessionChangeResult]{"session.stop"}
 	OperationInspect             = Method[OperationInspectRequest, OperationResult]{"operation.inspect"}
 	OperationList                = Method[OperationListRequest, OperationListResult]{"operation.list"}
 	OperationWait                = Method[OperationWaitRequest, OperationResult]{"operation.wait"}

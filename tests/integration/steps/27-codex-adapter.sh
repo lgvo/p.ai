@@ -100,15 +100,28 @@ created=$(rpc project.create '{"key":"codex-bootstrap","project":"codex-adapter"
 op=$(jq -er '.result.operation.id | select(length==36)' <<< "$created")
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 inspect() { rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')"; }
-deadline=$((SECONDS+150))
-while ((SECONDS < deadline)); do
-  result=$(rpc operation.wait "$(jq -nc --arg id "$op" '{id:$id,timeout:20}')")
-  status=$(jq -er '.result.operation.status' <<< "$result")
-  if test "$status" = completed; then break; fi
-  if test "$status" = blocked; then echo "Codex creation blocked: $result" >&2; exit 1; fi
-  if test "$status" != running; then sleep 0.4; fi
-done
-test "$status" = completed
+# wait_operation ID: operation ID completes.
+wait_operation() {
+  local id="$1" result status deadline=$((SECONDS+150))
+  while ((SECONDS < deadline)); do
+    result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
+    status=$(jq -er '.result.operation.status' <<< "$result")
+    if test "$status" = completed; then return; fi
+    if test "$status" = blocked || test "$status" = failed; then echo "operation $status: $result" >&2; return 1; fi
+    if test "$status" != running; then sleep 0.4; fi
+  done
+  echo "operation did not complete: $id" >&2
+  return 1
+}
+# change_session METHOD: METHOD, session.start or session.stop, records an
+# operation of its kind for the session, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id"
+}
+wait_operation "$op"
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
   if inspect | jq -e '.result.session.session_condition=="ready"' >/dev/null; then break; fi
@@ -157,15 +170,7 @@ created_b=$(rpc project.create '{"key":"codex-bootstrap-b","project":"codex-adap
 op_b=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_b")
 uuid_b=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_b")
 test "$uuid_b" != "$uuid"
-deadline=$((SECONDS+150))
-while ((SECONDS < deadline)); do
-  result_b=$(rpc operation.wait "$(jq -nc --arg id "$op_b" '{id:$id,timeout:20}')")
-  status_b=$(jq -er '.result.operation.status' <<< "$result_b")
-  if test "$status_b" = completed; then break; fi
-  if test "$status_b" = blocked; then echo "Codex B creation blocked: $result_b" >&2; exit 1; fi
-  if test "$status_b" != running; then sleep 0.4; fi
-done
-test "$status_b" = completed
+wait_operation "$op_b"
 inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/test ! -e /home/p/.codex
 inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
@@ -231,9 +236,9 @@ hook_event Stop "$step_dir/event.json"
 emit_hook "$step_dir/event.json"
 test "$(inspect | jq -er '.result.session.latest_unattended_condition.receive_sequence')" = "$prior_sequence"
 
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+change_session session.stop
+inspect | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.start
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
   if inspect | jq -e '.result.session.session_condition=="ready"' >/dev/null; then break; fi

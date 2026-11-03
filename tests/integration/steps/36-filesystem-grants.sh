@@ -133,6 +133,14 @@ wait_operation() {
   echo "operation $id did not complete" >&2
   return 1
 }
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id"
+}
 wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
   while ((SECONDS < deadline)); do
@@ -202,7 +210,8 @@ op_a2=$(jq -er '.result.operation.id | select(length==36)' <<< "$created_a2")
 uuid_a2=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created_a2")
 wait_operation "$op_a2"
 wait_ready "$uuid_a2"
-rpc session.stop "$(jq -nc --arg uuid "$uuid_a2" '{uuid:$uuid}')" |
+change_session session.stop "$uuid_a2"
+rpc session.inspect "$(jq -nc --arg uuid "$uuid_a2" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 mv -- "$grant_root/ro" "$grant_root/ro-old"
 mkdir -m 0755 "$grant_root/ro"

@@ -67,51 +67,26 @@ func (l *lifecycle) hasAttachmentLocked(id string) bool {
 	}
 	return false
 }
+
+// AttachSession reserves an attachment to session id, which must be ready.
+// It starts nothing: a client starts the session and waits for its start
+// first. An unfinished start or other operation on the session answers as
+// the journal's admission check does.
 func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAttachment, error) {
 	var zero api.PendingAttachment
-	// Start owns the session lock while its asynchronous readiness check runs.
-	// Retry only that in-progress start; conflicting lifecycle operations fail.
-	view, err := l.StartSession(ctx, id)
-	if err != nil {
-		starting := l.startWatching(id)
-		if !errors.Is(err, control.ErrConflict) || !starting {
-			return zero, err
-		}
-		view.Condition = "starting"
-	}
-	for view.Condition == "starting" {
-		select {
-		case <-ctx.Done():
-			return zero, ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-		view, err = l.InspectSession(ctx, id)
-		if err != nil {
-			return zero, err
-		}
-	}
-	if err := notReady(id, view.Condition); err != nil {
-		return zero, err
-	}
-	// Another client's Start may own the session since the inspection that saw
-	// ready. Wait for its watcher to finish instead of rejecting attach.
-	for {
-		starting := l.startWatching(id)
-		if !starting {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return zero, ctx.Err()
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
 	release, err := l.lockSession(ctx, id)
 	if err != nil {
 		return zero, err
 	}
 	defer release()
 	if err := l.admitSessionWork(ctx, id, ""); err != nil {
+		return zero, err
+	}
+	view, err := l.InspectSession(ctx, id)
+	if err != nil {
+		return zero, err
+	}
+	if err := notReady(id, view.Condition); err != nil {
 		return zero, err
 	}
 	spec, err := l.freshAttachSpec(ctx, id)
@@ -121,8 +96,8 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAt
 	return l.reserveAttachment(id, spec)
 }
 
-// notReady refuses an attachment to session id in condition, which Start
-// did not bring to ready; nil when it is ready.
+// notReady refuses an attachment to session id in condition; nil when it is
+// ready.
 func notReady(id, condition string) error {
 	switch condition {
 	case "ready":

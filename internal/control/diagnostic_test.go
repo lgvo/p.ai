@@ -47,14 +47,6 @@ func TestEveryDiagnosticWriterKeepsOneLimit(t *testing.T) {
 	if stale.Status != "failed" || stale.Reason != api.ReasonChanged {
 		t.Errorf("a stale removal recorded %s with reason %q", stale.Status, stale.Reason)
 	}
-	if err = s.SetSessionStartDiagnostic(ctx, op.SessionUUID, long); err != nil {
-		t.Fatal(err)
-	}
-	start, err := s.SessionStartDiagnostic(ctx, op.SessionUUID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	check("SetSessionStartDiagnostic", start)
 }
 
 // TestTheOtherDiagnosticWritersKeepOneLimit covers the writers outside the

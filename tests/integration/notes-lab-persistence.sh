@@ -24,6 +24,20 @@ wait_ready() {
     test "$SECONDS" -lt "$deadline"; sleep .2
   done
 }
+# start_session: session.start; the operation it records, or finds
+# unfinished, completes. A session already ready records nothing.
+start_session() {
+  local response operation status=running deadline=$((SECONDS+180))
+  response=$(rpc session.start "$(params)")
+  if operation=$(jq -er '.result.operation.id' <<< "$response"); then
+    while test "$status" = running; do
+      test "$SECONDS" -lt "$deadline"
+      status=$(rpc operation.wait "$(jq -nc --arg id "$operation" '{id:$id,timeout:20}')" |
+        jq -er '.result.operation.status')
+    done
+    if test "$status" != completed; then echo "notes session start ended $status" >&2; return 1; fi
+  fi
+}
 setup() {
   guest python3 examples/notes/install.py
   action db start
@@ -59,7 +73,7 @@ case "${1-}" in
     test "$(cat /proc/sys/kernel/random/boot_id)" != "$(jq -er '.boot' "$record")"
     rpc session.inspect "$(params)" > /tmp/p-notes-lab-inspect.json
     condition=$(jq -er '.result.session.session_condition' /tmp/p-notes-lab-inspect.json)
-    if test "$condition" = stopped; then rpc session.start "$(params)" >/dev/null; fi
+    if test "$condition" = stopped; then start_session; fi
     wait_ready
     test "$(guest git rev-parse HEAD)" = "$(jq -er '.local_oid' "$record")"
     test "$(guest cat persistence-dirty)" = dirty-retained

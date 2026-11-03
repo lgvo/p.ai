@@ -133,11 +133,19 @@ wait_operation() {
     result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = completed; then return; fi
-    if test "$status" = blocked; then echo "operation blocked: $result" >&2; return 1; fi
+    if test "$status" = blocked || test "$status" = failed; then echo "operation $status: $result" >&2; return 1; fi
     if test "$status" != running; then sleep 0.4; fi
   done
   echo "operation did not complete: $id" >&2
   return 1
+}
+# change_session METHOD: METHOD, session.start or session.stop, records an
+# operation of its kind for the session, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id"
 }
 wait_condition() {
   local expected="$1" result condition deadline=$((SECONDS+80))
@@ -189,7 +197,7 @@ assert_envelopes() {
       ($e|tojson|length)<=4096 and
       ($e.fields|type=="object" and length==1) and
       (if $e.kind=="operation.progress" then ($e.fields|keys)==["phase"] and (["accepted","running","blocked","completed","failed","cancelled"]|index($e.fields.phase))!=null
-       elif $e.kind=="session.condition_changed" then ($e.fields|keys)==["condition"] and (["creating","starting","ready","stopped","missing","unreachable","discarding","deleting"]|index($e.fields.condition))!=null
+       elif $e.kind=="session.condition_changed" then ($e.fields|keys)==["condition"] and (["creating","starting","ready","stopping","stopped","missing","unreachable","discarding","deleting"]|index($e.fields.condition))!=null
        elif $e.kind=="session.policy_changed" then ($e.fields|keys)==["policy_condition"] and (["current","outdated","invalid"]|index($e.fields.policy_condition))!=null
        elif $e.kind=="session.attachment_changed" then ($e.fields|keys)==["count"] and ($e.fields.count|test("^(0|[1-9][0-9]*)$") and (tonumber<=1000000))
        elif $e.kind=="session.unattended_changed" then ($e.fields|keys)==["unattended_condition"] and (["none","running","attention","idle","failed","unknown"]|index($e.fields.unattended_condition))!=null
@@ -307,8 +315,7 @@ wait_event session.policy_changed policy_condition current
 # reports a fixed diagnostic and the normal Stop still reaches authoritative state.
 mv "$log_file" "$step_dir/events-before-failure.ndjson"
 mkdir -m 0700 "$log_file"
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.stop
 inspect | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 deadline=$((SECONDS+10))
 while ((SECONDS < deadline)); do
@@ -327,8 +334,7 @@ mv "$step_dir/events-before-failure.ndjson" "$log_file"
 # A package changed after activation is refused on the next daemon event.
 count_before_tamper=$(event_count)
 printf '\n' >> "$event_package/plugin.json"
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="starting"' >/dev/null
+change_session session.start
 wait_condition ready
 sleep 3
 test "$(event_count)" -eq "$count_before_tamper"
@@ -347,10 +353,9 @@ jq --arg path "$step_dir/filter-events.json" \
   "$step_dir/host.json" > "$step_dir/host.next.json"
 mv "$step_dir/host.next.json" "$step_dir/host.json"
 start_daemon
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="starting"' >/dev/null
+change_session session.stop
+inspect | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.start
 wait_condition ready
 deadline=$((SECONDS+30))
 while ((SECONDS < deadline)); do

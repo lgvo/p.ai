@@ -140,13 +140,22 @@ wait_operation() {
     result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
-    if { test "$status" = blocked || test "$status" = completed; } && test "$status" != "$expected"; then
+    if { test "$status" = blocked || test "$status" = completed || test "$status" = failed; } &&
+      test "$status" != "$expected"; then
       echo "unexpected operation status: $result" >&2; return 1
     fi
     if test "$status" != running; then sleep 0.4; fi
   done
   echo "operation $id did not reach $expected" >&2
   return 1
+}
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id" completed >/dev/null
 }
 wait_ready() {
   local uuid="$1" result deadline=$((SECONDS+160))
@@ -391,9 +400,9 @@ test "${private_path#/nix/store/}" != "$private_path"
 if exec_p "$b_uuid" nix path-info "$private_path" > "$step_dir/unexpected.out" 2>/dev/null; then
   echo 'private Nix store object crossed session roots' >&2; exit 1
 fi
-rpc session.stop "$(jq -nc --arg uuid "$a_uuid" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$a_uuid" '{uuid:$uuid}')" >/dev/null
+change_session session.stop "$a_uuid"
+inspect_session "$a_uuid" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.start "$a_uuid"
 wait_ready "$a_uuid" >/dev/null
 test "$(exec_p "$a_uuid" cat /home/p/hook-count)" = 2
 exec_p "$a_uuid" nix path-info "$private_path" >/dev/null

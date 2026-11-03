@@ -373,23 +373,34 @@ attach "$SESSION"
 To stop, detach all attachments first. On the host:
 
 ```bash
-api session.stop "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
+STOP=$(api session.stop "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')")
+jq -e '.result.operation' <<< "$STOP" >/dev/null &&
+  api operation.wait "$(jq -nc --arg id "$(jq -er '.result.operation.id' <<< "$STOP")" '{id:$id,timeout:20}')"
 api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
 ```
 
-Expect `session_condition: "stopped"`. A pending or confirmed attachment makes
+Stop answers a `session.stop` operation to wait for (a new one, or with
+`changed: false` the one already under way), or `changed: false` with the
+session when it is already stopped. Once the operation is `completed`,
+expect `session_condition: "stopped"`. A pending or confirmed attachment makes
 Stop answer `conflict` with reason `attachment_active`; it does not silently
 evict another terminal.
 
 When ready to work again:
 
 ```bash
-api session.start "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
-api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
+START=$(api session.start "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')")
+jq -e '.result.operation' <<< "$START" >/dev/null &&
+  api operation.wait "$(jq -nc --arg id "$(jq -er '.result.operation.id' <<< "$START")" '{id:$id,timeout:20}')"
 ```
 
-Start may initially report `starting`. Repeat inspection until `ready`, or
-inspect the diagnostic if it returns to `stopped`. Attach after readiness.
+Start answers a `session.start` operation (a new one, or with
+`changed: false` the one already under way), or `changed: false` with the
+session when it is already ready. Repeat the wait until the operation is not
+`running`: `completed` means the session is ready; `failed` carries the reason
+and the diagnostic, which `session.inspect` also shows. While a start or stop
+runs, the session reads `starting` or `stopping`. `attach` starts a stopped
+session itself and waits for it.
 Workspace files, private home files, and session-local Nix additions remain;
 commands and terminal processes must be started again.
 
@@ -404,7 +415,7 @@ backup/restore or upgrade/rollback subsystem.
 
 | Field | How to use it |
 |---|---|
-| `session_condition` | Lifecycle readiness: `creating`, `starting`, `ready`, `stopped`, `missing`, `unreachable`, `discarding`, or `deleting`. Read the diagnostic when progress stops. |
+| `session_condition` | Lifecycle readiness: `creating`, `starting`, `ready`, `stopping`, `stopped`, `missing`, `unreachable`, `discarding`, or `deleting`. Read the diagnostic when progress stops. |
 | `attached_count` | Number of confirmed terminal attachments; it is not a process count. |
 | `latest_unattended_condition` | Latest accepted agent report while nobody was attached, or null. Signals include `running`, `attention`, `idle`, `failed`, and `unknown`. |
 | `policy_condition` | Whether the session's captured policy is `current`, `outdated`, or `invalid` relative to trusted configuration. |

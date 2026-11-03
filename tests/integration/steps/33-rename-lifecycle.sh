@@ -137,13 +137,22 @@ wait_ready() {
   echo "session $uuid did not become ready" >&2
   return 1
 }
+# change_session METHOD: METHOD, session.start or session.stop, records an
+# operation of its kind for the session, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id" completed >/dev/null
+}
 stop_session() {
-  rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
+  change_session session.stop
+  rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
     jq -e '.result.session.session_condition=="stopped"' >/dev/null
   inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
 }
 start_session() {
-  rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+  change_session session.start
   wait_ready
 }
 start_daemon

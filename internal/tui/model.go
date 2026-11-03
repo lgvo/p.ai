@@ -464,14 +464,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		if !m.working {
 			switch m.page {
 			case "progress":
-				if m.operationID != "" && m.operation.Status != "completed" {
-					// A wait follows a running operation; one that ended in an
-					// error starts again here.
-					if m.operation.Status == "running" {
-						cmds = append(cmds, m.begin(waitFor(m.operationID)))
-					}
-				} else if m.removal == nil && m.contextSession.UUID != "" && (m.contextSession.Condition == "starting" || m.attachOnComplete) {
-					cmds = append(cmds, m.begin(callOf(api.SessionInspect, api.SessionInspectRequest{UUID: m.contextSession.UUID})))
+				// A wait follows a running operation; one that ended in an
+				// error starts again here.
+				if m.operationID != "" && m.operation.Status == "running" {
+					cmds = append(cmds, m.begin(waitFor(m.operationID)))
 				}
 			case "services":
 				cmds = append(cmds, m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID})))
@@ -902,6 +898,8 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.navigate("progress")
 			m.operationID = r.id
 			m.attachOnComplete = false
+			// An opened operation is not about the session last acted on.
+			m.contextSession = api.SessionView{}
 			return m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: r.id}))
 		}
 	case "progress":

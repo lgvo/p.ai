@@ -173,13 +173,22 @@ wait_operation() {
     result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
     status=$(jq -er '.result.operation.status' <<< "$result")
     if test "$status" = "$expected"; then printf '%s\n' "$result"; return; fi
-    if test "$status" = blocked || test "$status" = failed || test "$status" = superseded; then
+    if test "$status" = blocked || test "$status" = failed || test "$status" = superseded ||
+      test "$status" = completed; then
       echo "unexpected operation status: $result" >&2; return 1
     fi
     if test "$status" != running; then sleep 0.3; fi
   done
   echo "operation $id did not complete" >&2
   return 1
+}
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id" >/dev/null
 }
 wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
@@ -246,7 +255,7 @@ inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/
 # An external rename leaves the same UUID elsewhere in the confined project.
 # Missing deterministic name must not yield permission to duplicate/adopt it:
 # the renamed container still carries the session's identity.
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+change_session session.stop "$uuid"
 renamed="p-renamed-$uuid"
 inc rename "p-$uuid" "$renamed"
 renamed_identity=$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')
@@ -261,17 +270,18 @@ inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test "$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$renamed_identity"
 inc rename "$renamed" "p-$uuid"
 renamed=
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+change_session session.start "$uuid"
 wait_ready "$uuid"
 test "$(guest /run/current-system/sw/bin/cat lost-local)" = lost-local
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = lost-dummy
 
 # This fixture-only external fault removes A's native runtime. Start must not
-# silently recreate it or disturb B.
+# silently recreate it or disturb B: it is refused, or its operation fails.
 inc delete --force "p-$uuid"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 if start_reply=$(rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" 2> "$step_dir/start-missing.err"); then
-  jq -e '.result.session.session_condition=="missing"' <<< "$start_reply" >/dev/null
+  start_id=$(jq -er '.result | select(.changed==true and .operation.kind=="session.start") | .operation.id' <<< "$start_reply")
+  wait_operation "$start_id" failed >/dev/null
 fi
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \

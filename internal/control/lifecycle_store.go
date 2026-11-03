@@ -555,7 +555,13 @@ func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]
 		}
 		from = n
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT seq,id FROM operations WHERE seq>? ORDER BY seq LIMIT ?`, from, limit+1)
+	// One transaction: recording a start or stop deletes an older one.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, "", err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT seq,id FROM operations WHERE seq>? ORDER BY seq LIMIT ?`, from, limit+1)
 	if err != nil {
 		return nil, "", err
 	}
@@ -585,7 +591,7 @@ func (s *Store) ListOperations(ctx context.Context, after string, limit int) ([]
 	}
 	ops := make([]ListedOperation, 0, len(entries))
 	for _, e := range entries {
-		op, err := s.GetOperation(ctx, e.id)
+		op, err := operationByIDTx(ctx, tx, e.id)
 		if err != nil {
 			return nil, "", err
 		}
@@ -649,36 +655,6 @@ func (s *Store) ProjectPolicyRecord(ctx context.Context, project string) (json.R
 		return nil, "", Conflict(api.ReasonProjectDeleting, api.TargetProject(project))
 	}
 	return json.RawMessage(raw), sha, err
-}
-
-// Latest bounded Start diagnostic is not a second runtime state machine. It
-// is cut to api.MaxDiagnosticBytes.
-func (s *Store) SetSessionStartDiagnostic(ctx context.Context, id, diagnostic string) error {
-	if len(id) != 36 {
-		return ErrInvalid
-	}
-	diagnostic = api.BoundDiagnostic(diagnostic)
-	var present int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE uuid=?`, id).Scan(&present)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, `session.start.diag:`+id, diagnostic)
-	return err
-}
-func (s *Store) SessionStartDiagnostic(ctx context.Context, id string) (string, error) {
-	if len(id) != 36 {
-		return "", ErrInvalid
-	}
-	var value string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key=?`, `session.start.diag:`+id).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return value, err
 }
 
 // CompleteCreation commits the established row and operation result atomically.

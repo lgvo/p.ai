@@ -28,21 +28,22 @@
 
 ## Per-session state outlives its session
 
-- Where: internal/control lifecycle_store.go `SetSessionStartDiagnostic` (`metadata` rows
-  `session.start.diag:<uuid>`) and session_status.go rate maps
-- Problem: Start diagnostics are never deleted from `metadata`, and the in-memory status
-  rate maps are cleared only on project deletion, not on Discard or Delete.
-- Evidence: no `DELETE` of `session.start.diag:` keys anywhere; rate maps cleared only in
-  project_delete_store.go.
-- Risk: slow growth of `metadata` and memory with session churn.
-- Fix: delete both with the session row.
+- Where: internal/control session_status.go (the in-memory status rate maps)
+- Problem: The in-memory status rate maps are cleared only on project deletion, not on
+  Discard or Delete.
+- Evidence: rate maps cleared only in project_delete_store.go.
+- Risk: slow growth of memory with session churn.
+- Fix: delete the session's entries with the session row.
 - Fix when: session churn becomes routine, or the next change to session removal.
 - Left by: the agent, by rule (a problem outside the change).
-- Added 2026-11-01, updated 2026-11-02, 2 cases:
+- Added 2026-11-01, updated 2026-11-03, 3 cases:
   - 2026-11-01: "complete rework of P's implementation" found it while mapping control.
   - 2026-11-02: "deletions without inspection" changed session removal, the "Fix when" of
     this entry, and left it: the interface rework's step 4 keeps only a session's newest
     finished start or stop, which replaces the diagnostic rows (rework/waiting.md).
+  - 2026-11-03: "waiting" made start and stop operations: a session keeps only its newest
+    finished one, a failed start's diagnostic is read from it, and the
+    `session.start.diag:<uuid>` `metadata` rows are gone. The rate maps remain.
 
 ## Removing a running session blocks while another Incus operation runs on it
 

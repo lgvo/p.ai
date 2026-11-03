@@ -45,8 +45,9 @@ func TestClientCommandsUseConfiguredSocket(t *testing.T) {
 		{name: "api explicit params", method: "system.health", explicit: true, args: func(s string) []string { return []string{"api", s, "system.health", `{}`} }},
 		{name: "tui snapshot", method: "system.hello", args: func(string) []string { return []string{"tui", "--snapshot", "--width", "80", "--height", "24"} }},
 		{name: "tui explicit", method: "system.hello", explicit: true, args: func(s string) []string { return []string{"tui", s, "--snapshot"} }},
-		{name: "attach", method: "session.attach", args: func(string) []string { return []string{"attach", fixtureSession} }},
-		{name: "attach explicit", method: "session.attach", explicit: true, args: func(s string) []string { return []string{"attach", s, fixtureSession} }},
+		// Attach starts the session first: session.attach accepts only a ready one.
+		{name: "attach", method: "session.start", args: func(string) []string { return []string{"attach", fixtureSession} }},
+		{name: "attach explicit", method: "session.start", explicit: true, args: func(s string) []string { return []string{"attach", s, fixtureSession} }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			socket := filepath.Join(t.TempDir(), "control.sock")
@@ -95,9 +96,9 @@ func TestClientCommandsUseConfiguredSocket(t *testing.T) {
 							return
 						}
 						reply["result"] = api.HelloResult{Protocol: api.Protocol, Capabilities: []api.Capability{}}
-					case test.method == "session.attach":
+					case test.method == "session.start":
 						if string(request.Params) != `{"uuid":"`+fixtureSession+`"}` {
-							served <- fmt.Errorf("wrong attach params: %s", request.Params)
+							served <- fmt.Errorf("wrong start params: %s", request.Params)
 							return
 						}
 						reply["error"] = map[string]any{"code": -32011, "message": "conflict", "data": map[string]any{"reason": "attachment_active"}}
@@ -115,7 +116,7 @@ func TestClientCommandsUseConfiguredSocket(t *testing.T) {
 				}
 			}()
 			err = run(test.args(socket))
-			if test.method == "session.attach" {
+			if test.method == "session.start" {
 				if err == nil || err.Error() != "Detach every terminal from this session first." {
 					t.Fatalf("attach did not reach configured instance: %v", err)
 				}

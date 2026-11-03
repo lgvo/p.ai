@@ -135,6 +135,14 @@ done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id" completed >/dev/null
+}
 # expect_refusal METHOD PARAMS KIND [REASON]: the request is refused with the
 # error kind KIND, its code and, when given, REASON.
 expect_refusal() {
@@ -253,13 +261,14 @@ test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-
 test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
 
 # A stopped session previews the same way; its status is informational.
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | \
+change_session session.stop "$uuid"
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | \
   jq -e '.result.session.session_condition=="stopped"' >/dev/null
 stopped_preview=$(preview "$uuid" discard)
 jq -e '.result.preview.runtime | .condition=="present" and .original_status=="Stopped" and
   .runtime_data_lost==true' <<< "$stopped_preview" >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
-rpc session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+change_session session.start "$uuid"
 deadline=$((SECONDS+80))
 while ((SECONDS < deadline)); do
   if rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | \

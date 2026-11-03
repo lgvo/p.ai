@@ -46,7 +46,7 @@ var eventField = map[string]string{
 }
 
 var allowedValues = map[string]map[string]bool{
-	"condition":            {"creating": true, "starting": true, "ready": true, "stopped": true, "missing": true, "unreachable": true, "discarding": true, "deleting": true},
+	"condition":            {"creating": true, "starting": true, "ready": true, "stopping": true, "stopped": true, "missing": true, "unreachable": true, "discarding": true, "deleting": true},
 	"unattended_condition": {"none": true, "running": true, "attention": true, "idle": true, "failed": true, "unknown": true},
 	"policy_condition":     {"current": true, "outdated": true, "invalid": true},
 	"phase":                {"accepted": true, "running": true, "blocked": true, "completed": true, "failed": true, "cancelled": true},

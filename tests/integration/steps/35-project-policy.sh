@@ -109,6 +109,14 @@ wait_operation() {
   return 1
 }
 inspect() { rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"; }
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id"
+}
 wait_ready() {
   local id="$1" deadline=$((SECONDS+80))
   while ((SECONDS < deadline)); do
@@ -168,8 +176,8 @@ inc file pull "p-$uuid_new/etc/p/session.json" - |
   jq -e '.command==["/run/current-system/sw/bin/bash","-l"]' >/dev/null
 test "$(inc exec "p-$uuid_new" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/p -- \
   /run/current-system/sw/bin/git rev-parse HEAD)" = "$main_oid"
-rpc session.stop "$(jq -nc --arg uuid "$uuid_a" '{uuid:$uuid}')" |
-  jq -e '.result.session.session_condition=="stopped"' >/dev/null
+change_session session.stop "$uuid_a"
+inspect "$uuid_a" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 stop_daemon
 update_config 'del(.runtime.project_policies["policy-a"])'
 start_daemon

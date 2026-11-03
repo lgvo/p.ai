@@ -30,6 +30,13 @@ on_error() {
 }
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
+# wait_completed ID: operation ID completes within 100 seconds.
+wait_completed() {
+ local deadline=$((SECONDS+100))
+ while ! rpc operation.wait "$(jq -nc --arg id "$1" '{id:$id,timeout:20}')" | jq -e '.result.operation.status=="completed"' >/dev/null; do
+  test "$SECONDS" -lt "$deadline"; sleep 0.2
+ done
+}
 service_control start
 deadline=$((SECONDS+40))
 while ! rpc system.health | jq -e '.result.control_state=="ready"' >/dev/null 2>&1; do
@@ -75,16 +82,15 @@ done
 inc list "^p-$uuid$" --format json |
  jq -e 'length==1 and .[0].expanded_config["security.idmap.isolated"]=="true" and .[0].expanded_config["security.nesting"]=="false" and ([.[0].expanded_devices[]|select(.type=="nic")]|length)==0' >/dev/null
 
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+stop=$(rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
+ jq -er '.result | select(.changed==true and .operation.kind=="session.stop") | .operation.id')
+wait_completed "$stop"
 python3 "$P_TEST_SOURCE/tests/integration/tui-drive.py" remove "$socket" "$step_dir/uuid"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 preview=$(rpc project.delete.preview '{"project":"tui56"}')
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 removed=$(rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"tui56-final-delete",project:"tui56",confirmation_token:$token}')")
 op=$(jq -er '.result.operation.id' <<< "$removed")
-deadline=$((SECONDS+100))
-while ! rpc operation.wait "$(jq -nc --arg id "$op" '{id:$id,timeout:20}')" | jq -e '.result.operation.status=="completed"' >/dev/null; do
- test "$SECONDS" -lt "$deadline"; sleep 0.2
-done
+wait_completed "$op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 printf 'P_LIVE_TUI_PASS real-PTY create attach detach navigation user-services journal denial default-No reviewed-delete cleanup\n'

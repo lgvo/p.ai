@@ -167,6 +167,14 @@ wait_operation() {
  done
  return 1
 }
+# change_session METHOD UUID: METHOD, session.start or session.stop, records
+# an operation of its kind for session UUID, which completes.
+change_session() {
+ local id
+ id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+  '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+ wait_operation "$id" completed >/dev/null
+}
 # expect_refused METHOD PARAMS KIND [REASON]: the request is refused with the
 # error kind KIND, its code and, when given, REASON.
 expect_refused() {
@@ -254,7 +262,7 @@ guest "$unrelated" /run/current-system/sw/bin/bash -c 'printf unrelated-private 
 inc list "^p-$work$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
 expect_refused project.delete.preview '{"project":"bulk-delete"}' conflict session_not_stopped
 for uuid in "$main" "$work"; do
- rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
+ change_session session.stop "$uuid"
  printf 'private-%s\n' "$uuid" > "$step_dir/private-$uuid"
  printf 'dummy-credential-%s\n' "$uuid" > "$step_dir/dummy-$uuid"
  inc file push "$step_dir/private-$uuid" "p-$uuid/home/p/p-bulk-private" --uid 1000 --gid 1000 --mode 0600

@@ -49,7 +49,6 @@ type lifecycle struct {
 	waitMu                 sync.Mutex
 	waiters                map[string]map[chan struct{}]bool // operation.wait calls, by operation
 	confinementCheck       func(context.Context) error
-	startActive            map[string]bool
 	attachments            map[string]*attachment
 	onAttachment           func(context.Context, string, int, bool)
 	events                 *eventDelivery
@@ -167,7 +166,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, runtime: runtime, images: runtimeincus.NewDriver(runtime), runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, startActive: map[string]bool{}, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, runtime: runtime, images: runtimeincus.NewDriver(runtime), runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -1531,40 +1530,57 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 		}
 		return v, nil
 	}
-	native, err := l.runtimeSession(ctx, s)
-	if err != nil {
-		v.Condition = "unreachable"
-		return v, nil
+	// While a start or stop is unfinished the journal says what the session
+	// is doing, whatever the runtime shows: a client that acts on ready or
+	// stopped must not find that operation holding the session.
+	change, unfinished, err := l.unfinishedSessionChange(ctx, id)
+	if err != nil || unfinished != "" {
+		v.Condition = unfinished
+		return v, err
 	}
-	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
-	state, err := runRuntime(ctx, l.runtimePlugin, "runtime.observe-host", scoped)
-	if err != nil {
-		v.Condition = "unreachable"
-		return v, nil
-	}
-	v.Condition = l.observedCondition(id, state)
-	if state.DiagnosticAvailable {
-		v.Diagnostic = state.Diagnostic
-	}
-	if v.Condition != "ready" {
-		if diagnostic, e := l.store.SessionStartDiagnostic(ctx, id); e == nil && diagnostic != "" {
-			v.Diagnostic = diagnostic
+	v.Condition = "unreachable"
+	if native, e := l.runtimeSession(ctx, s); e == nil {
+		state, e := runRuntime(ctx, l.runtimePlugin, "runtime.observe-host", runtimeincus.Scoped{Backend: l.runtime, Session: native})
+		if e == nil {
+			v.Condition = observedCondition(state)
+			if state.DiagnosticAvailable {
+				v.Diagnostic = state.Diagnostic
+			}
 		}
+	}
+	// A start or stop recorded while the runtime was observed may already
+	// have changed it: the journal still says what the session is doing.
+	if change, unfinished, err = l.unfinishedSessionChange(ctx, id); err != nil || unfinished != "" {
+		v.Condition, v.Diagnostic = unfinished, ""
+		return v, err
+	}
+	// A failed start explains a session that is not ready.
+	if v.Condition != "ready" && change.Kind == control.KindSessionStart && change.Status == "failed" && change.Diagnostic != "" {
+		v.Diagnostic = change.Diagnostic
 	}
 	return v, nil
 }
 
-// observedCondition is the condition of established session id whose runtime
-// was observed as state. Start's watcher keeps the session lock until it ends,
-// so the session stays starting until then even when the host looks ready: a
-// client that acts on ready must not find the lock taken.
-func (l *lifecycle) observedCondition(id string, state plugin.RuntimeState) string {
-	starting := l.startWatching(id)
+// unfinishedSessionChange is session id's latest start or stop, and the
+// condition it gives the session while it is unfinished: starting or
+// stopping; empty once it ended or when there is none.
+func (l *lifecycle) unfinishedSessionChange(ctx context.Context, id string) (api.Operation, string, error) {
+	change, found, err := l.store.LatestSessionChange(ctx, id)
+	if err != nil || !found || change.Status != "running" && change.Status != "blocked" {
+		return change, "", err
+	}
+	if change.Kind == control.KindSessionStop {
+		return change, "stopping", nil
+	}
+	return change, "starting", nil
+}
+
+// observedCondition is the condition of an established session, with no
+// unfinished start or stop, whose runtime was observed as state.
+func observedCondition(state plugin.RuntimeState) string {
 	switch {
 	case !state.Exists:
 		return "missing"
-	case starting:
-		return "starting"
 	case state.Status == "Stopped":
 		return "stopped"
 	case state.HostReady:
@@ -1574,153 +1590,218 @@ func (l *lifecycle) observedCondition(id string, state plugin.RuntimeState) stri
 	}
 }
 
-func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionView, error) {
+// StartSession starts session id as an operation of kind session.start,
+// whose worker starts the runtime and waits for the session host. A session
+// already ready records nothing, and a start sent while another is
+// unfinished returns that one.
+func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionChangeResult, error) {
+	return l.changeSession(ctx, control.KindSessionStart, id, l.admitStart)
+}
+
+// StopSession stops session id as an operation of kind session.stop. A
+// session already stopped records nothing, and a stop sent while another is
+// unfinished returns that one.
+func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionChangeResult, error) {
+	return l.changeSession(ctx, control.KindSessionStop, id, l.admitStop)
+}
+
+// changeSession records a start or stop, kind, of session id once admit
+// accepts it. admit answers the session's view instead when the session is
+// already as asked, and nothing is recorded.
+func (l *lifecycle) changeSession(ctx context.Context, kind, id string,
+	admit func(context.Context, string) (*api.SessionView, error)) (api.SessionChangeResult, error) {
+	// A worker of the same kind holds the session: name its operation before
+	// taking the lock it holds.
+	if result, same, err := l.unfinishedChange(ctx, kind, id); err != nil || same {
+		return result, err
+	}
 	release, err := l.lockSession(ctx, id)
 	if err != nil {
-		return api.SessionView{}, err
+		return api.SessionChangeResult{}, err
 	}
-	keepLock := false
-	defer func() {
-		if !keepLock {
-			release()
-		}
-	}()
-	if err := l.admitSessionWork(ctx, id, ""); err != nil {
-		return api.SessionView{}, err
+	defer release()
+	if result, same, err := l.unfinishedChange(ctx, kind, id); err != nil || same {
+		return result, err
 	}
+	if err = l.admitSessionWork(ctx, id, ""); err != nil {
+		return api.SessionChangeResult{}, err
+	}
+	view, err := admit(ctx, id)
+	if err != nil {
+		return api.SessionChangeResult{}, err
+	}
+	if view != nil {
+		return api.SessionChangeResult{Session: view}, nil
+	}
+	op, recorded, err := l.store.BeginSessionChange(ctx, kind, id)
+	if err != nil {
+		return api.SessionChangeResult{}, err
+	}
+	if !recorded {
+		return api.SessionChangeResult{Operation: &op}, nil
+	}
+	if _, err = l.InspectSession(ctx, id); err != nil {
+		log.Printf("observing session %s after its %s: %v", id, kind, err)
+	}
+	return api.SessionChangeResult{Changed: true, Operation: &op}, l.enqueue(op.ID)
+}
+
+// unfinishedChange answers a start or stop, kind, of session id while one of
+// the same kind is unfinished: that operation, unchanged.
+func (l *lifecycle) unfinishedChange(ctx context.Context, kind, id string) (api.SessionChangeResult, bool, error) {
+	change, found, err := l.store.LatestSessionChange(ctx, id)
+	if err != nil || !found || change.Kind != kind || change.Status != "running" && change.Status != "blocked" {
+		return api.SessionChangeResult{}, false, err
+	}
+	return api.SessionChangeResult{Operation: &change}, true, nil
+}
+
+// admitStart checks what a start needs before it is recorded: an
+// established session whose policy holds, its Git principal registered and
+// active, its key and endpoints, and its runtime. A ready session needs no
+// start: its view comes back instead.
+func (l *lifecycle) admitStart(ctx context.Context, id string) (*api.SessionView, error) {
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
 	if err != nil {
-		return api.SessionView{}, err
+		return nil, err
 	}
 	principalMissing := func(cause error) error {
 		return refusalBecause(api.KindConflict, api.ReasonPrincipalMissing, api.TargetSession(id), control.ErrConflict, cause)
 	}
 	if _, registered, e := l.store.SessionGitPrincipal(ctx, id); e != nil {
-		return api.SessionView{}, e
+		return nil, e
 	} else if !registered {
-		return api.SessionView{}, principalMissing(errors.New("session Git principal missing"))
+		return nil, principalMissing(errors.New("session Git principal missing"))
 	}
 	if active, e := l.store.IsSessionGitPrincipalActive(ctx, id); e != nil {
-		return api.SessionView{}, e
+		return nil, e
 	} else if !active {
-		return api.SessionView{}, principalMissing(errors.New("session Git principal revoked"))
+		return nil, principalMissing(errors.New("session Git principal revoked"))
 	}
 	if _, _, err = l.sessionKey(ctx, id); errors.Is(err, errSessionKeyMismatch) {
-		return api.SessionView{}, principalMissing(err)
+		return nil, principalMissing(err)
 	} else if err != nil {
-		return api.SessionView{}, err
+		return nil, err
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil {
-		return api.SessionView{}, err
+		return nil, err
 	}
 	if _, err = l.endpoints.Ensure(ctx, id); err != nil {
-		return api.SessionView{}, err
+		return nil, err
 	}
-	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
-	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
+	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", runtimeincus.Scoped{Backend: l.runtime, Session: native})
 	if err != nil {
-		return api.SessionView{}, control.Failed(api.ReasonRuntime, err)
+		return nil, control.Failed(api.ReasonRuntime, err)
 	}
 	if !observed.Exists {
-		return api.SessionView{}, control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
+		return nil, control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
 	}
 	if observed.Status != "Stopped" && observed.Status != "Running" {
-		return api.SessionView{}, control.Failed(api.ReasonRuntime, fmt.Errorf("runtime status %q is neither Running nor Stopped", observed.Status))
+		return nil, control.Failed(api.ReasonRuntime, fmt.Errorf("runtime status %q is neither Running nor Stopped", observed.Status))
 	}
 	if observed.Status == "Running" {
 		view, e := l.InspectSession(ctx, id)
 		if e != nil {
-			return view, e
+			return nil, e
 		}
 		if view.Condition == "ready" {
-			return view, nil
+			return &view, nil
 		}
 	}
-	if err = l.store.SetSessionStartDiagnostic(ctx, id, ""); err != nil {
-		return api.SessionView{}, err
-	}
-	l.withLock(func() {
-		if l.startActive == nil {
-			l.startActive = map[string]bool{}
-		}
-		l.startActive[id] = true
-	})
-	keepLock = true
-	go func() {
-		defer func() {
-			l.endStartWatcher(id, release)
-			if l.ctx.Err() == nil {
-				_, _ = l.InspectSession(l.ctx, id)
-			}
-		}()
-		var e error
-		if observed.Status == "Stopped" {
-			e = l.startOwned(l.ctx, scoped)
-		}
-		if e == nil {
-			e = l.awaitOwnedHost(l.ctx, scoped)
-		}
-		message := ""
-		if e != nil {
-			message = e.Error()
-		}
-		if writeErr := l.store.SetSessionStartDiagnostic(l.ctx, id, message); writeErr != nil && l.ctx.Err() == nil {
-			log.Printf("start diagnostic: %v", writeErr)
-		}
-	}()
-	policyCondition := l.policyCondition(ctx, s)
-	v := control.NewSessionView(s)
-	v.Condition = "starting"
-	v.PolicyCondition = policyCondition
-	l.observeView(v)
-	return v, nil
+	return nil, nil
 }
 
-// startWatching reports whether Start's watcher for session id still runs and
-// holds the session lock.
-func (l *lifecycle) startWatching(id string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.startActive[id]
-}
-
-// endStartWatcher ends Start's watcher for session id and releases the session
-// lock it kept. Both happen under l.mu, where observedCondition reads
-// startActive, so no inspection sees the watcher ended while its lock is held.
-func (l *lifecycle) endStartWatcher(id string, release func()) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.startActive, id)
-	release()
-}
-
-func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView, error) {
-	release, err := l.lockSession(ctx, id)
-	if err != nil {
-		return api.SessionView{}, err
-	}
-	defer release()
+// admitStop checks what a stop needs before it is recorded: an established
+// session with no pending or confirmed attachment, and its runtime. A stopped
+// session needs no stop: its view comes back instead.
+func (l *lifecycle) admitStop(ctx context.Context, id string) (*api.SessionView, error) {
 	if l.hasAttachment(id) {
-		return api.SessionView{}, control.Conflict(api.ReasonAttachmentActive, api.TargetSession(id))
-	}
-	if err := l.admitSessionWork(ctx, id, ""); err != nil {
-		return api.SessionView{}, err
+		return nil, control.Conflict(api.ReasonAttachmentActive, api.TargetSession(id))
 	}
 	s, err := l.store.GetSession(ctx, id)
 	if err != nil {
-		return api.SessionView{}, err
+		return nil, err
 	}
 	if s.Registry != "established" {
-		return api.SessionView{}, control.Conflict(api.ReasonSessionNotEstablished, api.TargetSession(id))
+		return nil, control.Conflict(api.ReasonSessionNotEstablished, api.TargetSession(id))
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil {
-		return api.SessionView{}, err
+		return nil, err
+	}
+	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", runtimeincus.Scoped{Backend: l.runtime, Session: native})
+	if err != nil {
+		return nil, control.Failed(api.ReasonRuntime, err)
+	}
+	if !observed.Exists {
+		return nil, control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
+	}
+	if observed.Status == "Stopped" {
+		view, e := l.InspectSession(ctx, id)
+		return &view, e
+	}
+	return nil, nil
+}
+
+// processSessionChange runs a start or stop operation. Its worker holds the
+// session; the start completes once the session host is ready, the stop once
+// the runtime is stopped. Either fails with the runtime's diagnostic.
+func (l *lifecycle) processSessionChange(observed api.Operation) {
+	ctx := l.ctx
+	if l.holdSession(ctx, observed.ID, observed.SessionUUID) != nil {
+		return
+	}
+	op, err := l.store.GetOperation(ctx, observed.ID)
+	if err != nil || op.Status != "running" {
+		return
+	}
+	done := "stopped"
+	if op.Kind == control.KindSessionStart {
+		done = "ready"
+	}
+	err = l.runSessionChange(ctx, op)
+	if ctx.Err() != nil {
+		return // the next start resumes the running operation
+	}
+	if err != nil {
+		err = l.store.AdvanceOperation(ctx, op.ID, "failed", op.Phase, false, nil, control.OperationReason(err), err.Error())
+	} else {
+		err = l.store.AdvanceOperation(ctx, op.ID, "completed", done, false, nil, "", "")
+	}
+	if err != nil {
+		log.Printf("recording the end of %s %s: %v", op.Kind, op.ID, err)
+		return
+	}
+	_, _ = l.InspectSession(ctx, op.SessionUUID)
+}
+
+// runSessionChange starts or stops op's session runtime.
+func (l *lifecycle) runSessionChange(ctx context.Context, op api.Operation) error {
+	s, err := l.store.GetSession(ctx, op.SessionUUID)
+	if err != nil {
+		return err
+	}
+	native, err := l.runtimeSession(ctx, s)
+	if err != nil {
+		return err
 	}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
-	if _, err = runRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped); err != nil {
-		return api.SessionView{}, control.Failed(api.ReasonRuntime, err)
+	if op.Kind == control.KindSessionStop {
+		_, err = runRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped)
+		return control.Failed(api.ReasonRuntime, err)
 	}
-	return l.InspectSession(ctx, id)
+	observed, err := runRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
+	if err != nil {
+		return control.Failed(api.ReasonRuntime, err)
+	}
+	if !observed.Exists {
+		return control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(s.UUID))
+	}
+	if observed.Status == "Stopped" {
+		if err = l.startOwned(ctx, scoped); err != nil {
+			return control.Failed(api.ReasonRuntime, err)
+		}
+	}
+	return l.awaitOwnedHost(ctx, scoped)
 }

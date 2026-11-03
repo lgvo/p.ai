@@ -101,6 +101,45 @@ func installFakeP(t *testing.T, output string, status int) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// installFakePByMethod installs a p that answers each method in replies with
+// its reply and exit status zero, and any other method with exit status two.
+func installFakePByMethod(t *testing.T, replies map[string]string) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncase \"$3\" in\n"
+	for method, reply := range replies {
+		script += method + ")\ncat <<'P_REPLY'\n" + reply + "\nP_REPLY\n;;\n"
+	}
+	script += "*) exit 2 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(dir, "p"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestChangeWaitsForItsOperation(t *testing.T) {
+	f := &fixture{socket: "/unused/control.sock"}
+	start := `{"jsonrpc":"2.0","id":2,"result":{"changed":true,"operation":{"id":"op-1","kind":"session.start","status":"running"}}}`
+	installFakePByMethod(t, map[string]string{"session.start": start,
+		"operation.wait": `{"jsonrpc":"2.0","id":2,"result":{"operation":{"id":"op-1","kind":"session.start","status":"completed"}}}`})
+	if err := f.change("session.start", "session-id"); err != nil {
+		t.Fatalf("completed start: %v", err)
+	}
+	installFakePByMethod(t, map[string]string{"session.start": start,
+		"operation.wait": `{"jsonrpc":"2.0","id":2,"result":{"operation":{"id":"op-1","kind":"session.start","status":"failed","reason":"runtime"}}}`})
+	if err := f.change("session.start", "session-id"); err == nil {
+		t.Fatal("accepted a failed start")
+	}
+	installFakePByMethod(t, map[string]string{"session.stop": `{"jsonrpc":"2.0","id":2,"result":{"changed":false,"session":{"uuid":"session-id","session_condition":"stopped"}}}`})
+	if err := f.change("session.stop", "session-id"); err == nil {
+		t.Fatal("accepted a stop that recorded nothing")
+	}
+	installFakePByMethod(t, map[string]string{"session.stop": start})
+	if err := f.change("session.stop", "session-id"); err == nil {
+		t.Fatal("accepted a stop answered by a start")
+	}
+}
+
 func TestParseHostIdentityRequiresOneLivePane(t *testing.T) {
 	// /proc stat fields after comm begin at state (field 3); starttime is
 	// field 22, index 19 here. The process name may contain parentheses.

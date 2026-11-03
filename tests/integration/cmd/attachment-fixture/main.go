@@ -283,24 +283,47 @@ func (f *fixture) create(key string) (string, error) {
 		return "", fmt.Errorf("invalid create operation: %v", op)
 	}
 	f.sessions = append(f.sessions, uuid)
-	err = f.wait(170*time.Second, "create "+uuid, func() (bool, error) {
-		result, err := f.result("operation.inspect", map[string]any{"id": id})
-		if err != nil {
-			return false, err
-		}
-		operation, _ := result["operation"].(map[string]any)
-		if operation["status"] == "blocked" {
-			return false, fmt.Errorf("create blocked: %v", operation)
-		}
-		return operation["status"] == "completed", nil
-	})
-	if err != nil {
-		return "", err
+	if err = f.waitOperation(id); err != nil {
+		return "", fmt.Errorf("create %s: %w", uuid, err)
 	}
 	if err = f.waitReady(uuid); err != nil {
 		return "", err
 	}
 	return uuid, nil
+}
+
+// waitOperation waits until operation id completes; any other end fails.
+func (f *fixture) waitOperation(id string) error {
+	return f.wait(170*time.Second, "operation "+id, func() (bool, error) {
+		result, err := f.result("operation.wait", map[string]any{"id": id, "timeout": 20})
+		if err != nil {
+			return false, err
+		}
+		operation, _ := result["operation"].(map[string]any)
+		switch operation["status"] {
+		case "completed":
+			return true, nil
+		case "running":
+			return false, nil
+		default:
+			return false, fmt.Errorf("operation ended %v: %v", operation["status"], operation)
+		}
+	})
+}
+
+// change sends method, session.start or session.stop, for session uuid and
+// waits until the operation it records completes.
+func (f *fixture) change(method, uuid string) error {
+	result, err := f.result(method, map[string]any{"uuid": uuid})
+	if err != nil {
+		return err
+	}
+	operation, _ := result["operation"].(map[string]any)
+	id, _ := operation["id"].(string)
+	if result["changed"] != true || operation["kind"] != method || id == "" {
+		return fmt.Errorf("%s recorded no operation: %v", method, result)
+	}
+	return f.waitOperation(id)
 }
 
 func (f *fixture) inspect(uuid string) (map[string]any, error) {
@@ -817,10 +840,17 @@ func (f *fixture) run() (runErr error) {
 
 	f.stage = "stop and start"
 	// Ordinary Stop/Start changes the guest host, yet durable workspace remains.
-	if _, err = f.result("session.stop", map[string]any{"uuid": a}); err != nil {
+	if err = f.change("session.stop", a); err != nil {
 		return err
 	}
-	if _, err = f.result("session.start", map[string]any{"uuid": a}); err != nil {
+	stopped, err := f.inspect(a)
+	if err != nil {
+		return err
+	}
+	if stopped["session_condition"] != "stopped" {
+		return fmt.Errorf("session not stopped after its stop: %v", stopped)
+	}
+	if err = f.change("session.start", a); err != nil {
 		return err
 	}
 	if err = f.waitReady(a); err != nil {

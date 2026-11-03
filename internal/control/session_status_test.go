@@ -342,11 +342,13 @@ func (l statusLife) Retry(context.Context, string) (api.Operation, error) {
 func (l statusLife) WaitOperation(context.Context, string, time.Duration) (api.Operation, error) {
 	return api.Operation{}, ErrInvalid
 }
-func (l statusLife) StartSession(ctx context.Context, id string) (api.SessionView, error) {
-	return l.InspectSession(ctx, id)
+func (l statusLife) StartSession(ctx context.Context, id string) (api.SessionChangeResult, error) {
+	view, err := l.InspectSession(ctx, id)
+	return api.SessionChangeResult{Session: &view}, err
 }
-func (l statusLife) StopSession(ctx context.Context, id string) (api.SessionView, error) {
-	return l.InspectSession(ctx, id)
+func (l statusLife) StopSession(ctx context.Context, id string) (api.SessionChangeResult, error) {
+	view, err := l.InspectSession(ctx, id)
+	return api.SessionChangeResult{Session: &view}, err
 }
 func (l statusLife) InspectSession(ctx context.Context, id string) (api.SessionView, error) {
 	s, err := l.store.GetSession(ctx, id)

@@ -44,8 +44,9 @@ readiness matrix:
 | Condition | Meaning |
 |---|---|
 | `creating` | One durable creation request owns the reserved session but has not established it. |
-| `starting` | Incus boot, endpoint/environment activation, or `p-interactive.service` startup is in progress, or Start's watcher has not yet ended. |
+| `starting` | A start operation is unfinished, or Incus boot, endpoint/environment activation, or `p-interactive.service` startup is in progress. |
 | `ready` | Incus is running and the systemd-owned persistent host is active and attachable. |
+| `stopping` | A stop operation is unfinished. |
 | `stopped` | The retained container is stopped and may receive an ordinary Start. |
 | `missing` | SQLite expects a runtime that Incus cannot find. |
 | `unreachable` | P cannot inspect enough current Incus/runtime state to decide. |
@@ -248,8 +249,8 @@ received while attached.
 
 The v1 reduced fields accepted by the bundled file-log handler use one field
 per event kind. `session.condition_changed` carries `condition` with one of
-`creating`, `starting`, `ready`, `stopped`, `missing`, `unreachable`,
-`discarding`, or `deleting`. `session.attachment_changed` carries a canonical
+`creating`, `starting`, `ready`, `stopping`, `stopped`, `missing`,
+`unreachable`, `discarding`, or `deleting`. `session.attachment_changed` carries a canonical
 nonnegative decimal `count` capped at 1,000,000. `session.unattended_changed` carries
 `unattended_condition` with `running`, `attention`, `idle`, `failed`, `unknown`,
 or `none` for a cleared nullable value. `session.policy_changed` carries

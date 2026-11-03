@@ -221,3 +221,15 @@ func TestEventActivationRejectsWrongDigest(t *testing.T) {
 		t.Fatal("unapproved digest activated")
 	}
 }
+
+func TestStoppingIsAReportedCondition(t *testing.T) {
+	got := make(chan plugin.Event, 2)
+	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
+	defer d.Close()
+	l := &lifecycle{events: d}
+	l.observeView(api.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "ready", PolicyCondition: "current"})
+	l.observeView(api.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "stopping", PolicyCondition: "current"})
+	if e := nextEvent(t, got); e.Kind != "session.condition_changed" || e.Fields["condition"] != "stopping" {
+		t.Fatalf("event %+v", e)
+	}
+}

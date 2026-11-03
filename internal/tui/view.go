@@ -346,7 +346,24 @@ func (m Model) inspectionContent() (string, []string, string) {
 	case "progress":
 		lines := []string{}
 		commands := "r retry operation · q/Esc back"
-		if m.operationID != "" {
+		if op := m.operation; m.operationID != "" && isSessionChange(op.Kind) && op.SessionUUID == m.contextSession.UUID {
+			// A start or stop of the session the page is about reads as its
+			// readiness.
+			condition := m.contextSession.Condition
+			switch {
+			case op.Status == "running" && op.Kind == api.SessionStop.Name:
+				condition = "stopping"
+			case op.Status == "running":
+				condition = "starting"
+			case op.Status == "completed" && op.Kind == api.SessionStop.Name:
+				condition = "stopped"
+			}
+			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Condition: "+condition, "")
+			if op.Status == "failed" || op.Status == "blocked" {
+				lines = append(lines, operationDetail(op.Status, op.Reason, op.Diagnostic)...)
+			}
+			lines = append(lines, "", "Leaving startup prevents automatic entry when it finishes.")
+		} else if m.operationID != "" {
 			op := m.operation
 			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID, "")
 			lines = append(lines, operationDetail(op.Status, op.Reason, op.Diagnostic)...)
@@ -374,6 +391,11 @@ func (m Model) inspectionContent() (string, []string, string) {
 		return "P · keys", []string{"j/k/arrows: select · PgUp/PgDn or Ctrl+B/F: page", "Home/End, gg/G: first/last · Ctrl+U/D: half page", "P: exact project scope · /: fuzzy search across branch/status/reports", "Enter: Start if needed, then real terminal attachment", "s: confirmed Stop · c: Create Project → Branch → Policy", "D: complete session details · A: actual unattended report · S: project services", "p: captured policy/environment · b: retained branches · R: Rename", "O: durable operations · d: Discard · X: Delete session/branch", "Back closes the current page, then search, then project scope, then exits.", "In text input q is ordinary text; Esc/Ctrl-C cancels.", "", "Inside the real terminal: tmux owns input; Ctrl+B then lowercase d detaches.", "Detach before browsing Agents/Services; attachment leases stay daemon-owned.", "Authenticated Codex acceptance remains your manual test."}, "q/Esc back"
 	}
 	return "", nil, ""
+}
+
+// isSessionChange reports whether kind is a session's start or stop.
+func isSessionChange(kind string) bool {
+	return kind == api.SessionStart.Name || kind == api.SessionStop.Name
 }
 func (m Model) wrappedText(lines []string) []string {
 	return strings.Split(ansi.Wrap(strings.Join(plainLines(strings.Join(lines, "\n")), "\n"), max(1, min(m.width, 96)-4), ""), "\n")
@@ -635,8 +657,8 @@ func (m Model) factLine(text string, width int) string {
 	text = clipped(safe(text), width)
 	replace := func(token string, style lipgloss.Style) { text = strings.Replace(text, token, style.Render(token), 1) }
 	plain := strings.TrimSpace(text)
-	if strings.HasPrefix(plain, "Runtime:") || strings.Contains(plain, " · Policy") && (strings.HasPrefix(plain, "running") || strings.HasPrefix(plain, "stopped") || strings.HasPrefix(plain, "missing") || strings.HasPrefix(plain, "unreachable") || strings.HasPrefix(plain, "starting") || strings.HasPrefix(plain, "creating")) {
-		for _, state := range []string{"running", "stopped", "missing", "unreachable", "starting", "creating", "discarding", "deleting"} {
+	if strings.HasPrefix(plain, "Runtime:") || strings.Contains(plain, " · Policy") && (strings.HasPrefix(plain, "running") || strings.HasPrefix(plain, "stopped") || strings.HasPrefix(plain, "missing") || strings.HasPrefix(plain, "unreachable") || strings.HasPrefix(plain, "starting") || strings.HasPrefix(plain, "stopping") || strings.HasPrefix(plain, "creating")) {
+		for _, state := range []string{"running", "stopped", "missing", "unreachable", "starting", "stopping", "creating", "discarding", "deleting"} {
 			style := m.styles.warning
 			if state == "running" {
 				style = m.styles.running

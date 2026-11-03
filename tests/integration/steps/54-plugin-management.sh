@@ -121,7 +121,10 @@ expect_failure 'daemon stopped' p plugins remove "$step_dir/offline.json" "$even
 create=$(rpc project.create '{"key":"managed-bootstrap","project":"managed-plugins"}')
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$create")
 wait_completed "$(jq -er '.result.operation.id' <<< "$create")"
-rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+stop=$(rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
+ jq -er '.result | select(.changed==true and .operation.kind=="session.stop") | .operation.id')
+wait_completed "$stop"
+rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 printf 'managed-private-dummy\n' > "$step_dir/private"
 printf 'managed-credential-dummy\n' > "$step_dir/credential"
 inc file push "$step_dir/private" "p-$uuid/home/p/managed-private" --uid 1000 --gid 1000 --mode 0600

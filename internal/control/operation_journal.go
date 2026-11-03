@@ -21,6 +21,8 @@ const (
 	KindSessionRename  = "session.rename"
 	KindRetainedRename = "project.retained.rename"
 	KindRetainedDelete = "project.retained.delete"
+	KindSessionStart   = "session.start"
+	KindSessionStop    = "session.stop"
 )
 
 // UnfinishedOperations lists every running or blocked operation in the order
