@@ -510,3 +510,34 @@ func TestNoticeWrapsBetweenWordsWithinThePage(t *testing.T) {
 		}
 	}
 }
+
+// TestRetainedBranchesAreReadAgainWithR: after a failed read, Retained
+// branches lists nothing left from an earlier page, and r reads the branches
+// again, so "try again" has a key on the page.
+func TestRetainedBranchesAreReadAgainWithR(t *testing.T) {
+	read := []string{}
+	m := fixture()
+	m.client = &fakeClient{fn: func(_ string, p any) (any, error) {
+		read = append(read, projectOf(t, p))
+		return nil, errors.New("recorded")
+	}}
+	// The branch choices of an earlier creation.
+	m.choices = []row{{id: "\x00new-branch", label: "Create new branch"}, {id: "assigned", label: "assigned"}}
+	m.selected = stoppedID
+	m.restoreSelection()
+	m, _ = press(m, "b")
+	updated, _ := m.Update(actionDone{epoch: m.epoch, method: "creation.branches", err: api.NewError(api.KindFailed, api.ReasonGit)})
+	m = updated.(Model)
+	frame := ansi.Strip(m.View().Content)
+	if !strings.Contains(frame, "r refresh") || strings.Contains(frame, "Create new branch") || len(m.rows()) != 0 {
+		t.Fatalf("failed read of Retained branches:\n%s", frame)
+	}
+	m, cmd := press(m, "r")
+	if cmd == nil || m.pendingMethod != "creation.branches" || m.notice != "" {
+		t.Fatalf("r did not read the branches again: pending %q notice %q", m.pendingMethod, m.notice)
+	}
+	cmd()
+	if len(read) != 1 || read[0] != "a" {
+		t.Fatalf("read projects %q", read)
+	}
+}

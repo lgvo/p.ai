@@ -333,6 +333,9 @@ class MockTUITests(unittest.TestCase):
         self.key("y", "Stopped. Files and branch retained")
         self.assertEqual(self.session()["session_condition"], "stopped")
         self.key("q", "project sessions")
+        stops = self.count("session.stop")
+        self.key("s", "Session is already stopped.")  # no confirmation, as in the prototype
+        self.assertEqual(self.count("session.stop"), stops)
         self.key("R", "New assigned branch name")
         self.key("qgG", "name> qgG")
         self.key("\x7f", "name> qg▏")
@@ -346,6 +349,9 @@ class MockTUITests(unittest.TestCase):
         self.key("\r", "MOCK · Ctrl-B d detach")
         self.key("cat kept.txt\r", "kept")  # Stop/Start keeps this owned workspace
         self.detach()
+        # p attach's own error survives the browser's redraw.
+        self.rpc("mock.configure", method="session.attach", error="conflict", reason="session_not_running")
+        self.key("\r", "Attachment ended: Start this session first.")
 
     def test_04_create_local_origin_retained_and_project(self):
         for choice, branch in (("local", "feat/local"), ("origin", "feat/origin"), ("retained", "retained/00")):
@@ -427,7 +433,20 @@ class MockTUITests(unittest.TestCase):
                 self.key("q", "All project sessions")  # clear search
         self.rpc("mock.configure", method="project.branches", error="failed", reason="git")
         self.key("b", "P's Git repository failed")
+        self.assertIn("No matching entries", self.screen())
+        self.key("r", "retained/00")  # read again
         self.key("q", "All project sessions")
+        # A run whose plan changed removes nothing; the page reviews again.
+        sid = self.session()["uuid"]
+        before = len(self.params("session.discard"))
+        self.key("d", "Removal loss preview")
+        self.rpc("mock.configure", method="session.discard", error="precondition_failed", reason="changed")
+        self.key("y", "Nothing was removed")
+        self.wait("Removal loss preview")
+        calls = self.params("session.discard")[before:]
+        self.assertEqual([set(c) for c in calls], [{"uuid"}, {"uuid", "key", "if_match"}, {"uuid"}])
+        self.assertIn(sid, self.rpc("mock.inspect")["sessions"])
+        self.key("n", "All project sessions")
         self.rpc("mock.configure", method="session.start", error="conflict", reason="principal_missing")
         self.key("\r", "Git identity is gone")
         self.key("q", "All project sessions")

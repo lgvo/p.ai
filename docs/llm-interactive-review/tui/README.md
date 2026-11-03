@@ -24,6 +24,30 @@ powered off and removed their disposable disks. The
 records acceptance and retained limitations. The real devShell extension and
 authenticated Codex acceptance remain separate pending milestones.
 
+## Review fixes — 2026-11-03
+
+The [tui-fixes checkpoint](tui-fixes/checkpoint.json) records the fixes of the
+findings that the [error-sentences](error-sentences/checkpoint.json),
+[image-reasons](image-reasons/checkpoint.json),
+[operation-reasons](operation-reasons/checkpoint.json),
+[operation-wait](operation-wait/checkpoint.json),
+[removal-plans](removal-plans/checkpoint.json) and
+[start-stop-operations](start-stop-operations/checkpoint.json) reviews left
+open; each of those checkpoints names what its findings read now. Before, the
+completed operation page offered Retry ([before](tui-fixes/before-0013-completed-120x35.png));
+now it does not ([after](tui-fixes/after-0009-retry-completed-120x35.png)). At
+48×16 the blocked page now shows its Diagnostic
+([before](tui-fixes/before-0010-op-page-blocked-48x16.png),
+[after](tui-fixes/after-0005-op-page-blocked-48x16.png)) and the waiting line
+wraps ([after](tui-fixes/after-0006-retry-waiting-48x16.png)). `s` on a stopped
+session answers at once ([after](tui-fixes/after-0018-s-on-stopped-120x35.png)),
+a failed attachment keeps `p attach`'s sentence
+([after](tui-fixes/after-0023-attach-helper-start-failed-120x35.png)), and a
+changed removal run shows the current review
+([after](tui-fixes/after-0049-discard-run-changed-120x35.png)). The
+[action record](tui-fixes/actions.ndjson) keeps the LLM's choices apart from
+the passing TUI gate. This is mock/socket evidence only.
+
 ## Session image facts — 2026-11-02
 
 The [commit-image checkpoint](commit-image/checkpoint.json) records the review

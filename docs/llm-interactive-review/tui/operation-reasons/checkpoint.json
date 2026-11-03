@@ -27,8 +27,8 @@
   "findings": {
     "O1": "fixed in 8d42f6f by withdrawing the list change: rows keep the diagnostic as before and the reason shows on the operation page only; the list still shows only 'forge · session.rename · blocked / rename' (row details are not drawn)",
     "O2": "fixed in 8d42f6f: the page shows 'The runtime failed; check Incus. Retry it once that is resolved.' and, on its own line, 'Diagnostic: Incus did not answer within 30 seconds' (one line each at 120x35 and 80x24)",
-    "O3": "open (pre-existing layout): at 48x16 the page shows 8 body rows and leaves 6 empty; on 8d42f6f the sentence takes two lines and the Diagnostic line is entirely below the fold until j or G",
-    "O4": "open (pre-existing key hint): 'r retry operation' is offered for every status, including the completed page; for a failed operation the sentence 'It ended; start a new request.' is right and the hint misleads (failed not in the mock)"
+    "O3": "open (pre-existing layout): at 48x16 the page shows 8 body rows and leaves 6 empty; on 8d42f6f the sentence takes two lines and the Diagnostic line is entirely below the fold until j or G Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): the page now draws 12 body rows at 48x16; the blocked page shows the sentence and the whole Diagnostic on its first screen (tui-fixes after-0005). Its note starts on the last row and ends one j lower (tui-fixes T1)",
+    "O4": "open (pre-existing key hint): 'r retry operation' is offered for every status, including the completed page; for a failed operation the sentence 'It ended; start a new request.' is right and the hint misleads (failed not in the mock) Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): 'r retry operation' and r are offered for a blocked operation only; the completed page reads 'j/k/Pg scroll · q/Esc back' (tui-fixes after-0007, after-0009)"
   },
-  "findings_open": 2
+  "findings_open": 0
 }

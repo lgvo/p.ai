@@ -98,16 +98,21 @@ Search stays inside the list. In branch/project name fields, letters including
 `q`, `g` and `G` are text; Escape/Ctrl-C cancels or goes back. On the final
 creation policy review, Enter creates the project or creates, boots and enters
 the session. Back returns to the previous editor or branch choices. Stop and
-Rename confirmations default to **No**; Enter declines. Long policy, source,
+Rename confirmations default to **No**; Enter declines; `s` on a stopped
+session says it is already stopped. Long policy, source,
 confirmation and loss fields wrap and can be scrolled; explicit `y` authorizes
 Stop, Rename and removal. Discard and Delete show the daemon's plan before
 asking: what the removal loses, and, for a session whose runtime is missing,
 that its contents are already gone. A plan that is not allowed shows why
-instead and offers nothing to authorize.
+instead and offers nothing to authorize. If the plan changed or the review
+expired before `y`, nothing is removed and the current plan is shown to review
+again. `r` on Retained branches reads them again.
 
 Leaving creation/startup progress does not cancel accepted daemon work and
-prevents automatic terminal entry afterward. Use Operations to inspect or
-Retry its durable intent. A connection failure marks cached inventory stale;
+prevents automatic terminal entry afterward. A read that fails while the page
+follows an operation is sent again on the next refresh, and entry still
+follows. Use Operations to inspect an operation; `r` retries a blocked one with
+its durable intent. A failed refresh marks cached inventory stale;
 it does not turn old state into proof that cleanup succeeded.
 
 Inside the actual terminal, tmux owns input. **Ctrl+B, then lowercase `d`** detaches and

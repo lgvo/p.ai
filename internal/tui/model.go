@@ -31,7 +31,10 @@ type actionDone struct {
 	result any
 	err    error
 }
-type attached struct{ err error }
+type attached struct {
+	err  error
+	said string
+}
 type removalIntent struct{ UUID, Kind string }
 
 // Help suspends this captured removal plan read without replaying it.
@@ -99,6 +102,14 @@ type Model struct {
 	helpRemovalRead                    *suspendedRemovalRead
 	lastInteraction                    map[string]time.Time
 	attachmentScreen                   *attachmentScreen
+	// resume is the read that follows the progress page's operation, or the
+	// session it leads to, and answered an error or was cut off by Help: the
+	// next tick on the page sends it again.
+	resume daemonCall
+	// reviewed is the removal the review page authorizes; reviewNotice says
+	// why the next review shows a plan read again.
+	reviewed     removalIntent
+	reviewNotice string
 }
 
 func New(c api.Caller, socket string) Model {
@@ -170,6 +181,8 @@ func (m *Model) navigate(page string) {
 	m.choiceSearching = false
 	m.pendingMethod = ""
 	m.queuedService = nil
+	m.resume = daemonCall{}
+	m.reviewNotice = ""
 	if page == "creation-review" || page == "confirm" || page == "review" || m.inspectionPage() {
 		m.reviewOffset = 0
 	}
@@ -369,8 +382,13 @@ func (m Model) capacity() int {
 		return m.browserLayout().capacity
 	case "create":
 		n -= 2
-	case "creation-review", "review", "agents", "policy", "progress", "help", "details":
+	case "creation-review", "review", "agents", "policy", "help", "details":
 		n = m.height - 8
+	case "progress":
+		// The text takes every row below its title down to its controls and
+		// the two feedback rows.
+		_, _, commands := m.inspectionContent()
+		n = m.height - 3 - len(strings.Split(m.controls("j/k/Pg scroll · "+commands, m.pageWidth()), "\n"))
 	case "retained":
 		n--
 	case "services":
@@ -405,6 +423,7 @@ func (m Model) projectCounts(project string) [4]int {
 	return counts
 }
 func (m *Model) begin(call daemonCall) tea.Cmd {
+	m.resume = daemonCall{}
 	m.working = true
 	m.pendingMethod = call.method
 	m.notice = ""
@@ -464,10 +483,10 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		if !m.working {
 			switch m.page {
 			case "progress":
-				// A wait follows a running operation; one that ended in an
-				// error starts again here.
-				if m.operationID != "" && m.operation.Status == "running" {
-					cmds = append(cmds, m.begin(waitFor(m.operationID)))
+				// A follow read that answered an error, or that Help
+				// interrupted, is sent again.
+				if m.resume.method != "" {
+					cmds = append(cmds, m.begin(m.resume))
 				}
 			case "services":
 				cmds = append(cmds, m.begin(callOf(api.SessionServices, api.SessionServicesRequest{UUID: m.contextSession.UUID})))
@@ -483,7 +502,9 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.selected = m.contextSession.UUID
 		m.navigate("sessions")
 		m.restoreSelection()
-		if v.err != nil {
+		if v.said != "" {
+			m.notice = "Attachment ended: " + v.said
+		} else if v.err != nil {
 			m.notice = "Attachment ended: " + errtext.Sentence(v.err)
 		}
 		m.refreshing = true
@@ -512,12 +533,21 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.pendingMethod = ""
 		if v.err != nil {
 			m.notice = errtext.Sentence(v.err)
+			if m.page == "review" && isRemoval(v.method) && isKind(v.err, api.KindPreconditionFailed) {
+				return m, m.reviewAgain()
+			}
+			if call := m.followRead(v.method, v.err); call.method != "" {
+				// The operation may still end, or the session be ready:
+				// read again on the next tick and keep the intent to enter.
+				m.resume = call
+				return m, nil
+			}
 			m.attachOnComplete = false
 			if strings.HasPrefix(v.method, "session.service") {
 				m.servicesFresh = false
 				if m.queuedService != nil {
 					m.queuedService = nil
-					m.notice += " · queued service action was not issued"
+					m.notice += " The queued service action was not issued."
 				}
 			}
 			return m, nil
@@ -699,8 +729,17 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 				suspended = &suspendedRemovalRead{epoch: m.epoch, method: m.pendingMethod, intent: *m.removal, working: m.working}
 			}
 		}
+		// Help drops the reply of a follow read in flight; it is sent again
+		// on return, as one that failed is.
+		resume, reviewNotice := m.resume, m.reviewNotice
+		if m.working {
+			if call := m.followRead(m.pendingMethod, nil); call.method != "" {
+				resume = call
+			}
+		}
 		m.navigate("help")
 		m.helpRemovalRead = suspended
+		m.resume, m.reviewNotice = resume, reviewNotice
 		return nil
 	}
 	if isMove(key) {
@@ -765,6 +804,10 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if !ok || m.stale {
 				return nil
 			}
+			if s.Condition == "stopped" {
+				m.notice = "Session is already stopped."
+				return nil
+			}
 			m.contextSession = s
 			m.confirm = callOf(api.SessionStop, api.SessionStopRequest{UUID: s.UUID})
 			m.review = "Stop " + s.Project + " / " + s.Branch + "?\nUUID: " + s.UUID + "\nProcesses end; files and identity remain.\nAll attachments must be detached."
@@ -796,6 +839,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if ok {
 				m.contextSession = s
 				m.navigate("retained")
+				m.choices = nil
 				return m.begin(creationBranchesCall(s.Project))
 			}
 		case "R":
@@ -891,17 +935,29 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		return m.dispatchService(intent)
+	case "retained":
+		if key == "r" && !m.working {
+			m.choices = nil
+			return m.begin(creationBranchesCall(m.contextSession.Project))
+		}
 	case "operations":
 		if key == "enter" && len(rows) > 0 {
 			m.navigate("progress")
 			m.operationID = r.id
+			// Show what the list read until the operation is read.
+			m.operation = api.Operation{ID: r.id}
+			for _, op := range m.data.operations {
+				if op.ID == r.id {
+					m.operation = api.Operation{ID: op.ID, Key: op.Key, Kind: op.Kind, Project: op.Project, SessionUUID: op.SessionUUID, Intent: op.Intent, Status: op.Status, Phase: op.Phase, Committed: op.Committed, Reason: op.Reason, Diagnostic: op.Diagnostic}
+				}
+			}
 			m.attachOnComplete = false
 			// An opened operation is not about the session last acted on.
 			m.contextSession = api.SessionView{}
 			return m.begin(callOf(api.OperationInspect, api.OperationInspectRequest{ID: r.id}))
 		}
 	case "progress":
-		if key == "r" && m.operationID != "" && !m.working {
+		if key == "r" && m.retryable() && !m.working {
 			return m.begin(callOf(api.OperationRetry, api.OperationRetryRequest{ID: m.operationID}))
 		}
 	}
@@ -1079,6 +1135,7 @@ func (m *Model) back() tea.Cmd {
 		branchProject := m.helpBranchProject
 		serviceUnit := m.helpServiceUnit
 		suspended := m.helpRemovalRead
+		resume, reviewNotice := m.resume, m.reviewNotice
 		contextChanged := suspended != nil && !m.matchesRemovalRead(suspended)
 		if contextChanged {
 			suspended = nil
@@ -1092,6 +1149,9 @@ func (m *Model) back() tea.Cmd {
 			page = "sessions"
 		}
 		m.navigate(page)
+		if page == "progress" && !contextChanged {
+			m.resume, m.reviewNotice = resume, reviewNotice
+		}
 		if page == "services" {
 			for i, service := range m.services {
 				if service.Name == serviceUnit {

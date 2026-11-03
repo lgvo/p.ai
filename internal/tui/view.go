@@ -53,12 +53,24 @@ func (m Model) browserControls(width int) string {
 		m.controls("p policy · b branches · R rename · d discard · X delete · q/Esc back", width)
 }
 
+// waitingText and staleText are the feedback shown while a call is in flight
+// and after a refresh failed.
+const (
+	waitingText = "Waiting for daemon… (Back leaves accepted work running)"
+	staleText   = "STALE · refresh failed; actions need a fresh observation"
+)
+
 // noticeLines is the notice wrapped between words to the page's width.
 func (m Model) noticeLines() []string {
 	if m.notice == "" {
 		return nil
 	}
-	return strings.Split(ansi.Wrap(safe(m.notice), max(1, m.pageWidth()), ""), "\n")
+	return m.pageLines(safe(m.notice))
+}
+
+// pageLines is text wrapped between words to the page's width.
+func (m Model) pageLines(text string) []string {
+	return strings.Split(ansi.Wrap(text, max(1, m.pageWidth()), ""), "\n")
 }
 
 // pageWidth is the width the current page draws in.
@@ -72,10 +84,10 @@ func (m Model) pageWidth() int {
 func (m Model) feedbackHeight() int {
 	n := len(m.noticeLines())
 	if m.working {
-		n++
+		n += len(m.pageLines(waitingText))
 	}
 	if m.stale {
-		n++
+		n += len(m.pageLines(staleText))
 	}
 	return n
 }
@@ -197,7 +209,7 @@ func (m Model) View() tea.View {
 	case "create":
 		content = m.listPage("Create · "+m.form, m.rows(), width, "Enter choose · / search · q/Esc back", []string{"Project → Branch → Policy"})
 	case "retained":
-		content = m.listPage("Retained branches · "+m.contextSession.Project, m.rows(), width, "j/k select · q/Esc back", []string{"Unassigned P branches. Create with choice existing to resume one."})
+		content = m.listPage("Retained branches · "+m.contextSession.Project, m.rows(), width, "j/k select · r refresh · q/Esc back", []string{"Unassigned P branches. Create with choice existing to resume one."})
 	case "services":
 		details := []string{"Session: " + m.contextSession.Project + " / " + m.contextSession.Branch, "Session-user p-project-*.service units only.", "Ports are session-local; no host publication is added."}
 		if !m.servicesFresh {
@@ -274,13 +286,13 @@ func (m Model) View() tea.View {
 
 	}
 	if m.working {
-		content += "\n" + m.styles.muted.Render("Waiting for daemon… (Back leaves accepted work running)")
+		content += "\n" + m.styles.muted.Render(strings.Join(m.pageLines(waitingText), "\n"))
 	}
 	if m.notice != "" {
 		content += "\n" + m.styles.warning.Render(strings.Join(m.noticeLines(), "\n"))
 	}
 	if m.stale {
-		content += "\n" + m.styles.danger.Render("STALE · connection failed; actions need a fresh observation")
+		content += "\n" + m.styles.danger.Render(strings.Join(m.pageLines(staleText), "\n"))
 	}
 	// A frame must fit the current terminal; controls never wrap into older frames.
 	lines := strings.Split(content, "\n")
@@ -360,7 +372,11 @@ func (m Model) inspectionContent() (string, []string, string) {
 		return "Session policy and environment", lines, "q/Esc back"
 	case "progress":
 		lines := []string{}
-		commands := "r retry operation · q/Esc back"
+		// Retry resumes a blocked operation; nothing else can run again.
+		commands := "q/Esc back"
+		if m.retryable() {
+			commands = "r retry operation · q/Esc back"
+		}
 		if op := m.operation; m.operationID != "" && isSessionChange(op.Kind) && op.SessionUUID == m.contextSession.UUID {
 			// A start or stop of the session the page is about reads as its
 			// readiness.
@@ -383,7 +399,9 @@ func (m Model) inspectionContent() (string, []string, string) {
 			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID, "")
 			lines = append(lines, operationDetail(op.Status, op.Reason, op.Diagnostic)...)
 			lines = append(lines, "", "Leaving this screen does not cancel an accepted operation.")
-			lines = append(lines, "Retry resumes exact captured intent; changed inputs need a new request.")
+			if m.retryable() {
+				lines = append(lines, "Retry resumes exact captured intent; changed inputs need a new request.")
+			}
 			if op.Kind == "session.create" && op.Status == "running" && op.Phase == "branch-assigned" {
 				lines = append(lines[:5], append([]string{"Preparing captured source and environment; the runtime is not ready.", "Large source trees can take time. A pending phase is not a failure."}, lines[5:]...)...)
 			}
@@ -406,6 +424,12 @@ func (m Model) inspectionContent() (string, []string, string) {
 		return "P · keys", []string{"j/k/arrows: select · PgUp/PgDn or Ctrl+B/F: page", "Home/End, gg/G: first/last · Ctrl+U/D: half page", "P: exact project scope · /: fuzzy search across branch/status/reports", "Enter: Start if needed, then real terminal attachment", "s: confirmed Stop · c: Create Project → Branch → Policy", "D: complete session details · A: actual unattended report · S: project services", "p: captured policy/environment · b: retained branches · R: Rename", "O: durable operations · d: Discard · X: Delete session/branch", "Back closes the current page, then search, then project scope, then exits.", "In text input q is ordinary text; Esc/Ctrl-C cancels.", "", "Inside the real terminal: tmux owns input; Ctrl+B then lowercase d detaches.", "Detach before browsing Agents/Services; attachment leases stay daemon-owned.", "Authenticated Codex acceptance remains your manual test."}, "q/Esc back"
 	}
 	return "", nil, ""
+}
+
+// retryable reports whether the progress page's operation is blocked, the
+// one status operation.retry resumes.
+func (m Model) retryable() bool {
+	return m.operationID != "" && m.operation.Status == "blocked"
 }
 
 // isSessionChange reports whether kind is a session's start or stop.

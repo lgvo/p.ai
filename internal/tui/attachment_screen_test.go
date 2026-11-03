@@ -128,6 +128,7 @@ type attachmentScreenModel struct {
 	cmd     func() *exec.Cmd
 	left    int
 	err     error
+	said    string
 	exposed bool
 	size    tea.WindowSizeMsg
 }
@@ -150,6 +151,7 @@ func (m *attachmentScreenModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if done, ok := msg.(attached); ok {
 		m.err = done.err
+		m.said = done.said
 		m.left--
 		return m, tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return attachScreenNext{} })
 	}
@@ -266,8 +268,49 @@ func TestAttachmentScreenWithRealTerminal(t *testing.T) {
 	}
 }
 
+// TestAttachmentErrorKeepsWhatPAttachSaid: p attach prints its error on
+// stderr just before the browser redraws over it; the browser keeps that
+// sentence for its notice instead of only the exit status.
+func TestAttachmentErrorKeepsWhatPAttachSaid(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	screen := newAttachmentScreen(&output)
+	model := &attachmentScreenModel{screen: screen, output: &output, left: 1, cmd: func() *exec.Cmd {
+		cmd := exec.Command(executable, "-test.run=^TestAttachmentScreenChild$")
+		cmd.Env = append(os.Environ(), "P_TEST_ATTACHMENT_SCREEN_CHILD=fail")
+		return cmd
+	}}
+	program := tea.NewProgram(model, tea.WithInput(nil), tea.WithOutput(screen), tea.WithoutSignalHandler())
+	if err := screen.start(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := program.Run(); err != nil {
+		t.Fatal(err)
+	}
+	screen.restore()
+	if model.err == nil || model.said != "The runtime failed; check Incus and try again." {
+		t.Fatalf("attachment error %v said %q", model.err, model.said)
+	}
+	if !strings.Contains(output.String(), "p: The runtime failed") {
+		t.Fatalf("p attach's error no longer reaches the terminal: %q", output.String())
+	}
+	m := fixture()
+	updated, _ := m.Update(attached{err: model.err, said: model.said})
+	if notice := updated.(Model).notice; notice != "Attachment ended: The runtime failed; check Incus and try again." {
+		t.Fatalf("notice %q", notice)
+	}
+}
+
 func TestAttachmentScreenChild(t *testing.T) {
-	if os.Getenv("P_TEST_ATTACHMENT_SCREEN_CHILD") != "1" {
+	switch os.Getenv("P_TEST_ATTACHMENT_SCREEN_CHILD") {
+	case "fail":
+		_, _ = io.WriteString(os.Stderr, "tmux noise\np: The runtime failed; check Incus and try again.\n")
+		os.Exit(1)
+	case "1":
+	default:
 		return
 	}
 	_, _ = io.WriteString(os.Stdout, ansi.SetModeAltScreenSaveCursor+"session tmux")

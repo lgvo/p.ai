@@ -312,10 +312,13 @@ func (m *Model) accept(v actionDone) tea.Cmd {
 			m.operationID = r.Operation.ID
 			return m.followOperation(*r.Operation, true)
 		}
-		// Already as asked: nothing was recorded.
+		// Already as asked (changed:false): nothing was recorded.
 		m.operationID = ""
 		if v.method == api.SessionStop.Name {
-			return m.stopped(r.Session.UUID)
+			m.contextSession = *r.Session
+			m.notice = "Session is already stopped."
+			m.refreshing = true
+			return m.refresh()
 		}
 		return m.sessionObserved(*r.Session)
 	case api.SessionInspect.Name:
@@ -428,6 +431,7 @@ func (m *Model) removalPlanned(r api.ChangeResult[api.RemovalDetails]) tea.Cmd {
 		m.notice = strings.Join(sentences, " ")
 		return nil
 	}
+	notice := m.reviewNotice
 	m.review = removalReview(intent.Kind, intent.UUID, *p, r.ChangeTag)
 	m.reviewOffset = 0
 	change := api.ChangeRequest{Key: newKey(), IfMatch: r.ChangeTag}
@@ -436,9 +440,68 @@ func (m *Model) removalPlanned(r api.ChangeResult[api.RemovalDetails]) tea.Cmd {
 	} else {
 		m.confirm = callOf(api.SessionDiscard, api.SessionDiscardRequest{UUID: intent.UUID, ChangeRequest: change})
 	}
+	m.reviewed = *intent
 	m.removal = nil
 	m.navigate("review")
+	m.notice = notice
 	return nil
+}
+
+// reviewAgain reads again the plan of the removal the review page offered,
+// after its run answered that the plan changed or its tag expired. Nothing
+// was removed; the new review says so, and y sends the new plan's tag.
+func (m *Model) reviewAgain() tea.Cmd {
+	intent := m.reviewed
+	sentence := m.notice
+	m.removal = &intent
+	m.operationID = ""
+	m.attachOnComplete = false
+	m.navigate("progress")
+	cmd := m.begin(removalPlanCall(intent.Kind, intent.UUID))
+	m.notice = sentence
+	m.reviewNotice = sentence + " Nothing was removed; the review above is current."
+	return cmd
+}
+
+// isRemoval reports whether method is a discard or delete.
+func isRemoval(method string) bool {
+	return method == api.SessionDiscard.Name || method == api.SessionDelete.Name
+}
+
+// isKind reports whether err is the daemon's error of kind.
+func isKind(err error, kind api.ErrorKind) bool {
+	var e *api.Error
+	return errors.As(err, &e) && e.Kind() == kind
+}
+
+// followRead is the read to send again after method answered err on the
+// progress page: the wait or inspect that follows its operation, or the read
+// of the session it is about to enter, when err may pass by itself. It is
+// empty for any other call or error.
+func (m Model) followRead(method string, err error) daemonCall {
+	var e *api.Error
+	if m.page != "progress" || errors.As(err, &e) && !passing(e.Kind()) {
+		return daemonCall{}
+	}
+	switch {
+	case method == api.OperationWait.Name && m.operationID != "":
+		return waitFor(m.operationID)
+	case method == api.OperationInspect.Name && m.operationID != "":
+		return callOf(api.OperationInspect, api.OperationInspectRequest{ID: m.operationID})
+	case method == api.SessionInspect.Name && m.attachOnComplete:
+		return callOf(api.SessionInspect, api.SessionInspectRequest{UUID: m.contextSession.UUID})
+	}
+	return daemonCall{}
+}
+
+// passing reports whether an error of kind may pass without a change: the
+// daemon was busy or slow, the request was cancelled, or something failed.
+func passing(kind api.ErrorKind) bool {
+	switch kind {
+	case api.KindRetry, api.KindCancelled, api.KindInternal, api.KindFailed:
+		return true
+	}
+	return false
 }
 
 // followOperation shows op on the progress page and follows it to its end: a

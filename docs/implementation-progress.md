@@ -1,5 +1,52 @@
 # MVP implementation progress
 
+## TUI review fixes — 2026-11-03
+
+This change fixes the findings that the TUI reviews of steps 3 to 5 left open.
+The operation page shows "r retry operation" and the Retry line only for a
+blocked operation, and r does nothing on any other. At 48×16 its text takes
+every row down to its controls (12 instead of 8), so a blocked page shows its
+reason and Diagnostic and a completed one its whole note. The waiting line and
+the STALE line wrap between words; STALE now says "refresh failed" instead of
+"connection failed". Opening an operation from O shows what the list read
+until `operation.inspect` answers. A wait, inspect or session read that follows
+an operation and answers an error the daemon may get past, or that Help cut
+off, is sent again on the next tick, and the intent to enter a created session
+is kept. `s` on a stopped
+session says "Session is already stopped." without asking, as the prototype
+does, and so does a stop answered `changed: false`. A failed attachment shows
+the sentence `p attach` printed instead of "exit status 1". A removal run
+answered `changed` or `expired` reads the plan again and shows the new review
+with "Nothing was removed; the review above is current." Retained branches
+offers `r refresh`, and a failed read no longer lists the choices an earlier
+Create left. A queued service action that was not issued is its own sentence.
+
+LLM experience review (mock socket only): the LLM ran the prototype's selected
+browser at 48×16 and 120×35, then drove the production `p tui --theme dark`
+against the fixture server (`--dataset small`) through `tui-observe.py`, built
+from an export of `b6785bb` and from this change, at 120×35, 80×24 and 48×16.
+It opened the blocked operation with its inspect slowed, retried it with the
+wait slowed, stopped a running and a stopped session, entered a session whose
+`p attach` start failed, created a session whose wait answered
+`retry`/`deadline` (and opened Help during and after that wait), ran a Discard
+whose run answered `changed` and `expired`,
+read Retained branches with `project.branches` failing, queued a service
+action behind a failing read, and failed the inventory refresh;
+`mock.configure` slowed or failed one call at a time. Each finding read as
+described above after the fix, and the before frames showed each problem. At
+48×16 a blocked operation's page is still longer than its 12 rows, so its note
+ends one `j` lower. Four smaller issues that predate this change stay open:
+that fold has no "more below" cue; the readiness page reads "Condition:
+stopped" while Enter's start or the session read before entry is in flight; a
+completed operation's page draws three empty rows; and a failure's sentence
+stays after the next refresh succeeds. The mock's operations complete at once,
+so a wait answering `running` was not reached. Component checks:
+`internal/tui` has a test for each changed behavior, each failing before the
+fix; `just tui-tests` passed 8 terminal, 9 observer and 12 mock tests, and the
+mock driver now also covers `s` on a stopped session, `p attach`'s sentence, `r`
+on Retained branches and a changed removal run. Evidence:
+[checkpoint](llm-interactive-review/tui/tui-fixes/checkpoint.json).
+
 ## TUI removal plans — 2026-11-03
 
 Step 5 makes a risky change one method called twice. In the TUI, `d` and `X`

@@ -208,12 +208,48 @@ func retainAlternateScreen(sequence []byte) []byte {
 	return []byte(result)
 }
 
+// pTail keeps the end of what an attachment wrote to stderr. The browser
+// redraws over p attach's error line at once; said recovers its sentence.
+type pTail struct {
+	mu   sync.Mutex
+	tail []byte
+}
+
+func (t *pTail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.tail = append(t.tail, p...)
+	if extra := len(t.tail) - 4096; extra > 0 {
+		t.tail = t.tail[extra:]
+	}
+	return len(p), nil
+}
+
+// said is the last error p printed ("p: <sentence>"), without its prefix.
+func (t *pTail) said() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	lines := strings.Split(string(t.tail), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if sentence, ok := strings.CutPrefix(strings.TrimRight(lines[i], "\r"), "p: "); ok {
+			return sentence
+		}
+	}
+	return ""
+}
+
 func attachmentProcess(cmd *exec.Cmd, screen *attachmentScreen) tea.Cmd {
 	if screen == nil {
-		return tea.ExecProcess(cmd, func(err error) tea.Msg { return attached{err} })
+		return tea.ExecProcess(cmd, func(err error) tea.Msg { return attached{err: err} })
 	}
-	cmd.Stdout, cmd.Stderr = screen, screen
-	execute := tea.ExecProcess(cmd, func(err error) tea.Msg { return attached{err} })
+	stderr := &pTail{}
+	cmd.Stdout, cmd.Stderr = screen, io.MultiWriter(screen, stderr)
+	execute := tea.ExecProcess(cmd, func(err error) tea.Msg {
+		if err == nil {
+			return attached{}
+		}
+		return attached{err: err, said: stderr.said()}
+	})
 	return func() tea.Msg {
 		// ExecProcess releases the terminal before starting cmd. Begin holding
 		// screen switches before that release, and keep them held until exit.

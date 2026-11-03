@@ -36,11 +36,11 @@
     "F2": "fixed in 3010936: notices wrap to the width the page draws in; the sessions page at 48x16 shows 'P failed unexpectedly; the daemon's log has / the cause.' without clipping, and the list shrinks to keep the notice and STALE visible",
     "F3": "fixed in 3010936: notices wrap between words ('…fix the host / configuration.' at 80x24, '…discard the / session and create a new one.' at 48x16, an 82-character sentence at 80x24)",
     "F4": "fixed in 3010936: a user service manager failure (failed/services) reads 'The session's user service manager refused or is unavailable; check the unit and the session's image.' in Details and on the Services page at all sizes",
-    "F5": "open (pre-existing): a TUI attach failure shows 'Attachment ended: exit status 1'; the p attach sentence is overdrawn",
+    "F5": "open (pre-existing): a TUI attach failure shows 'Attachment ended: exit status 1'; the p attach sentence is overdrawn Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): a TUI attach failure now shows the sentence p attach printed, 'Attachment ended: The runtime failed; check Incus and try again.' (tui-fixes after-0023; before-0025 still read 'exit status 1')",
     "F6": "accepted: refusals rely on the page heading to name the action",
-    "F7": "open (pre-existing): 'STALE · connection failed' under a daemon failure; at 48x16 the STALE line is also cut with '…'",
-    "F8": "open: 'P's Git repository failed; try again.' on Retained branches has no visible retry",
-    "F9": "open (cosmetic): '… try again. · queued service action was not issued'"
+    "F7": "open (pre-existing): 'STALE · connection failed' under a daemon failure; at 48x16 the STALE line is also cut with '…' Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): the line reads 'STALE · refresh failed; actions need a fresh observation' and wraps between words: two whole lines at 48x16 (after-0071), one at 80x24 and 120x35 (after-0111, after-0123)",
+    "F8": "open: 'P's Git repository failed; try again.' on Retained branches has no visible retry Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): Retained branches offers 'r refresh', which reads the branches again (after2-0007, after2-0008, after2-0010); after a failed read the page no longer lists the choices an earlier Create left (before-0039, after2-0007)",
+    "F9": "open (cosmetic): '… try again. · queued service action was not issued' Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): 'The runtime failed; check Incus and try again. The queued service action was not issued.' (after-0065)"
   },
-  "findings_open": 4
+  "findings_open": 0
 }

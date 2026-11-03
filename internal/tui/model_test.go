@@ -608,8 +608,8 @@ func TestProgressPageFollowsTheInventory(t *testing.T) {
 
 // TestStartAndStopFollowTheirOperations: Enter on a stopped session follows
 // the start operation and enters the session once it reads ready; a stop
-// follows its operation to "Stopped"; a session already as asked records
-// nothing and moves on at once.
+// follows its operation to "Stopped". TestStopOfAStoppedSessionSaysItIsAlreadyStopped
+// covers a stop that records nothing.
 func TestStartAndStopFollowTheirOperations(t *testing.T) {
 	m := fixture()
 	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
@@ -660,12 +660,265 @@ func TestStartAndStopFollowTheirOperations(t *testing.T) {
 	if m.notice == "Stopped. Files and branch retained." {
 		t.Fatal("an observed stop was reported as the page's own")
 	}
+}
 
-	m = fixture()
-	m.navigate("confirm")
-	updated, _ = m.Update(reply(t, m.epoch, "session.stop", `{"changed":false,"session":{"uuid":"`+stoppedID+`","session_condition":"stopped"}}`))
+// TestWaitingLineWrapsWithinThePage: at 48 columns the waiting line wraps
+// between words instead of losing its end.
+func TestWaitingLineWrapsWithinThePage(t *testing.T) {
+	for _, page := range []string{"progress", "sessions"} {
+		m := fixture()
+		m.width, m.height = 48, 16
+		m.navigate(page)
+		m.working = true
+		frame := ansi.Strip(m.View().Content)
+		if !strings.Contains(strings.Join(strings.Fields(frame), " "), "Waiting for daemon… (Back leaves accepted work running)") {
+			t.Errorf("%s clips the waiting line:\n%s", page, frame)
+		}
+	}
+}
+
+// TestProgressPageUsesTheRowsBelowIt: the operation page's text takes every
+// row the title, controls and feedback leave, so at 48x16 a completed
+// operation's page note and a blocked one's Diagnostic need no scrolling.
+func TestProgressPageUsesTheRowsBelowIt(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	m.navigate("progress")
+	m.operationID = "2bd0d0d5-d157-58bb-bde4-011a6427a029"
+	m.operation = api.Operation{ID: m.operationID, Kind: "session.rename", Key: "fixture-failed", Status: "completed", Phase: "complete"}
+	frame := strings.Join(strings.Fields(ansi.Strip(m.View().Content)), " ")
+	if !strings.Contains(frame, "Leaving this screen does not cancel an accepted operation.") {
+		t.Errorf("completed page clips its note:\n%s", ansi.Strip(m.View().Content))
+	}
+	m.operation.Status, m.operation.Phase = "blocked", "rename"
+	m.operation.Reason, m.operation.Diagnostic = api.ReasonRuntime, "Incus did not answer within 30 seconds"
+	frame = strings.Join(strings.Fields(ansi.Strip(m.View().Content)), " ")
+	if !strings.Contains(frame, "Diagnostic: Incus did not answer within 30 seconds") {
+		t.Errorf("blocked page hides its Diagnostic:\n%s", ansi.Strip(m.View().Content))
+	}
+	if lines := strings.Split(ansi.Strip(m.View().Content), "\n"); len(lines) != m.height-2 {
+		t.Errorf("blocked page draws %d rows, want all %d but the two feedback rows:\n%s", len(lines), m.height-2, strings.Join(lines, "\n"))
+	}
+}
+
+// TestRetryIsOfferedForABlockedOperationOnly: Retry resumes a blocked
+// operation; for any other status the page neither offers nor sends it.
+func TestRetryIsOfferedForABlockedOperationOnly(t *testing.T) {
+	for _, status := range []string{"running", "completed", "failed", "blocked"} {
+		t.Run(status, func(t *testing.T) {
+			client := &fakeClient{fn: func(string, any) (any, error) { return nil, errors.New("recorded") }}
+			m := fixture()
+			m.client = client
+			m.navigate("progress")
+			m.operationID = "op"
+			m.operation = api.Operation{ID: "op", Kind: "session.create", Status: status}
+			_, lines, commands := m.inspectionContent()
+			offered := strings.Contains(commands, "r retry") || strings.Contains(strings.Join(lines, "\n"), "Retry resumes")
+			m, cmd := press(m, "r")
+			if cmd != nil {
+				cmd()
+			}
+			sent := len(client.calls) > 0
+			if want := status == "blocked"; offered != want || sent != want {
+				t.Fatalf("%s operation: Retry offered %v, sent %v", status, offered, sent)
+			}
+		})
+	}
+	// The page of the session's own start or stop offers Retry only when it
+	// is blocked too.
+	m := fixture()
+	m.contextSession = m.data.sessions[1]
+	m.navigate("progress")
+	m.operationID = "stop"
+	m.operation = api.Operation{ID: "stop", Kind: "session.stop", SessionUUID: runningID, Status: "completed"}
+	if _, _, commands := m.inspectionContent(); strings.Contains(commands, "retry") {
+		t.Fatalf("completed stop offers %q", commands)
+	}
+	m.operationID = ""
+	if _, _, commands := m.inspectionContent(); strings.Contains(commands, "retry") {
+		t.Fatalf("readiness page offers %q", commands)
+	}
+}
+
+// TestOpenedOperationShowsItsListedFactsWhileItIsRead: while O's inspect is
+// in flight, the page shows what the list read of the operation, not empty
+// lines or another operation's facts.
+func TestOpenedOperationShowsItsListedFactsWhileItIsRead(t *testing.T) {
+	m := fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.operation = api.Operation{ID: "other", Kind: "session.create", Key: "other-key", Status: "completed", Phase: "complete"}
+	m.data.operations = []api.OperationSummary{{ID: "op", Key: "fixture-failed", Kind: "session.rename", Project: "a", SessionUUID: stoppedID, Status: "blocked", Phase: "rename", Reason: api.ReasonRuntime, Diagnostic: "Incus did not answer"}}
+	m.navigate("operations")
+	m, _ = press(m, "enter")
+	if m.pendingMethod != api.OperationInspect.Name {
+		t.Fatalf("pending %s", m.pendingMethod)
+	}
+	_, lines, _ := m.inspectionContent()
+	text := strings.Join(lines, "\n")
+	for _, want := range []string{"session.rename · blocked / rename", "Key: fixture-failed", "Session: " + stoppedID, "Diagnostic: Incus did not answer"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("opening page lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "other-key") {
+		t.Fatalf("opening page shows the operation opened before:\n%s", text)
+	}
+}
+
+// TestFollowReadErrorKeepsFollowingAndTheIntentToEnter: a read that follows
+// an operation, or the session it created, and answers an error is read
+// again on the next tick; the page keeps the intent to enter the session.
+func TestFollowReadErrorKeepsFollowingAndTheIntentToEnter(t *testing.T) {
+	m := fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	updated, _ := m.Update(reply(t, m.epoch, "session.create", `{"operation":{"id":"creation","kind":"session.create","session_uuid":"`+waitingID+`","status":"completed"}}`))
 	m = updated.(Model)
-	if m.notice != "Stopped. Files and branch retained." || m.operationID != "" {
-		t.Fatalf("an already stopped session: notice %q op %q", m.notice, m.operationID)
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.OperationWait.Name, err: api.NewError(api.KindRetry, api.ReasonDeadline)})
+	m = updated.(Model)
+	if !m.attachOnComplete || m.notice == "" {
+		t.Fatalf("a failed wait dropped the intent to enter: attach %v notice %q", m.attachOnComplete, m.notice)
+	}
+	updated, _ = m.Update(tick{})
+	m = updated.(Model)
+	if m.pendingMethod != api.OperationWait.Name {
+		t.Fatalf("the tick did not wait again: pending %q", m.pendingMethod)
+	}
+	updated, _ = m.Update(reply(t, m.epoch, "operation.wait", `{"operation":{"id":"creation","kind":"session.create","session_uuid":"`+waitingID+`","status":"completed"}}`))
+	m = updated.(Model)
+	if m.pendingMethod != api.SessionInspect.Name {
+		t.Fatalf("completion did not move on to entry: pending %q", m.pendingMethod)
+	}
+	// The session read before entry fails, then is read again.
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.SessionInspect.Name, err: errors.New("transport")})
+	m = updated.(Model)
+	updated, _ = m.Update(tick{})
+	m = updated.(Model)
+	if !m.attachOnComplete || m.pendingMethod != api.SessionInspect.Name {
+		t.Fatalf("a failed session read ended entry: attach %v pending %q", m.attachOnComplete, m.pendingMethod)
+	}
+	// An operation opened from O is read with inspect again, not waited for.
+	m = fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.data.operations = []api.OperationSummary{{ID: "op", Kind: "session.rename", Status: "blocked"}}
+	m.navigate("operations")
+	m, _ = press(m, "enter")
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.OperationInspect.Name, err: errors.New("transport")})
+	m = updated.(Model)
+	updated, _ = m.Update(tick{})
+	m = updated.(Model)
+	if m.pendingMethod != api.OperationInspect.Name {
+		t.Fatalf("a failed inspect was not read again: pending %q", m.pendingMethod)
+	}
+	// An operation that no longer exists is not read again.
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.OperationInspect.Name, err: api.NewError(api.KindNotFound, api.ReasonOperation)})
+	m = updated.(Model)
+	updated, _ = m.Update(tick{})
+	m = updated.(Model)
+	if m.working {
+		t.Fatalf("a missing operation was read again: pending %q", m.pendingMethod)
+	}
+	// Help keeps a follow read that failed, or was in flight, for its return.
+	m = fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	updated, _ = m.Update(reply(t, m.epoch, "session.create", `{"operation":{"id":"creation","kind":"session.create","session_uuid":"`+waitingID+`","status":"completed"}}`))
+	m = updated.(Model)
+	for _, failed := range []bool{true, false} {
+		if failed {
+			updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.OperationWait.Name, err: errors.New("transport")})
+			m = updated.(Model)
+		}
+		m, _ = press(m, "?")
+		m, _ = press(m, "q")
+		updated, _ = m.Update(tick{})
+		m = updated.(Model)
+		if m.page != "progress" || m.pendingMethod != api.OperationWait.Name || !m.attachOnComplete {
+			t.Fatalf("Help (failed %v) lost the follow: page %s pending %q attach %v", failed, m.page, m.pendingMethod, m.attachOnComplete)
+		}
+	}
+	// A running operation whose wait answers that it is gone is not waited for again.
+	m.operation.Status = "running"
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.OperationWait.Name, err: api.NewError(api.KindNotFound, api.ReasonOperation)})
+	m = updated.(Model)
+	updated, _ = m.Update(tick{})
+	m = updated.(Model)
+	if m.working {
+		t.Fatalf("a missing running operation was waited for again: pending %q", m.pendingMethod)
+	}
+	// A failed change is not sent again.
+	m = fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.contextSession = m.data.sessions[0]
+	m.enterSession()
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.SessionStart.Name, err: errors.New("transport")})
+	m = updated.(Model)
+	updated, _ = m.Update(tick{})
+	m = updated.(Model)
+	if m.attachOnComplete || m.working {
+		t.Fatalf("a failed start was followed: attach %v pending %q", m.attachOnComplete, m.pendingMethod)
+	}
+}
+
+// TestStopOfAStoppedSessionSaysItIsAlreadyStopped: s on a session the
+// browser reads stopped answers at once, as the prototype does; a stop the
+// daemon answers changed:false says the same instead of "Stopped.".
+func TestStopOfAStoppedSessionSaysItIsAlreadyStopped(t *testing.T) {
+	m := fixture()
+	m.selected = stoppedID
+	m.restoreSelection()
+	m, cmd := press(m, "s")
+	if cmd != nil || m.page != "sessions" || m.notice != "Session is already stopped." {
+		t.Fatalf("s on a stopped session: page %s notice %q", m.page, m.notice)
+	}
+	m = fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.contextSession = m.data.sessions[1]
+	m.navigate("confirm")
+	updated, _ := m.Update(reply(t, m.epoch, "session.stop", `{"changed":false,"session":{"uuid":"`+runningID+`","project":"a","branch":"feature","session_condition":"stopped"}}`))
+	m = updated.(Model)
+	if m.notice != "Session is already stopped." || m.operationID != "" {
+		t.Fatalf("a stop that changed nothing: notice %q op %q", m.notice, m.operationID)
+	}
+	if _, lines, _ := m.inspectionContent(); len(lines) < 3 || lines[2] != "Condition: stopped" {
+		t.Fatalf("page %q", lines)
+	}
+}
+
+// TestStaleLineWrapsAndNamesTheFailedRefresh: the STALE line says the
+// refresh failed, whatever failed, and wraps between words at 48 columns.
+func TestStaleLineWrapsAndNamesTheFailedRefresh(t *testing.T) {
+	for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}} {
+		m := fixture()
+		m.width, m.height = size[0], size[1]
+		updated, _ := m.Update(loaded{err: api.NewError(api.KindInternal, "")})
+		m = updated.(Model)
+		frame := ansi.Strip(m.View().Content)
+		flat := strings.Join(strings.Fields(frame), " ")
+		if !strings.Contains(flat, "STALE · refresh failed; actions need a fresh observation") || strings.Contains(flat, "connection failed") {
+			t.Errorf("%vx%v STALE line:\n%s", size[0], size[1], frame)
+		}
+		lines := strings.Split(frame, "\n")
+		if len(lines) > m.height {
+			t.Errorf("%vx%v frame has %d rows", size[0], size[1], len(lines))
+		}
+		for _, line := range lines {
+			if ansi.StringWidth(line) > m.width {
+				t.Errorf("%vx%v line %q is too wide", size[0], size[1], line)
+			}
+		}
+	}
+}
+
+// TestUnissuedQueuedServiceActionIsItsOwnSentence: a failed service read
+// says on its own that the queued action was not issued.
+func TestUnissuedQueuedServiceActionIsItsOwnSentence(t *testing.T) {
+	m := fixture()
+	m.contextSession = m.data.sessions[1]
+	m.navigate("services")
+	m.working, m.pendingMethod = true, api.SessionServices.Name
+	m.queuedService = &serviceIntent{runningID, "p-project-api.service", "stop"}
+	updated, _ := m.Update(actionDone{epoch: m.epoch, method: api.SessionServices.Name, err: api.NewError(api.KindFailed, api.ReasonRuntime)})
+	m = updated.(Model)
+	if want := "The runtime failed; check Incus and try again. The queued service action was not issued."; m.notice != want {
+		t.Fatalf("notice %q, want %q", m.notice, want)
 	}
 }

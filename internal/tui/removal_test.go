@@ -388,3 +388,60 @@ func TestRemovalReviewScrollStopsAtItsLastPageAcrossResize(t *testing.T) {
 		t.Fatalf("enlarged review does not show its whole text:\n%s", frame)
 	}
 }
+
+// TestChangedOrExpiredRemovalRunShowsTheCurrentPlan: a run that answers that
+// the reviewed plan changed or its tag expired removed nothing; the page reads
+// the plan again and shows it, so y never sends the stale tag again.
+func TestChangedOrExpiredRemovalRunShowsTheCurrentPlan(t *testing.T) {
+	for _, reason := range []string{api.ReasonChanged, api.ReasonExpired} {
+		t.Run(reason, func(t *testing.T) {
+			var sent []api.SessionDeleteRequest
+			m := fixture()
+			m.client = &fakeClient{fn: func(method string, p any) (any, error) {
+				sent = append(sent, p.(api.SessionDeleteRequest))
+				return nil, errors.New("recorded")
+			}}
+			m.contextSession = m.data.sessions[0]
+			m.removal = &removalIntent{UUID: stoppedID, Kind: "delete"}
+			m.navigate("progress")
+			updated, _ := m.Update(reply(t, m.epoch, "session.delete", removalPlan("delete", stoppedID, `{"project":"a","branch":"main","runtime":{"condition":"present"}}`)))
+			m = updated.(Model)
+			m, run := press(m, "y")
+			run()
+			updated, cmd := m.Update(actionDone{epoch: m.epoch, method: api.SessionDelete.Name, err: api.NewError(api.KindPreconditionFailed, reason)})
+			m = updated.(Model)
+			if m.page != "progress" || m.pendingMethod != api.SessionDelete.Name || cmd == nil {
+				t.Fatalf("a %s run did not read the plan again: page %s pending %q", reason, m.page, m.pendingMethod)
+			}
+			cmd()
+			if len(sent) != 2 || sent[1].IfMatch != "" || sent[1].Key != "" || sent[1].UUID != stoppedID {
+				t.Fatalf("requests %+v", sent)
+			}
+			// The new plan arrives while Help is open; Back shows it with the reason.
+			newTag := "20261102T120400Z-" + strings.Repeat("f", 64)
+			plan := strings.Replace(removalPlan("delete", stoppedID, `{"project":"a","branch":"main-v2","runtime":{"condition":"present"}}`), reviewTag, newTag, 1)
+			epoch := m.epoch
+			m, _ = press(m, "?")
+			updated, _ = m.Update(reply(t, epoch, "session.delete", plan))
+			m = updated.(Model)
+			m, _ = press(m, "q")
+			if m.page != "review" || !strings.Contains(m.review, "main-v2") || !strings.Contains(m.notice, "Nothing was removed") {
+				t.Fatalf("page %s notice %q review:\n%s", m.page, m.notice, m.review)
+			}
+			m, run = press(m, "y")
+			run()
+			if last := sent[len(sent)-1]; last.IfMatch != newTag || last.UUID != stoppedID || last.Key == "" {
+				t.Fatalf("y after the new review sent %+v", last)
+			}
+		})
+	}
+	// Another error leaves the review as it was.
+	m := fixture()
+	m.navigate("review")
+	m.confirm = callOf(api.SessionDiscard, api.SessionDiscardRequest{UUID: stoppedID})
+	updated, cmd := m.Update(actionDone{epoch: m.epoch, method: api.SessionDiscard.Name, err: api.NewError(api.KindFailed, api.ReasonRuntime)})
+	m = updated.(Model)
+	if m.page != "review" || cmd != nil {
+		t.Fatalf("a failed run left the review: page %s", m.page)
+	}
+}
