@@ -1,5 +1,50 @@
 # MVP implementation progress
 
+## Second TUI review fixes — 2026-11-03
+
+This change fixes the four issues the first TUI fixes left open and the debt
+"The TUI writes its own loss sentences". A text page (operation, readiness,
+Details, Help, policy, Agents) longer than its rows ends each screen but the
+last with "… N more lines below", as the prototype ends a clipped frame, so a
+fold inside a sentence no longer reads as the page's end; Page Down and Page Up
+move such a page by the lines above the cue, so paging skips no line. While
+Enter's start, or the session read before entry, is in flight, a session last
+read stopped reads "Condition: starting" instead of "stopped". The operation,
+Stop and readiness pages no longer draw an empty detail between two blank rows:
+one blank row separates the facts from the note. A refresh that succeeds after
+a failed one clears the failure's sentence with STALE, unless another notice,
+or an action's error, replaced it. The removal review now states each loss and
+gone item with errtext's sentence, the one `p session discard`/`delete` prints,
+keeping its own layout and the commit list beneath a `p_commits` item: for
+example "the container of session UUID and everything in it: uncommitted
+changes, files outside Git, commits not pushed to P; P does not look inside"
+instead of the TUI's own sentence, which also named the home directory and
+runtime-local credentials.
+
+LLM experience review (mock socket only): the LLM ran the prototype's selected
+browser (its clipped Help at 48×16 and its boot page at 120×35), then drove the
+production `p tui --theme dark` against the fixture server (`--dataset small`)
+through `tui-observe.py`, built from an export of `2b14a2b` and from this
+change, at 120×35, 80×24 and 48×16. It opened the blocked operation, scrolled
+it at 48×16 and retried it, stopped a session and entered it with
+`session.start` and then `session.inspect` slowed, failed one inventory refresh
+and watched the next succeed, reviewed Discard and Delete, and paged through
+Help at 48×16. A second export of each tree, with the fixture changed only
+there so that one session's runtime is missing and one branch's commit leaves
+P, showed the `p_commits` and "Already gone" sentences; the CLI's dry runs
+against it print the same sentences. Each issue read as described above after
+the fix, and the before frames showed each. Two smaller issues stay open: after
+a Create, the read before entry names the session last opened (its project,
+branch and condition) beside the new UUID; and the removal, confirmation and
+creation reviews, which scroll by their own code, still fold without a cue (at
+48×16 the Discard review ends its first screen at "P stops the running
+container before"). Component checks: `internal/tui` has a test for each
+changed behavior, each failing before the fix; `just tui-tests` passed 8
+terminal, 9 observer and 12 mock tests, and the mock driver now also checks
+that a recovered refresh clears its sentence and that the review states the
+container's loss in the CLI's words; both checks fail on `2b14a2b`. Evidence:
+[checkpoint](llm-interactive-review/tui/tui-fixes2/checkpoint.json).
+
 ## TUI review fixes — 2026-11-03
 
 This change fixes the findings that the TUI reviews of steps 3 to 5 left open.

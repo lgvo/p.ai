@@ -103,17 +103,20 @@ session says it is already stopped. Long policy, source,
 confirmation and loss fields wrap and can be scrolled; explicit `y` authorizes
 Stop, Rename and removal. Discard and Delete show the daemon's plan before
 asking: what the removal loses, and, for a session whose runtime is missing,
-that its contents are already gone. A plan that is not allowed shows why
-instead and offers nothing to authorize. If the plan changed or the review
-expired before `y`, nothing is removed and the current plan is shown to review
-again. `r` on Retained branches reads them again.
+that its contents are already gone, in the sentences the CLI prints. A plan
+that is not allowed shows why instead and offers nothing to authorize. If the
+plan changed or the review expired before `y`, nothing is removed and the
+current plan is shown to review again. `r` on Retained branches reads them
+again.
 
 Leaving creation/startup progress does not cancel accepted daemon work and
-prevents automatic terminal entry afterward. A read that fails while the page
+prevents automatic terminal entry afterward. While Enter starts a stopped
+session, its page reads `starting`. A read that fails while the page
 follows an operation is sent again on the next refresh, and entry still
 follows. Use Operations to inspect an operation; `r` retries a blocked one with
 its durable intent. A failed refresh marks cached inventory stale;
-it does not turn old state into proof that cleanup succeeded.
+it does not turn old state into proof that cleanup succeeded. The next refresh
+that succeeds clears STALE and the failure's sentence.
 
 Inside the actual terminal, tmux owns input. **Ctrl+B, then lowercase `d`** detaches and
 returns to the picker. Detach before opening Agents/Services: the prototype's
@@ -125,7 +128,8 @@ publication (`p origin publish`), failed-creation cleanup and replacement
 (`p plugins`) remain CLI workflows.
 
 Policy, agent reports, operation diagnostics and Help also support `j/k`, paging,
-and `gg/G` scrolling. Long fields wrap so they remain readable in small terminals.
+and `gg/G` scrolling. Long fields wrap so they remain readable in small terminals,
+and a page longer than the terminal ends with how many lines are below.
 
 ### Project services
 

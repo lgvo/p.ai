@@ -110,6 +110,10 @@ type Model struct {
 	// why the next review shows a plan read again.
 	reviewed     removalIntent
 	reviewNotice string
+	// staleNotice is the sentence of the failed refresh that made the
+	// inventory stale, while it is the notice; the next refresh that
+	// succeeds clears it.
+	staleNotice string
 }
 
 func New(c api.Caller, socket string) Model {
@@ -457,10 +461,13 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.refreshing = false
 		if v.err != nil {
 			m.notice = errtext.Sentence(v.err)
-			m.stale = true
+			m.stale, m.staleNotice = true, m.notice
 		} else {
 			m.data = v.data
-			m.stale = false
+			if m.staleNotice != "" && m.notice == m.staleNotice {
+				m.notice = ""
+			}
+			m.stale, m.staleNotice = false, ""
 			if m.page != "progress" {
 				for _, s := range m.data.sessions {
 					if s.UUID == m.contextSession.UUID {
@@ -532,7 +539,8 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.working = false
 		m.pendingMethod = ""
 		if v.err != nil {
-			m.notice = errtext.Sentence(v.err)
+			// The notice is now this call's, not the failed refresh's.
+			m.notice, m.staleNotice = errtext.Sentence(v.err), ""
 			if m.page == "review" && isRemoval(v.method) && isKind(v.err, api.KindPreconditionFailed) {
 				return m, m.reviewAgain()
 			}
@@ -1003,15 +1011,20 @@ func (m *Model) move(k string) {
 	m.clamp()
 }
 func (m *Model) scroll(k string, p *int) {
+	page := m.capacity()
+	if m.inspectionPage() && page > 1 {
+		// A screen with more below shows one line less above its cue.
+		page--
+	}
 	switch k {
 	case "j", "down":
 		*p++
 	case "k", "up":
 		*p--
 	case "pgup", "ctrl+b":
-		*p -= m.capacity()
+		*p -= page
 	case "pgdown", "ctrl+f":
-		*p += m.capacity()
+		*p += page
 	case "ctrl+u":
 		*p -= max(1, m.capacity()/2)
 	case "ctrl+d":

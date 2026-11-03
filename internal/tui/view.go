@@ -389,21 +389,21 @@ func (m Model) inspectionContent() (string, []string, string) {
 			case op.Status == "completed" && op.Kind == api.SessionStop.Name:
 				condition = "stopped"
 			}
-			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Condition: "+condition, "")
+			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Condition: "+condition)
 			if op.Status == "failed" || op.Status == "blocked" {
-				lines = append(lines, operationDetail(op.Status, op.Reason, op.Diagnostic)...)
+				lines = withDetail(lines, operationDetail(op.Status, op.Reason, op.Diagnostic))
 			}
 			lines = append(lines, "", "Leaving startup prevents automatic entry when it finishes.")
 		} else if m.operationID != "" {
 			op := m.operation
-			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID, "")
-			lines = append(lines, operationDetail(op.Status, op.Reason, op.Diagnostic)...)
-			lines = append(lines, "", "Leaving this screen does not cancel an accepted operation.")
+			lines = append(lines, op.Kind+" · "+op.Status+" / "+op.Phase, "Operation: "+m.operationID, "Key: "+op.Key, "Session: "+op.SessionUUID)
+			detail := operationDetail(op.Status, op.Reason, op.Diagnostic)
+			if op.Kind == "session.create" && op.Status == "running" && op.Phase == "branch-assigned" {
+				detail = append([]string{"Preparing captured source and environment; the runtime is not ready.", "Large source trees can take time. A pending phase is not a failure."}, detail...)
+			}
+			lines = append(withDetail(lines, detail), "", "Leaving this screen does not cancel an accepted operation.")
 			if m.retryable() {
 				lines = append(lines, "Retry resumes exact captured intent; changed inputs need a new request.")
-			}
-			if op.Kind == "session.create" && op.Status == "running" && op.Phase == "branch-assigned" {
-				lines = append(lines[:5], append([]string{"Preparing captured source and environment; the runtime is not ready.", "Large source trees can take time. A pending phase is not a failure."}, lines[5:]...)...)
 			}
 		} else if m.removal != nil {
 			action := "Discard"
@@ -417,7 +417,17 @@ func (m Model) inspectionContent() (string, []string, string) {
 			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Runtime: "+runtimeLabel(m.contextSession), "", status)
 			commands = "q/Esc back"
 		} else {
-			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Condition: "+m.contextSession.Condition, "", m.contextSession.Diagnostic, "", "Leaving startup prevents automatic entry when it finishes.")
+			condition := m.contextSession.Condition
+			if condition == "stopped" && m.working && m.attachOnComplete {
+				// Enter's start, or the read of the session before entry, is
+				// in flight.
+				condition = "starting"
+			}
+			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Condition: "+condition)
+			if m.contextSession.Diagnostic != "" {
+				lines = withDetail(lines, []string{m.contextSession.Diagnostic})
+			}
+			lines = append(lines, "", "Leaving startup prevents automatic entry when it finishes.")
 		}
 		return "Operation / readiness", lines, commands
 	case "help":
@@ -448,6 +458,11 @@ func (m Model) textPage(title string, lines []string, width int, commands string
 		start := min(m.reviewOffset, max(0, len(body)-capacity))
 		body = m.renderLines(body[start:], width-4)
 		commands = "j/k/Pg scroll · " + commands
+		// As the prototype ends a clipped list, a screen with more below
+		// ends by saying how much.
+		if len(body) > capacity && capacity > 1 {
+			body = append(body[:capacity-1], m.styles.muted.Render(fmt.Sprintf("… %d more lines below", len(body)-capacity+1)))
+		}
 	}
 	if len(body) > capacity {
 		body = body[:capacity]
@@ -766,11 +781,23 @@ func (m Model) factLine(text string, width int) string {
 	return m.styles.text.Render(text)
 }
 
+// withDetail is facts followed by a blank row and detail, when there is a
+// detail.
+func withDetail(facts, detail []string) []string {
+	if len(detail) == 0 {
+		return facts
+	}
+	return append(append(facts, ""), detail...)
+}
+
 // operationDetail is what a stopped operation's reason means and what to do,
-// then its diagnostic, the detail the daemon recorded, on its own line.
+// then its diagnostic, the detail the daemon recorded, on its own line. It is
+// empty when there is neither.
 func operationDetail(status, reason, diagnostic string) []string {
 	sentence := errtext.Operation(status, reason)
 	switch {
+	case sentence == "" && diagnostic == "":
+		return nil
 	case sentence == "":
 		return []string{diagnostic}
 	case diagnostic == "":

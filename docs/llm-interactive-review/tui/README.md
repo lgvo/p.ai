@@ -24,6 +24,29 @@ powered off and removed their disposable disks. The
 records acceptance and retained limitations. The real devShell extension and
 authenticated Codex acceptance remain separate pending milestones.
 
+## Second review fixes — 2026-11-03
+
+The [tui-fixes2 checkpoint](tui-fixes2/checkpoint.json) records the fixes of
+the four issues the [tui-fixes review](tui-fixes/checkpoint.json) left open,
+and the removal review taking the CLI's loss sentences. At 48×16 the blocked
+operation's page ended its first screen inside a sentence
+([before](tui-fixes2/before-0004-op-blocked-48x16.png)); it now ends with
+"… 4 more lines below" ([after](tui-fixes2/after-0004-op-blocked-48x16.png)).
+Entering a stopped session read "Condition: stopped" while it started
+([before](tui-fixes2/before-0017-start-in-flight-120x35.png)) and now reads
+"starting" ([after](tui-fixes2/after-0018-start-in-flight-120x35.png)). A
+completed operation drew three blank rows
+([before](tui-fixes2/before-0009-op-completed-120x35.png)), now one
+([after](tui-fixes2/after-0010-op-completed-120x35.png)). A recovered refresh
+kept the failure's sentence
+([before](tui-fixes2/before-0038-refresh-recovered-120x35.png)) and now clears
+it ([after](tui-fixes2/after-0073-refresh-recovered-120x35.png)). The Delete
+review states its losses as the CLI does
+([before](tui-fixes2/beforeD-0003-delete-review-120x35.png),
+[after](tui-fixes2/afterD-0003-delete-review-120x35.png)). The
+[action record](tui-fixes2/actions.ndjson) keeps the LLM's choices apart from
+the passing TUI gate. This is mock/socket evidence only.
+
 ## Review fixes — 2026-11-03
 
 The [tui-fixes checkpoint](tui-fixes/checkpoint.json) records the fixes of the

@@ -589,7 +589,7 @@ func removalReview(kind, uuid string, p api.Plan[api.RemovalDetails], tag string
 	if len(p.Gone) > 0 {
 		lines = append(lines, "Already gone:")
 		for _, item := range p.Gone {
-			lines = append(lines, goneLines(item)...)
+			lines = append(lines, "- "+errtext.Gone(item))
 		}
 	}
 	lines = append(lines, "")
@@ -612,33 +612,17 @@ func removalReview(kind, uuid string, p api.Plan[api.RemovalDetails], tag string
 	return strings.Join(lines, "\n")
 }
 
-// lossLines states loss item item of a removal planned as d.
+// lossLines states loss item item of a removal planned as d in the CLI's
+// sentence, with the commits that leave P beneath a p_commits item.
 func lossLines(item api.Loss, d api.RemovalDetails) []string {
-	switch item.Kind {
-	case api.LossRuntimeData:
-		return []string{"- The container and everything in it: uncommitted changes, files outside Git, commits not pushed to P, the home directory and runtime-local credentials. P does not look inside the container to list them."}
-	case api.LossPCommits:
-		commits := fmt.Sprintf("%d commits on branch %s leave", item.Count, d.Branch)
-		if item.Count == 1 {
-			commits = "1 commit on branch " + d.Branch + " leaves"
+	lines := []string{"- " + errtext.Loss(item)}
+	if item.Kind == api.LossPCommits && d.BranchLoss != nil && len(d.BranchLoss.CommitsLosingPReachability) > 0 {
+		lines[0] += ":"
+		for _, oid := range d.BranchLoss.CommitsLosingPReachability {
+			lines = append(lines, "  "+oid)
 		}
-		lines := []string{"- " + commits + " P's repository; P does not check whether the origin has them:"}
-		if d.BranchLoss != nil {
-			for _, oid := range d.BranchLoss.CommitsLosingPReachability {
-				lines = append(lines, "  "+oid)
-			}
-		}
-		return lines
 	}
-	return []string{"- " + item.Kind + " at " + item.Target}
-}
-
-// goneLines states item, which was lost before the removal.
-func goneLines(item api.Loss) []string {
-	if item.Kind == api.LossRuntimeData {
-		return []string{"- The runtime is already missing; whatever it held is gone."}
-	}
-	return []string{"- " + item.Kind + " at " + item.Target}
+	return lines
 }
 
 func (m *Model) dispatchService(intent serviceIntent) tea.Cmd {

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 )
 
 // removalPlan is the JSON of an allowed plan of a removal (kind) of session
@@ -138,7 +139,7 @@ func reviewOf(t *testing.T, kind, raw string) string {
 func TestRemovalReviewStatesRuntimeLossByCategory(t *testing.T) {
 	for _, kind := range []string{"discard", "delete"} {
 		review := reviewOf(t, kind, removalPlan(kind, stoppedID, `{"project":"a","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"1111111111111111111111111111111111111111","runtime":{"condition":"present","incus_project":"p-a","instance_name":"p-stopped","original_status":"Stopped"},"branch_loss":{"assigned_ref":"refs/heads/main","commits_losing_p_reachability":[],"p_refs":[]}}`))
-		for _, category := range []string{"uncommitted changes", "files outside Git", "commits not pushed to P", "home directory", "runtime-local credentials", "P does not look inside"} {
+		for _, category := range []string{"uncommitted changes", "files outside Git", "commits not pushed to P", "P does not look inside"} {
 			if !strings.Contains(review, category) {
 				t.Errorf("%s review omits %q:\n%s", kind, category, review)
 			}
@@ -204,8 +205,8 @@ func TestRemovalReviewCountsTheCommitsThatLeaveP(t *testing.T) {
 		commits []string
 		want    string
 	}{
-		{[]string{one}, "1 commit on branch main leaves P's repository"},
-		{[]string{one, two}, "2 commits on branch main leave P's repository"},
+		{[]string{one}, "1 commit on branch main will be removed from P's repository"},
+		{[]string{one, two}, "2 commits on branch main will be removed from P's repository"},
 	} {
 		sample, _ := json.Marshal(item.commits)
 		raw := `{"plan":{"action":"session.delete","target":"session/` + stoppedID + `","allowed":true,"refusals":[],` +
@@ -215,6 +216,42 @@ func TestRemovalReviewCountsTheCommitsThatLeaveP(t *testing.T) {
 		if review := reviewOf(t, "delete", raw); !strings.Contains(review, item.want) {
 			t.Errorf("review of %d commits leaving P should say %q:\n%s", len(item.commits), item.want, review)
 		}
+	}
+}
+
+// TestRemovalReviewSaysWhatTheCLISays: each loss and gone item reads as
+// errtext's sentence for its kind, the one the CLI prints, an uncertain or
+// unknown one too; the commits that leave P sit beneath their item.
+func TestRemovalReviewSaysWhatTheCLISays(t *testing.T) {
+	const tip = "1111111111111111111111111111111111111111"
+	const lost = "2222222222222222222222222222222222222222"
+	runtime := api.Loss{Kind: api.LossRuntimeData, Target: api.TargetSession(stoppedID), Certain: true}
+	commits := api.Loss{Kind: api.LossPCommits, Target: api.TargetBranch("a", "main"), Count: 1, Sample: []string{lost}, Certain: true}
+	unknown := api.Loss{Kind: "future_kind", Target: api.TargetProject("a")}
+	branchLoss := &api.RemovalBranchLoss{AssignedRef: "refs/heads/main", AssignedTip: tip, CommitsLosingPReachability: []string{lost}, PRefs: []api.PRef{}}
+	for _, item := range []struct {
+		kind, runtime string
+		loss, gone    []api.Loss
+		want          []string
+	}{
+		{"delete", "present", []api.Loss{runtime, commits, unknown}, nil,
+			[]string{"- " + errtext.Loss(runtime), "- " + errtext.Loss(commits) + ": " + lost, "- " + errtext.Loss(unknown)}},
+		{"discard", "missing", nil, []api.Loss{runtime}, []string{"- " + errtext.Gone(runtime)}},
+	} {
+		t.Run(item.kind, func(t *testing.T) {
+			raw, err := json.Marshal(api.ChangeResult[api.RemovalDetails]{ChangeTag: reviewTag, Plan: &api.Plan[api.RemovalDetails]{
+				Action: "session." + item.kind, Target: api.TargetSession(stoppedID), Allowed: true, Refusals: []api.Refusal{}, Loss: item.loss, Gone: item.gone,
+				Details: api.RemovalDetails{Project: "a", Branch: "main", AssignedRef: "refs/heads/main", AssignedTip: tip, Runtime: api.RemovalRuntime{Condition: item.runtime, InstanceName: "p-stopped"}, BranchLoss: branchLoss}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			review := reviewOf(t, item.kind, string(raw))
+			for _, want := range item.want {
+				if want = strings.Join(strings.Fields(want), " "); !strings.Contains(review, want) {
+					t.Errorf("review lacks the CLI's %q:\n%s", want, review)
+				}
+			}
+		})
 	}
 }
 
@@ -237,7 +274,7 @@ func TestRemovalReviewKeepsEachLossItemTogetherWhenItWraps(t *testing.T) {
 	lines := m.reviewLines()
 	first, last := -1, -1
 	for i, line := range lines {
-		if strings.HasPrefix(line, "- The container") {
+		if strings.HasPrefix(line, "- the container") {
 			first = i
 		}
 		if first >= 0 && last < 0 && line == "" {

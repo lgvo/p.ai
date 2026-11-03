@@ -922,3 +922,199 @@ func TestUnissuedQueuedServiceActionIsItsOwnSentence(t *testing.T) {
 		t.Fatalf("notice %q, want %q", m.notice, want)
 	}
 }
+
+// TestLongTextPageSaysHowManyLinesAreBelow: a text page longer than its rows
+// ends each screen but the last with how many lines are below, as the
+// prototype ends a clipped list, so a fold inside a sentence never reads as
+// the page's end.
+func TestLongTextPageSaysHowManyLinesAreBelow(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	m.navigate("progress")
+	m.operationID = "2bd0d0d5-d157-58bb-bde4-011a6427a029"
+	m.operation = api.Operation{ID: m.operationID, Kind: "session.rename", Key: "fixture-failed", Status: "blocked", Phase: "rename", Reason: api.ReasonRuntime, Diagnostic: "Incus did not answer within 30 seconds"}
+	_, text, _ := m.inspectionContent()
+	total, capacity := len(m.wrappedText(text)), m.capacity()
+	if total <= capacity {
+		t.Fatalf("the blocked page's %d lines fit its %d rows", total, capacity)
+	}
+	for offset := 0; offset <= total-capacity; offset++ {
+		frame := strings.Split(ansi.Strip(m.View().Content), "\n")
+		controls := 0
+		for controls < len(frame) && !strings.HasPrefix(frame[controls], "j/k/Pg scroll") {
+			controls++
+		}
+		if controls == 0 || controls == len(frame) {
+			t.Fatalf("no controls row:\n%s", strings.Join(frame, "\n"))
+		}
+		last := strings.TrimSpace(frame[controls-1])
+		if offset == total-capacity {
+			if strings.Contains(strings.Join(frame, "\n"), "below") || last != "inputs need a new request." {
+				t.Fatalf("the last screen ends with %q:\n%s", last, strings.Join(frame, "\n"))
+			}
+			break
+		}
+		if want := fmt.Sprintf("… %d more lines below", total-offset-(capacity-1)); last != want {
+			t.Fatalf("screen at line %d ends with %q, want %q:\n%s", offset, last, want, strings.Join(frame, "\n"))
+		}
+		m, _ = press(m, "j")
+	}
+}
+
+// TestEnteringAStoppedSessionReadsStarting: while Enter's start, or the read
+// of the session before entry, is in flight, a session last read stopped
+// reads starting, as the prototype's boot page does; once read, the page
+// shows the condition read.
+func TestEnteringAStoppedSessionReadsStarting(t *testing.T) {
+	condition := func(m Model) string {
+		_, lines, _ := m.inspectionContent()
+		for _, line := range lines {
+			if strings.HasPrefix(line, "Condition: ") {
+				return line
+			}
+		}
+		return ""
+	}
+	m := fixture()
+	m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+	m.selected = stoppedID
+	m.restoreSelection()
+	m, _ = press(m, "enter")
+	if m.pendingMethod != api.SessionStart.Name || condition(m) != "Condition: starting" {
+		t.Fatalf("start in flight: pending %q, %q", m.pendingMethod, condition(m))
+	}
+	updated, _ := m.Update(reply(t, m.epoch, "session.start", `{"changed":true,"operation":{"id":"start","kind":"session.start","session_uuid":"`+stoppedID+`","status":"completed","phase":"ready"}}`))
+	m = updated.(Model)
+	if m.pendingMethod != api.SessionInspect.Name || condition(m) != "Condition: starting" {
+		t.Fatalf("read before entry in flight: pending %q, %q", m.pendingMethod, condition(m))
+	}
+	updated, _ = m.Update(reply(t, m.epoch, "session.inspect", `{"session":{"uuid":"`+stoppedID+`","project":"a","branch":"main","session_condition":"stopped","diagnostic":"boot failed"}}`))
+	m = updated.(Model)
+	if condition(m) != "Condition: stopped" {
+		t.Fatalf("after the read: %q", condition(m))
+	}
+}
+
+// TestProgressPageDrawsOneBlankRowWithoutADetail: an operation's page, a
+// start or stop's, or a session's readiness without a reason or diagnostic
+// draws one blank row between its facts and its note, not an empty detail
+// between two; a detail sits between two blank rows.
+func TestProgressPageDrawsOneBlankRowWithoutADetail(t *testing.T) {
+	for _, page := range []struct {
+		name    string
+		id      string
+		op      api.Operation
+		session api.SessionView
+		blanks  int
+	}{
+		{"completed operation", "op", api.Operation{ID: "op", Kind: "session.rename", Status: "completed", Phase: "complete"}, api.SessionView{}, 1},
+		{"completed stop", "stop", api.Operation{ID: "stop", Kind: "session.stop", SessionUUID: runningID, Status: "completed"}, api.SessionView{UUID: runningID, Project: "a", Branch: "feature", Condition: "ready"}, 1},
+		{"readiness", "", api.Operation{}, api.SessionView{UUID: stoppedID, Project: "a", Branch: "main", Condition: "stopped"}, 1},
+		{"blocked operation", "op", api.Operation{ID: "op", Kind: "session.rename", Status: "blocked", Reason: api.ReasonRuntime, Diagnostic: "Incus did not answer"}, api.SessionView{}, 2},
+		{"readiness with a diagnostic", "", api.Operation{}, api.SessionView{UUID: stoppedID, Project: "a", Branch: "main", Condition: "stopped", Diagnostic: "boot failed"}, 2},
+	} {
+		t.Run(page.name, func(t *testing.T) {
+			m := fixture()
+			m.navigate("progress")
+			m.operationID, m.operation, m.contextSession = page.id, page.op, page.session
+			_, lines, _ := m.inspectionContent()
+			blanks := 0
+			for i, line := range lines {
+				if line != "" {
+					continue
+				}
+				blanks++
+				if i == 0 || lines[i-1] == "" {
+					t.Fatalf("blank row %d follows no fact:\n%s", i, strings.Join(lines, "\n"))
+				}
+			}
+			if blanks != page.blanks {
+				t.Fatalf("%d blank rows, want %d:\n%s", blanks, page.blanks, strings.Join(lines, "\n"))
+			}
+		})
+	}
+}
+
+// TestRecoveredRefreshClearsItsFailureSentence: a refresh that succeeds after
+// a failed one clears STALE and the failure's sentence with it; a notice
+// written since stays.
+func TestRecoveredRefreshClearsItsFailureSentence(t *testing.T) {
+	m := fixture()
+	failed := loaded{err: api.NewError(api.KindInternal, "")}
+	updated, _ := m.Update(failed)
+	m = updated.(Model)
+	if !m.stale || m.notice == "" {
+		t.Fatalf("failed refresh: stale %v notice %q", m.stale, m.notice)
+	}
+	updated, _ = m.Update(loaded{data: m.data})
+	m = updated.(Model)
+	if m.stale || m.notice != "" {
+		t.Fatalf("recovered refresh: stale %v notice %q", m.stale, m.notice)
+	}
+	updated, _ = m.Update(failed)
+	m = updated.(Model)
+	m.notice = "Detach every terminal before reviewing removal."
+	updated, _ = m.Update(loaded{data: m.data})
+	m = updated.(Model)
+	if m.stale || m.notice != "Detach every terminal before reviewing removal." {
+		t.Fatalf("recovery after a later notice: stale %v notice %q", m.stale, m.notice)
+	}
+	// An action that fails with the same sentence keeps it after recovery.
+	updated, _ = m.Update(failed)
+	m = updated.(Model)
+	updated, _ = m.Update(actionDone{epoch: m.epoch, method: api.SessionStop.Name, err: api.NewError(api.KindInternal, "")})
+	m = updated.(Model)
+	sentence := m.notice
+	updated, _ = m.Update(loaded{data: m.data})
+	m = updated.(Model)
+	if m.stale || m.notice != sentence {
+		t.Fatalf("recovery after an action's error: stale %v notice %q, want %q", m.stale, m.notice, sentence)
+	}
+}
+
+// TestPagingALongTextPageShowsEveryLine: Page Down and Page Up move by the
+// lines a screen shows above its cue, so paging through Help at 48x16 skips
+// no line either way.
+func TestPagingALongTextPageShowsEveryLine(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	m.navigate("help")
+	_, text, _ := m.inspectionContent()
+	want := m.wrappedText(text)
+	// shown is the text lines of the current screen, without its cue.
+	shown := func(m Model) []string {
+		frame := strings.Split(ansi.Strip(m.View().Content), "\n")
+		rows := []string{}
+		for _, row := range frame[1:] {
+			if strings.HasPrefix(row, "j/k/Pg scroll") {
+				break
+			}
+			if !strings.HasSuffix(row, "more lines below") {
+				rows = append(rows, strings.TrimRight(row, " "))
+			}
+		}
+		return rows
+	}
+	next := 0
+	for {
+		rows := shown(m)
+		if m.reviewOffset > next {
+			t.Fatalf("Page Down skipped lines %d to %d", next, m.reviewOffset-1)
+		}
+		next = m.reviewOffset + len(rows)
+		if next >= len(want) {
+			break
+		}
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+		m = updated.(Model)
+	}
+	end := m.reviewOffset
+	for m.reviewOffset > 0 {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+		m = updated.(Model)
+		if top := m.reviewOffset + len(shown(m)); top < end {
+			t.Fatalf("Page Up skipped lines %d to %d", top, end-1)
+		}
+		end = m.reviewOffset
+	}
+}

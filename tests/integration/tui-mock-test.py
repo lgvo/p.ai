@@ -239,8 +239,12 @@ class MockTUITests(unittest.TestCase):
         self.key("qr", "All project sessions")
         self.wait("unavailable · stale inventory")
         self.wait("STALE")
+        self.wait("failed unexpectedly")
         self.key("r")
         self.wait("3 units observed")
+        # The refresh that succeeded cleared STALE and the failure's sentence.
+        self.assertNotIn("STALE", self.screen())
+        self.assertNotIn("failed unexpectedly", self.screen())
 
     def test_02_services_journal_and_failures(self):
         sid = self.session()["uuid"]
@@ -399,7 +403,9 @@ class MockTUITests(unittest.TestCase):
                 self.key(action, "Removal loss preview")
                 # The review wraps its sentences at the terminal's width.
                 review = " ".join(self.screen().split())
-                self.assertIn("P does not look inside the container", review)
+                # The CLI's sentence for the container's loss.
+                self.assertIn("the container of session " + sid + " and everything in it", review)
+                self.assertIn("P does not look inside", review)
                 self.assertEqual("P stops the running container" in review, running)
                 if action == "d":
                     self.assertIn("Discard keeps this branch in P", review)
