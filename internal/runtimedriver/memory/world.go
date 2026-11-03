@@ -48,9 +48,12 @@ type World struct {
 	admitted map[string]bool
 	pending  map[string]*Admission
 	delays   map[runtimedriver.EffectKind]*Admission
-	death    *death
-	partial  bool // the next listing of the scope is incomplete
-	counter  int
+	// busy counts the operations of the backend running on each native
+	// name; they outlast the object they act on.
+	busy    map[string]int
+	death   *death
+	partial bool // the next listing of the scope is incomplete
+	counter int
 }
 
 // object is one runtime or builder in scope.
@@ -63,7 +66,6 @@ type object struct {
 	incarnation runtimedriver.Incarnation
 	state       runtimedriver.State // stopped or running
 	terminating bool
-	busy        int // operations of the backend running on it
 
 	devices   devices
 	assembled bool             // every guest file of the spec was installed
@@ -127,7 +129,7 @@ func NewWorld(c Config) *World {
 		config: c, objects: map[string]*object{}, images: map[runtimedriver.ImageRef]*image{},
 		attachments: map[string]*attachment{}, initializations: map[runtimedriver.Ref]int{},
 		deletedWhileRunning: map[runtimedriver.Ref]bool{}, admitted: map[string]bool{},
-		pending: map[string]*Admission{}, delays: map[runtimedriver.EffectKind]*Admission{},
+		pending: map[string]*Admission{}, delays: map[runtimedriver.EffectKind]*Admission{}, busy: map[string]int{},
 	}
 	w.baseImage = w.newImageRef()
 	w.images[w.baseImage] = &image{ref: w.baseImage, size: 1 << 28}
@@ -205,10 +207,7 @@ func (w *World) inFlight(target string) bool {
 			return true
 		}
 	}
-	if o := w.objects[target]; o != nil && o.busy > 0 {
-		return true
-	}
-	return false
+	return w.busy[target] > 0
 }
 
 // Admission is the late admission of one effect, armed by Delay.
@@ -420,18 +419,18 @@ func (w *World) ReadRootFile(r runtimedriver.Ref, path string) ([]byte, bool) {
 }
 
 // Hold keeps an operation of the backend running on the runtime of r until
-// release is called.
+// release is called, even once the runtime is gone.
 func (w *World) Hold(r runtimedriver.Ref) (release func()) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	o := w.mustRuntime(r)
-	o.busy++
+	name := w.mustRuntime(r).name
+	w.busy[name]++
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			w.mu.Lock()
 			defer w.mu.Unlock()
-			o.busy--
+			w.busy[name]--
 		})
 	}
 }
@@ -499,6 +498,17 @@ func (w *World) ForeignMount(r runtimedriver.Ref, guestPath string) {
 	defer w.mu.Unlock()
 	o := w.mustRuntime(r)
 	o.mounts = append(o.mounts, guestPath)
+}
+
+// SetRoot gives the workspace root of the runtime of r an owner and
+// permission bits.
+func (w *World) SetRoot(r runtimedriver.Ref, uid, gid int, mode uint32) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	o := w.mustRuntime(r)
+	root := *o.files[workspaceRoot]
+	root.uid, root.gid, root.mode = uid, gid, mode
+	o.files[workspaceRoot] = &root
 }
 
 // mustRuntime is the runtime of r; a control on a runtime that does not

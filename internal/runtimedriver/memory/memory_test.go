@@ -175,6 +175,9 @@ func (f *fixture) Symlink(r runtimedriver.Ref, path, target string) { f.world.Sy
 func (f *fixture) ForeignMount(r runtimedriver.Ref, guestPath string) {
 	f.world.ForeignMount(r, guestPath)
 }
+func (f *fixture) SetRoot(r runtimedriver.Ref, uid, gid int, mode uint32) {
+	f.world.SetRoot(r, uid, gid, mode)
+}
 
 func (f *fixture) Markers(s runtimedriver.Session) []byte {
 	marker := []byte("a marker outside the private root\n")

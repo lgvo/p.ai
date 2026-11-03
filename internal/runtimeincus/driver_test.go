@@ -453,18 +453,12 @@ func TestSettleImageDeleteAndUnsupportedEffects(t *testing.T) {
 	if got, err := NewDriver(i.backend()).Settle(context.Background(), effect); err != nil || got != runtimedriver.Unknown {
 		t.Fatalf("image seen on the second listing: %s %v", got, err)
 	}
-	if _, err := NewDriver(i.backend()).Settle(context.Background(), runtimedriver.Effect{Kind: "create"}); !errors.Is(err, runtimedriver.ErrUnsupported) {
-		t.Fatalf("unsupported effect: %v", err)
-	}
 }
 
 func TestDeleteRemovesOnlyThisInstancesBuilder(t *testing.T) {
 	r := testBuilder()
 	ctx := context.Background()
 	ref := runtimedriver.Ref{Kind: runtimedriver.KindBuild, ID: r.RequestUUID}
-	if err := NewDriver(builderBackend(&fakeBuilderIncus{request: r})).Delete(ctx, runtimedriver.Ref{Kind: "session", ID: r.RequestUUID}, "", func() error { return nil }); !errors.Is(err, runtimedriver.ErrUnsupported) {
-		t.Fatalf("session delete: %v", err)
-	}
 	gates := 0
 	gate := func() error { gates++; return nil }
 	f := &fakeBuilderIncus{request: r}

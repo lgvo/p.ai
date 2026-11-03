@@ -8,7 +8,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
@@ -173,11 +172,11 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 		if e := l.admitSessionWork(ctx, s.UUID, ""); e != nil {
 			return nil, e
 		}
-		spec, native, e := l.sessionSpecs(ctx, s)
+		spec, e := l.sessionSpec(ctx, s)
 		if e != nil {
 			return nil, e
 		}
-		observed, e := l.runtime.Inspect(ctx, native)
+		observed, e := l.driver.Inspect(ctx, spec)
 		if e != nil {
 			return nil, control.Failed(api.ReasonRuntime, e)
 		}
@@ -191,19 +190,20 @@ func (l *lifecycle) planProjectDelete(ctx context.Context, project string, p *ap
 			return nil, errors.Join(e, errors.New("exact session credentials/endpoints required; investigate manually"))
 		}
 		ps.Local = *local
-		if observed.Exists {
+		if observed.State != runtimedriver.StateAbsent {
+			incusUUID, generation := incarnationRecord(observed.Incarnation)
 			switch {
-			case !removableStatus(observed.Status):
+			case !removableState(observed.State):
 				return nil, control.Conflict(api.ReasonRuntimeUnsettled, target)
-			case observed.IncusUUID == "" || observed.Generation == "":
+			case incusUUID == "":
 				return nil, control.Failed(api.ReasonRuntime, fmt.Errorf("session runtime %s identity incomplete", s.UUID))
 			}
-			ps.Condition = strings.ToLower(observed.Status)
+			ps.Condition = string(observed.State)
 			ps.Runtime.Condition = "present"
-			ps.Runtime.IncusUUID = observed.IncusUUID
-			ps.Runtime.Generation = observed.Generation
-			ps.Runtime.ImageFingerprint = native.ImageFingerprint
-			ps.Runtime.OriginalStatus = observed.Status
+			ps.Runtime.IncusUUID = incusUUID
+			ps.Runtime.Generation = generation
+			ps.Runtime.ImageFingerprint = string(spec.Image)
+			ps.Runtime.OriginalStatus = originalStatus(observed.State)
 			p.Loss = append(p.Loss, containerLoss(s.UUID))
 		} else {
 			if e = proveRuntimeAbsent(ctx, l.driver, spec); e != nil {

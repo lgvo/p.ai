@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -44,9 +45,11 @@ type incusWorld struct {
 	t  *testing.T
 	mu sync.Mutex
 	// socket is where Incus serves the current driver; stopServing closes
-	// it.
+	// it. restarted closes once a restart closed it, releasing what a dead
+	// driver left waiting.
 	socket      string
 	stopServing func()
+	restarted   chan struct{}
 	// public is the host's proven public egress substrate, if it has one.
 	public *PublicEgressConfig
 	images []worldImage
@@ -61,6 +64,13 @@ type incusWorld struct {
 	// and its error replaces the command's reply, as when Incus applies a
 	// request and the client loses the answer.
 	after func(args []string) error
+	// write, when set, sees each write the file API receives before it
+	// lands, under mu: it may change what lands, keep it from landing, or
+	// hang the request unanswered until the next restart, as when the
+	// driver dies waiting for the answer.
+	write func(f *guestFile) (land, hang bool)
+	// operations are the Incus operations the project lists.
+	operations []worldOperation
 	// endpointErr and grantErr fail the host checks of the session's
 	// endpoint directory and grant sources.
 	endpointErr, grantErr error
@@ -72,10 +82,19 @@ type incusWorld struct {
 	// partialList truncates the next listing of the whole project.
 	partialList bool
 	// initialized and transitions count, by session UUID, the inits that
-	// created an instance and the starts and stops that reached one.
+	// created an instance and the starts and stops that reached one;
+	// deletedWhileRunning holds those a delete reached while running.
 	initialized, transitions map[string]int
+	deletedWhileRunning      map[string]bool
 	incarnations             int
 	exitOne                  error
+}
+
+// worldOperation is an Incus operation as `incus operation list` shows it:
+// its status code and the resources it acts on.
+type worldOperation struct {
+	StatusCode int                 `json:"status_code"`
+	Resources  map[string][]string `json:"resources"`
 }
 
 // worldImage is an image the project holds and the root tree a new instance
@@ -123,7 +142,8 @@ const worldHostReady = "active/running/success"
 
 func newIncusWorld(t *testing.T) *incusWorld {
 	t.Helper()
-	w := &incusWorld{t: t, initialized: map[string]int{}, transitions: map[string]int{}, containerLimit: "8"}
+	w := &incusWorld{t: t, initialized: map[string]int{}, transitions: map[string]int{}, deletedWhileRunning: map[string]bool{}, containerLimit: "8",
+		restarted: make(chan struct{})}
 	w.addImage(builderImageJSON{Fingerprint: testImage, Type: "container", Architecture: "x86_64", Size: 4096, Properties: map[string]string{"os": "NixOS"}},
 		map[string]guestFile{"/": {typ: "directory", uid: 0, gid: 0, mode: 0755}})
 	w.socket, w.stopServing = w.serve()
@@ -132,14 +152,16 @@ func newIncusWorld(t *testing.T) *incusWorld {
 
 // restart serves Incus on a new socket and closes the old one, so that a
 // driver made before it reaches nothing any more: its commands name the old
-// socket, and its file requests find no server.
+// socket, and its file requests find no server. What the old driver left
+// waiting is released only then.
 func (w *incusWorld) restart() {
 	socket, stop := w.serve()
 	w.mu.Lock()
-	old := w.stopServing
-	w.socket, w.stopServing = socket, stop
+	old, restarted := w.stopServing, w.restarted
+	w.socket, w.stopServing, w.restarted = socket, stop, make(chan struct{})
 	w.mu.Unlock()
 	old()
+	close(restarted)
 }
 
 func (w *incusWorld) addImage(image builderImageJSON, files map[string]guestFile) {
@@ -289,6 +311,8 @@ func (w *incusWorld) command(args []string) ([]byte, error) {
 			images = append(images, image.image)
 		}
 		return json.Marshal(images)
+	case slices.Equal(args, []string{"operation", "list", "--format", "json"}):
+		return json.Marshal(append([]worldOperation{}, w.operations...))
 	case len(args) == 3 && args[0] == "list" && args[1] == "--format":
 		listing, err := w.list("")
 		if w.partialList {
@@ -306,10 +330,27 @@ func (w *incusWorld) command(args []string) ([]byte, error) {
 		return nil, w.setStatus(args[1], "Running")
 	case len(args) >= 2 && args[0] == "stop":
 		return nil, w.setStatus(args[1], "Stopped")
+	case len(args) == 2 && args[0] == "delete":
+		return nil, w.delete(args[1])
 	case args[0] == "exec":
 		return w.exec(args)
 	}
 	return nil, fmt.Errorf("unexpected Incus command %v", args)
+}
+
+// delete deletes a stopped instance with its files. Like Incus without
+// --force, it refuses a running one; such a delete is recorded.
+func (w *incusWorld) delete(name string) error {
+	in := w.instance(name)
+	if in == nil {
+		return errors.New("Instance not found")
+	}
+	if in.status == "Running" {
+		w.deletedWhileRunning[in.config["user.p.session_uuid"]] = true
+		return errors.New("The instance is currently running, stop it first or use --force")
+	}
+	w.instances = slices.DeleteFunc(w.instances, func(other *worldInstance) bool { return other == in })
+	return nil
 }
 
 func (w *incusWorld) list(name string) ([]byte, error) {
@@ -588,29 +629,29 @@ func (w *incusWorld) serve() (socket string, stop func()) {
 	return socket, func() { _ = server.Close() }
 }
 
+// serveFile answers the file endpoint as Incus does: the components above
+// the last resolve through symlinks inside the instance's root, and a file
+// write follows a symlink at the path too; HEAD and GET report the last
+// component itself, with only its permission bits.
 func (w *incusWorld) serveFile(rw http.ResponseWriter, r *http.Request, instance string) {
+	name := r.URL.Query().Get("path")
+	if r.Method == http.MethodPost {
+		w.receiveFile(rw, r, instance, name)
+		return
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	in := w.instance(instance)
-	path := r.URL.Query().Get("path")
 	if in == nil {
 		rw.WriteHeader(http.StatusNotFound)
 		return
 	}
-	if r.Method == http.MethodPost {
-		mode, e1 := strconv.ParseInt(r.Header.Get("X-Incus-mode"), 8, 32)
-		uid, e2 := strconv.Atoi(r.Header.Get("X-Incus-uid"))
-		gid, e3 := strconv.Atoi(r.Header.Get("X-Incus-gid"))
-		data, e4 := io.ReadAll(r.Body)
-		if errors.Join(e1, e2, e3, e4) != nil {
-			rw.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		in.files[path] = guestFile{typ: r.Header.Get("X-Incus-type"), uid: uid, gid: gid, mode: int(mode), data: data}
-		return
+	var f guestFile
+	ok := false
+	if resolved, found := in.resolve(name, false); found {
+		f, ok = in.files[resolved]
 	}
-	f, ok := in.files[path]
-	if path == guestSystemdSocket {
+	if name == guestSystemdSocket {
 		// A running guest's systemd has its socket, which Incus reports
 		// as an empty file.
 		f, ok = guestFile{typ: "file", uid: 0, gid: 0, mode: 0700}, in.status == "Running"
@@ -631,7 +672,82 @@ func (w *incusWorld) serveFile(rw http.ResponseWriter, r *http.Request, instance
 	}
 }
 
-// serveSFTP answers SFTP LSTAT requests with the full mode of a path.
+// receiveFile lands a file write, unless the write hook keeps it from
+// landing or hangs it.
+func (w *incusWorld) receiveFile(rw http.ResponseWriter, r *http.Request, instance, name string) {
+	mode, e1 := strconv.ParseInt(r.Header.Get("X-Incus-mode"), 8, 32)
+	uid, e2 := strconv.Atoi(r.Header.Get("X-Incus-uid"))
+	gid, e3 := strconv.Atoi(r.Header.Get("X-Incus-gid"))
+	data, e4 := io.ReadAll(r.Body)
+	if errors.Join(e1, e2, e3, e4) != nil {
+		rw.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	f := guestFile{typ: r.Header.Get("X-Incus-type"), uid: uid, gid: gid, mode: int(mode), data: data}
+	w.mu.Lock()
+	in := w.instance(instance)
+	if in == nil {
+		w.mu.Unlock()
+		rw.WriteHeader(http.StatusNotFound)
+		return
+	}
+	land, hang := true, false
+	if w.write != nil {
+		land, hang = w.write(&f)
+	}
+	if land {
+		resolved, ok := in.resolve(name, f.typ == "file")
+		if !ok {
+			w.mu.Unlock()
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		}
+		in.files[resolved] = f
+	}
+	restarted := w.restarted
+	w.mu.Unlock()
+	if hang {
+		<-restarted
+	}
+}
+
+// resolve finds the path name names in the instance's root as the kernel
+// would inside it: every component above the last through symlinks, and
+// the last one too when follow is set. It is false when a component above
+// the last is missing or not a directory.
+func (in *worldInstance) resolve(name string, follow bool) (string, bool) {
+	pending := strings.Split(path.Clean("/"+name), "/")
+	current := "/"
+	for hops := 0; len(pending) != 0; {
+		part := pending[0]
+		pending = pending[1:]
+		if part == "" {
+			continue
+		}
+		next := path.Join(current, part)
+		f, ok := in.files[next]
+		if ok && f.typ == "symlink" && (len(pending) != 0 || follow) {
+			if hops++; hops > 40 {
+				return "", false
+			}
+			target := string(f.data)
+			if !path.IsAbs(target) {
+				target = path.Join(current, target)
+			}
+			pending = append(strings.Split(path.Clean(target), "/"), pending...)
+			current = "/"
+			continue
+		}
+		if len(pending) != 0 && (!ok || f.typ != "directory") {
+			return "", false
+		}
+		current = next
+	}
+	return current, true
+}
+
+// serveSFTP answers the SFTP requests the driver makes: LSTAT with the full
+// mode of a path, a directory's listing, and the removal of a path.
 func (w *incusWorld) serveSFTP(rw http.ResponseWriter, instance string) {
 	conn, buffered, err := rw.(http.Hijacker).Hijack()
 	if err != nil {
@@ -647,39 +763,115 @@ func (w *incusWorld) serveSFTP(rw http.ResponseWriter, instance string) {
 	if writePacket(conn, []byte{0, 0, 0, 5, 2, 0, 0, 0, 3}) != nil {
 		return
 	}
+	// listed holds the open directory handles, true once read to the end.
+	listed := map[string]bool{}
 	for {
 		request, err := readSFTPPacket(reader)
-		if err != nil || len(request) < 9 || request[0] != 7 {
+		if err != nil || len(request) < 9 {
 			return
 		}
 		w.mu.Lock()
-		var f guestFile
-		ok := false
+		reply := sftpStatus(request[1:5], 2) // no such file
 		if in := w.instance(instance); in != nil {
-			f, ok = in.files[string(request[9:])]
+			reply = in.sftp(request[0], request[1:5], string(request[9:]), listed)
 		}
 		w.mu.Unlock()
-		if writePacket(conn, sftpReply(request[1:5], f, ok)) != nil {
+		if writePacket(conn, reply) != nil {
 			return
 		}
 	}
 }
 
-func sftpReply(id []byte, f guestFile, ok bool) []byte {
-	be := binary.BigEndian
-	if !ok {
-		reply := append([]byte{0, 0, 0, 0, 101}, id...)
-		reply = be.AppendUint32(reply, 2) // no such file
-		reply = be.AppendUint32(be.AppendUint32(reply, 0), 0)
-		be.PutUint32(reply, uint32(len(reply)-4))
-		return reply
+// sftp answers one SFTP request of op with id on arg, a path or a directory
+// handle.
+func (in *worldInstance) sftp(op byte, id []byte, arg string, listed map[string]bool) []byte {
+	const ok, eof, missing, failure = 0, 1, 2, 4
+	lookup := func(follow bool) (string, guestFile, bool) {
+		resolved, found := in.resolve(arg, follow)
+		f, exists := in.files[resolved]
+		return resolved, f, found && exists
 	}
-	kind := map[string]uint32{"directory": 0040000, "file": 0100000, "symlink": 0120000}[f.typ]
-	reply := append([]byte{0, 0, 0, 0, 105}, id...)
+	switch op {
+	case 7: // SSH_FXP_LSTAT
+		_, f, exists := lookup(false)
+		if !exists {
+			return sftpStatus(id, missing)
+		}
+		return sftpAttrs(id, f)
+	case 11: // SSH_FXP_OPENDIR
+		dir, f, exists := lookup(true)
+		if !exists || f.typ != "directory" {
+			return sftpStatus(id, missing)
+		}
+		listed[dir] = false
+		return sftpPacket(append(append([]byte{102}, id...), sftpString(dir)...))
+	case 12: // SSH_FXP_READDIR
+		done, open := listed[arg]
+		if !open {
+			return sftpStatus(id, failure)
+		}
+		listed[arg] = true
+		names := in.children(arg)
+		if done || len(names) == 0 {
+			return sftpStatus(id, eof)
+		}
+		reply := binary.BigEndian.AppendUint32(append([]byte{104}, id...), uint32(len(names)))
+		for _, name := range names {
+			reply = binary.BigEndian.AppendUint32(append(append(reply, sftpString(name)...), sftpString(name)...), 0)
+		}
+		return sftpPacket(reply)
+	case 4: // SSH_FXP_CLOSE
+		delete(listed, arg)
+		return sftpStatus(id, ok)
+	case 13, 15: // SSH_FXP_REMOVE, SSH_FXP_RMDIR
+		name, f, exists := lookup(false)
+		switch {
+		case !exists:
+			return sftpStatus(id, missing)
+		case (f.typ == "directory") != (op == 15) || len(in.children(name)) != 0:
+			return sftpStatus(id, failure)
+		}
+		delete(in.files, name)
+		return sftpStatus(id, ok)
+	}
+	return sftpStatus(id, 8) // unsupported
+}
+
+// children are the names directly inside the directory dir.
+func (in *worldInstance) children(dir string) []string {
+	var names []string
+	for name := range in.files {
+		if name != dir && path.Dir(name) == dir {
+			names = append(names, path.Base(name))
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// sftpAttrs is the LSTAT reply for f: its owner and full mode. A path that
+// is neither a directory, a regular file nor a symlink is a FIFO.
+func sftpAttrs(id []byte, f guestFile) []byte {
+	be := binary.BigEndian
+	kind := map[string]uint32{"directory": 0040000, "file": 0100000, "symlink": 0120000, "other": 0010000}[f.typ]
+	reply := append([]byte{105}, id...)
 	reply = be.AppendUint32(reply, 6) // uid, gid and permissions
 	reply = be.AppendUint32(be.AppendUint32(be.AppendUint32(reply, uint32(f.uid)), uint32(f.gid)), kind|uint32(f.mode))
-	be.PutUint32(reply, uint32(len(reply)-4))
-	return reply
+	return sftpPacket(reply)
+}
+
+func sftpStatus(id []byte, code uint32) []byte {
+	be := binary.BigEndian
+	return sftpPacket(be.AppendUint32(be.AppendUint32(be.AppendUint32(append([]byte{101}, id...), code), 0), 0))
+}
+
+func sftpString(s string) []byte {
+	return append(binary.BigEndian.AppendUint32(nil, uint32(len(s))), s...)
+}
+
+// sftpPacket prefixes body with its length.
+func sftpPacket(body []byte) []byte {
+	return append(binary.BigEndian.AppendUint32(nil, uint32(len(body))), body...)
 }
 
 // testSessionSpec is a valid spec of a new session of the project team/app on

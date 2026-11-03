@@ -27,7 +27,7 @@ type lifecycle struct {
 	cfg              control.RuntimeConfig
 	incus            runtimeincus.DriverConfig // the Incus driver's own settings from cfg.Driver
 	git              *gitCapability
-	runtime          *runtimeincus.Backend // the backend calls that later migration steps move into the driver
+	runtime          *runtimeincus.Backend // attachment's backend calls, until terminals move into the driver
 	driver           runtimedriver.Driver
 	hostPlan         plugin.AssetPlan
 	sourcePlan       plugin.AssetPlan
@@ -1169,7 +1169,7 @@ func (l *lifecycle) createRuntime(ctx context.Context, op *api.Operation, spec r
 		_, err = l.driver.Start(ctx, spec)
 		return control.Failed(api.ReasonRuntime, err)
 	case observed.State == runtimedriver.StateAbsent:
-		_, err = l.driver.Create(ctx, spec, "", l.creationInitGate(ctx, op))
+		err = l.initRuntime(ctx, op, spec)
 	case observed.Incarnation == "":
 		err = errors.New("creating runtime has no incarnation to complete")
 	default:
@@ -1187,6 +1187,34 @@ func (l *lifecycle) createRuntime(ctx context.Context, op *api.Operation, spec r
 	}
 	_, err = l.driver.Start(ctx, spec)
 	return control.Failed(api.ReasonRuntime, err)
+}
+
+// initRuntime creates the absent runtime of a creation through its init
+// gate. An init whose outcome is unknown, this one's or an earlier
+// attempt's, is settled and never sent again: a runtime the driver settles
+// as initialized is completed at its incarnation, and any other answer
+// keeps the creation blocked.
+func (l *lifecycle) initRuntime(ctx context.Context, op *api.Operation, spec runtimedriver.Session) error {
+	gate := l.creationInitGate(ctx, op)
+	sent, attempted := false, false
+	_, err := l.driver.Create(ctx, spec, "", tracked(func() error {
+		err := gate()
+		attempted = errors.Is(err, errCreationInitUnknown)
+		return err
+	}, &sent))
+	if err == nil || !sent && !attempted {
+		return err
+	}
+	settled, settleErr := l.driver.Settle(ctx, runtimedriver.Effect{Kind: runtimedriver.EffectCreate, Target: runtimedriver.Target{Session: spec}})
+	if settleErr != nil || settled != runtimedriver.Applied {
+		return errors.Join(err, settleErr)
+	}
+	observed, err := l.driver.Inspect(ctx, spec)
+	if err != nil || observed.Incarnation == "" {
+		return errors.Join(err, errors.New("settled creation runtime has no incarnation to complete"))
+	}
+	_, err = l.driver.Create(ctx, spec, observed.Incarnation, nil)
+	return err
 }
 
 // creationInitGate is the gate of a creation's runtime init. A session
@@ -1326,27 +1354,6 @@ func (l *lifecycle) sessionAssets() []runtimedriver.Asset {
 	return assets
 }
 
-// nativeSession is the Incus backend's session of s, for the backend calls
-// that later migration steps move into the driver.
-func (l *lifecycle) nativeSession(ctx context.Context, s control.Session) (runtimeincus.Session, error) {
-	_, native, err := l.sessionSpecs(ctx, s)
-	return native, err
-}
-
-// sessionSpecs is the driver's spec of s and the Incus backend's session of
-// it, for code that makes backend calls next to driver ones.
-func (l *lifecycle) sessionSpecs(ctx context.Context, s control.Session) (runtimedriver.Session, runtimeincus.Session, error) {
-	spec, err := l.sessionSpec(ctx, s)
-	if err != nil {
-		return runtimedriver.Session{}, runtimeincus.Session{}, err
-	}
-	native, err := l.runtime.NativeSession(spec)
-	return spec, native, err
-}
-
-// publicSessionIPv4 is the public egress address of a session with policy,
-// or empty for a session without network. A public-egress session needs the
-// configured substrate its policy captured, and its own address slot.
 func (l *lifecycle) publicSessionIPv4(ctx context.Context, sessionID string, policy control.ProjectPolicy) (string, error) {
 	if policy.Network == "none" {
 		return "", nil

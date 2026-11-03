@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -522,6 +523,9 @@ func (b *Backend) builderTransition(ctx context.Context, r Builder, action strin
 
 // validBundleRef accepts the one ref a source export names: a plain ref
 // below refs/ that a fixed Git argv can carry.
+// safeGitToken is a ref name P accepts in a builder's bundle.
+var safeGitToken = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$`)
+
 func validBundleRef(ref string) bool {
 	name, ok := strings.CutPrefix(ref, "refs/")
 	if !ok || !safeGitToken.MatchString(name) || strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".lock") || strings.Contains(name, "//") {

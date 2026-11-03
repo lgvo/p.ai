@@ -225,6 +225,10 @@ type WorkspaceControls interface {
 	// grants and in its endpoint directory, and returns the file's
 	// contents.
 	Markers(s runtimedriver.Session) []byte
+	// SetRoot gives the workspace root of the runtime of the reference an
+	// owner and permission bits, as the session could have. On Incus: the
+	// owner and mode of /workspace in the instance's storage.
+	SetRoot(r runtimedriver.Ref, uid, gid int, mode uint32)
 }
 
 // TerminalControls reach the guest side of attachments.

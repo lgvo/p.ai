@@ -74,10 +74,10 @@ proves these properties; the conformance suite
 | Identity | Labels stored and returned exactly; an incarnation stable across stop and start, new on re-create or restore. | `user.p.*` keys, `volatile.uuid` and its generation, image properties. |
 | Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints` and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. | Disk devices within the project's ceilings ([filesystem grants](#filesystem-grants)). |
 
-So far core reaches images, session inspection, creation, start and stop,
-project services, the boundary check and the inventory through the driver,
-and computes admission and the proofs of absence from the driver's `Inspect`
-and `Inventory`. Terminals, removal and rename still reach Incus directly.
+So far core reaches images, sessions, project services, the boundary check,
+the inventory, removal and the workspace through the driver, and computes
+admission and the proofs of absence from the driver's `Inspect` and
+`Inventory`. Only terminals still reach Incus directly.
 
 A proof of absence runs inside a boundary `Check` has just proven. A runtime
 is gone only when `Inspect` finds nothing at its address and a complete
@@ -606,30 +606,38 @@ and never freezes a running session. Deletions do not read the workspace at
 all: they state loss by category
 ([session lifecycle](session-lifecycle.md#runtime-local-loss)). Rename's
 workspace Git changes must not run repository hooks, activation, or the
-interactive command. The Incus backend therefore exposes a closed
-`WorkspaceOperation` set that uses Incus file facilities on the stopped
-instance; P creates no helper container for it. It must:
+interactive command. Core therefore makes them itself, under the lifecycle
+lock, through the driver's three workspace operations, `ReadWorkspace`,
+`WriteWorkspace` and `RemoveWorkspace`, with paths relative to the workspace
+root; P creates no helper container for them. The operations:
 
-- operate under the lifecycle lock on the exact stopped instance (Incus UUID
-  and generation);
-- expose only the workspace and explicitly required runtime-owned paths;
-- start no process in the instance and use no external grant, session
+- act only on the stopped runtime at the incarnation the rename recorded (on
+  Incus, the instance UUID and its generation), and refuse a running one;
+- reach only the session's private storage, never following a symlink at or
+  above the path ([stopped storage](#runtime-driver));
+- start no process in the runtime and use no external grant, session
   credential, network, or project activation;
-- never run Git hooks, helpers, monitors, or ambient Git configuration;
-- accept enumerated operations with structured arguments; and
-- return bounded structured results.
+- read and write exact type, owner, mode and bytes within a bound; and
+- call the caller's gate right before a write or a removal, so that core
+  records its intent first. One whose outcome is unknown is settled through
+  `Settle`, never sent again.
+
+On Incus they use the file API of the stopped instance. Core reads only the
+clone's Git administration files and never runs Git hooks, helpers, monitors,
+or ambient Git configuration.
 
 The P base image uses static local account lookup (`files` for passwd/group)
 and does not run nscd/nsncd. Hostname lookup uses `files dns`; additional NSS
 modules and dynamic account providers are outside this substrate contract.
 This image configuration does not change the host's name services.
 
-The same non-activating mechanism may read the fixed P-owned systemd journal
-and diagnostic paths from a stopped instance. It does not start the instance
-or treat logs as lifecycle authority.
+The Incus driver reads the fixed P-owned systemd journal and diagnostic paths
+of a stopped instance through the same file API (`HostLog`). It does not start
+the instance or treat logs as lifecycle authority.
 
-The MVP set covers rename's branch, ref and upstream reads and edits. It never
-accepts arbitrary argv, reset, clean, automatic commit, or force-push.
+Rename's reads and edits cover only the clone's HEAD, branch ref, reflog,
+upstream configuration and its own backup file. P never runs arbitrary argv,
+reset, clean, automatic commit, or force-push in a workspace.
 
 ## Reconciliation and cleanup
 
@@ -672,21 +680,24 @@ persists answers `failed` with reason `runtime`, never an identity mismatch.
 
 Discard removes the verified Incus instance, its private root, endpoint
 directory, and session credentials while retaining the P branch. After the
-removal commit point, discard and delete force-stop a running instance before
-deleting it. Before it inspects the instance for the stop and for the delete,
-P polls Incus's operation list, for at most 15 seconds, until it shows no
-unfinished operation on the instance: an exec whose client was killed before it
-connected stays listed for up to 10 seconds. An operation still unfinished
-after the wait blocks the removal until Retry. Discard never deletes an image
-itself; once no session started from the session's commit remains, the
-daemon's release step deletes that commit's image
+removal commit point, discard and delete stop a running instance in the three
+steps above, through the driver's `Stop`, then delete it through the driver's
+`Delete` at the reviewed incarnation. Before `Delete` inspects the instance, it
+polls Incus's operation list, for at most 15 seconds, until it shows no
+unfinished operation on the instance: an exec whose client was killed before
+it connected stays listed for up to 10 seconds. An operation still unfinished
+after the wait blocks the removal until Retry. A delete whose outcome is
+unknown is settled through `Settle` and never sent again. Discard never
+deletes an image itself; once no session started from the session's commit
+remains, the daemon's release step deletes that commit's image
 ([environment building](environment-building.md#lookup-concurrency-and-image-lifetime)).
 
 Confirmed failed-creation cleanup of an assembled runtime deletes only the
 exact stopped instance it reviewed: native deletion targets the reviewed
 UUID/generation and owned inventory after atomic authority retirement. Unknown
-delete admission or effects retain the source identity and cleanup guard; a
-name alone never authorizes another deletion. The supported creation/policy
+delete admission or effects retain the source identity and cleanup guard
+until the driver settles the delete as applied; nothing authorizes another
+deletion. The supported creation/policy
 boundary belongs to
 [session lifecycle](session-lifecycle.md#confirmed-failed-create-cleanup).
 

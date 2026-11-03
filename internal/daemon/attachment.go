@@ -137,12 +137,23 @@ func (l *lifecycle) reserveAttachment(id string, spec plugin.AttachSpec) (api.Pe
 	l.attachments[token] = &attachment{session: id, expires: expires, spec: spec}
 	return api.PendingAttachment{Token: token, ExpiresAt: expires, Spec: spec}, nil
 }
+
+// attachmentSession is the Incus backend's session of s, which attachment
+// reads until terminals move into the driver.
+func (l *lifecycle) attachmentSession(ctx context.Context, s control.Session) (runtimeincus.Session, error) {
+	spec, err := l.sessionSpec(ctx, s)
+	if err != nil {
+		return runtimeincus.Session{}, err
+	}
+	return l.runtime.NativeSession(spec)
+}
+
 func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.AttachSpec, error) {
 	s, err := startEligible(ctx, id, l.store.GetSession, l.policyCondition)
 	if err != nil {
 		return plugin.AttachSpec{}, err
 	}
-	native, err := l.nativeSession(ctx, s)
+	native, err := l.attachmentSession(ctx, s)
 	if err != nil {
 		return plugin.AttachSpec{}, err
 	}
@@ -243,7 +254,7 @@ func (l *lifecycle) ConfirmAttachment(ctx context.Context, conn *control.Connect
 	if err != nil {
 		return err
 	}
-	native, err := l.nativeSession(ctx, session)
+	native, err := l.attachmentSession(ctx, session)
 	if err != nil {
 		return err
 	}

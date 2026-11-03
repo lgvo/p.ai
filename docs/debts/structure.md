@@ -3,12 +3,14 @@
 ## Lifecycle workers depend on concrete runtime, store and Git types
 
 - Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
-- Problem: Workers call a concrete `*runtimeincus.Backend` (11 methods, about 26 calls),
-  `*control.Store` and `*gitCapability`, so no worker can run against a stand-in.
-- Evidence: daemon statement coverage is 18.7%; every `process*` worker except
-  `processCreateCleanup` and `processRetainedRename` is at 0%.
-- Risk: discard, delete, rename and project delete are checked only by the serial VM
-  suite; a regression in a recovery branch surfaces late or not at all.
+- Problem: Workers call the concrete `*control.Store` and `*gitCapability`, and attachment
+  a concrete `*runtimeincus.Backend` (3 methods, 3 calls), so no worker can run against a
+  stand-in store or Git service.
+- Evidence: daemon statement coverage is 64.5% (2026-11-03); the removal and rename workers
+  run in unit tests only over a real SQLite store and a real Git repository, and
+  `processRetainedDelete` is at 0%.
+- Risk: a store or Git failure in a recovery branch is checked only where a real store or
+  repository can be made to fail, and otherwise only by the serial VM suite.
 - Fix: give the workers narrow interfaces grouped by native sub-protocol (builder,
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
@@ -65,6 +67,13 @@
     confinement check to `Check`; removal, rename and attachment still call the backend,
     which took the runtime to 11 methods and 26 calls. The workers that call the proofs are
     still checked only by VM scenarios.
+  - 2026-11-03: "removal, rename's workspace edits and creation recovery through the runtime
+    driver" moved discard, delete, project deletion and assembled cleanup to the driver's
+    `Inspect`, `Stop`, `Delete` and `Settle`, and rename's Git edits into core over the
+    workspace operations; only attachment calls the backend, 3 methods and 3 calls. Those
+    workers are now unit-tested on the in-memory driver with a real store and Git
+    repository (runtime_removal_test.go, rename_test.go), which needed no store or Git
+    stand-in.
 
 ## Long worker functions
 
@@ -76,7 +85,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 9 cases:
+- Added 2026-11-01, updated 2026-11-03, 10 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -102,6 +111,12 @@
   - 2026-11-03: "core computes the proofs from the driver's inventory" replaced the proof
     calls in `processProjectDelete`, `processDiscard` and `processAssembledCreateCleanup`
     one for one; their lengths are unchanged.
+  - 2026-11-03: "removal, rename's workspace edits and creation recovery through the runtime
+    driver" moved rename's Git edits to workspace_rename.go and the delete and its
+    settlement to runtime_removal.go; resuming an issued stop and settling an issued delete
+    took `processDiscard` from 239 lines to 252, `processAssembledCreateCleanup` from 170 to
+    181, `processRename` from 201 to 219 and `processProjectDelete` from 310 to 305
+    (counted from `func` to the closing brace).
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
@@ -141,9 +156,9 @@
 
 ## Incus exec and HTTP access is hand-built in many places
 
-- Where: internal/runtimeincus (driver_services.go, builder.go, builder_nix.go, host_observe.go,
-  attach.go, builder_architecture.go, assembly.go, sftp_stat.go, graceful_stop.go) and
-  internal/attachment incus.go
+- Where: internal/runtimeincus (driver_services.go, driver_workspace.go, builder.go,
+  builder_nix.go, host_observe.go, attach.go, builder_architecture.go, assembly.go,
+  sftp_stat.go, graceful_stop.go) and internal/attachment incus.go
 - Problem: The `incus exec` argument lists and the HTTP-over-socket clients are written
   separately, each with its own environment and limits.
 - Evidence: listed while mapping the adapters on 2026-11-01.
@@ -152,7 +167,7 @@
 - Fix when: the next change to how P reaches Incus.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
   step 8 consolidates only the instance inventory).
-- Added 2026-11-01, updated 2026-11-02, 5 cases:
+- Added 2026-11-01, updated 2026-11-03, 6 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
   - 2026-11-02: "deletions without inspection" deleted workspace_git.go and
     workspace_helper.go with the workspace helpers, and their exec and file-API clients.
@@ -168,6 +183,10 @@
     environment list. It added one more HTTP-over-socket client, builder.go `putStream`,
     which streams the source bundle into the builder: a change to how P reaches Incus that
     meets "Fix when", with consolidation outside the step.
+  - 2026-11-03: "removal, rename and creation recovery through the driver" gave the driver
+    workspace operations over the stopped instance's file API that add SFTP REMOVE, RMDIR
+    and a directory listing on `openIncusSFTP`, and generalized `writeSFTPRequest`; no new
+    client, and consolidation stays outside the step.
 
 ## Trusted configuration and the RPC server live in the store package
 
@@ -261,7 +280,7 @@
 - Where: internal/runtimeincus backend.go `initSession` and `validIdentity`, builder.go
   `createBuilder` and `validBuilderIdentity`, driver.go `builderLeftover` and
   `carriesBuild`, inventory.go `sessionLabelKeys`, `builderLabelKeys` and
-  `instanceInventory`
+  `instanceInventory`, driver_delete.go `sessionRuntime`
 - Problem: The `user.p.*` metadata keys are string literals where an instance is labeled
   and where it is checked, and inventory.go lists the same keys again to read them back as
   the driver's labels. `instanceInventory` refuses the placeholder Incus lists for an
@@ -299,4 +318,7 @@
     this entry and the miscounted builder; the metadata keys are still literals,
     inventory.go's label tables are a second list of them, and `instanceInventory` still
     refuses the placeholder of an instance Incus cannot render.
+  - 2026-11-03: "removal, rename and creation recovery through the driver" gave the driver
+    a session `Delete` whose `sessionRuntime` reads `user.p.instance_uuid` as one more
+    literal.
 

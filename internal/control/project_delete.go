@@ -48,7 +48,8 @@ func CommitImageClaimViews(claims []CommitImageClaim) []api.CommitImageClaim {
 
 // ProjectDeleteResource is one resource a project deletion removes, and its
 // progress. StopIssued and DeleteIssued record a native stop or delete as
-// issued right before it starts; neither is ever issued again.
+// issued right before it starts. A delete is never issued again; a stop,
+// which is idempotent, is sent again while the runtime still runs.
 type ProjectDeleteResource struct {
 	Kind         string `json:"kind"`
 	ID           string `json:"id"`

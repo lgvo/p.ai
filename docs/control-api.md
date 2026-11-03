@@ -1161,7 +1161,7 @@ Before the removal commit point, a changed assigned tip, a replaced container
 (changed Incus UUID or generation) or a reappearing missing runtime
 fails the operation at `stale`, releases its guard, and leaves the branch and
 session intact. An accepted run commits removal, disables session authority,
-force-stops a running container, removes the exact owned runtime and P-owned
+stops a running container, removes the exact owned runtime and P-owned
 endpoint/key, and ends the assignment while retaining the planned P branch.
 With a missing assigned ref there is no branch to retain, so Discard ends like
 a Delete. A revoked or missing Git principal registration and a missing host
@@ -1169,9 +1169,10 @@ key file do not stop removal; a host key file with an unexpected owner, mode or
 link count still blocks the key removal. While the operation runs, Start,
 Stop, Attach and service requests answer `retry` naming it, and `conflict`
 with reason `operation_blocked` once it is blocked. The same key and request
-replay the operation. An uncertain native stop/delete stays guarded and
-blocked for investigation; P does not retry a name-targeted request against a
-possible replacement.
+replay the operation. A stop whose outcome was lost is sent again on Retry,
+since stopping is idempotent. A delete whose outcome was lost is never sent
+again: it stays guarded and blocked, with reason `outcome_unknown`, until the
+runtime driver settles it as applied.
 
 Delete applies the same pre-commit stale checks, and a changed `branch_loss`
 is also stale. The exact runtime, endpoint, and key cleanup is the same. After
@@ -1197,10 +1198,12 @@ Start is refused while the rename runs, and a session started between the
 request and the work fails as stale before any effect. Local commits ahead of
 P, untracked files, private session state, and sibling refs remain. The same
 key and exact request replay the operation. A proven refusal before any
-effect may fail and release the guards; an uncertain Incus or Git effect
-remains blocked for exact recovery or investigation. The current supported
-workspace layout is a single ordinary worktree with loose branch refs; other
-layouts return unavailable before the ref commit point.
+effect may fail and release the guards; an uncertain workspace or Git effect
+remains blocked for exact recovery or investigation. A workspace write or
+removal whose outcome was lost is never sent again: rename goes on only once
+the runtime driver settles it as applied, also on a retry or after a restart.
+The current supported workspace layout is a single ordinary worktree with loose
+branch refs; other layouts return unavailable before the ref commit point.
 
 ## Project deletion
 
@@ -1281,9 +1284,10 @@ principals inactive. The call returns the operation at once. Follow it with
 same confirmed outcome; it does not grant replacement machinery.
 
 A stop or a delete of a session's container is recorded as issued before it
-starts, and is never dispatched again: a container still running after an
-issued stop leaves the deletion blocked with reason `outcome_unknown`.
-Available name and full inventory checks may positively prove absence after a
+starts. A stop is sent again while the container still runs, since stopping is
+idempotent; an issued delete is never dispatched again. Only once the runtime
+driver settles it as applied, even when the container already looks absent,
+may available name and full inventory checks positively prove absence after a
 crash; a still-present, renamed, competing or uncertain source keeps cleanup
 blocked for investigation. Indexed commit images are deleted exactly, through
 the runtime driver, only after runtime absence, and their index rows with

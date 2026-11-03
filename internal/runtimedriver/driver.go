@@ -77,7 +77,9 @@ type Driver interface {
 	// of a stopped session at t.At, with paths relative to the workspace
 	// root. They never run code the session or its repository can change,
 	// never follow symlinks, and reach only the session's private storage.
-	// ReadWorkspace reports a missing path as a File of type FileAbsent.
+	// ReadWorkspace reports a missing path as a File of type FileAbsent. It
+	// also reads ".", the workspace root itself: a directory, with its owner
+	// and mode. The root is never written or removed.
 	ReadWorkspace(ctx context.Context, t Target, path string, limit int64) (File, error)
 	WriteWorkspace(ctx context.Context, t Target, path string, f File, g Gate) error
 	RemoveWorkspace(ctx context.Context, t Target, path string, g Gate) error

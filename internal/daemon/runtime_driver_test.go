@@ -240,6 +240,72 @@ func TestCreationWithAnUnknownInitOutcomeNeverInitializesAgain(t *testing.T) {
 	}
 }
 
+// lateAdmission is a driver whose backend admits a delayed effect right
+// before the next Settle observes it: the effect happened, its reply was
+// lost.
+type lateAdmission struct {
+	*memory.Driver
+	late *memory.Admission
+}
+
+func (d lateAdmission) Settle(ctx context.Context, e runtimedriver.Effect) (runtimedriver.Settlement, error) {
+	d.late.Land()
+	return d.Driver.Settle(ctx, e)
+}
+
+func TestCreationCompletesARuntimeWhoseUnansweredInitTheDriverSettlesApplied(t *testing.T) {
+	f := newDriverFixture(t, runtimedriver.Capabilities{})
+	op := f.atPrincipalsReady()
+	f.l.driver = lateAdmission{memory.NewDriver(f.world), f.world.Delay(runtimedriver.EffectCreate)}
+	if err := f.l.createRuntime(f.ctx, &op, f.spec()); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.world.Initializations(f.ref()); n != 1 {
+		t.Fatalf("%d initializations, want the unanswered one only", n)
+	}
+	if o := f.observe(); o.State != runtimedriver.StateRunning || !o.Complete || !o.Host.Ready {
+		t.Fatalf("settled runtime %+v, want running, complete and ready", o)
+	}
+}
+
+func TestCreationRetryCompletesARuntimeTheDriverSettlesApplied(t *testing.T) {
+	f := newDriverFixture(t, runtimedriver.Capabilities{})
+	op := f.atPrincipalsReady()
+	late := f.world.Delay(runtimedriver.EffectCreate)
+	if err := f.l.createRuntime(f.ctx, &op, f.spec()); !errors.Is(err, runtimedriver.ErrUnknownOutcome) {
+		t.Fatalf("unanswered init: %v, want an unknown outcome", err)
+	}
+	// The retry finds the runtime absent; the init lands before Settle looks.
+	f.l.driver = lateAdmission{memory.NewDriver(f.world), late}
+	op = f.operation()
+	if err := f.l.createRuntime(f.ctx, &op, f.spec()); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.world.Initializations(f.ref()); n != 1 {
+		t.Fatalf("%d initializations, want the late one only", n)
+	}
+	if o := f.observe(); o.State != runtimedriver.StateRunning || !o.Complete {
+		t.Fatalf("settled runtime %+v, want running and complete", o)
+	}
+}
+
+func TestCreationStaysBlockedWhenTheDriverProvesTheInitNeverLanded(t *testing.T) {
+	f := newDriverFixture(t, runtimedriver.Capabilities{})
+	op := f.atPrincipalsReady()
+	late := f.world.Delay(runtimedriver.EffectCreate)
+	if err := f.l.createRuntime(f.ctx, &op, f.spec()); !errors.Is(err, runtimedriver.ErrUnknownOutcome) {
+		t.Fatalf("unanswered init: %v, want an unknown outcome", err)
+	}
+	late.Drop()
+	op = f.operation()
+	if err := f.l.createRuntime(f.ctx, &op, f.spec()); err == nil || !strings.Contains(err.Error(), "absent runtime cannot authorize another init") {
+		t.Fatalf("retry after a dropped init: %v", err)
+	}
+	if n := f.world.Initializations(f.ref()); n != 0 || f.observe().State != runtimedriver.StateAbsent {
+		t.Fatalf("a retry initialized %d runtimes", n)
+	}
+}
+
 func TestCreationCompletesAnInterruptedRuntimeAtItsIncarnation(t *testing.T) {
 	f := newDriverFixture(t, runtimedriver.Capabilities{})
 	op := f.atPrincipalsReady()

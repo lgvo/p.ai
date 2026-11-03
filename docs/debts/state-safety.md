@@ -99,9 +99,12 @@
 - Fix when: step 8's M3 (`Inventory`), or the first time such an orphan is seen.
 - Left by: the agent, by rule (behavior left untested: needs the driver's inventory, which
   the plan places in a later step).
-- Added 2026-11-02, 1 case:
+- Added 2026-11-02, updated 2026-11-03, 2 cases:
   - 2026-11-02: "one image per source commit" gave each build attempt its own reference
     and review found the late-admission case.
+  - 2026-11-03: "core computes the proofs from the driver's inventory" (step 8, M3) made
+    `Inventory` list builders with their build references, which meets "Fix when"; collecting
+    orphans was outside that step and the next.
 
 ## A failed Git read of a creation's source answers that the source is missing
 

@@ -249,10 +249,11 @@ workspace at all: P states its loss by category
 itself after the removal commit point.
 
 Workspace access does not authorize the daemon to run Git inside its ambient
-host context. The Incus backend uses the closed, non-activating workspace
-interface in
-[runtime and isolation](runtime-isolation.md#non-activating-workspace-access).
-A future backend that cannot provide that isolation cannot implement rename.
+host context. Rename reads and writes the clone's Git administration files
+only through the runtime driver's workspace operations on the stopped session
+at the incarnation it recorded
+([runtime and isolation](runtime-isolation.md#non-activating-workspace-access)).
+A driver that cannot provide them cannot implement rename.
 
 ## Create
 
@@ -333,6 +334,13 @@ Before it records or sends the runtime init, the driver's `Create` proves that
 nothing in its whole scope carries the session UUID. A missing deterministic
 name is not enough: a renamed runtime is never treated as permission to create
 a duplicate.
+
+An init whose outcome is unknown is never sent again: the reply was lost, or
+the creation finds its recorded init attempt and no runtime at the session's
+address. P asks the driver to settle the init. When the driver settles it as
+applied, the runtime exists and P completes it at its incarnation with
+`Create`, which never initializes another; any other answer keeps the creation
+blocked.
 
 ### Failure, cancellation, and retry
 
@@ -474,8 +482,10 @@ the creator's Retry, replay, reconciliation or stale worker from advancing,
 including after daemon restart. Ambiguous effects keep their guard.
 Authority retirement occurs atomically at native deletion admission; from that
 point Retry/restart only ensures the confirmed resources absent. An uncertain
-delete outcome never permits another name-only deletion. Its diagnostic retains
-the unresolved identity for manual Incus investigation.
+delete outcome is settled through the runtime driver and never permits another
+deletion: a delete the driver settles as applied lets the cleanup go on to
+prove the runtime absent. Otherwise its diagnostic retains the unresolved
+identity for manual Incus investigation.
 
 Only after `status:"completed", phase:"cleaned"` may a separate Create reuse the
 preserved branch. Correct the source with ordinary Git, commit and push it to P,
@@ -642,7 +652,16 @@ ordinary ahead state for corruption.
 Before a native or Git effect is attempted, a proven refusal may release the
 reservation and retain the old mapping. An attempted backup write or
 new-ref creation with an unknown outcome keeps both guards until its exact
-outcome is established. The new-ref-create-issued phase can already have
+outcome is established. Each write and removal in the workspace passes a gate
+that records the rename's phase, or for the backup's removal, that the removal
+was sent. One whose reply was lost is settled through
+the runtime driver and never sent again: the phase advances only when the
+driver finds the file exactly as intended, and otherwise the rename stays
+blocked. A recovery that finds the backup write or the workspace rename issued
+first has the driver settle every edit it may have sent, as the clone and the
+backup plan it, then verifies; an edit it finds missing is reported unresolved
+rather than written again. Every attempt after the backup's removal was sent
+first settles that removal. The new-ref-create-issued phase can already have
 created the new P ref, so it cannot roll back on an immediate absence
 observation. At and after a verified `new-ref-created`,
 recovery completes forward to the new name. Start and attach remain blocked
@@ -786,8 +805,14 @@ After an accepted run, discard completes forward through:
 2. revalidate the assigned tip, runtime identity, and missing-runtime proof;
 3. if the planned facts still hold, mark the registry and operation
    `removing` and disable the session's P Git and session-RPC authority;
-4. persist the runtime-removal commit point, force-stop a running runtime,
-   then request Incus removal;
+4. persist the runtime-removal commit point; record the stop and stop a
+   running runtime as [Stop](#stop) does, sending the stop again when a
+   recovery finds it recorded, since stopping is idempotent; then record the
+   delete and ask the runtime driver to delete the runtime at its reviewed
+   incarnation. A delete whose outcome is unknown is settled through the
+   driver and never sent again: only a delete the driver settles as applied
+   lets the removal go on to prove the runtime absent, and any other answer
+   keeps it blocked;
 5. request each participating plugin's required credential revocation and
    remove P-owned local secret copies;
 6. remove other session credentials;

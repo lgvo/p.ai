@@ -25,6 +25,10 @@ func prepareCreationInitState(op *api.Operation) error {
 	return err
 }
 
+// errCreationInitUnknown refuses another init of a creation whose recorded
+// init attempt left its runtime absent.
+var errCreationInitUnknown = errors.New("creation init outcome unknown; absent runtime cannot authorize another init")
+
 // recordCreationInitAttempt runs only at the native pre-dispatch boundary.
 // Persisting before dispatch makes a crash/lost reply fail closed even when
 // inventory temporarily reports absence. Exact existing native identity can
@@ -35,7 +39,7 @@ func recordCreationInitAttempt(ctx context.Context, op *api.Operation, persist f
 		return err
 	}
 	if ev.RuntimeInitState != "not-attempted" || op.Kind != "session.create" || !op.Committed {
-		return control.OutcomeUnknown(errors.New("creation init outcome unknown; absent runtime cannot authorize another init"))
+		return control.OutcomeUnknown(errCreationInitUnknown)
 	}
 	ev.RuntimeInitState = "attempted"
 	raw, err := json.Marshal(ev)

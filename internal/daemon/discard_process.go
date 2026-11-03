@@ -11,7 +11,7 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 var errDiscardRefsChanged = errors.New("P refs changed after the removal was validated")
@@ -69,11 +69,35 @@ func (l *lifecycle) blockDiscard(op api.Operation, cause error) {
 	_ = l.store.AdvanceOperation(l.ctx, op.ID, "blocked", op.Phase, op.Committed, op.Evidence, control.OperationReason(cause), diagnostic)
 }
 
-// discardSourceMatches reports whether o is still the reviewed container. Its
-// status may have changed since its plan: P stops a running one itself.
-func discardSourceMatches(o runtimeincus.Observation, ev control.DiscardEvidence) bool {
-	return o.Exists && o.Name == ev.InstanceName && removableStatus(o.Status) && o.IncusUUID == ev.IncusUUID &&
-		o.Generation == ev.Generation && o.Fingerprint == ev.ImageFingerprint
+// discardSourceMatches reports whether o is still the reviewed runtime, the
+// one at incarnation at. Its state may have changed since its plan: P
+// stops a running one itself.
+func discardSourceMatches(o runtimedriver.Observation, at runtimedriver.Incarnation) bool {
+	return at != "" && o.Incarnation == at && removableState(o.State)
+}
+
+// stopRemovalSource stops the reviewed runtime of a removal when it runs,
+// recording stop-issued first. Stop is idempotent by reference, so a removal
+// that finds its stop issued sends it again.
+func (l *lifecycle) stopRemovalSource(ctx context.Context, op *api.Operation, ev control.DiscardEvidence, spec runtimedriver.Session) error {
+	at := recordedIncarnation(ev.IncusUUID, ev.Generation)
+	observed, err := l.driver.Inspect(ctx, spec)
+	if err != nil || !discardSourceMatches(observed, at) {
+		return errors.Join(err, errors.New("discard source generation or state changed before stop"))
+	}
+	if observed.State == runtimedriver.StateStopped {
+		return nil
+	}
+	if op.Phase != "stop-issued" {
+		if err = l.advanceDiscard(op, ev, "stop-issued"); err != nil {
+			return err
+		}
+	}
+	stopped, err := l.driver.Stop(ctx, spec)
+	if err != nil || stopped.State != runtimedriver.StateStopped || stopped.Incarnation != at {
+		return errors.Join(err, errors.New("exact discard stop postcondition unavailable"))
+	}
+	return nil
 }
 
 func (l *lifecycle) discardAssignedTip(ctx context.Context, ev control.DiscardEvidence) error {
@@ -140,11 +164,12 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard session identity changed")))
 		return
 	}
-	spec, source, err := l.sessionSpecs(ctx, session)
-	if err != nil || source.ImageFingerprint != ev.ImageFingerprint && !ev.MissingRuntime {
+	spec, err := l.sessionSpec(ctx, session)
+	if err != nil || string(spec.Image) != ev.ImageFingerprint && !ev.MissingRuntime {
 		l.blockDiscard(op, errors.Join(err, errors.New("discard runtime selection changed")))
 		return
 	}
+	at := recordedIncarnation(ev.IncusUUID, ev.Generation)
 	entry := op.Phase
 	switch op.Phase {
 	case "guard-pending":
@@ -162,13 +187,13 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 			l.rollbackStaleDiscard(op, ev, err)
 			return
 		}
-		observed, e := l.runtime.Inspect(ctx, source)
+		observed, e := l.driver.Inspect(ctx, spec)
 		if e != nil {
 			l.blockDiscard(op, e)
 			return
 		}
 		if ev.MissingRuntime {
-			if observed.Exists {
+			if observed.State != runtimedriver.StateAbsent {
 				l.rollbackStaleDiscard(op, ev, errors.New("missing runtime reappeared"))
 				return
 			}
@@ -176,7 +201,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 				l.blockDiscard(op, e)
 				return
 			}
-		} else if !discardSourceMatches(observed, ev) {
+		} else if !discardSourceMatches(observed, at) {
 			l.rollbackStaleDiscard(op, ev, errors.New("runtime generation or state changed"))
 			return
 		}
@@ -196,16 +221,16 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		}
 		fallthrough
 	case "validated":
-		observed, e := l.runtime.Inspect(ctx, source)
+		observed, e := l.driver.Inspect(ctx, spec)
 		if e != nil {
 			l.blockDiscard(op, e)
 			return
 		}
-		if ev.MissingRuntime && observed.Exists {
+		if ev.MissingRuntime && observed.State != runtimedriver.StateAbsent {
 			l.rollbackStaleDiscard(op, ev, errors.New("missing runtime reappeared"))
 			return
 		}
-		if !ev.MissingRuntime && !discardSourceMatches(observed, ev) {
+		if !ev.MissingRuntime && !discardSourceMatches(observed, at) {
 			l.rollbackStaleDiscard(op, ev, errors.New("validated discard source changed"))
 			return
 		}
@@ -255,7 +280,7 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 				return
 			}
 		} else {
-			if err = l.runtime.StopForDiscardExact(ctx, source, ev.IncusUUID, ev.Generation, func() error { return l.advanceDiscard(&op, ev, "stop-issued") }); err != nil {
+			if err = l.stopRemovalSource(ctx, &op, ev, spec); err != nil {
 				l.blockDiscard(op, err)
 				return
 			}
@@ -267,13 +292,19 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		fallthrough
 	case "stop-issued":
 		if entry == "stop-issued" {
-			l.blockDiscard(op, control.OutcomeUnknown(errors.New("Incus stop outcome unresolved")))
-			return
+			if err = l.stopRemovalSource(ctx, &op, ev, spec); err != nil {
+				l.blockDiscard(op, err)
+				return
+			}
+			if err = l.advanceDiscard(&op, ev, "source-stopped"); err != nil {
+				l.blockDiscard(op, err)
+				return
+			}
 		}
 		fallthrough
 	case "source-stopped":
 		if !ev.MissingRuntime {
-			if err = l.runtime.DeleteForDiscardExact(ctx, source, ev.IncusUUID, ev.Generation, func() error { return l.advanceDiscard(&op, ev, "delete-issued") }); err != nil {
+			if err = l.deleteRuntime(ctx, spec, at, func() error { return l.advanceDiscard(&op, ev, "delete-issued") }); err != nil {
 				l.blockDiscard(op, err)
 				return
 			}
@@ -285,8 +316,14 @@ func (l *lifecycle) processDiscard(op api.Operation) {
 		fallthrough
 	case "delete-issued":
 		if entry == "delete-issued" {
-			l.blockDiscard(op, control.OutcomeUnknown(errors.New("Incus delete outcome unresolved")))
-			return
+			if err = l.settleRuntimeDelete(ctx, spec, at, errDeleteUnresolved); err != nil {
+				l.blockDiscard(op, err)
+				return
+			}
+			if err = l.advanceDiscard(&op, ev, "runtime-absent"); err != nil {
+				l.blockDiscard(op, err)
+				return
+			}
 		}
 		fallthrough
 	case "runtime-absent":

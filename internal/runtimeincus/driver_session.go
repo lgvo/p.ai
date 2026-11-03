@@ -504,16 +504,3 @@ func (d *Driver) HostLog(ctx context.Context, t runtimedriver.Target) (string, e
 func (d *Driver) OpenTerminal(context.Context, runtimedriver.Target, runtimedriver.Size) (runtimedriver.Terminal, error) {
 	return nil, runtimedriver.ErrUnsupported
 }
-
-// The workspace operations come in migration step M4.
-func (d *Driver) ReadWorkspace(context.Context, runtimedriver.Target, string, int64) (runtimedriver.File, error) {
-	return runtimedriver.File{}, runtimedriver.ErrUnsupported
-}
-
-func (d *Driver) WriteWorkspace(context.Context, runtimedriver.Target, string, runtimedriver.File, runtimedriver.Gate) error {
-	return runtimedriver.ErrUnsupported
-}
-
-func (d *Driver) RemoveWorkspace(context.Context, runtimedriver.Target, string, runtimedriver.Gate) error {
-	return runtimedriver.ErrUnsupported
-}

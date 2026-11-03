@@ -7,6 +7,7 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // DiscardSession answers a discard of session uuid: its plan, or the
@@ -86,29 +87,30 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 	if session.Registry != "established" {
 		return control.Conflict(api.ReasonSessionNotEstablished, target)
 	}
-	spec, native, err := l.sessionSpecs(ctx, session)
+	spec, err := l.sessionSpec(ctx, session)
 	if err != nil {
 		return err
 	}
-	observed, err := l.runtime.Inspect(ctx, native)
+	observed, err := l.driver.Inspect(ctx, spec)
 	if err != nil {
 		return control.Failed(api.ReasonRuntime, err) // unreachable is not missing
 	}
-	if !observed.Exists {
+	if observed.State == runtimedriver.StateAbsent {
 		if err := proveRuntimeAbsent(ctx, l.driver, spec); err != nil {
 			return runtimeFailure(err, target)
 		}
 		d.Runtime.Condition = "missing"
 		p.Gone = append(p.Gone, missingRuntimeGone(uuid))
 	} else {
+		incusUUID, generation := incarnationRecord(observed.Incarnation)
 		switch {
-		case observed.Name != d.Runtime.InstanceName || observed.IncusUUID == "" || observed.Generation == "":
+		case incusUUID == "":
 			return control.Failed(api.ReasonRuntime, errors.New("session runtime identity incomplete"))
-		case !removableStatus(observed.Status):
+		case !removableState(observed.State):
 			return control.Conflict(api.ReasonRuntimeUnsettled, target)
 		}
-		d.Runtime.Condition, d.Runtime.IncusUUID, d.Runtime.Generation = "present", observed.IncusUUID, observed.Generation
-		d.Runtime.ImageFingerprint, d.Runtime.OriginalStatus = observed.Fingerprint, observed.Status
+		d.Runtime.Condition, d.Runtime.IncusUUID, d.Runtime.Generation = "present", incusUUID, generation
+		d.Runtime.ImageFingerprint, d.Runtime.OriginalStatus = string(spec.Image), originalStatus(observed.State)
 		p.Loss = append(p.Loss, containerLoss(uuid))
 	}
 	var loss gitservice.BranchRemovalLoss
@@ -128,10 +130,18 @@ func (l *lifecycle) planRemoval(ctx context.Context, action, uuid string, p *api
 	return nil
 }
 
-// removableStatus reports whether removal accepts a present session runtime
-// in this Incus status: P stops a running one itself before deleting it.
-func removableStatus(status string) bool {
-	return status == "Running" || status == "Stopped"
+// removableState reports whether removal accepts a present session runtime
+// in this state: P stops a running one itself before deleting it.
+func removableState(state runtimedriver.State) bool {
+	return state == runtimedriver.StateRunning || state == runtimedriver.StateStopped
+}
+
+// originalStatus is how a plan shows the state of the runtime it found.
+func originalStatus(state runtimedriver.State) string {
+	if state == runtimedriver.StateRunning {
+		return "Running"
+	}
+	return "Stopped"
 }
 
 // runtimeFailure answers a failed check of a session's runtime: a container of

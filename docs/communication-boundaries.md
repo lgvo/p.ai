@@ -192,8 +192,8 @@ branch behavior are defined in
 ## Branch rename
 
 Rename uses host RPC for intent and progress, daemon Git authority for the P
-refs, and the stopped session's Incus workspace for the local branch/upstream
-change. Git pushes to the affected refs are guarded while the operation is
+refs, and the runtime driver's workspace operations on the stopped session for
+the local branch/upstream change. Git pushes to the affected refs are guarded while the operation is
 incomplete.
 The transaction and recovery rules are defined in
 [session lifecycle](session-lifecycle.md#rename).

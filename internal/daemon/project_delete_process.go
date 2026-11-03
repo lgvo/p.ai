@@ -12,7 +12,6 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
 func projectDeleteAbsent(r control.ProjectDeleteResource) bool {
@@ -20,23 +19,28 @@ func projectDeleteAbsent(r control.ProjectDeleteResource) bool {
 }
 
 // projectDeleteRuntimeDecision decides what a pass does with a session's
-// runtime. Absence observed after an issued DELETE can recover only through
-// the full authoritative absence proof; a present issued target never grants
-// redispatch. A running runtime is stopped first, once: a stop issued before
-// that leaves it running is never issued again.
-func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, planned api.RemovalRuntime, actual runtimeincus.Observation) string {
-	if !actual.Exists {
+// runtime. An issued DELETE not yet recorded as done is settled before
+// anything else, even when the runtime already looks absent; absence then
+// still needs the full authoritative proof. A present issued target never
+// grants redispatch. A running runtime is stopped first; its stop is
+// recorded before it is sent, and since stopping is idempotent a pass that
+// finds it still running after a recorded stop sends it again.
+func projectDeleteRuntimeDecision(resource control.ProjectDeleteResource, planned api.RemovalRuntime, spec runtimedriver.Session, actual runtimedriver.Observation) string {
+	if actual.State == runtimedriver.StateAbsent {
+		if resource.DeleteIssued && !projectDeleteAbsent(resource) {
+			return "issued-unresolved"
+		}
 		return "prove-absence"
 	}
-	if projectDeleteAbsent(resource) || planned.Condition != "present" || !removableStatus(actual.Status) || actual.Name != planned.InstanceName || actual.IncusUUID != planned.IncusUUID || actual.Generation != planned.Generation || actual.Fingerprint != planned.ImageFingerprint {
+	at := recordedIncarnation(planned.IncusUUID, planned.Generation)
+	if projectDeleteAbsent(resource) || planned.Condition != "present" || !removableState(actual.State) || at == "" || actual.Incarnation != at ||
+		string(spec.Image) != planned.ImageFingerprint {
 		return "identity-conflict"
 	}
 	switch {
 	case resource.DeleteIssued:
 		return "issued-unresolved"
-	case actual.Status == "Running" && resource.StopIssued:
-		return "stop-unresolved"
-	case actual.Status == "Running":
+	case actual.State == runtimedriver.StateRunning:
 		return "stop-exact"
 	}
 	return "delete-exact"
@@ -117,7 +121,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			}
 			continue
 		}
-		spec, native, err := l.sessionSpecs(ctx, session)
+		spec, err := l.sessionSpec(ctx, session)
 		if err != nil {
 			if !fail(ri, err) {
 				return
@@ -125,14 +129,14 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			continue
 		}
 		prove := func(call context.Context) error { return proveRuntimeAbsent(call, l.driver, spec) }
-		actual, err := l.runtime.Inspect(ctx, native)
+		actual, err := l.driver.Inspect(ctx, spec)
 		if err != nil {
 			if !fail(ri, err) {
 				return
 			}
 			continue
 		}
-		decision := projectDeleteRuntimeDecision(ev.Resources[ri], ps.Runtime, actual)
+		decision := projectDeleteRuntimeDecision(ev.Resources[ri], ps.Runtime, spec, actual)
 		if decision == "prove-absence" {
 			if err = prove(ctx); err != nil {
 				if !fail(ri, err) {
@@ -151,28 +155,23 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 				}
 				continue
 			}
+			at := recordedIncarnation(ps.Runtime.IncusUUID, ps.Runtime.Generation)
 			if decision == "issued-unresolved" {
-				if !fail(ri, control.OutcomeUnknown(fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", ps.Runtime.InstanceName, ps.Runtime.IncusUUID, ps.Runtime.Generation))) {
-					return
+				err = l.settleRuntimeDelete(ctx, spec, at, fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", ps.Runtime.InstanceName, ps.Runtime.IncusUUID, ps.Runtime.Generation))
+			} else {
+				if decision == "stop-exact" {
+					err = l.stopReviewedRuntime(ctx, spec, at, func() error {
+						if r.StopIssued {
+							return nil
+						}
+						r.StopIssued = true
+						return persist("running", "", "")
+					})
 				}
-				continue
-			}
-			if decision == "stop-unresolved" {
-				if !fail(ri, control.OutcomeUnknown(fmt.Errorf("native stop outcome unresolved for %s UUID %s generation %s", ps.Runtime.InstanceName, ps.Runtime.IncusUUID, ps.Runtime.Generation))) {
-					return
-				}
-				continue
-			}
-			if decision == "stop-exact" {
-				err = l.runtime.StopForDiscardExact(ctx, native, ps.Runtime.IncusUUID, ps.Runtime.Generation, func() error { r.StopIssued = true; return persist("running", "", "") })
-				if err != nil {
-					if !fail(ri, err) {
-						return
-					}
-					continue
+				if err == nil {
+					err = l.deleteRuntime(ctx, spec, at, func() error { r.DeleteIssued = true; return persist("running", "", "") })
 				}
 			}
-			err = l.runtime.DeleteForDiscardExact(ctx, native, ps.Runtime.IncusUUID, ps.Runtime.Generation, func() error { r.DeleteIssued = true; return persist("running", "", "") })
 			if err != nil {
 				if !fail(ri, err) {
 					return
@@ -247,7 +246,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			if e != nil {
 				return e
 			}
-			spec, _, e := l.sessionSpecs(call, session)
+			spec, e := l.sessionSpec(call, session)
 			if e != nil {
 				return e
 			}

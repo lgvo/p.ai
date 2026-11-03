@@ -220,6 +220,8 @@ func parseSFTPLstat(attrs []byte) (guestFile, error) {
 		typ = "file"
 	case 0120000:
 		typ = "symlink"
+	case 0010000, 0020000, 0060000, 0140000: // FIFO, character and block device, socket
+		typ = "other"
 	default:
 		return zero, errors.New("Incus SFTP path type invalid")
 	}
@@ -227,13 +229,19 @@ func parseSFTPLstat(attrs []byte) (guestFile, error) {
 }
 
 func writeSFTPPathRequest(conn net.Conn, op byte, name string) error {
-	request := make([]byte, 13+len(name))
+	return writeSFTPRequest(conn, op, 1, name)
+}
+
+// writeSFTPRequest sends request op with id on one string argument, a path
+// or a handle.
+func writeSFTPRequest(w io.Writer, op byte, id uint32, arg string) error {
+	request := make([]byte, 13+len(arg))
 	binary.BigEndian.PutUint32(request[:4], uint32(len(request)-4))
 	request[4] = op
-	binary.BigEndian.PutUint32(request[5:9], 1)
-	binary.BigEndian.PutUint32(request[9:13], uint32(len(name)))
-	copy(request[13:], name)
-	return writePacket(conn, request)
+	binary.BigEndian.PutUint32(request[5:9], id)
+	binary.BigEndian.PutUint32(request[9:13], uint32(len(arg)))
+	copy(request[13:], arg)
+	return writePacket(w, request)
 }
 
 // VERSION may advertise extension name/data pairs. We use no extensions, but

@@ -1,20 +1,25 @@
 package runtimeincus
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/conformance"
 )
 
-// The Incus driver implements the sessions, inventory and services groups in
-// this migration step; later steps add the others.
+// The Incus driver implements every group but terminals and images in this
+// migration step; later steps add those.
 func TestConformance(t *testing.T) {
-	conformance.Run(t, []conformance.Group{conformance.Sessions, conformance.Inventory, conformance.Services}, newIncusFixture)
+	conformance.Run(t, []conformance.Group{conformance.Sessions, conformance.Recovery, conformance.Deletion, conformance.Inventory,
+		conformance.Workspace, conformance.Services}, newIncusFixture)
 }
 
 // incusFixture is the Incus driver over a stubbed Incus whose host has the
@@ -30,6 +35,14 @@ type incusFixture struct {
 func newIncusFixture(t *testing.T) conformance.Fixture {
 	w := newIncusWorld(t)
 	w.public = testEgressSubstrate()
+	// The session's image holds its workspace, as a commit image does, and
+	// the session user's home.
+	for _, dir := range []string{guestWorkspace, "/home", "/home/p"} {
+		w.images[0].files[dir] = guestFile{typ: "directory", uid: 1000, gid: 1000, mode: 0755}
+	}
+	interval := settleInterval
+	settleInterval = time.Millisecond
+	t.Cleanup(func() { settleInterval = interval })
 	return &incusFixture{t: t, world: w, driver: w.driver()}
 }
 
@@ -59,10 +72,10 @@ func (f *incusFixture) Session(o conformance.SessionOptions) runtimedriver.Sessi
 }
 
 func (f *incusFixture) Sessions() conformance.SessionControls    { return f }
-func (f *incusFixture) Recovery() conformance.RecoveryControls   { return nil }
-func (f *incusFixture) Deletion() conformance.DeletionControls   { return nil }
+func (f *incusFixture) Recovery() conformance.RecoveryControls   { return f }
+func (f *incusFixture) Deletion() conformance.DeletionControls   { return f }
 func (f *incusFixture) Inventory() conformance.InventoryControls { return f }
-func (f *incusFixture) Workspace() conformance.WorkspaceControls { return nil }
+func (f *incusFixture) Workspace() conformance.WorkspaceControls { return f }
 func (f *incusFixture) Terminals() conformance.TerminalControls  { return nil }
 func (f *incusFixture) Services() conformance.ServiceControls    { return f }
 func (f *incusFixture) Images() conformance.ImageControls        { return nil }
@@ -218,6 +231,149 @@ func (f *incusFixture) PartialInventory() {
 	f.world.mu.Lock()
 	defer f.world.mu.Unlock()
 	f.world.partialList = true
+}
+
+// Recovery.
+
+// errDriverDied answers a request the driver died waiting on, once the
+// restart released it.
+var errDriverDied = errors.New("the driver died before Incus answered")
+
+// DieInCreate stops the driver at point: once `incus init` took effect, at
+// the second guest file write without landing it, or at the first guest
+// regular file write once it landed whole or in part. That request hangs
+// unanswered until the restart, and the dead driver reaches nothing after.
+func (f *incusFixture) DieInCreate(point conformance.CreatePoint) <-chan struct{} {
+	died := make(chan struct{})
+	w := f.world
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	restarted := w.restarted
+	if point == conformance.AfterInit {
+		var fired atomic.Bool
+		w.after = func(args []string) error {
+			if args[0] != "init" || !fired.CompareAndSwap(false, true) {
+				return nil
+			}
+			close(died)
+			<-restarted
+			return errDriverDied
+		}
+		return died
+	}
+	writes := 0
+	w.write = func(file *guestFile) (land, hang bool) {
+		writes++
+		switch {
+		case point == conformance.BetweenGuestWrites && writes == 1,
+			point != conformance.BetweenGuestWrites && file.typ != "file":
+			return true, false
+		case point == conformance.DuringPartialGuestWrite:
+			file.data = file.data[:len(file.data)/2]
+		}
+		w.write = nil
+		close(died)
+		return point != conformance.BetweenGuestWrites, true
+	}
+	return died
+}
+
+// DelayCreate fails the next `incus init` at the client, before it has any
+// effect or Incus lists an operation for it; land then performs it.
+func (f *incusFixture) DelayCreate() (land func()) { return f.delay("init", f.world.init) }
+
+// Hold lists an Incus operation running on the runtime's instance.
+func (f *incusFixture) Hold(r runtimedriver.Ref) (release func()) {
+	name := ""
+	f.runtime(r, func(in *worldInstance) { name = in.name })
+	resource := "/1.0/instances/" + name + "?project=user-1000"
+	w := f.world
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.operations = append(w.operations, worldOperation{StatusCode: 103, Resources: map[string][]string{"instances": {resource}}})
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			w.operations = slices.DeleteFunc(w.operations, func(o worldOperation) bool { return slices.Equal(o.Resources["instances"], []string{resource}) })
+		})
+	}
+}
+
+// delay fails the next Incus command named verb at the client without
+// effect, as Incus answering too late; land then admits it.
+func (f *incusFixture) delay(verb string, admit func(args []string) error) (land func()) {
+	w := f.world
+	var held []string
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.before = func(args []string) error {
+		if args[0] != verb || held != nil {
+			return nil
+		}
+		held = slices.Clone(args)
+		return errors.New("Incus did not answer before the client gave up")
+	}
+	return func() {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if held == nil {
+			f.t.Fatalf("no %s was delayed", verb)
+		}
+		if err := admit(held); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+}
+
+// Deletion.
+
+func (f *incusFixture) DeletedWhileRunning(r runtimedriver.Ref) bool {
+	f.world.mu.Lock()
+	defer f.world.mu.Unlock()
+	return f.world.deletedWhileRunning[r.ID]
+}
+
+// DelayDelete fails the next `incus delete` at the client without effect;
+// land then performs it.
+func (f *incusFixture) DelayDelete() (land func()) {
+	return f.delay("delete", func(args []string) error { return f.world.delete(args[1]) })
+}
+
+// Workspace.
+
+// Symlink leaves the link in the instance's storage, owned by the session
+// user.
+func (f *incusFixture) Symlink(r runtimedriver.Ref, path, target string) {
+	f.runtime(r, func(in *worldInstance) {
+		in.files[guestWorkspace+"/"+path] = guestFile{typ: "symlink", uid: 1000, gid: 1000, mode: 0777, data: []byte(target)}
+	})
+}
+
+// ForeignMount adds a disk device of a host directory at the guest path.
+func (f *incusFixture) ForeignMount(r runtimedriver.Ref, guestPath string) {
+	f.runtime(r, func(in *worldInstance) {
+		in.devices[fmt.Sprintf("foreign-%d", len(in.devices))] = map[string]string{"type": "disk", "source": "/var/lib/p-vm/grants/foreign", "path": guestPath}
+	})
+}
+
+// Markers places nothing: on Incus a grant source and the endpoint directory
+// reach a runtime only as disk devices, which Incus mounts into a running
+// container and never into the storage volume its file API serves for a
+// stopped one, and the stub serves that volume alone. So on this fixture the
+// stopped-storage case cannot catch a leak; the guarantee rests on Incus's
+// view of a stopped instance and on the cases that refuse a running runtime
+// and a symlink.
+func (f *incusFixture) Markers(runtimedriver.Session) []byte {
+	return []byte("a marker outside the private root\n")
+}
+
+// SetRoot gives /workspace in the instance's storage the owner and mode.
+func (f *incusFixture) SetRoot(r runtimedriver.Ref, uid, gid int, mode uint32) {
+	f.runtime(r, func(in *worldInstance) {
+		in.files[guestWorkspace] = guestFile{typ: "directory", uid: uid, gid: gid, mode: int(mode)}
+	})
 }
 
 // Services.

@@ -481,14 +481,42 @@ func (d *Driver) DeleteImage(ctx context.Context, img runtimedriver.Image, g run
 // settleInterval separates the two observations that settle an effect.
 var settleInterval = 250 * time.Millisecond
 
-// Settle answers from two observations settleInterval apart. A build is
-// applied only when both see the same single image of the build, exactly as
-// its publication would have accepted it, no image operation running, and
-// no builder of the build anywhere in the Incus project. It is never proven
-// not applied: Incus may still admit a queued publish.
+// Settle answers from two observations settleInterval apart, which must
+// both show the effect applied, the same way. A session's effect is applied
+// when its runtime is as the effect intended, with no Incus operation
+// running on it (driver_settle.go). A build is applied only when both see
+// the same single image of the build, exactly as its publication would have
+// accepted it, no image operation running, and no builder of the build
+// anywhere in the Incus project. Nothing is proven not applied: Incus may
+// still admit a request it queued, a create or a publish included.
 func (d *Driver) Settle(ctx context.Context, e runtimedriver.Effect) (runtimedriver.Settlement, error) {
+	b := d.backend
 	var observe func() (string, bool, error)
 	switch e.Kind {
+	case runtimedriver.EffectCreate:
+		s, err := b.NativeSession(e.Target.Session)
+		if err != nil {
+			return runtimedriver.Unknown, err
+		}
+		observe = func() (string, bool, error) { return b.observeCreated(ctx, s, e.Target.At) }
+	case runtimedriver.EffectStart, runtimedriver.EffectStop:
+		s, err := b.NativeSession(e.Target.Session)
+		if err != nil {
+			return runtimedriver.Unknown, err
+		}
+		want := runtimedriver.StateStopped
+		if e.Kind == runtimedriver.EffectStart {
+			want = runtimedriver.StateRunning
+		}
+		observe = func() (string, bool, error) { return b.observeState(ctx, s, e.Target.At, want) }
+	case runtimedriver.EffectDelete:
+		r := e.Target.Session.Ref
+		if r.Kind != runtimedriver.KindSession || !uuidPattern.MatchString(r.ID) {
+			return runtimedriver.Unknown, errors.New("invalid delete effect")
+		}
+		observe = func() (string, bool, error) { return b.observeDeleted(ctx, r.ID) }
+	case runtimedriver.EffectWrite, runtimedriver.EffectRemove:
+		observe = func() (string, bool, error) { return b.observeWorkspace(ctx, e) }
 	case runtimedriver.EffectBuild:
 		if e.Build.Ref.Kind != runtimedriver.KindBuild || !uuidPattern.MatchString(e.Build.Ref.ID) || e.Build.Labels[runtimedriver.LabelBuild] != e.Build.Ref.ID {
 			return runtimedriver.Unknown, errors.New("invalid build effect")
@@ -578,17 +606,24 @@ func (b *Backend) observeBuild(ctx context.Context, build runtimedriver.Build) (
 	return string(img.Ref), true, nil
 }
 
-// Delete removes a build's builder. It acts only on a builder carrying the
-// build's reference and this instance's label, and succeeds once no instance
-// carries the reference. It never deletes an image.
+// Delete removes a session's runtime at incarnation at, or a build's
+// builder. It acts only on an instance carrying the reference and this
+// instance's label, and succeeds once no instance carries the reference. It
+// never deletes an image.
 func (d *Driver) Delete(ctx context.Context, ref runtimedriver.Ref, at runtimedriver.Incarnation, g runtimedriver.Gate) error {
-	if ref.Kind != runtimedriver.KindBuild {
-		return runtimedriver.ErrUnsupported
+	if !uuidPattern.MatchString(ref.ID) || g == nil {
+		return errors.New("invalid delete")
 	}
-	if !uuidPattern.MatchString(ref.ID) || at != "" || g == nil {
-		return errors.New("invalid build delete")
+	switch ref.Kind {
+	case runtimedriver.KindSession:
+		return d.backend.deleteSession(ctx, ref.ID, at, g)
+	case runtimedriver.KindBuild:
+		if at != "" {
+			return errors.New("a build has no incarnation")
+		}
+		return d.backend.removeBuilderOf(ctx, ref.ID, g)
 	}
-	return d.backend.removeBuilderOf(ctx, ref.ID, g)
+	return fmt.Errorf("unknown reference kind %q", ref.Kind)
 }
 
 // removeBuilderOf removes the builder a build reference left and proves it

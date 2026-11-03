@@ -9,25 +9,27 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // reviewAssembledCleanupRuntime binds the creator's exact stopped container.
 // P does not look inside it: the plan states that it and everything in it is
 // lost.
 func (l *lifecycle) reviewAssembledCleanupRuntime(ctx context.Context, session control.Session, creator api.Operation) (*api.RemovalRuntime, error) {
-	spec, source, err := l.sessionSpecs(ctx, session)
+	spec, err := l.sessionSpec(ctx, session)
 	if err != nil {
 		return nil, err
 	}
-	observed, err := l.runtime.Inspect(ctx, source)
-	if err != nil || !observed.Exists || observed.Status != "Stopped" || observed.IncusUUID == "" || observed.Generation == "" {
+	observed, err := l.driver.Inspect(ctx, spec)
+	incusUUID, generation := incarnationRecord(observed.Incarnation)
+	if err != nil || observed.State != runtimedriver.StateStopped || incusUUID == "" {
 		return nil, errors.Join(err, errors.New("failed creation stopped runtime unavailable"))
 	}
-	if err = proveAssembledSource(ctx, l.driver, spec, creator.ID, recordedIncarnation(observed.IncusUUID, observed.Generation)); err != nil {
+	if err = proveAssembledSource(ctx, l.driver, spec, creator.ID, observed.Incarnation); err != nil {
 		return nil, err
 	}
 	return &api.RemovalRuntime{Condition: "present", IncusProject: l.incus.Project, InstanceName: "p-" + session.UUID,
-		IncusUUID: observed.IncusUUID, Generation: observed.Generation, ImageFingerprint: source.ImageFingerprint, OriginalStatus: "Stopped"}, nil
+		IncusUUID: incusUUID, Generation: generation, ImageFingerprint: string(spec.Image), OriginalStatus: "Stopped"}, nil
 }
 
 // The caller owns the session lock and reloads the durable operation before
@@ -58,11 +60,12 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		block(errors.New("pinned creator module selection unavailable"))
 		return
 	}
-	spec, source, err := l.sessionSpecs(ctx, session)
+	spec, err := l.sessionSpec(ctx, session)
 	if err != nil {
 		block(err)
 		return
 	}
+	at := recordedIncarnation(r.IncusUUID, r.Generation)
 	advance := func(phase string) error {
 		raw, e := json.Marshal(ev)
 		if e != nil || len(raw) > 16384 {
@@ -75,7 +78,7 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		return nil
 	}
 	proveSource := func(call context.Context) error {
-		return proveAssembledSource(call, l.driver, spec, ev.Review.OldOperationID, recordedIncarnation(r.IncusUUID, r.Generation))
+		return proveAssembledSource(call, l.driver, spec, ev.Review.OldOperationID, at)
 	}
 	proveAbsent := func(call context.Context) error { return l.failedCreationAbsent(call, op.SessionUUID, ev.Review) }
 	verifyRefs := func(call context.Context) error {
@@ -116,41 +119,53 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 		}
 	}
 	switch op.Phase {
-	case "validated":
-		if err = proveSource(ctx); err != nil {
-			stale(err)
-			return
-		}
-		if err = verifyRefs(ctx); err != nil {
-			stale(err)
-			return
-		}
-		if err = verifyLocal(); err != nil {
-			stale(err)
-			return
-		}
-		err = l.runtime.DeleteForDiscardExact(ctx, source, r.IncusUUID, r.Generation, func() error {
-			e := l.store.CommitAssembledCleanupDelete(ctx, op, func(call context.Context) error {
-				if e := proveSource(call); e != nil {
-					return e
-				}
-				if e := verifyRefs(call); e != nil {
-					return e
-				}
-				return verifyLocal()
-			})
-			if e == nil {
-				op.Committed, op.Phase = true, "delete-issued"
-			}
-			return e
-		})
-		if err != nil {
-			if !op.Committed {
-				stale(err)
-			} else {
+	case "validated", "delete-issued":
+		if op.Phase == "delete-issued" {
+			err = l.settleRuntimeDelete(ctx, spec, at, fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", r.InstanceName, r.IncusUUID, r.Generation))
+			if err != nil {
 				block(err)
+				return
 			}
-			return
+		} else {
+			if err = proveSource(ctx); err != nil {
+				stale(err)
+				return
+			}
+			if err = verifyRefs(ctx); err != nil {
+				stale(err)
+				return
+			}
+			if err = verifyLocal(); err != nil {
+				stale(err)
+				return
+			}
+			err = l.deleteRuntime(ctx, spec, at, func() error {
+				e := l.store.CommitAssembledCleanupDelete(ctx, op, func(call context.Context) error {
+					if e := proveSource(call); e != nil {
+						return e
+					}
+					if e := verifyRefs(call); e != nil {
+						return e
+					}
+					return verifyLocal()
+				})
+				if e == nil {
+					op.Committed, op.Phase = true, "delete-issued"
+				}
+				return e
+			})
+			if err == nil && !op.Committed {
+				// The driver found nothing to delete: the reviewed runtime is gone.
+				err = errors.New("failed creation stopped runtime changed")
+			}
+			if err != nil {
+				if !op.Committed {
+					stale(err)
+				} else {
+					block(err)
+				}
+				return
+			}
 		}
 		ev.RuntimeAbsent = true
 		if err = advance("runtime-absent"); err != nil {
@@ -194,8 +209,6 @@ func (l *lifecycle) processAssembledCreateCleanup(op api.Operation, ev control.C
 			block(err)
 			return
 		}
-	case "delete-issued":
-		block(control.OutcomeUnknown(fmt.Errorf("native delete outcome unresolved for %s UUID %s generation %s", r.InstanceName, r.IncusUUID, r.Generation)))
 	case "stale-cleanup":
 		stale(errors.New("prior pre-deletion check stale"))
 	default:

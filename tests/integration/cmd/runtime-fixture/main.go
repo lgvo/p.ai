@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -127,7 +126,7 @@ func run(args []string) error {
 	case "stop":
 		o, err = driver.Stop(ctx, spec)
 	case "delete":
-		o, err = deleteSession(ctx, backend, driver, spec, at)
+		o, err = deleteSession(ctx, driver, spec, at)
 	case "hostlog":
 		// A stopped host's last words come only from HostLog.
 		log, err := driver.HostLog(ctx, runtimedriver.Target{Session: spec, At: at})
@@ -226,24 +225,11 @@ func assets(activation, capability string) ([]runtimedriver.Asset, error) {
 	return files, nil
 }
 
-// deleteSession deletes the stopped runtime at incarnation at with the exact
-// delete the daemon's discard uses, until the driver has its own Delete
-// (migration step M4). An absent runtime needs no delete.
-func deleteSession(ctx context.Context, backend *runtimeincus.Backend, driver *runtimeincus.Driver, spec runtimedriver.Session, at runtimedriver.Incarnation) (runtimedriver.Observation, error) {
-	o, err := driver.Inspect(ctx, spec)
-	if err != nil || o.State == runtimedriver.StateAbsent {
-		return o, err
-	}
-	incusUUID, generation, ok := strings.Cut(string(at), "/")
-	if !ok {
-		return o, errors.New("an Incus incarnation is the instance UUID and its generation")
-	}
-	native, err := backend.NativeSession(spec)
-	if err != nil {
-		return o, err
-	}
-	if err := backend.DeleteForDiscardExact(ctx, native, incusUUID, generation, func() error { return nil }); err != nil {
-		return o, err
+// deleteSession deletes the session's runtime at incarnation at through the
+// driver. An absent runtime needs no delete.
+func deleteSession(ctx context.Context, driver *runtimeincus.Driver, spec runtimedriver.Session, at runtimedriver.Incarnation) (runtimedriver.Observation, error) {
+	if err := driver.Delete(ctx, spec.Ref, at, func() error { return nil }); err != nil {
+		return runtimedriver.Observation{}, err
 	}
 	return driver.Inspect(ctx, spec)
 }

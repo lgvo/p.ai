@@ -97,9 +97,22 @@ var workspaceCases = append([]testCase{
 	}},
 	{"workspace operations refuse paths that are not relative and clean", func(t *testing.T, f Fixture) {
 		w := stoppedWorkspace(t, f, SessionOptions{})
-		for _, p := range []string{"", ".", "/etc/passwd", "/workspace/file", "..", "../file", "dir/../file", "dir//file", "dir/", "./file"} {
+		for _, p := range []string{"", "/etc/passwd", "/workspace/file", "..", "../file", "dir/../file", "dir//file", "dir/", "./file"} {
 			wantRefused(t, f, w.target, p, regular("refused"))
 		}
+	}},
+	{"the workspace root reads with its exact owner and mode, and is never written or removed", func(t *testing.T, f Fixture) {
+		w := stoppedWorkspace(t, f, SessionOptions{})
+		root := runtimedriver.File{Type: runtimedriver.FileDirectory, UID: 1000, GID: 100, Mode: 0o775}
+		f.Workspace().SetRoot(w.ref(), root.UID, root.GID, root.Mode)
+		w.wantFile(t, ".", root)
+		if err := f.Driver().WriteWorkspace(t.Context(), w.target, ".", directory(), unexpectedGate(t)); err == nil {
+			t.Error(`WriteWorkspace(".") succeeded, want a refusal`)
+		}
+		if err := f.Driver().RemoveWorkspace(t.Context(), w.target, ".", unexpectedGate(t)); err == nil {
+			t.Error(`RemoveWorkspace(".") succeeded, want a refusal`)
+		}
+		w.wantFile(t, ".", root)
 	}},
 	{"a symlink at the path is reported, never followed", func(t *testing.T, f Fixture) {
 		w := stoppedWorkspace(t, f, SessionOptions{})
@@ -146,6 +159,19 @@ var workspaceCases = append([]testCase{
 		w.write(t, "dir", directory())
 		w.write(t, "dir/file", regular("in the private root"))
 		f.Workspace().ForeignMount(w.ref(), guestWorkspace+"-sibling")
+		// A backend may show a mount only as a device the spec does not
+		// name: a driver then refuses the drifted runtime as a mismatch,
+		// every operation before its gate. Otherwise the operations answer
+		// from the workspace as if the sibling were not there.
+		if _, err := f.Driver().ReadWorkspace(t.Context(), w.target, "dir/file", 1<<20); errors.Is(err, runtimedriver.ErrMismatch) {
+			if err := f.Driver().WriteWorkspace(t.Context(), w.target, "dir/file", regular("written"), unexpectedGate(t)); !errors.Is(err, runtimedriver.ErrMismatch) {
+				t.Fatalf("WriteWorkspace of a runtime read as a mismatch = %v, want ErrMismatch", err)
+			}
+			if err := f.Driver().RemoveWorkspace(t.Context(), w.target, "dir/file", unexpectedGate(t)); !errors.Is(err, runtimedriver.ErrMismatch) {
+				t.Fatalf("RemoveWorkspace of a runtime read as a mismatch = %v, want ErrMismatch", err)
+			}
+			return
+		}
 		w.wantFile(t, "dir/file", regular("in the private root"))
 		w.write(t, "dir/file", regular("written"))
 		if err := f.Driver().RemoveWorkspace(t.Context(), w.target, "dir/file", func() error { return nil }); err != nil {

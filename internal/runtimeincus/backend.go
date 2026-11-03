@@ -314,7 +314,7 @@ func fileUID(info os.FileInfo) uint32 {
 }
 
 func (b *Backend) name(s Session) string {
-	return "p-" + s.SessionUUID
+	return sessionRuntimeName(s.SessionUUID)
 }
 
 func runCommand(ctx context.Context, binary string, argv, env []string) ([]byte, error) {

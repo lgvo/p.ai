@@ -10,7 +10,8 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
-// ReadWorkspace reads one path of a stopped session's workspace.
+// ReadWorkspace reads one path of a stopped session's workspace, or "." for
+// the workspace root.
 func (d *Driver) ReadWorkspace(_ context.Context, t runtimedriver.Target, p string, limit int64) (runtimedriver.File, error) {
 	var zero runtimedriver.File
 	if err := d.alive(); err != nil {
@@ -19,8 +20,13 @@ func (d *Driver) ReadWorkspace(_ context.Context, t runtimedriver.Target, p stri
 	if limit < 0 {
 		return zero, errors.New("a read needs a limit of zero or more bytes")
 	}
+	if p != "." {
+		if err := checkWorkspacePath(p); err != nil {
+			return zero, err
+		}
+	}
 	w := d.w
-	o, err := w.stoppedTarget(t, p)
+	o, err := w.stoppedTarget(t)
 	if err != nil {
 		return zero, err
 	}
@@ -53,8 +59,11 @@ func (d *Driver) WriteWorkspace(_ context.Context, t runtimedriver.Target, p str
 		f.Type == runtimedriver.FileDirectory && len(f.Data) != 0 {
 		return errors.New("only a regular file or a directory with permission bits is written")
 	}
+	if err := checkWorkspacePath(p); err != nil {
+		return err
+	}
 	w := d.w
-	o, err := w.stoppedTarget(t, p)
+	o, err := w.stoppedTarget(t)
 	if err != nil {
 		return err
 	}
@@ -67,7 +76,7 @@ func (d *Driver) WriteWorkspace(_ context.Context, t runtimedriver.Target, p str
 	if err := g(); err != nil {
 		return err
 	}
-	if current, err := w.stoppedTarget(t, p); err != nil || current != o {
+	if current, err := w.stoppedTarget(t); err != nil || current != o {
 		return errors.Join(err, errors.New("the runtime changed before the write"))
 	}
 	w.mu.Lock()
@@ -112,8 +121,11 @@ func (d *Driver) RemoveWorkspace(_ context.Context, t runtimedriver.Target, p st
 	if g == nil {
 		return errors.New("workspace remove gate required")
 	}
+	if err := checkWorkspacePath(p); err != nil {
+		return err
+	}
 	w := d.w
-	o, err := w.stoppedTarget(t, p)
+	o, err := w.stoppedTarget(t)
 	if err != nil {
 		return err
 	}
@@ -126,7 +138,7 @@ func (d *Driver) RemoveWorkspace(_ context.Context, t runtimedriver.Target, p st
 	if err := g(); err != nil {
 		return err
 	}
-	if current, err := w.stoppedTarget(t, p); err != nil || current != o {
+	if current, err := w.stoppedTarget(t); err != nil || current != o {
 		return errors.Join(err, errors.New("the runtime changed before the removal"))
 	}
 	w.mu.Lock()
@@ -159,11 +171,8 @@ func (o *object) removable(p string) (*node, error) {
 }
 
 // stoppedTarget is the stopped runtime of t at its incarnation, whose
-// workspace p, a relative clean path, can be reached.
-func (w *World) stoppedTarget(t runtimedriver.Target, p string) (*object, error) {
-	if err := checkWorkspacePath(p); err != nil {
-		return nil, err
-	}
+// workspace can be reached.
+func (w *World) stoppedTarget(t runtimedriver.Target) (*object, error) {
 	if t.At == "" {
 		return nil, errors.New("workspace operations need the runtime's incarnation")
 	}
@@ -193,18 +202,22 @@ func checkWorkspacePath(p string) error {
 	return nil
 }
 
-// resolve finds the node at the workspace path p without following
-// symlinks: nil when p is absent. A symlink above p, or a foreign mount at,
-// above or below the workspace, is refused, since what p would reach is not
-// the private root. Called with w.mu held.
+// resolve finds the node at the workspace path p, or "." for the root,
+// without following symlinks: nil when p is absent. A symlink above p, or a
+// foreign mount at, above or below the workspace, is refused, since what p
+// would reach is not the private root. Called with w.mu held.
 func (o *object) resolve(p string) (*node, error) {
 	for _, m := range o.mounts {
 		if m == workspaceRoot || strings.HasPrefix(m, workspaceRoot+"/") || m == "/" || strings.HasPrefix(workspaceRoot, m+"/") {
 			return nil, fmt.Errorf("a foreign mount at %q reaches the workspace", m)
 		}
 	}
-	if root := o.files[workspaceRoot]; root == nil || root.typ != runtimedriver.FileDirectory {
+	root := o.files[workspaceRoot]
+	if root == nil || root.typ != runtimedriver.FileDirectory {
 		return nil, errors.New("the runtime has no workspace")
+	}
+	if p == "." {
+		return root, nil
 	}
 	current := workspaceRoot
 	parts := strings.Split(p, "/")

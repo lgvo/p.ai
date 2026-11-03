@@ -8,7 +8,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/runtimeincus"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest) (api.Operation, error) {
@@ -39,21 +39,22 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	if err := l.checkBranchName(ctx, "new_branch", req.NewBranch); err != nil {
 		return api.Operation{}, err
 	}
-	native, err := l.nativeSession(ctx, s)
+	spec, err := l.sessionSpec(ctx, s)
 	if err != nil {
 		return api.Operation{}, err
 	}
-	observed, err := l.runtime.Inspect(ctx, native)
+	observed, err := l.driver.Inspect(ctx, spec)
 	if err != nil {
 		return api.Operation{}, control.Failed(api.ReasonRuntime, err)
 	}
 	if err := renameSourceRefusal(observed, req.UUID); err != nil {
 		return api.Operation{}, err
 	}
+	incusUUID, generation := incarnationRecord(observed.Incarnation)
 	ev := control.RenameEvidence{Project: s.Project, OldBranch: s.Branch, NewBranch: req.NewBranch,
 		OldTip: req.ExpectedOldTip, PolicySHA256: s.PolicySHA256, InstanceUUID: l.instanceID,
-		ImageFingerprint: native.ImageFingerprint, BaseFingerprint: l.cfg.BaseImageFingerprint,
-		IncusUUID: observed.IncusUUID, Generation: observed.Generation}
+		ImageFingerprint: string(spec.Image), BaseFingerprint: l.cfg.BaseImageFingerprint,
+		IncusUUID: incusUUID, Generation: generation}
 	verify := func(ctx context.Context) error {
 		if err := l.checkBranchName(ctx, "new_branch", ev.NewBranch); err != nil {
 			return err
@@ -83,9 +84,9 @@ func (l *lifecycle) checkBranchName(ctx context.Context, field, name string) err
 
 // renameSourceRefusal refuses to rename session whose runtime was observed
 // as o: its container is missing, or it is not stopped.
-func renameSourceRefusal(o runtimeincus.Observation, session string) error {
+func renameSourceRefusal(o runtimedriver.Observation, session string) error {
 	switch {
-	case !o.Exists:
+	case o.State == runtimedriver.StateAbsent:
 		return control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(session))
 	case !renameSourceStopped(o):
 		return control.Conflict(api.ReasonSessionNotStopped, api.TargetSession(session))
@@ -95,14 +96,26 @@ func renameSourceRefusal(o runtimeincus.Observation, session string) error {
 
 // renameSourceStopped reports whether rename may change the workspace of the
 // observed runtime: P changes a workspace only while its session is stopped.
-func renameSourceStopped(o runtimeincus.Observation) bool {
-	return o.Exists && o.Status == "Stopped" && o.IncusUUID != "" && o.Generation != ""
+func renameSourceStopped(o runtimedriver.Observation) bool {
+	incusUUID, _ := incarnationRecord(o.Incarnation)
+	return o.State == runtimedriver.StateStopped && incusUUID != ""
 }
 
 // renameSourceExact reports whether o is the stopped runtime the rename
 // recorded.
-func renameSourceExact(o runtimeincus.Observation, ev control.RenameEvidence) bool {
-	return renameSourceStopped(o) && o.IncusUUID == ev.IncusUUID && o.Generation == ev.Generation
+func renameSourceExact(o runtimedriver.Observation, ev control.RenameEvidence) bool {
+	return renameSourceStopped(o) && o.Incarnation == recordedIncarnation(ev.IncusUUID, ev.Generation)
+}
+
+// renameClone is the clone of the session a rename changes, at the
+// incarnation the rename recorded.
+func (l *lifecycle) renameClone(spec runtimedriver.Session, ev control.RenameEvidence) renameClone {
+	return renameClone{driver: l.driver, target: runtimedriver.Target{Session: spec, At: recordedIncarnation(ev.IncusUUID, ev.Generation)}}
+}
+
+// renamePlan is the workspace plan a rename recorded.
+func renamePlan(ev control.RenameEvidence) workspaceRenamePlan {
+	return workspaceRenamePlan{HeadOID: ev.WorkspaceTip, ConfigAfterSHA256: ev.ConfigAfterSHA256}
 }
 
 // The caller either holds gitAuthority or is only making a preflight
@@ -172,14 +185,23 @@ func (l *lifecycle) advanceRename(op *api.Operation, ev control.RenameEvidence, 
 	return nil
 }
 
-func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameEvidence, source runtimeincus.Session, cause error) {
+// backupRemoveIssued is the gate of the backup's removal: it records the
+// removal in ev and op.
+func (l *lifecycle) backupRemoveIssued(op *api.Operation, ev *control.RenameEvidence) runtimedriver.Gate {
+	return func() error {
+		ev.BackupRemoveIssued = true
+		return l.advanceRename(op, *ev, op.Phase, op.Committed)
+	}
+}
+
+func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameEvidence, clone renameClone, cause error) {
 	ctx := l.ctx
 	if op.Phase == "prepare-issued" || op.Phase == "new-ref-create-issued" || op.Committed {
 		l.blockRename(op, cause)
 		return
 	}
 	if op.Phase == "workspace-prepared" {
-		if err := l.runtime.RemoveWorkspaceRenameBackup(ctx, source, ev.IncusUUID, ev.Generation, op.ID); err != nil {
+		if err := clone.removeBackup(ctx, op.ID, l.backupRemoveIssued(&op, &ev)); err != nil {
 			l.blockRename(op, errors.Join(cause, err))
 			return
 		}
@@ -187,7 +209,7 @@ func (l *lifecycle) rollbackRenamePrecommit(op api.Operation, ev control.RenameE
 	// A replaced or started source does not prevent releasing these two ref
 	// guards after a definite no-effect precommit refusal.
 	reason, diagnostic := api.ReasonChanged, "rename precommit input changed"
-	var mismatch *runtimeincus.WorkspaceAssignmentMismatchError
+	var mismatch *workspaceAssignmentMismatchError
 	if errors.As(cause, &mismatch) {
 		reason, diagnostic = api.ReasonWorkspaceMismatch, mismatch.Error()
 	}
@@ -213,10 +235,25 @@ func (l *lifecycle) processRename(op api.Operation) {
 		l.blockRename(op, errors.Join(err, errors.New("rename assignment changed")))
 		return
 	}
-	source, err := l.nativeSession(ctx, s)
-	if err != nil || source.ImageFingerprint != ev.ImageFingerprint {
+	source, err := l.sessionSpec(ctx, s)
+	if err != nil || string(source.Image) != ev.ImageFingerprint {
 		l.blockRename(op, errors.Join(err, errors.New("rename runtime selection changed")))
 		return
+	}
+	clone := l.renameClone(source, ev)
+	if ev.BackupRemoveIssued {
+		if err := clone.settleBackupRemoved(ctx, op.ID); err != nil {
+			l.blockRename(op, err)
+			return
+		}
+	}
+	// issued records that the clone's rename began, right before its first
+	// write; later writes find it recorded.
+	issued := func() error {
+		if op.Phase == "workspace-rename-issued" {
+			return nil
+		}
+		return l.advanceRename(&op, ev, "workspace-rename-issued", true)
 	}
 	for step := 0; step < 18; step++ {
 		switch op.Phase {
@@ -227,18 +264,18 @@ func (l *lifecycle) processRename(op api.Operation) {
 			}
 		case "guarded":
 			if err := l.verifyRenamePRefs(ctx, ev, false); err != nil {
-				l.rollbackRenamePrecommit(op, ev, source, err)
+				l.rollbackRenamePrecommit(op, ev, clone, err)
 				return
 			}
-			observed, err := l.runtime.Inspect(ctx, source)
+			observed, err := l.driver.Inspect(ctx, source)
 			if err != nil || !renameSourceExact(observed, ev) {
-				l.rollbackRenamePrecommit(op, ev, source, errors.Join(err, errors.New("rename source changed or started")))
+				l.rollbackRenamePrecommit(op, ev, clone, errors.Join(err, errors.New("rename source changed or started")))
 				return
 			}
-			plan, err := l.runtime.PrepareWorkspaceRename(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch,
+			plan, err := clone.prepare(ctx, op.ID, ev.OldBranch, ev.NewBranch,
 				func() error { return l.advanceRename(&op, ev, "prepare-issued", false) })
 			if err != nil {
-				l.rollbackRenamePrecommit(op, ev, source, err)
+				l.rollbackRenamePrecommit(op, ev, clone, err)
 				return
 			}
 			ev.WorkspaceTip, ev.ConfigAfterSHA256 = plan.HeadOID, plan.ConfigAfterSHA256
@@ -247,10 +284,15 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 		case "prepare-issued":
-			// A timed-out Incus file POST can register after an immediate miss.
-			// Only the exact already-written backup authorizes forward motion;
-			// absence remains guarded for explicit resolution.
-			plan, err := l.runtime.VerifyPreparedWorkspaceRename(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch)
+			// A write whose reply was lost can land after an immediate miss.
+			// Only the exact already-written backup, settled by the driver,
+			// authorizes forward motion; anything else remains guarded for
+			// explicit resolution.
+			if err := clone.settlePrepared(ctx, op.ID, ev.OldBranch, ev.NewBranch); err != nil {
+				l.blockRename(op, err)
+				return
+			}
+			plan, err := clone.verifyPrepared(ctx, op.ID, ev.OldBranch, ev.NewBranch)
 			if err != nil {
 				l.blockRename(op, err)
 				return
@@ -262,12 +304,12 @@ func (l *lifecycle) processRename(op api.Operation) {
 			}
 		case "workspace-prepared":
 			if err := l.verifyRenamePRefs(ctx, ev, false); err != nil {
-				l.rollbackRenamePrecommit(op, ev, source, err)
+				l.rollbackRenamePrecommit(op, ev, clone, err)
 				return
 			}
-			plan, err := l.runtime.VerifyPreparedWorkspaceRename(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch)
-			if err != nil || plan.HeadOID != ev.WorkspaceTip || plan.ConfigAfterSHA256 != ev.ConfigAfterSHA256 {
-				l.rollbackRenamePrecommit(op, ev, source, errors.Join(err, errors.New("prepared workspace changed")))
+			plan, err := clone.verifyPrepared(ctx, op.ID, ev.OldBranch, ev.NewBranch)
+			if err != nil || plan != renamePlan(ev) {
+				l.rollbackRenamePrecommit(op, ev, clone, errors.Join(err, errors.New("prepared workspace changed")))
 				return
 			}
 			if err := l.advanceRename(&op, ev, "new-ref-create-issued", false); err != nil {
@@ -298,12 +340,8 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.blockRename(op, err)
 				return
 			}
-			if err := l.advanceRename(&op, ev, "workspace-rename-issued", true); err != nil {
-				l.blockRename(op, err)
-				return
-			}
-			plan, err := l.runtime.ApplyWorkspaceRename(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch, true)
-			if err != nil || plan.HeadOID != ev.WorkspaceTip || plan.ConfigAfterSHA256 != ev.ConfigAfterSHA256 {
+			plan, err := clone.apply(ctx, op.ID, ev.OldBranch, ev.NewBranch, issued)
+			if err != nil || plan != renamePlan(ev) {
 				l.blockRename(op, errors.Join(err, errors.New("workspace rename postcondition unavailable")))
 				return
 			}
@@ -312,8 +350,12 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 		case "workspace-rename-issued":
-			plan, err := l.runtime.ApplyWorkspaceRename(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch, false)
-			if err != nil || plan.HeadOID != ev.WorkspaceTip || plan.ConfigAfterSHA256 != ev.ConfigAfterSHA256 {
+			if err := clone.settleRenamed(ctx, op.ID, ev.OldBranch, ev.NewBranch); err != nil {
+				l.blockRename(op, err)
+				return
+			}
+			plan, err := clone.apply(ctx, op.ID, ev.OldBranch, ev.NewBranch, nil)
+			if err != nil || plan != renamePlan(ev) {
 				l.blockRename(op, errors.Join(err, errors.New("workspace rename effect ambiguous")))
 				return
 			}
@@ -326,8 +368,7 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.blockRename(op, err)
 				return
 			}
-			if err := l.runtime.VerifyWorkspaceRenamed(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch,
-				runtimeincus.WorkspaceRenamePlan{HeadOID: ev.WorkspaceTip, ConfigAfterSHA256: ev.ConfigAfterSHA256}); err != nil {
+			if err := clone.verifyRenamed(ctx, op.ID, ev.OldBranch, ev.NewBranch, renamePlan(ev)); err != nil {
 				l.blockRename(op, err)
 				return
 			}
@@ -362,12 +403,11 @@ func (l *lifecycle) processRename(op api.Operation) {
 				return
 			}
 		case "old-ref-deleted":
-			if err := l.runtime.VerifyWorkspaceRenamed(ctx, source, ev.IncusUUID, ev.Generation, op.ID, ev.OldBranch, ev.NewBranch,
-				runtimeincus.WorkspaceRenamePlan{HeadOID: ev.WorkspaceTip, ConfigAfterSHA256: ev.ConfigAfterSHA256}); err != nil {
+			if err := clone.verifyRenamed(ctx, op.ID, ev.OldBranch, ev.NewBranch, renamePlan(ev)); err != nil {
 				l.blockRename(op, err)
 				return
 			}
-			if err := l.runtime.RemoveWorkspaceRenameBackup(ctx, source, ev.IncusUUID, ev.Generation, op.ID); err != nil {
+			if err := clone.removeBackup(ctx, op.ID, l.backupRemoveIssued(&op, &ev)); err != nil {
 				l.blockRename(op, err)
 				return
 			}
@@ -380,7 +420,7 @@ func (l *lifecycle) processRename(op api.Operation) {
 				l.blockRename(op, err)
 				return
 			}
-			observed, err := l.runtime.Inspect(ctx, source)
+			observed, err := l.driver.Inspect(ctx, source)
 			if err != nil || !renameSourceExact(observed, ev) {
 				l.blockRename(op, errors.Join(err, errors.New("rename source changed before completion")))
 				return

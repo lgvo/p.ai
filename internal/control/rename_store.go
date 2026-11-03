@@ -32,6 +32,9 @@ type RenameEvidence struct {
 	BaseFingerprint   string `json:"base_fingerprint"`
 	IncusUUID         string `json:"incus_uuid"`
 	Generation        string `json:"generation"`
+	// BackupRemoveIssued records that the removal of the workspace backup
+	// was sent; every later attempt settles it first.
+	BackupRemoveIssued bool `json:"backup_remove_issued,omitempty"`
 }
 
 func ValidRenameRequest(r RenameRequest) bool { return api.SessionRenameRequest(r).Validate() == nil }
