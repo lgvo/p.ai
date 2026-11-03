@@ -43,37 +43,43 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (st
 	var state string
 	err := s.db.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, r.Project).Scan(&state)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
+		return "", NotFound(api.ReasonProject, api.TargetProject(r.Project))
 	}
 	if err != nil {
 		return "", err
 	}
 	if state != "active" {
-		return "", ErrConflict
+		return "", Conflict(api.ReasonProjectDeleting, api.TargetProject(r.Project))
 	}
 	if r.Kind == "session" {
 		var branch, registry string
 		err = s.db.QueryRowContext(ctx, `SELECT branch,registry_state FROM sessions WHERE uuid=? AND project_path=?`, r.Source, r.Project).Scan(&branch, &registry)
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", ErrNotFound
+			return "", NotFound(api.ReasonSession, api.TargetSession(r.Source))
 		}
 		if err != nil {
 			return "", err
 		}
 		if registry != "established" {
-			return "", ErrConflict
+			return "", Conflict(api.ReasonSessionNotEstablished, api.TargetSession(r.Source))
 		}
-		var busy int
-		err = s.db.QueryRowContext(ctx, `SELECT 1 FROM operations WHERE session_uuid=? AND status IN ('running','blocked','unknown') LIMIT 1`, r.Source).Scan(&busy)
+		// An unfinished operation holds the session: retry while it runs, a
+		// person acts once it is blocked.
+		var holder, status string
+		err = s.db.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE session_uuid=? AND status IN ('running','blocked','unknown') LIMIT 1`, r.Source).Scan(&holder, &status)
 		if err == nil {
-			return "", ErrConflict
+			if status == "running" {
+				return "", Retry(api.ReasonSessionHeld, api.TargetOperation(holder))
+			}
+			return "", Conflict(api.ReasonOperationBlocked, api.TargetOperation(holder))
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return "", err
 		}
-		err = s.db.QueryRowContext(ctx, `SELECT 1 FROM git_ref_guards WHERE project_path=? AND branch=?`, r.Project, branch).Scan(&busy)
+		var guarded int
+		err = s.db.QueryRowContext(ctx, `SELECT 1 FROM git_ref_guards WHERE project_path=? AND branch=?`, r.Project, branch).Scan(&guarded)
 		if err == nil {
-			return "", ErrConflict
+			return "", Conflict(api.ReasonBranchReserved, api.TargetBranch(r.Project, branch))
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return "", err
@@ -83,14 +89,14 @@ func (s *Store) PublicationSource(ctx context.Context, r PublicationRequest) (st
 	var assigned int
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=? LIMIT 1`, r.Project, r.Source).Scan(&assigned)
 	if err == nil {
-		return "", ErrConflict
+		return "", Conflict(api.ReasonBranchAssigned, api.TargetBranch(r.Project, r.Source))
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM git_ref_guards WHERE project_path=? AND branch=?`, r.Project, r.Source).Scan(&assigned)
 	if err == nil {
-		return "", ErrConflict
+		return "", Conflict(api.ReasonBranchReserved, api.TargetBranch(r.Project, r.Source))
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return "", err
@@ -113,7 +119,7 @@ func (s *Store) PublicationRecord(ctx context.Context, r PublicationRequest) (ap
 		return api.Publication{}, "", err
 	}
 	if originURL != r.ExpectedOriginURL || project != r.Project || kind != r.Kind || source != r.Source || oid != r.SourceOID || dest != r.DestinationRef {
-		return api.Publication{}, "", ErrConflict
+		return api.Publication{}, "", KeyReused()
 	}
 	var result api.Publication
 	if raw != "" {
@@ -141,7 +147,7 @@ func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (a
 		column := "idempotency_key"
 		err = tx.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE `+column+`=?`, r.Key).Scan(&existing)
 		if err == nil {
-			return api.Publication{}, "", ErrConflict
+			return api.Publication{}, "", KeyReused()
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return api.Publication{}, "", err
@@ -151,7 +157,7 @@ func (s *Store) PreparePublication(ctx context.Context, r PublicationRequest) (a
 	err = tx.QueryRowContext(ctx, `SELECT project_path,expected_origin_url,source_kind,source,source_oid,destination_ref,status,result_json FROM publication_requests WHERE idempotency_key=?`, r.Key).Scan(&project, &originURL, &kind, &source, &oid, &dest, &status, &raw)
 	if err == nil {
 		if originURL != r.ExpectedOriginURL || project != r.Project || kind != r.Kind || source != r.Source || oid != r.SourceOID || dest != r.DestinationRef {
-			return api.Publication{}, "", ErrConflict
+			return api.Publication{}, "", KeyReused()
 		}
 		var result api.Publication
 		if raw != "" {

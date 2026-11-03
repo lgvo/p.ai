@@ -21,10 +21,10 @@ rpc() {
    printf '%s\n' "$response"; return
   else status=$?; fi
   # Start/reconciliation watchers briefly retain lifecycle authority after
-  # readiness is observed. Retry only explicit busy observations, never hide
-  # unavailable/invalid responses or redispatch mutations here.
+  # readiness is observed. Retry only explicit retry answers, never hide
+  # other refusals or redispatch mutations here.
   if test "$read_only" = true && test "$SECONDS" -lt "$deadline" && \
-   jq -e '.error.kind=="busy"' <<< "$response" >/dev/null 2>&1; then sleep 0.1; continue; fi
+   jq -e '.error.message=="retry"' <<< "$response" >/dev/null 2>&1; then sleep 0.1; continue; fi
   if test "$read_only" = true; then
    printf 'P_NOTES_RPC_FAILURE method=%s status=%s\n' "$1" "$status" >&2
    jq -c ' .error' <<< "$response" >&2 || true
@@ -71,7 +71,7 @@ wait_ready() {
 stop_session() {
  local deadline=$((SECONDS+45)) response
  while ! response=$(rpc session.stop "$(params)"); do
-  jq -e '.error.kind=="busy"' <<< "$response" >/dev/null
+  jq -e '.error.message=="retry"' <<< "$response" >/dev/null
   test "$SECONDS" -lt "$deadline"; sleep 0.2
  done
 }
@@ -329,7 +329,7 @@ rename_params=$(jq -nc --arg uuid "$uuid" --arg oid "$sample_oid" '{key:"notes57
 if refused=$(rpc session.rename "$rename_params"); then
  echo 'renamed a running session' >&2; exit 1
 fi
-jq -e '.error.kind=="busy" and (has("result")|not)' <<< "$refused" >/dev/null
+jq -e '.error.message=="conflict" and .error.data.reason=="session_not_stopped" and (has("result")|not)' <<< "$refused" >/dev/null
 stop_session
 renamed=$(rpc session.rename "$rename_params")
 op=$(jq -er '.result.operation.id' <<< "$renamed")

@@ -52,22 +52,26 @@ trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
 rpc() { timeout 30 p api "$socket" "$@"; }
+# expect_error KIND REASON METHOD PARAMS [NAME=VALUE]: the request is refused
+# with error kind KIND (the error's message), its code and data.reason
+# REASON; NAME=VALUE also checks data.NAME, such as field=url.
 expect_error() {
-  local kind="$1" method="$2" params="$3" response code
+  local kind="$1" reason="$2" method="$3" params="$4" detail="${5:-}" response code
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    precondition_failed) code=-32013 ;;
+    failed) code=-32017 ;;
     *) echo "unknown expected RPC error kind: $kind" >&2; return 1 ;;
   esac
   if response=$(rpc "$method" "$params" 2> "$step_dir/api.err"); then
     echo "$method unexpectedly accepted $params" >&2
     return 1
   fi
-  jq -e --arg kind "$kind" --argjson code "$code" \
+  jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" \
+    --arg name "${detail%%=*}" --arg value "${detail#*=}" \
     '.jsonrpc == "2.0" and .id==2 and (has("result") | not) and
-     .error.kind == $kind and .error.code == $code and
-     (.error.message | type == "string" and length > 0)' <<< "$response" >/dev/null
+     .error.message == $kind and .error.code == $code and .error.data.reason == $reason and
+     ($name == "" or .error.data[$name] == $value)' <<< "$response" >/dev/null
 }
 change() {
   local key="$1" project="$2" kind="$3" expected="$4" url="${5:-}"
@@ -185,7 +189,7 @@ inspect app | jq -e '.result.origin | .status == "local-only" and .ref_count == 
 trace_before=$(wc -l < "$step_dir/origin.trace")
 refresh app | jq -e '.result.origin.status == "local-only"' >/dev/null
 test "$(wc -l < "$step_dir/origin.trace")" = "$trace_before"
-expect_error unavailable origin.change "$(jq -nc --arg url "$bad_url" '{key:"initial-failure",project:"app",kind:"set",expected_url:"",url:$url}')"
+expect_error failed origin origin.change "$(jq -nc --arg url "$bad_url" '{key:"initial-failure",project:"app",kind:"set",expected_url:"",url:$url}')"
 inspect app | jq -e '.result.origin.status == "local-only"' >/dev/null
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 
@@ -202,8 +206,8 @@ jq -e --arg oid "$first" \
 sources app refs/heads/zzz 1 | jq -e --arg oid "$first" --arg tag "$tag_oid" \
   '.result | .refs == [{ref:"refs/tags/v1",oid:$tag,commit_oid:$oid}] and .next == ""' >/dev/null
 full_sources=$(sources app '' 16 | jq -c '.result.refs')
-expect_error busy origin.change "$(jq -nc --arg url "$empty_url" '{key:"stale-cas",project:"app",kind:"set",expected_url:"",url:$url}')"
-expect_error unavailable origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
+expect_error precondition_failed changed origin.change "$(jq -nc --arg url "$empty_url" '{key:"stale-cas",project:"app",kind:"set",expected_url:"",url:$url}')"
+expect_error failed origin origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
   '{key:"failed-replacement",project:"app",kind:"set",expected_url:$old,url:$url}')"
 test "$(inspect app | jq -c '.result.origin')" = "$(jq -c '.result.origin' <<< "$set_result")"
 test "$(sources app '' 16 | jq -c '.result.refs')" = "$full_sources"
@@ -225,8 +229,8 @@ write_ssh_config "$step_dir/missing-key"
 trace_before=$(wc -l < "$step_dir/origin.trace")
 test "$(change replace-empty app set "$full_url" "$empty_url" | jq -c '.result.origin')" = "$(jq -c '.result.origin' <<< "$replacement")"
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
-expect_error busy origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
-  '{key:"replace-empty",project:"app",kind:"set",expected_url:$old,url:$url}')"
+expect_error invalid key_reused origin.change "$(jq -nc --arg old "$full_url" --arg url "$bad_url" \
+  '{key:"replace-empty",project:"app",kind:"set",expected_url:$old,url:$url}')" field=key
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
@@ -243,11 +247,11 @@ sources app '' 1 | jq -e '.result | .origin_url == "" and .observation_status ==
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
 
 # Strict decoding includes alias spellings, duplicate keys, and extra fields.
-expect_error invalid_params origin.change "$(jq -nc --arg url "$full_url" \
-  '{key:"case-alias",project:"app",kind:"set",expected_url:"",URL:$url}')"
-expect_error invalid_params origin.change '{"key":"bad","key":"bad","project":"app","kind":"remove","expected_url":""}'
-expect_error invalid_params origin.refresh '{"Project":"app"}'
-expect_error invalid_params origin.inspect '{"project":"app","extra":true}'
-expect_error invalid_params origin.sources '{"project":"app","limit":17}'
-expect_error invalid_params origin.sources '{"project":"app","limit":1,"after":"refs/heads/../bad"}'
+expect_error invalid param origin.change "$(jq -nc --arg url "$full_url" \
+  '{key:"case-alias",project:"app",kind:"set",expected_url:"",URL:$url}')" field=URL
+expect_error invalid param origin.change '{"key":"bad","key":"bad","project":"app","kind":"remove","expected_url":""}'
+expect_error invalid param origin.refresh '{"Project":"app"}' field=Project
+expect_error invalid param origin.inspect '{"project":"app","extra":true}' field=extra
+expect_error invalid param origin.sources '{"project":"app","limit":17}' field=limit
+expect_error invalid param origin.sources '{"project":"app","limit":1,"after":"refs/heads/../bad"}' field=after
 echo P_ORIGIN_LIFECYCLE_PASS

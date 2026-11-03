@@ -168,12 +168,18 @@ rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 
 
+# expect_refusal METHOD PARAMS KIND [REASON]: the request is refused with the
+# error kind KIND, its code and, when given, REASON.
 expect_refusal() {
-  local method="$1" params="$2" kind="$3" response
+  local method="$1" params="$2" kind="$3" reason="${4:-}" response
   if response=$(rpc "$method" "$params" 2> "$step_dir/refused.err"); then
     echo "unexpectedly accepted $method" >&2; return 1
   fi
-  jq -e --arg kind "$kind" '.error.kind==$kind' <<< "$response" >/dev/null
+  jq -e --arg kind "$kind" --arg reason "$reason" '
+    {method_not_found: -32601, invalid: -32602, retry: -32010, conflict: -32011,
+     capacity: -32012, precondition_failed: -32013, not_found: -32015} as $codes |
+    .error.message==$kind and .error.code==$codes[$kind] and
+    ($reason=="" or .error.data.reason==$reason)' <<< "$response" >/dev/null
 }
 source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
@@ -245,8 +251,9 @@ test -S "$endpoint_prefix/$uuid/session.sock"
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
 inc list "^p-$uuid_b$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
+# The stale review's token was spent by its confirmation.
 expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$stale_token" \
-  '{key:"discard-stale-reused",uuid:$uuid,confirmation_token:$token}')" busy
+  '{key:"discard-stale-reused",uuid:$uuid,confirmation_token:$token}')" precondition_failed expired
 # A real push proves the stale path released the P ref guard and Git principal.
 guest /run/current-system/sw/bin/bash -c 'printf after-stale > tracked; git add tracked; git commit -qm after-stale; git push origin HEAD:main'
 main_oid=$(guest /run/current-system/sw/bin/git rev-parse HEAD)
@@ -280,8 +287,8 @@ inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test ! -e "$endpoint_prefix/$uuid"
 test ! -e "$state/session_keys/$uuid"
 test -f "$state/session_keys/$uuid_b"
-expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
-expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
+expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" not_found session
+expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" not_found session
 rpc project.retained_branches '{"project":"discard-lifecycle","limit":8}' |
   jq -e --arg oid "$main_oid" '.result.branches | length==1 and
     .[0].branch=="main" and .[0].oid==$oid' >/dev/null

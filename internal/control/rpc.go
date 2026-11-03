@@ -13,7 +13,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -37,20 +39,16 @@ type rpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
 	Result  any             `json:"result,omitempty"`
-	Error   *api.RPCError   `json:"error,omitempty"`
+	Error   *api.Error      `json:"error,omitempty"`
 }
 
 type GitReader interface {
 	ListRefsPage(context.Context, string, string, int) ([]plugin.GitRef, string, error)
 }
 
-func errorRPC(code int, kind, message string) *api.RPCError {
-	return &api.RPCError{Code: code, Kind: kind, Message: message}
-}
-
 // Handler answers one control-API request. The connection dispatches the
 // method name and raw params to it.
-type Handler func(context.Context, string, json.RawMessage) (any, *api.RPCError)
+type Handler func(context.Context, string, json.RawMessage) (any, *api.Error)
 
 // HandlerConfig names what trusted configuration enabled. Git, the lifecycle
 // and origins stay nil until configured; each serves its methods.
@@ -71,27 +69,66 @@ func NewMethodTable() *MethodTable { return &MethodTable{handlers: map[string]Ha
 
 // Register serves m with h. The dispatch decodes the params into m's request
 // type with strict JSON, runs its Validate, calls h and encodes its result.
-// h returns an *api.RPCError to answer a specific error; any other error is
-// mapped as a lifecycle error.
+// An error h returns is mapped to its answer by answerError and logged with
+// its cause.
 func Register[Req api.Request, Res any](t *MethodTable, m api.Method[Req, Res], h func(context.Context, Req) (Res, error)) {
-	t.handlers[m.Name] = func(ctx context.Context, _ string, params json.RawMessage) (any, *api.RPCError) {
+	t.handlers[m.Name] = func(ctx context.Context, _ string, params json.RawMessage) (any, *api.Error) {
 		var req Req
-		if !isObject(params) || strictjson.Decode(params, &req) != nil {
-			return nil, errorRPC(-32602, "invalid_params", "invalid "+m.Name+" params")
-		}
-		if err := req.Validate(); err != nil {
-			return nil, errorRPC(-32602, "invalid_params", err.Error())
+		if answer := decodeParams(params, &req); answer != nil {
+			return nil, answer
 		}
 		res, err := h(ctx, req)
 		if err != nil {
-			var rpcErr *api.RPCError
-			if errors.As(err, &rpcErr) {
-				return nil, rpcErr
-			}
-			return nil, lifecycleRPC(err)
+			answer := answerError(ctx, err)
+			logAnswer(ctx, m.Name, answer, err)
+			return nil, answer
 		}
 		return res, nil
 	}
+}
+
+// decodeParams decodes params strictly into req and runs its Validate. It
+// answers invalid, naming the field at fault when it can tell, or nil.
+func decodeParams[Req api.Request](params json.RawMessage, req *Req) *api.Error {
+	if !isObject(params) {
+		return api.InvalidParam("")
+	}
+	if err := strictjson.Decode(params, req); err != nil {
+		return api.InvalidParam(paramAtFault(params, req, err))
+	}
+	if err := (*req).Validate(); err != nil {
+		var answer *api.Error
+		if !errors.As(err, &answer) {
+			answer = api.InvalidParam("")
+		}
+		return answer
+	}
+	return nil
+}
+
+// paramAtFault names the top-level member of params that a strict decode
+// into dest refused, when it can tell: an unknown member or one of the wrong
+// type.
+func paramAtFault(params json.RawMessage, dest any, err error) string {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && typeErr.Field != "" {
+		return strings.SplitN(typeErr.Field, ".", 2)[0]
+	}
+	var members map[string]json.RawMessage
+	if json.Unmarshal(params, &members) != nil {
+		return ""
+	}
+	known := map[string]bool{}
+	t := reflect.TypeOf(dest).Elem()
+	for i := 0; i < t.NumField(); i++ {
+		known[strings.Split(t.Field(i).Tag.Get("json"), ",")[0]] = true
+	}
+	for name := range members {
+		if !known[name] {
+			return name
+		}
+	}
+	return ""
 }
 
 // isObject reports whether params is a JSON object; strict decoding also
@@ -104,11 +141,11 @@ func isObject(params json.RawMessage) bool {
 // Handler dispatches to the registered handlers; any other name answers
 // method_not_found.
 func (t *MethodTable) Handler() Handler {
-	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.Error) {
 		if h, ok := t.handlers[method]; ok {
 			return h(ctx, method, params)
 		}
-		return nil, errorRPC(-32601, "method_not_found", "method is unknown")
+		return nil, api.NewError(api.KindMethodNotFound, "")
 	}
 }
 
@@ -125,9 +162,9 @@ func (t *MethodTable) registerNotConfigured() {
 		if m.Connection || t.Registered(m.Name) {
 			continue
 		}
-		message := string(m.Capability) + " capability is not configured"
-		t.handlers[m.Name] = func(context.Context, string, json.RawMessage) (any, *api.RPCError) {
-			return nil, errorRPC(-32004, "unavailable", message)
+		answer := api.NewError(api.KindNotConfigured, string(m.Capability))
+		t.handlers[m.Name] = func(context.Context, string, json.RawMessage) (any, *api.Error) {
+			return nil, answer
 		}
 	}
 }
@@ -175,21 +212,21 @@ func addSystemMethods(t *MethodTable, c HandlerConfig, capabilities []api.Capabi
 	Register(t, api.SystemHello, func(ctx context.Context, _ api.HelloRequest) (api.HelloResult, error) {
 		id, err := store.InstanceID(ctx)
 		if err != nil {
-			return api.HelloResult{}, internalRPC(err)
+			return api.HelloResult{}, Internal(api.ReasonStore, err)
 		}
 		return api.HelloResult{Protocol: api.Protocol, BuildVersion: BuildVersion, InstanceID: id,
 			Capabilities: append([]api.Capability{}, capabilities...)}, nil
 	})
 	Register(t, api.SystemHealth, func(ctx context.Context, _ api.HealthRequest) (api.HealthResult, error) {
 		if err := store.Ping(ctx); err != nil {
-			return api.HealthResult{}, internalRPC(err)
+			return api.HealthResult{}, Internal(api.ReasonStore, err)
 		}
 		return api.HealthResult{ControlState: "ready"}, nil
 	})
 	Register(t, api.SystemInspect, func(ctx context.Context, _ api.SystemInspectRequest) (api.SystemInspectResult, error) {
 		projects, sessions, operations, err := store.Count(ctx)
 		if err != nil {
-			return api.SystemInspectResult{}, internalRPC(err)
+			return api.SystemInspectResult{}, Internal(api.ReasonStore, err)
 		}
 		return api.SystemInspectResult{Projects: projects, Sessions: sessions, Operations: operations, Git: git}, nil
 	})
@@ -199,7 +236,7 @@ func addProjectReads(t *MethodTable, store *Store, git GitReader) {
 	Register(t, api.ProjectList, func(ctx context.Context, r api.ProjectListRequest) (api.ProjectListResult, error) {
 		projects, next, err := store.ListProjects(ctx, r.After, r.Limit)
 		if err != nil {
-			return api.ProjectListResult{}, internalRPC(err)
+			return api.ProjectListResult{}, Internal(api.ReasonStore, err)
 		}
 		if projects == nil {
 			projects = []api.ProjectSummary{}
@@ -209,14 +246,14 @@ func addProjectReads(t *MethodTable, store *Store, git GitReader) {
 	Register(t, api.ProjectBranches, func(ctx context.Context, r api.ProjectBranchesRequest) (api.ProjectBranchesResult, error) {
 		active, err := store.HasActiveProject(ctx, r.Project)
 		if err != nil {
-			return api.ProjectBranchesResult{}, internalRPC(err)
+			return api.ProjectBranchesResult{}, Internal(api.ReasonStore, err)
 		}
 		if !active {
-			return api.ProjectBranchesResult{}, errorRPC(-32004, "unavailable", "project is unavailable")
+			return api.ProjectBranchesResult{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
 		}
 		refs, next, err := git.ListRefsPage(ctx, r.Project, r.After, r.Limit)
 		if err != nil {
-			return api.ProjectBranchesResult{}, errorRPC(-32004, "unavailable", "Git refs are unavailable")
+			return api.ProjectBranchesResult{}, Failed(api.ReasonGit, err)
 		}
 		if refs == nil {
 			refs = []plugin.GitRef{}
@@ -225,70 +262,68 @@ func addProjectReads(t *MethodTable, store *Store, git GitReader) {
 	})
 }
 
-func internalRPC(err error) *api.RPCError {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return errorRPC(-32001, "cancelled", "request cancelled or timed out")
-	}
-	return errorRPC(-32603, "internal", "control state is unavailable")
-}
-
-func parseRequest(line []byte) (rpcRequest, *api.RPCError) {
+// parseRequest reads one request line. A line that is not JSON answers
+// parse_error; JSON that is not a valid request object answers
+// invalid_request with reason envelope. Missing params mean {}.
+func parseRequest(line []byte) (rpcRequest, *api.Error) {
+	parseError := api.NewError(api.KindParseError, "")
+	envelopeError := api.NewError(api.KindInvalidRequest, api.ReasonEnvelope)
 	var request rpcRequest
 	dec := json.NewDecoder(bytes.NewReader(line))
 	tok, err := dec.Token()
 	if err != nil {
-		return request, errorRPC(-32700, "parse_error", "invalid JSON")
+		return request, parseError
 	}
 	if tok != json.Delim('{') {
-		return request, errorRPC(-32600, "invalid_request", "expected one JSON object")
+		return request, envelopeError
 	}
 	fields := make(map[string]json.RawMessage)
 	for dec.More() {
 		keyToken, err := dec.Token()
 		if err != nil {
-			return request, errorRPC(-32700, "parse_error", "invalid JSON")
+			return request, parseError
 		}
 		key, ok := keyToken.(string)
 		if !ok {
-			return request, errorRPC(-32700, "parse_error", "invalid JSON key")
+			return request, parseError
 		}
 		if _, duplicate := fields[key]; duplicate {
-			return request, errorRPC(-32600, "invalid_request", "duplicate request field")
+			return request, envelopeError
 		}
 		if key != "jsonrpc" && key != "method" && key != "params" && key != "id" {
-			return request, errorRPC(-32600, "invalid_request", "unknown request field")
+			return request, envelopeError
 		}
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
-			return request, errorRPC(-32700, "parse_error", "invalid JSON")
+			return request, parseError
 		}
 		fields[key] = raw
 	}
 	if _, err := dec.Token(); err != nil {
-		return request, errorRPC(-32700, "parse_error", "incomplete JSON")
+		return request, parseError
 	}
 	var extra any
 	if err := dec.Decode(&extra); err != io.EOF {
-		return request, errorRPC(-32700, "parse_error", "multiple JSON values")
+		return request, parseError
 	}
 	if raw, ok := fields["id"]; ok {
 		request.HasID = true
 		request.ID = raw
 		if _, err := api.CanonicalID(request.ID); err != nil {
 			request.ID = nil
-			return request, errorRPC(-32600, "invalid_request", err.Error())
+			return request, envelopeError
 		}
 	}
 	var version string
 	if err := json.Unmarshal(fields["jsonrpc"], &version); err != nil || version != "2.0" {
-		return request, errorRPC(-32002, "unsupported_version", "jsonrpc must be 2.0")
+		return request, api.NewError(api.KindUnsupportedVersion, api.ReasonJSONRPC)
 	}
 	if err := json.Unmarshal(fields["method"], &request.Method); err != nil || request.Method == "" || len(request.Method) > 128 {
-		return request, errorRPC(-32600, "invalid_request", "method must be a bounded string")
+		return request, envelopeError
 	}
 	request.Params = fields["params"]
 	if len(request.Params) == 0 {
-		return request, errorRPC(-32602, "invalid_params", "params are required")
+		request.Params = json.RawMessage("{}")
 	}
 	return request, nil
 }
@@ -383,7 +418,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 	var active sync.Map // canonical JSON ID -> context.CancelFunc
 	var pending sync.WaitGroup
 	semaphore := make(chan struct{}, 16)
-	write := func(id json.RawMessage, result any, rpcErr *api.RPCError) {
+	write := func(id json.RawMessage, result any, rpcErr *api.Error) {
 		writes.Lock()
 		defer writes.Unlock()
 		conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
@@ -392,20 +427,22 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 	// agreed is set by a successful system.hello. Only the read loop, which
 	// answers the hello inline, reads or writes it.
 	agreed := false
-	hello := func(request rpcRequest) (any, *api.RPCError) {
+	hello := func(request rpcRequest) (any, *api.Error) {
 		if owner.dedicatedAttachment() {
-			return nil, lifecycleRPC(ErrConflict)
+			return nil, api.NewError(api.KindInvalidRequest, api.ReasonConnection)
 		}
 		var p api.HelloRequest
-		if !isObject(request.Params) || strictjson.Decode(request.Params, &p) != nil || p.Validate() != nil {
-			return nil, errorRPC(-32602, "invalid_params", "system.hello requires a protocol")
+		if answer := decodeParams(request.Params, &p); answer != nil {
+			return nil, answer
 		}
 		if p.Protocol != api.Protocol {
-			return nil, &api.RPCError{Code: -32002, Kind: "unsupported_version", Message: "protocol is not supported",
-				Data: &api.ErrorData{Reason: api.ReasonProtocol, Supported: []string{api.Protocol}}}
+			answer := api.NewError(api.KindUnsupportedVersion, api.ReasonProtocol)
+			answer.Data.Supported = []string{api.Protocol}
+			return nil, answer
 		}
 		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 		defer cancel()
+		ctx = context.WithValue(ctx, requestIDKey{}, string(request.ID))
 		result, rpcErr := envelope(handler(ctx, request.Method, request.Params))
 		agreed = agreed || rpcErr == nil
 		return result, rpcErr
@@ -415,7 +452,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		notification := false
 		defer func() {
 			if value := recover(); value != nil {
-				rpcErr := panicRPC("control", request.Method, value)
+				rpcErr := panicRPC("control", request.Method, request.ID, value)
 				if !notification {
 					write(replyID(request.ID), nil, rpcErr)
 				}
@@ -431,7 +468,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		if request.HasID {
 			key, _ = api.CanonicalID(request.ID)
 			if _, duplicated := active.Load(key); duplicated {
-				write(json.RawMessage("null"), nil, errorRPC(-32600, "invalid_request", "duplicate in-flight id"))
+				write(json.RawMessage("null"), nil, api.NewError(api.KindInvalidRequest, api.ReasonDuplicateID))
 				return
 			}
 		}
@@ -446,16 +483,15 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		}
 		if !agreed {
 			if request.HasID {
-				write(request.ID, nil, &api.RPCError{Code: -32600, Kind: "invalid_request", Message: "send system.hello first",
-					Data: &api.ErrorData{Reason: api.ReasonHelloRequired}})
+				write(request.ID, nil, api.NewError(api.KindInvalidRequest, api.ReasonHelloRequired))
 			}
 			return
 		}
 		if request.Method == api.RPCCancel.Name {
 			var p api.CancelRequest
-			if !isObject(request.Params) || strictjson.Decode(request.Params, &p) != nil || p.Validate() != nil {
+			if answer := decodeParams(request.Params, &p); answer != nil {
 				if request.HasID {
-					write(request.ID, nil, errorRPC(-32602, "invalid_params", "rpc.cancel requires the id of a request"))
+					write(request.ID, nil, answer)
 				}
 				return
 			}
@@ -475,14 +511,15 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		select {
 		case semaphore <- struct{}{}:
 		default:
-			write(request.ID, nil, errorRPC(-32003, "busy", "too many concurrent requests"))
+			write(request.ID, nil, api.NewError(api.KindRetry, api.ReasonTooManyRequests))
 			return
 		}
 		ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+		ctx = context.WithValue(ctx, requestIDKey{}, key)
 		if _, loaded := active.LoadOrStore(key, cancel); loaded {
 			cancel()
 			<-semaphore
-			write(json.RawMessage("null"), nil, errorRPC(-32600, "invalid_request", "duplicate in-flight id"))
+			write(json.RawMessage("null"), nil, api.NewError(api.KindInvalidRequest, api.ReasonDuplicateID))
 			return
 		}
 		pending.Add(1)
@@ -491,19 +528,21 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 			defer func() { active.Delete(key); cancel(); <-semaphore }()
 			defer func() {
 				if value := recover(); value != nil {
-					write(request.ID, nil, panicRPC("control", request.Method, value))
+					write(request.ID, nil, panicRPC("control", request.Method, request.ID, value))
 				}
 			}()
 			var result any
-			var rpcErr *api.RPCError
-			if owner.dedicatedAttachment() && request.Method != "attachment.confirm" && request.Method != "attachment.ping" {
-				rpcErr = lifecycleRPC(ErrConflict)
+			var rpcErr *api.Error
+			if owner.dedicatedAttachment() && request.Method != api.AttachmentConfirm.Name && request.Method != api.AttachmentPing.Name {
+				rpcErr = api.NewError(api.KindInvalidRequest, api.ReasonConnection)
 			} else {
 				result, rpcErr = handler(ctx, request.Method, request.Params)
 			}
 			result, rpcErr = envelope(result, rpcErr)
-			if ctx.Err() != nil {
-				result, rpcErr = nil, internalRPC(ctx.Err())
+			if rpcErr != nil && ctx.Err() != nil {
+				// A result the handler returned is sent; an error once the
+				// context ended is the context's.
+				rpcErr = answerError(ctx, ctx.Err())
 			}
 			write(request.ID, result, rpcErr)
 		}(request)
@@ -514,7 +553,7 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 		line, err := api.ReadFrame(reader)
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				write(json.RawMessage("null"), nil, errorRPC(-32700, "parse_error", err.Error()))
+				write(json.RawMessage("null"), nil, api.NewError(api.KindParseError, ""))
 			}
 			break
 		}
@@ -526,12 +565,9 @@ func ServeConn(parent context.Context, conn net.Conn, handler Handler) {
 }
 
 // envelope keeps exactly one of a handler's result and error.
-func envelope(result any, rpcErr *api.RPCError) (any, *api.RPCError) {
-	if result != nil && rpcErr != nil {
-		return nil, errorRPC(-32603, "internal", "method returned conflicting result and error")
-	}
-	if result == nil && rpcErr == nil {
-		return nil, errorRPC(-32603, "internal", "method returned no result")
+func envelope(result any, rpcErr *api.Error) (any, *api.Error) {
+	if result != nil && rpcErr != nil || result == nil && rpcErr == nil {
+		return nil, api.NewError(api.KindInternal, api.ReasonEncoding)
 	}
 	return result, rpcErr
 }
@@ -545,11 +581,11 @@ func replyID(id json.RawMessage) json.RawMessage {
 	return id
 }
 
-// panicRPC logs a panic recovered while serving a request of server and
+// panicRPC logs a panic recovered while serving the request id of server and
 // returns the error that request answers.
-func panicRPC(server, method string, value any) *api.RPCError {
-	logPanic(fmt.Sprintf("%s request %q", server, method), value)
-	return errorRPC(-32603, "internal", "request failed unexpectedly")
+func panicRPC(server, method string, id json.RawMessage, value any) *api.Error {
+	logPanic(fmt.Sprintf("%s request %q id %s", server, method, replyID(id)), value)
+	return api.NewError(api.KindInternal, api.ReasonPanic)
 }
 
 // logPanic logs a recovered panic with the stack of the goroutine that

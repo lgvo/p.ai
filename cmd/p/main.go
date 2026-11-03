@@ -118,14 +118,21 @@ func run(args []string) error {
 		defer cancel()
 		response, err := api.CallRaw(ctx, socket, method, params)
 		if err != nil {
-			_ = printJSON(map[string]any{"error": map[string]any{"kind": "transport", "message": err.Error()}})
+			// A daemon that refused p api's own hello answered an error object;
+			// anything else failed before an answer.
+			var refused *api.Error
+			if errors.As(err, &refused) {
+				_ = printJSON(map[string]any{"error": refused})
+			} else {
+				_ = printJSON(map[string]any{"error": map[string]any{"message": "transport", "detail": err.Error()}})
+			}
 			return errAPIExit
 		}
 		if _, err := os.Stdout.Write(append(response, '\n')); err != nil {
 			return err
 		}
 		var envelope struct {
-			Error *api.RPCError `json:"error"`
+			Error *api.Error `json:"error"`
 		}
 		if err := json.Unmarshal(response, &envelope); err != nil {
 			return err

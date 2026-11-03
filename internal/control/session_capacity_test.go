@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/lgvo/p.ai/internal/api"
 	"strings"
 	"testing"
 )
@@ -34,13 +35,8 @@ func TestSessionAdmissionUsesEveryContainerSlotAndCountsRowlessProjectIntent(t *
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("fifth session admitted beyond the container limit: %v", err)
 	}
-	var capacity *sessionCapacityError
-	if !errors.As(err, &capacity) {
-		t.Fatalf("admission refusal lost its capacity classification: %v", err)
-	}
-	rpcErr := lifecycleRPC(err)
-	if rpcErr.Code != -32003 || rpcErr.Kind != "busy" || strings.Contains(rpcErr.Message, "loss inspection") || !strings.Contains(rpcErr.Message, "Discard or Delete") || !strings.Contains(rpcErr.Message, "Stop retains") {
-		t.Fatalf("capacity refusal did not explain the remedy: %+v", rpcErr)
+	if answer := answerError(ctx, err); answer.Kind() != api.KindCapacity || answer.Reason() != api.ReasonSessionCapacity {
+		t.Fatalf("admission refusal answered %v, want capacity", answer)
 	}
 	var mutations int
 	if err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM operations WHERE idempotency_key='capacity-e') + (SELECT count(*) FROM projects WHERE path='team/capacity-e') + (SELECT count(*) FROM sessions WHERE project_path='team/capacity-e')`).Scan(&mutations); err != nil {
@@ -48,9 +44,6 @@ func TestSessionAdmissionUsesEveryContainerSlotAndCountsRowlessProjectIntent(t *
 	}
 	if mutations != 0 {
 		t.Fatal("capacity refusal accepted durable mutation")
-	}
-	if ordinary := lifecycleRPC(ErrConflict); ordinary.Message != "lifecycle request conflicts with current authority" {
-		t.Fatalf("ordinary conflict gained a capacity diagnosis: %+v", ordinary)
 	}
 }
 

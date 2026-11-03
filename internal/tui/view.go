@@ -52,15 +52,20 @@ func (m Model) browserControls(width int) string {
 		m.controls("p policy · b branches · R rename · d discard · X delete · q/Esc back", width)
 }
 
+// noticeLines is the notice wrapped between words to the page's width.
 func (m Model) noticeLines() []string {
 	if m.notice == "" {
 		return nil
 	}
-	width := min(m.width, 96)
+	return strings.Split(ansi.Wrap(safe(m.notice), max(1, m.pageWidth()), ""), "\n")
+}
+
+// pageWidth is the width the current page draws in.
+func (m Model) pageWidth() int {
 	if m.page == "sessions" {
-		width = min(m.width, 148)
+		return min(m.width-2, 148)
 	}
-	return strings.Split(ansi.Hardwrap(safe(m.notice), max(1, width), true), "\n")
+	return min(m.width, 96)
 }
 
 func (m Model) feedbackHeight() int {
@@ -181,13 +186,7 @@ func (m Model) View() tea.View {
 		v.AltScreen = true
 		return v
 	}
-	width := min(m.width, 148)
-	if m.page == "sessions" {
-		width = min(m.width-2, 148)
-	}
-	if m.page != "sessions" {
-		width = min(width, 96)
-	}
+	width := m.pageWidth()
 	var content string
 	switch m.page {
 	case "sessions":

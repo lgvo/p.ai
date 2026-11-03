@@ -1,7 +1,6 @@
 package api
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/lgvo/p.ai/internal/plugin"
@@ -99,8 +98,44 @@ func validBranchCursor(after string) bool {
 	return after == "" || strings.HasPrefix(after, "refs/heads/") && ValidBranch(strings.TrimPrefix(after, "refs/heads/"))
 }
 
-// invalid is the error a request's Validate returns.
-func invalid(message string) error { return errors.New(message) }
+// invalid is the error a request's Validate returns for field, or for no
+// single field when field is empty.
+func invalid(field string) error { return InvalidParam(field) }
+
+// validPage checks a list request's limit, from 1 to max, and cursor.
+func validPage(limit, max int, after string) error {
+	switch {
+	case limit < 1 || limit > max:
+		return invalid("limit")
+	case len(after) > 128:
+		return invalid("after")
+	}
+	return nil
+}
+
+// validBranchPage checks a project's branch list request.
+func validBranchPage(project, after string, limit int) error {
+	switch {
+	case !ValidProject(project):
+		return invalid("project")
+	case limit < 1 || limit > 8:
+		return invalid("limit")
+	case !validBranchCursor(after):
+		return invalid("after")
+	}
+	return nil
+}
+
+// validConfirmation checks a confirmation's key and token.
+func validConfirmation(key, token string) error {
+	switch {
+	case !validKey(key):
+		return invalid("key")
+	case !ValidToken(token):
+		return invalid("confirmation_token")
+	}
+	return nil
+}
 
 // validOriginRef is the external origin's branch or tag syntax.
 func validOriginRef(ref string) bool { return plugin.ValidGitOriginRef(ref) }

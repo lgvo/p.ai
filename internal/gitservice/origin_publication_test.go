@@ -2,12 +2,15 @@ package gitservice
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -116,8 +119,14 @@ func TestOriginPublicationRealGit(t *testing.T) {
 				t.Fatalf("accepted destination %q", destination)
 			}
 		}
-		if _, e := scope.PreviewPublication(context.Background(), "refs/heads/publish", child, "refs/heads/not-tip"); e == nil {
-			t.Fatal("preview accepted source different from P tip")
+		_, e := scope.PreviewPublication(context.Background(), "refs/heads/publish", child, "refs/heads/not-tip")
+		var refusal *control.Refusal
+		if !errors.As(e, &refusal) || refusal.Kind != api.KindPreconditionFailed || refusal.Reason != api.ReasonChanged {
+			t.Fatalf("preview of a source other than the P tip answered %v, want precondition_failed changed", e)
+		}
+		_, e = scope.PreviewPublication(context.Background(), "refs/heads/absent", source, "refs/heads/not-tip")
+		if !errors.As(e, &refusal) || refusal.Kind != api.KindNotFound || refusal.Reason != api.ReasonBranch || refusal.Target != api.TargetBranch(project, "absent") {
+			t.Fatalf("preview of a missing source branch answered %v, want not_found branch", e)
 		}
 		return nil
 	}); err != nil {

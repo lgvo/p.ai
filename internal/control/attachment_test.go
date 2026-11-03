@@ -3,11 +3,15 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 func TestConnectionLeaseCleanupOnceAndClosedOwnerRefused(t *testing.T) {
@@ -43,8 +47,22 @@ func TestOrdinaryHostProcessCannotClaimOrConfirmPresence(t *testing.T) {
 	addAttachmentMethods(table, nil)
 	h := table.Handler()
 	for method, params := range map[string]string{"attachment.claim": `{"token":"` + strings.Repeat("a", 64) + `"}`, "attachment.confirm": `{"operation":"/1.0/operations/` + strings.Repeat("a", 36) + `"}`} {
-		if _, err := h(ctx, method, json.RawMessage(params)); err == nil {
-			t.Fatal("presence assertion accepted", method)
+		_, err := h(ctx, method, json.RawMessage(params))
+		if want := api.NewError(api.KindInvalidRequest, api.ReasonConnection); !reflect.DeepEqual(err, want) {
+			t.Fatalf("%s from an ordinary process answered %v, want %v", method, err, want)
 		}
+	}
+}
+
+func TestAttachmentConfirmationRefusals(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	missing := "11111111-2222-3333-4444-555555555555"
+	_, _, _, err := s.ConfirmAttachment(ctx, missing)
+	if answer := answerError(ctx, err); answer.Kind() != api.KindNotFound || answer.Reason() != api.ReasonSession || answer.Target() != api.TargetSession(missing) {
+		t.Fatalf("confirmation for a missing session answered %v", answer)
+	}
+	if err := (&Connection{dedicated: true}).Own(func() {}); answerError(ctx, err).Kind() != api.KindInvalidRequest || !errors.Is(err, ErrConflict) {
+		t.Fatalf("a second lease on a connection answered %v", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 )
 
 // One selected-session read at a time. Selection churn cancels and coalesces
@@ -112,7 +113,7 @@ func (m *Model) acceptSelectedServices(v selectedServiceDone) {
 	}
 	o.at = time.Now()
 	if v.err != nil {
-		o.state, o.diagnostic, o.units = "unavailable", v.err.Error(), nil
+		o.state, o.diagnostic, o.units = "unavailable", errtext.Sentence(v.err), nil
 		return
 	}
 	o.state, o.units = "observed", v.result.Services

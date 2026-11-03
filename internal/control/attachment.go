@@ -30,11 +30,13 @@ type Connection struct {
 	peerUID   uint32
 }
 
+// Own dedicates the connection to one attachment whose release runs when the
+// connection closes. A closed or already dedicated connection refuses it.
 func (c *Connection) Own(release func()) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed || c.dedicated {
-		return ErrConflict
+		return wrongConnection()
 	}
 	c.dedicated = true
 	c.release = release
@@ -75,7 +77,7 @@ func addAttachmentMethods(t *MethodTable, life AttachmentAPI) {
 	connection := func(ctx context.Context) (*Connection, error) {
 		conn, _ := ctx.Value(connectionKey{}).(*Connection)
 		if conn == nil {
-			return nil, ErrInvalid
+			return nil, wrongConnection()
 		}
 		return conn, nil
 	}
@@ -91,24 +93,32 @@ func addAttachmentMethods(t *MethodTable, life AttachmentAPI) {
 			return api.AttachmentLaunch{}, err
 		}
 		if !conn.trustedHelper() {
-			return api.AttachmentLaunch{}, ErrInvalid
+			return api.AttachmentLaunch{}, wrongConnection()
 		}
 		return life.ClaimAttachment(ctx, r.Token, conn)
 	})
 	Register(t, api.AttachmentConfirm, func(ctx context.Context, r api.AttachmentConfirmRequest) (api.AttachmentResult, error) {
 		conn, err := connection(ctx)
 		if err != nil || !conn.dedicatedAttachment() {
-			return api.AttachmentResult{}, ErrInvalid
+			return api.AttachmentResult{}, wrongConnection()
 		}
 		return api.AttachmentResult{}, life.ConfirmAttachment(ctx, conn, r.Operation)
 	})
 	Register(t, api.AttachmentPing, func(ctx context.Context, _ api.AttachmentPingRequest) (api.AttachmentResult, error) {
 		conn, err := connection(ctx)
 		if err != nil || !conn.dedicatedAttachment() {
-			return api.AttachmentResult{}, ErrInvalid
+			return api.AttachmentResult{}, wrongConnection()
 		}
 		return api.AttachmentResult{}, nil
 	})
+}
+
+// wrongConnection refuses a method this connection may not call: claiming a
+// token from anything but the trusted attachment helper, a second claim, or
+// confirm and ping from a connection that claimed nothing. It classifies as
+// ErrConflict inside the daemon.
+func wrongConnection() error {
+	return &Refusal{Kind: api.KindInvalidRequest, Reason: api.ReasonConnection, Cause: ErrConflict}
 }
 
 // Only the fixed helper mode of this exact running executable may redeem an

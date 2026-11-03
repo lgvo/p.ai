@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 )
 
@@ -145,17 +146,18 @@ func TestRetrySchedulesUnfinishedKnownOperations(t *testing.T) {
 		err    error
 		status string
 		queued bool
+		reason string // the refusal's reason, for a refused Retry
 	}
 	expect := func(status string) outcome {
 		switch status {
 		case "superseded":
-			return outcome{control.ErrConflict, status, false}
+			return outcome{control.ErrConflict, status, false, api.ReasonOperationSuperseded}
 		case "completed":
-			return outcome{nil, status, false}
+			return outcome{nil, status, false, ""}
 		case "blocked":
-			return outcome{nil, "running", true}
+			return outcome{nil, "running", true, ""}
 		default:
-			return outcome{nil, status, true}
+			return outcome{nil, status, true, ""}
 		}
 	}
 	f := newJournalFixture(t)
@@ -173,12 +175,12 @@ func TestRetrySchedulesUnfinishedKnownOperations(t *testing.T) {
 	}
 	n++
 	rows = append(rows,
-		row{"unknown kind", f.operation(t, "origin.change", "blocked", "", "", false), outcome{control.ErrInvalid, "blocked", false}},
-		row{"stale failed-create cleanup", f.operation(t, "session.create.cleanup", "failed", "stale", sessionUUID(n+1), false), outcome{control.ErrConflict, "failed", false}},
+		row{"unknown kind", f.operation(t, "origin.change", "blocked", "", "", false), outcome{control.ErrConflict, "blocked", false, api.ReasonOperationNotRetryable}},
+		row{"stale failed-create cleanup", f.operation(t, "session.create.cleanup", "failed", "stale", sessionUUID(n+1), false), outcome{control.ErrConflict, "failed", false, api.ReasonOperationNotRetryable}},
 	)
 	cleaned := sessionUUID(n + 2)
 	f.assembledCleanup(t, cleaned)
-	rows = append(rows, row{"creation of a session under assembled cleanup", f.operation(t, "session.create", "failed", "", cleaned, false), outcome{control.ErrConflict, "failed", false}})
+	rows = append(rows, row{"creation of a session under assembled cleanup", f.operation(t, "session.create", "failed", "", cleaned, false), outcome{control.ErrConflict, "failed", false, api.ReasonSessionHeld}})
 
 	for _, test := range rows {
 		t.Run(test.name, func(t *testing.T) {
@@ -188,6 +190,10 @@ func TestRetrySchedulesUnfinishedKnownOperations(t *testing.T) {
 			_, err := l.Retry(ctx, test.id)
 			if !errors.Is(err, test.want.err) || (err == nil) != (test.want.err == nil) {
 				t.Fatalf("answer %v, want %v", err, test.want.err)
+			}
+			var refusal *control.Refusal
+			if test.want.reason != "" && (!errors.As(err, &refusal) || refusal.Reason != test.want.reason) {
+				t.Fatalf("answer %v, want reason %s", err, test.want.reason)
 			}
 			got, err := f.store.GetOperation(ctx, test.id)
 			if err != nil {

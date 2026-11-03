@@ -26,8 +26,20 @@ type projectDeletePreviewState struct {
 	Expiry  time.Time
 }
 
+// lockProjectDelete admits one project deletion review or confirmation of
+// project at a time; another one holding it answers retry.
 func (l *lifecycle) lockProjectDelete(ctx context.Context, project string) (func(), error) {
-	return l.lockSession(ctx, "project-delete:"+project)
+	release, err := l.lockSession(ctx, "project-delete:"+project)
+	if err != nil && classifiedRetry(err) {
+		return nil, control.Retry(api.ReasonProjectHeld, api.TargetProject(project))
+	}
+	return release, err
+}
+
+// classifiedRetry reports whether err answers retry.
+func classifiedRetry(err error) bool {
+	var refusal *control.Refusal
+	return errors.As(err, &refusal) && refusal.Kind == api.KindRetry
 }
 func (l *lifecycle) lockProjectDeleteSessions(ctx context.Context, sessions []control.Session) (func(), error) {
 	releases := []func(){}
@@ -40,6 +52,9 @@ func (l *lifecycle) lockProjectDeleteSessions(ctx context.Context, sessions []co
 		r, e := l.lockSession(ctx, s.UUID)
 		if e != nil {
 			release()
+			if classifiedRetry(e) {
+				return nil, control.Retry(api.ReasonSessionHeld, api.TargetSession(s.UUID))
+			}
 			return nil, e
 		}
 		releases = append(releases, r)
@@ -62,7 +77,7 @@ func (l *lifecycle) observeCollection(ctx context.Context, entry control.Environ
 	claim := control.EnvironmentCollectionClaim{Image: entry}
 	info, found, err := l.runtime.ObserveOwnedBuilderImage(ctx, imageClaimFromCache(entry))
 	if err != nil {
-		return claim, err
+		return claim, control.Failed(api.ReasonRuntime, err)
 	}
 	claim.ImagePresent = found
 	claim.ObservedSize = entry.LogicalSize
@@ -109,16 +124,20 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 	missing := map[string]bool{}
 	for _, id := range req.AcknowledgeMissing {
 		if missing[id] {
-			return p, nil, control.ErrInvalid
+			return p, nil, control.Invalid("acknowledge_missing")
 		}
 		missing[id] = true
 	}
 	acknowledged := 0
 	for _, s := range sessions {
-		var attached bool
-		l.withLock(func() { attached = l.hasAttachmentLocked(s.UUID) || l.startActive[s.UUID] })
+		target := api.TargetSession(s.UUID)
+		var attached, starting bool
+		l.withLock(func() { attached, starting = l.hasAttachmentLocked(s.UUID), l.startActive[s.UUID] })
 		if attached {
-			return p, nil, fmt.Errorf("%w: detach and Stop all project sessions", control.ErrConflict)
+			return p, nil, control.Conflict(api.ReasonAttachmentActive, target)
+		}
+		if starting {
+			return p, nil, control.Retry(api.ReasonSessionHeld, target)
 		}
 		native, e := l.runtimeSession(ctx, s)
 		if e != nil {
@@ -126,7 +145,7 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		}
 		observed, e := l.runtime.Inspect(ctx, native)
 		if e != nil {
-			return p, nil, e
+			return p, nil, control.Failed(api.ReasonRuntime, e)
 		}
 		ps := api.ProjectDeleteSession{Session: api.SessionRecord(s), Condition: "stopped", Runtime: api.RemovalRuntimePreview{IncusProject: l.cfg.IncusProject, InstanceName: "p-" + s.UUID}}
 		creator, e := l.store.CreationForSession(ctx, s.UUID)
@@ -139,8 +158,14 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		}
 		ps.Local = *local
 		if observed.Exists {
-			if observed.Status != "Stopped" || observed.IncusUUID == "" || observed.Generation == "" || missing[s.UUID] {
-				return p, nil, fmt.Errorf("%w: Stop/detach session %s", control.ErrConflict, s.UUID)
+			switch {
+			case missing[s.UUID]:
+				// The client acknowledged a missing runtime that is present.
+				return p, nil, control.Stale(api.ReasonChanged)
+			case observed.Status != "Stopped":
+				return p, nil, control.Conflict(api.ReasonSessionNotStopped, target)
+			case observed.IncusUUID == "" || observed.Generation == "":
+				return p, nil, control.Failed(api.ReasonRuntime, fmt.Errorf("session runtime %s identity incomplete", s.UUID))
 			}
 			ps.Runtime.Condition = "present"
 			ps.Runtime.IncusUUID = observed.IncusUUID
@@ -150,10 +175,10 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 			ps.Runtime.RuntimeDataLost = true
 		} else {
 			if !missing[s.UUID] {
-				return p, nil, fmt.Errorf("%w: positively missing runtime %s requires acknowledge_missing", control.ErrConflict, s.UUID)
+				return p, nil, control.Conflict(api.ReasonRuntimeMissing, target)
 			}
 			if e = l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); e != nil {
-				return p, nil, e
+				return p, nil, runtimeFailure(e, target)
 			}
 			ps.Condition = "missing"
 			ps.Runtime.Condition = "missing"
@@ -163,16 +188,20 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		p.Sessions = append(p.Sessions, ps)
 	}
 	if acknowledged != len(missing) {
-		return p, nil, control.ErrInvalid
+		// An acknowledged session is not one of the project's.
+		return p, nil, control.Invalid("acknowledge_missing")
 	}
 	branchLoss, err := l.git.backend.ProjectRemovalLoss(ctx, req.Project)
 	if err != nil {
-		return p, nil, err
+		return p, nil, gitFailure(err)
 	}
 	p.BranchLoss = deleteReview(branchLoss)
 	entries, next, err := l.store.ListEnvironmentImages(ctx, req.Project, "", 20)
-	if err != nil || next != "" {
-		return p, nil, errors.Join(err, errors.New("project cache exceeds aggregate review bound"))
+	if err != nil {
+		return p, nil, err
+	}
+	if next != "" {
+		return p, nil, control.Conflict(api.ReasonBoundExceeded, api.TargetProject(req.Project))
 	}
 	for _, entry := range entries {
 		claim, e := l.observeCollection(ctx, entry)
@@ -186,11 +215,11 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 	}
 	names, images := projectDeleteNamedResources(p.Sessions, claims)
 	if err = l.runtime.CheckProjectDeletionInventory(ctx, req.Project, names, images); err != nil {
-		return p, nil, err
+		return p, nil, control.Failed(api.ReasonRuntime, err)
 	}
 	repo, err := l.git.backend.RepositoryPath(req.Project)
 	if err != nil {
-		return p, nil, err
+		return p, nil, control.Failed(api.ReasonGit, err)
 	}
 	p.Repository, err = replacementLocalIdentity(repo)
 	if err != nil {
@@ -232,8 +261,11 @@ func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.Projec
 	p.ConfirmationToken = token
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
 	raw, err := json.Marshal(p)
-	if err != nil || len(raw) > api.MaxFrameBytes-1024 {
-		return api.ProjectDeletionPreview{}, errors.New("aggregate project deletion preview exceeds bound; manually review/clean resources before retry")
+	if err != nil {
+		return api.ProjectDeletionPreview{}, control.Internal(api.ReasonEncoding, err)
+	}
+	if len(raw) > api.MaxFrameBytes-1024 {
+		return api.ProjectDeletionPreview{}, control.Conflict(api.ReasonBoundExceeded, api.TargetProject(req.Project))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -246,7 +278,7 @@ func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.Projec
 		}
 	}
 	if len(l.projectDeletePreviews) >= 32 {
-		return p, control.ErrConflict
+		return api.ProjectDeletionPreview{}, control.Retry(api.ReasonTooManyPreviews, "")
 	}
 	l.projectDeletePreviews[token] = projectDeletePreviewState{p, claims, req, expiry}
 	return p, nil
@@ -261,9 +293,12 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 		if errors.Is(e, control.ErrNotFound) {
 			return op, false, nil
 		}
+		if e != nil {
+			return api.Operation{}, true, e
+		}
 		var old control.ProjectDeleteRequest
-		if e != nil || op.Kind != "project.delete" || json.Unmarshal(op.Request, &old) != nil || old != saved {
-			return api.Operation{}, true, errors.Join(e, control.ErrConflict)
+		if op.Kind != "project.delete" || json.Unmarshal(op.Request, &old) != nil || old != saved {
+			return api.Operation{}, true, control.KeyReused()
 		}
 		return op, true, nil
 	}
@@ -281,12 +316,19 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 	var state projectDeletePreviewState
 	var found bool
 	l.withLock(func() { state, found = l.projectDeletePreviews[req.ConfirmationToken] })
-	if !found || state.Request.Project != req.Project || !time.Now().Before(state.Expiry) {
-		return api.Operation{}, control.ErrConflict
+	switch {
+	case !found || !time.Now().Before(state.Expiry):
+		return api.Operation{}, control.Stale(api.ReasonExpired)
+	case state.Request.Project != req.Project:
+		// The token reviews another project's deletion.
+		return api.Operation{}, control.Stale(api.ReasonChanged)
 	}
 	sessions, sha, err := l.store.ProjectDeleteSnapshot(ctx, req.Project)
-	if err != nil || sha != state.Preview.StateSHA256 {
-		return api.Operation{}, errors.Join(err, control.ErrConflict)
+	if err != nil {
+		return api.Operation{}, staleIfConflict(err)
+	}
+	if sha != state.Preview.StateSHA256 {
+		return api.Operation{}, control.Stale(api.ReasonChanged)
 	}
 	release, err := l.lockProjectDeleteSessions(ctx, sessions)
 	if err != nil {
@@ -297,10 +339,13 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 	err = l.git.backend.WithOrigin(ctx, req.Project, func(*gitservice.OriginScope) error {
 		verify := func(call context.Context) error {
 			fresh, _, e := l.projectDeleteFacts(call, state.Request)
+			if e != nil {
+				return staleIfConflict(e)
+			}
 			fresh.ConfirmationToken = state.Preview.ConfirmationToken
 			fresh.ExpiresAt = state.Preview.ExpiresAt
-			if e != nil || !reflect.DeepEqual(fresh, state.Preview) {
-				return errors.Join(e, control.ErrConflict)
+			if !reflect.DeepEqual(fresh, state.Preview) {
+				return control.Stale(api.ReasonChanged)
 			}
 			return nil
 		}
@@ -316,7 +361,7 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 		ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
 		var e error
 		accepted, e = l.store.BeginProjectDelete(ctx, saved, ev, state.Preview.ExpiresAt, verify)
-		return e
+		return staleIfConflict(e)
 	})
 	if err != nil {
 		return api.Operation{}, err

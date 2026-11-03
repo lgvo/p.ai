@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 )
 
 type row struct{ id, label, detail string }
@@ -413,7 +414,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 	case loaded:
 		m.refreshing = false
 		if v.err != nil {
-			m.notice = v.err.Error()
+			m.notice = errtext.Sentence(v.err)
 			m.stale = true
 		} else {
 			m.data = v.data
@@ -459,7 +460,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.navigate("sessions")
 		m.restoreSelection()
 		if v.err != nil {
-			m.notice = "Attachment ended: " + v.err.Error()
+			m.notice = "Attachment ended: " + errtext.Sentence(v.err)
 		}
 		m.refreshing = true
 		return m, m.refresh()
@@ -486,7 +487,7 @@ func (m Model) update(msg tea.Msg) (Model, tea.Cmd) {
 		m.working = false
 		m.pendingMethod = ""
 		if v.err != nil {
-			m.notice = v.err.Error()
+			m.notice = errtext.Sentence(v.err)
 			m.attachOnComplete = false
 			if strings.HasPrefix(v.method, "session.service") {
 				m.servicesFresh = false

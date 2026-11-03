@@ -19,16 +19,16 @@ type StatusReport struct {
 
 func (r StatusReport) Validate() error {
 	if r.V != SessionRPCVersion || len(r.Source) > 128 || len(r.Reason) > 256 || len(r.Adapter) == 0 || len(r.Adapter) > 128 || len(r.AdapterVersion) == 0 || len(r.AdapterVersion) > 64 {
-		return invalid("invalid status report")
+		return invalid("")
 	}
 	switch r.Condition {
 	case "running", "attention", "idle", "failed", "unknown":
 	default:
-		return invalid("invalid status report condition")
+		return invalid("condition")
 	}
 	for _, s := range []string{r.Source, r.Reason, r.Adapter, r.AdapterVersion} {
 		if !utf8.ValidString(s) || strings.IndexFunc(s, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
-			return invalid("status report strings must be printable")
+			return invalid("")
 		}
 	}
 	return nil

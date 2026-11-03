@@ -16,25 +16,29 @@ import (
 )
 
 func TestRPCReadsCLIErrorReplyFromExitOne(t *testing.T) {
-	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32003,"kind":"busy","message":"attachment pending"}}`, 1)
+	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32011,"message":"conflict","data":{"reason":"attachment_active","target":"session/session-id"}}}`, 1)
 	if output, err := command(time.Second, "p", "api", "/unused/control.sock", "session.stop"); err == nil || output != "" {
 		t.Fatalf("generic command unexpectedly accepted exit one: %q, %v", output, err)
 	}
 	f := &fixture{socket: "/unused/control.sock"}
 	if err := f.stopBusy("session-id"); err != nil {
-		t.Fatalf("busy stop response: %v", err)
+		t.Fatalf("refused stop response: %v", err)
 	}
-	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"kind":"busy","message":"attachment pending"}}`, 1)
+	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32010,"message":"conflict","data":{"reason":"attachment_active"}}}`, 1)
 	if err := f.stopBusy("session-id"); err == nil {
-		t.Fatal("accepted busy response with wrong code")
+		t.Fatal("accepted conflict response with wrong code")
 	}
-	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32004,"kind":"unavailable","message":"helper required"}}`, 1)
+	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32010,"message":"retry","data":{"reason":"session_held"}}}`, 1)
+	if err := f.stopBusy("session-id"); err == nil {
+		t.Fatal("accepted a held session as an attachment refusal")
+	}
+	installFakeP(t, `{"jsonrpc":"2.0","id":2,"error":{"code":-32600,"message":"invalid_request","data":{"reason":"connection"}}}`, 1)
 	reply, err := f.rpc("attachment.claim", map[string]any{"token": "invalid"})
 	if err != nil {
 		t.Fatalf("ordinary RPC error response: %v", err)
 	}
 	problem, ok := reply["error"].(map[string]any)
-	if !ok || problem["kind"] != "unavailable" {
+	if !ok || problem["message"] != "invalid_request" {
 		t.Fatalf("missing structured error: %v", reply)
 	}
 }
@@ -47,17 +51,18 @@ func TestRPCRejectsInvalidCLIReplies(t *testing.T) {
 	}{
 		{"success", `{"jsonrpc":"2.0","id":2,"result":{}}`, 0},
 		{"result with failure exit", `{"jsonrpc":"2.0","id":2,"result":{}}`, 1},
-		{"error with success exit", `{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 0},
-		{"wrong id", `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"wrong version", `{"jsonrpc":"1.0","id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"both outcomes", `{"jsonrpc":"2.0","id":2,"result":{},"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"missing error code", `{"jsonrpc":"2.0","id":2,"error":{"kind":"busy","message":"pending"}}`, 1},
+		{"error with success exit", `{"jsonrpc":"2.0","id":2,"error":{"code":-32010,"message":"retry","data":{"reason":"session_held"}}}`, 0},
+		{"wrong id", `{"jsonrpc":"2.0","id":1,"error":{"code":-32010,"message":"retry","data":{"reason":"session_held"}}}`, 1},
+		{"wrong version", `{"jsonrpc":"1.0","id":2,"error":{"code":-32010,"message":"retry","data":{"reason":"session_held"}}}`, 1},
+		{"both outcomes", `{"jsonrpc":"2.0","id":2,"result":{},"error":{"code":-32010,"message":"retry","data":{"reason":"session_held"}}}`, 1},
+		{"missing error code", `{"jsonrpc":"2.0","id":2,"error":{"message":"retry","data":{"reason":"session_held"}}}`, 1},
+		{"kind member", `{"jsonrpc":"2.0","id":2,"error":{"code":-32010,"kind":"retry","message":"retry"}}`, 1},
 		{"transport object", `{"error":{"kind":"transport","message":"dial failed"}}`, 1},
-		{"duplicate field", `{"jsonrpc":"2.0","id":2,"id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 1},
-		{"multiple replies", "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32001,\"kind\":\"busy\",\"message\":\"pending\"}}\n{}", 1},
+		{"duplicate field", `{"jsonrpc":"2.0","id":2,"id":2,"error":{"code":-32010,"message":"retry","data":{"reason":"session_held"}}}`, 1},
+		{"multiple replies", "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32010,\"message\":\"retry\",\"data\":{\"reason\":\"session_held\"}}}\n{}", 1},
 		{"malformed", `{`, 1},
 		{"empty", "", 1},
-		{"other exit status", `{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"kind":"busy","message":"pending"}}`, 2},
+		{"other exit status", `{"jsonrpc":"2.0","id":2,"error":{"code":-32010,"message":"retry","data":{"reason":"session_held"}}}`, 2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

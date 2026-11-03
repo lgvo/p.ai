@@ -20,8 +20,8 @@ func (c refusingCaller) Call(context.Context, string, any, any) error {
 
 func TestDoValidatesBeforeSending(t *testing.T) {
 	_, err := Do(context.Background(), refusingCaller{t}, SessionList, SessionListRequest{Limit: 9})
-	var rpcErr *RPCError
-	if !errors.As(err, &rpcErr) || rpcErr.Kind != "invalid_params" || rpcErr.Code != -32602 {
+	var rpcErr *Error
+	if !errors.As(err, &rpcErr) || rpcErr.Kind() != "invalid" || rpcErr.Code != -32602 {
 		t.Fatalf("invalid request answered %v", err)
 	}
 }
@@ -87,10 +87,10 @@ func TestDialAgreesTheProtocolFirst(t *testing.T) {
 }
 
 func TestDialRefusesADaemonThatDoesNotSpeakTheProtocol(t *testing.T) {
-	socket, _ := fakeDaemon(t, `{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"kind":"unsupported_version","message":"protocol is not supported","data":{"reason":"protocol","supported":["p.control/v3"]}}}`)
+	socket, _ := fakeDaemon(t, `{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"unsupported_version","data":{"reason":"protocol","supported":["p.control/v3"]}}}`)
 	_, err := Dial(context.Background(), socket)
-	var rpcErr *RPCError
-	if !errors.As(err, &rpcErr) || rpcErr.Kind != "unsupported_version" || rpcErr.Data == nil || rpcErr.Data.Supported[0] != "p.control/v3" {
+	var rpcErr *Error
+	if !errors.As(err, &rpcErr) || rpcErr.Kind() != "unsupported_version" || rpcErr.Data == nil || rpcErr.Data.Supported[0] != "p.control/v3" {
 		t.Fatalf("Dial answered %v", err)
 	}
 }

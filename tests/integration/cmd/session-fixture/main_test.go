@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const parseErrorFrame = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"kind\":\"parse_error\",\"message\":\"invalid session frame\"}}\n"
+const parseErrorFrame = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"parse_error\"}}\n"
 
 // The server reads only the framing ceiling, writes one error, then closes
 // with request bytes still unread. Linux resets that Unix stream on close.
@@ -68,7 +68,8 @@ func TestOversizeUnixResetRequiresRealParseError(t *testing.T) {
 	payload := bytes.Repeat([]byte{'x'}, 66000)
 	for _, response := range []string{
 		"",
-		"{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"kind\":\"invalid_request\",\"message\":\"wrong\"}}\n",
+		"{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"invalid_request\"}}\n",
+		"{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"kind\":\"parse_error\",\"message\":\"invalid session frame\"}}\n",
 		parseErrorFrame[:len(parseErrorFrame)-1],
 	} {
 		path, done := resetServer(t, response)

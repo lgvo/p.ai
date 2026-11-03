@@ -58,34 +58,29 @@ on_error() {
 }
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
+# expect_error KIND REASON METHOD PARAMS: the request fails with the error
+# kind (its message), the kind's code and the reason.
 expect_error() {
-  local kind="$1" method="$2" params="$3" code response status
+  local kind="$1" reason="$2" method="$3" params="$4" code response status
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    retry) code=-32010 ;;
+    conflict) code=-32011 ;;
+    precondition_failed) code=-32013 ;;
+    not_found) code=-32015 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
   response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
-  if test "$status" -ne 1; then
-    jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
-      '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
-      <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
-    return 1
-  fi
-  if ! jq -e --arg kind "$kind" --argjson code "$code" \
+  if test "$status" -ne 1 || ! jq -e --arg kind "$kind" --arg reason "$reason" --argjson code "$code" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
+     .error.message==$kind and .error.code==$code and .error.data.reason==$reason' \
     <<< "$response" >/dev/null; then
-    jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
-      '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
+    jq -c --arg method "$method" --arg expected_kind "$kind" --arg expected_reason "$reason" \
+      --argjson expected_code "$code" --argjson actual_status "$status" \
+      '{method:$method,expected_kind:$expected_kind,expected_reason:$expected_reason,expected_code:$expected_code,
+        actual_status:$actual_status,actual_kind:(.error.message // null),
+        actual_code:(.error.code // null),actual_data:(.error.data // null)}' \
       <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
     return 1
   fi
@@ -314,24 +309,24 @@ jq -e --arg oid "$bad_tip" '.result.preview | .eligible==true and
  .provisional.runtime_local=="unavailable" and .external_mounts=="preserved" and .shared_images=="preserved"' <<< "$preview" >/dev/null
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 "$host_git" -C "$repo" update-ref refs/heads/work "$third" "$bad_tip"
-expect_error busy session.create.cleanup.confirm "$(cleanup_params "$token")"
+expect_error precondition_failed changed session.create.cleanup.confirm "$(cleanup_params "$token")"
 test "$("$host_git" -C "$repo" rev-parse refs/heads/work)" = "$third"
 "$host_git" -C "$repo" update-ref refs/heads/work "$bad_tip" "$third"
 printf preserve > "$state/session_keys/$old_uuid"
-expect_error busy session.create.cleanup.confirm "$(cleanup_params "$token")"
+expect_error precondition_failed changed session.create.cleanup.confirm "$(cleanup_params "$token")"
 test "$(cat "$state/session_keys/$old_uuid")" = preserve
 rm "$state/session_keys/$old_uuid"
 competing="p-recovery-$old_uuid"
 inc init "$fingerprint" "$competing" --profile default  --config security.idmap.isolated=true --config security.privileged=false  --config security.nesting=false --config "user.p.session_uuid=$old_uuid"
 identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
-expect_error busy session.create.cleanup.confirm "$(cleanup_params "$token")"
+expect_error precondition_failed changed session.create.cleanup.confirm "$(cleanup_params "$token")"
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$identity"
 inc delete "$competing"
 competing=
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-expect_error busy session.create.cleanup.confirm "$(cleanup_params "$token")"
+expect_error precondition_failed expired session.create.cleanup.confirm "$(cleanup_params "$token")"
 inspect_operation "$old_id" | jq -e '.result.operation | .status=="blocked" and .evidence.environment_builder.cycle==1' >/dev/null
 preview=$(cleanup_preview)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
@@ -353,13 +348,13 @@ test "$(operation_id "$(rpc session.create.cleanup.confirm "$(cleanup_params "$t
 old_replay_status=0
 old_replay=$(rpc session.create "$old_request") || old_replay_status=$?
 if test "$old_replay_status" -ne 0; then
- jq -c --argjson status "$old_replay_status" '{status:$status,kind:.error.kind,
-   code:.error.code,message:((.error.message // "")[:256])}' <<< "$old_replay" >&2 || true
+ jq -c --argjson status "$old_replay_status" '{status:$status,kind:.error.message,
+   code:.error.code,data:.error.data}' <<< "$old_replay" >&2 || true
  echo 'superseded Create replay failed during cleanup checkpoint' >&2
  exit 1
 fi
 test "$(operation_id "$old_replay")" = "$old_id"
-expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
+expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 stop_process "$daemon_pid"
 daemon_pid=
 # Inject a read-only unavailable native observation after the durable crash.

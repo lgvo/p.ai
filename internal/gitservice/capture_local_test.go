@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
@@ -74,26 +75,36 @@ func TestSelectedSourceLocalCapturePreservesRefsAndVerifiesChoice(t *testing.T) 
 	}
 	before := gitTest(t, nil, "-C", repo, "for-each-ref", "--format=%(refname) %(objectname)")
 	for _, tc := range []struct {
-		name, source, choice string
-		want                 string
+		name, source, choice, branch string
+		want                         string
+		// A refused capture answers kind with reason and target.
+		kind           api.ErrorKind
+		reason, target string
 	}{
 		{name: "reachable-commit", source: first, choice: "new", want: first},
-		{name: "hidden-only", source: hidden, choice: "new"},
-		{name: "non-source-tag", source: "refs/tags/hidden", choice: "new"},
-		{name: "existing-main", choice: "existing", want: second},
-		{name: "occupied-main", source: second, choice: "new"},
+		{name: "hidden-only", source: hidden, choice: "new", kind: api.KindNotFound, reason: api.ReasonSource},
+		{name: "non-source-tag", source: "refs/tags/hidden", choice: "new"}, // not a source's syntax: invalid
+		{name: "unborn-source", source: "refs/heads/absent", choice: "new", kind: api.KindNotFound, reason: api.ReasonSource},
+		{name: "existing-main", choice: "existing", branch: "main", want: second},
+		{name: "missing-existing", choice: "existing", branch: "absent", kind: api.KindNotFound, reason: api.ReasonBranch, target: "project/app:branch/absent"},
+		{name: "occupied-main", source: second, choice: "new", branch: "main", kind: api.KindConflict, reason: api.ReasonBranchExists, target: "project/app:branch/main"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := req
 			r.Source = tc.source
 			r.Choice = tc.choice
-			if tc.name == "existing-main" || tc.name == "occupied-main" {
-				r.Branch = "main"
+			if tc.branch != "" {
+				r.Branch = tc.branch
 			}
 			got, e := b.CaptureLocalSource(ctx, r)
-			if tc.want == "" {
-				if e == nil {
-					t.Fatal("unsafe source admitted")
+			if tc.want == "" && tc.kind == "" {
+				if !errors.Is(e, control.ErrInvalid) {
+					t.Fatalf("unsafe source answered %v, want invalid", e)
+				}
+			} else if tc.want == "" {
+				var refusal *control.Refusal
+				if !errors.As(e, &refusal) || refusal.Kind != tc.kind || refusal.Reason != tc.reason || refusal.Target != tc.target {
+					t.Fatalf("unsafe source answered %v, want %s %s %s", e, tc.kind, tc.reason, tc.target)
 				}
 			} else if e != nil || got.OID != tc.want || got.Existed != (tc.choice == "existing") {
 				t.Fatalf("capture: %+v %v", got, e)

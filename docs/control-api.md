@@ -244,10 +244,11 @@ one result type in `internal/api`: `api.Methods()` in
 type's `Validate` in `internal/api/requests.go` states that method's bounds,
 even where two methods take the same fields. The daemon decodes `params`
 strictly into the method's request type and then runs `Validate`; an unknown
-or duplicate field or a value out of bounds answers `invalid_params`. No
-request or result carries a version, so a `v` field is an unknown field.
-`system.health` and `system.inspect` take `{}`; the other methods take the
-parameters below. Requests need a
+or duplicate field or a value out of bounds answers `invalid` with reason
+`param` and, when one field is at fault, its name in `field`. No request or
+result carries a version, so a `v` field is an unknown field. `system.health`
+and `system.inspect` take `{}`, and a request without `params` means `{}`; the
+other methods take the parameters below. Requests need a
 string or integer `id`; duplicate in-flight IDs on one connection are refused.
 An absent `id` is a notification, which receives no response. One response is
 sent for each valid request, with the same ID, `jsonrpc:"2.0"`, and exactly one
@@ -259,8 +260,9 @@ The CLI `p api [socket-path] <method> [json-params]` connects, sends
 JSON response envelope to stdout; the envelope's `id` is `2`. `json-params`
 defaults to `{}`, or to `{"protocol":"p.control/v2"}` for `system.hello`, so
 `p api system.hello` prints the daemon's hello result. An RPC error exits
-nonzero. A connection failure, including a daemon that refuses `p api`'s own
-hello, writes a JSON object with `error.kind:"transport"` and exits nonzero.
+nonzero. A daemon that refuses `p api`'s own hello has its error object
+written as `{"error":{…}}`; any other connection failure writes
+`{"error":{"message":"transport","detail":"<text>"}}`. Both exit nonzero.
 
 The host client commands `p api`, `p tui`, and `p attach` select their control
 socket in this order: an explicit positional socket argument, a nonempty
@@ -300,15 +302,16 @@ this daemon serves:
 Every daemon serves `system.hello`, `system.health`, `system.inspect` and
 `rpc.cancel`. The protocol, not the configuration, fixes which methods exist:
 `api.Methods()` names the capability that serves each one. A method whose
-capability is not configured answers `unavailable`/`-32004` whatever its
-params, with a message naming the capability, such as `runtime capability is
-not configured`. A name outside the protocol answers `method_not_found`.
+capability is not configured answers `not_configured` whatever its params,
+with the capability as its reason:
+`{"code":-32016,"message":"not_configured","data":{"reason":"runtime"}}`. A
+name outside the protocol answers `method_not_found`.
 
 The connection follows these rules:
 
 - **Hello first.** Until a hello succeeds, any other request answers
   `invalid_request` with reason `hello_required`:
-  `{"code":-32600,"kind":"invalid_request","message":"send system.hello first","data":{"reason":"hello_required"}}`.
+  `{"code":-32600,"message":"invalid_request","data":{"reason":"hello_required"}}`.
   A notification before a hello, including a hello without an `id`, is
   ignored. Errors in the line or its envelope (framing, parse, the `jsonrpc`
   version, the request ID, missing `params`) are answered with or without a
@@ -316,9 +319,9 @@ The connection follows these rules:
 - **One protocol.** A hello naming another protocol answers
   `unsupported_version` with reason `protocol` and `supported`, the protocols
   the daemon speaks:
-  `{"code":-32002,"kind":"unsupported_version","message":"protocol is not supported","data":{"reason":"protocol","supported":["p.control/v2"]}}`.
+  `{"code":-32002,"message":"unsupported_version","data":{"reason":"protocol","supported":["p.control/v2"]}}`.
   A hello whose params are not exactly `{"protocol":"…"}` with a 1 to 64 byte
-  value, such as `{}` or `{"v":1}`, answers `invalid_params`.
+  value, such as `{}` or `{"v":1}`, answers `invalid` with reason `param`.
 - **Pipelining.** The daemon answers the hello before it reads the next line,
   so a client may write the hello and its first request together.
 - **Repeats.** A repeated hello on the same connection is answered again.
@@ -332,7 +335,9 @@ sending. Only `p api` sends untyped params, through `api.CallRaw`.
 
 The daemon binds each `session.sock` to its directory's session UUID. The
 socket accepts requests only while that session's registry state is
-`established`; no parameter can select another session. It never forwards a
+`established`, and otherwise answers `not_found` with reason `session` and the
+session as `target`; no parameter can select another session. Errors take the
+[error shape](#errors) of the control socket. It never forwards a
 request to the host control connection. The [session RPC audience](communication-boundaries.md#session-rpc-audience)
 defines the boundary.
 
@@ -362,7 +367,7 @@ request and result carries `"v":1`. Whether it adopts the
 `source` (up to 128 bytes) and `reason` (up to 256 bytes) are optional. Supplied
 strings must consist of printable Unicode characters. Unknown versions,
 conditions, fields, and duplicate keys are rejected. A report with an `id`
-returns `invalid_request` and does not update status. Valid reports are limited
+returns `invalid_request` with reason `envelope` and does not update status. Valid reports are limited
 to 20 per second and 240 per minute per session; excess notifications are silently
 dropped. Complete, size-bounded private RPC lines, including malformed JSON
 and queries, share a separate limit of 100 per second and 600 per minute per
@@ -391,7 +396,8 @@ With trusted Git configuration, two more read-only methods are available:
 on the same connection. As a notification it has no reply. As a request it
 returns `{"cancel_requested":true}`; this only acknowledges the
 request to cancel, including when the target already finished. A cancelled
-target replies with `error.kind:"cancelled"` if it was still running.
+target answers `cancelled` if it was still running, unless its handler had
+already returned a result, which is sent.
 
 With trusted Git configuration, active projects also support explicit origin
 association and observation. The origin methods and
@@ -409,9 +415,9 @@ rename and deletion and the project deletion methods in this table need the
 | `origin.publication.preview` | `{"project":"team/app","expected_origin_url":"ssh://host/repo","kind":"session","source":"session-UUID","source_oid":"<exact P tip>","destination_ref":"refs/heads/main"}`; `kind:"retained"` uses a P branch name in `source` | `preview` with project, origin URL, source kind/identity/ref/OID, destination ref and observed OID or absence, relation, and `workspace_status:"unknown"`. This contacts the origin afresh. |
 | `origin.publish` | Same source fields as preview, plus `"key":"idempotency-key"` | `publication` with the preview and `status` (`created`, `advanced`, `satisfied`, `refused`, or `outcome_unknown`). This performs its own fresh refresh and comparison; only `absent` or `fast_forward` can issue one ordinary push. |
 | `project.retained_branches` | `{"project":"team/app","after":"optional-full-P-head-ref","limit":1..8}` | `branches` with `branch`, full `ref`, and tip `oid`, plus `next`. The cursor traverses P Git refs, so a page may be empty while `next` is nonempty if its refs are assigned to live sessions. |
-| `project.retained.rename` | `{"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key conflict. |
+| `project.retained.rename` | `{"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key answer `invalid` with reason `key_reused`. |
 | `project.retained.delete.preview` | `{"project":"team/app","branch":"saved"}` | `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
-| `project.retained.delete.confirm` | `{"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs conflict. |
+| `project.retained.delete.confirm` | `{"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs answer `invalid` with reason `key_reused`. |
 | `project.delete.preview` | `{"project":"team/app","acknowledge_missing":[]}` | aggregate `preview` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, exact credentials/repository/cache identities, preserved external mounts, warnings, token and expiry. It contacts no origin. |
 | `project.delete.confirm` | `{"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | durable `operation` (`kind:"project.delete"`), returned at once. A fresh preview must match the reviewed one before atomic authority closure. Completed exact confirmation replays without deleting again. |
 
@@ -420,7 +426,9 @@ or `unknown`), optional `observed_at`, `ref_count`, and optional bounded
 `diagnostic`. `origin.sources` labels retained refs `stale` when current status
 is `unknown`; they cannot authorize source selection or publication. A
 completed `origin.change` key replays its committed result without contacting
-the origin. Reusing a key with different inputs returns `busy`. Interrupted
+the origin. Reusing a key with different inputs answers `invalid` with reason
+`key_reused`, and an `expected_url` that no longer holds answers
+`precondition_failed` with reason `changed`. Interrupted
 preparations retry the same contact and compare-and-swap. Origin URL and SSH
 credentials stay on the host.
 
@@ -447,8 +455,9 @@ operation or ref guard, or a retained branch with no live session assignment.
 The exact `source_oid` must still be that P branch's tip. The preview is
 informational; `origin.publish` requires the same `expected_origin_url` that
 the developer reviewed. The URL is persisted with the request key, and a changed
-origin is rejected before any contact or push. Reusing a key with another URL
-is a conflict, including after restart or a pre-start failure. The action
+origin answers `precondition_failed` with reason `changed` before any contact or
+push. Reusing a key with another URL answers `invalid` with reason
+`key_reused`, including after restart or a pre-start failure. The action
 rechecks facts under the project origin lock and excludes assignment/ref
 mutations through the shared Git authority lock. Publication keys share one namespace with creation and origin-change
 keys. A completed key replays its recorded outcome without contacting Git. If
@@ -483,8 +492,8 @@ failed-create cleanup followed by a separate Create.
 | `operation.list` | `{"limit":1..20,"after":"optional-operation-UUID"}` | concise operation summaries (without request/evidence), `next` in bytewise ID order. |
 | `session.inspect` | `{"uuid":"session-UUID"}` | `session` with registry state, public session and policy conditions, `attached_count`, nullable `latest_unattended_condition`, and bounded diagnostic. |
 | `session.list` | `{"limit":1..8,"after":"optional-session-UUID"}` | `sessions` with the same fields as `session.inspect`, and `next` in bytewise UUID order. Concurrently removed sessions may be omitted; follow a nonempty `next` even when `sessions` is empty. |
-| `session.start` | `{"uuid":"session-UUID"}` | `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused as `busy` by that watcher. |
-| `session.stop` | Same as Start | `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments return `busy`. |
+| `session.start` | `{"uuid":"session-UUID"}` | `session` with `starting` while a daemon-owned watcher converges readiness; poll `session.inspect` for `ready` or `stopped` with diagnostic. The watcher holds the session until it ends, and inspection reports `starting` until then, so a lifecycle request sent after `ready` is not refused with `retry` by that watcher. |
+| `session.stop` | Same as Start | `session` after the Incus stop and fresh observation; runtime filesystem is retained. Pending or confirmed attachments answer `conflict` with reason `attachment_active`. |
 | `session.attach` | Same as Start | `token`, `expires_at`, and `spec` containing fixed `project`, `instance`, and `argv`. Starts a stopped runtime and waits for readiness. |
 
 Session listing reads a complete registry page before inspecting its sessions.
@@ -576,7 +585,7 @@ does not resume branch assignment or native creation. Established endpoint
 consumers may be reopened during recovery. Confirmation rechecks the exact
 reviewed request, source and target/old ref facts, policy, image, plugin selection,
 old evidence, resource identity, and native absence. Stale facts or an expired
-token return `busy` without
+token answer `precondition_failed` with reason `changed` or `expired` without
 superseding the old request. Successful confirmation atomically marks the old
 operation `superseded`, releases its session assignment, and creates one new
 UUID, operation, and immutable request with the new key before scheduling its
@@ -595,8 +604,9 @@ Create replay or Retry of the same new operation. Evidence records
 `supersedes_operation_id`, `supersedes_uuid`, and a
 confirmation-token hash. Repeating an accepted confirmation with the same key,
 old UUID, and token returns that operation, including after restart. Reusing
-its key with different confirmation inputs conflicts. Retrying the superseded
-operation returns `busy`; exact replay of its original `session.create` key
+its key with different confirmation inputs answers `invalid` with reason
+`key_reused`. Retrying the superseded operation answers `conflict` with reason
+`operation_superseded`; exact replay of its original `session.create` key
 returns the superseded operation without scheduling the old creation.
 
 Confirmed failed-create cleanup is a separate fallback for a blocked, local
@@ -622,8 +632,9 @@ Preview reports runtime-local state as `unavailable`, not clean or empty.
 Keys/principals/endpoints must either be absent or match the same reviewed local
 identity checks used by integrated replacement. Confirmation rechecks the
 preview, including its ref tip, old evidence, principal, local entries and full
-native inventory. Stale or unavailable facts return `busy` and preserve the old
-request. Early-path accepted confirmation atomically supersedes the old Create,
+native inventory. Stale or unavailable facts answer `precondition_failed` with
+reason `changed` (`expired` for the token) and preserve the old request; a Git
+failure answers `failed`. Early-path accepted confirmation atomically supersedes the old Create,
 records a forward cleanup operation and ref guard on its existing UUID, changes its
 registry from `creating` to `removing`, and disables its Git principal and
 session RPC authority. Durable evidence retains the reviewed old identities.
@@ -733,10 +744,14 @@ ready owned runtime is required.
 The daemon holds its session/workspace guards, uses selected WASI
 `runtime.services`, executes fixed commands under guest UID/GID 1000, and checks
 native identity/generation before accepting results. An action holds the
-session's lifecycle lock and answers `busy` while another lifecycle request
-holds it. The inventory and logs reads answer `busy` while a lifecycle
-request holds the lock, but never cause a `busy` answer: a request that takes
-the lock waits for running reads to end. See the
+session's lifecycle lock and answers `retry` with reason `session_held` while
+another lifecycle request holds it. The inventory and logs reads answer
+`retry` while a lifecycle request holds the lock, but never cause a `retry`
+answer: a request that takes the lock waits for running reads to end. A session
+that is not ready answers `conflict` with reason `session_not_running`. A
+failure of the session's user service manager, including an action on a unit it
+does not know, answers `failed` with reason `services`; a failure of Incus
+answers `failed` with reason `runtime`. See the
 [runtime service boundary](runtime-isolation.md#project-user-services).
 
 Inventory combines loaded user units with installed user unit files, at most
@@ -767,15 +782,19 @@ session or authorize removal by itself. Call it with:
 
 Use `kind:"delete"` to include branch-loss evidence. P does not inspect the
 container before removal; there is no workspace loss inspection method. A
-present runtime may be running or stopped; any other native status returns
-`busy`. A pending or confirmed attachment, or another active change to the
-session (discard, delete, rename or failed-create cleanup), also returns
-`busy`.
+present runtime may be running or stopped; any other native status answers
+`conflict` with reason `runtime_unsettled`. A pending or confirmed attachment
+answers `conflict` with reason `attachment_active`. Another active change to
+the session (discard, delete, rename or failed-create cleanup) answers `retry`
+with reason `session_held` while it runs and `conflict` with reason
+`operation_blocked` once it is blocked, both naming the operation.
 
 When Incus authoritatively reports the runtime absent, pass
 `"acknowledge_missing_runtime":true`. The result then has
 `runtime.condition:"missing"` and `runtime.runtime_loss_unknown:true`. The
-acknowledgement with a present runtime returns `busy`. An unreachable Incus
+acknowledgement with a present runtime answers `precondition_failed` with
+reason `changed`; a runtime that is missing and not acknowledged answers
+`conflict` with reason `runtime_missing`. An unreachable Incus
 authority does not qualify as an absent runtime. Missing-runtime
 preview/confirmation and durable removal require a full confined-project
 inventory with no matching session UUID. A renamed or competing instance
@@ -814,8 +833,9 @@ the confirmed P branch. With a missing assigned ref there is no branch to
 retain, so Discard ends like a Delete. A revoked or missing Git principal
 registration and a missing host key file do not stop removal; a host key file
 with an unexpected owner, mode or link count still blocks the key removal.
-While the operation runs, Start, Stop, Attach and service requests return
-`busy`. The same key and request replay the operation. An uncertain native
+While the operation runs, Start, Stop, Attach and service requests answer
+`retry` naming it, and `conflict` with reason `operation_blocked` once it is
+blocked. The same key and request replay the operation. An uncertain native
 stop/delete stays guarded and blocked for investigation; P does not retry a
 name-targeted request against a possible replacement.
 
@@ -834,7 +854,9 @@ request replay the durable operation.
 `{"key":"idempotency-key","uuid":"session-UUID","new_branch":"renamed","expected_old_tip":"<40-hex P commit>"}`
 and returns `{"operation":{...}}`. The established session must be
 stopped, with the exact nonempty assigned P tip, an ordinary local Git branch,
-and its exact stopped runtime; a session in any other status returns `busy`.
+and its exact stopped runtime; a session in any other status answers `conflict`
+with reason `session_not_stopped`, and a moved P tip answers
+`precondition_failed` with reason `changed`.
 The new branch must pass Git validation and be absent in P and the local
 workspace. The durable operation guards both P ref names, prepares the
 workspace change on the stopped runtime, and creates the new P ref at the
@@ -854,15 +876,18 @@ layouts return unavailable before the ref commit point.
 
 The implemented aggregate boundary requires at most four established, stopped,
 detached sessions. Project deletion does not stop sessions itself: an
-attached, starting or running session returns `busy`. P does not look inside
+attached, starting or running session answers `conflict` (reason
+`attachment_active` or `session_not_stopped`) or `retry` (`session_held`),
+naming the session. P does not look inside
 the containers. Each present session's `sessions[].runtime` has
 `condition:"present"`, `incus_project`, `instance_name`, `incus_uuid`,
 `generation`, `image_fingerprint`, `original_status:"Stopped"` and
 `runtime_data_lost:true`. List each positively missing session UUID in
 `acknowledge_missing`: the preview explicitly reports unknown runtime loss and
-still requires full native absence proof. Listing a present session returns
-`busy`; listing a UUID that is not a missing session of the project is
-`invalid_params`. Unknown native identity or unavailable Incus cannot be
+still requires full native absence proof. Listing a present session answers
+`precondition_failed` with reason `changed`; listing a UUID that is not a
+missing session of the project answers `invalid` with field
+`acknowledge_missing`. Unknown native identity or unavailable Incus cannot be
 acknowledged into deletion authority.
 
 At most twenty indexed, exactly owned environment images and bounded Git/history
@@ -911,7 +936,8 @@ The helper opens its own connection and agrees the protocol with
 a Unix peer running the exact
 same executable in its fixed helper mode. The dedicated connection can then
 call only `attachment.confirm` and `attachment.ping`; any other method except
-`rpc.cancel`, including another hello, answers `busy`. Ordinary API callers
+`rpc.cancel`, including another hello, answers `invalid_request` with reason
+`connection`. Ordinary API callers
 cannot assert presence. Claim takes `{"token":"…"}` and returns the native
 launch details privately as `socket` and `spec`. `attachment.confirm` takes
 `{"operation":"/1.0/operations/<UUID>"}`, `attachment.ping` takes `{}`, and
@@ -938,46 +964,137 @@ operation completion before closing a reachable lease. Daemon connection loss
 starts teardown immediately and permits no re-registration. Attachment lifetime
 and unattended reduction remain owned by [session observability](session-observability.md).
 
-## Errors and current capability boundary
+## Errors
 
-Errors have `{ "code": integer, "kind": string, "message": string }` and an
-optional `data` object.
-Messages are bounded and contain no raw database diagnostics. The supported
-kind/code pairs are `parse_error`/`-32700`, `invalid_request`/`-32600`,
-`method_not_found`/`-32601`, `invalid_params`/`-32602`, `internal`/`-32603`,
-`cancelled`/`-32001`, `unsupported_version`/`-32002`, `busy`/`-32003`, and
-`unavailable`/`-32004`. Invalid request IDs are returned as JSON `null`.
+An error answers with a kind that names the client's next step and a reason
+code, never with text. The daemon logs the cause it mapped, with the method
+and request ID, so the daemon's log shows what the answer leaves out. Clients
+write their own sentence for each kind and reason; P's TUI and CLI keep them in
+`internal/errtext`.
 
-`data` is present when an error has a reason a client acts on. Its `reason`
-names that reason, and `supported` lists the protocols the daemon speaks.
-Two reasons exist, both from the
-[connection agreement](#connection-agreement):
+```text
+← {"jsonrpc":"2.0","id":7,"error":{"code":-32010,"message":"retry","data":{"reason":"session_held","target":"operation/9b0e…"}}}
+```
 
-| `data.reason` | Error | Meaning |
+The error object has JSON-RPC's `code` and `message`; `message` is the kind's
+name, an identifier rather than a sentence. `data` is present whenever the
+error has a reason:
+
+| Field | Meaning |
+|---|---|
+| `reason` | A stable snake_case code from the tables below. A client that meets a reason it does not know uses its sentence for the kind. |
+| `target` | What the error is about, when it names one: `session/<uuid>`, `operation/<id>`, `project/<path>` or `project/<path>:branch/<name>`. A project path never contains `:`, so the first `:` ends it. |
+| `field` | For `invalid`, the request field at fault when one is. |
+| `supported` | For `unsupported_version`, the protocols the daemon speaks. |
+
+Invalid request IDs are returned as JSON `null`.
+
+### Kinds
+
+| Kind | Code | The client's next step |
 |---|---|---|
-| `hello_required` | `invalid_request`/`-32600` | The connection sent a request before a successful `system.hello`. |
-| `protocol` | `unsupported_version`/`-32002` | The hello named a protocol the daemon does not speak; `data.supported` lists the ones it does. |
+| `parse_error` | -32700 | Fix the client: the line is not JSON, not UTF-8, or not a complete frame of at most 64 KiB. |
+| `invalid_request` | -32600 | Fix the client: the line is not a valid request for this connection. |
+| `method_not_found` | -32601 | The protocol has no such method. |
+| `invalid` | -32602 | Fix the params. |
+| `internal` | -32603 | Nothing to do but report it; the daemon logged the cause. |
+| `cancelled` | -32001 | Nothing: the client cancelled the request or closed the connection. |
+| `unsupported_version` | -32002 | Use a client that speaks a protocol in `supported`. |
+| `retry` | -32010 | Send the same request again; when `target` names an operation, after it leaves `running`. |
+| `conflict` | -32011 | Change the named state first: detach, stop or start the session, retry the blocked operation, or wait for a person. Sending the same request again fails the same way until then. |
+| `capacity` | -32012 | Free a slot: discard or delete a session. |
+| `precondition_failed` | -32013 | Read the state again and decide again: for a confirmation, a new preview. |
+| `precondition_required` | -32014 | Send the precondition the change needs. No method answers it yet. |
+| `not_found` | -32015 | Stop: the named record does not exist. |
+| `not_configured` | -32016 | Configure the named capability on the host. |
+| `failed` | -32017 | Check the named authority, then send the request again. |
 
-`unsupported_version` without `data` means the request's `jsonrpc` member is
-not `"2.0"`.
+The codes `-32003` and `-32004` are not used: a client that still tests them
+fails instead of matching a kind with another meaning.
 
-A request whose handling fails unexpectedly, because the daemon's code panics,
-answers `internal`/`-32603`; a notification gets no response. The daemon logs
-the failure with its stack and keeps serving: the connection stays open for
-later requests, and other connections are not affected. The private session
-RPC behaves the same way.
+A request whose handler panics answers `internal` with reason `panic`; a
+notification gets no response. The daemon logs the panic with its stack and
+keeps serving: the connection stays open for later requests, and other
+connections are not affected. The private session RPC behaves the same way.
 
-Session-capacity admission refusals retain `busy`/`-32003` with the message
-`session capacity exhausted. Discard or Delete a session to free capacity;
-Stop retains its slot`. Other authority conflicts keep their generic conflict
-message; the capacity message is not an instruction to retry until admission
-succeeds. The [runtime contract](runtime-isolation.md#incus-boundary)
-owns capacity accounting.
+Once a request's context ends, an error its handler returns answers as the
+context's: `cancelled` when the client cancelled it or closed the connection,
+and `retry` with reason `deadline` when the daemon's 30-second deadline
+passed. A result the handler returned is still sent. Sending the same request
+again after `deadline` is safe: a change recorded before the deadline replays
+through its idempotency key. When the daemon stops while a request records an
+operation, the request still returns the operation, and the next start resumes
+it.
+
+### Reasons
+
+| Kind | Reason | Meaning |
+|---|---|---|
+| `invalid_request` | `hello_required` | The connection sent a request before a successful `system.hello`. |
+| `invalid_request` | `duplicate_id` | Another request with the same `id` is in flight on the connection. |
+| `invalid_request` | `envelope` | The line is JSON but not a valid request object: a member other than `jsonrpc`, `id`, `method` and `params`, a repeated member, an `id` that is not a string of at most 128 bytes or an integer, or a missing `method`. On the session RPC, also a `status.report` with an `id`. |
+| `invalid_request` | `connection` | This connection may not call the method: the attachment helper's lease connection calls anything but `attachment.confirm` and `attachment.ping`, or a connection other than the trusted helper's calls `attachment.claim`. |
+| `unsupported_version` | `protocol` | The hello named a protocol the daemon does not speak; `supported` lists the ones it does. |
+| `unsupported_version` | `jsonrpc` | The request's `jsonrpc` member is not `"2.0"`. |
+| `invalid` | `param` | A param is missing, unknown, of the wrong type or out of bounds; `field` names it when one does. |
+| `invalid` | `key_reused` | The idempotency `key` is recorded for another request, or was retired with a deleted project. |
+| `internal` | `panic` | The daemon's code panicked. |
+| `internal` | `store` | The control store failed. |
+| `internal` | `encoding` | The result could not be encoded, or the handler returned both or neither of a result and an error. |
+| `internal` | `unexpected` | A failure the daemon did not classify. |
+| `retry` | `session_held` | Another request or a running operation holds the session; `target` names the operation when there is one. |
+| `retry` | `too_many_requests` | The connection has 16 requests in flight. |
+| `retry` | `deadline` | The daemon's 30-second deadline passed. |
+| `retry` | `project_held` | Another request or a running operation holds the project: another creation of it, a deletion review or confirmation, or any running operation in it for `project.delete.preview`. `target` names the operation when there is one. |
+| `retry` | `refs_moved` | P's branches moved while the daemon read them. |
+| `retry` | `too_many_previews` | The daemon holds its limit of unexpired reviews of that kind; one expires within two minutes. |
+| `conflict` | `attachment_active` | A terminal is attached to the session, or an attachment is pending. |
+| `conflict` | `session_not_established` | The session is still being created, is being removed, or was never created. |
+| `conflict` | `session_not_stopped` | The change needs a stopped session: Rename, and project deletion for each of its sessions. |
+| `conflict` | `session_not_running` | The request needs a ready session: attachment and project services. |
+| `conflict` | `runtime_missing` | The session's container does not exist; for a removal, acknowledge it in the preview. |
+| `conflict` | `runtime_unsettled` | The session's container is neither running nor stopped. |
+| `conflict` | `runtime_present` | A container of the session exists where the request expected none, such as a missing runtime acknowledged in a preview. |
+| `conflict` | `operation_blocked` | A blocked operation holds the target and waits for `operation.retry`; `target` names it. |
+| `conflict` | `operation_superseded` | `operation.retry` of an operation that a replacement or cleanup superseded. |
+| `conflict` | `operation_not_retryable` | `operation.retry` of an operation that cannot run again, such as a cleanup that found its review stale. |
+| `conflict` | `operation_unfinished` | An unfinished origin change, publication or branch guard holds the project. |
+| `conflict` | `policy_invalid` | The project's policy no longer holds on this host: its stored snapshot changed, a filesystem grant changed, or the public egress configuration changed. |
+| `conflict` | `principal_missing` | The session's Git identity or key is missing, revoked or changed; discard the session and create a new one. |
+| `conflict` | `public_egress_unassigned` | A session on the public network holds no address slot. |
+| `conflict` | `branch_exists` | The branch name is already taken. |
+| `conflict` | `branch_assigned` | A session holds the branch. |
+| `conflict` | `branch_reserved` | An unfinished lifecycle operation reserves the branch. |
+| `conflict` | `project_exists` | The project already exists. |
+| `conflict` | `project_deleting` | The project is being deleted. |
+| `conflict` | `origin_not_set` | The project has no origin. |
+| `conflict` | `cleanup_active` | A failed creation's assembled cleanup holds the session. |
+| `conflict` | `bound_exceeded` | The answer would exceed the response bound, such as a removal or project deletion preview with too many facts. |
+| `capacity` | `session_capacity` | Every session slot is taken. Discard or Delete a session to free one; Stop keeps its slot. The [runtime contract](runtime-isolation.md#incus-boundary) owns capacity accounting. |
+| `capacity` | `attachment_capacity` | Every pending or active attachment slot is taken: eight per session, 128 in all. |
+| `capacity` | `public_address_slots` | Every public egress address is assigned. |
+| `precondition_failed` | `expired` | The confirmation or attachment token expired, was already used, or is unknown, for example after a daemon restart. |
+| `precondition_failed` | `changed` | What the request reviewed or expected no longer holds: the facts behind a confirmation token, an `expected_old_tip`, `expected_url`, `expected_origin_url`, `expected_commit_oid` or `source_oid`, or a token issued for another target. |
+| `not_found` | `session` | The session does not exist; `target` names it. |
+| `not_found` | `operation` | The operation does not exist. |
+| `not_found` | `project` | The project does not exist. |
+| `not_found` | `branch` | The P branch does not exist. |
+| `not_found` | `source` | The source ref or commit to create from does not exist, is unborn, or is not reachable from a P branch. |
+| `not_configured` | `git`, `runtime`, `services` | The capability is not configured; see the [connection agreement](#connection-agreement). |
+| `not_configured` | `public_egress` | The session's policy needs public egress, which this host does not configure. |
+| `not_configured` | `project_policy` | The host configuration has no policy for the project. |
+| `failed` | `runtime` | Incus or the runtime plugin failed or could not be observed. |
+| `failed` | `services` | The session's user service manager is unavailable or refused the command, for example for a unit it does not know. |
+| `failed` | `git` | P's Git repository or the source-Git plugin failed. |
+| `failed` | `origin` | The origin could not be contacted, or refused an observation, fetch or push. |
+| `failed` | `plugin` | A selected plugin failed its recheck before use. |
+
+### Capability boundary
 
 Without trusted runtime configuration, lifecycle mutations and inspection
-remain unavailable: each method of the protocol whose capability is not
-configured answers `unavailable` naming that capability, and any other name
-answers `method_not_found`.
+are not served: each method of the protocol whose capability is not
+configured answers `not_configured` with the capability as its reason, and
+any other name answers `method_not_found`.
 P has no session repair methods; [session lifecycle](session-lifecycle.md#inconsistent-sessions)
 describes what to do instead. Branch/upstream mismatch correction is manual,
 with P rechecking on the next attempt. Abandonment and its associated

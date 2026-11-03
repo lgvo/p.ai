@@ -78,11 +78,11 @@ func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, p api.CreateC
 func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (api.CreateCleanupPreview, error) {
 	p := api.CreateCleanupPreview{UUID: uuid, UnsafeReasons: []string{}, ExternalMounts: "preserved", SharedImages: "preserved", Provisional: api.CreateReplaceResources{RuntimeLocal: "unavailable"}}
 	unsafe := func(reason string) { p.UnsafeReasons = append(p.UnsafeReasons, reason) }
-	op, err := l.store.CreationForSession(ctx, uuid)
+	s, err := l.store.GetSession(ctx, uuid)
 	if err != nil {
 		return p, err
 	}
-	s, err := l.store.GetSession(ctx, uuid)
+	op, err := l.store.CreationForSession(ctx, uuid)
 	if err != nil {
 		return p, err
 	}
@@ -154,7 +154,7 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (api.Cr
 }
 func hexDigest(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
 func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (api.CreateCleanupPreview, error) {
-	release, err := l.lockSession(ctx, uuid)
+	release, err := l.lockCreationSession(ctx, uuid)
 	if err != nil {
 		return api.CreateCleanupPreview{}, err
 	}
@@ -170,24 +170,19 @@ func (l *lifecycle) PreviewCreateCleanup(ctx context.Context, uuid string) (api.
 	expiry := time.Now().Add(2 * time.Minute)
 	p.ConfirmationToken = hex.EncodeToString(bytes[:])
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
-	encoded, e := json.Marshal(p)
-	if e != nil || len(encoded) > api.MaxFrameBytes-1024 {
-		return api.CreateCleanupPreview{}, errors.New("cleanup preview exceeded bound")
+	if err = boundedReview(uuid, p); err != nil {
+		return api.CreateCleanupPreview{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.createCleanupPreviews == nil {
 		l.createCleanupPreviews = map[string]createCleanupPreviewState{}
 	}
-	for k, v := range l.createCleanupPreviews {
-		if !time.Now().Before(v.Expiry) {
-			delete(l.createCleanupPreviews, k)
-		}
+	err = storeReview(l.createCleanupPreviews, p.ConfirmationToken, createCleanupPreviewState{p, expiry},
+		func(s createCleanupPreviewState) time.Time { return s.Expiry })
+	if err != nil {
+		return api.CreateCleanupPreview{}, err
 	}
-	if len(l.createCleanupPreviews) >= 128 {
-		return api.CreateCleanupPreview{}, control.ErrConflict
-	}
-	l.createCleanupPreviews[p.ConfirmationToken] = createCleanupPreviewState{p, expiry}
 	return p, nil
 }
 func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token string) (api.Operation, error) {
@@ -205,14 +200,14 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 			return op, true, e
 		}
 		if op.Kind != "session.create.cleanup" || json.Unmarshal(op.Request, &saved) != nil || saved != req {
-			return api.Operation{}, true, control.ErrConflict
+			return api.Operation{}, true, control.KeyReused()
 		}
 		return op, true, nil
 	}
 	if op, found, e := replay(); found || e != nil {
 		return op, e
 	}
-	release, err := l.lockSession(ctx, uuid)
+	release, err := l.lockCreationSession(ctx, uuid)
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -223,8 +218,11 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	var state createCleanupPreviewState
 	var found bool
 	l.withLock(func() { state, found = l.createCleanupPreviews[token] })
-	if !found || state.Preview.UUID != uuid || !time.Now().Before(state.Expiry) {
-		return api.Operation{}, control.ErrConflict
+	if !found || !time.Now().Before(state.Expiry) {
+		return api.Operation{}, control.Stale(api.ReasonExpired)
+	}
+	if state.Preview.UUID != uuid {
+		return api.Operation{}, control.Stale(api.ReasonChanged)
 	}
 	fresh, err := l.createCleanupFacts(ctx, uuid)
 	if err != nil {
@@ -232,7 +230,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 	}
 	fresh.ConfirmationToken, fresh.ExpiresAt = token, state.Preview.ExpiresAt
 	if !fresh.Eligible || !reflect.DeepEqual(fresh, state.Preview) {
-		return api.Operation{}, control.ErrConflict
+		return api.Operation{}, control.Stale(api.ReasonChanged)
 	}
 	ev := control.CreateCleanupEvidence{Review: fresh, InstanceUUID: l.instanceID}
 	ev.Review.ConfirmationToken = ""
@@ -244,7 +242,7 @@ func (l *lifecycle) ConfirmCreateCleanup(ctx context.Context, uuid, key, token s
 		actual, e := l.createCleanupFacts(call, uuid)
 		actual.ConfirmationToken, actual.ExpiresAt = token, fresh.ExpiresAt
 		if e != nil || !actual.Eligible || !reflect.DeepEqual(actual, fresh) {
-			return control.ErrConflict
+			return confirmChanged(e)
 		}
 		return nil
 	})

@@ -20,13 +20,16 @@ incus_real=$(command -v incus)
 
 inc() { timeout 60 "$incus_real" --force-local --project user-1000 "$@"; }
 rpc() { timeout 35 p api "$socket" "$@"; }
-expect_busy() {
-  local method="$1" params="$2" response status=0
+# expect_error KIND CODE REASON TARGET METHOD PARAMS: the request is refused
+# with that kind, code, reason and target, and nothing else.
+expect_error() {
+  local kind="$1" code="$2" reason="$3" target="$4" method="$5" params="$6" response status=0
   response=$(rpc "$method" "$params") || status=$?
   test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-    .error.code== -32003 and .error.kind=="busy" and
-    (.error.message|type=="string" and length>0)' <<< "$response" >/dev/null
+  jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" --arg target "$target" \
+    '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
+    .error.code==$code and .error.message==$kind and
+    .error.data.reason==$reason and .error.data.target==$target' <<< "$response" >/dev/null
 }
 guest() {
   inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
@@ -208,10 +211,10 @@ assert_unrenamed() {
     jq -e '.result.session.branch=="main" and .result.session.registry_state=="established"' >/dev/null
 }
 
-# A running session is refused at the request (busy): no operation starts,
-# and its branch, P ref and workspace stay as they were.
+# A running session is refused at the request (conflict, session_not_stopped):
+# no operation starts, and its branch, P ref and workspace stay as they were.
 running_config=$(guest /run/current-system/sw/bin/sha256sum /workspace/.git/config | cut -d' ' -f1)
-expect_busy session.rename "$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" \
+expect_error conflict -32011 session_not_stopped "session/$uuid" session.rename "$(jq -nc --arg uuid "$uuid" --arg base "$base_oid" \
   '{key:"rename-running",uuid:$uuid,new_branch:"renamed",expected_old_tip:$base}')"
 rpc operation.list '{"limit":20}' | jq -e '.result.operations |
   all(.[]; .idempotency_key!="rename-running")' >/dev/null

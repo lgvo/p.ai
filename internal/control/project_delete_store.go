@@ -25,16 +25,33 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	if !validProject(project) {
 		return nil, "", ErrInvalid
 	}
+	target := api.TargetProject(project)
 	var policy, sha, registry, origin string
-	if err := q.QueryRowContext(ctx, `SELECT policy_json,policy_sha256,registry_state,COALESCE((SELECT url FROM project_origins WHERE project_path=path),'') FROM projects WHERE path=?`, project).Scan(&policy, &sha, &registry, &origin); err != nil {
+	err := q.QueryRowContext(ctx, `SELECT policy_json,policy_sha256,registry_state,COALESCE((SELECT url FROM project_origins WHERE project_path=path),'') FROM projects WHERE path=?`, project).Scan(&policy, &sha, &registry, &origin)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", NotFound(api.ReasonProject, target)
+	}
+	if err != nil {
 		return nil, "", err
 	}
 	if registry != "active" {
-		return nil, "", ErrConflict
+		return nil, "", Conflict(api.ReasonProjectDeleting, target)
+	}
+	// An unfinished operation holds the project: a running one for a moment,
+	// a blocked one until a person retries it.
+	var opID, opStatus string
+	err = q.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE project_path=? AND status IN ('running','blocked','unknown') ORDER BY id LIMIT 1`, project).Scan(&opID, &opStatus)
+	if err == nil {
+		if opStatus == "running" {
+			return nil, "", Retry(api.ReasonProjectHeld, api.TargetOperation(opID))
+		}
+		return nil, "", Conflict(api.ReasonOperationBlocked, api.TargetOperation(opID))
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, "", err
 	}
 	var count int
 	for _, query := range []string{
-		`SELECT count(*) FROM operations WHERE project_path=? AND status IN ('running','blocked','unknown')`,
 		`SELECT count(*) FROM origin_requests WHERE project_path=? AND status!='completed'`,
 		`SELECT count(*) FROM publication_requests WHERE project_path=? AND status!='completed'`,
 		`SELECT count(*) FROM git_ref_guards WHERE project_path=?`,
@@ -43,7 +60,8 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 			return nil, "", err
 		}
 		if count != 0 {
-			return nil, "", fmt.Errorf("%w: unfinished project authority; complete existing operation or investigate its exact identity", ErrConflict)
+			return nil, "", &Refusal{Kind: api.KindConflict, Reason: api.ReasonOperationUnfinished, Target: target,
+				Cause: fmt.Errorf("%w: unfinished project authority; complete existing operation or investigate its exact identity", ErrConflict)}
 		}
 	}
 	rows, err := q.QueryContext(ctx, `SELECT uuid,project_path,branch,registry_state,policy_json,policy_sha256 FROM sessions WHERE project_path=? ORDER BY uuid`, project)
@@ -59,8 +77,12 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 		}
 		s.Policy = json.RawMessage(raw)
 		sessions = append(sessions, s)
-		if s.Registry != "established" || len(sessions) > 4 {
-			err = fmt.Errorf("%w: use supported failed-creation cleanup/removal or manual investigation first", ErrConflict)
+		if s.Registry != "established" {
+			err = Conflict(api.ReasonSessionNotEstablished, api.TargetSession(s.UUID))
+			break
+		}
+		if len(sessions) > 4 {
+			err = Conflict(api.ReasonBoundExceeded, target)
 			break
 		}
 	}
@@ -90,7 +112,7 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 			facts = append(facts, v)
 			n++
 			if n > 1024 {
-				err = ErrConflict
+				err = Conflict(api.ReasonBoundExceeded, target)
 				break
 			}
 		}
@@ -105,7 +127,7 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 		Facts    []string
 	}{sessions, facts})
 	if len(raw) > 512<<10 {
-		return nil, "", ErrConflict
+		return nil, "", Conflict(api.ReasonBoundExceeded, target)
 	}
 	return sessions, digest(raw), nil
 }
@@ -130,7 +152,7 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	prior, replayErr := s.GetOperationByKey(ctx, req.Key)
 	if replayErr == nil {
 		if prior.Kind != "project.delete" || digest(prior.Request) != digest(raw) {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, KeyReused()
 		}
 		return prior, nil
 	}
@@ -148,29 +170,37 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 	old, err := getOperationTx(ctx, tx, req.Key)
 	if err == nil {
 		if old.Kind != "project.delete" || digest(old.Request) != digest(raw) {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, KeyReused()
 		}
 		return old, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, err
 	}
+	// The reviewed facts are checked again inside the transaction that
+	// retires the project; any difference makes the review stale.
+	if !time.Now().Before(expiry) {
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
 	sessions, sha, err := projectDeleteSnapshot(ctx, tx, req.Project)
-	if err != nil || sha != ev.StateSHA256 || len(sessions) != len(ev.Sessions) || !time.Now().Before(expiry) {
-		return api.Operation{}, errors.Join(err, ErrConflict)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	if sha != ev.StateSHA256 || len(sessions) != len(ev.Sessions) {
+		return api.Operation{}, Stale(api.ReasonChanged)
 	}
 	for i, s := range sessions {
 		ps := ev.Sessions[i]
 		if !reflect.DeepEqual(api.SessionRecord(s), ps.Session) || ps.Local.Completed || s.Project != req.Project {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, Stale(api.ReasonChanged)
 		}
 		var matching, total int
 		if tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(CASE WHEN fingerprint=? AND active=1 AND project_path=? AND role='session' THEN 1 ELSE 0 END),0) FROM git_principals WHERE session_uuid=?`, ps.Local.KeyFingerprint, req.Project, s.UUID).Scan(&total, &matching) != nil || total != 1 || matching != 1 {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, Stale(api.ReasonChanged)
 		}
 		creator, e := operationByIDTx(ctx, tx, ps.Local.OldOperationID)
 		if e != nil || creator.SessionUUID != s.UUID || creator.Project != req.Project || creator.Kind != "session.create" && creator.Kind != "project.create" || creator.Status != "completed" {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, Stale(api.ReasonChanged)
 		}
 	}
 	for _, im := range ev.Images {
@@ -344,7 +374,7 @@ func (s *Store) checkRetiredKey(ctx context.Context, key string) error {
 	var found int
 	e := s.db.QueryRowContext(ctx, `SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=?`, key).Scan(&found)
 	if e == nil {
-		return fmt.Errorf("%w: project-deleted request key is retired; a new action requires a new key", ErrConflict)
+		return KeyReused()
 	}
 	if errors.Is(e, sql.ErrNoRows) {
 		return nil

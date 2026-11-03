@@ -135,12 +135,18 @@ wait_ready() {
   echo "session $target did not become ready" >&2
   return 1
 }
+# expect_refusal METHOD PARAMS KIND [REASON]: the request is refused with the
+# error kind KIND, its code and, when given, REASON.
 expect_refusal() {
-  local method="$1" params="$2" kind="$3" response
+  local method="$1" params="$2" kind="$3" reason="${4:-}" response
   if response=$(rpc "$method" "$params" 2> "$step_dir/refused.err"); then
     echo "unexpectedly accepted $method" >&2; return 1
   fi
-  jq -e --arg kind "$kind" '.error.kind==$kind' <<< "$response" >/dev/null
+  jq -e --arg kind "$kind" --arg reason "$reason" '
+    {method_not_found: -32601, invalid: -32602, retry: -32010, conflict: -32011,
+     capacity: -32012, precondition_failed: -32013, not_found: -32015} as $codes |
+    .error.message==$kind and .error.code==$codes[$kind] and
+    ($reason=="" or .error.data.reason==$reason)' <<< "$response" >/dev/null
 }
 bare_ref() {
   GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
@@ -187,7 +193,7 @@ assert_removed() {
   inc list "^p-$target$" --format json | jq -e 'length==0' >/dev/null
   test ! -e "$state/session_keys/$target"
   test ! -e "$endpoint_prefix/$target"
-  expect_refusal session.inspect "$(jq -nc --arg uuid "$target" '{uuid:$uuid}')" unavailable
+  expect_refusal session.inspect "$(jq -nc --arg uuid "$target" '{uuid:$uuid}')" not_found session
   rpc session.list '{"limit":8}' | jq -e --arg old "$target" \
     '.result.sessions | all(.[]; .uuid!=$old)' >/dev/null
   if bare_ref "$branch" > "$step_dir/removed-ref.out" 2>&1; then echo 'removal left a P ref' >&2; return 1; fi

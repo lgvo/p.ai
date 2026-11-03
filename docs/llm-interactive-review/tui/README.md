@@ -62,6 +62,28 @@ compact source scrolling and Stop Enter decline also passed. Four representative
 PNG frames, the complete chosen-action record and a read-only fixture effect
 record are retained separately under `creation-enter/reviewer/`.
 
+## Error sentences — 2026-11-03
+
+Step 3 replaced daemon error text with sentences the client writes from the
+error's kind and reason. The
+[before frames](error-sentences/before-0022-stop-attached-refused-120x35.png)
+come from a worktree of `4e221ba` and show each refusal as
+`<kind>: <daemon message>`. The changed Stop refusal
+[reads](error-sentences/after-0018-stop-attached-refused-120x35.png) "Detach every
+terminal from this session first.", and a missing Git identity
+[names its remedy](error-sentences/after-0069-start-refused-120x35.png). The
+first review found an expired review that did not say what
+[expired](error-sentences/after2-0043-review-expired-120x35.png), sessions-page
+notices [clipped at 48×16](error-sentences/after2-0005-inventory-stale-clipped-48x16.png),
+mid-word breaks, and services failures that pointed at Incus. The step fixed
+them, and the repeat shows the
+[expired review](error-sentences/after3-0064-review-expired-120x35.png), the
+[48×16 inventory notice](error-sentences/after3-0011-inventory-stale-48x16.png) and
+the [services diagnostic](error-sentences/after3-0035-services-diagnostic-details-48x16.png).
+The [checkpoint](error-sentences/checkpoint.json) lists all nine findings and their
+state; the [action record](error-sentences/actions.ndjson) marks injected faults and
+the second client's input. Mock-socket evidence only.
+
 ## Removal without loss inspection — 2026-11-02
 
 Step 0e removed the workspace loss inspection. The

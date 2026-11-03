@@ -248,35 +248,45 @@ func (l *lifecycle) grantBoundary() control.GrantBoundary {
 	return control.GrantBoundary{Ceilings: l.cfg.DiskSourceCeilings, StateDir: state, EndpointPrefix: l.cfg.EndpointPrefix, IncusSocket: l.cfg.IncusUserSocket}
 }
 
+// currentProjectPolicy admits a new session of project only while its policy
+// holds: the project exists, the host configuration still selects a policy
+// for it, and the stored snapshot still matches that policy and its grants.
 func (l *lifecycle) currentProjectPolicy(ctx context.Context, project string) error {
-	selected, configured := l.cfg.PolicyForProject(project)
-	if !configured {
-		return control.ErrConflict
-	}
-	_, shapeSHA, err := control.ProjectPolicySnapshot(selected)
-	if err != nil {
-		return err
-	}
 	raw, storedSHA, err := l.store.ProjectPolicyRecord(ctx, project)
 	if err != nil {
 		return err
 	}
+	selected, configured := l.cfg.PolicyForProject(project)
+	if !configured {
+		return policyNotConfigured(project)
+	}
+	changed := control.Conflict(api.ReasonPolicyInvalid, api.TargetProject(project))
+	_, shapeSHA, err := control.ProjectPolicySnapshot(selected)
+	if err != nil {
+		return changed
+	}
 	rawSum := sha256.Sum256(raw)
 	if hex.EncodeToString(rawSum[:]) != storedSHA {
-		return control.ErrConflict
+		return changed
 	}
 	storedShape, err := control.StoredProjectPolicyShapeSHA(raw)
 	if err != nil || storedShape != shapeSHA {
-		return control.ErrConflict
+		return changed
 	}
 	stored, err := control.ParseStoredProjectPolicy(raw)
 	if err != nil {
 		return err
 	}
 	if err := control.RevalidateProjectPolicy(stored, l.grantBoundary()); err != nil {
-		return control.ErrConflict
+		return changed
 	}
 	return nil
+}
+
+// policyNotConfigured answers that the host configuration selects no policy
+// for project.
+func policyNotConfigured(project string) error {
+	return &control.Refusal{Kind: api.KindNotConfigured, Reason: api.ReasonProjectPolicy, Target: api.TargetProject(project), Cause: control.ErrNotFound}
 }
 
 func (l *lifecycle) Close() { l.endpoints.Close() }
@@ -352,22 +362,33 @@ func (l *lifecycle) schedule() {
 		}
 	}
 }
+
+// enqueue queues operation id for a worker. Once the daemon is stopping it
+// queues nothing and succeeds: the operation stays recorded, and the next
+// start resumes it (Recover), so the request that recorded it still returns
+// it.
 func (l *lifecycle) enqueue(id string) error {
+	if l.ctx.Err() != nil {
+		return nil
+	}
 	if l.store != nil {
 		op, err := l.store.GetOperation(l.ctx, id)
-		if err != nil {
-			return err
-		}
-		if kind := operationKinds[op.Kind]; kind.admit != nil {
-			if err = kind.admit(l, l.ctx, op); err != nil {
-				return err
+		if err == nil {
+			if kind := operationKinds[op.Kind]; kind.admit != nil {
+				err = kind.admit(l, l.ctx, op)
 			}
+		}
+		if err != nil {
+			if l.ctx.Err() != nil {
+				return nil
+			}
+			return err
 		}
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.ctx.Err() != nil {
-		return l.ctx.Err()
+		return nil
 	}
 	if l.working[id] {
 		return nil
@@ -469,7 +490,7 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 		return nil, ctx.Err()
 	case <-slot:
 	default:
-		return nil, control.ErrConflict
+		return nil, control.Retry(api.ReasonSessionHeld, "")
 	}
 	release := func() { slot <- struct{}{} }
 	l.mu.Lock()
@@ -487,19 +508,28 @@ func (l *lifecycle) lockSession(ctx context.Context, id string) (func(), error) 
 }
 
 // checkNoSessionChange refuses work on a session while an unfinished cleanup,
-// discard, delete or rename holds it.
+// discard, delete or rename holds it: retry while that operation runs,
+// conflict once it is blocked and waits for Retry.
 func (l *lifecycle) checkNoSessionChange(ctx context.Context, sessionUUID string) error {
 	if l.store == nil {
 		return nil
 	} // unit-only lifecycle seam; production always owns a Store
-	_, active, err := l.store.ActiveSessionChange(ctx, sessionUUID)
+	op, active, err := l.store.ActiveSessionChange(ctx, sessionUUID)
 	if err != nil {
 		return err
 	}
 	if active {
-		return control.ErrConflict
+		return holderRefusal(op)
 	}
 	return nil
+}
+
+// holderRefusal refuses a request on what the unfinished operation op holds.
+func holderRefusal(op api.Operation) error {
+	if op.Status == "running" {
+		return control.Retry(api.ReasonSessionHeld, api.TargetOperation(op.ID))
+	}
+	return control.Conflict(api.ReasonOperationBlocked, api.TargetOperation(op.ID))
 }
 
 // readsInFlight counts the admitted reads of one session.
@@ -515,7 +545,7 @@ func (l *lifecycle) readSession(id string) (func(), error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if len(slot) == 0 {
-		return nil, control.ErrConflict
+		return nil, control.Retry(api.ReasonSessionHeld, "")
 	}
 	if l.sessionReads == nil {
 		l.sessionReads = map[string]*readsInFlight{}
@@ -544,7 +574,7 @@ func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectR
 	}
 	if req.URL != "" {
 		if err := gitservice.ValidateOriginURL(req.URL); err != nil {
-			return api.Operation{}, control.ErrInvalid
+			return api.Operation{}, control.Invalid("url")
 		}
 	}
 	var policy []byte
@@ -558,10 +588,12 @@ func (l *lifecycle) CreateProject(ctx context.Context, req control.BlankProjectR
 			policy, _, snapshotErr = control.ProjectPolicySnapshot(captured)
 		}
 		if snapshotErr != nil {
-			return api.Operation{}, control.ErrConflict
+			// The configured policy's grants do not hold on this host.
+			return api.Operation{}, &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonPolicyInvalid,
+				Target: api.TargetProject(req.Project), Cause: errors.Join(control.ErrConflict, snapshotErr)}
 		}
 	} else if errors.Is(priorErr, control.ErrNotFound) {
-		return api.Operation{}, control.ErrConflict
+		return api.Operation{}, policyNotConfigured(req.Project)
 	}
 	op, err := l.store.BeginBlankProjectWithCapacity(ctx, req, policy, l.cfg.BaseImageFingerprint, l.selection(), l.observeSessionCapacity)
 	if err != nil {
@@ -585,12 +617,9 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 	if errors.Is(priorErr, control.ErrConflict) {
 		return api.Operation{}, priorErr
 	}
-	if _, configured := l.cfg.PolicyForProject(req.Project); !configured && errors.Is(priorErr, control.ErrNotFound) {
-		return api.Operation{}, control.ErrConflict
-	}
 	if errors.Is(priorErr, control.ErrNotFound) {
 		if err := l.currentProjectPolicy(ctx, req.Project); err != nil {
-			return api.Operation{}, control.ErrConflict
+			return api.Operation{}, err
 		}
 	}
 	if req.OriginRef != "" {
@@ -618,15 +647,18 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 			if e != nil {
 				return e
 			}
-			if state.URL == "" || req.ExpectedOriginURL != "" && state.URL != req.ExpectedOriginURL {
-				return control.ErrConflict
+			if state.URL == "" {
+				return control.Conflict(api.ReasonOriginNotSet, api.TargetProject(req.Project))
+			}
+			if req.ExpectedOriginURL != "" && state.URL != req.ExpectedOriginURL {
+				return control.Stale(api.ReasonChanged)
 			}
 			refs, e := scope.Observe(ctx, state.URL)
 			writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
 			if e != nil {
 				_ = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, nil, "origin refresh failed; check SSH identity, host key, URL and access")
-				return e
+				return control.Failed(api.ReasonOrigin, e)
 			}
 			if e = l.store.StoreOriginRefresh(writeCtx, req.Project, state.URL, refs, ""); e != nil {
 				return e
@@ -639,21 +671,27 @@ func (l *lifecycle) CreateSession(ctx context.Context, req control.ReserveSessio
 				}
 			}
 			if selected == nil || selected.CommitOID != req.ExpectedCommitOID {
-				return control.ErrConflict
+				// The origin no longer has the ref, or it moved from the
+				// commit the client observed.
+				return control.Stale(api.ReasonChanged)
 			}
 			fetchFailed := false
 			op, _, e = l.store.BeginSessionCreateCapturedWithCapacity(ctx, req, l.cfg.BaseImageFingerprint, l.selection(), func(ctx context.Context, r control.ReserveSessionRequest) (control.CapturedSource, error) {
+				branch := api.TargetBranch(r.Project, r.Branch)
 				_, exists, e := l.git.backend.InspectBranchRef(ctx, r.Project, r.Branch)
+				if errors.Is(e, control.ErrConflict) {
+					return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
+				}
 				if e != nil {
-					return control.CapturedSource{}, e
+					return control.CapturedSource{}, control.Failed(api.ReasonGit, e)
 				}
 				if exists {
-					return control.CapturedSource{}, control.ErrConflict
+					return control.CapturedSource{}, control.Conflict(api.ReasonBranchExists, branch)
 				}
 				oid, e := scope.Fetch(ctx, r.OriginRef, r.ExpectedCommitOID)
 				if e != nil {
 					fetchFailed = true
-					return control.CapturedSource{}, e
+					return control.CapturedSource{}, control.Failed(api.ReasonOrigin, e)
 				}
 				return control.CapturedSource{OID: oid, OriginURL: state.URL, OriginRef: r.OriginRef}, nil
 			}, l.observeSessionCapacity, l.environmentIntent())
@@ -699,10 +737,10 @@ func (l *lifecycle) Retry(ctx context.Context, id string) (api.Operation, error)
 	}
 	kind, known := operationKinds[op.Kind]
 	if !known {
-		return op, control.ErrInvalid
+		return op, control.Conflict(api.ReasonOperationNotRetryable, api.TargetOperation(op.ID))
 	}
 	if op.Status == "superseded" {
-		return op, control.ErrConflict
+		return op, control.Conflict(api.ReasonOperationSuperseded, api.TargetOperation(op.ID))
 	}
 	if kind.refuseRetry != nil {
 		if err = kind.refuseRetry(l, ctx, op); err != nil {
@@ -1128,27 +1166,30 @@ func phaseRank(phase string) int {
 	}
 }
 
+// runtimeSession is the runtime identity of session s. Its policy and its
+// creation's evidence come from the store, so a failure to read them answers
+// internal with reason store.
 func (l *lifecycle) runtimeSession(ctx context.Context, s control.Session) (runtimeincus.Session, error) {
 	policy, err := control.ParseStoredProjectPolicy(s.Policy)
 	if err != nil {
-		return runtimeincus.Session{}, err
+		return runtimeincus.Session{}, control.Internal(api.ReasonStore, err)
 	}
 	grants := nativeFilesystemGrants(policy)
 	op, err := l.store.CreationForSession(ctx, s.UUID)
 	if err != nil {
-		return runtimeincus.Session{}, err
+		return runtimeincus.Session{}, control.Internal(api.ReasonStore, err)
 	}
 	image := ""
 	if op.Kind == "project.create" {
 		var ev control.BlankProjectEvidence
-		if json.Unmarshal(op.Evidence, &ev) != nil {
-			return runtimeincus.Session{}, control.ErrInvalid
+		if e := json.Unmarshal(op.Evidence, &ev); e != nil {
+			return runtimeincus.Session{}, control.Internal(api.ReasonStore, e)
 		}
 		image = ev.ImageFingerprint
 	} else {
 		ev, e := control.Evidence(op)
 		if e != nil {
-			return runtimeincus.Session{}, e
+			return runtimeincus.Session{}, control.Internal(api.ReasonStore, e)
 		}
 		image = ev.ImageFingerprint
 	}
@@ -1156,7 +1197,7 @@ func (l *lifecycle) runtimeSession(ctx context.Context, s control.Session) (runt
 	if op.Kind == "session.create" {
 		ev, e := control.Evidence(op)
 		if e != nil {
-			return runtimeincus.Session{}, e
+			return runtimeincus.Session{}, control.Internal(api.ReasonStore, e)
 		}
 		initialOID = ev.CapturedOID
 	}
@@ -1167,14 +1208,25 @@ func (l *lifecycle) runtimeSession(ctx context.Context, s control.Session) (runt
 	return runtimeincus.Session{InstanceUUID: l.instanceID, SessionUUID: s.UUID, ProjectPath: s.Project, AssignedBranch: s.Branch, InitialOID: initialOID, ContractVersion: "1", ImageFingerprint: image, EndpointSource: filepath.Join(l.cfg.EndpointPrefix, s.UUID), Grants: grants, PublicIPv4: publicIPv4}, nil
 }
 
+// publicSessionIPv4 is the public egress address of a session with policy,
+// or empty for a session without network. A public-egress session needs the
+// configured substrate its policy captured, and its own address slot.
 func (l *lifecycle) publicSessionIPv4(ctx context.Context, sessionID string, policy control.ProjectPolicy) (string, error) {
 	if policy.Network == "none" {
 		return "", nil
 	}
-	if policy.Network != "public-egress" || l.cfg.PublicEgress == nil || policy.PublicEgressSHA256 != l.cfg.PublicEgress.SHA256() {
-		return "", errors.New("public egress substrate unavailable")
+	unavailable := errors.New("public egress substrate unavailable")
+	if policy.Network == "public-egress" && l.cfg.PublicEgress == nil {
+		return "", refusalBecause(api.KindNotConfigured, api.ReasonPublicEgress, "", control.ErrNotFound, unavailable)
+	}
+	if policy.Network != "public-egress" || policy.PublicEgressSHA256 != l.cfg.PublicEgress.SHA256() {
+		return "", refusalBecause(api.KindConflict, api.ReasonPolicyInvalid, api.TargetSession(sessionID), control.ErrConflict, unavailable)
 	}
 	slot, err := l.store.PublicAddressSlot(ctx, sessionID)
+	if errors.Is(err, control.ErrNotFound) {
+		return "", refusalBecause(api.KindConflict, api.ReasonPublicEgressUnassigned, api.TargetSession(sessionID), control.ErrConflict,
+			errors.New("public egress address slot missing"))
+	}
 	if err != nil {
 		return "", err
 	}
@@ -1251,13 +1303,18 @@ func policyCondition(ctx context.Context, s control.Session, currentPolicy func(
 	return condition
 }
 
+// startEligible is session id when it may run: established, with a policy
+// that still holds.
 func startEligible(ctx context.Context, id string, session func(context.Context, string) (control.Session, error), policy func(context.Context, control.Session) string) (control.Session, error) {
 	s, err := session(ctx, id)
 	if err != nil {
 		return control.Session{}, err
 	}
-	if s.Registry != "established" || policy(ctx, s) == "invalid" {
-		return control.Session{}, control.ErrConflict
+	if s.Registry != "established" {
+		return control.Session{}, control.Conflict(api.ReasonSessionNotEstablished, api.TargetSession(id))
+	}
+	if policy(ctx, s) == "invalid" {
+		return control.Session{}, control.Conflict(api.ReasonPolicyInvalid, api.TargetSession(id))
 	}
 	return s, nil
 }
@@ -1385,17 +1442,22 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 	if err != nil {
 		return api.SessionView{}, err
 	}
+	principalMissing := func(cause error) error {
+		return refusalBecause(api.KindConflict, api.ReasonPrincipalMissing, api.TargetSession(id), control.ErrConflict, cause)
+	}
 	if _, registered, e := l.store.SessionGitPrincipal(ctx, id); e != nil {
 		return api.SessionView{}, e
 	} else if !registered {
-		return api.SessionView{}, errors.New("session Git principal missing; discard the session and create a new one")
+		return api.SessionView{}, principalMissing(errors.New("session Git principal missing"))
 	}
 	if active, e := l.store.IsSessionGitPrincipalActive(ctx, id); e != nil {
 		return api.SessionView{}, e
 	} else if !active {
-		return api.SessionView{}, errors.New("session Git principal revoked; discard the session and create a new one")
+		return api.SessionView{}, principalMissing(errors.New("session Git principal revoked"))
 	}
-	if _, _, err = l.sessionKey(ctx, id); err != nil {
+	if _, _, err = l.sessionKey(ctx, id); errors.Is(err, errSessionKeyMismatch) {
+		return api.SessionView{}, principalMissing(err)
+	} else if err != nil {
 		return api.SessionView{}, err
 	}
 	native, err := l.runtimeSession(ctx, s)
@@ -1408,13 +1470,13 @@ func (l *lifecycle) StartSession(ctx context.Context, id string) (api.SessionVie
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
 	observed, err := plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.inspect", scoped)
 	if err != nil {
-		return api.SessionView{}, err
+		return api.SessionView{}, control.Failed(api.ReasonRuntime, err)
 	}
 	if !observed.Exists {
-		return api.SessionView{}, control.ErrNotFound
+		return api.SessionView{}, control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
 	}
 	if observed.Status != "Stopped" && observed.Status != "Running" {
-		return api.SessionView{}, control.ErrConflict
+		return api.SessionView{}, control.Failed(api.ReasonRuntime, fmt.Errorf("runtime status %q is neither Running nor Stopped", observed.Status))
 	}
 	if observed.Status == "Running" {
 		view, e := l.InspectSession(ctx, id)
@@ -1492,9 +1554,8 @@ func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView
 		return api.SessionView{}, err
 	}
 	defer release()
-	blocked := l.hasAttachment(id)
-	if blocked {
-		return api.SessionView{}, control.ErrConflict
+	if l.hasAttachment(id) {
+		return api.SessionView{}, control.Conflict(api.ReasonAttachmentActive, api.TargetSession(id))
 	}
 	if err := l.checkNoSessionChange(ctx, id); err != nil {
 		return api.SessionView{}, err
@@ -1504,7 +1565,7 @@ func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView
 		return api.SessionView{}, err
 	}
 	if s.Registry != "established" {
-		return api.SessionView{}, control.ErrConflict
+		return api.SessionView{}, control.Conflict(api.ReasonSessionNotEstablished, api.TargetSession(id))
 	}
 	native, err := l.runtimeSession(ctx, s)
 	if err != nil {
@@ -1512,7 +1573,7 @@ func (l *lifecycle) StopSession(ctx context.Context, id string) (api.SessionView
 	}
 	scoped := runtimeincus.Scoped{Backend: l.runtime, Session: native}
 	if _, err = plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.stop", scoped); err != nil {
-		return api.SessionView{}, err
+		return api.SessionView{}, control.Failed(api.ReasonRuntime, err)
 	}
 	return l.InspectSession(ctx, id)
 }

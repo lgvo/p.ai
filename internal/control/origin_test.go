@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -117,11 +118,11 @@ func TestOriginSourcePagesAndStrictRPC(t *testing.T) {
 	origins := OriginAPI{Store: s, Runner: f}
 	handler := NewHandler(HandlerConfig{Store: s, Origins: &origins})
 	_, e := handler(ctx, "origin.change", json.RawMessage(`{"key":"a","project":"app","kind":"set","url":"ssh://host/a","extra":1}`))
-	if e == nil || e.Kind != "invalid_params" {
+	if e == nil || e.Kind() != "invalid" {
 		t.Fatalf("unknown field: %+v", e)
 	}
 	_, e = handler(ctx, "origin.change", json.RawMessage(`{"key":"a","key":"a","project":"app","kind":"set","url":"ssh://host/a"}`))
-	if e == nil || e.Kind != "invalid_params" {
+	if e == nil || e.Kind() != "invalid" {
 		t.Fatalf("duplicate field: %+v", e)
 	}
 	for _, bad := range []string{
@@ -130,7 +131,7 @@ func TestOriginSourcePagesAndStrictRPC(t *testing.T) {
 		`{"key":"a","Project":"app","kind":"set","url":"ssh://host/a"}`,
 		`{"key":"a","project":"app","kind":"set","URL":"ssh://host/a"}`,
 	} {
-		if _, e = handler(ctx, "origin.change", json.RawMessage(bad)); e == nil || e.Kind != "invalid_params" {
+		if _, e = handler(ctx, "origin.change", json.RawMessage(bad)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("inexact field accepted: %s %+v", bad, e)
 		}
 	}
@@ -180,5 +181,53 @@ func TestOriginStoreRejectsInvalidUTF8Ref(t *testing.T) {
 	valid := plugin.GitOriginRef{Ref: "refs/heads/café", OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
 	if err := s.CommitOriginChange(ctx, change, []plugin.GitOriginRef{valid}); err != nil {
 		t.Fatalf("valid UTF-8 ref refused: %v", err)
+	}
+}
+
+// TestOriginErrorsAnswerTheirKind checks each origin refusal's answer through
+// the handler; no answer carries the cause's text.
+func TestOriginErrorsAnswerTheirKind(t *testing.T) {
+	s, _ := openTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateProject(ctx, "app", json.RawMessage(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	ref := plugin.GitOriginRef{Ref: "refs/heads/main", OID: strings.Repeat("a", 40), CommitOID: strings.Repeat("a", 40)}
+	f := &fakeOriginRunner{refs: []plugin.GitOriginRef{ref}}
+	origins := OriginAPI{Store: s, Runner: f}
+	handler := NewHandler(HandlerConfig{Store: s, Origins: &origins})
+	if _, e := callMethod(t, ctx, handler, api.OriginChange, api.OriginChangeRequest{Key: "a", Project: "app", Kind: "set", URL: "ssh://host/a"}); e != nil {
+		t.Fatal(e)
+	}
+	keyReused := &api.Error{Code: -32602, Message: "invalid", Data: &api.ErrorData{Reason: api.ReasonKeyReused, Field: "key"}}
+	for _, test := range []struct {
+		name    string
+		req     api.OriginChangeRequest
+		failure error
+		want    *api.Error
+	}{
+		{"key recorded for another change", api.OriginChangeRequest{Key: "a", Project: "app", Kind: "set", URL: "ssh://host/b"}, nil, keyReused},
+		{"expected URL no longer holds", api.OriginChangeRequest{Key: "stale", Project: "app", Kind: "set", URL: "ssh://host/c"}, nil, wantError(api.KindPreconditionFailed, api.ReasonChanged, "")},
+		{"origin unreachable", api.OriginChangeRequest{Key: "offline", Project: "app", Kind: "set", ExpectedURL: "ssh://host/a", URL: "ssh://host/b"}, errors.New("offline secret"), wantError(api.KindFailed, api.ReasonOrigin, "")},
+		{"unknown project", api.OriginChangeRequest{Key: "missing", Project: "missing", Kind: "set", URL: "ssh://host/a"}, nil, wantError(api.KindNotFound, api.ReasonProject, "project/missing")},
+		{"URL syntax", api.OriginChangeRequest{Key: "syntax", Project: "app", Kind: "set", URL: "git@host:a"}, nil, api.InvalidParam("url")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f.err = test.failure
+			_, e := callMethod(t, ctx, handler, api.OriginChange, test.req)
+			if !reflect.DeepEqual(e, test.want) {
+				t.Fatalf("answer %v, want %v", e, test.want)
+			}
+			if encoded, _ := json.Marshal(e); strings.Contains(string(encoded), "secret") {
+				t.Fatalf("answer %s carries the cause's text", encoded)
+			}
+		})
+	}
+	f.err = nil
+	for _, m := range []string{api.OriginInspect.Name, api.OriginRefresh.Name} {
+		_, e := handler(ctx, m, json.RawMessage(`{"project":"missing"}`))
+		if want := wantError(api.KindNotFound, api.ReasonProject, "project/missing"); !reflect.DeepEqual(e, want) {
+			t.Fatalf("%s of a missing project answered %v, want %v", m, e, want)
+		}
 	}
 }

@@ -8,6 +8,14 @@ import os
 import re
 from pathlib import Path
 
+# Parts of the sentences the TUI shows for a daemon refusal (internal/errtext):
+# retry and failures say "try again", conflicts end in "first.", and the
+# others name what is missing, invalid, changed or not configured.
+REFUSAL_TEXTS = ("try again", " first.", "no longer exists", "does not exist", "not valid",
+                 "failed unexpectedly", "review again", "not configured", "being created or removed",
+                 "being deleted", "cannot be retried", "cannot run again", "No room is left",
+                 "is taken", "already exists", "already uses")
+
 
 def run_notes(driver):
     send = driver["send"]
@@ -36,7 +44,7 @@ def run_notes(driver):
     def rpc(method, **params):
         assert method in read_methods, "notes observation cannot retry a mutation: " + method
         if observation_depth:
-            # The enclosing wait owns the sole deadline and explicit busy
+            # The enclosing wait owns the sole deadline and explicit retry
             # retry. Never start an inner wait for an observation predicate.
             return driver_rpc(method, **params)
         # Direct reads get the same bounded explicit-BusyObservation handling.
@@ -48,8 +56,9 @@ def run_notes(driver):
     def page_ready(title, *content, selected_branch=None, selected_state=""):
         # A heading renders before an asynchronous inventory completes.
         # Require the actual expected options/review controls before input.
-        blocked = ("Waiting for daemon", "busy:", "invalid_params:", "unavailable:",
-                   "internal:", "conflict:", "not_found:", "STALE ·",
+        # The TUI shows a daemon refusal as its own sentence; these are parts
+        # of those sentences (internal/errtext).
+        blocked = ("Waiting for daemon", *REFUSAL_TEXTS, "STALE ·",
                    "Origin observation unavailable", "Origin observation is stale")
         # The browser draws a session row as aligned columns: the project, a
         # tree connector before the branch, then the runtime state.
@@ -126,7 +135,7 @@ def run_notes(driver):
         def ready():
             screen = driver["plain"]()
             if "Project services" not in screen or any(message in screen for message in
-                    ("Waiting for daemon", "Service observation unavailable", "controls disabled", "busy:", "STALE ·")):
+                    ("Waiting for daemon", "Service observation unavailable", "controls disabled", "try again", "STALE ·")):
                 return False
             selected = next((line for line in screen.splitlines() if "› " + name in line), "")
             return (any(state in selected for state in states)

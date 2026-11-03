@@ -141,7 +141,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		var journal int
 		e = tx.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM origin_requests WHERE idempotency_key=? UNION ALL SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=? LIMIT 1`, req.Key, req.Key, req.Key).Scan(&journal)
 		if e == nil {
-			return api.Operation{}, Session{}, true, ErrConflict
+			return api.Operation{}, Session{}, true, KeyReused()
 		}
 		if !errors.Is(e, sql.ErrNoRows) {
 			return api.Operation{}, Session{}, true, e
@@ -172,7 +172,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 			if op.Status == "completed" {
 				return op, Session{}, true, nil
 			}
-			e = ErrNotFound
+			e = NotFound(api.ReasonSession, api.TargetSession(op.SessionUUID))
 		}
 		return op, session, true, e
 	}
@@ -211,7 +211,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 	var policy, policyHash string
 	err = tx.QueryRowContext(ctx, `SELECT policy_json,policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, req.Project).Scan(&policy, &policyHash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, Session{}, ErrNotFound
+		return api.Operation{}, Session{}, NotFound(api.ReasonProject, api.TargetProject(req.Project))
 	}
 	if err != nil {
 		return api.Operation{}, Session{}, err
@@ -235,7 +235,7 @@ func (s *Store) beginSessionCreateCaptured(ctx context.Context, req ReserveSessi
 		return api.Operation{}, Session{}, ErrInvalid
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES(?,?,?,'creating',?,?)`, sid, req.Project, req.Branch, policy, policyHash); err != nil {
-		return api.Operation{}, Session{}, classifyWrite(err)
+		return api.Operation{}, Session{}, withTarget(classifyWrite(err), api.TargetBranch(req.Project, req.Branch))
 	}
 	if err = reservePublicAddressTx(ctx, tx, sid, json.RawMessage(policy)); err != nil {
 		return api.Operation{}, Session{}, err
@@ -258,14 +258,14 @@ func (s *Store) CheckOriginKeyConflict(ctx context.Context, key string) error {
 	var exists int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=?`, key).Scan(&exists)
 	if err == nil {
-		return ErrConflict
+		return KeyReused()
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM origin_requests WHERE idempotency_key=?`, key).Scan(&exists)
 	if err == nil {
-		return ErrConflict
+		return KeyReused()
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -317,9 +317,15 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 		return s.GetOperationByKey(ctx, req.Key)
 	}
 	var present int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM operations WHERE kind='project.create' AND project_path=? AND status IN ('running','blocked','unknown') LIMIT 1`, req.Project).Scan(&present)
+	var holder, holderStatus string
+	err := s.db.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE kind='project.create' AND project_path=? AND status IN ('running','blocked','unknown') LIMIT 1`, req.Project).Scan(&holder, &holderStatus)
 	if err == nil {
-		return api.Operation{}, ErrConflict
+		// Another creation of the project is unfinished: wait while it runs,
+		// or Retry it once it is blocked.
+		if holderStatus == "running" {
+			return api.Operation{}, Retry(api.ReasonProjectHeld, api.TargetOperation(holder))
+		}
+		return api.Operation{}, Conflict(api.ReasonOperationBlocked, api.TargetOperation(holder))
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, err
@@ -341,7 +347,7 @@ func (s *Store) beginBlankProject(ctx context.Context, req BlankProjectRequest, 
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=?`, req.Project).Scan(&present)
 	if err == nil {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Conflict(api.ReasonProjectExists, api.TargetProject(req.Project))
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, err
@@ -497,7 +503,7 @@ func (s *Store) GetOperationByKey(ctx context.Context, key string) (api.Operatio
 	defer tx.Rollback()
 	op, err := getOperationTx(ctx, tx, key)
 	if errors.Is(err, sql.ErrNoRows) {
-		return op, ErrNotFound
+		return op, NotFound(api.ReasonOperation, "")
 	}
 	return op, err
 }
@@ -505,7 +511,7 @@ func (s *Store) GetOperation(ctx context.Context, id string) (api.Operation, err
 	var key string
 	err := s.db.QueryRowContext(ctx, `SELECT idempotency_key FROM operations WHERE id=?`, id).Scan(&key)
 	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, ErrNotFound
+		return api.Operation{}, NotFound(api.ReasonOperation, api.TargetOperation(id))
 	}
 	if err != nil {
 		return api.Operation{}, err
@@ -598,7 +604,7 @@ func (s *Store) ProjectPolicySHA(ctx context.Context, project string) (string, e
 	var sha string
 	err := s.db.QueryRowContext(ctx, `SELECT policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&sha)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
+		return "", NotFound(api.ReasonProject, api.TargetProject(project))
 	}
 	return sha, err
 }
@@ -609,10 +615,13 @@ func (s *Store) ProjectPolicyRecord(ctx context.Context, project string) (json.R
 	if !validProject(project) {
 		return nil, "", ErrInvalid
 	}
-	var raw, sha string
-	err := s.db.QueryRowContext(ctx, `SELECT policy_json,policy_sha256 FROM projects WHERE path=? AND registry_state='active'`, project).Scan(&raw, &sha)
+	var raw, sha, registry string
+	err := s.db.QueryRowContext(ctx, `SELECT policy_json,policy_sha256,registry_state FROM projects WHERE path=?`, project).Scan(&raw, &sha, &registry)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, "", ErrNotFound
+		return nil, "", NotFound(api.ReasonProject, api.TargetProject(project))
+	}
+	if err == nil && registry != "active" {
+		return nil, "", Conflict(api.ReasonProjectDeleting, api.TargetProject(project))
 	}
 	return json.RawMessage(raw), sha, err
 }

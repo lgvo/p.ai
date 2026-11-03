@@ -202,7 +202,7 @@ func TestOriginCreationRPCStrictInputs(t *testing.T) {
 	s, _ := openTestStore(t)
 	life := &captureOriginLifecycle{statusLife: statusLife{store: s}}
 	h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
-	call := func(method, params string) *api.RPCError {
+	call := func(method, params string) *api.Error {
 		_, e := h(context.Background(), method, json.RawMessage(params))
 		return e
 	}
@@ -216,7 +216,7 @@ func TestOriginCreationRPCStrictInputs(t *testing.T) {
 		`{"key":"a","project":"app","url":"ssh://host/repo","extra":1}`,
 		`{"key":"a","project":"app","url":"a","url":"b"}`,
 	} {
-		if e := call("project.create", input); e == nil || e.Kind != "invalid_params" {
+		if e := call("project.create", input); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("accepted %s: %+v", input, e)
 		}
 	}
@@ -236,7 +236,7 @@ func TestOriginCreationRPCStrictInputs(t *testing.T) {
 		`{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"bad"}`,
 		`{"key":"b","project":"app","branch":"work","choice":"new","origin_ref":"refs/heads/main","expected_commit_oid":"` + oid + `","extra":1}`,
 	} {
-		if e := call("session.create", input); e == nil || e.Kind != "invalid_params" {
+		if e := call("session.create", input); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("accepted %s: %+v", input, e)
 		}
 	}

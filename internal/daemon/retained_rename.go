@@ -17,13 +17,15 @@ func (l *lifecycle) RenameRetainedBranch(ctx context.Context, r control.Retained
 	if prior, replayed, err := replayRequest(l, ctx, r.Key, control.KindRetainedRename, r); err != nil || replayed {
 		return prior, err
 	}
-	if err := l.git.backend.ValidateRenameBranch(ctx, r.OldBranch); err != nil {
+	if err := l.checkBranchName(ctx, "old_branch", r.OldBranch); err != nil {
 		return api.Operation{}, err
 	}
-	if err := l.git.backend.ValidateRenameBranch(ctx, r.NewBranch); err != nil {
+	if err := l.checkBranchName(ctx, "new_branch", r.NewBranch); err != nil {
 		return api.Operation{}, err
 	}
-	op, err := l.store.BeginRetainedRename(ctx, r, func(ctx context.Context) error { return l.verifyRetainedRenameRefs(ctx, r, "before") })
+	op, err := l.store.BeginRetainedRename(ctx, r, func(ctx context.Context) error {
+		return control.Failed(api.ReasonGit, l.verifyRetainedRenameRefs(ctx, r, "before"))
+	})
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -39,13 +41,22 @@ func (l *lifecycle) verifyRetainedRenameRefs(ctx context.Context, r control.Reta
 		return err
 	}
 	newTip, newExists, err := l.git.backend.InspectBranchRef(ctx, r.Project, r.NewBranch)
+	if errors.Is(err, control.ErrConflict) && phase == "before" {
+		// A symbolic ref occupies the new name.
+		return control.Conflict(api.ReasonBranchExists, api.TargetBranch(r.Project, r.NewBranch))
+	}
 	if err != nil {
 		return err
 	}
 	switch phase {
 	case "before":
-		if !oldExists || old != r.ExpectedOldTip || newExists || newTip != "" {
-			return control.ErrConflict
+		switch {
+		case !oldExists:
+			return control.NotFound(api.ReasonBranch, api.TargetBranch(r.Project, r.OldBranch))
+		case old != r.ExpectedOldTip:
+			return control.Stale(api.ReasonChanged)
+		case newExists || newTip != "":
+			return control.Conflict(api.ReasonBranchExists, api.TargetBranch(r.Project, r.NewBranch))
 		}
 		present, err := l.git.backend.PCommitPresent(ctx, r.Project, r.ExpectedOldTip)
 		if err != nil {
@@ -93,7 +104,13 @@ func (l *lifecycle) processRetainedRename(op api.Operation) {
 		switch op.Phase {
 		case "reserved":
 			err := l.store.TransitionRetainedRename(ctx, op.ID, "reserved", "new-ref-create-issued", true, func(ctx context.Context, saved control.RetainedRenameRequest) error {
-				return l.verifyRetainedRenameRefs(ctx, saved, "before")
+				// An old branch gone before the effect changed the input, like
+				// any other mismatch: the rename fails as stale.
+				err := l.verifyRetainedRenameRefs(ctx, saved, "before")
+				if errors.Is(err, control.ErrNotFound) {
+					return control.Stale(api.ReasonChanged)
+				}
+				return err
 			})
 			if err != nil {
 				if errors.Is(err, control.ErrConflict) {

@@ -58,34 +58,29 @@ on_error() {
 }
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
+# expect_error KIND REASON METHOD PARAMS: the request fails with the error
+# kind (its message), the kind's code and the reason.
 expect_error() {
-  local kind="$1" method="$2" params="$3" code response status
+  local kind="$1" reason="$2" method="$3" params="$4" code response status
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    retry) code=-32010 ;;
+    conflict) code=-32011 ;;
+    precondition_failed) code=-32013 ;;
+    not_found) code=-32015 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
   response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
-  if test "$status" -ne 1; then
-    jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
-      '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
-      <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
-    return 1
-  fi
-  if ! jq -e --arg kind "$kind" --argjson code "$code" \
+  if test "$status" -ne 1 || ! jq -e --arg kind "$kind" --arg reason "$reason" --argjson code "$code" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
+     .error.message==$kind and .error.code==$code and .error.data.reason==$reason' \
     <<< "$response" >/dev/null; then
-    jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
-      '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
+    jq -c --arg method "$method" --arg expected_kind "$kind" --arg expected_reason "$reason" \
+      --argjson expected_code "$code" --argjson actual_status "$status" \
+      '{method:$method,expected_kind:$expected_kind,expected_reason:$expected_reason,expected_code:$expected_code,
+        actual_status:$actual_status,actual_kind:(.error.message // null),
+        actual_code:(.error.code // null),actual_data:(.error.data // null)}' \
       <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
     return 1
   fi
@@ -307,20 +302,20 @@ token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 # Same inode with another real P Git key must fail exact public-fingerprint proof.
 cp "$state/session_keys/$old_uuid" "$step_dir/reviewed-key-backup"
 cat "$state/session_keys/$sibling" > "$state/session_keys/$old_uuid"
-expect_error busy session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
 preview_bad=$(preview_replace "$params")
 jq -e '.result.preview | .eligible==false and (has("confirmation_token")|not)' <<< "$preview_bad" >/dev/null
 cat "$step_dir/reviewed-key-backup" > "$state/session_keys/$old_uuid"
 rm "$step_dir/reviewed-key-backup"
 chmod 0644 "$state/session_keys/$old_uuid"
-expect_error busy session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
 chmod 0600 "$state/session_keys/$old_uuid"
 printf preserve > "$endpoint_prefix/$old_uuid/unexpected"
-expect_error busy session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
 test "$(cat "$endpoint_prefix/$old_uuid/unexpected")" = preserve
 rm "$endpoint_prefix/$old_uuid/unexpected"
 "$host_git" -C "$repo" update-ref refs/heads/work "$third" "$second"
-expect_error busy session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$third"
 # A competing UUID introduced after preview refuses acceptance without cleanup.
 competing="p-recovery-$old_uuid"
@@ -328,7 +323,7 @@ inc init "$fingerprint" "$competing" --profile default \
  --config security.idmap.isolated=true --config security.privileged=false \
  --config security.nesting=false --config "user.p.session_uuid=$old_uuid"
 identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
-expect_error busy session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed changed session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
 test -f "$state/session_keys/$old_uuid"
 test "$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')" = "$identity"
 inc delete "$competing"
@@ -339,7 +334,7 @@ old_key=$(sha256sum "$state/session_keys/$old_uuid" | cut -d' ' -f1)
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-expect_error busy session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
+expect_error precondition_failed expired session.create.replace.confirm "$(confirmation_params replace-key-endpoint "$token")"
 test "$(sha256sum "$state/session_keys/$old_uuid" | cut -d' ' -f1)" = "$old_key"
 inspect_operation "$old_id" | jq -e '.result.operation | .status=="blocked" and .phase=="principals-ready"' >/dev/null
 preview=$(preview_replace "$params")
@@ -367,7 +362,7 @@ test -d "$endpoint_prefix/$old_uuid"
 test ! -e "$state/session_keys/$new_uuid"
 test ! -e "$endpoint_prefix/$new_uuid"
 inspect_operation "$old_id" | jq -e '.result.operation.status=="superseded"' >/dev/null
-expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
+expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$new_id"
 stop_process "$daemon_pid"
@@ -410,7 +405,7 @@ daemon_pid=
 start_daemon
 test "$(operation_id "$(confirm_replace replace-key-endpoint "$token")")" = "$new_id"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
-expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
+expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 assert_old_effects_absent
 test "$(sha256sum "$state/session_keys/$new_uuid" | cut -d' ' -f1)" = "$new_key"
 test "$(sha256sum "$state/session_keys/$sibling" | cut -d' ' -f1)" = "$key_before"

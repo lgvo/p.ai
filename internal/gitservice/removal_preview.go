@@ -110,6 +110,10 @@ func (b *Backend) CompareOriginRemoval(ctx context.Context, project string, adve
 	return result, nil
 }
 
+// ErrRefsMoving reports that P's refs changed while a branch loss was read; a
+// new read may succeed.
+var ErrRefsMoving = errors.New("P refs changed during branch loss preview")
+
 // BranchRemovalLoss compares one assigned ref with the complete freshly
 // captured P head set. When allowMissing accepts an absent ref, nothing of
 // that branch is left to lose in P's repository.
@@ -154,8 +158,11 @@ func (b *Backend) BranchRemovalLoss(ctx context.Context, project, branch string,
 		return BranchRemovalLoss{}, errors.New("branch loss exceeds complete bound")
 	}
 	again, err := b.observeLossHeads(ctx, project)
-	if err != nil || !equalLossRefs(result.PRefs, again) {
-		return BranchRemovalLoss{}, errors.Join(err, errors.New("P refs changed during branch loss preview"))
+	if err != nil {
+		return BranchRemovalLoss{}, err
+	}
+	if !equalLossRefs(result.PRefs, again) {
+		return BranchRemovalLoss{}, ErrRefsMoving
 	}
 	return result, nil
 }
@@ -203,8 +210,11 @@ func (b *Backend) AssignedBranchSnapshot(ctx context.Context, project, branch st
 		}
 	}
 	again, err := b.observeLossHeads(ctx, project)
-	if err != nil || !equalLossRefs(refs, again) {
-		return BranchRemovalLoss{}, errors.Join(err, errors.New("P refs changed during branch loss preview"))
+	if err != nil {
+		return BranchRemovalLoss{}, err
+	}
+	if !equalLossRefs(refs, again) {
+		return BranchRemovalLoss{}, ErrRefsMoving
 	}
 	return result, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/control"
 )
 
 func ValidProjectService(unit string) bool { return api.ValidProjectServiceUnit(unit) }
@@ -40,7 +42,8 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 		return result, err
 	}
 	if !before.Exists || before.Status != "Running" || !before.Ready {
-		return result, errors.New("project services require a ready session")
+		return result, &control.Refusal{Kind: api.KindConflict, Reason: api.ReasonSessionNotRunning, Target: api.TargetSession(s.SessionUUID),
+			Cause: fmt.Errorf("%w: project services require a ready session", control.ErrConflict)}
 	}
 	args := []string{"exec", b.name(s), "--mode", "non-interactive", "--user", "1000", "--group", "1000", "--env", "XDG_RUNTIME_DIR=/run/user/1000", "--env", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus", "--"}
 	userArgs := append([]string(nil), args...)
@@ -54,7 +57,7 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 	}
 	raw, err := b.command(ctx, args...)
 	if err != nil {
-		return result, errors.New("session user service manager unavailable or command refused")
+		return result, control.Failed(api.ReasonServices, errors.New("session user service manager unavailable or command refused"))
 	}
 	var files []struct {
 		UnitFile string `json:"unit_file"`
@@ -64,7 +67,7 @@ func (b *Backend) Services(ctx context.Context, s Session, unit, action string) 
 		fileArgs = append(fileArgs, "/usr/libexec/p/systemctl", "--user", "list-unit-files", "--type=service", "--no-pager", "--output=json", "p-project-*.service")
 		data, e := b.command(ctx, fileArgs...)
 		if e != nil && !emptyUnitFileInventory(ctx, data, e) || len(data) > 32000 || json.Unmarshal(data, &files) != nil || len(files) > 64 {
-			return result, errors.New("installed project service inventory unavailable or exceeds bounds")
+			return result, control.Failed(api.ReasonServices, errors.New("installed project service inventory unavailable or exceeds bounds"))
 		}
 	}
 	after, err := b.Inspect(ctx, s)

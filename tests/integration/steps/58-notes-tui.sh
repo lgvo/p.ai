@@ -19,7 +19,7 @@ rpc() {
   # their normal idempotency and confirmation semantics.
   case "$1" in
    system.health|project.list|session.list|operation.inspect)
-    if test "$SECONDS" -lt "$deadline" && jq -e '.error.kind=="busy"' <<< "$response" >/dev/null 2>&1; then
+    if test "$SECONDS" -lt "$deadline" && jq -e '.error.message=="retry"' <<< "$response" >/dev/null 2>&1; then
      sleep 0.1; continue
     fi ;;
   esac

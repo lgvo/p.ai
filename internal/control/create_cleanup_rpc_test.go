@@ -29,12 +29,12 @@ func TestCreateCleanupRPCStrictClosedSchema(t *testing.T) {
 	uuid := "550e8400-e29b-41d4-a716-446655440000"
 	token := strings.Repeat("a", 32)
 	for _, raw := range []string{`{"v":1,"uuid":"` + uuid + `"}`, `{"uuid":"bad"}`, `{"uuid":"` + uuid + `","force":true}`, `{"uuid":"` + uuid + `","uuid":"` + uuid + `"}`, `{"uuid":"` + uuid + `","loss_operation_id":"` + uuid + `"}`} {
-		if _, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(ctx, "session.create.cleanup.preview", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatal("unsafe preview admitted")
 		}
 	}
 	for _, raw := range []string{`{"uuid":"` + uuid + `","key":"cleanup","confirmation_token":"short"}`, `{"uuid":"` + uuid + `","key":"cleanup","confirmation_token":"` + token + `","force":true}`} {
-		if _, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(ctx, "session.create.cleanup.confirm", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatal("unsafe confirm admitted")
 		}
 	}

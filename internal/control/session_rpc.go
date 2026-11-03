@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"sync"
@@ -38,7 +39,7 @@ func ServeSessionConn(ctx context.Context, conn net.Conn, store *Store, uuid str
 		line, err := reader.ReadSlice('\n')
 		if err != nil || len(line) > api.MaxFrameBytes {
 			if len(line) != 0 {
-				_, _ = conn.Write([]byte("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"kind\":\"parse_error\",\"message\":\"invalid session frame\"}}\n"))
+				_, _ = conn.Write([]byte("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"parse_error\"}}\n"))
 			}
 			return
 		}
@@ -81,13 +82,13 @@ func SessionReply(ctx context.Context, store *Store, uuid string, line []byte) (
 // stack, so the session's connection keeps serving.
 func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line []byte, onCommitted func(api.UnattendedCondition)) (encoded []byte, committed *api.UnattendedCondition) {
 	if !utf8.Valid(line) {
-		return []byte("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"kind\":\"parse_error\",\"message\":\"invalid UTF-8\"}}\n"), nil
+		return []byte("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700,\"message\":\"parse_error\"}}\n"), nil
 	}
 	var req rpcRequest
 	notification := false
 	defer func() {
 		if value := recover(); value != nil {
-			rpcErr := panicRPC("session "+uuid, req.Method, value)
+			rpcErr := panicRPC("session "+uuid, req.Method, req.ID, value)
 			encoded, committed = nil, nil
 			if notification {
 				return
@@ -103,23 +104,32 @@ func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line
 	if parseErr != nil {
 		reply.Error = parseErr
 	} else {
+		ctx = context.WithValue(ctx, requestIDKey{}, string(req.ID))
 		var session Session
 		var err error
 		session, err = store.GetSession(ctx, uuid)
-		if err != nil || session.Registry != "established" {
-			reply.Error = errorRPC(-32004, "unavailable", "session is unavailable")
-		} else {
+		switch {
+		case err != nil && !errors.Is(err, ErrNotFound):
+			reply.Error = answerError(ctx, err)
+			logAnswer(ctx, "session "+uuid+" "+req.Method, reply.Error, err)
+		case err != nil || session.Registry != "established":
+			reply.Error = api.NewError(api.KindNotFound, api.ReasonSession)
+			reply.Error.Data.Target = api.TargetSession(uuid)
+		default:
 			switch req.Method {
 			case api.SessionIdentity.Name, api.SessionCapabilities.Name:
 				var p api.SessionRPCRequest
-				if strictjson.Decode(req.Params, &p) != nil || p.Validate() != nil {
-					reply.Error = errorRPC(-32602, "invalid_params", "params must be {\"v\":1}")
+				if err := strictjson.Decode(req.Params, &p); err != nil {
+					reply.Error = api.InvalidParam(paramAtFault(req.Params, &p, err))
+				} else if p.Validate() != nil {
+					reply.Error = api.InvalidParam("v")
 				} else if req.Method == api.SessionIdentity.Name {
 					reply.Result = api.SessionIdentityResult{V: api.SessionRPCVersion, UUID: session.UUID, Branch: session.Branch}
 				} else {
 					policy, policyErr := ParseStoredProjectPolicy(session.Policy)
 					if policyErr != nil {
-						reply.Error = errorRPC(-32603, "internal", "session policy is unavailable")
+						reply.Error = api.NewError(api.KindInternal, api.ReasonStore)
+						logAnswer(ctx, "session "+uuid+" "+req.Method, reply.Error, policyErr)
 					} else {
 						mounts := make([]api.SessionMount, 0, len(policy.FilesystemMounts))
 						for _, grant := range policy.FilesystemMounts {
@@ -131,7 +141,7 @@ func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line
 				}
 			case api.StatusReportMethod.Name:
 				if req.HasID {
-					reply.Error = errorRPC(-32600, "invalid_request", "status.report must be a notification")
+					reply.Error = api.NewError(api.KindInvalidRequest, api.ReasonEnvelope)
 					break
 				}
 				var report api.StatusReport
@@ -144,7 +154,7 @@ func SessionReplyWithCommit(ctx context.Context, store *Store, uuid string, line
 				}
 				return nil, &value
 			default:
-				reply.Error = errorRPC(-32601, "method_not_found", "method is not available on session RPC")
+				reply.Error = api.NewError(api.KindMethodNotFound, "")
 			}
 		}
 	}
@@ -171,7 +181,7 @@ func SessionUnavailableReply(line []byte) []byte {
 	if parseErr != nil {
 		reply.Error = parseErr
 	} else {
-		reply.Error = errorRPC(-32004, "unavailable", "session RPC capability is unavailable")
+		reply.Error = api.NewError(api.KindNotFound, api.ReasonSession)
 	}
 	data, err := json.Marshal(reply)
 	if err != nil {

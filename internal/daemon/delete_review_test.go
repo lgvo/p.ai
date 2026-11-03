@@ -78,7 +78,7 @@ func (p staleRetainedDeleteRPC) ConfirmRetainedDelete(context.Context, string, s
 	return api.Operation{}, p.stale
 }
 
-func TestRetainedDeleteChangedOriginReviewIsPublicBusy(t *testing.T) {
+func TestRetainedDeleteChangedOriginReviewIsPreconditionFailed(t *testing.T) {
 	reviewed := func(observed string) *api.RemovalBranchLoss {
 		return &api.RemovalBranchLoss{AssignedRef: "refs/heads/saved", AssignedTip: strings.Repeat("a", 40), CommitsLosingPReachability: []string{strings.Repeat("a", 40)},
 			Origin: &api.RemovalOrigin{URL: "ssh://git@example.test/app.git", Status: "unknown", Reason: "origin_object_or_comparison_unavailable",
@@ -90,13 +90,15 @@ func TestRetainedDeleteChangedOriginReviewIsPublicBusy(t *testing.T) {
 	}
 	changed := *reviewed(strings.Repeat("c", 64))
 	stale := matchRetainedDeleteReview(&changed, want)
+	// The operation fails as stale before its effect on ErrConflict or the
+	// changed-review error, so both stay in the chain.
 	if !errors.Is(stale, errDeleteReviewChanged) || !errors.Is(stale, control.ErrConflict) {
-		t.Fatalf("changed origin did not produce public conflict: %v", stale)
+		t.Fatalf("changed origin did not produce a stale review: %v", stale)
 	}
 	h := control.NewHandler(control.HandlerConfig{Lifecycle: staleRetainedDeleteRPC{stale: stale}})
 	token := strings.Repeat("d", 32)
 	_, rpcErr := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(`{"key":"delete","project":"app","branch":"saved","confirmation_token":"`+token+`"}`))
-	if rpcErr == nil || rpcErr.Kind != "busy" || rpcErr.Code != -32003 {
-		t.Fatalf("stale review exposed wrong RPC error: %+v", rpcErr)
+	if rpcErr == nil || rpcErr.Kind() != api.KindPreconditionFailed || rpcErr.Code != -32013 || rpcErr.Reason() != api.ReasonChanged {
+		t.Fatalf("stale review answered %v, want precondition_failed changed", rpcErr)
 	}
 }

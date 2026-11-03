@@ -68,12 +68,15 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
+# expect_error KIND REASON TARGET METHOD PARAMS: the request is refused with
+# that kind (the error message), its code, reason and target ("" for none).
 expect_error() {
-  local kind="$1" method="$2" params="$3" code response status
+  local kind="$1" reason="$2" target="$3" method="$4" params="$5" code response status
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    conflict) code=-32011 ;;
+    precondition_failed) code=-32013 ;;
+    not_found) code=-32015 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
@@ -82,9 +85,10 @@ expect_error() {
     echo "expected CLI exit 1 for $method/$kind, got $status: $response" >&2
     return 1
   fi
-  jq -e --arg kind "$kind" --argjson code "$code" \
+  jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" --arg target "$target" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
+     .error.message==$kind and .error.code==$code and .error.data.reason==$reason and
+     (.error.data.target // "")==$target' \
     <<< "$response" >/dev/null
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
@@ -280,13 +284,13 @@ request_rename() {
 }
 rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
 # Ref and assignment preconditions are checked before any durable native effect.
-expect_error busy project.retained.rename "$(request_rename stale-tip a-retained archive "$first")"
-expect_error busy project.retained.rename "$(request_rename assigned work archive "$source")"
+expect_error precondition_failed changed '' project.retained.rename "$(request_rename stale-tip a-retained archive "$first")"
+expect_error conflict branch_assigned project/publication:branch/work project.retained.rename "$(request_rename assigned work archive "$source")"
 git -C "$repo" update-ref refs/heads/archive "$source" 0000000000000000000000000000000000000000
-expect_error busy project.retained.rename "$(request_rename occupied a-retained archive "$source")"
+expect_error conflict branch_exists project/publication:branch/archive project.retained.rename "$(request_rename occupied a-retained archive "$source")"
 git -C "$repo" update-ref -d refs/heads/archive "$source"
 git -C "$repo" update-ref refs/heads/a-retained "$first" "$source"
-expect_error busy project.retained.rename "$(request_rename moved a-retained archive "$source")"
+expect_error precondition_failed changed '' project.retained.rename "$(request_rename moved a-retained archive "$source")"
 git -C "$repo" update-ref refs/heads/a-retained "$source" "$first"
 
 rename_request=$(request_rename rename-retained a-retained archive "$source")
@@ -316,7 +320,7 @@ start_daemon
 rpc operation.inspect "$(jq -nc --arg id "$rename_id" '{id:$id}')" |
   jq -e '.result.operation | .status=="completed" and .phase=="completed"' >/dev/null
 test "$(operation_id "$(rpc project.retained.rename "$rename_request")")" = "$rename_id"
-expect_error busy project.retained.rename "$(request_rename rename-retained archive a-retained "$source")"
+expect_error invalid key_reused '' project.retained.rename "$(request_rename rename-retained archive a-retained "$source")"
 test "$(git -C "$repo" rev-parse refs/heads/archive)" = "$source"
 test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$origin_before"
 echo P_RETAINED_RENAME_PASS

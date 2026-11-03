@@ -221,12 +221,12 @@ done
 
 # An RPC caller cannot choose another UUID or escape to host methods.
 for method in session.inspect session.list session.start system.inspect project.branches; do
-  jq -e --arg id "$method" '.id==$id and .error.kind=="method_not_found"' \
+  jq -e --arg id "$method" '.id==$id and .error.message=="method_not_found" and .error.code == -32601' \
     <<< "$(query "$uuid_a" "$method" "$method")" >/dev/null
 done
-jq -e '.error.kind=="invalid_params"' \
+jq -e '.error.message=="invalid" and .error.data.reason=="param" and .error.data.field=="uuid"' \
   <<< "$(query "$uuid_a" cross session.identity "$(jq -nc --arg uuid "$uuid_b" '{v:1,uuid:$uuid}')")" >/dev/null
-jq -e '.error.kind=="invalid_params"' \
+jq -e '.error.message=="invalid" and .error.data.reason=="param" and .error.data.field=="uuid"' \
   <<< "$(query "$uuid_b" cross session.capabilities "$(jq -nc --arg uuid "$uuid_a" '{v:1,uuid:$uuid}')")" >/dev/null
 
 report "$uuid_a" attention 'permission requested'
@@ -279,7 +279,7 @@ for bad in "${bad_reports[@]}"; do
   assert_preserved "$uuid_b" "$first_b"
 done
 response=$(guest_line "$uuid_a" '{"jsonrpc":"2.0","id":19,"method":"status.report","params":{"v":1,"source":"codex/main","condition":"idle","adapter":"codex","adapter_version":"1"}}')
-jq -e '.id==19 and .error.kind=="invalid_request" and .error.code == -32600' <<< "$response" >/dev/null
+jq -e '.id==19 and .error.message=="invalid_request" and .error.code == -32600 and .error.data.reason=="envelope"' <<< "$response" >/dev/null
 assert_preserved "$uuid_a" "$second_a"
 assert_preserved "$uuid_b" "$first_b"
 long_reason=$(printf '%0257d' 0)
@@ -287,15 +287,15 @@ bad=$(jq -nc --arg reason "$long_reason" '{jsonrpc:"2.0",method:"status.report",
 response=$(guest_line "$uuid_a" "$bad")
 test -z "$response"
 assert_preserved "$uuid_a" "$second_a"
-guest_invalid_utf8 "$uuid_a" | jq -e '.error.kind=="parse_error"' >/dev/null
+guest_invalid_utf8 "$uuid_a" | jq -e '.error.message=="parse_error" and .error.code == -32700' >/dev/null
 assert_preserved "$uuid_a" "$second_a"
 guest_unterminated "$uuid_a" '{"jsonrpc":"2.0","method":"status.report"' |
-  jq -e '.error.kind=="parse_error"' >/dev/null
+  jq -e '.error.message=="parse_error" and .error.code == -32700' >/dev/null
 assert_preserved "$uuid_a" "$second_a"
 oversize=$(printf '%066000d' 0)
 guest_unterminated "$uuid_a" "$oversize" expect-parse-error |
   jq -e '.jsonrpc=="2.0" and .id==null and .error.code == -32700 and
-    .error.kind=="parse_error"' >/dev/null
+    .error.message=="parse_error"' >/dev/null
 assert_preserved "$uuid_a" "$second_a"
 
 # A paced burst stays below the 100-attempts/second connection limit while

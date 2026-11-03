@@ -44,7 +44,7 @@ func (s *Store) CompletedOriginChange(ctx context.Context, c OriginChange) (api.
 		return api.OriginState{}, false, err
 	}
 	if project != c.Project || kind != c.Kind || old != c.ExpectedURL || next != c.ProposedURL {
-		return api.OriginState{}, false, ErrConflict
+		return api.OriginState{}, false, KeyReused()
 	}
 	if status != "completed" {
 		return api.OriginState{}, false, nil
@@ -74,7 +74,7 @@ func (s *Store) PrepareOriginChange(ctx context.Context, c OriginChange) (bool, 
 	err = tx.QueryRowContext(ctx, `SELECT project_path,kind,expected_url,proposed_url,status,result_json FROM origin_requests WHERE idempotency_key=?`, c.Key).Scan(&project, &kind, &old, &next, &status, &resultJSON)
 	if err == nil {
 		if project != c.Project || kind != c.Kind || old != c.ExpectedURL || next != c.ProposedURL {
-			return false, api.OriginState{}, ErrConflict
+			return false, api.OriginState{}, KeyReused()
 		}
 		if status == "completed" {
 			var result api.OriginState
@@ -90,12 +90,12 @@ func (s *Store) PrepareOriginChange(ctx context.Context, c OriginChange) (bool, 
 	}
 	var state string
 	if err = tx.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, c.Project).Scan(&state); errors.Is(err, sql.ErrNoRows) {
-		return false, api.OriginState{}, ErrNotFound
+		return false, api.OriginState{}, NotFound(api.ReasonProject, api.TargetProject(c.Project))
 	} else if err != nil {
 		return false, api.OriginState{}, err
 	}
 	if state != "active" {
-		return false, api.OriginState{}, ErrConflict
+		return false, api.OriginState{}, Conflict(api.ReasonProjectDeleting, api.TargetProject(c.Project))
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO origin_requests(idempotency_key,project_path,kind,expected_url,proposed_url,status,created_at) VALUES(?,?,?,?,?,'prepared',?)`, c.Key, c.Project, c.Kind, c.ExpectedURL, c.ProposedURL, time.Now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -111,14 +111,14 @@ func (s *Store) CheckLifecycleKeyConflict(ctx context.Context, key string) error
 	var exists int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM publication_requests WHERE idempotency_key=?`, key).Scan(&exists)
 	if err == nil {
-		return ErrConflict
+		return KeyReused()
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM operations WHERE idempotency_key=?`, key).Scan(&exists)
 	if err == nil {
-		return ErrConflict
+		return KeyReused()
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -144,7 +144,7 @@ func (s *Store) CommitOriginChange(ctx context.Context, c OriginChange, refs []p
 		return err
 	}
 	if project != c.Project || kind != c.Kind || old != c.ExpectedURL || next != c.ProposedURL {
-		return ErrConflict
+		return KeyReused()
 	}
 	if status == "completed" {
 		return nil
@@ -154,7 +154,7 @@ func (s *Store) CommitOriginChange(ctx context.Context, c OriginChange, refs []p
 		return err
 	}
 	if registry != "active" {
-		return ErrConflict
+		return Conflict(api.ReasonProjectDeleting, api.TargetProject(c.Project))
 	}
 	var current string
 	err = tx.QueryRowContext(ctx, `SELECT url FROM project_origins WHERE project_path=?`, c.Project).Scan(&current)
@@ -162,7 +162,8 @@ func (s *Store) CommitOriginChange(ctx context.Context, c OriginChange, refs []p
 		return err
 	}
 	if current != c.ExpectedURL {
-		return ErrConflict
+		// expected_url no longer names the project's origin.
+		return Stale(api.ReasonChanged)
 	}
 	completedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	result := api.OriginState{Project: c.Project, Status: "local-only"}
@@ -202,18 +203,18 @@ func encodeOriginRefs(refs []plugin.GitOriginRef) ([]byte, error) {
 
 func (s *Store) Origin(ctx context.Context, project string) (api.OriginState, []plugin.GitOriginRef, error) {
 	if !validProject(project) {
-		return api.OriginState{}, nil, ErrInvalid
+		return api.OriginState{}, nil, Invalid("project")
 	}
 	var registry string
 	err := s.db.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, project).Scan(&registry)
 	if errors.Is(err, sql.ErrNoRows) {
-		return api.OriginState{}, nil, ErrNotFound
+		return api.OriginState{}, nil, NotFound(api.ReasonProject, api.TargetProject(project))
 	}
 	if err != nil {
 		return api.OriginState{}, nil, err
 	}
 	if registry != "active" {
-		return api.OriginState{}, nil, ErrConflict
+		return api.OriginState{}, nil, Conflict(api.ReasonProjectDeleting, api.TargetProject(project))
 	}
 	state := api.OriginState{Project: project, Status: "local-only"}
 	var raw string
@@ -250,13 +251,18 @@ func (s *Store) StoreOriginRefresh(ctx context.Context, project, url string, ref
 	var current, registry string
 	err = tx.QueryRowContext(ctx, `SELECT p.registry_state,o.url FROM projects p JOIN project_origins o ON o.project_path=p.path WHERE p.path=?`, project).Scan(&registry, &current)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+		// The project or its origin is gone: the URL observed is no longer
+		// the project's origin.
+		return Stale(api.ReasonChanged)
 	}
 	if err != nil {
 		return err
 	}
-	if registry != "active" || current != url {
-		return ErrConflict
+	if registry != "active" {
+		return Conflict(api.ReasonProjectDeleting, api.TargetProject(project))
+	}
+	if current != url {
+		return Stale(api.ReasonChanged)
 	}
 	if failure != "" {
 		_, err = tx.ExecContext(ctx, `UPDATE project_origins SET current_status='unknown',diagnostic=? WHERE project_path=?`, failure, project)

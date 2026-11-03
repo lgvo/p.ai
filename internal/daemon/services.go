@@ -44,7 +44,7 @@ func (l *lifecycle) SessionServiceLogs(ctx context.Context, id, name string) (ap
 func (l *lifecycle) observeServices(ctx context.Context, id, unit, action string) (runtimeincus.ServiceObservation, error) {
 	var zero runtimeincus.ServiceObservation
 	if action != "list" && !runtimeincus.ValidProjectService(unit) {
-		return zero, control.ErrInvalid
+		return zero, control.Invalid("name")
 	}
 	// The inventory and the logs are reads: a change that arrives while one
 	// runs waits for it instead of being refused. An action is a change.
@@ -72,7 +72,10 @@ func (l *lifecycle) observeServices(ctx context.Context, id, unit, action string
 	}
 	b := &serviceBroker{Scoped: runtimeincus.Scoped{Backend: l.runtime, Session: native}, unit: unit, action: action}
 	if _, err = plugin.RunRuntime(ctx, l.runtimePlugin, "runtime.services", b); err != nil {
-		return zero, err
+		// The session's user service manager runs in the runtime; a refusal
+		// the runtime typed, such as a session that is not running, keeps its
+		// answer.
+		return zero, control.Failed(api.ReasonRuntime, err)
 	}
 	return b.result, nil
 }

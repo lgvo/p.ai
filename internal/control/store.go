@@ -22,12 +22,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var (
-	ErrConflict = errors.New("conflict")
-	ErrNotFound = errors.New("not found")
-	ErrInvalid  = errors.New("invalid input")
-)
-
 // Store is the sole daemon writer. The lock stays open for the Store lifetime.
 type Store struct {
 	db           *sql.DB
@@ -338,9 +332,6 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 	}
 	defer tx.Rollback()
 	replay, err := keyRecordsRequest(ctx, tx, req.Key, KindSessionCreate, requestJSON)
-	if errors.Is(err, ErrConflict) {
-		return op, session, fmt.Errorf("%w: idempotency key has different request", ErrConflict)
-	}
 	if err != nil {
 		return op, session, err
 	}
@@ -396,14 +387,56 @@ func (s *Store) ReserveSession(ctx context.Context, req ReserveSessionRequest) (
 	return rec.operation(), session, nil
 }
 
+// constraintAnswers maps a SQLite constraint or trigger failure, by a part
+// of its text, to the refusal it stands for. A constraint that guards an
+// invariant the daemon checks first is not listed: it stays a bare
+// ErrConflict, which answers internal.
+var constraintAnswers = []struct {
+	text   string
+	kind   api.ErrorKind
+	reason string
+}{
+	{"constraint failed: idempotency key", api.KindInvalid, api.ReasonKeyReused},
+	{"operations.idempotency_key", api.KindInvalid, api.ReasonKeyReused},
+	{"origin_requests.idempotency_key", api.KindInvalid, api.ReasonKeyReused},
+	{"publication_requests.idempotency_key", api.KindInvalid, api.ReasonKeyReused},
+	{"project-deleted request retired", api.KindInvalid, api.ReasonKeyReused},
+	{"project deletion authority closed", api.KindConflict, api.ReasonProjectDeleting},
+	{"operations.project_path", api.KindConflict, api.ReasonProjectDeleting},
+	{"branch reserved by lifecycle", api.KindConflict, api.ReasonBranchReserved},
+	{"git_ref_guards.project_path", api.KindConflict, api.ReasonBranchReserved},
+	{"sessions.project_path, sessions.branch", api.KindConflict, api.ReasonBranchAssigned},
+	{"projects.path", api.KindConflict, api.ReasonProjectExists},
+	{"constraint failed: assembled cleanup active", api.KindConflict, api.ReasonCleanupActive},
+	{"session unavailable", api.KindConflict, api.ReasonSessionNotEstablished},
+	// active_session_operation and active_assembled_cleanup; admissions
+	// check the holder first (sessionHolderTx) to name it.
+	{"operations.session_uuid", api.KindRetry, api.ReasonSessionHeld},
+	{"session_public_addresses.slot", api.KindCapacity, api.ReasonPublicAddresses},
+}
+
+// classifyWrite answers a failed write: a listed constraint or trigger
+// failure becomes its refusal, any other constraint failure a bare
+// ErrConflict. Both keep ErrConflict as their cause.
 func classifyWrite(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "constraint failed") || strings.Contains(err.Error(), "UNIQUE constraint") {
-		return fmt.Errorf("%w: %v", ErrConflict, err)
+	text := err.Error()
+	if !strings.Contains(text, "constraint failed") && !strings.Contains(text, "UNIQUE constraint") {
+		return err
 	}
-	return err
+	cause := fmt.Errorf("%w: %v", ErrConflict, err)
+	for _, c := range constraintAnswers {
+		if strings.Contains(text, c.text) {
+			refusal := &Refusal{Kind: c.kind, Reason: c.reason, Cause: cause}
+			if c.reason == api.ReasonKeyReused {
+				refusal.Field = "key"
+			}
+			return refusal
+		}
+	}
+	return cause
 }
 
 func getOperationTx(ctx context.Context, tx *sql.Tx, key string) (api.Operation, error) {
@@ -435,7 +468,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
 	var policy string
 	err := s.db.QueryRowContext(ctx, "SELECT uuid,project_path,branch,registry_state,policy_json,policy_sha256 FROM sessions WHERE uuid=?", id).Scan(&session.UUID, &session.Project, &session.Branch, &session.Registry, &policy, &session.PolicySHA256)
 	if errors.Is(err, sql.ErrNoRows) {
-		return session, ErrNotFound
+		return session, NotFound(api.ReasonSession, api.TargetSession(id))
 	}
 	session.Policy = json.RawMessage(policy)
 	return session, err
@@ -496,7 +529,7 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 	var oldCommitted int
 	err = tx.QueryRowContext(ctx, "SELECT kind,COALESCE(session_uuid,''),status,committed,phase,COALESCE(evidence_json,'') FROM operations WHERE id=?", id).Scan(&kind, &sessionID, &oldStatus, &oldCommitted, &oldPhase, &oldEvidence)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
+		return NotFound(api.ReasonOperation, api.TargetOperation(id))
 	}
 	if err != nil {
 		return err
@@ -548,7 +581,7 @@ func (s *Store) AdvanceOperation(ctx context.Context, id, status, phase string, 
 		return err
 	}
 	if n == 0 {
-		return ErrNotFound
+		return NotFound(api.ReasonOperation, api.TargetOperation(id))
 	}
 	return tx.Commit()
 }

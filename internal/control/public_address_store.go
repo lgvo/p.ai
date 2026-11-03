@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
@@ -58,7 +59,7 @@ func reserveFreePublicSlotTx(ctx context.Context, tx *sql.Tx, sessionID string) 
 			return slot, classifyWrite(err)
 		}
 	}
-	return 0, ErrConflict
+	return 0, Full(api.ReasonPublicAddresses)
 }
 
 func (s *Store) PublicAddressSlot(ctx context.Context, sessionID string) (int, error) {

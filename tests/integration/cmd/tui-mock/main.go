@@ -30,18 +30,21 @@ import (
 type object = map[string]any
 
 // fault is mock.configure's request: a one-shot fault for the next call of
-// Method. That call waits DelayMS, then answers Error as fixture_failure when
-// it is set; ServicesEmpty makes a session.services call observe no units.
+// Method. That call waits DelayMS, then answers the error kind Error with
+// Reason when Error is set; ServicesEmpty makes a session.services call
+// observe no units.
 type fault struct {
 	Method        string `json:"method"`
 	DelayMS       int    `json:"delay_ms,omitempty"`
 	Error         string `json:"error,omitempty"`
+	Reason        string `json:"reason,omitempty"`
 	ServicesEmpty bool   `json:"services_empty,omitempty"`
 }
 
 func (r fault) Validate() error {
-	if r.Method == "" || len(r.Method) > 128 || r.DelayMS < 0 || r.DelayMS > 5000 {
-		return errors.New("supply method, optional error and delay_ms 0..5000")
+	if r.Method == "" || len(r.Method) > 128 || r.DelayMS < 0 || r.DelayMS > 5000 ||
+		r.Error != "" && api.ErrorKind(r.Error).Code() == 0 || len(r.Reason) > 64 {
+		return errors.New("supply method, an optional error kind and reason, and delay_ms 0..5000")
 	}
 	return nil
 }
@@ -188,19 +191,14 @@ func (f *fixture) addSession(id, project, branch string) api.SessionView {
 	return s
 }
 
-// rpcError is an error the fixture answers. Kinds without their own code,
-// such as busy, conflict and fixture_failure, answer with busy's code.
-func rpcError(kind, message string) *api.RPCError {
-	code := -32003
-	switch kind {
-	case "unavailable":
-		code = -32004
-	case "cancelled":
-		code = -32001
-	case "internal":
-		code = -32603
+// mockError is an error the fixture answers, as the daemon answers the same
+// condition.
+func mockError(kind api.ErrorKind, reason, target string) *api.Error {
+	e := api.NewError(kind, reason)
+	if e.Data != nil {
+		e.Data.Target = target
 	}
-	return &api.RPCError{Code: code, Kind: kind, Message: message}
+	return e
 }
 func page[T any](values []T, after string, limit int, id func(T) string) ([]T, string) {
 	out := []T{}
@@ -249,7 +247,7 @@ func (f *fixture) handler(c *connection) control.Handler {
 	t := control.NewMethodTable()
 	f.register(t, &c.lease)
 	dispatch := t.Handler()
-	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.RPCError) {
+	return func(ctx context.Context, method string, params json.RawMessage) (any, *api.Error) {
 		f.mu.Lock()
 		injected := f.faults[method]
 		delete(f.faults, method)
@@ -259,11 +257,11 @@ func (f *fixture) handler(c *connection) control.Handler {
 			select {
 			case <-time.After(time.Duration(injected.DelayMS) * time.Millisecond):
 			case <-ctx.Done():
-				return nil, rpcError("cancelled", "Fixture request cancelled")
+				return nil, mockError(api.KindCancelled, "", "")
 			}
 		}
 		if injected.Error != "" {
-			return nil, rpcError("fixture_failure", injected.Error)
+			return nil, mockError(api.ErrorKind(injected.Error), injected.Reason, "")
 		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -273,7 +271,7 @@ func (f *fixture) handler(c *connection) control.Handler {
 		}
 		data, err := json.Marshal(result)
 		if err != nil {
-			return nil, rpcError("internal", "Cannot encode fixture response")
+			return nil, mockError(api.KindInternal, api.ReasonEncoding, "")
 		}
 		return json.RawMessage(data), nil
 	}
@@ -350,14 +348,14 @@ func (f *fixture) registerReads(t *control.MethodTable) {
 	control.Register(t, api.OperationInspect, func(_ context.Context, r api.OperationInspectRequest) (api.OperationResult, error) {
 		op, ok := f.ops[r.ID]
 		if !ok {
-			return api.OperationResult{}, rpcError("unavailable", "Operation absent")
+			return api.OperationResult{}, mockError(api.KindNotFound, api.ReasonOperation, api.TargetOperation(r.ID))
 		}
 		return api.OperationResult{Operation: op}, nil
 	})
 	control.Register(t, api.OperationRetry, func(_ context.Context, r api.OperationRetryRequest) (api.OperationResult, error) {
 		op, ok := f.ops[r.ID]
 		if !ok {
-			return api.OperationResult{}, rpcError("unavailable", "Operation absent")
+			return api.OperationResult{}, mockError(api.KindNotFound, api.ReasonOperation, api.TargetOperation(r.ID))
 		}
 		op.Status = "completed"
 		op.Phase = "complete"
@@ -404,7 +402,7 @@ func (f *fixture) registerReads(t *control.MethodTable) {
 // those no session is assigned.
 func (f *fixture) branches(project string, retained bool) ([]api.RetainedBranch, error) {
 	if _, ok := f.projects[project]; !ok {
-		return nil, rpcError("unavailable", "Project absent")
+		return nil, mockError(api.KindNotFound, api.ReasonProject, api.TargetProject(project))
 	}
 	assigned := map[string]bool{}
 	for _, v := range f.sessions {
@@ -426,7 +424,7 @@ func (f *fixture) branches(project string, retained bool) ([]api.RetainedBranch,
 // when the project has an origin, none otherwise.
 func (f *fixture) origin(project string) (api.OriginState, []plugin.GitOriginRef, error) {
 	if _, ok := f.projects[project]; !ok {
-		return api.OriginState{}, nil, rpcError("unavailable", "Project absent")
+		return api.OriginState{}, nil, mockError(api.KindNotFound, api.ReasonProject, api.TargetProject(project))
 	}
 	url := f.origins[project]
 	if url == "" {
@@ -440,7 +438,7 @@ func (f *fixture) origin(project string) (api.OriginState, []plugin.GitOriginRef
 func (f *fixture) session(id string) (api.SessionView, error) {
 	s, ok := f.sessions[id]
 	if !ok {
-		return s, rpcError("unavailable", "Session is absent from this fixture")
+		return s, mockError(api.KindNotFound, api.ReasonSession, api.TargetSession(id))
 	}
 	return s, nil
 }
@@ -453,12 +451,12 @@ func registerChange[Req api.Request](t *control.MethodTable, f *fixture, m api.M
 	control.Register(t, m, func(_ context.Context, r Req) (api.OperationResult, error) {
 		request, err := json.Marshal(r)
 		if err != nil {
-			return api.OperationResult{}, rpcError("internal", "Cannot encode fixture request")
+			return api.OperationResult{}, mockError(api.KindInternal, api.ReasonEncoding, "")
 		}
 		if id := f.keys[key(r)]; id != "" {
 			op := f.ops[id]
 			if op.Kind != m.Name || string(request) != string(op.Request) {
-				return api.OperationResult{}, rpcError("conflict", "Idempotency key belongs to another captured intent")
+				return api.OperationResult{}, mockError(api.KindInvalid, api.ReasonKeyReused, "")
 			}
 			return api.OperationResult{Operation: op}, nil
 		}
@@ -477,7 +475,7 @@ func registerChange[Req api.Request](t *control.MethodTable, f *fixture, m api.M
 func (f *fixture) registerLifecycle(t *control.MethodTable) {
 	registerChange(t, f, api.ProjectCreate, func(r api.ProjectCreateRequest) string { return r.Key }, func(r api.ProjectCreateRequest) (api.SessionView, error) {
 		if _, ok := f.projects[r.Project]; ok {
-			return api.SessionView{}, rpcError("conflict", "Project already exists or name is empty")
+			return api.SessionView{}, mockError(api.KindConflict, api.ReasonProjectExists, api.TargetProject(r.Project))
 		}
 		f.addProject(r.Project, r.URL)
 		s := f.addSession(uuid.NewString(), r.Project, "main")
@@ -487,25 +485,25 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 	})
 	registerChange(t, f, api.SessionCreate, func(r api.SessionCreateRequest) string { return r.Key }, func(r api.SessionCreateRequest) (api.SessionView, error) {
 		if _, ok := f.projects[r.Project]; !ok {
-			return api.SessionView{}, rpcError("unavailable", "Project absent")
+			return api.SessionView{}, mockError(api.KindNotFound, api.ReasonProject, api.TargetProject(r.Project))
 		}
 		for _, v := range f.sessions {
 			if v.Project == r.Project && v.Branch == r.Branch {
-				return api.SessionView{}, rpcError("conflict", "Branch already assigned to a session")
+				return api.SessionView{}, mockError(api.KindConflict, api.ReasonBranchAssigned, api.TargetBranch(r.Project, r.Branch))
 			}
 		}
 		if r.Choice == "existing" {
 			if f.refs[r.Project][r.Branch] == "" {
-				return api.SessionView{}, rpcError("conflict", "Retained branch absent")
+				return api.SessionView{}, mockError(api.KindNotFound, api.ReasonBranch, api.TargetBranch(r.Project, r.Branch))
 			}
 		} else if f.refs[r.Project][r.Branch] != "" {
-			return api.SessionView{}, rpcError("conflict", "New branch conflicts or choice invalid")
+			return api.SessionView{}, mockError(api.KindConflict, api.ReasonBranchExists, api.TargetBranch(r.Project, r.Branch))
 		} else if r.OriginRef != "" {
 			if r.ExpectedCommitOID != tip || r.ExpectedOriginURL != f.origins[r.Project] {
-				return api.SessionView{}, rpcError("conflict", "Origin changed since review")
+				return api.SessionView{}, mockError(api.KindPreconditionFailed, api.ReasonChanged, "")
 			}
 		} else if r.Source != tip {
-			return api.SessionView{}, rpcError("conflict", "P source changed since review")
+			return api.SessionView{}, mockError(api.KindNotFound, api.ReasonSource, "")
 		}
 		s := f.addSession(uuid.NewString(), r.Project, r.Branch)
 		s.Condition = "ready"
@@ -531,7 +529,7 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 			return api.SessionResult{}, err
 		}
 		if s.AttachedCount != 0 {
-			return api.SessionResult{}, rpcError("busy", "Detach before Stop")
+			return api.SessionResult{}, mockError(api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(r.UUID))
 		}
 		f.native.stopSession(s.UUID)
 		s.Condition = "stopped"
@@ -544,10 +542,13 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 			return s, err
 		}
 		if s.Condition != "stopped" {
-			return s, rpcError("busy", "Stop this session before Rename")
+			return s, mockError(api.KindConflict, api.ReasonSessionNotStopped, api.TargetSession(r.UUID))
 		}
-		if f.refs[s.Project][r.NewBranch] != "" || r.ExpectedOldTip != f.refs[s.Project][s.Branch] {
-			return s, rpcError("conflict", "Choose a new name and the current tip")
+		if f.refs[s.Project][r.NewBranch] != "" {
+			return s, mockError(api.KindConflict, api.ReasonBranchExists, api.TargetBranch(s.Project, r.NewBranch))
+		}
+		if r.ExpectedOldTip != f.refs[s.Project][s.Branch] {
+			return s, mockError(api.KindPreconditionFailed, api.ReasonChanged, "")
 		}
 		delete(f.refs[s.Project], s.Branch)
 		f.refs[s.Project][r.NewBranch] = tip
@@ -561,11 +562,11 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 			return api.RemovalPreviewResult{}, err
 		}
 		if s.AttachedCount != 0 {
-			return api.RemovalPreviewResult{}, rpcError("busy", "Detach every terminal before removal")
+			return api.RemovalPreviewResult{}, mockError(api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(r.UUID))
 		}
 		status := map[string]string{"ready": "Running", "stopped": "Stopped"}[s.Condition]
 		if status == "" {
-			return api.RemovalPreviewResult{}, rpcError("busy", "Removal needs a Running or Stopped container")
+			return api.RemovalPreviewResult{}, mockError(api.KindConflict, api.ReasonRuntimeUnsettled, api.TargetSession(r.UUID))
 		}
 		token := strings.ReplaceAll(uuid.NewString(), "-", "")
 		expires := time.Now().Add(time.Minute)
@@ -588,11 +589,14 @@ func (f *fixture) remove(kind, id, token string) (api.SessionView, error) {
 		return s, err
 	}
 	if s.AttachedCount != 0 {
-		return s, rpcError("busy", "Detach every terminal before removal")
+		return s, mockError(api.KindConflict, api.ReasonAttachmentActive, api.TargetSession(id))
 	}
 	review, ok := f.previews[token]
-	if !ok || review.UUID != id || review.Kind != kind || time.Now().After(review.Expires) {
-		return s, rpcError("conflict", "Removal review expired or session changed")
+	if !ok || time.Now().After(review.Expires) {
+		return s, mockError(api.KindPreconditionFailed, api.ReasonExpired, "")
+	}
+	if review.UUID != id || review.Kind != kind {
+		return s, mockError(api.KindPreconditionFailed, api.ReasonChanged, "")
 	}
 	delete(f.previews, token)
 	f.native.stopSession(id)
@@ -647,7 +651,7 @@ func (f *fixture) units(id, unit string) ([]api.ProjectService, int, error) {
 		return nil, -1, err
 	}
 	if s.Condition != "ready" {
-		return nil, -1, rpcError("unavailable", "Start session before inspecting project services")
+		return nil, -1, mockError(api.KindConflict, api.ReasonSessionNotRunning, api.TargetSession(id))
 	}
 	services := f.services[id]
 	for i, v := range services {
@@ -656,7 +660,9 @@ func (f *fixture) units(id, unit string) ([]api.ProjectService, int, error) {
 		}
 	}
 	if unit != "" {
-		return nil, -1, rpcError("unavailable", "Project unit absent")
+		// The daemon reaches the session's user manager, which refuses an
+		// unknown unit.
+		return nil, -1, mockError(api.KindFailed, api.ReasonServices, "")
 	}
 	return services, -1, nil
 }
@@ -671,7 +677,7 @@ func (f *fixture) registerAttachment(t *control.MethodTable, lease *attachmentLe
 			return api.PendingAttachment{}, err
 		}
 		if s.Condition != "ready" {
-			return api.PendingAttachment{}, rpcError("unavailable", "Session is stopped")
+			return api.PendingAttachment{}, mockError(api.KindConflict, api.ReasonSessionNotRunning, api.TargetSession(r.UUID))
 		}
 		token := strings.ReplaceAll(uuid.NewString()+uuid.NewString(), "-", "")
 		expires := time.Now().Add(time.Minute)
@@ -682,7 +688,7 @@ func (f *fixture) registerAttachment(t *control.MethodTable, lease *attachmentLe
 		claimed := f.tokens[r.Token]
 		id := claimed.UUID
 		if id == "" || f.sessions[id].Condition != "ready" || time.Now().After(claimed.Expires) || lease.UUID != "" {
-			return api.AttachmentLaunch{}, rpcError("conflict", "Attachment token is unknown or used")
+			return api.AttachmentLaunch{}, mockError(api.KindPreconditionFailed, api.ReasonExpired, "")
 		}
 		delete(f.tokens, r.Token)
 		lease.UUID = id
@@ -691,7 +697,7 @@ func (f *fixture) registerAttachment(t *control.MethodTable, lease *attachmentLe
 	control.Register(t, api.AttachmentConfirm, func(_ context.Context, r api.AttachmentConfirmRequest) (api.AttachmentResult, error) {
 		s, ok := f.sessions[lease.UUID]
 		if !ok || lease.Confirmed || !f.native.running(r.Operation, lease.UUID) {
-			return api.AttachmentResult{}, rpcError("conflict", "Attachment is not running")
+			return api.AttachmentResult{}, mockError(api.KindPreconditionFailed, api.ReasonExpired, "")
 		}
 		s.AttachedCount++
 		lease.Confirmed = true
@@ -701,7 +707,7 @@ func (f *fixture) registerAttachment(t *control.MethodTable, lease *attachmentLe
 	})
 	control.Register(t, api.AttachmentPing, func(context.Context, api.AttachmentPingRequest) (api.AttachmentResult, error) {
 		if lease.UUID == "" {
-			return api.AttachmentResult{}, rpcError("conflict", "No attachment lease")
+			return api.AttachmentResult{}, mockError(api.KindInvalidRequest, api.ReasonConnection, "")
 		}
 		return api.AttachmentResult{}, nil
 	})

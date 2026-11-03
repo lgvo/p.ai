@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 	"golang.org/x/sys/unix"
 )
 
@@ -141,10 +143,12 @@ func parseRPCReply(output []byte) (map[string]any, bool, error) {
 		if err != nil {
 			return nil, false, fmt.Errorf("invalid error object: %w", err)
 		}
+		// An error is a code and its kind's name as the message; the kind
+		// is not a member of its own.
 		var code int
-		var kind, message string
-		if json.Unmarshal(errorFields["code"], &code) != nil || code == 0 ||
-			json.Unmarshal(errorFields["kind"], &kind) != nil || kind == "" ||
+		var message string
+		_, hasKind := errorFields["kind"]
+		if json.Unmarshal(errorFields["code"], &code) != nil || code == 0 || hasKind ||
 			json.Unmarshal(errorFields["message"], &message) != nil || message == "" {
 			return nil, false, errors.New("invalid error fields")
 		}
@@ -467,7 +471,8 @@ func (f *fixture) stopBusy(uuid string) error {
 		return err
 	}
 	problem, _ := reply["error"].(map[string]any)
-	if problem["kind"] != "busy" || problem["code"] != float64(-32003) {
+	data, _ := problem["data"].(map[string]any)
+	if problem["message"] != "conflict" || problem["code"] != float64(-32011) || data["reason"] != "attachment_active" {
 		return fmt.Errorf("Stop accepted despite attachment: %v", reply)
 	}
 	return nil
@@ -1151,8 +1156,10 @@ func (f *fixture) manual(token string, expectFailure bool) error {
 	if kind != errorFrame {
 		return fmt.Errorf("invalid/expired token produced frame %d", kind)
 	}
-	if !strings.Contains(string(detail), "lifecycle request conflicts with current authority") {
-		return fmt.Errorf("token rejection was not a claim conflict: %s", tail(string(detail), 300))
+	// The daemon refuses a used, expired or pre-restart token as a
+	// precondition that no longer holds, and the helper shows its sentence.
+	if string(detail) != errtext.Sentence(api.NewError(api.KindPreconditionFailed, api.ReasonExpired)) {
+		return fmt.Errorf("token rejection was not an expired claim: %s", tail(string(detail), 300))
 	}
 	return nil
 }

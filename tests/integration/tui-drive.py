@@ -51,7 +51,7 @@ def rpc(method, **params):
     )
     envelope = json.loads(response.stdout)
     if response.returncode:
-        if envelope.get("error", {}).get("kind") == "busy":
+        if envelope.get("error", {}).get("message") == "retry":
             raise BusyObservation()
         raise AssertionError(f"{method}: {response.stdout[-2000:]} {response.stderr[-500:]}")
     return envelope["result"]
@@ -119,7 +119,7 @@ def service_ui_ready(state):
     states = (state,) if isinstance(state, str) else state
     await_state(lambda: any(observation in plain() for observation in states)
                 and all(message not in plain() for message in
-                        ("Waiting for daemon", "Service observation unavailable", "busy:")),
+                        ("Waiting for daemon", "Service observation unavailable", "try again")),
                 f"fresh service UI observation: {state}")
 
 

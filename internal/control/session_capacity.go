@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+
+	"github.com/lgvo/p.ai/internal/api"
 )
 
 // CapacityReservation is a durable identity that may still consume a native
@@ -26,16 +28,6 @@ type CapacityObservation struct {
 }
 
 type CapacityObserver func(context.Context, []CapacityReservation) (CapacityObservation, error)
-
-// Keep admission refusal distinct from a transient authority conflict while
-// retaining the existing conflict classification for lifecycle callers.
-type sessionCapacityError struct{}
-
-func (*sessionCapacityError) Error() string {
-	return "session capacity exhausted. Discard or Delete a session to free capacity; Stop retains its slot"
-}
-
-func (*sessionCapacityError) Unwrap() error { return ErrConflict }
 
 // checkSessionAdmission runs under gitAuthority, shared by project and session
 // creation. The caller's native inventory is fresh at this point; the sole
@@ -138,7 +130,7 @@ func (s *Store) checkSessionCapacity(ctx context.Context, observe CapacityObserv
 		}
 	}
 	if needed > observation.Limit {
-		return &sessionCapacityError{}
+		return Full(api.ReasonSessionCapacity)
 	}
 	return nil
 }

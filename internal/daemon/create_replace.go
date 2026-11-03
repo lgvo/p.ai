@@ -32,7 +32,7 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 	target := api.CreateReplaceBranch{Ref: "refs/heads/" + req.Branch}
 	oid, exists, err := git.InspectBranchRef(ctx, old.Project, old.Branch)
 	if err != nil {
-		return oldBranch, target, "", err
+		return oldBranch, target, "", control.Failed(api.ReasonGit, err)
 	}
 	oldBranch.Observed, oldBranch.Exists, oldBranch.OID = true, exists, oid
 	if old.Branch == req.Branch {
@@ -40,7 +40,7 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 	} else {
 		oid, exists, err = git.InspectBranchRef(ctx, req.Project, req.Branch)
 		if err != nil {
-			return oldBranch, target, "", err
+			return oldBranch, target, "", control.Failed(api.ReasonGit, err)
 		}
 		target.Observed, target.Exists, target.OID = true, exists, oid
 	}
@@ -51,13 +51,72 @@ func observeCreateReplacementSources(ctx context.Context, git localReplacementSo
 	}
 	captured, err := git.CaptureLocalSource(ctx, req)
 	if err != nil {
-		return oldBranch, target, "", err
+		return oldBranch, target, "", control.Failed(api.ReasonGit, err)
 	}
 	oid, exists, err = git.InspectBranchRef(ctx, req.Project, req.Branch)
-	if err != nil || exists != captured.Existed || exists && oid != captured.OID || exists != target.Exists || oid != target.OID {
-		return oldBranch, target, "", errors.Join(err, control.ErrConflict)
+	if err != nil {
+		return oldBranch, target, "", control.Failed(api.ReasonGit, err)
+	}
+	if exists != captured.Existed || exists && oid != captured.OID || exists != target.Exists || oid != target.OID {
+		return oldBranch, target, "", control.ErrConflict
 	}
 	return oldBranch, target, captured.OID, nil
+}
+
+// confirmChanged answers a confirmation whose fresh review no longer matches
+// the one its token names: precondition_failed with reason changed, so the
+// client reviews again. A cancellation, or an authority that failed or is
+// held, keeps its own answer.
+func confirmChanged(err error) error {
+	var refusal *control.Refusal
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.As(err, &refusal) && (refusal.Kind == api.KindFailed || refusal.Kind == api.KindRetry) {
+		return err
+	}
+	return &control.Refusal{Kind: api.KindPreconditionFailed, Reason: api.ReasonChanged, Cause: errors.Join(err, control.ErrConflict)}
+}
+
+// lockCreationSession takes the session lock of the failed creation of
+// session uuid. While its creation still runs, the creation's worker holds
+// the lock, and the refusal names that operation.
+func (l *lifecycle) lockCreationSession(ctx context.Context, uuid string) (func(), error) {
+	release, err := l.lockSession(ctx, uuid)
+	var refusal *control.Refusal
+	if err != nil && errors.As(err, &refusal) && refusal.Kind == api.KindRetry && refusal.Target == "" {
+		if op, e := l.store.CreationForSession(ctx, uuid); e == nil && op.Status == "running" {
+			return nil, control.Retry(api.ReasonSessionHeld, api.TargetOperation(op.ID))
+		}
+	}
+	return release, err
+}
+
+// storeReview keeps the review of a failed creation for its confirmation.
+// The reviews expire after two minutes; while 128 unexpired ones are held, a
+// new review is refused until one expires.
+func storeReview[T any](reviews map[string]T, token string, review T, expiry func(T) time.Time) error {
+	for key, state := range reviews {
+		if !time.Now().Before(expiry(state)) {
+			delete(reviews, key)
+		}
+	}
+	if len(reviews) >= 128 {
+		return control.Retry(api.ReasonTooManyPreviews, "")
+	}
+	reviews[token] = review
+	return nil
+}
+
+// boundedReview refuses a review whose answer would exceed the response
+// bound.
+func boundedReview(uuid string, review any) error {
+	encoded, err := json.Marshal(review)
+	if err != nil {
+		return control.Internal(api.ReasonEncoding, err)
+	}
+	if len(encoded) > api.MaxFrameBytes-1024 {
+		return control.Conflict(api.ReasonBoundExceeded, api.TargetSession(uuid))
+	}
+	return nil
 }
 
 // createReplaceEffects reviews only local resources, with full native absence.
@@ -128,11 +187,11 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 	if !control.ValidSessionCreateRequest(req) {
 		return p, control.ErrInvalid
 	}
-	op, err := l.store.CreationForSession(ctx, oldUUID)
+	s, err := l.store.GetSession(ctx, oldUUID)
 	if err != nil {
 		return p, err
 	}
-	s, err := l.store.GetSession(ctx, oldUUID)
+	op, err := l.store.CreationForSession(ctx, oldUUID)
 	if err != nil {
 		return p, err
 	}
@@ -213,7 +272,7 @@ func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req 
 }
 
 func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (api.CreateReplacePreview, error) {
-	release, err := l.lockSession(ctx, oldUUID)
+	release, err := l.lockCreationSession(ctx, oldUUID)
 	if err != nil {
 		return api.CreateReplacePreview{}, err
 	}
@@ -229,24 +288,19 @@ func (l *lifecycle) PreviewCreateReplace(ctx context.Context, oldUUID string, re
 	expiry := time.Now().Add(2 * time.Minute)
 	p.ConfirmationToken = hex.EncodeToString(token[:])
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
-	encoded, err := json.Marshal(api.CreateReplacePreviewResult{Preview: p})
-	if err != nil || len(encoded) > api.MaxFrameBytes-1024 {
-		return api.CreateReplacePreview{}, control.ErrConflict
+	if err = boundedReview(oldUUID, api.CreateReplacePreviewResult{Preview: p}); err != nil {
+		return api.CreateReplacePreview{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.createReplacePreviews == nil {
 		l.createReplacePreviews = map[string]createReplacePreviewState{}
 	}
-	for key, state := range l.createReplacePreviews {
-		if !time.Now().Before(state.Expiry) {
-			delete(l.createReplacePreviews, key)
-		}
+	err = storeReview(l.createReplacePreviews, p.ConfirmationToken, createReplacePreviewState{Preview: p, Expiry: expiry},
+		func(s createReplacePreviewState) time.Time { return s.Expiry })
+	if err != nil {
+		return api.CreateReplacePreview{}, err
 	}
-	if len(l.createReplacePreviews) >= 128 {
-		return api.CreateReplacePreview{}, control.ErrConflict
-	}
-	l.createReplacePreviews[p.ConfirmationToken] = createReplacePreviewState{Preview: p, Expiry: expiry}
 	return p, nil
 }
 
@@ -261,7 +315,7 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	if prior, found, e := l.store.ReplayCreateReplacement(ctx, key, oldUUID, tokenHash); e != nil || found {
 		return prior, e
 	}
-	release, err := l.lockSession(ctx, oldUUID)
+	release, err := l.lockCreationSession(ctx, oldUUID)
 	if err != nil {
 		return api.Operation{}, err
 	}
@@ -273,8 +327,11 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	var state createReplacePreviewState
 	var ok bool
 	l.withLock(func() { state, ok = l.createReplacePreviews[token] })
-	if !ok || state.Preview.OldUUID != oldUUID || state.Preview.NewRequest.Key != key {
-		return api.Operation{}, control.ErrConflict
+	if !ok {
+		return api.Operation{}, control.Stale(api.ReasonExpired)
+	}
+	if state.Preview.OldUUID != oldUUID || state.Preview.NewRequest.Key != key {
+		return api.Operation{}, control.Stale(api.ReasonChanged)
 	}
 	intent := control.CreateReplaceIntent{OldOperationID: state.Preview.OldOperationID, OldUUID: oldUUID,
 		OldEvidenceSHA256: state.Preview.OldEvidenceSHA256, OldPolicySHA256: state.Preview.OldPolicySHA256,
@@ -282,15 +339,15 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 		Cleanup:         state.Preview.Provisional.Cleanup,
 		TokenSHA256:     tokenHash, ExpiresAt: state.Preview.ExpiresAt, New: state.Preview.NewRequest}
 	if !time.Now().Before(state.Expiry) {
-		return api.Operation{}, control.ErrConflict
+		return api.Operation{}, control.Stale(api.ReasonExpired)
 	}
 	p, e := l.createReplaceFacts(ctx, oldUUID, state.Preview.NewRequest)
-	if e != nil || !p.Eligible {
-		return api.Operation{}, errors.Join(e, control.ErrConflict)
+	if e != nil {
+		return api.Operation{}, e
 	}
 	p.ConfirmationToken, p.ExpiresAt = token, state.Preview.ExpiresAt
-	if !reflect.DeepEqual(p, state.Preview) {
-		return api.Operation{}, control.ErrConflict
+	if !p.Eligible || !reflect.DeepEqual(p, state.Preview) {
+		return api.Operation{}, control.Stale(api.ReasonChanged)
 	}
 	oldOp, e := l.store.GetOperation(ctx, p.OldOperationID)
 	if e != nil {
@@ -303,11 +360,11 @@ func (l *lifecycle) ConfirmCreateReplace(ctx context.Context, oldUUID, key, toke
 	op, e := l.store.ReplaceBlockedCreate(ctx, intent, l.cfg.BaseImageFingerprint, l.selection(), l.environmentIntent(), l.observeSessionCapacity,
 		func(call context.Context) (string, error) {
 			if cleanup, e := l.createReplaceEffects(call, oldOp, s); e != nil || !reflect.DeepEqual(cleanup, state.Preview.Provisional.Cleanup) {
-				return "", errors.Join(e, control.ErrConflict)
+				return "", confirmChanged(e)
 			}
 			oldBranch, target, tip, e := observeCreateReplacementSources(call, l.git.backend, state.Preview.OldRequest, state.Preview.NewRequest, state.Preview.OldCapturedOID)
 			if e != nil || tip != state.Preview.NewCapturedOID || oldBranch != state.Preview.OldBranch || target != state.Preview.NewBranch {
-				return "", errors.Join(e, control.ErrConflict)
+				return "", confirmChanged(e)
 			}
 			return tip, nil
 		})

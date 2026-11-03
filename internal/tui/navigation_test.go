@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 )
 
 func TestLongSessionRowsKeepRuntimeAndAttentionVisible(t *testing.T) {
@@ -439,10 +440,11 @@ func TestCapacityFeedbackKeepsRemedyAndConfirmationControls(t *testing.T) {
 		m.width, m.height = size[0], size[1]
 		m.navigate("confirm")
 		m.review = strings.Repeat("Captured project, branch, source and policy.\n", 12)
-		m.notice = "busy: session capacity exhausted; P keeps one slot for loss inspection. Discard or Delete a session to free capacity; Stop retains its slot"
+		m.notice = errtext.Sentence(api.NewError(api.KindCapacity, api.ReasonSessionCapacity))
 		frame := ansi.Strip(m.View().Content)
-		flat := strings.ReplaceAll(frame, "\n", "")
-		for _, text := range []string{"Discard or Delete", "Stop retains its slot", "Confirm [y/N]", "q/Esc back"} {
+		// The notice wraps between words.
+		flat := strings.Join(strings.Fields(frame), " ")
+		for _, text := range []string{"discard or delete a session", "Stop keeps its slot", "Confirm [y/N]", "q/Esc back"} {
 			if !strings.Contains(flat, text) {
 				t.Fatalf("%vx%v feedback or controls clipped: %q missing in %s", size[0], size[1], text, frame)
 			}
@@ -454,6 +456,34 @@ func TestCapacityFeedbackKeepsRemedyAndConfirmationControls(t *testing.T) {
 		for _, line := range lines {
 			if ansi.StringWidth(line) > m.width {
 				t.Fatal("feedback escaped terminal width")
+			}
+		}
+	}
+}
+
+// TestNoticeWrapsBetweenWordsWithinThePage checks that a long notice wraps
+// between words to the width the page draws in, so no part is clipped.
+func TestNoticeWrapsBetweenWordsWithinThePage(t *testing.T) {
+	notice := errtext.Sentence(api.NewError(api.KindInternal, api.ReasonStore))
+	for _, page := range []string{"sessions", "confirm"} {
+		for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}} {
+			m := fixture()
+			m.width, m.height = size[0], size[1]
+			if page != "sessions" {
+				m.navigate(page)
+			}
+			m.notice = notice
+			lines := m.noticeLines()
+			if got := strings.Join(lines, " "); got != notice {
+				t.Errorf("%s %vx%v wrapped %q", page, size[0], size[1], got)
+			}
+			for _, line := range lines {
+				if ansi.StringWidth(line) > m.pageWidth() || strings.HasPrefix(line, " ") {
+					t.Errorf("%s %vx%v notice line %q does not fit %d columns", page, size[0], size[1], line, m.pageWidth())
+				}
+			}
+			if frame := ansi.Strip(m.View().Content); !strings.Contains(strings.Join(strings.Fields(frame), " "), notice) {
+				t.Errorf("%s %vx%v frame clips the notice:\n%s", page, size[0], size[1], frame)
 			}
 		}
 	}

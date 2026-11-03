@@ -19,7 +19,7 @@ import (
 // connection agreed the protocol, with params as a client sends them.
 
 // send calls method with raw JSON params.
-func send(ctx context.Context, h control.Handler, method, params string) (json.RawMessage, *api.RPCError) {
+func send(ctx context.Context, h control.Handler, method, params string) (json.RawMessage, *api.Error) {
 	result, err := h(ctx, method, json.RawMessage(params))
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func do[Req api.Request, Res any](t *testing.T, h control.Handler, m api.Method[
 
 // refusal calls m with req and returns the error it answers, nil for a
 // result.
-func refusal[Req api.Request, Res any](h control.Handler, m api.Method[Req, Res], req Req) *api.RPCError {
+func refusal[Req api.Request, Res any](h control.Handler, m api.Method[Req, Res], req Req) *api.Error {
 	params, _ := json.Marshal(req)
 	_, err := send(context.Background(), h, m.Name, string(params))
 	return err
@@ -91,7 +91,7 @@ func TestFixtureInventoryUsesUniqueBoundedPagesAndClosedParams(t *testing.T) {
 		t.Fatalf("inventory=%d pages=%d", len(seen), pages)
 	}
 	for _, raw := range []string{`{"limit":8,"aftr":""}`, `{"limit":"8"}`, `{"limit":8,"limit":8}`, `{"v":1,"limit":8}`, `{"limit":9}`} {
-		if _, err := send(context.Background(), h, "session.list", raw); err == nil || err.Kind != "invalid_params" {
+		if _, err := send(context.Background(), h, "session.list", raw); err == nil || err.Kind() != "invalid" {
 			t.Fatalf("invalid request %s: %+v", raw, err)
 		}
 	}
@@ -122,7 +122,7 @@ func TestFixtureRetainedBranchesPageByFullRef(t *testing.T) {
 	if len(branches) != 32 || branches[0] != "retained/00" || branches[31] != "retained/31" {
 		t.Fatalf("retained branches %v", branches)
 	}
-	if _, err := send(context.Background(), h, "project.retained_branches", `{"project":"forge","limit":8,"after":"retained/07"}`); err == nil || err.Kind != "invalid_params" {
+	if _, err := send(context.Background(), h, "project.retained_branches", `{"project":"forge","limit":8,"after":"retained/07"}`); err == nil || err.Kind() != "invalid" {
 		t.Fatalf("branch name cursor: %+v", err)
 	}
 }
@@ -137,15 +137,19 @@ func TestFixtureCreationIdempotencyAndSourceFreshness(t *testing.T) {
 		t.Fatal("creation replay duplicated intent")
 	}
 	create.Branch = "feat/other"
-	if err := refusal(h, api.SessionCreate, create); err == nil || err.Kind != "conflict" || len(f.sessions) != 5 {
+	if err := refusal(h, api.SessionCreate, create); err == nil || err.Kind() != api.KindInvalid || err.Reason() != api.ReasonKeyReused || len(f.sessions) != 5 {
 		t.Fatalf("key reused for another intent: %+v", err)
 	}
-	for _, stale := range []api.SessionCreateRequest{
-		{Key: "stale-origin", Project: "forge", Branch: "feat/stale", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: tip, ExpectedOriginURL: "https://wrong.invalid"},
-		{Key: "stale-source", Project: "forge", Branch: "feat/stale", Choice: "new", Source: strings.Repeat("1", 40)},
+	for _, stale := range []struct {
+		request api.SessionCreateRequest
+		kind    api.ErrorKind
+		reason  string
+	}{
+		{api.SessionCreateRequest{Key: "stale-origin", Project: "forge", Branch: "feat/stale", Choice: "new", OriginRef: "refs/heads/main", ExpectedCommitOID: tip, ExpectedOriginURL: "https://wrong.invalid"}, api.KindPreconditionFailed, api.ReasonChanged},
+		{api.SessionCreateRequest{Key: "stale-source", Project: "forge", Branch: "feat/stale", Choice: "new", Source: strings.Repeat("1", 40)}, api.KindNotFound, api.ReasonSource},
 	} {
-		if err := refusal(h, api.SessionCreate, stale); err == nil || err.Kind != "conflict" || len(f.sessions) != 5 {
-			t.Fatalf("stale source %s accepted: %+v", stale.Key, err)
+		if err := refusal(h, api.SessionCreate, stale.request); err == nil || err.Kind() != stale.kind || err.Reason() != stale.reason || len(f.sessions) != 5 {
+			t.Fatalf("stale source %s accepted: %+v", stale.request.Key, err)
 		}
 	}
 }
@@ -158,7 +162,7 @@ func TestFixtureRemovalPreviewBindsKindSessionAndExpiry(t *testing.T) {
 	token := strings.Repeat("c", 32)
 	for _, review := range []preview{{UUID: id, Kind: "discard", Expires: time.Now().Add(-time.Second)}, {UUID: id, Kind: "delete", Expires: time.Now().Add(time.Minute)}, {UUID: other, Kind: "discard", Expires: time.Now().Add(time.Minute)}} {
 		f.previews[token] = review
-		if err := refusal(h, api.SessionDiscard, api.SessionDiscardRequest{Key: "remove", UUID: id, ConfirmationToken: token}); err == nil || err.Kind != "conflict" {
+		if err := refusal(h, api.SessionDiscard, api.SessionDiscardRequest{Key: "remove", UUID: id, ConfirmationToken: token}); err == nil || err.Kind() != api.KindPreconditionFailed {
 			t.Fatalf("invalid preview %+v: %+v", review, err)
 		}
 		if _, ok := f.sessions[id]; !ok {
@@ -205,7 +209,7 @@ func TestFixtureRemovesARunningUnattachedSessionAndRefusesAnAttachedOne(t *testi
 	s := f.sessions[attached]
 	s.AttachedCount = 1
 	f.sessions[attached] = s
-	if err := refusal(h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: attached, Kind: "delete"}); err == nil || err.Kind != "busy" {
+	if err := refusal(h, api.SessionRemovalPreview, api.SessionRemovalPreviewRequest{UUID: attached, Kind: "delete"}); err == nil || err.Kind() != api.KindConflict || err.Reason() != api.ReasonAttachmentActive {
 		t.Fatalf("attached session preview: %+v", err)
 	}
 }
@@ -214,7 +218,7 @@ func TestFixtureRenameRefusesARunningSessionAsBusy(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
 	id := sessionID(f, "forge", "fix/token-refresh")
 	err := refusal(connect(f), api.SessionRename, api.SessionRenameRequest{Key: "rename", UUID: id, NewBranch: "feat/renamed", ExpectedOldTip: tip})
-	if err == nil || err.Kind != "busy" || f.sessions[id].Branch != "fix/token-refresh" {
+	if err == nil || err.Kind() != api.KindConflict || err.Reason() != api.ReasonSessionNotStopped || f.sessions[id].Branch != "fix/token-refresh" {
 		t.Fatalf("running session rename: %+v", err)
 	}
 }
@@ -223,10 +227,10 @@ func TestFixtureHasNoLossInspection(t *testing.T) {
 	f := newFixture(t.TempDir(), "small")
 	h := connect(f)
 	id := sessionID(f, "forge", "fix/token-refresh")
-	if _, err := send(context.Background(), h, "workspace.loss.inspect", `{"key":"inspect","uuid":"`+id+`"}`); err == nil || err.Kind != "method_not_found" {
+	if _, err := send(context.Background(), h, "workspace.loss.inspect", `{"key":"inspect","uuid":"`+id+`"}`); err == nil || err.Kind() != "method_not_found" {
 		t.Fatalf("loss inspection: %+v", err)
 	}
-	if _, err := send(context.Background(), h, "session.removal.preview", `{"uuid":"`+id+`","kind":"discard","loss_operation_id":"inspect"}`); err == nil || err.Kind != "invalid_params" {
+	if _, err := send(context.Background(), h, "session.removal.preview", `{"uuid":"`+id+`","kind":"discard","loss_operation_id":"inspect"}`); err == nil || err.Kind() != "invalid" {
 		t.Fatalf("preview with a loss operation: %+v", err)
 	}
 	hello, rpcErr := send(context.Background(), h, "system.hello", `{"protocol":"`+api.Protocol+`"}`)
@@ -279,7 +283,7 @@ func TestFixtureServesOnlyProtocolAndFixtureMethods(t *testing.T) {
 	}
 	h := connect(f)
 	for _, name := range []string{"system.capabilities", "system.inspect", "session.identity", "status.report", "mock.reset", "workspace.loss.inspect"} {
-		if _, err := send(context.Background(), h, name, `{}`); err == nil || err.Kind != "method_not_found" {
+		if _, err := send(context.Background(), h, name, `{}`); err == nil || err.Kind() != "method_not_found" {
 			t.Errorf("%s: %+v", name, err)
 		}
 	}
@@ -310,7 +314,7 @@ func TestFixtureCancelledDelayDoesNotMutate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := send(ctx, connect(f), "project.create", `{"key":"cancel","project":"new"}`)
-	if err == nil || err.Kind != "cancelled" || f.projects["new"].Path != "" {
+	if err == nil || err.Kind() != "cancelled" || f.projects["new"].Path != "" {
 		t.Fatalf("cancelled request mutated fixture: %+v", err)
 	}
 }
@@ -328,8 +332,9 @@ func TestServiceEmptyFaultHasClosedRPCSchemaAndIsOneObservation(t *testing.T) {
 		t.Fatal("fault changed underlying inventory")
 	}
 	for _, body := range []string{`{"method":"session.services","services_empty":"true"}`, `{"method":"session.services","services_empt":true}`,
-		`{"method":"session.services","delay_ms":5001}`, `{"method":""}`, `{"v":1,"method":"session.services"}`} {
-		if _, err := send(context.Background(), h, "mock.configure", body); err == nil || err.Kind != "invalid_params" {
+		`{"method":"session.services","delay_ms":5001}`, `{"method":""}`, `{"v":1,"method":"session.services"}`,
+		`{"method":"session.services","error":"busy"}`} {
+		if _, err := send(context.Background(), h, "mock.configure", body); err == nil || err.Kind() != "invalid" {
 			t.Fatalf("accepted malformed fixture setting %s: %+v", body, err)
 		}
 	}

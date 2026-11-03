@@ -35,7 +35,7 @@ func ClientSocket(explicit string) (string, error) {
 }
 
 // Caller makes one call: it sends method with params and decodes the result
-// into result. An error the daemon answers is an *RPCError. Clients call
+// into result. An error the daemon answers is an *Error. Clients call
 // through Do, which binds params and result to the method's types.
 type Caller interface {
 	Call(ctx context.Context, method string, params, result any) error
@@ -45,7 +45,7 @@ type Caller interface {
 func Do[Req Request, Res any](ctx context.Context, c Caller, m Method[Req, Res], req Req) (Res, error) {
 	var res Res
 	if err := req.Validate(); err != nil {
-		return res, &RPCError{Code: -32602, Kind: "invalid_params", Message: err.Error()}
+		return res, err
 	}
 	err := c.Call(ctx, m.Name, req, &res)
 	return res, err
@@ -99,7 +99,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result any) erro
 	}
 	var response struct {
 		Result json.RawMessage `json:"result"`
-		Error  *RPCError       `json:"error"`
+		Error  *Error          `json:"error"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
 		return err
@@ -147,7 +147,7 @@ func (c *Conn) exchange(ctx context.Context, method string, params json.RawMessa
 		JSONRPC string          `json:"jsonrpc"`
 		ID      int             `json:"id"`
 		Result  json.RawMessage `json:"result"`
-		Error   *RPCError       `json:"error"`
+		Error   *Error          `json:"error"`
 	}
 	if err := strictjson.Decode(line, &response); err != nil || response.JSONRPC != "2.0" || response.ID != c.next {
 		return nil, errors.New("invalid daemon response")

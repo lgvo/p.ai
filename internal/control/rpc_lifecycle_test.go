@@ -42,13 +42,13 @@ func TestRetainedDeleteRPCClosedRequests(t *testing.T) {
 	p := &retainedDeleteRPCProbe{}
 	h := NewHandler(HandlerConfig{Lifecycle: p})
 	for _, raw := range []string{`{"v":1,"project":"app","branch":"saved"}`, `{"project":"app","branch":"saved","workspace":"/tmp"}`, `{"project":"app","branch":"saved","branch":"saved"}`} {
-		if _, e := h(context.Background(), "project.retained.delete.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(context.Background(), "project.retained.delete.preview", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("preview accepted %s: %+v", raw, e)
 		}
 	}
 	token := strings.Repeat("a", 32)
 	for _, raw := range []string{`{"v":1,"key":"delete","project":"app","branch":"saved","confirmation_token":"` + token + `"}`, `{"key":"delete","project":"app","branch":"saved","confirmation_token":"short"}`, `{"key":"delete","project":"app","branch":"saved","confirmation_token":"` + token + `","force":true}`} {
-		if _, e := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(context.Background(), "project.retained.delete.confirm", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("confirm accepted %s: %+v", raw, e)
 		}
 	}
@@ -81,7 +81,7 @@ func TestRetainedRenameRPCClosedRequest(t *testing.T) {
 		`{"key":"move","project":"app","old_branch":"saved","new_branch":"saved","expected_old_tip":"` + oid + `"}`,
 		`{"key":"move","project":"app","old_branch":"saved","new_branch":"archive","expected_old_tip":"` + oid + `","project":"app"}`,
 	} {
-		if _, e := h(context.Background(), "project.retained.rename", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(context.Background(), "project.retained.rename", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("unsafe request %s: %+v", raw, e)
 		}
 	}
@@ -112,7 +112,7 @@ func TestRenameRPCUsesClosedRequest(t *testing.T) {
 		`{"key":"rename","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + tip + `","path":"/workspace"}`,
 		`{"key":"rename","key":"rename","uuid":"` + uuid + `","new_branch":"next","expected_old_tip":"` + tip + `"}`,
 	} {
-		if _, rpcErr := handler(context.Background(), "session.rename", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind != "invalid_params" {
+		if _, rpcErr := handler(context.Background(), "session.rename", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind() != "invalid" {
 			t.Fatalf("unsafe rename RPC accepted: %s: %+v", raw, rpcErr)
 		}
 	}
@@ -149,7 +149,7 @@ func TestRemovalPreviewRPCUsesClosedRequest(t *testing.T) {
 		`{"uuid":"` + uuid + `","kind":"discard","loss_operation_id":"` + loss + `"}`,
 		`{"uuid":"` + uuid + `","kind":"rename","acknowledge_missing_runtime":true}`,
 	} {
-		if _, rpcErr := handler(context.Background(), "session.removal.preview", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind != "invalid_params" {
+		if _, rpcErr := handler(context.Background(), "session.removal.preview", json.RawMessage(raw)); rpcErr == nil || rpcErr.Kind() != "invalid" {
 			t.Fatalf("unsafe removal request accepted: %s: %+v", raw, rpcErr)
 		}
 	}

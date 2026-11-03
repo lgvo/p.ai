@@ -27,12 +27,12 @@ func TestProjectDeleteRPCClosedSchema(t *testing.T) {
 	h := NewHandler(HandlerConfig{Lifecycle: p})
 	ctx := context.Background()
 	for _, raw := range []string{`{"v":1,"project":"bulk"}`, `{"project":"../bulk"}`, `{"project":"bulk","force":true}`, `{"project":"bulk","project":"bulk"}`, `{"project":"bulk","loss_operations":{}}`, `{"project":"bulk","acknowledge_missing":["bad"]}`} {
-		if _, e := h(ctx, "project.delete.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(ctx, "project.delete.preview", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatal("unsafe preview request", raw)
 		}
 	}
 	for _, raw := range []string{`{"project":"bulk","key":"delete","confirmation_token":"short"}`, `{"project":"bulk","key":"delete","confirmation_token":"` + strings.Repeat("a", 32) + `","force":true}`} {
-		if _, e := h(ctx, "project.delete.confirm", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(ctx, "project.delete.confirm", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatal("unsafe confirmation")
 		}
 	}

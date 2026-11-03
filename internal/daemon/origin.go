@@ -13,11 +13,26 @@ type originRunner struct{ backend *gitservice.Backend }
 func (r originRunner) ValidateURL(url string) error { return gitservice.ValidateOriginURL(url) }
 
 func (r originRunner) WithOrigin(ctx context.Context, project string, fn func(control.OriginObserver) error) error {
-	return r.backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error { return fn(scope) })
+	return withOriginScope(ctx, r.backend, project, func(scope *gitservice.OriginScope) error { return fn(scope) })
 }
 
 func (r originRunner) WithPublication(ctx context.Context, project string, fn func(control.PublicationScope) error) error {
-	return r.backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error { return fn(publicationScope{scope}) })
+	return withOriginScope(ctx, r.backend, project, func(scope *gitservice.OriginScope) error { return fn(publicationScope{scope}) })
+}
+
+// withOriginScope runs fn in project's origin scope. A failure before fn runs
+// is the source-Git plugin's, which the backend checks before it takes the
+// scope; fn's own errors keep their answers.
+func withOriginScope(ctx context.Context, backend *gitservice.Backend, project string, fn func(*gitservice.OriginScope) error) error {
+	ran := false
+	err := backend.WithOrigin(ctx, project, func(scope *gitservice.OriginScope) error {
+		ran = true
+		return fn(scope)
+	})
+	if err != nil && !ran {
+		return control.Failed(api.ReasonPlugin, err)
+	}
+	return err
 }
 
 type publicationScope struct{ *gitservice.OriginScope }

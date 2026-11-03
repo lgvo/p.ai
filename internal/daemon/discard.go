@@ -20,6 +20,18 @@ func (l *lifecycle) DeleteSession(ctx context.Context, req control.DiscardConfir
 	return l.confirmRemoval(ctx, req, "delete")
 }
 
+// staleIfConflict answers a confirmation whose recheck found that the
+// reviewed state no longer holds: a refusal of kind conflict means the facts
+// changed since the review, so the confirmation is stale. Any other error,
+// such as a runtime that could not be observed, keeps its answer.
+func staleIfConflict(err error) error {
+	var refusal *control.Refusal
+	if errors.As(err, &refusal) && refusal.Kind == api.KindConflict {
+		return &control.Refusal{Kind: api.KindPreconditionFailed, Reason: api.ReasonChanged, Cause: err}
+	}
+	return err
+}
+
 func deleteReviewDigest(review *api.RemovalBranchLoss) (string, error) {
 	if review == nil {
 		return "", control.ErrInvalid
@@ -55,8 +67,14 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 		attached = l.hasAttachmentLocked(req.UUID)
 		state, found = l.removalPreviews[req.ConfirmationToken]
 	})
-	if attached || !found || state.Preview.Kind != action || state.Preview.SessionUUID != req.UUID || !time.Now().Before(state.Expiry) {
-		return api.Operation{}, control.ErrConflict
+	switch {
+	case attached:
+		return api.Operation{}, control.Conflict(api.ReasonAttachmentActive, api.TargetSession(req.UUID))
+	case !found || !time.Now().Before(state.Expiry):
+		return api.Operation{}, control.Stale(api.ReasonExpired)
+	case state.Preview.Kind != action || state.Preview.SessionUUID != req.UUID:
+		// The token reviews another removal than this request.
+		return api.Operation{}, control.Stale(api.ReasonChanged)
 	}
 	preview := state.Preview
 	ev := control.DiscardEvidence{Action: action, Project: preview.Project, Branch: preview.Branch, AssignedTip: preview.AssignedTip,
@@ -80,7 +98,7 @@ func (l *lifecycle) confirmRemoval(ctx context.Context, req control.DiscardConfi
 			return api.Operation{}, err
 		}
 		if err := l.runtime.ConfirmSessionRuntimeAbsent(ctx, native); err != nil {
-			return api.Operation{}, errors.Join(err, control.ErrConflict)
+			return api.Operation{}, staleIfConflict(runtimeFailure(err, api.TargetSession(req.UUID)))
 		}
 	}
 	var op api.Operation

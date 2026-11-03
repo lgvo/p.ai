@@ -56,12 +56,12 @@ func (s *Store) RecordStatusWithCommit(ctx context.Context, id string, report ap
 	var registry string
 	if err := s.db.QueryRowContext(ctx, `SELECT registry_state FROM sessions WHERE uuid=?`, id).Scan(&registry); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return api.UnattendedCondition{}, false, ErrNotFound
+			return api.UnattendedCondition{}, false, NotFound(api.ReasonSession, api.TargetSession(id))
 		}
 		return api.UnattendedCondition{}, false, err
 	}
 	if registry != "established" {
-		return api.UnattendedCondition{}, false, ErrConflict
+		return api.UnattendedCondition{}, false, Conflict(api.ReasonSessionNotEstablished, api.TargetSession(id))
 	}
 	now := time.Now().UTC()
 	rate := s.statusRates[id]
@@ -136,15 +136,15 @@ func (s *Store) ConfirmAttachmentWithCommit(ctx context.Context, id string, onCo
 	var state string
 	if err = s.db.QueryRowContext(ctx, `SELECT registry_state FROM sessions WHERE uuid=?`, id).Scan(&state); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, false, false, ErrNotFound
+			return 0, false, false, NotFound(api.ReasonSession, api.TargetSession(id))
 		}
 		return 0, false, false, err
 	}
 	if state != "established" {
-		return 0, false, false, ErrConflict
+		return 0, false, false, Conflict(api.ReasonSessionNotEstablished, api.TargetSession(id))
 	}
 	if s.attachments[id] >= 1000000 {
-		return 0, false, false, ErrConflict
+		return 0, false, false, Full(api.ReasonAttachmentCapacity)
 	}
 	if s.attachments[id] == 0 {
 		var result sql.Result

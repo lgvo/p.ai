@@ -41,14 +41,14 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	raw, _ := json.Marshal(req)
 	if prior, e := s.GetOperationByKey(ctx, req.Key); e == nil {
 		if prior.Kind != "session.create.cleanup" || digest(prior.Request) != digest(raw) {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, KeyReused()
 		}
 		return prior, nil
 	} else if !errors.Is(e, ErrNotFound) {
 		return api.Operation{}, e
 	}
 	if !time.Now().Before(expiry) {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Stale(api.ReasonExpired)
 	}
 	if err = verify(ctx); err != nil {
 		return api.Operation{}, err
@@ -60,29 +60,29 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	defer tx.Rollback()
 	old, err := operationByIDTx(ctx, tx, p.OldOperationID)
 	if err != nil {
-		return api.Operation{}, err
+		return api.Operation{}, reviewChanged(err)
 	}
 	var request ReserveSessionRequest
 	oldEv, e := Evidence(old)
 	if e != nil || old.Kind != "session.create" || old.Status != "blocked" || old.SessionUUID != p.UUID || old.Project != p.OldRequest.Project || old.Phase != p.OldPhase || digest(old.Evidence) != p.OldEvidenceSHA256 || json.Unmarshal(old.Request, &request) != nil || request != p.OldRequest || oldEv.PolicySHA256 != p.PolicySHA256 || oldEv.ImageFingerprint != p.ImageFingerprint {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, reviewChanged(nil)
 	}
 	if !assembled && (!SafeCreateCleanupEvidence(request, oldEv) || !SafeCreateCleanupPhase(old)) {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, reviewChanged(nil)
 	}
 	if assembled {
 		session, e := getSessionTx(ctx, tx, p.UUID)
 		if e != nil || digest(old.Request) != p.OldRequestSHA256 || AssembledCreationForCleanup(session, old, p.ImageFingerprint) != nil {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, reviewChanged(e)
 		}
 	}
 	var registry, branch, policy string
 	if err = tx.QueryRowContext(ctx, `SELECT registry_state,branch,policy_sha256 FROM sessions WHERE uuid=? AND project_path=?`, p.UUID, old.Project).Scan(&registry, &branch, &policy); err != nil || registry != "creating" || branch != request.Branch || p.AssignedBranch.Ref != "refs/heads/"+branch || policy != p.PolicySHA256 {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, reviewChanged(err)
 	}
 	var count int
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=? AND branch=?`, old.Project, branch).Scan(&count); err != nil || count != 0 {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, reviewChanged(err)
 	}
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE session_uuid=?`, p.UUID).Scan(&count); err != nil {
 		return api.Operation{}, err
@@ -90,20 +90,20 @@ func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev C
 	local := p.Provisional.Cleanup
 	if local == nil {
 		if count != 0 {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, reviewChanged(nil)
 		}
 	} else {
 		if !local.Valid() || local.Completed || local.OldUUID != p.UUID || local.OldOperationID != old.ID || local.OldImageFingerprint != p.ImageFingerprint || count != 1 {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, reviewChanged(nil)
 		}
 		var fp, role, project string
 		var active int
 		if err = tx.QueryRowContext(ctx, `SELECT fingerprint,role,project_path,active FROM git_principals WHERE session_uuid=?`, p.UUID).Scan(&fp, &role, &project, &active); err != nil || fp != local.KeyFingerprint || role != "session" || project != old.Project || active != 1 {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, reviewChanged(err)
 		}
 	}
 	if !time.Now().Before(expiry) {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Stale(api.ReasonExpired)
 	}
 	id, err := newUUID()
 	if err != nil {

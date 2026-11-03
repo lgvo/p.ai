@@ -11,7 +11,7 @@ import (
 
 // callMethod calls h with req as its params and decodes the result strictly
 // as m's result type, as a client would.
-func callMethod[Req api.Request, Res any](t *testing.T, ctx context.Context, h Handler, m api.Method[Req, Res], req Req) (Res, *api.RPCError) {
+func callMethod[Req api.Request, Res any](t *testing.T, ctx context.Context, h Handler, m api.Method[Req, Res], req Req) (Res, *api.Error) {
 	t.Helper()
 	params, err := json.Marshal(req)
 	if err != nil {

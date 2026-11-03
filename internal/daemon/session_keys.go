@@ -22,6 +22,16 @@ func ownedPrivateDirectory(info os.FileInfo) bool {
 	return ok && info.IsDir() && info.Mode().Perm() == 0700 && owner.Uid == uint32(os.Geteuid())
 }
 
+// errSessionKeyMismatch classifies a session key file that is missing or
+// differs from the Git principal registered for the session.
+var errSessionKeyMismatch = errors.New("session key does not match its Git principal")
+
+// sessionKeyMismatch is an errSessionKeyMismatch with its own text.
+type sessionKeyMismatch string
+
+func (e sessionKeyMismatch) Error() string      { return string(e) }
+func (sessionKeyMismatch) Is(target error) bool { return target == errSessionKeyMismatch }
+
 func (l *lifecycle) sessionKey(ctx context.Context, id string) ([]byte, ssh.PublicKey, error) {
 	return sessionKeyAt(ctx, id, l.store.StateDir(), l.store.SessionGitPrincipal)
 }
@@ -45,7 +55,7 @@ func sessionKeyAt(ctx context.Context, id, stateDir string, principal func(conte
 	}
 	if exists {
 		if _, err = os.Lstat(file); errors.Is(err, os.ErrNotExist) {
-			return nil, nil, errors.New("registered session key missing; discard the session and create a new one")
+			return nil, nil, sessionKeyMismatch("registered session key missing; discard the session and create a new one")
 		}
 		if err != nil {
 			return nil, nil, err
@@ -56,7 +66,7 @@ func sessionKeyAt(ctx context.Context, id, stateDir string, principal func(conte
 		return nil, nil, err
 	}
 	if exists && registered != gitservice.Fingerprint(pub) {
-		return nil, nil, errors.New("registered session key changed; discard the session and create a new one")
+		return nil, nil, sessionKeyMismatch("registered session key changed; discard the session and create a new one")
 	}
 	return key, pub, nil
 }

@@ -86,8 +86,9 @@ func TestRetainedDeleteStaleAndExpiredReviewNeverIssue(t *testing.T) {
 	s, _, r, e := retainedDeleteFixture(t)
 	ctx := context.Background()
 	e.PreviewExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
-	if _, err := s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil }); !errors.Is(err, ErrConflict) {
-		t.Fatalf("expired accepted: %v", err)
+	_, err := s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil })
+	if answer := answerError(ctx, err); !errors.Is(err, ErrConflict) || answer.Kind() != api.KindPreconditionFailed || answer.Reason() != api.ReasonExpired {
+		t.Fatalf("expired review answered %v", answer)
 	}
 	e.PreviewExpiresAt = time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)
 	op, err := s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil })
@@ -109,7 +110,8 @@ func TestRetainedDeleteStaleAndExpiredReviewNeverIssue(t *testing.T) {
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256) VALUES('550e8400-e29b-41d4-a716-446655440000','app','saved','established','{}',?)`, strings.Repeat("d", 64)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil }); !errors.Is(err, ErrConflict) {
-		t.Fatalf("assigned branch accepted: %v", err)
+	_, err = s.BeginRetainedDelete(ctx, r, e, func(context.Context, RetainedDeleteEvidence) error { return nil })
+	if answer := answerError(ctx, err); !errors.Is(err, ErrConflict) || answer.Kind() != api.KindConflict || answer.Reason() != api.ReasonBranchAssigned || answer.Target() != "project/app:branch/saved" {
+		t.Fatalf("assigned branch answered %v", answer)
 	}
 }

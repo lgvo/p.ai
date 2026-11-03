@@ -104,14 +104,12 @@ func readParseError(conn net.Conn) ([]byte, error) {
 		string(envelope["jsonrpc"]) != `"2.0"` || string(envelope["id"]) != "null" {
 		return nil, errors.New("invalid parse-error envelope")
 	}
+	// The error object is the code and the kind's name as message, with no
+	// text from the daemon.
 	var rpcErr map[string]json.RawMessage
-	if json.Unmarshal(envelope["error"], &rpcErr) != nil || len(rpcErr) != 3 ||
-		string(rpcErr["code"]) != "-32700" || string(rpcErr["kind"]) != `"parse_error"` {
+	if json.Unmarshal(envelope["error"], &rpcErr) != nil || len(rpcErr) != 2 ||
+		string(rpcErr["code"]) != "-32700" || string(rpcErr["message"]) != `"parse_error"` {
 		return nil, errors.New("invalid parse-error response")
-	}
-	var message string
-	if json.Unmarshal(rpcErr["message"], &message) != nil || len(message) == 0 || len(message) > 256 {
-		return nil, errors.New("invalid parse-error message")
 	}
 	// The framing contract closes the connection after this response. Reading
 	// one more byte also rejects a second frame or trailing garbage, while the

@@ -96,14 +96,14 @@ func (r *leaseRPC) Call(ctx context.Context, method string, params, result any) 
 		JSONRPC string          `json:"jsonrpc"`
 		ID      int             `json:"id"`
 		Result  json.RawMessage `json:"result"`
-		Error   *api.RPCError   `json:"error"`
+		Error   *api.Error      `json:"error"`
 	}
 	if json.Unmarshal(raw, &reply) != nil || reply.JSONRPC != "2.0" || reply.ID != r.sequence {
 		r.fail()
 		return errors.New("invalid attachment RPC response")
 	}
 	if reply.Error != nil {
-		return errors.New(reply.Error.Message)
+		return reply.Error
 	}
 	return json.Unmarshal(reply.Result, result)
 }

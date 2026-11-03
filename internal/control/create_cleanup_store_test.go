@@ -102,6 +102,11 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	if e != nil || replay.ID != cleaned.ID || replay.SessionUUID != old.SessionUUID {
 		t.Fatal("cleanup replay changed identity")
 	}
+	reused := req
+	reused.TokenSHA256 = strings.Repeat("e", 64)
+	if _, e = s.BeginCreateCleanup(ctx, reused, ev, verify); !answers(e, api.KindInvalid, api.ReasonKeyReused) {
+		t.Fatalf("cleanup key reused for another review answered %v", e)
+	}
 	var count int
 	if e = s.db.QueryRowContext(ctx, `SELECT count(*) FROM operations WHERE session_uuid=? AND status IN ('running','blocked','unknown')`, old.SessionUUID).Scan(&count); e != nil || count != 1 {
 		t.Fatal("active operation invariant violated")
@@ -204,6 +209,17 @@ func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
 			})
 			if e == nil {
 				t.Fatal("unsafe cleanup admitted")
+			}
+			// The verify callback's own error and a failed write keep their
+			// answers; every reviewed fact that no longer holds answers changed.
+			if name != "native-unavailable" && name != "rollback" {
+				reason := api.ReasonChanged
+				if name == "expired" {
+					reason = api.ReasonExpired
+				}
+				if !answers(e, api.KindPreconditionFailed, reason) {
+					t.Fatalf("refusal answered %v, want precondition_failed %s", answerError(ctx, e), reason)
+				}
 			}
 			if session, e := s.GetSession(ctx, old.SessionUUID); e != nil || session.Registry != "creating" {
 				t.Fatal("refusal changed old registry")

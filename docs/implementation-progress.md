@@ -1,5 +1,39 @@
 # MVP implementation progress
 
+## TUI error sentences — 2026-11-03
+
+Step 3 of the interface rework replaced the daemon's error text with codes: an
+error answers with a kind that names the next step and a reason, and no
+message. The TUI and `p attach` now show the client's sentence for each kind
+and reason from `internal/errtext` instead of `<kind>: <daemon message>`.
+Notices wrap between words to the width the page draws in.
+
+LLM experience review (mock socket only): the LLM ran `just tui-mock --dataset
+small --theme dark` from a worktree of `4e221ba` and from the step-3 tree. A
+second production `p tui` on the same socket held an attachment or started a
+session; `mock.configure` injected the services, service action, Start, branch,
+inventory and attach failures. It compared 120×35, 80×24 and 48×16 with the
+prototype's "Cannot stop: detach all terminals from this session first." Each
+refusal now gives a cause and a next step without a kind prefix. A missing Git
+identity now says to discard the session instead of `lifecycle authority is
+unavailable`, and the page heading names the refused action. Four findings were
+fixed and their paths repeated:
+
+- an expired review or attachment now names what expired;
+- notices wrap between words to the width the page draws in, so the sessions
+  page no longer clips at 48×16 and no line breaks inside a word;
+- failures of the session's user service manager no longer point at Incus.
+
+Still open: a TUI attach failure shows only "Attachment ended: exit status 1";
+the STALE line says "connection failed" under a daemon failure; and two wording
+nits remain. Component checks: `internal/errtext` tests that every kind and
+reason has a sentence and that an unknown reason falls back to its kind's;
+`internal/tui` tests that a refusal shows its sentence and that notices wrap
+between words within the page at the three sizes. `just tui-tests` passed 8
+terminal, 9 observer and 12 mock tests. Frames, the action record and source
+hashes are in the
+[evidence](llm-interactive-review/tui/error-sentences/checkpoint.json).
+
 ## TUI removal without loss inspection — 2026-11-02
 
 Step 0e removed `workspace.loss.inspect`, so the browser's Discard and Delete no

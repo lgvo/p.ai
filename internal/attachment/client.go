@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,16 +22,12 @@ import (
 func Client(ctx context.Context, socket, id string) error {
 	control, err := api.Dial(ctx, socket)
 	if err != nil {
-		return err
+		return errors.New(errtext.Sentence(err))
 	}
 	pending, err := api.Do(ctx, control, api.SessionAttach, api.SessionAttachRequest{UUID: id})
 	control.Close()
 	if err != nil {
-		var rpcErr *api.RPCError
-		if errors.As(err, &rpcErr) {
-			return errors.New(rpcErr.Message)
-		}
-		return err
+		return errors.New(errtext.Sentence(err))
 	}
 	if len(pending.Token) != 64 || !time.Now().Before(pending.ExpiresAt) {
 		return errors.New("invalid pending attachment")

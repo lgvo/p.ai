@@ -30,10 +30,13 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 	if err != nil {
 		return api.Operation{}, err
 	}
-	if s.Registry != "established" || s.Branch == req.NewBranch {
-		return api.Operation{}, control.ErrConflict
+	if s.Registry != "established" {
+		return api.Operation{}, control.Conflict(api.ReasonSessionNotEstablished, api.TargetSession(req.UUID))
 	}
-	if err := l.git.backend.ValidateRenameBranch(ctx, req.NewBranch); err != nil {
+	if s.Branch == req.NewBranch {
+		return api.Operation{}, control.Conflict(api.ReasonBranchExists, api.TargetBranch(s.Project, req.NewBranch))
+	}
+	if err := l.checkBranchName(ctx, "new_branch", req.NewBranch); err != nil {
 		return api.Operation{}, err
 	}
 	native, err := l.runtimeSession(ctx, s)
@@ -41,18 +44,21 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 		return api.Operation{}, err
 	}
 	observed, err := l.runtime.Inspect(ctx, native)
-	if err != nil || !renameSourceStopped(observed) {
-		return api.Operation{}, errors.Join(err, control.ErrConflict)
+	if err != nil {
+		return api.Operation{}, control.Failed(api.ReasonRuntime, err)
+	}
+	if err := renameSourceRefusal(observed, req.UUID); err != nil {
+		return api.Operation{}, err
 	}
 	ev := control.RenameEvidence{Project: s.Project, OldBranch: s.Branch, NewBranch: req.NewBranch,
 		OldTip: req.ExpectedOldTip, PolicySHA256: s.PolicySHA256, InstanceUUID: l.instanceID,
 		ImageFingerprint: native.ImageFingerprint, BaseFingerprint: l.cfg.BaseImageFingerprint,
 		IncusUUID: observed.IncusUUID, Generation: observed.Generation}
 	verify := func(ctx context.Context) error {
-		if err := l.git.backend.ValidateRenameBranch(ctx, ev.NewBranch); err != nil {
+		if err := l.checkBranchName(ctx, "new_branch", ev.NewBranch); err != nil {
 			return err
 		}
-		return l.verifyRenamePRefs(ctx, ev, false)
+		return control.Failed(api.ReasonGit, l.verifyRenamePRefs(ctx, ev, false))
 	}
 	op, err := l.store.BeginRename(ctx, req, ev, verify)
 	if err != nil {
@@ -62,6 +68,29 @@ func (l *lifecycle) RenameSession(ctx context.Context, req control.RenameRequest
 		return op, err
 	}
 	return op, nil
+}
+
+// checkBranchName has Git check name, the request's field: a name Git
+// refuses answers invalid naming field, and a failure to check it answers
+// failed with reason git.
+func (l *lifecycle) checkBranchName(ctx context.Context, field, name string) error {
+	err := l.git.backend.ValidateRenameBranch(ctx, name)
+	if errors.Is(err, control.ErrInvalid) {
+		return control.Invalid(field)
+	}
+	return control.Failed(api.ReasonGit, err)
+}
+
+// renameSourceRefusal refuses to rename session whose runtime was observed
+// as o: its container is missing, or it is not stopped.
+func renameSourceRefusal(o runtimeincus.Observation, session string) error {
+	switch {
+	case !o.Exists:
+		return control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(session))
+	case !renameSourceStopped(o):
+		return control.Conflict(api.ReasonSessionNotStopped, api.TargetSession(session))
+	}
+	return nil
 }
 
 // renameSourceStopped reports whether rename may change the workspace of the
@@ -77,7 +106,10 @@ func renameSourceExact(o runtimeincus.Observation, ev control.RenameEvidence) bo
 }
 
 // The caller either holds gitAuthority or is only making a preflight
-// observation. No Store method is called from this callback.
+// observation. No Store method is called from this callback. Before the
+// rename (oldAbsent false), an old ref that no longer holds the expected tip
+// is a changed precondition and a taken new name a conflict; after it, a
+// mismatch breaks the rename's own invariant.
 func (l *lifecycle) verifyRenamePRefs(ctx context.Context, ev control.RenameEvidence, oldAbsent bool) error {
 	old, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.OldBranch)
 	if err != nil {
@@ -88,9 +120,13 @@ func (l *lifecycle) verifyRenamePRefs(ctx context.Context, ev control.RenameEvid
 			return control.ErrConflict
 		}
 	} else if !exists || old != ev.OldTip {
-		return control.ErrConflict
+		return control.Stale(api.ReasonChanged)
 	}
 	newTip, exists, err := l.git.backend.InspectBranchRef(ctx, ev.Project, ev.NewBranch)
+	if errors.Is(err, control.ErrConflict) && !oldAbsent {
+		// A symbolic ref occupies the new name.
+		return control.Conflict(api.ReasonBranchExists, api.TargetBranch(ev.Project, ev.NewBranch))
+	}
 	if err != nil {
 		return err
 	}
@@ -99,7 +135,7 @@ func (l *lifecycle) verifyRenamePRefs(ctx context.Context, ev control.RenameEvid
 			return control.ErrConflict
 		}
 	} else if exists || newTip != "" {
-		return control.ErrConflict
+		return control.Conflict(api.ReasonBranchExists, api.TargetBranch(ev.Project, ev.NewBranch))
 	}
 	return nil
 }

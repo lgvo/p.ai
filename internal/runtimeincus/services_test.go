@@ -10,7 +10,20 @@ import (
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/control"
 )
+
+// A session that is not running refuses its services with a conflict naming
+// the session, not as a runtime failure.
+func TestServicesOfAStoppedSessionAreRefusedAsNotRunning(t *testing.T) {
+	b := fakeBackend(&fakeIncus{instance: true, status: "Stopped"})
+	_, err := b.Services(context.Background(), testSession(), "", "list")
+	var refusal *control.Refusal
+	if !errors.As(err, &refusal) || refusal.Kind != api.KindConflict || refusal.Reason != api.ReasonSessionNotRunning ||
+		refusal.Target != api.TargetSession(testUUID) || !errors.Is(err, control.ErrConflict) {
+		t.Fatalf("services of a stopped session answered %v", err)
+	}
+}
 
 func TestServicesUseFixedUserCommandsAndDenyInfrastructure(t *testing.T) {
 	f := &fakeIncus{instance: true, status: "Running"}

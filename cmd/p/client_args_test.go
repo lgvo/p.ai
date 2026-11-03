@@ -100,7 +100,7 @@ func TestClientCommandsUseConfiguredSocket(t *testing.T) {
 							served <- fmt.Errorf("wrong attach params: %s", request.Params)
 							return
 						}
-						reply["error"] = map[string]any{"code": -32003, "kind": "busy", "message": "fixture refused attach"}
+						reply["error"] = map[string]any{"code": -32011, "message": "conflict", "data": map[string]any{"reason": "attachment_active"}}
 					default:
 						if string(request.Params) != `{}` {
 							served <- fmt.Errorf("wrong params: %s", request.Params)
@@ -116,7 +116,7 @@ func TestClientCommandsUseConfiguredSocket(t *testing.T) {
 			}()
 			err = run(test.args(socket))
 			if test.method == "session.attach" {
-				if err == nil || !strings.Contains(err.Error(), "fixture refused attach") {
+				if err == nil || err.Error() != "Detach every terminal from this session first." {
 					t.Fatalf("attach did not reach configured instance: %v", err)
 				}
 			} else if err != nil {

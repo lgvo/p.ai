@@ -25,7 +25,7 @@ func (a OriginAPI) PreviewPublication(ctx context.Context, r PublicationRequest)
 	}
 	runner, ok := a.Runner.(PublicationRunner)
 	if !ok {
-		return api.PublicationPreview{}, ErrNotFound
+		return api.PublicationPreview{}, NotConfigured(api.ReasonGit)
 	}
 	var preview api.PublicationPreview
 	err := runner.WithPublication(ctx, r.Project, func(scope PublicationScope) error {
@@ -50,16 +50,19 @@ func (a OriginAPI) PreviewPublication(ctx context.Context, r PublicationRequest)
 	return preview, err
 }
 
+// publicationContext returns the origin URL and the source's P ref. A
+// local-only project has no origin to publish to, whatever URL the request
+// expected; an origin other than the expected one was changed since review.
 func (a OriginAPI) publicationContext(ctx context.Context, r PublicationRequest) (string, string, error) {
 	state, _, err := a.Store.Origin(ctx, r.Project)
 	if err != nil {
 		return "", "", err
 	}
-	if state.URL != r.ExpectedOriginURL {
-		return "", "", ErrConflict
-	}
 	if state.Status == "local-only" {
-		return "", "", ErrNotFound
+		return "", "", Conflict(api.ReasonOriginNotSet, api.TargetProject(r.Project))
+	}
+	if state.URL != r.ExpectedOriginURL {
+		return "", "", Stale(api.ReasonChanged)
 	}
 	ref, err := a.Store.PublicationSource(ctx, r)
 	if err != nil {
@@ -76,7 +79,7 @@ func (a OriginAPI) observeForPublication(ctx context.Context, scope PublicationS
 		if storeErr := a.Store.StoreOriginRefresh(writeCtx, project, url, nil, "origin refresh failed; check SSH identity, host key, URL and access"); storeErr != nil {
 			return storeErr
 		}
-		return err
+		return Failed(api.ReasonOrigin, err)
 	}
 	return a.Store.StoreOriginRefresh(writeCtx, project, url, refs, "")
 }
@@ -92,7 +95,7 @@ func (a OriginAPI) PublishPublication(ctx context.Context, r PublicationRequest)
 	}
 	runner, ok := a.Runner.(PublicationRunner)
 	if !ok {
-		return api.Publication{}, ErrNotFound
+		return api.Publication{}, NotConfigured(api.ReasonGit)
 	}
 	var result api.Publication
 	err := runner.WithPublication(ctx, r.Project, func(scope PublicationScope) error {
@@ -139,6 +142,7 @@ func (a OriginAPI) PublishPublication(ctx context.Context, r PublicationRequest)
 		}
 		result, e = scope.PublishPublication(ctx, preview)
 		if e != nil {
+			e = Failed(api.ReasonOrigin, e)
 			// The closed Git broker returns an error only when no native push
 			// started. Its started-process failures are outcome_unknown values.
 			durableCtx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)

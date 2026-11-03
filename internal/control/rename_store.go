@@ -76,18 +76,21 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	var project, branch, registry, policy string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, r.UUID).Scan(&project, &branch, &registry, &policy)
 	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, ErrNotFound
+		return api.Operation{}, NotFound(api.ReasonSession, api.TargetSession(r.UUID))
 	}
 	if err != nil {
 		return api.Operation{}, err
 	}
-	if project != e.Project || branch != e.OldBranch || registry != "established" || policy != e.PolicySHA256 {
+	if registry != "established" {
+		return api.Operation{}, Conflict(api.ReasonSessionNotEstablished, api.TargetSession(r.UUID))
+	}
+	if project != e.Project || branch != e.OldBranch || policy != e.PolicySHA256 {
 		return api.Operation{}, ErrConflict
 	}
 	var occupied int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=?`, project, e.NewBranch).Scan(&occupied)
 	if err == nil {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Conflict(api.ReasonBranchAssigned, api.TargetBranch(project, e.NewBranch))
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, err
@@ -105,7 +108,7 @@ func (s *Store) BeginRename(ctx context.Context, r RenameRequest, e RenameEviden
 	}
 	for _, name := range []string{e.OldBranch, e.NewBranch} {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, project, name, id); err != nil {
-			return api.Operation{}, classifyWrite(err)
+			return api.Operation{}, withTarget(classifyWrite(err), api.TargetBranch(project, name))
 		}
 	}
 	if err = tx.Commit(); err != nil {

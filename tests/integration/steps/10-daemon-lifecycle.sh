@@ -131,21 +131,25 @@ start_daemon() {
   echo 'configured daemon did not become ready' >&2
   return 1
 }
-expect_busy() {
-  local response
-  if response=$(rpc "$1" "$2" 2> "$step_dir/refused.err"); then
-    echo "conflicting $1 unexpectedly accepted" >&2
+# expect_error KIND REASON METHOD PARAMS: the request is refused with the
+# error kind, its code and the reason.
+expect_error() {
+  local kind="$1" reason="$2" code response
+  case "$kind" in
+    invalid) code=-32602 ;;
+    conflict) code=-32011 ;;
+    not_found) code=-32015 ;;
+    *) echo "unsupported expected error: $kind" >&2; return 1 ;;
+  esac
+  if response=$(rpc "$3" "$4" 2> "$step_dir/refused.err"); then
+    echo "refused $3 unexpectedly accepted" >&2
     return 1
   fi
-  jq -e '.error.kind=="busy" and .error.code == -32003' <<< "$response" >/dev/null
-}
-expect_unavailable() {
-  local response
-  if response=$(rpc "$1" "$2" 2> "$step_dir/refused.err"); then
-    echo "unavailable $1 unexpectedly accepted" >&2
+  if ! jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" \
+    '.error.message==$kind and .error.code==$code and .error.data.reason==$reason' <<< "$response" >/dev/null; then
+    printf 'unexpected %s response, expected %s %s: %.2048s\n' "$3" "$kind" "$reason" "$response" >&2
     return 1
   fi
-  jq -e '.error.kind=="unavailable" and .error.code == -32004' <<< "$response" >/dev/null
 }
 operation_id() {
   jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"
@@ -272,7 +276,7 @@ jq -e '.result.operation.phase=="repo-pending" and .result.operation.committed==
   <<< "$retry_blocked" >/dev/null
 test "$(inc list --format json | jq --arg uuid "$retry_uuid" '[.[]|select(.name==("p-"+$uuid))]|length')" -eq 0
 test "$(rpc project.create "$retry_request" | jq -er '.result.operation.id')" = "$retry_id"
-expect_busy project.create '{"key":"lifecycle-retry","project":"different"}'
+expect_error invalid key_reused project.create '{"key":"lifecycle-retry","project":"different"}'
 rm "$obstacle"
 obstacle=
 retry_response=$(rpc operation.retry "$(jq -nc --arg id "$retry_id" '{id:$id}')")
@@ -299,7 +303,7 @@ release_on_running "$main_uuid" "$main_id"
 wait_operation "$main_id" completed >/dev/null
 check_session "$main_uuid" lifecycle main
 test "$(rpc project.create "$project_request" | jq -er '.result.operation.id')" = "$main_id"
-expect_busy project.create '{"key":"lifecycle-main","project":"other"}'
+expect_error invalid key_reused project.create '{"key":"lifecycle-main","project":"other"}'
 test "$(exec_p "$main_uuid" git symbolic-ref -q HEAD)" = refs/heads/main
 if exec_p "$main_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out" 2> "$step_dir/refused.err"; then
   echo 'blank project received an artificial commit' >&2
@@ -307,7 +311,7 @@ if exec_p "$main_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out" 
 fi
 rpc project.branches '{"project":"lifecycle","limit":8}' |
   jq -e '.result.refs==[] and .result.next==""' >/dev/null
-expect_unavailable session.create '{"key":"before-first-commit","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
+expect_error not_found source session.create '{"key":"before-first-commit","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
 exec_p "$main_uuid" git config user.name P
 exec_p "$main_uuid" git config user.email p@example.invalid
 exec_p "$main_uuid" sh -c 'printf "first\n" > README'
@@ -332,8 +336,8 @@ test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$main_oid"
 test "$(exec_p "$work_uuid" git symbolic-ref -q HEAD)" = refs/heads/work
 test "$(exec_p "$work_uuid" cat README)" = first
 test "$(session_uuid "$(rpc session.create "$work_request")")" = "$work_uuid"
-expect_busy session.create '{"key":"lifecycle-work","project":"lifecycle","branch":"other","choice":"new","source":"refs/heads/main"}'
-expect_busy session.create '{"key":"assigned-branch","project":"lifecycle","branch":"work","choice":"existing"}'
+expect_error invalid key_reused session.create '{"key":"lifecycle-work","project":"lifecycle","branch":"other","choice":"new","source":"refs/heads/main"}'
+expect_error conflict branch_assigned session.create '{"key":"assigned-branch","project":"lifecycle","branch":"work","choice":"existing"}'
 rpc operation.list '{"limit":20}' | jq -e --arg id "$work_id" \
   '.result.operations|any(.[]; .id==$id and .status=="completed")' >/dev/null
 rpc session.list '{"limit":8}' | jq -e --arg uuid "$work_uuid" \

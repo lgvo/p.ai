@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
@@ -45,18 +46,25 @@ func (s *OriginScope) PreviewPublication(ctx context.Context, sourceRef, sourceO
 	}
 	repo, err := s.backend.checkRepository(ctx, s.project)
 	if err != nil {
-		return OriginPublicationPreview{}, err
+		return OriginPublicationPreview{}, control.Failed(api.ReasonGit, err)
 	}
 	tip, exists, err := s.backend.inspectBranchRef(ctx, repo, sourceRef)
 	if err != nil {
-		return OriginPublicationPreview{}, err
+		return OriginPublicationPreview{}, control.Failed(api.ReasonGit, err)
 	}
-	if !exists || tip != sourceOID {
-		return OriginPublicationPreview{}, control.ErrConflict
+	if !exists {
+		return OriginPublicationPreview{}, control.NotFound(api.ReasonBranch, api.TargetBranch(s.project, strings.TrimPrefix(sourceRef, "refs/heads/")))
+	}
+	if tip != sourceOID {
+		// source_oid is no longer the source's tip.
+		return OriginPublicationPreview{}, control.Stale(api.ReasonChanged)
 	}
 	typ, err := s.backend.originGit(ctx, repo, nil, "cat-file", "-t", sourceOID)
-	if err != nil || strings.TrimSpace(typ) != "commit" {
-		return OriginPublicationPreview{}, control.ErrInvalid
+	if err != nil {
+		return OriginPublicationPreview{}, control.Failed(api.ReasonGit, err)
+	}
+	if strings.TrimSpace(typ) != "commit" {
+		return OriginPublicationPreview{}, control.Invalid("source_oid")
 	}
 	p := OriginPublicationPreview{Project: s.project, URL: s.url, SourceRef: sourceRef, SourceOID: sourceOID, DestinationRef: destinationRef}
 	observed, exists := s.observed[destinationRef]
@@ -64,7 +72,7 @@ func (s *OriginScope) PreviewPublication(ctx context.Context, sourceRef, sourceO
 		p.Relation = "absent"
 	} else {
 		if observed.OID != observed.CommitOID {
-			return OriginPublicationPreview{}, errors.New("origin destination is not a commit")
+			return OriginPublicationPreview{}, control.Failed(api.ReasonOrigin, errors.New("origin destination is not a commit"))
 		}
 		p.DestinationOID = observed.OID
 		if observed.OID == sourceOID {
@@ -72,18 +80,18 @@ func (s *OriginScope) PreviewPublication(ctx context.Context, sourceRef, sourceO
 		} else {
 			if _, err := s.backend.fetchOrigin(ctx, repo, s.url, observed); err != nil {
 				s.observed, s.url = nil, ""
-				return OriginPublicationPreview{}, err
+				return OriginPublicationPreview{}, control.Failed(api.ReasonOrigin, err)
 			}
 			ancestor, err := s.backend.originAncestor(ctx, repo, sourceOID, observed.OID)
 			if err != nil {
-				return OriginPublicationPreview{}, err
+				return OriginPublicationPreview{}, control.Failed(api.ReasonGit, err)
 			}
 			if ancestor {
 				p.Relation = "destination_contains"
 			} else {
 				ancestor, err = s.backend.originAncestor(ctx, repo, observed.OID, sourceOID)
 				if err != nil {
-					return OriginPublicationPreview{}, err
+					return OriginPublicationPreview{}, control.Failed(api.ReasonGit, err)
 				}
 				if ancestor {
 					p.Relation = "fast_forward"
@@ -157,7 +165,7 @@ func (s *OriginScope) PublishPublication(ctx context.Context, p OriginPublicatio
 			result.Status = "outcome_unknown"
 			return result, nil
 		}
-		return OriginPublicationResult{}, err
+		return OriginPublicationResult{}, control.Failed(api.ReasonOrigin, err)
 	}
 	result.Status = out.PublicationStatus
 	return result, nil

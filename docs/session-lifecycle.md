@@ -591,7 +591,8 @@ The new branch name must pass Git validation and be absent from the project's
 `refs/heads/*`. The session must be established and stopped, its current P ref
 and runtime must be reachable, and its workspace must contain the assigned
 local branch. A session in any status other than stopped is refused with
-`busy` before an operation starts; P never freezes it. P does not reset,
+`conflict`, reason `session_not_stopped`, before an operation starts; P never
+freezes it. P does not reset,
 clean, commit, or switch unrelated work to make rename pass.
 
 The workspace must be on the assigned branch with `origin` tracking that

@@ -135,21 +135,21 @@ done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 
+# expect_refusal METHOD PARAMS KIND [REASON]: the request is refused with the
+# error kind KIND, its code and, when given, REASON.
 expect_refusal() {
-  local method="$1" params="$2" kind="$3" response
+  local method="$1" params="$2" kind="$3" reason="${4:-}" response
   if response=$(rpc "$method" "$params" 2> "$step_dir/refused.err"); then
     echo "unexpectedly accepted $method" >&2; return 1
   fi
-  jq -e --arg kind "$kind" '.error.kind==$kind' <<< "$response" >/dev/null
+  jq -e --arg kind "$kind" --arg reason "$reason" '
+    {method_not_found: -32601, invalid: -32602, retry: -32010, conflict: -32011,
+     capacity: -32012, precondition_failed: -32013, not_found: -32015} as $codes |
+    .error.message==$kind and .error.code==$codes[$kind] and
+    ($reason=="" or .error.data.reason==$reason)' <<< "$response" >/dev/null
 }
 expect_capacity_refusal() {
-  local method="$1" params="$2" response
-  if response=$(rpc "$method" "$params" 2> "$step_dir/refused.err"); then
-    echo "unexpectedly admitted $method" >&2; return 1
-  fi
-  jq -e '.error.code== -32003 and .error.kind=="busy" and
-    .error.message=="session capacity exhausted. Discard or Delete a session to free capacity; Stop retains its slot"' \
-    <<< "$response" >/dev/null
+  expect_refusal "$1" "$2" capacity session_capacity
 }
 source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
@@ -162,7 +162,7 @@ preview() {
 # loss parameter is refused by the strict request decoder.
 expect_refusal workspace.loss.inspect '{}' method_not_found
 expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg op "$create_op" \
-  '{uuid:$uuid,kind:"discard",loss_operation_id:$op}')" invalid_params
+  '{uuid:$uuid,kind:"discard",loss_operation_id:$op}')" invalid param
 # Empty bootstrap must be previewable before any P branch tip exists: its
 # unborn first branch has no P ref, and the preview says so.
 unborn_preview=$(preview "$uuid" discard)
@@ -244,9 +244,10 @@ jq -e --arg oid "$unique_oid" --arg retained "$retained_oid" '
 ' <<< "$delete_preview" >/dev/null
 test "$(jq -er '.result.preview.confirmation_token' <<< "$discard_preview")" != \
   "$(jq -er '.result.preview.confirmation_token' <<< "$delete_preview")"
-# Acknowledging a missing runtime is refused while the runtime is present.
+# Acknowledging a missing runtime is refused while the runtime is present: the
+# condition the client sent does not hold.
 expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid_keep" \
-  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')" busy
+  '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')" precondition_failed changed
 source_running
 test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = dummy-auth-only
 test "$(guest /run/current-system/sw/bin/cat tracked)" = dirty
@@ -281,7 +282,7 @@ source_running
 # P's session row/ref intact. This is not public cleanup evidence.
 inc delete --force "p-$uuid_third"
 expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid_third" \
-  '{uuid:$uuid,kind:"delete"}')" busy
+  '{uuid:$uuid,kind:"delete"}')" conflict runtime_missing
 missing_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid_third" \
   '{uuid:$uuid,kind:"delete",acknowledge_missing_runtime:true}')")
 jq -e --arg uuid "$uuid_third" --arg oid "$retained_oid" '

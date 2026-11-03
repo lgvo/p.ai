@@ -181,3 +181,29 @@ func TestRenamePrecommitFailureReleasesGuardsButCreateIssuedRetainsThem(t *testi
 		t.Fatalf("uncertain guard count: %d %v", count, err)
 	}
 }
+
+func TestRenameRefusalsNameTheirKind(t *testing.T) {
+	s, _, r, ev := renameStoreFixture(t)
+	ctx := context.Background()
+	observe := func(context.Context) error { return nil }
+	want := func(name string, err error, kind api.ErrorKind, reason, target string) {
+		t.Helper()
+		if answer := answerError(ctx, err); answer.Kind() != kind || answer.Reason() != reason || answer.Target() != target {
+			t.Fatalf("%s answered %v, want %s %s %s", name, answer, kind, reason, target)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions(uuid,project_path,branch,registry_state,policy_json,policy_sha256)
+	 VALUES('77777777-7777-4777-8777-777777777777','app','renamed','established','{}',?)`, ev.PolicySHA256); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.BeginRename(ctx, r, ev, observe)
+	want("name a session holds", err, api.KindConflict, api.ReasonBranchAssigned, "project/app:branch/renamed")
+	r.Key, r.NewBranch, ev.NewBranch = "free-name", "free", "free"
+	_, err = s.BeginRename(ctx, r, ev, func(context.Context) error { return Stale(api.ReasonChanged) })
+	want("observed tip changed", err, api.KindPreconditionFailed, api.ReasonChanged, "")
+	if _, err = s.db.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=?`, renameTestUUID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.BeginRename(ctx, r, ev, observe)
+	want("session being removed", err, api.KindConflict, api.ReasonSessionNotEstablished, "session/"+renameTestUUID)
+}

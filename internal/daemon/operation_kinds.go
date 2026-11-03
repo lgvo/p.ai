@@ -67,14 +67,16 @@ func resumeCreationAtStart(l *lifecycle, ctx context.Context, op api.Operation) 
 
 func cleanupFoundStale(_ *lifecycle, _ context.Context, op api.Operation) error {
 	if op.Status == "failed" && op.Phase == "stale" {
-		return control.ErrConflict
+		// A cleanup that found its review stale ends there; a new review
+		// starts another.
+		return control.Conflict(api.ReasonOperationNotRetryable, api.TargetOperation(op.ID))
 	}
 	return nil
 }
 
 // replayRequest returns the operation an earlier identical request recorded
 // under key, scheduling it again while it runs. replayed is false when key is
-// unused; a key recorded for another kind or another request is a conflict.
+// unused; a key recorded for another kind or another request is reused.
 func replayRequest[R comparable](l *lifecycle, ctx context.Context, key, kind string, req R) (op api.Operation, replayed bool, err error) {
 	prior, err := l.store.GetOperationByKey(ctx, key)
 	if errors.Is(err, control.ErrNotFound) {
@@ -85,7 +87,7 @@ func replayRequest[R comparable](l *lifecycle, ctx context.Context, key, kind st
 	}
 	var saved R
 	if prior.Kind != kind || json.Unmarshal(prior.Request, &saved) != nil || saved != req {
-		return api.Operation{}, false, control.ErrConflict
+		return api.Operation{}, false, control.KeyReused()
 	}
 	if prior.Status == "running" {
 		_ = l.enqueue(prior.ID)

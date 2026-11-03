@@ -49,7 +49,7 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 	var active int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=? AND registry_state='active'`, r.Project).Scan(&active)
 	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, ErrNotFound
+		return api.Operation{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
 	}
 	if err != nil {
 		return api.Operation{}, err
@@ -57,7 +57,7 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 	for _, branch := range []string{r.OldBranch, r.NewBranch} {
 		err = tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=?`, r.Project, branch).Scan(&active)
 		if err == nil {
-			return api.Operation{}, ErrConflict
+			return api.Operation{}, Conflict(api.ReasonBranchAssigned, api.TargetBranch(r.Project, branch))
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return api.Operation{}, err
@@ -76,7 +76,7 @@ func (s *Store) BeginRetainedRename(ctx context.Context, r RetainedRenameRequest
 	}
 	for _, branch := range []string{r.OldBranch, r.NewBranch} {
 		if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, r.Project, branch, id); err != nil {
-			return api.Operation{}, classifyWrite(err)
+			return api.Operation{}, withTarget(classifyWrite(err), api.TargetBranch(r.Project, branch))
 		}
 	}
 	if err = tx.Commit(); err != nil {

@@ -159,7 +159,7 @@ func surfaceHandlerFor(t *testing.T, git bool, life LifecycleAPI) (Handler, *Sto
 		Origins: &OriginAPI{Store: store, Runner: &fakePublication{}, Git: fixtureGitReader{}}}), store
 }
 
-func surfaceCall(t *testing.T, h Handler, ctx context.Context, method, params string) (map[string]any, *api.RPCError) {
+func surfaceCall(t *testing.T, h Handler, ctx context.Context, method, params string) (map[string]any, *api.Error) {
 	t.Helper()
 	result, rpcErr := h(ctx, method, json.RawMessage(params))
 	if rpcErr != nil {
@@ -227,12 +227,12 @@ func TestEveryProtocolMethodIsServedOrNotConfigured(t *testing.T) {
 				continue
 			}
 			_, rpcErr := h(surfaceConnectionContext(false), m.Name, json.RawMessage(`{"unknown":1}`))
-			notConfigured := api.RPCError{Code: -32004, Kind: "unavailable", Message: string(m.Capability) + " capability is not configured"}
+			notConfigured := api.NewError(api.KindNotConfigured, string(m.Capability))
 			switch {
-			case test.configured[m.Capability] && (rpcErr == nil || *rpcErr != (api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid " + m.Name + " params"})):
-				t.Errorf("%s: %s answered %+v, want its params refused", test.name, m.Name, rpcErr)
-			case !test.configured[m.Capability] && (rpcErr == nil || *rpcErr != notConfigured):
-				t.Errorf("%s: %s answered %+v, want %+v", test.name, m.Name, rpcErr, notConfigured)
+			case test.configured[m.Capability] && !reflect.DeepEqual(rpcErr, api.InvalidParam("unknown")):
+				t.Errorf("%s: %s answered %v, want its params refused", test.name, m.Name, rpcErr)
+			case !test.configured[m.Capability] && !reflect.DeepEqual(rpcErr, notConfigured):
+				t.Errorf("%s: %s answered %v, want %v", test.name, m.Name, rpcErr, notConfigured)
 			}
 		}
 	}
@@ -376,7 +376,7 @@ func TestLifecycleMethodsRejectMalformedParameters(t *testing.T) {
 		t.Run(test.method+" "+test.params, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
 			_, rpcErr := surfaceCall(t, h, surfaceConnectionContext(true), test.method, test.params)
-			if rpcErr == nil || rpcErr.Code != -32602 || rpcErr.Kind != "invalid_params" {
+			if rpcErr == nil || rpcErr.Code != -32602 || rpcErr.Kind() != "invalid" {
 				t.Fatalf("answer %+v, want invalid_params", rpcErr)
 			}
 			if len(calls.calls) != 0 {
@@ -400,8 +400,8 @@ func TestAttachmentHelperMethodsNeedTheirConnection(t *testing.T) {
 		{"claim from a process that is not the helper", surfaceConnectionContext(false), "attachment.claim", `{"token":"` + strings.Repeat("a", 64) + `"}`},
 	} {
 		_, rpcErr := surfaceCall(t, h, test.ctx, test.method, test.params)
-		if rpcErr == nil || rpcErr.Code != -32602 || rpcErr.Kind != "invalid_params" {
-			t.Errorf("%s: answer %+v, want invalid_params", test.name, rpcErr)
+		if want := api.NewError(api.KindInvalidRequest, api.ReasonConnection); !reflect.DeepEqual(rpcErr, want) {
+			t.Errorf("%s: answer %v, want %v", test.name, rpcErr, want)
 		}
 	}
 	if len(calls.calls) != 0 {
@@ -427,8 +427,8 @@ func TestStoreBackedLifecycleReads(t *testing.T) {
 		}
 	}
 	_, rpcErr := h(context.Background(), "operation.inspect", json.RawMessage(`{"id":"missing"}`))
-	if rpcErr == nil || *rpcErr != (api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}) {
-		t.Errorf("missing operation: %+v", rpcErr)
+	if want := wantError(api.KindNotFound, api.ReasonOperation, "operation/missing"); !reflect.DeepEqual(rpcErr, want) {
+		t.Errorf("missing operation: %v, want %v", rpcErr, want)
 	}
 	if len(calls.calls) != 0 {
 		t.Errorf("lifecycle calls: %q", calls.calls)
@@ -482,56 +482,70 @@ func TestOperationReadsInspectAndPageTheJournal(t *testing.T) {
 	}
 }
 
-func TestLifecycleErrorsMapToRPCErrors(t *testing.T) {
+// TestHandlerErrorsAnswerTheirKind checks the three rules that map an error a
+// handler returns to its answer, through a registered method.
+func TestHandlerErrorsAnswerTheirKind(t *testing.T) {
 	discard := `{"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
 	projectPreview := `{"project":"team/app"}`
-	projectConfirm := `{"key":"k","project":"team/app","confirmation_token":"` + surfaceToken + `"}`
 	services := `{"uuid":"` + surfaceUUID + `"}`
-	long := strings.Repeat("x", 1000)
 	for _, test := range []struct {
 		name, method, params string
 		err                  error
-		want                 api.RPCError
+		want                 *api.Error
 	}{
-		{"invalid", "session.discard", discard, ErrInvalid, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid lifecycle request"}},
-		{"capacity", "session.discard", discard, &sessionCapacityError{}, api.RPCError{Code: -32003, Kind: "busy", Message: (&sessionCapacityError{}).Error()}},
-		{"conflict", "session.discard", discard, ErrConflict, api.RPCError{Code: -32003, Kind: "busy", Message: "lifecycle request conflicts with current authority"}},
-		{"not found", "session.discard", discard, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "record was not found"}},
-		{"cancelled", "session.discard", discard, context.Canceled, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
-		{"deadline", "session.discard", discard, context.DeadlineExceeded, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
-		{"other", "session.discard", discard, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "lifecycle authority is unavailable"}},
-		{"project conflict keeps message", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New("session still attached")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nsession still attached"}},
-		{"project conflict message is bounded", "project.delete.preview", projectPreview, errors.Join(ErrConflict, errors.New(long)), api.RPCError{Code: -32003, Kind: "busy", Message: ("conflict\n" + long)[:900]}},
-		{"project invalid", "project.delete.preview", projectPreview, ErrInvalid, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid lifecycle request"}},
-		{"project not found", "project.delete.preview", projectPreview, ErrNotFound, api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review"}},
-		{"project confirm conflict keeps message", "project.delete.confirm", projectConfirm, errors.Join(ErrConflict, errors.New("review changed")), api.RPCError{Code: -32003, Kind: "busy", Message: "conflict\nreview changed"}},
-		{"project confirm cancelled", "project.delete.confirm", projectConfirm, context.Canceled, api.RPCError{Code: -32001, Kind: "cancelled", Message: "request cancelled or timed out"}},
-		{"project confirm other", "project.delete.confirm", projectConfirm, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project deletion facts unavailable; Stop/detach sessions; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review"}},
-		{"services conflict", "session.services", services, ErrConflict, api.RPCError{Code: -32003, Kind: "busy", Message: "lifecycle request conflicts with current authority"}},
-		{"services other", "session.services", services, errors.New("boom"), api.RPCError{Code: -32004, Kind: "unavailable", Message: "project services unavailable; require a ready owned runtime and session user manager"}},
+		{"bare invalid", "session.discard", discard, ErrInvalid, api.InvalidParam("")},
+		{"typed invalid", "session.discard", discard, Invalid("uuid"), api.InvalidParam("uuid")},
+		{"capacity", "session.discard", discard, Full(api.ReasonSessionCapacity), wantError(api.KindCapacity, api.ReasonSessionCapacity, "")},
+		{"retry names its holder", "session.discard", discard, Retry(api.ReasonSessionHeld, "operation/op-1"), wantError(api.KindRetry, api.ReasonSessionHeld, "operation/op-1")},
+		{"conflict", "session.discard", discard, Conflict(api.ReasonAttachmentActive, "session/"+surfaceUUID), wantError(api.KindConflict, api.ReasonAttachmentActive, "session/"+surfaceUUID)},
+		{"stale", "session.discard", discard, Stale(api.ReasonExpired), wantError(api.KindPreconditionFailed, api.ReasonExpired, "")},
+		{"key reused", "session.discard", discard, KeyReused(), &api.Error{Code: -32602, Message: "invalid", Data: &api.ErrorData{Reason: "key_reused", Field: "key"}}},
+		{"untyped conflict is internal", "session.discard", discard, ErrConflict, wantError(api.KindInternal, api.ReasonUnexpected, "")},
+		{"bare not found", "session.discard", discard, ErrNotFound, &api.Error{Code: -32015, Message: "not_found"}},
+		{"typed not found", "session.discard", discard, NotFound(api.ReasonSession, "session/"+surfaceUUID), wantError(api.KindNotFound, api.ReasonSession, "session/"+surfaceUUID)},
+		{"cancelled", "session.discard", discard, context.Canceled, &api.Error{Code: -32001, Message: "cancelled"}},
+		{"deadline", "session.discard", discard, context.DeadlineExceeded, wantError(api.KindRetry, api.ReasonDeadline, "")},
+		{"untyped", "session.discard", discard, errors.New("boom"), wantError(api.KindInternal, api.ReasonUnexpected, "")},
+		{"failed authority", "session.discard", discard, Failed(api.ReasonRuntime, errors.New("incus down")), wantError(api.KindFailed, api.ReasonRuntime, "")},
+		{"failed keeps a typed cause", "session.discard", discard, Failed(api.ReasonRuntime, NotFound(api.ReasonSession, "")), wantError(api.KindNotFound, api.ReasonSession, "")},
+		{"a joined conflict does not hide a typed cause", "project.delete.preview", projectPreview, errors.Join(NotFound(api.ReasonProject, "project/team/app"), ErrConflict), wantError(api.KindNotFound, api.ReasonProject, "project/team/app")},
+		{"a joined conflict does not hide a missing record", "project.delete.preview", projectPreview, errors.Join(ErrNotFound, ErrConflict), &api.Error{Code: -32015, Message: "not_found"}},
+		{"a joined conflict does not hide a cancellation", "project.delete.preview", projectPreview, errors.Join(context.Canceled, ErrConflict), &api.Error{Code: -32001, Message: "cancelled"}},
+		{"services refusal", "session.services", services, Conflict(api.ReasonSessionNotRunning, ""), wantError(api.KindConflict, api.ReasonSessionNotRunning, "")},
+		{"services untyped", "session.services", services, errors.New("boom"), wantError(api.KindInternal, api.ReasonUnexpected, "")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h, calls := surfaceHandler(t, surfaceFullLifecycle)
 			calls.err = test.err
 			_, rpcErr := surfaceCall(t, h, context.Background(), test.method, test.params)
-			if rpcErr == nil || *rpcErr != test.want {
-				t.Fatalf("answer %+v, want %+v", rpcErr, test.want)
+			if !reflect.DeepEqual(rpcErr, test.want) {
+				t.Fatalf("answer %v, want %v", rpcErr, test.want)
+			}
+			if encoded, _ := json.Marshal(rpcErr); strings.Contains(string(encoded), "boom") || strings.Contains(string(encoded), "incus") {
+				t.Fatalf("answer %s carries the cause's text", encoded)
 			}
 		})
 	}
 }
 
-func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
-	notConfigured := func(capability string) api.RPCError {
-		return api.RPCError{Code: -32004, Kind: "unavailable", Message: capability + " capability is not configured"}
+// wantError is the answer of kind with reason and target.
+func wantError(kind api.ErrorKind, reason, target string) *api.Error {
+	e := api.NewError(kind, reason)
+	if target != "" {
+		e.Data.Target = target
 	}
-	unknown := api.RPCError{Code: -32601, Kind: "method_not_found", Message: "method is unknown"}
+	return e
+}
+
+func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
+	notConfigured := func(capability string) *api.Error { return api.NewError(api.KindNotConfigured, capability) }
+	unknown := api.NewError(api.KindMethodNotFound, "")
 	discard := `{"key":"k","uuid":"` + surfaceUUID + `","confirmation_token":"` + surfaceToken + `"}`
 	for _, test := range []struct {
 		name           string
 		config         surfaceConfig
 		method, params string
-		want           api.RPCError
+		want           *api.Error
 	}{
 		{"unknown method", surfaceStateOnly, "nope", `{}`, unknown},
 		{"unknown method with other params", surfaceStateOnly, "nope", `{"x":1}`, unknown},
@@ -543,8 +557,8 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		{"project list without Git", surfaceStateOnly, "project.list", `{"limit":1}`, notConfigured("git")},
 		{"lifecycle with Git only", surfaceGit, "session.create", `{}`, notConfigured("runtime")},
 		{"attachment without runtime", surfaceGit, "attachment.ping", `{}`, notConfigured("runtime")},
-		{"system method rejects params", surfaceGit, "system.hello", `{"protocol":"p.control/v2","x":1}`, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid system.hello params"}},
-		{"system method rejects the old version field", surfaceGit, "system.health", `{"v":1}`, api.RPCError{Code: -32602, Kind: "invalid_params", Message: "invalid system.health params"}},
+		{"system method rejects params", surfaceGit, "system.hello", `{"protocol":"p.control/v2","x":1}`, api.InvalidParam("x")},
+		{"system method rejects the old version field", surfaceGit, "system.health", `{"v":1}`, api.InvalidParam("v")},
 		{"removed capabilities", surfaceGit, "system.capabilities", `{}`, unknown},
 		{"discard without its API", surfaceCoreLifecycle, "session.discard", discard, notConfigured("runtime")},
 		{"services without their API", surfaceCoreLifecycle, "session.services", `{"uuid":"` + surfaceUUID + `"}`, notConfigured("services")},
@@ -563,8 +577,8 @@ func TestUnconfiguredAndUnknownMethodAnswers(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			h, calls := surfaceHandler(t, test.config)
 			_, rpcErr := surfaceCall(t, h, surfaceConnectionContext(true), test.method, test.params)
-			if rpcErr == nil || *rpcErr != test.want {
-				t.Fatalf("answer %+v, want %+v", rpcErr, test.want)
+			if !reflect.DeepEqual(rpcErr, test.want) {
+				t.Fatalf("answer %v, want %v", rpcErr, test.want)
 			}
 			if len(calls.calls) != 0 {
 				t.Fatalf("reached the lifecycle: %q", calls.calls)

@@ -37,14 +37,17 @@ start_control_daemon() {
   exit 1
 }
 
+# expect_rpc_error KIND REASON METHOD PARAMS: the error's message is its kind
+# and data.reason its reason ("" for none).
 expect_rpc_error() {
-  expected="$1"
-  shift
+  expected="$1" reason="$2"
+  shift 2
   if response=$(p api "$socket" "$@"); then
     echo "RPC unexpectedly succeeded: $*" >&2
     exit 1
   fi
-  jq -e --arg kind "$expected" '.error.kind == $kind' <<< "$response" >/dev/null
+  jq -e --arg kind "$expected" --arg reason "$reason" \
+    '.error.message == $kind and (.error.data.reason // "") == $reason and (.error|has("kind")|not)' <<< "$response" >/dev/null
 }
 
 start_control_daemon
@@ -56,24 +59,26 @@ identity=$(jq -er '.result.instance_id' <<< "$hello")
 test -n "$identity"
 # No Git or runtime is configured, so the hello names no capability.
 jq -e '.result.protocol == "p.control/v2" and .result.capabilities == []' <<< "$hello" >/dev/null
-expect_rpc_error unavailable session.create '{}'
-expect_rpc_error method_not_found not.a.method '{}'
-expect_rpc_error invalid_params system.hello '{}'
-expect_rpc_error unsupported_version system.hello '{"protocol":"p.control/v1"}'
+expect_rpc_error not_configured runtime session.create '{}'
+jq -e '.error.code == -32016' <<< "$response" >/dev/null
+expect_rpc_error method_not_found '' not.a.method '{}'
+expect_rpc_error invalid param system.hello '{}'
+jq -e '.error.code == -32602 and .error.data.field == "protocol"' <<< "$response" >/dev/null
+expect_rpc_error unsupported_version protocol system.hello '{"protocol":"p.control/v1"}'
 jq -e '.error.data.supported == ["p.control/v2"]' <<< "$response" >/dev/null
 p api "$socket" system.inspect | jq -e '.result.projects == 0 and .result.sessions == 0 and .result.operations == 0' >/dev/null
 
 raw_hello='{"jsonrpc":"2.0","id":1,"method":"system.hello","params":{"protocol":"p.control/v2"}}'
 raw_health='{"jsonrpc":"2.0","id":2,"method":"system.health","params":{}}'
 raw_response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":' | timeout 3 socat - "UNIX-CONNECT:$socket")
-jq -e '.error.kind == "parse_error"' <<< "$raw_response" >/dev/null
+jq -e '.error.message == "parse_error" and .error.code == -32700' <<< "$raw_response" >/dev/null
 raw_response=$(printf '%s\n' '{"jsonrpc":"9.0","id":2,"method":"system.hello","params":{"protocol":"p.control/v2"}}' | timeout 3 socat - "UNIX-CONNECT:$socket")
-jq -e '.error.kind == "unsupported_version"' <<< "$raw_response" >/dev/null
+jq -e '.error.message == "unsupported_version" and .error.data.reason == "jsonrpc"' <<< "$raw_response" >/dev/null
 raw_response=$(printf '%s\n' '{"jsonrpc":"2.0","id":true,"method":"system.hello","params":{"protocol":"p.control/v2"}}' | timeout 3 socat - "UNIX-CONNECT:$socket")
-jq -e '.error.kind == "invalid_request" and .id == null' <<< "$raw_response" >/dev/null
+jq -e '.error.message == "invalid_request" and .error.data.reason == "envelope" and .id == null' <<< "$raw_response" >/dev/null
 # Every connection agrees the protocol before anything else.
 raw_response=$(printf '%s\n' "$raw_health" | timeout 3 socat - "UNIX-CONNECT:$socket")
-jq -e '.id == 2 and .error.kind == "invalid_request" and .error.data.reason == "hello_required"' <<< "$raw_response" >/dev/null
+jq -e '.id == 2 and .error.message == "invalid_request" and .error.data.reason == "hello_required"' <<< "$raw_response" >/dev/null
 # A hello and a request written together are both answered, in order. The
 # input stays open briefly because closing it ends the connection, which
 # cancels a request still in flight.

@@ -68,14 +68,14 @@ func boundedPage[T, R any](values []T, next string, cursor func(T) string, page 
 		encoded, err := json.Marshal(result)
 		if err != nil {
 			var zero R
-			return zero, errorRPC(-32603, "internal", "lifecycle page cannot be encoded")
+			return zero, Internal(api.ReasonEncoding, err)
 		}
 		if len(encoded) <= lifecyclePageResultCeiling {
 			return result, nil
 		}
 	}
 	var zero R
-	return zero, errorRPC(-32603, "internal", "single lifecycle record exceeds frame limit")
+	return zero, Internal(api.ReasonEncoding, errors.New("single lifecycle record exceeds frame limit"))
 }
 
 func SummarizeOperation(o api.Operation) api.OperationSummary {
@@ -239,17 +239,10 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 	if deletion, ok := life.(ProjectDeleteAPI); ok {
 		Register(t, api.ProjectDeletePreview, func(ctx context.Context, r api.ProjectDeletePreviewRequest) (api.ProjectDeletePreviewResult, error) {
 			preview, e := deletion.PreviewProjectDelete(ctx, ProjectDeletePreviewRequest(r))
-			if e != nil {
-				return api.ProjectDeletePreviewResult{}, projectDeleteRPC(e)
-			}
-			return api.ProjectDeletePreviewResult{Preview: preview}, nil
+			return api.ProjectDeletePreviewResult{Preview: preview}, e
 		})
 		Register(t, api.ProjectDeleteConfirm, func(ctx context.Context, r api.ProjectDeleteConfirmRequest) (api.OperationResult, error) {
-			op, e := deletion.ConfirmProjectDelete(ctx, ProjectDeleteConfirmRequest(r))
-			if e != nil {
-				return api.OperationResult{}, projectDeleteRPC(e)
-			}
-			return api.OperationResult{Operation: op}, nil
+			return operationResult(deletion.ConfirmProjectDelete(ctx, ProjectDeleteConfirmRequest(r)))
 		})
 	}
 	if deletion, ok := life.(RetainedDeleteAPI); ok {
@@ -284,36 +277,4 @@ func addLifecycleMethods(t *MethodTable, store *Store, life LifecycleAPI) {
 // operationResult wraps the operation a lifecycle change returns.
 func operationResult(op api.Operation, err error) (api.OperationResult, error) {
 	return api.OperationResult{Operation: op}, err
-}
-
-func lifecycleRPC(err error) *api.RPCError {
-	var capacity *sessionCapacityError
-	switch {
-	case errors.Is(err, ErrInvalid):
-		return errorRPC(-32602, "invalid_params", "invalid lifecycle request")
-	case errors.As(err, &capacity):
-		return errorRPC(-32003, "busy", capacity.Error())
-	case errors.Is(err, ErrConflict):
-		return errorRPC(-32003, "busy", "lifecycle request conflicts with current authority")
-	case errors.Is(err, ErrNotFound):
-		return errorRPC(-32004, "unavailable", "record was not found")
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return errorRPC(-32001, "cancelled", "request cancelled or timed out")
-	default:
-		return errorRPC(-32004, "unavailable", "lifecycle authority is unavailable")
-	}
-}
-
-func projectDeleteRPC(err error) *api.RPCError {
-	if errors.Is(err, ErrConflict) {
-		message := err.Error()
-		if len(message) > 900 {
-			message = message[:900]
-		}
-		return errorRPC(-32003, "busy", message)
-	}
-	if errors.Is(err, ErrInvalid) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return lifecycleRPC(err)
-	}
-	return errorRPC(-32004, "unavailable", "project deletion facts unavailable; Stop/detach sessions; finish pending cleanup, or investigate exact native/credential/cache ownership before a new review")
 }

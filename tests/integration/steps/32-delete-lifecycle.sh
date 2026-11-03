@@ -169,12 +169,18 @@ rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.session_condition=="ready"' >/dev/null
 
 
+# expect_refusal METHOD PARAMS KIND [REASON]: the request is refused with the
+# error kind KIND, its code and, when given, REASON.
 expect_refusal() {
-  local method="$1" params="$2" kind="$3" response
+  local method="$1" params="$2" kind="$3" reason="${4:-}" response
   if response=$(rpc "$method" "$params" 2> "$step_dir/refused.err"); then
     echo "unexpectedly accepted $method" >&2; return 1
   fi
-  jq -e --arg kind "$kind" '.error.kind==$kind' <<< "$response" >/dev/null
+  jq -e --arg kind "$kind" --arg reason "$reason" '
+    {method_not_found: -32601, invalid: -32602, retry: -32010, conflict: -32011,
+     capacity: -32012, precondition_failed: -32013, not_found: -32015} as $codes |
+    .error.message==$kind and .error.code==$codes[$kind] and
+    ($reason=="" or .error.data.reason==$reason)' <<< "$response" >/dev/null
 }
 source_running() {
   inc list "^p-$uuid$" --format json | jq -e --arg name "p-$uuid" \
@@ -242,8 +248,9 @@ test "$(guest /run/current-system/sw/bin/cat /home/p/.codex/auth.json)" = doomed
 test -f "$state/session_keys/$uuid"
 test -S "$endpoint_prefix/$uuid/git.sock"
 test "$(guest /run/current-system/sw/bin/git ls-remote origin refs/heads/main | cut -f1)" = "$final_oid"
+# The stale review's token was spent by its confirmation.
 expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$stale_token" \
-  '{key:"delete-stale-reused",uuid:$uuid,confirmation_token:$token}')" busy
+  '{key:"delete-stale-reused",uuid:$uuid,confirmation_token:$token}')" precondition_failed expired
 preview_delete
 fresh_token=$delete_token
 jq -e --arg final "$final_oid" --arg unique "$unique_oid" --arg base "$base_oid" '
@@ -257,7 +264,7 @@ discard_preview=$(rpc session.removal.preview "$(jq -nc --arg uuid "$uuid" \
   '{uuid:$uuid,kind:"discard"}')")
 discard_token=$(jq -er '.result.preview.confirmation_token | select(length==32)' <<< "$discard_preview")
 expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
-  '{key:"delete-wrong-action",uuid:$uuid,confirmation_token:$token}')" busy
+  '{key:"delete-wrong-action",uuid:$uuid,confirmation_token:$token}')" precondition_failed changed
 # P stops the running, unattached session itself, then deletes it.
 printf 'p-%s\n' "$uuid" > "$step_dir/removal-arm"
 completed_response=$(delete_confirm delete-confirmed "$fresh_token")
@@ -281,8 +288,8 @@ test "$(jq -er '.result.operation.id' <<< "$replayed")" = "$delete_op"
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 test ! -e "$endpoint_prefix/$uuid"
 test ! -e "$state/session_keys/$uuid"
-expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
-expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" unavailable
+expect_refusal session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" not_found session
+expect_refusal session.start "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" not_found session
 rpc project.branches '{"project":"delete-lifecycle","limit":8}' |
   jq -e --arg base "$base_oid" '.result.refs | length==1 and
     .[0].ref=="refs/heads/sibling" and .[0].oid==$base' >/dev/null

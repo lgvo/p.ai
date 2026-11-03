@@ -221,7 +221,7 @@ under `result.capabilities` what this instance's configuration enables: `git`
 for project lists, origins and retained branches; `runtime` for creating
 projects and sessions, the session lifecycle and operations; and `services`
 for project services. A method whose capability is missing answers
-`unavailable`; see the [connection agreement](control-api.md#connection-agreement).
+`not_configured`; see the [connection agreement](control-api.md#connection-agreement).
 `p api` agrees the protocol with the daemon itself, so params never carry a
 version.
 
@@ -370,8 +370,9 @@ api session.stop "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
 api session.inspect "$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')"
 ```
 
-Expect `session_condition: "stopped"`. A pending or confirmed attachment causes
-Stop to return `busy`; it does not silently evict another terminal.
+Expect `session_condition: "stopped"`. A pending or confirmed attachment makes
+Stop answer `conflict` with reason `attachment_active`; it does not silently
+evict another terminal.
 
 When ready to work again:
 
@@ -461,8 +462,9 @@ retained commit, not dirty files or unpushed commits in the workspace.
 ## Rename a stream
 
 Use `session.rename` to rename the session's assigned branch while keeping its
-UUID and private files. Detach and Stop the session first: Rename returns
-`busy` for a session that is not stopped. Supply the current P tip as
+UUID and private files. Detach and Stop the session first: Rename answers
+`conflict` with reason `session_not_stopped` for a session that is not stopped.
+Supply the current P tip as
 `expected_old_tip`:
 
 ```bash
@@ -546,12 +548,18 @@ See the [project lifecycle](project-lifecycle.md) and [API schemas](control-api.
 
 Read the diagnostic and inspect the durable operation before choosing another
 action. A transport timeout does not prove the daemon abandoned an operation.
+An error answers with a kind that names your next step and a reason code under
+`error.data.reason`; the [control API](control-api.md#errors) lists them, and
+the TUI shows a sentence for each. The daemon's log has the cause.
 
 | What you see | What to do next |
 |---|---|
 | Creation is still running | Inspect the same operation. Do not create another stream with a new key just to retry. |
 | A blocked operation with a corrected prerequisite | Use `operation.retry` with its ID. Retry keeps the captured request, source, identity, and policy. |
-| `busy` | Read the message: attachments, a running session for Rename, guarded resources, branch assignment, or capacity may prevent the action. Remove the specific conflict before retrying. |
+| `retry` | Something holds the session for a moment, such as another request or a running operation named in `error.data.target`. Send the same request again once it finishes. |
+| `conflict` | The state forbids the action until something changes it: an attached terminal, a session that must be stopped or started, a blocked operation, an assigned or reserved branch. `error.data.reason` names it; change that state, then try again. |
+| `capacity` | Every session slot is taken. Discard or Delete a session; Stop keeps its slot. |
+| `precondition_failed` | What you reviewed or expected changed, or the review expired. Preview again and confirm the new review. |
 | Branch/upstream mismatch | Compare expected and actual values, correct Git manually, then recheck. |
 | Incus unavailable or runtime unreachable | Restore or investigate the authority. P retains identity and incomplete cleanup; it must not claim deletion or create an uncertain duplicate. |
 | Runtime missing | Discard the session with `acknowledge_missing_runtime: true` in its removal preview, then create a new session on the retained branch. P does not adopt an unfamiliar replacement container. |

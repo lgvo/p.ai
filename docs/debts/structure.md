@@ -48,7 +48,7 @@
 - Fix: split each worker by phase.
 - Fix when: together with the worker interfaces above.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-02, 5 cases:
+- Added 2026-11-01, updated 2026-11-03, 6 cases:
   - 2026-11-01: "complete rework of P's implementation" measured the function lengths.
   - 2026-11-02: "collapse the 21 migrations into one schema file" cut internal/control
     `openStore` from 367 lines of migrations to 90, which takes it out of this entry.
@@ -76,7 +76,7 @@
 - Fix: a test that breaks each JSON-keyed trigger when its field is renamed.
 - Fix when: any change to an evidence struct those triggers read.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-02, 3 cases:
+- Added 2026-11-01, updated 2026-11-03, 4 cases:
   - 2026-11-01: "complete rework of P's implementation" kept migrations unchanged.
   - 2026-11-02: "collapse the 21 migrations into one schema file" replaced the migrations
     with schema.sql, which ends the half of this entry about seeing the effective schema;
@@ -116,8 +116,8 @@
 - Problem: Each preview family issues its token, prunes expired entries, enforces its own
   capacity (32 or 128) and checks the frame size with its own copy of the code and its own
   map on `lifecycle`.
-- Evidence: five preview maps on `lifecycle`; capacity errors differ (`ErrConflict` answers
-  `busy`, a plain error answers `unavailable`).
+- Evidence: five preview maps on `lifecycle`; each copy answers its full table on its own
+  (`retry`, reason `too_many_previews`).
 - Risk: a fix to token issue or expiry reaches one family and misses the others.
 - Fix: one preview-book type with an instance per family carrying its TTL, capacity and error.
 - Fix when: the previews' facts can be produced in unit tests (with the worker interfaces
@@ -134,6 +134,8 @@
     maps; five families remain.
   - 2026-11-02: "deletions without inspection" removed the loss inspection's expiry bound
     from `PreviewRemoval` and `PreviewProjectDelete`; each family still issues its own token.
+  - 2026-11-03: "errors that name the next step" typed each family's token refusals
+    (`expired`, `changed`) and its full-table refusal in each copy.
 
 ## Trusted configuration and the RPC server live in the store package
 
@@ -145,10 +147,10 @@
   server cannot be read or tested apart from persistence.
 - Evidence: config.go calls the store's `validProject`, `validFingerprint`, `digest` and
   `normalizedObject`; `ProjectPolicySnapshot` errors wrap `control.ErrInvalid`, which the
-  daemon's lifecycle errors map to `invalid_params`. The request bounds moved to
-  `internal/api`, but control's `validProject`, `validUUID` and siblings only delegate to
-  them, and the server still maps the store's sentinel errors and the unexported
-  `sessionCapacityError`.
+  server answers as `invalid`. The request bounds moved to `internal/api`, but control's
+  `validProject`, `validUUID` and siblings only delegate to them, and the server's error
+  mapping (errors.go) and the `Refusal` type that adapters such as runtimeincus and
+  gitservice return live in control.
 - Risk: configuration and persistence change together; an adapter that needs one trusted
   setting depends on the whole store package.
 - Fix: give P's identifier formats, digest and sentinel errors a package below control, then
@@ -166,6 +168,8 @@
   - 2026-11-02: "wire types" moved the identifier formats into `internal/api`, where each
     request type's `Validate` checks them; the server stays in control and registers its
     handlers there.
+  - 2026-11-03: "errors that name the next step" added control's `Refusal` and error
+    mapping; runtimeincus and gitservice return refusals from control too.
 
 ## Operation status updates and kind lists are still written per site
 

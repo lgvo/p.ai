@@ -38,7 +38,7 @@ func TestCreateReplaceRPCClosedRequests(t *testing.T) {
 		`{"old_uuid":"` + uuid + `","key":"new","project":"app","branch":"work","choice":"existing","source":"refs/heads/main"}`,
 		`{"old_uuid":"` + uuid + `","key":"new","project":"app","branch":"work","choice":"existing","key":"again"}`,
 	} {
-		if _, e := h(context.Background(), "session.create.replace.preview", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(context.Background(), "session.create.replace.preview", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("preview accepted %s: %+v", raw, e)
 		}
 	}
@@ -48,7 +48,7 @@ func TestCreateReplaceRPCClosedRequests(t *testing.T) {
 		`{"old_uuid":"` + uuid + `","key":"new","confirmation_token":"` + token + `","force":true}`,
 		`{"old_uuid":"` + uuid + `","key":"new","confirmation_token":"` + strings.Repeat("A", 32) + `"}`,
 	} {
-		if _, e := h(context.Background(), "session.create.replace.confirm", json.RawMessage(raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(context.Background(), "session.create.replace.confirm", json.RawMessage(raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("confirm accepted %s: %+v", raw, e)
 		}
 	}

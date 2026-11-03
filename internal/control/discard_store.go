@@ -91,18 +91,21 @@ func (s *Store) beginRemoval(ctx context.Context, req DiscardRequest, ev Discard
 	var project, branch, registry, policy string
 	err = tx.QueryRowContext(ctx, `SELECT project_path,branch,registry_state,policy_sha256 FROM sessions WHERE uuid=?`, req.UUID).Scan(&project, &branch, &registry, &policy)
 	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, ErrNotFound
+		return api.Operation{}, NotFound(api.ReasonSession, api.TargetSession(req.UUID))
 	}
 	if err != nil {
 		return api.Operation{}, err
 	}
 	if project != ev.Project || branch != ev.Branch || policy != ev.PolicySHA256 || registry != "established" {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Stale(api.ReasonChanged)
 	}
 	// Check inside the admission transaction after any SQLite connection wait.
 	// A confirmed intent cannot be accepted after its review token expired.
 	if !time.Now().Before(expires) {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
+	if err = sessionHolderTx(ctx, tx, req.UUID); err != nil {
+		return api.Operation{}, err
 	}
 	id, err := newUUID()
 	if err != nil {

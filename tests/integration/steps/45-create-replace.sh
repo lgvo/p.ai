@@ -56,34 +56,29 @@ on_error() {
 }
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
+# expect_error KIND REASON METHOD PARAMS: the request fails with the error
+# kind (its message), the kind's code and the reason.
 expect_error() {
-  local kind="$1" method="$2" params="$3" code response status
+  local kind="$1" reason="$2" method="$3" params="$4" code response status
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    retry) code=-32010 ;;
+    conflict) code=-32011 ;;
+    precondition_failed) code=-32013 ;;
+    not_found) code=-32015 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
   response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
-  if test "$status" -ne 1; then
-    jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
-      '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
-      <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
-    return 1
-  fi
-  if ! jq -e --arg kind "$kind" --argjson code "$code" \
+  if test "$status" -ne 1 || ! jq -e --arg kind "$kind" --arg reason "$reason" --argjson code "$code" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
+     .error.message==$kind and .error.code==$code and .error.data.reason==$reason' \
     <<< "$response" >/dev/null; then
-    jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
-      '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
+    jq -c --arg method "$method" --arg expected_kind "$kind" --arg expected_reason "$reason" \
+      --argjson expected_code "$code" --argjson actual_status "$status" \
+      '{method:$method,expected_kind:$expected_kind,expected_reason:$expected_reason,expected_code:$expected_code,
+        actual_status:$actual_status,actual_kind:(.error.message // null),
+        actual_code:(.error.code // null),actual_data:(.error.data // null)}' \
       <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
     return 1
   fi
@@ -308,19 +303,19 @@ jq -e --arg uuid "$old_uuid" --arg id "$old_id" --arg old "$first" --arg new "$s
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 # Positive no-effect facts are rechecked at confirmation, including unexpected keys.
 printf unexpected > "$state/session_keys/$old_uuid"
-expect_error busy session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
+expect_error precondition_failed changed session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
 test "$(cat "$state/session_keys/$old_uuid")" = unexpected
 rm "$state/session_keys/$old_uuid"
 # A moved tip invalidates the token before supersession or a new reservation.
 "$host_git" -C "$repo" update-ref refs/heads/work "$third" "$second"
-expect_error busy session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
+expect_error precondition_failed changed session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
 inspect_operation "$old_id" | jq -e '.result.operation.status=="blocked"' >/dev/null
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$third"
 # Unconsumed previews expire on daemon restart. The real blocked request remains.
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
-expect_error busy session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
+expect_error precondition_failed expired session.create.replace.confirm "$(jq -nc --arg uuid "$old_uuid" --arg token "$token" '{old_uuid:$uuid,key:"changed-create",confirmation_token:$token}')"
 preview=$(preview_replace changed-create)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 confirmed=$(confirm_replace changed-create "$token")
@@ -336,7 +331,7 @@ jq -e --arg uuid "$old_uuid" --arg id "$old_id" --arg oid "$second" '
  .result.operation | .idempotency_key=="changed-create" and .evidence.supersedes_uuid==$uuid and
  .evidence.supersedes_operation_id==$id and .evidence.captured_oid==$oid' <<< "$completed" >/dev/null
 inspect_operation "$old_id" | jq -e '.result.operation | .status=="superseded" and .phase=="superseded"' >/dev/null
-expect_error busy operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
+expect_error conflict operation_superseded operation.retry "$(jq -nc --arg id "$old_id" '{id:$id}')"
 test "$(operation_id "$(rpc session.create "$old_request")")" = "$old_id"
 test "$(operation_id "$(confirm_replace changed-create "$token")")" = "$new_id"
 test "$(exec_p "$new_uuid" git rev-parse HEAD)" = "$second"

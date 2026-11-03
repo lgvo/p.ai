@@ -130,7 +130,7 @@ func TestSessionListPreservesSurvivingMissingAuthorityAndOtherErrors(t *testing.
 			s, _, ids := committedListRemoval(t)
 			life := removingSessionListLife{statusLife: statusLife{s}, requireCreation: missingAuthority}
 			if !missingAuthority {
-				life.inspectErr = ErrConflict
+				life.inspectErr = Retry(api.ReasonSessionHeld, "")
 			}
 			h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
 			result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"limit":1}`))
@@ -140,7 +140,7 @@ func TestSessionListPreservesSurvivingMissingAuthorityAndOtherErrors(t *testing.
 			if _, err := s.GetSession(context.Background(), ids[0]); err != nil {
 				t.Fatalf("authority failure removed session: %v", err)
 			}
-			if missingAuthority && rpcErr.Kind != "unavailable" || !missingAuthority && rpcErr.Kind != "busy" {
+			if missingAuthority && rpcErr.Kind() != api.KindNotFound || !missingAuthority && rpcErr.Kind() != api.KindRetry {
 				t.Fatalf("error classification changed: %+v", rpcErr)
 			}
 		})
@@ -149,11 +149,11 @@ func TestSessionListPreservesSurvivingMissingAuthorityAndOtherErrors(t *testing.
 
 func TestSessionListDoesNotHideNonNotFoundErrorAfterRemoval(t *testing.T) {
 	s, op, ids := committedListRemoval(t)
-	life := removingSessionListLife{statusLife: statusLife{s}, inspectErr: ErrConflict,
+	life := removingSessionListLife{statusLife: statusLife{s}, inspectErr: Retry(api.ReasonSessionHeld, ""),
 		before: func(ctx context.Context, id string) error { return completeListRemoval(ctx, s, op) }}
 	h := NewHandler(HandlerConfig{Store: s, Lifecycle: life})
 	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"limit":1}`))
-	if result != nil || rpcErr == nil || rpcErr.Kind != "busy" {
+	if result != nil || rpcErr == nil || rpcErr.Kind() != api.KindRetry {
 		t.Fatalf("non-not-found error hidden by absent record: %+v %+v", result, rpcErr)
 	}
 	if _, err := s.GetSession(context.Background(), ids[0]); !errors.Is(err, ErrNotFound) {
@@ -168,7 +168,7 @@ func TestSessionListPreservesStatusStorageError(t *testing.T) {
 	}
 	h := NewHandler(HandlerConfig{Store: s, Lifecycle: statusLife{s}})
 	result, rpcErr := h(context.Background(), "session.list", json.RawMessage(`{"limit":1}`))
-	if result != nil || rpcErr == nil || rpcErr.Kind != "unavailable" {
+	if result != nil || rpcErr == nil || rpcErr.Kind() != api.KindInternal {
 		t.Fatalf("status storage failure hidden: %+v %+v", result, rpcErr)
 	}
 	if _, err := s.GetSession(context.Background(), id); err != nil {

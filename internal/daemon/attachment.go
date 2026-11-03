@@ -26,6 +26,24 @@ type attachment struct {
 	confirmed  bool
 }
 
+// refusalBecause is a refusal of kind with reason and target whose cause
+// keeps its text for the daemon's log and classifies as class (ErrConflict,
+// ErrNotFound) inside the daemon.
+func refusalBecause(kind api.ErrorKind, reason, target string, class, cause error) error {
+	return &control.Refusal{Kind: kind, Reason: reason, Target: target, Cause: classifiedCause{class: class, cause: cause}}
+}
+
+// classifiedCause is cause, also matching class with errors.Is.
+type classifiedCause struct{ class, cause error }
+
+func (c classifiedCause) Error() string        { return c.cause.Error() }
+func (c classifiedCause) Unwrap() error        { return c.cause }
+func (c classifiedCause) Is(target error) bool { return target == c.class }
+
+// attachmentExpired refuses an attachment step whose token or claim is no
+// longer valid: it expired, was used, or never existed.
+func attachmentExpired() error { return control.Stale(api.ReasonExpired) }
+
 func (l *lifecycle) expireAttachmentsLocked() {
 	for token, a := range l.attachments {
 		if a.connection == nil && !time.Now().Before(a.expires) {
@@ -72,8 +90,8 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAt
 			return zero, err
 		}
 	}
-	if view.Condition != "ready" {
-		return zero, control.ErrConflict
+	if err := notReady(id, view.Condition); err != nil {
+		return zero, err
 	}
 	// Another client's Start may own the session since the inspection that saw
 	// ready. Wait for its watcher to finish instead of rejecting attach.
@@ -102,6 +120,22 @@ func (l *lifecycle) AttachSession(ctx context.Context, id string) (api.PendingAt
 	}
 	return l.reserveAttachment(id, spec)
 }
+
+// notReady refuses an attachment to session id in condition, which Start
+// did not bring to ready; nil when it is ready.
+func notReady(id, condition string) error {
+	switch condition {
+	case "ready":
+		return nil
+	case "missing":
+		return control.Conflict(api.ReasonRuntimeMissing, api.TargetSession(id))
+	case "unreachable":
+		return control.Failed(api.ReasonRuntime, errors.New("session runtime unreachable"))
+	default:
+		return control.Conflict(api.ReasonSessionNotRunning, api.TargetSession(id))
+	}
+}
+
 func (l *lifecycle) reserveAttachment(id string, spec plugin.AttachSpec) (api.PendingAttachment, error) {
 	var zero api.PendingAttachment
 	var entropy [32]byte
@@ -120,7 +154,7 @@ func (l *lifecycle) reserveAttachment(id string, spec plugin.AttachSpec) (api.Pe
 		}
 	}
 	if len(l.attachments) >= maxAttachments || count >= maxSessionAttachments {
-		return zero, control.ErrConflict
+		return zero, control.Full(api.ReasonAttachmentCapacity)
 	}
 	if l.attachments == nil {
 		l.attachments = map[string]*attachment{}
@@ -142,10 +176,13 @@ func (l *lifecycle) freshAttachSpec(ctx context.Context, id string) (plugin.Atta
 		var failure *runtimeincus.AttachmentFailure
 		if errors.As(err, &failure) {
 			log.Printf("attachment verification refused: %s", failure.Code)
+			if failure.Code == "host-not-ready" {
+				return plugin.AttachSpec{}, refusalBecause(api.KindConflict, api.ReasonSessionNotRunning, api.TargetSession(id), control.ErrConflict, err)
+			}
 		} else {
 			log.Printf("attachment runtime refused: policy-or-native-observation")
 		}
-		return plugin.AttachSpec{}, err
+		return plugin.AttachSpec{}, control.Failed(api.ReasonRuntime, err)
 	}
 	if state.AttachSpec == nil {
 		return plugin.AttachSpec{}, control.ErrConflict
@@ -162,7 +199,7 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *con
 		}
 	})
 	if session == "" {
-		return api.AttachmentLaunch{}, control.ErrConflict
+		return api.AttachmentLaunch{}, attachmentExpired()
 	}
 	release, err := l.lockSession(ctx, session)
 	if err != nil {
@@ -177,7 +214,7 @@ func (l *lifecycle) ClaimAttachment(ctx context.Context, token string, conn *con
 	l.expireAttachmentsLocked()
 	a := l.attachments[token]
 	if a == nil || a != candidate || a.connection != nil || !time.Now().Before(a.expires) {
-		return api.AttachmentLaunch{}, control.ErrConflict
+		return api.AttachmentLaunch{}, attachmentExpired()
 	}
 	// Own installs cleanup atomically against connection closure. The callback
 	// runs after Connection releases its own lock, avoiding lock inversion.
@@ -216,7 +253,7 @@ func (l *lifecycle) ConfirmAttachment(ctx context.Context, conn *control.Connect
 		claimed = a != nil && !a.confirmed && time.Now().Before(a.expires)
 	})
 	if !claimed {
-		return control.ErrConflict
+		return attachmentExpired()
 	}
 	release, err := l.lockSession(ctx, a.session)
 	if err != nil {
@@ -239,7 +276,7 @@ func (l *lifecycle) ConfirmAttachment(ctx context.Context, conn *control.Connect
 		return err
 	}
 	if err = l.runtime.ValidateAttachmentOperation(ctx, native, operation); err != nil {
-		return err
+		return control.Failed(api.ReasonRuntime, err)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -251,7 +288,7 @@ func (l *lifecycle) ConfirmAttachment(ctx context.Context, conn *control.Connect
 		}
 	}
 	if !live || a.confirmed || !time.Now().Before(a.expires) {
-		return control.ErrConflict
+		return attachmentExpired()
 	}
 	_, ok, _, err := l.store.ConfirmAttachmentWithCommit(ctx, a.session, func(count int, cleared bool) {
 		// Only enqueue immutable data under the reducer lock; never re-enter lifecycle.

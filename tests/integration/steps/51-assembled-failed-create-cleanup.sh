@@ -182,7 +182,7 @@ if loss=$(rpc workspace.loss.inspect '{}' 2> "$step_dir/api.err"); then
   echo 'workspace.loss.inspect unexpectedly answered' >&2
   exit 1
 fi
-jq -e '.error.kind=="method_not_found"' <<< "$loss" >/dev/null
+jq -e '.error.message=="method_not_found" and .error.code==-32601' <<< "$loss" >/dev/null
 
 wait_operation() {
   local id="$1" want="$2" result status deadline=$((SECONDS+170))
@@ -199,19 +199,15 @@ wait_operation() {
   echo "operation $id did not reach $want" >&2
   return 1
 }
-expect_busy() {
-  local method="$1" params="$2" response status=0
+# expect_error CODE KIND REASON METHOD PARAMS: the request fails with the
+# error kind (its message), its code and the reason.
+expect_error() {
+  local code="$1" kind="$2" reason="$3" method="$4" params="$5" response status=0
   response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
   test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-    .error.kind=="busy" and .error.code == -32003' <<< "$response" >/dev/null
-}
-expect_invalid() {
-  local method="$1" params="$2" response status=0
-  response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
-  test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-    .error.kind=="invalid_params" and .error.code == -32602' <<< "$response" >/dev/null
+  jq -e --arg kind "$kind" --arg reason "$reason" --argjson code "$code" \
+    '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
+    .error.message==$kind and .error.code==$code and .error.data.reason==$reason' <<< "$response" >/dev/null
 }
 inspect_creator() { rpc operation.inspect "$(jq -nc --arg id "$creator" '{id:$id}')"; }
 assert_source() {
@@ -316,7 +312,7 @@ assert_old_effects_absent() {
 }
 images_before=$(inc image list --format json | jq -c '[.[].fingerprint]|sort')
 # The removed loss inspection parameter is refused by strict decoding.
-expect_invalid session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,loss_operation_id:$uuid}')"
+expect_error -32602 invalid param session.create.cleanup.preview "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,loss_operation_id:$uuid}')"
 # P picks the assembled path itself and names the exact stopped container,
 # stating it and everything in it lost without looking inside.
 preview=$(preview_cleanup)
@@ -336,7 +332,7 @@ assert_source
 # A branch moved between preview and confirmation refuses the request.
 moved=$(git -C "$repo" -c user.name=P -c user.email=p@example.invalid commit-tree "$(git -C "$repo" rev-parse "$tip^{tree}")" -p "$tip" -m moved-after-review)
 git -C "$repo" update-ref refs/heads/work "$moved" "$tip"
-expect_busy session.create.cleanup.confirm "$(confirm_params moved-before-confirm "$token")"
+expect_error -32013 precondition_failed changed session.create.cleanup.confirm "$(confirm_params moved-before-confirm "$token")"
 git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
 assert_source
 # A branch moved after the confirmation was accepted but before the cleanup
@@ -361,7 +357,7 @@ jq -e '.result.operation | .phase=="stale" and .committed==false and
 rm "$step_dir/stale-arm"
 git -C "$repo" update-ref refs/heads/work "$tip" "$moved"
 assert_source
-expect_busy operation.retry "$(jq -nc --arg id "$stale_id" '{id:$id}')"
+expect_error -32011 conflict operation_not_retryable operation.retry "$(jq -nc --arg id "$stale_id" '{id:$id}')"
 # A new preview, token and key are the supported settled-stale recovery
 # procedure. The same original identity is retained.
 preview=$(preview_cleanup)
@@ -376,7 +372,7 @@ confirmed_status=0
 confirmed=$(rpc session.create.cleanup.confirm "$(confirm_params cleanup-reviewed "$token")") || confirmed_status=$?
 if test "$confirmed_status" -ne 0; then
   jq -c --argjson status "$confirmed_status" \
-    '{method:"session.create.cleanup.confirm",status:$status,error:{code:.error.code,kind:.error.kind,message:(.error.message // "")[:512]}}' \
+    '{method:"session.create.cleanup.confirm",status:$status,error:{code:.error.code,kind:.error.message,data:.error.data}}' \
     <<< "$confirmed" >&2 || true
 fi
 test "$confirmed_status" -eq 0
@@ -393,7 +389,7 @@ rpc operation.inspect "$(jq -nc --arg id "$cleanup_id" '{id:$id}')" |
 inspect_creator | jq -e '.result.operation | .status=="superseded" and .phase=="superseded"' >/dev/null
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -e '.result.session.registry_state=="removing"' >/dev/null
-expect_busy operation.retry "$(jq -nc --arg id "$creator" '{id:$id}')"
+expect_error -32011 conflict operation_superseded operation.retry "$(jq -nc --arg id "$creator" '{id:$id}')"
 replayed=$(rpc session.create "$request")
 jq -e --arg id "$creator" '.result.operation.id==$id and .result.operation.status=="superseded"' <<< "$replayed" >/dev/null
 assert_old_effects_absent
@@ -416,7 +412,7 @@ assert_old_effects_absent
 assert_retained
 replayed=$(rpc session.create.cleanup.confirm "$params")
 jq -e --arg id "$cleanup_id" '.result.operation.id==$id' <<< "$replayed" >/dev/null
-expect_busy operation.retry "$(jq -nc --arg id "$creator" '{id:$id}')"
+expect_error -32011 conflict operation_superseded operation.retry "$(jq -nc --arg id "$creator" '{id:$id}')"
 printf 'P_ASSEMBLED_CLEANUP_NATIVE_UNAVAILABLE_PRESERVED\n'
 # A newly competing session UUID blocks exact absence recovery. It is fixture
 # machinery: cleanup must retain it and never adopt/delete by its name.

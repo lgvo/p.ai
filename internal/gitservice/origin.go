@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
@@ -79,7 +80,7 @@ func (s *OriginScope) Observe(ctx context.Context, remote string) ([]plugin.GitO
 	broker := &originBroker{scope: s, remote: remote}
 	out, err := plugin.RunSourceGit(ctx, s.backend.selection, plugin.GitCommand{Kind: "git.origin.observe", Project: s.project}, broker)
 	if err != nil {
-		return nil, err
+		return nil, control.Failed(api.ReasonOrigin, err)
 	}
 	s.url, s.observed = remote, make(map[string]plugin.GitOriginRef, len(out.OriginRefs))
 	for _, ref := range out.OriginRefs {
@@ -107,12 +108,12 @@ func (s *OriginScope) Fetch(ctx context.Context, ref string, expectedCommit stri
 		return "", control.ErrInvalid
 	}
 	if _, err := s.backend.checkRepository(ctx, s.project); err != nil {
-		return "", err
+		return "", control.Failed(api.ReasonGit, err)
 	}
 	broker := &originBroker{scope: s, remote: s.url, selected: observed}
 	out, err := plugin.RunSourceGit(ctx, s.backend.selection, plugin.GitCommand{Kind: "git.origin.fetch", Project: s.project, OriginRef: ref, CommitOID: expectedCommit}, broker)
 	if err != nil {
-		return "", err
+		return "", control.Failed(api.ReasonOrigin, err)
 	}
 	return out.CommitOID, nil
 }

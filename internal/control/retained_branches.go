@@ -18,7 +18,7 @@ func (s *Store) IsRetainedBranch(ctx context.Context, project, branch string) (b
 		return false, err
 	}
 	if !active {
-		return false, ErrNotFound
+		return false, NotFound(api.ReasonProject, api.TargetProject(project))
 	}
 	var assigned int
 	err = s.db.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=? LIMIT 1`, project, branch).Scan(&assigned)
@@ -39,11 +39,11 @@ func retainedBranches(ctx context.Context, r api.ProjectRetainedBranchesRequest,
 		return api.RetainedBranchesResult{}, err
 	}
 	if !active {
-		return api.RetainedBranchesResult{}, ErrNotFound
+		return api.RetainedBranchesResult{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
 	}
 	refs, next, err := origins.Git.ListRefsPage(ctx, r.Project, r.After, r.Limit)
 	if err != nil {
-		return api.RetainedBranchesResult{}, err
+		return api.RetainedBranchesResult{}, Failed(api.ReasonGit, err)
 	}
 	branches := make([]api.RetainedBranch, 0, len(refs))
 	for _, ref := range refs {

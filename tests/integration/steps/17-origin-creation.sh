@@ -75,12 +75,15 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
+# expect_error KIND REASON METHOD PARAMS: the request is refused with the
+# error kind, its code and the reason.
 expect_error() {
-  local kind="$1" method="$2" params="$3" code response status
+  local kind="$1" reason="$2" method="$3" params="$4" code response status
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    conflict) code=-32011 ;;
+    precondition_failed) code=-32013 ;;
+    not_found) code=-32015 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
@@ -89,11 +92,11 @@ expect_error() {
     echo "expected CLI exit 1 for $method/$kind, got $status: $response" >&2
     return 1
   fi
-  if ! jq -e --arg kind "$kind" --argjson code "$code" \
+  if ! jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
+     .error.message==$kind and .error.code==$code and .error.data.reason==$reason' \
     <<< "$response" >/dev/null; then
-    printf 'unexpected %s response, expected %s: %.2048s\n' "$method" "$kind" "$response" >&2
+    printf 'unexpected %s response, expected %s %s: %.2048s\n' "$method" "$kind" "$reason" "$response" >&2
     return 1
   fi
 }
@@ -308,7 +311,7 @@ wait_operation "$failed_id" blocked | jq -e \
   '.result.operation.phase=="repo-pending" and .result.operation.committed==false and
    (.result.operation.diagnostic|length>0)' >/dev/null
 rpc project.list '{"limit":100}' | jq -e '.result.projects==[]' >/dev/null
-expect_error busy project.create '{"key":"origin-full","project":"other"}'
+expect_error invalid key_reused project.create '{"key":"origin-full","project":"other"}'
 stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
@@ -334,11 +337,11 @@ git -C "$full" update-ref refs/heads/main "$second"
 stale_request=$(jq -nc --arg oid "$first" \
   '{key:"stale-source",project:"origin-full",branch:"stale",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid}')
-expect_error busy session.create "$stale_request"
-expect_error busy session.create "$(jq -nc --arg oid "$first" \
+expect_error precondition_failed changed session.create "$stale_request"
+expect_error precondition_failed changed session.create "$(jq -nc --arg oid "$first" \
   '{key:"missing-source",project:"origin-full",branch:"missing",choice:"new",
     origin_ref:"refs/heads/absent",expected_commit_oid:$oid}')"
-expect_error busy session.create "$(jq -nc --arg oid "$second" \
+expect_error precondition_failed changed session.create "$(jq -nc --arg oid "$second" \
   '{key:"changed-reviewed-origin",project:"origin-full",branch:"review-refused",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid,expected_origin_url:"ssh://changed.invalid/repo"}')"
 rpc system.inspect | jq -e '.result.sessions==0 and .result.operations==1' >/dev/null
@@ -374,7 +377,7 @@ release_on_running "$empty_uuid" "$empty_id"
 wait_operation "$empty_id" completed >/dev/null
 wait_ready "$empty_uuid"
 test "$(rpc project.create "$empty_request" | jq -er '.result.operation.session_uuid')" = "$empty_uuid"
-expect_error busy project.create "$(jq -nc --arg url "$empty_url" \
+expect_error conflict project_exists project.create "$(jq -nc --arg url "$empty_url" \
   '{key:"second-empty-bootstrap",project:"origin-empty",url:$url}')"
 rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==2 and .result.operations==3' >/dev/null
 rpc origin.inspect '{"project":"origin-empty"}' | jq -e --arg url "$empty_url" \
@@ -385,7 +388,7 @@ if exec_p "$empty_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out"
   echo 'empty origin gained an artificial root commit' >&2
   exit 1
 fi
-expect_error unavailable session.create '{"key":"before-first-push","project":"origin-empty","branch":"early","choice":"new","source":"refs/heads/main"}'
+expect_error not_found source session.create '{"key":"before-first-push","project":"origin-empty","branch":"early","choice":"new","source":"refs/heads/main"}'
 rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==2 and .result.operations==3' >/dev/null
 branches origin-empty | jq -e '.result.refs==[]' >/dev/null
 exec_p "$empty_uuid" git config user.name P
@@ -432,7 +435,7 @@ replacement=$(rpc origin.change "$(jq -nc --arg old "$full_url" --arg url "$empt
   '{key:"replace-after-capture",project:"origin-full",kind:"set",expected_url:$old,url:$url}')")
 jq -e --arg url "$empty_url" '.result.origin | .url==$url and .status=="fresh" and .ref_count==0' \
   <<< "$replacement" >/dev/null
-expect_error busy session.create "$(jq -nc --arg oid "$first" \
+expect_error precondition_failed changed session.create "$(jq -nc --arg oid "$first" \
   '{key:"after-replacement",project:"origin-full",branch:"new-after",choice:"new",
     origin_ref:"refs/tags/v1",expected_commit_oid:$oid}')"
 write_ssh_config 1 "$step_dir/missing-key"
@@ -452,7 +455,7 @@ wait_ready "$branch_uuid"
 test "$(exec_p "$branch_uuid" git rev-parse HEAD)" = "$second"
 test "$(exec_p "$branch_uuid" git symbolic-ref -q HEAD)" = refs/heads/from-main
 test "$(wc -l < "$step_dir/origin.trace")" -eq "$trace_before"
-expect_error busy session.create "$(jq -nc --arg oid "$first" \
+expect_error invalid key_reused session.create "$(jq -nc --arg oid "$first" \
   '{key:"branch-source",project:"origin-full",branch:"from-main",choice:"new",
     origin_ref:"refs/heads/main",expected_commit_oid:$oid}')"
 

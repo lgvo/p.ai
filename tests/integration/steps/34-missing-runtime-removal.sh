@@ -22,13 +22,17 @@ host_git=$(command -v git)
 
 inc() { timeout 60 "$incus_real" --force-local --project user-1000 "$@"; }
 rpc() { timeout 35 p api "$socket" "$@"; }
-expect_busy() {
-  local method="$1" params="$2" response status=0
+# expect_refusal METHOD PARAMS KIND REASON: the request is refused with the
+# error kind KIND, its code and REASON about this test's session.
+expect_refusal() {
+  local method="$1" params="$2" kind="$3" reason="$4" response status=0
   response=$(rpc "$method" "$params") || status=$?
   test "$status" -eq 1
-  jq -e '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-    .error.code== -32003 and .error.kind=="busy" and
-    (.error.message|type=="string" and length>0)' <<< "$response" >/dev/null
+  jq -e --arg kind "$kind" --arg reason "$reason" --arg target "session/$uuid" '
+    {conflict: -32011, precondition_failed: -32013} as $codes |
+    .jsonrpc=="2.0" and .id==2 and (has("result")|not) and
+    .error.message==$kind and .error.code==$codes[$kind] and .error.data.reason==$reason and
+    (.error.message!="conflict" or .error.data.target==$target)' <<< "$response" >/dev/null
 }
 guest() {
   inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
@@ -240,14 +244,15 @@ inc exec "p-$uuid_b" --user 1000 --group 1000 --cwd /workspace --env HOME=/home/
   /run/current-system/sw/bin/bash -c 'printf sibling-dummy > /home/p/.codex/auth.json; chmod 0600 /home/p/.codex/auth.json'
 
 # An external rename leaves the same UUID elsewhere in the confined project.
-# Missing deterministic name must not yield permission to duplicate/adopt it.
+# Missing deterministic name must not yield permission to duplicate/adopt it:
+# the renamed container still carries the session's identity.
 rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
 renamed="p-renamed-$uuid"
 inc rename "p-$uuid" "$renamed"
 renamed_identity=$(inc list "^$renamed$" --format json | jq -er '.[0].config["volatile.uuid"]')
 for removal_kind in discard delete; do
-  expect_busy session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
-    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')"
+  expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
+    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')" conflict runtime_present
 done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null
@@ -282,13 +287,13 @@ inc init "$base_image" "$competing" --profile default \
   --config security.idmap.isolated=true --config security.privileged=false \
   --config security.nesting=false --config "user.p.session_uuid=$uuid"
 competing_identity=$(inc list "^$competing$" --format json | jq -er '.[0].config["volatile.uuid"]')
-expect_busy session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
-  '{key:"discard-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
-expect_busy session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$delete_token" \
-  '{key:"delete-stale-runtime",uuid:$uuid,confirmation_token:$token}')"
+expect_refusal session.discard "$(jq -nc --arg uuid "$uuid" --arg token "$discard_token" \
+  '{key:"discard-stale-runtime",uuid:$uuid,confirmation_token:$token}')" precondition_failed changed
+expect_refusal session.delete "$(jq -nc --arg uuid "$uuid" --arg token "$delete_token" \
+  '{key:"delete-stale-runtime",uuid:$uuid,confirmation_token:$token}')" precondition_failed changed
 for removal_kind in discard delete; do
-  expect_busy session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
-    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')"
+  expect_refusal session.removal.preview "$(jq -nc --arg uuid "$uuid" --arg kind "$removal_kind" \
+    '{uuid:$uuid,kind:$kind,acknowledge_missing_runtime:true}')" conflict runtime_present
 done
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
   jq -e '.result.session.registry_state=="established"' >/dev/null

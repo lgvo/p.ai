@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 )
@@ -18,7 +19,7 @@ type HelloRequest struct {
 
 func (r HelloRequest) Validate() error {
 	if r.Protocol == "" || len(r.Protocol) > 64 {
-		return invalid("system.hello requires a protocol of at most 64 bytes")
+		return invalid("protocol")
 	}
 	return nil
 }
@@ -38,7 +39,7 @@ type CancelRequest struct {
 
 func (r CancelRequest) Validate() error {
 	if _, err := CanonicalID(r.ID); err != nil {
-		return invalid("rpc.cancel requires the id of a request")
+		return invalid("id")
 	}
 	return nil
 }
@@ -47,7 +48,7 @@ func (r CancelRequest) Validate() error {
 // of at most 128 bytes or an integer.
 func CanonicalID(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return "", invalid("missing id")
+		return "", errors.New("missing id")
 	}
 	var value any
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -58,18 +59,18 @@ func CanonicalID(raw json.RawMessage) (string, error) {
 	switch v := value.(type) {
 	case string:
 		if len(v) > 128 {
-			return "", invalid("id is too long")
+			return "", errors.New("id is too long")
 		}
 		encoded, _ := json.Marshal(v)
 		return string(encoded), nil
 	case json.Number:
 		n, err := v.Int64()
 		if err != nil {
-			return "", invalid("id must be an integer")
+			return "", errors.New("id must be an integer")
 		}
 		return strconv.FormatInt(n, 10), nil
 	default:
-		return "", invalid("id must be a string or integer")
+		return "", errors.New("id must be a string or integer")
 	}
 }
 
@@ -79,8 +80,11 @@ type ProjectListRequest struct {
 }
 
 func (r ProjectListRequest) Validate() error {
-	if r.Limit < 1 || r.Limit > 100 || r.After != "" && !ValidProject(r.After) {
-		return invalid("project.list requires limit 1..100 and a project cursor")
+	switch {
+	case r.Limit < 1 || r.Limit > 100:
+		return invalid("limit")
+	case r.After != "" && !ValidProject(r.After):
+		return invalid("after")
 	}
 	return nil
 }
@@ -92,10 +96,7 @@ type ProjectBranchesRequest struct {
 }
 
 func (r ProjectBranchesRequest) Validate() error {
-	if !ValidProject(r.Project) || r.Limit < 1 || r.Limit > 8 || !validBranchCursor(r.After) {
-		return invalid("project.branches requires project, limit 1..8 and a branch ref cursor")
-	}
-	return nil
+	return validBranchPage(r.Project, r.After, r.Limit)
 }
 
 // OriginChangeRequest sets or removes a project's origin. ExpectedURL is the
@@ -109,9 +110,17 @@ type OriginChangeRequest struct {
 }
 
 func (r OriginChangeRequest) Validate() error {
-	if !validKey(r.Key) || !ValidProject(r.Project) || len(r.ExpectedURL) > 2048 || len(r.URL) > 2048 ||
-		!(r.Kind == "remove" && r.URL == "" || r.Kind == "set" && r.URL != "") {
-		return invalid("invalid origin.change request")
+	switch {
+	case !validKey(r.Key):
+		return invalid("key")
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case r.Kind != "remove" && r.Kind != "set":
+		return invalid("kind")
+	case len(r.ExpectedURL) > 2048:
+		return invalid("expected_url")
+	case len(r.URL) > 2048 || (r.Kind == "remove") != (r.URL == ""):
+		return invalid("url")
 	}
 	return nil
 }
@@ -130,7 +139,7 @@ func (r OriginInspectRequest) Validate() error { return validOriginProject(r.Pro
 
 func validOriginProject(project string) error {
 	if !ValidProject(project) {
-		return invalid("invalid origin project")
+		return invalid("project")
 	}
 	return nil
 }
@@ -142,8 +151,13 @@ type OriginSourcesRequest struct {
 }
 
 func (r OriginSourcesRequest) Validate() error {
-	if !ValidProject(r.Project) || r.Limit < 1 || r.Limit > 16 || r.After != "" && !validOriginRef(r.After) {
-		return invalid("invalid origin source page")
+	switch {
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case r.Limit < 1 || r.Limit > 16:
+		return invalid("limit")
+	case r.After != "" && !validOriginRef(r.After):
+		return invalid("after")
 	}
 	return nil
 }
@@ -176,17 +190,25 @@ type OriginPublishRequest struct {
 
 func (r OriginPublishRequest) Validate() error {
 	if !validKey(r.Key) {
-		return invalid("origin.publish requires a key of 1..128 bytes")
+		return invalid("key")
 	}
 	return validPublication(r.ExpectedOriginURL, r.Project, r.Kind, r.Source, r.SourceOID, r.DestinationRef)
 }
 
 func validPublication(url, project, kind, source, oid, destination string) error {
-	ok := url != "" && len(url) <= 2048 && ValidProject(project) && ValidOID(oid) &&
-		strings.HasPrefix(destination, "refs/heads/") && validOriginRef(destination) &&
-		(kind == "session" && len(source) == 36 || kind == "retained" && ValidBranch(source))
-	if !ok {
-		return invalid("invalid publication request; the destination must be a branch")
+	switch {
+	case url == "" || len(url) > 2048:
+		return invalid("expected_origin_url")
+	case !ValidProject(project):
+		return invalid("project")
+	case kind != "session" && kind != "retained":
+		return invalid("kind")
+	case !(kind == "session" && len(source) == 36 || kind == "retained" && ValidBranch(source)):
+		return invalid("source")
+	case !ValidOID(oid):
+		return invalid("source_oid")
+	case !strings.HasPrefix(destination, "refs/heads/") || !validOriginRef(destination):
+		return invalid("destination_ref")
 	}
 	return nil
 }
@@ -198,10 +220,7 @@ type ProjectRetainedBranchesRequest struct {
 }
 
 func (r ProjectRetainedBranchesRequest) Validate() error {
-	if !ValidProject(r.Project) || r.Limit < 1 || r.Limit > 8 || !validBranchCursor(r.After) {
-		return invalid("invalid retained branch page")
-	}
-	return nil
+	return validBranchPage(r.Project, r.After, r.Limit)
 }
 
 // ProjectCreateRequest creates a blank project, or one with an origin when
@@ -213,8 +232,13 @@ type ProjectCreateRequest struct {
 }
 
 func (r ProjectCreateRequest) Validate() error {
-	if r.Key == "" || !ValidProject(r.Project) || len(r.URL) > 2048 {
-		return invalid("project.create requires key and project")
+	switch {
+	case r.Key == "":
+		return invalid("key")
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case len(r.URL) > 2048:
+		return invalid("url")
 	}
 	return nil
 }
@@ -235,12 +259,24 @@ type SessionCreateRequest struct {
 }
 
 func (r SessionCreateRequest) Validate() error {
-	ok := validKey(r.Key) && ValidProject(r.Project) && ValidBranch(r.Branch) && len(r.ExpectedOriginURL) <= 2048 && (r.ExpectedOriginURL == "" || r.OriginRef != "") &&
-		((r.Choice == "existing" && r.Source == "" && r.OriginRef == "" && r.ExpectedCommitOID == "") ||
-			(r.Choice == "new" && r.OriginRef == "" && r.ExpectedCommitOID == "" && r.Source != "" && len(r.Source) <= 255) ||
-			(r.Choice == "new" && r.Source == "" && validOriginRef(r.OriginRef) && ValidOID(r.ExpectedCommitOID)))
-	if !ok {
-		return invalid("invalid session.create request")
+	switch {
+	case !validKey(r.Key):
+		return invalid("key")
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case !ValidBranch(r.Branch):
+		return invalid("branch")
+	case r.Choice != "existing" && r.Choice != "new":
+		return invalid("choice")
+	case len(r.ExpectedOriginURL) > 2048 || r.ExpectedOriginURL != "" && r.OriginRef == "":
+		return invalid("expected_origin_url")
+	case r.Choice == "existing" && r.Source != "", r.Choice == "new" && r.OriginRef == "" && (r.Source == "" || len(r.Source) > 255),
+		r.Choice == "new" && r.OriginRef != "" && r.Source != "":
+		return invalid("source")
+	case r.Choice == "existing" && r.OriginRef != "", r.OriginRef != "" && !validOriginRef(r.OriginRef):
+		return invalid("origin_ref")
+	case r.OriginRef == "" && r.ExpectedCommitOID != "", r.OriginRef != "" && !ValidOID(r.ExpectedCommitOID):
+		return invalid("expected_commit_oid")
 	}
 	return nil
 }
@@ -270,10 +306,10 @@ type SessionAttachRequest struct {
 func (r SessionAttachRequest) Validate() error { return validSessionID(r.UUID) }
 
 // validSessionID admits a 36-byte session UUID; the lifecycle reports one it
-// does not know as unavailable.
+// does not know as not_found.
 func validSessionID(id string) error {
 	if len(id) != 36 {
-		return invalid("session UUID required")
+		return invalid("uuid")
 	}
 	return nil
 }
@@ -284,10 +320,7 @@ type SessionListRequest struct {
 }
 
 func (r SessionListRequest) Validate() error {
-	if r.Limit < 1 || r.Limit > 8 || len(r.After) > 128 {
-		return invalid("session.list requires limit 1..8")
-	}
-	return nil
+	return validPage(r.Limit, 8, r.After)
 }
 
 type OperationListRequest struct {
@@ -296,10 +329,7 @@ type OperationListRequest struct {
 }
 
 func (r OperationListRequest) Validate() error {
-	if r.Limit < 1 || r.Limit > 20 || len(r.After) > 128 {
-		return invalid("operation.list requires limit 1..20")
-	}
-	return nil
+	return validPage(r.Limit, 20, r.After)
 }
 
 type OperationInspectRequest struct {
@@ -316,7 +346,7 @@ func (r OperationRetryRequest) Validate() error { return validOperationID(r.ID) 
 
 func validOperationID(id string) error {
 	if id == "" || len(id) > 128 {
-		return invalid("operation ID required")
+		return invalid("id")
 	}
 	return nil
 }
@@ -330,8 +360,11 @@ type SessionRemovalPreviewRequest struct {
 }
 
 func (r SessionRemovalPreviewRequest) Validate() error {
-	if !ValidUUID(r.UUID) || r.Kind != "discard" && r.Kind != "delete" {
-		return invalid("invalid session.removal.preview request")
+	switch {
+	case !ValidUUID(r.UUID):
+		return invalid("uuid")
+	case r.Kind != "discard" && r.Kind != "delete":
+		return invalid("kind")
 	}
 	return nil
 }
@@ -343,7 +376,7 @@ type SessionDiscardRequest struct {
 }
 
 func (r SessionDiscardRequest) Validate() error {
-	return validRemoval("session.discard", r.Key, r.UUID, r.ConfirmationToken)
+	return validRemoval(r.Key, r.UUID, r.ConfirmationToken)
 }
 
 type SessionDeleteRequest struct {
@@ -353,12 +386,17 @@ type SessionDeleteRequest struct {
 }
 
 func (r SessionDeleteRequest) Validate() error {
-	return validRemoval("session.delete", r.Key, r.UUID, r.ConfirmationToken)
+	return validRemoval(r.Key, r.UUID, r.ConfirmationToken)
 }
 
-func validRemoval(method, key, uuid, token string) error {
-	if !validKey(key) || !ValidUUID(uuid) || !ValidToken(token) {
-		return invalid("invalid " + method + " request")
+func validRemoval(key, uuid, token string) error {
+	switch {
+	case !validKey(key):
+		return invalid("key")
+	case !ValidUUID(uuid):
+		return invalid("uuid")
+	case !ValidToken(token):
+		return invalid("confirmation_token")
 	}
 	return nil
 }
@@ -371,8 +409,15 @@ type SessionRenameRequest struct {
 }
 
 func (r SessionRenameRequest) Validate() error {
-	if !validKey(r.Key) || !ValidUUID(r.UUID) || !ValidBranch(r.NewBranch) || !ValidOID(r.ExpectedOldTip) {
-		return invalid("invalid session.rename request")
+	switch {
+	case !validKey(r.Key):
+		return invalid("key")
+	case !ValidUUID(r.UUID):
+		return invalid("uuid")
+	case !ValidBranch(r.NewBranch):
+		return invalid("new_branch")
+	case !ValidOID(r.ExpectedOldTip):
+		return invalid("expected_old_tip")
 	}
 	return nil
 }
@@ -386,9 +431,17 @@ type ProjectRetainedRenameRequest struct {
 }
 
 func (r ProjectRetainedRenameRequest) Validate() error {
-	if !validKey(r.Key) || !ValidProject(r.Project) || !ValidBranch(r.OldBranch) || !ValidBranch(r.NewBranch) ||
-		r.OldBranch == r.NewBranch || !ValidOID(r.ExpectedOldTip) {
-		return invalid("invalid project.retained.rename request")
+	switch {
+	case !validKey(r.Key):
+		return invalid("key")
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case !ValidBranch(r.OldBranch):
+		return invalid("old_branch")
+	case !ValidBranch(r.NewBranch) || r.OldBranch == r.NewBranch:
+		return invalid("new_branch")
+	case !ValidOID(r.ExpectedOldTip):
+		return invalid("expected_old_tip")
 	}
 	return nil
 }
@@ -401,12 +454,15 @@ type ProjectDeletePreviewRequest struct {
 }
 
 func (r ProjectDeletePreviewRequest) Validate() error {
-	if !ValidProject(r.Project) || len(r.AcknowledgeMissing) > 4 {
-		return invalid("invalid project deletion preview")
+	if !ValidProject(r.Project) {
+		return invalid("project")
+	}
+	if len(r.AcknowledgeMissing) > 4 {
+		return invalid("acknowledge_missing")
 	}
 	for _, uuid := range r.AcknowledgeMissing {
 		if !ValidUUID(uuid) {
-			return invalid("invalid missing runtime acknowledgement")
+			return invalid("acknowledge_missing")
 		}
 	}
 	return nil
@@ -419,8 +475,13 @@ type ProjectDeleteConfirmRequest struct {
 }
 
 func (r ProjectDeleteConfirmRequest) Validate() error {
-	if !ValidProject(r.Project) || !validKey(r.Key) || !ValidToken(r.ConfirmationToken) {
-		return invalid("invalid project deletion confirmation")
+	switch {
+	case !validKey(r.Key):
+		return invalid("key")
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case !ValidToken(r.ConfirmationToken):
+		return invalid("confirmation_token")
 	}
 	return nil
 }
@@ -431,8 +492,11 @@ type ProjectRetainedDeletePreviewRequest struct {
 }
 
 func (r ProjectRetainedDeletePreviewRequest) Validate() error {
-	if !ValidProject(r.Project) || !ValidBranch(r.Branch) {
-		return invalid("invalid retained delete preview request")
+	switch {
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case !ValidBranch(r.Branch):
+		return invalid("branch")
 	}
 	return nil
 }
@@ -445,8 +509,15 @@ type ProjectRetainedDeleteConfirmRequest struct {
 }
 
 func (r ProjectRetainedDeleteConfirmRequest) Validate() error {
-	if !validKey(r.Key) || !ValidProject(r.Project) || !ValidBranch(r.Branch) || !ValidToken(r.ConfirmationToken) {
-		return invalid("invalid retained delete confirmation request")
+	switch {
+	case !validKey(r.Key):
+		return invalid("key")
+	case !ValidProject(r.Project):
+		return invalid("project")
+	case !ValidBranch(r.Branch):
+		return invalid("branch")
+	case !ValidToken(r.ConfirmationToken):
+		return invalid("confirmation_token")
 	}
 	return nil
 }
@@ -472,10 +543,10 @@ func (r SessionCreateReplacePreviewRequest) Create() SessionCreateRequest {
 }
 
 func (r SessionCreateReplacePreviewRequest) Validate() error {
-	if !ValidUUID(r.OldUUID) || r.Create().Validate() != nil {
-		return invalid("invalid create replacement preview")
+	if !ValidUUID(r.OldUUID) {
+		return invalid("old_uuid")
 	}
-	return nil
+	return r.Create().Validate()
 }
 
 type SessionCreateReplaceConfirmRequest struct {
@@ -485,10 +556,10 @@ type SessionCreateReplaceConfirmRequest struct {
 }
 
 func (r SessionCreateReplaceConfirmRequest) Validate() error {
-	if !ValidUUID(r.OldUUID) || !validKey(r.Key) || !ValidToken(r.ConfirmationToken) {
-		return invalid("invalid create replacement confirmation")
+	if !ValidUUID(r.OldUUID) {
+		return invalid("old_uuid")
 	}
-	return nil
+	return validConfirmation(r.Key, r.ConfirmationToken)
 }
 
 type SessionCreateCleanupPreviewRequest struct {
@@ -497,7 +568,7 @@ type SessionCreateCleanupPreviewRequest struct {
 
 func (r SessionCreateCleanupPreviewRequest) Validate() error {
 	if !ValidUUID(r.UUID) {
-		return invalid("invalid failed creation cleanup preview")
+		return invalid("uuid")
 	}
 	return nil
 }
@@ -509,10 +580,10 @@ type SessionCreateCleanupConfirmRequest struct {
 }
 
 func (r SessionCreateCleanupConfirmRequest) Validate() error {
-	if !ValidUUID(r.UUID) || !validKey(r.Key) || !ValidToken(r.ConfirmationToken) {
-		return invalid("invalid failed creation cleanup confirmation")
+	if !ValidUUID(r.UUID) {
+		return invalid("uuid")
 	}
-	return nil
+	return validConfirmation(r.Key, r.ConfirmationToken)
 }
 
 type SessionServicesRequest struct {
@@ -529,7 +600,7 @@ type SessionServiceActionRequest struct {
 
 func (r SessionServiceActionRequest) Validate() error {
 	if r.Action != "start" && r.Action != "stop" && r.Action != "restart" {
-		return invalid("service action must be start, stop or restart")
+		return invalid("action")
 	}
 	return validServiceName(r.UUID, r.Name)
 }
@@ -543,7 +614,7 @@ func (r SessionServiceLogsRequest) Validate() error { return validServiceName(r.
 
 func validServiceSession(uuid string) error {
 	if !ValidUUID(uuid) {
-		return invalid("services require a session UUID")
+		return invalid("uuid")
 	}
 	return nil
 }
@@ -551,7 +622,7 @@ func validServiceSession(uuid string) error {
 // validServiceName admits only a session-user p-project-*.service unit.
 func validServiceName(uuid, name string) error {
 	if !ValidProjectServiceUnit(name) {
-		return invalid("a project service name is required")
+		return invalid("name")
 	}
 	return validServiceSession(uuid)
 }
@@ -564,7 +635,7 @@ type AttachmentClaimRequest struct {
 
 func (r AttachmentClaimRequest) Validate() error {
 	if len(r.Token) != 64 {
-		return invalid("invalid lifecycle request")
+		return invalid("token")
 	}
 	return nil
 }
@@ -577,7 +648,7 @@ type AttachmentConfirmRequest struct {
 
 func (r AttachmentConfirmRequest) Validate() error {
 	if len(r.Operation) != len("/1.0/operations/")+36 {
-		return invalid("invalid lifecycle request")
+		return invalid("operation")
 	}
 	return nil
 }
@@ -594,7 +665,7 @@ type SessionRPCRequest struct {
 
 func (r SessionRPCRequest) Validate() error {
 	if r.V != SessionRPCVersion {
-		return invalid("params must be {\"v\":1}")
+		return invalid("v")
 	}
 	return nil
 }

@@ -74,7 +74,7 @@ stop_when_idle() {
    return
   else
    status=$?
-   if ! test "$status" -eq 1 || ! jq -e '.error.kind=="busy" and .error.code == -32003 and (has("result")|not)' <<< "$response" >/dev/null; then
+   if ! test "$status" -eq 1 || ! jq -e '.error.message=="retry" and .error.code == -32010 and .error.data.reason=="session_held" and (has("result")|not)' <<< "$response" >/dev/null; then
     jq -c '.error' <<< "$response" >&2 || true
     return 1
    fi

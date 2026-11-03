@@ -68,12 +68,15 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
+# expect_error KIND REASON METHOD PARAMS [NAME=VALUE]: the request is refused
+# with error kind KIND (the error's message), its code and data.reason
+# REASON; NAME=VALUE also checks data.NAME, such as field=key.
 expect_error() {
-  local kind="$1" method="$2" params="$3" code response status
+  local kind="$1" reason="$2" method="$3" params="$4" detail="${5:-}" code response status
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    conflict) code=-32011 ;;
+    precondition_failed) code=-32013 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
@@ -82,9 +85,11 @@ expect_error() {
     echo "expected CLI exit 1 for $method/$kind, got $status: $response" >&2
     return 1
   fi
-  jq -e --arg kind "$kind" --argjson code "$code" \
+  jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" \
+    --arg name "${detail%%=*}" --arg value "${detail#*=}" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
+     .error.message==$kind and .error.code==$code and .error.data.reason==$reason and
+     ($name=="" or .error.data[$name]==$value)' \
     <<< "$response" >/dev/null
 }
 operation_id() { jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"; }
@@ -284,8 +289,10 @@ change() {
 }
 preview_request=$(request '' session "$uuid" refs/heads/main)
 trace_before=$(wc -l < "$trace")
-expect_error invalid_params origin.publication.preview "$(jq 'del(.expected_origin_url)' <<< "$preview_request")"
-expect_error busy origin.publication.preview "$(request '' retained work refs/heads/main)"
+expect_error invalid param origin.publication.preview "$(jq 'del(.expected_origin_url)' <<< "$preview_request")" \
+  field=expected_origin_url
+expect_error conflict branch_assigned origin.publication.preview "$(request '' retained work refs/heads/main)" \
+  target=project/publication:branch/work
 test "$(wc -l < "$trace")" -eq "$trace_before"
 rpc origin.publication.preview "$preview_request" | jq -e --arg oid "$source" --arg first "$first" \
   --arg uuid "$uuid" --arg url "$full_url" '.result.preview |
@@ -338,11 +345,12 @@ stop_process "$daemon_pid"
 daemon_pid=
 start_daemon
 trace_before=$(wc -l < "$trace")
-expect_error busy origin.publication.preview "$stale_preview"
+expect_error precondition_failed changed origin.publication.preview "$stale_preview"
 stale_publish=$(request stale-origin session "$uuid" refs/heads/reviewed)
-expect_error busy origin.publish "$stale_publish"
+expect_error precondition_failed changed origin.publish "$stale_publish"
 # A prepared key cannot be retargeted to the replacement URL either.
-expect_error busy origin.publish "$(request stale-origin session "$uuid" refs/heads/reviewed "$empty_url")"
+expect_error invalid key_reused origin.publish "$(request stale-origin session "$uuid" refs/heads/reviewed "$empty_url")" \
+  field=key
 test "$(wc -l < "$trace")" -eq "$trace_before"
 test -z "$(git -C "$empty" for-each-ref --format='%(refname)')"
 test "$(rpc origin.publish "$publish_request" | jq -c '.result')" = "$(jq -c '.result' <<< "$published")"

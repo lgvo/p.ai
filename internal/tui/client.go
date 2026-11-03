@@ -22,7 +22,7 @@ func (c SocketClient) Call(ctx context.Context, method string, params, result an
 		defer conn.Close()
 		err = conn.Call(ctx, method, params, result)
 	}
-	var rpcErr *api.RPCError
+	var rpcErr *api.Error
 	if err != nil && !errors.As(err, &rpcErr) {
 		return fmt.Errorf("connection unavailable: %w (an accepted operation may still continue)", err)
 	}

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
@@ -215,7 +217,7 @@ func (g *gitBroker) commitType(ctx context.Context, oid string) error {
 		return ctx.Err()
 	}
 	if err != nil || kind != "commit" {
-		return errors.New("source is not a commit")
+		return sourceMissing("source is not a commit")
 	}
 	return nil
 }
@@ -226,9 +228,15 @@ func (g *gitBroker) reachableFromHead(ctx context.Context, oid string) error {
 		return ctx.Err()
 	}
 	if err != nil || !strings.HasPrefix(ref, "refs/heads/") || !validBranch(strings.TrimPrefix(ref, "refs/heads/")) {
-		return errors.New("commit is not reachable from an ordinary P head")
+		return sourceMissing("commit is not reachable from an ordinary P head")
 	}
 	return nil
+}
+
+// sourceMissing answers that a creation's source does not exist as one: it
+// is missing, not a commit, or not on an ordinary P head.
+func sourceMissing(detail string) error {
+	return &control.Refusal{Kind: api.KindNotFound, Reason: api.ReasonSource, Cause: fmt.Errorf("%w: %s", control.ErrNotFound, detail)}
 }
 
 func (g *gitBroker) ObserveSource(ctx context.Context) (string, error) {
@@ -243,7 +251,7 @@ func (g *gitBroker) ObserveSource(ctx context.Context) (string, error) {
 			return "", ctx.Err()
 		}
 		if err != nil || !validOID(oid) || allZero(oid) {
-			return "", errors.New("source branch is missing or unborn")
+			return "", sourceMissing("source branch is missing or unborn")
 		}
 	}
 	if err := g.commitType(ctx, oid); err != nil {

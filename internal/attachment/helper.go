@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
 )
 
 // Helper serves only its inherited private socket. It is a separate temporary
@@ -28,7 +29,7 @@ func Helper(file *os.File) error {
 func runHelper(c *carrier) (resultErr error) {
 	defer func() {
 		if resultErr != nil {
-			_ = c.write(carrierError, []byte(resultErr.Error()))
+			_ = c.write(carrierError, []byte(errtext.Sentence(resultErr)))
 		}
 	}()
 	c.SetReadDeadline(time.Now().Add(5 * time.Second))

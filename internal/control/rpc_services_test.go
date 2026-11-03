@@ -38,7 +38,7 @@ func TestServicesRPCClosedAuthority(t *testing.T) {
 		{"session.service.logs", fmt.Sprintf(`{"uuid":%q,"name":"p-project-api.service","root":"/"}`, id)},
 		{"session.services", fmt.Sprintf(`{"uuid":%q,"uuid":%q}`, id, id)},
 	} {
-		if _, e := h(context.Background(), test.method, json.RawMessage(test.raw)); e == nil || e.Kind != "invalid_params" {
+		if _, e := h(context.Background(), test.method, json.RawMessage(test.raw)); e == nil || e.Kind() != "invalid" {
 			t.Fatalf("accepted %s: %+v", test.raw, e)
 		}
 	}

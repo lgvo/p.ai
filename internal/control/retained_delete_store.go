@@ -55,7 +55,7 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 		return s.GetOperationByKey(ctx, r.Key)
 	}
 	if !time.Now().Before(expires) {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Stale(api.ReasonExpired)
 	}
 	if err = verify(ctx, e); err != nil {
 		return api.Operation{}, err
@@ -68,20 +68,20 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 	var row int
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=? AND registry_state='active'`, r.Project).Scan(&row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return api.Operation{}, ErrNotFound
+		return api.Operation{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
 	}
 	if err != nil {
 		return api.Operation{}, err
 	}
 	err = tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=?`, r.Project, r.Branch).Scan(&row)
 	if err == nil {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Conflict(api.ReasonBranchAssigned, api.TargetBranch(r.Project, r.Branch))
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return api.Operation{}, err
 	}
 	if !time.Now().Before(expires) {
-		return api.Operation{}, ErrConflict
+		return api.Operation{}, Stale(api.ReasonExpired)
 	}
 	id, err := newUUID()
 	if err != nil {
@@ -96,7 +96,7 @@ func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest
 		return api.Operation{}, classifyWrite(err)
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, r.Project, r.Branch, id); err != nil {
-		return api.Operation{}, classifyWrite(err)
+		return api.Operation{}, withTarget(classifyWrite(err), api.TargetBranch(r.Project, r.Branch))
 	}
 	if err = tx.Commit(); err != nil {
 		return api.Operation{}, err

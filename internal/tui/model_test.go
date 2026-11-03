@@ -260,6 +260,30 @@ func TestStaleServiceObservationDisablesActions(t *testing.T) {
 	}
 }
 
+// TestDaemonRefusalShowsTheClientSentence checks that a refusal from the
+// daemon, which carries codes and no text, shows the client's sentence for
+// its reason, and the kind's sentence for a reason the client does not know.
+func TestDaemonRefusalShowsTheClientSentence(t *testing.T) {
+	for _, test := range []struct {
+		err  *api.Error
+		want string
+	}{
+		{api.NewError(api.KindConflict, api.ReasonAttachmentActive), "Detach every terminal from this session first."},
+		{api.NewError(api.KindRetry, "a_new_reason"), "P is busy with this right now; try again in a moment."},
+	} {
+		m := fixture()
+		updated, _ := m.Update(actionDone{epoch: m.epoch, method: "session.stop", err: test.err})
+		if got := updated.(Model).notice; got != test.want {
+			t.Errorf("%v showed %q, want %q", test.err, got, test.want)
+		}
+	}
+	m := fixture()
+	updated, _ := m.Update(loaded{err: api.NewError(api.KindInternal, api.ReasonStore)})
+	if got := updated.(Model).notice; got != "P failed unexpectedly; the daemon's log has the cause." {
+		t.Errorf("an inventory failure showed %q", got)
+	}
+}
+
 func TestInventoryPaginationAndRPCError(t *testing.T) {
 	f := &fakeClient{}
 	f.fn = func(method string, p any) (any, error) {

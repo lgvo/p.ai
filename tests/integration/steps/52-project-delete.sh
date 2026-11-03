@@ -158,7 +158,7 @@ if loss=$(rpc workspace.loss.inspect '{}' 2> "$step_dir/api.err"); then
  echo 'workspace.loss.inspect unexpectedly answered' >&2
  exit 1
 fi
-jq -e '.error.kind=="method_not_found"' <<< "$loss" >/dev/null
+jq -e '.error.message=="method_not_found" and .error.code==-32601' <<< "$loss" >/dev/null
 wait_operation() {
  local id="$1" want="$2" result status deadline=$((SECONDS+190))
  while ((SECONDS<deadline)); do
@@ -170,22 +170,17 @@ wait_operation() {
  done
  return 1
 }
-expect_busy() {
+# expect_refused METHOD PARAMS KIND [REASON]: the request is refused with the
+# error kind KIND, its code and, when given, REASON.
+expect_refused() {
  local response status=0
  response=$(rpc "$1" "$2" 2> "$step_dir/api.err") || status=$?
- if ! test "$status" -eq 1 || ! jq -e '.error.kind=="busy" and .error.code == -32003 and (has("result")|not)' <<< "$response" >/dev/null; then
-  printf 'P_PROJECT_DELETE_EXPECT_BUSY_FAIL method=%s status=%s\n' "$1" "$status" >&2
+ if ! test "$status" -eq 1 || ! jq -e --arg kind "$3" --arg reason "${4:-}" '
+   {invalid: -32602, retry: -32010, conflict: -32011, precondition_failed: -32013, not_found: -32015} as $codes |
+   .error.message==$kind and .error.code==$codes[$kind] and ($reason=="" or .error.data.reason==$reason) and
+   (has("result")|not)' <<< "$response" >/dev/null; then
+  printf 'P_PROJECT_DELETE_EXPECT_REFUSED_FAIL method=%s status=%s want=%s/%s\n' "$1" "$status" "$3" "${4:-}" >&2
   jq -c '{error,operation:(.result.operation // {} | {id,status,phase})}' <<< "$response" | head -c 2048 >&2
-  printf '\n' >&2
-  return 1
- fi
-}
-expect_invalid() {
- local response status=0
- response=$(rpc "$1" "$2" 2> "$step_dir/api.err") || status=$?
- if ! test "$status" -eq 1 || ! jq -e '.error.kind=="invalid_params" and .error.code == -32602 and (has("result")|not)' <<< "$response" >/dev/null; then
-  printf 'P_PROJECT_DELETE_EXPECT_INVALID_FAIL method=%s status=%s\n' "$1" "$status" >&2
-  jq -c '{error}' <<< "$response" | head -c 2048 >&2
   printf '\n' >&2
   return 1
  fi
@@ -256,7 +251,7 @@ wait_operation "$other_creator" completed >/dev/null
 guest "$unrelated" /run/current-system/sw/bin/bash -c 'printf unrelated-private > /home/p/p-bulk-other'
 # Project deletion does not stop sessions: a running session refuses the review.
 inc list "^p-$work$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
-expect_busy project.delete.preview '{"project":"bulk-delete"}'
+expect_refused project.delete.preview '{"project":"bulk-delete"}' conflict session_not_stopped
 for uuid in "$main" "$work"; do
  rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" >/dev/null
  printf 'private-%s\n' "$uuid" > "$step_dir/private-$uuid"
@@ -272,13 +267,13 @@ other_repo="$state/repositories/$other_repo_name.git"
 other_key=$(sha256sum "$state/session_keys/$unrelated" | cut -d' ' -f1)
 git -C "$repo" update-ref refs/heads/retained "$tip"
 # The removed loss inspection parameter is refused by strict decoding.
-expect_invalid project.delete.preview '{"project":"bulk-delete","loss_operations":{}}'
+expect_refused project.delete.preview '{"project":"bulk-delete","loss_operations":{}}' invalid param
 review=$(preview)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 jq -e --arg main "$main" --arg work "$work" '.result.preview|.outcome=="delete_project_and_all_p_data" and (.sessions|length)==2 and ([.sessions[].session.uuid]|sort)==([$main,$work]|sort) and .attachments==[] and (.branch_loss.p_refs|length)==3 and (.branch_loss.commits_losing_p_reachability|length)==1 and (.branch_loss|has("origin")|not) and (.sessions|all(.runtime|.condition=="present" and .original_status=="Stopped" and .runtime_data_lost==true and .incus_project=="user-1000" and (.incus_uuid|length)>0 and (.generation|length)>0 and (.image_fingerprint|length)==64 and (has("loss") or has("loss_operation_id") or has("fingerprint") or has("observed_at")|not))) and (.warnings|any(contains("private"))) and (.warnings|any(contains("credentials")))' <<< "$review" >/dev/null
 # A new retained ref changes aggregate review and refuses before retirement.
 git -C "$repo" update-ref refs/heads/changed-after-preview "$tip"
-expect_busy project.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-ref",project:"bulk-delete",confirmation_token:$token}')"
+expect_refused project.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-ref",project:"bulk-delete",confirmation_token:$token}')" precondition_failed changed
 assert_project_active
 for uuid in "$main" "$work"; do
  rm -f -- "$step_dir/pulled"
@@ -319,8 +314,8 @@ stop_daemon
 start_daemon
 rpc project.list '{"limit":100}' | jq -e '.result.projects|any(.path=="bulk-delete" and .registry_state=="deleting")' >/dev/null
 for uuid in "$main" "$work"; do rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.registry_state=="removing"' >/dev/null; done
-expect_busy session.create '{"key":"closed-new","project":"bulk-delete","branch":"closed","choice":"new","source":"refs/heads/main"}'
-expect_busy session.start "$(jq -nc --arg uuid "$second" '{uuid:$uuid}')"
+expect_refused session.create '{"key":"closed-new","project":"bulk-delete","branch":"closed","choice":"new","source":"refs/heads/main"}' conflict project_deleting
+expect_refused session.start "$(jq -nc --arg uuid "$second" '{uuid:$uuid}')" conflict session_not_established
 rpc session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}' | jq -e '.result.operation.status=="completed"' >/dev/null
 # Explicit fixture competing name; the original exact runtime is parked and
 # preserved. Neither fixture mutation is performed by P's deletion worker.
@@ -356,8 +351,9 @@ test -d "$other_repo"
 test "$(sha256sum "$state/session_keys/$unrelated" | cut -d' ' -f1)" = "$other_key"
 test "$(guest "$unrelated" /run/current-system/sw/bin/cat /home/p/p-bulk-other)" = unrelated-private
 inc image list --format json | jq -e --arg base "$base" 'any(.fingerprint==$base)' >/dev/null
-expect_busy project.create '{"key":"bulk-bootstrap","project":"bulk-delete"}'
-expect_busy session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}'
+# The deleted project's request keys are retired: reusing one is refused.
+expect_refused project.create '{"key":"bulk-bootstrap","project":"bulk-delete"}' invalid key_reused
+expect_refused session.create '{"key":"bulk-work","project":"bulk-delete","branch":"work","choice":"new","source":"refs/heads/main"}' invalid key_reused
 rpc project.delete.confirm "$(jq -nc --arg token "$token" '{key:"bulk-confirm",project:"bulk-delete",confirmation_token:$token}')" | jq -e --arg id "$deletion" '.result.operation.id==$id and .result.operation.status=="completed"' >/dev/null
 test "$(wc -l < "$step_dir/source-effects")" -eq 2
 test "$(awk '$1!="delete"{n++} END{print n+0}' "$step_dir/source-effects")" -eq 0

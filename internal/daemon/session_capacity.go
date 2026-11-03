@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 
+	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
@@ -16,7 +17,7 @@ import (
 func (l *lifecycle) observeSessionCapacity(ctx context.Context, reservations []control.CapacityReservation) (control.CapacityObservation, error) {
 	physical, err := l.runtime.SessionCapacity(ctx)
 	if err != nil {
-		return control.CapacityObservation{}, err
+		return control.CapacityObservation{}, control.Failed(api.ReasonRuntime, err)
 	}
 	return associateSessionCapacity(ctx, reservations, physical, l.instanceID, l.cfg.EndpointPrefix,
 		l.runtime.InspectCreated, l.runtime.InspectBuilder, l.builderPublicIPv4, l.publicSessionIPv4)

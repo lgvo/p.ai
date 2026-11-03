@@ -97,7 +97,7 @@ func keyRecordsRequest(ctx context.Context, q queryRower, key, kind string, requ
 		return false, err
 	}
 	if recordedKind != kind || recordedSHA != digest(request) {
-		return false, ErrConflict
+		return false, KeyReused()
 	}
 	return true, nil
 }

@@ -35,17 +35,17 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 	check := func(context.Context) (string, error) { verified = true; return newTip, nil }
 	bad := intent
 	bad.OldEvidenceSHA256 = strings.Repeat("0", 64)
-	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) {
+	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) || !answers(e, api.KindPreconditionFailed, api.ReasonChanged) {
 		t.Fatalf("changed old evidence admitted: %v", e)
 	}
 	bad = intent
 	bad.NewPolicySHA256 = strings.Repeat("0", 64)
-	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) {
+	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) || !answers(e, api.KindPreconditionFailed, api.ReasonChanged) {
 		t.Fatalf("changed current policy admitted: %v", e)
 	}
 	bad = intent
 	bad.ExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
-	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) {
+	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) || !answers(e, api.KindPreconditionFailed, api.ReasonExpired) {
 		t.Fatalf("expired token admitted: %v", e)
 	}
 	if _, e := s.GetSession(ctx, session.UUID); e != nil {
@@ -78,9 +78,18 @@ func TestReplaceBlockedExistingCreateAtomicReplayAndRefusal(t *testing.T) {
 	}
 	bad = intent
 	bad.TokenSHA256 = strings.Repeat("e", 64)
-	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) {
+	if _, e := s.ReplaceBlockedCreate(ctx, bad, strings.Repeat("d", 64), testSelection(), nil, observe, check); !errors.Is(e, ErrConflict) || !answers(e, api.KindInvalid, api.ReasonKeyReused) {
 		t.Fatalf("wrong token replay: %v", e)
 	}
+	if _, found, e := s.ReplayCreateReplacement(ctx, intent.New.Key, session.UUID, strings.Repeat("e", 64)); found || !answers(e, api.KindInvalid, api.ReasonKeyReused) {
+		t.Fatalf("replay with another token: %v %v", found, e)
+	}
+}
+
+// answers reports whether err answers kind with reason.
+func answers(err error, kind api.ErrorKind, reason string) bool {
+	answer := answerError(context.Background(), err)
+	return answer.Kind() == kind && answer.Reason() == reason
 }
 
 func TestReplaceBlockedCreateRefusesProvisionalBuilderAndPrincipal(t *testing.T) {

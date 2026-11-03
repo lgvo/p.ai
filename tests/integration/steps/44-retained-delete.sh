@@ -87,34 +87,30 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
+# expect_error KIND REASON TARGET METHOD PARAMS: the request is refused with
+# that kind (the error message), its code, reason and target ("" for none).
 expect_error() {
-  local kind="$1" method="$2" params="$3" code response status
+  local kind="$1" reason="$2" target="$3" method="$4" params="$5" code response status
   case "$kind" in
-    busy) code=-32003 ;;
-    unavailable) code=-32004 ;;
-    invalid_params) code=-32602 ;;
+    invalid) code=-32602 ;;
+    conflict) code=-32011 ;;
+    precondition_failed) code=-32013 ;;
+    not_found) code=-32015 ;;
     *) echo "unsupported expected error: $kind" >&2; return 1 ;;
   esac
   status=0
   response=$(rpc "$method" "$params" 2> "$step_dir/api.err") || status=$?
-  if test "$status" -ne 1; then
-    jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
-      '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
-      <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
-    return 1
-  fi
-  if ! jq -e --arg kind "$kind" --argjson code "$code" \
+  if test "$status" -ne 1 || ! jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" --arg target "$target" \
     '.jsonrpc=="2.0" and .id==2 and (has("result")|not) and
-     .error.kind==$kind and .error.code==$code and (.error.message|type=="string" and length>0)' \
+     .error.message==$kind and .error.code==$code and .error.data.reason==$reason and
+     (.error.data.target // "")==$target' \
     <<< "$response" >/dev/null; then
     jq -c --arg method "$method" --arg expected_kind "$kind" --argjson expected_code "$code" \
-      --argjson actual_status "$status" \
+      --arg expected_reason "$reason" --arg expected_target "$target" --argjson actual_status "$status" \
       '{method:$method,expected_kind:$expected_kind,expected_code:$expected_code,
-        actual_status:$actual_status,actual_kind:(.error.kind // null),
-        actual_code:(.error.code // null),actual_message:((.error.message // "")[:256])}' \
+        expected_reason:$expected_reason,expected_target:$expected_target,
+        actual_status:$actual_status,actual_kind:(.error.message // null),
+        actual_code:(.error.code // null),actual_data:(.error.data // null)}' \
       <<< "$response" >&2 || printf 'error response malformed for %s\n' "$method" >&2
     return 1
   fi
@@ -318,7 +314,7 @@ confirm_delete() {
     '{key:$key,project:"publication",branch:$branch,confirmation_token:$token}')"
 }
 rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
-expect_error busy project.retained.delete.preview '{"project":"publication","branch":"work"}'
+expect_error conflict branch_assigned project/publication:branch/work project.retained.delete.preview '{"project":"publication","branch":"work"}'
 preview=$(preview_delete a-retained)
 jq -e --arg tip "$unique" --arg base "$source" --arg url "$full_url" '
   .result.preview | .project=="publication" and .branch=="a-retained" and
@@ -336,7 +332,7 @@ jq -e --arg tip "$unique" --arg base "$source" --arg url "$full_url" '
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 # A changed origin observation invalidates the exact reviewed loss facts.
 git -C "$full" update-ref refs/heads/extra "$first" 0000000000000000000000000000000000000000
-expect_error busy project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-origin",project:"publication",branch:"a-retained",confirmation_token:$token}')"
+expect_error precondition_failed changed '' project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-origin",project:"publication",branch:"a-retained",confirmation_token:$token}')"
 test "$(git -C "$repo" rev-parse refs/heads/a-retained)" = "$unique"
 git -C "$full" update-ref -d refs/heads/extra "$first"
 test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$origin_before"
@@ -344,7 +340,7 @@ test "$(git -C "$full" for-each-ref --format='%(refname) %(objectname)')" = "$or
 preview=$(preview_delete a-retained)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$preview")
 git -C "$repo" update-ref refs/heads/a-retained "$source" "$unique"
-expect_error busy project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-tip",project:"publication",branch:"a-retained",confirmation_token:$token}')"
+expect_error precondition_failed changed '' project.retained.delete.confirm "$(jq -nc --arg token "$token" '{key:"stale-tip",project:"publication",branch:"a-retained",confirmation_token:$token}')"
 test "$(git -C "$repo" rev-parse refs/heads/a-retained)" = "$source"
 git -C "$repo" update-ref refs/heads/a-retained "$unique" "$source"
 

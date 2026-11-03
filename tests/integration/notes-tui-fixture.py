@@ -40,7 +40,7 @@ def rpc(method, **params):
         response = json.loads(result.stdout)
         if result.returncode == 0:
             return response["result"]
-        if method in {"session.inspect", "session.services"} and response.get("error", {}).get("kind") == "busy" and time.monotonic() < deadline:
+        if method in {"session.inspect", "session.services"} and response.get("error", {}).get("message") == "retry" and time.monotonic() < deadline:
             time.sleep(0.1)
             continue
         raise RuntimeError(f"{method}: {response.get('error')} {result.stderr[-500:]}")

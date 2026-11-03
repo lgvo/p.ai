@@ -70,7 +70,7 @@ for unit in p-interactive.service p-session.target sshd.service ../p-project-dem
  if output=$(rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "$unit" '{uuid:$uuid,name:$name,action:"stop"}')"); then
   echo "accepted infrastructure unit $unit" >&2; exit 1
  fi
- jq -e '.error.kind=="invalid_params" and (has("result")|not)' <<< "$output" >/dev/null
+ jq -e '.error.message=="invalid" and .error.code == -32602 and .error.data.reason=="param" and .error.data.field=="name" and (has("result")|not)' <<< "$output" >/dev/null
 done
 inc list "^p-$uuid$" --format json |
  jq -e 'length==1 and .[0].expanded_config["security.idmap.isolated"]=="true" and .[0].expanded_config["security.nesting"]=="false" and ([.[0].expanded_devices[]|select(.type=="nic")]|length)==0' >/dev/null

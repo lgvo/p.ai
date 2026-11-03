@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"time"
 
@@ -35,7 +36,7 @@ func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.OriginState,
 	}
 	if c.Kind == "set" {
 		if err := a.Runner.ValidateURL(c.ProposedURL); err != nil {
-			return api.OriginState{}, ErrInvalid
+			return api.OriginState{}, Invalid("url")
 		}
 	}
 	var state api.OriginState
@@ -53,7 +54,7 @@ func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.OriginState,
 			if c.Kind == "set" {
 				refs, err = observer.Observe(ctx, c.ProposedURL)
 				if err != nil {
-					return err
+					return Failed(api.ReasonOrigin, err)
 				}
 			}
 			if err = a.Store.CommitOriginChange(ctx, c, refs); err != nil {
@@ -68,7 +69,7 @@ func (a OriginAPI) Change(ctx context.Context, c OriginChange) (api.OriginState,
 
 func (a OriginAPI) Refresh(ctx context.Context, project string) (api.OriginState, error) {
 	if !validProject(project) {
-		return api.OriginState{}, ErrInvalid
+		return api.OriginState{}, Invalid("project")
 	}
 	var state api.OriginState
 	err := a.Runner.WithOrigin(ctx, project, func(observer OriginObserver) error {
@@ -140,13 +141,13 @@ func addOriginMethods(t *MethodTable, origins OriginAPI) {
 			result := api.OriginSourcesResult{Project: r.Project, OriginURL: state.URL, Status: state.Status, ObservationStatus: presentation, ObservedAt: state.ObservedAt, Refs: page, Next: next}
 			encoded, err := json.Marshal(result)
 			if err != nil {
-				return api.OriginSourcesResult{}, errorRPC(-32603, "internal", "origin source page cannot be encoded")
+				return api.OriginSourcesResult{}, Internal(api.ReasonEncoding, err)
 			}
 			if len(encoded) <= lifecyclePageResultCeiling {
 				return result, nil
 			}
 		}
-		return api.OriginSourcesResult{}, errorRPC(-32603, "internal", "single origin source exceeds frame limit")
+		return api.OriginSourcesResult{}, Internal(api.ReasonEncoding, errors.New("single origin source exceeds frame limit"))
 	})
 	if _, ok := origins.Runner.(PublicationRunner); ok {
 		addPublicationMethods(t, origins)

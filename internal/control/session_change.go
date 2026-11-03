@@ -10,6 +10,24 @@ import (
 
 func validUUID(value string) bool { return api.ValidUUID(value) }
 
+// sessionHolderTx refuses a new operation on session while an unfinished one
+// holds it: retry while that operation runs, conflict once it is blocked.
+// Both name it.
+func sessionHolderTx(ctx context.Context, q queryRower, session string) error {
+	var id, status string
+	err := q.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE session_uuid=? AND status IN ('running','blocked','unknown') ORDER BY id LIMIT 1`, session).Scan(&id, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if status == "running" {
+		return Retry(api.ReasonSessionHeld, api.TargetOperation(id))
+	}
+	return Conflict(api.ReasonOperationBlocked, api.TargetOperation(id))
+}
+
 // ActiveSessionChange returns the unfinished cleanup, discard, delete or
 // rename of a session. While one exists, the session is not started, stopped,
 // attached or changed by anything else.
