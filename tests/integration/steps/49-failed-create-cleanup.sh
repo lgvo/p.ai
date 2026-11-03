@@ -14,6 +14,7 @@ export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 unset SSH_AUTH_SOCK GIT_SSH GIT_SSH_COMMAND GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE
 daemon_pid=
 competing=
+p_instance=
 sessions=()
 inc() { timeout 45 incus --force-local --project user-1000 "$@"; }
 rpc() { timeout 30 p api "$socket" "$@"; }
@@ -43,6 +44,12 @@ cleanup() {
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
   done
   if test -n "$competing"; then inc delete --force "$competing" >/dev/null 2>&1 || true; fi
+  # The stopped daemon no longer releases the commit image it built.
+  if test -n "$p_instance"; then
+    inc image list --format json 2>/dev/null |
+      jq -r --arg instance "$p_instance" '.[] | select(.properties["p.instance"]==$instance) | .fingerprint' |
+      while IFS= read -r image; do inc image delete "$image" >/dev/null 2>&1 || true; done || true
+  fi
   rmdir "$endpoint_prefix" 2>/dev/null || true
 }
 on_error() {
@@ -118,8 +125,9 @@ wait_ready() {
   echo "session $uuid did not become ready" >&2
   return 1
 }
+# A creation from a commit builds the commit's image before its runtime runs.
 release_on_running() {
-  local uuid="$1" id="$2" deadline=$((SECONDS+80)) detail
+  local uuid="$1" id="$2" deadline=$((SECONDS+300)) detail
   while ((SECONDS < deadline)); do
     detail=$(inspect_operation "$id")
     if jq -e '.result.operation.status=="blocked"' <<< "$detail" >/dev/null; then
@@ -239,6 +247,7 @@ WRAPPER
 chmod 0700 "$step_dir/bin/git"
 printf 'release\n' > "$step_dir/release"
 start_daemon
+p_instance=$(rpc system.hello | jq -er '.result.instance_id | select(length==36)')
 rpc system.hello | jq -e '.result.capabilities | index("runtime") != null' >/dev/null
 created=$(rpc project.create '{"key":"project","project":"replacement"}')
 sibling=$(session_uuid "$created")
@@ -265,13 +274,23 @@ preview_params() {
     '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
+# No build runs whenever this is called, so no builder may exist at all: the
+# old creation's builders are named by build references derived from its
+# operation and cycle.
 assert_old_effects_absent() {
   test ! -e "$state/session_keys/$old_uuid"
   test ! -e "$endpoint_prefix/$old_uuid"
-  inc list --format json | jq -e --arg name "p-$old_uuid" --arg id "$old_id" \
-    'all(.[];.name!=$name and .name!=("p-builder-"+$id) and
+  inc list --format json | jq -e --arg name "p-$old_uuid" \
+    'all(.[];.name!=$name and (.name|startswith("p-builder-")|not) and
       (.config["user.p.session_uuid"] // "")!=($name|ltrimstr("p-")) and
-      (.config["user.p.builder_request_uuid"] // "")!=$id)' >/dev/null
+      .config["user.p.builder_request_uuid"]==null)' >/dev/null
+}
+# This P instance's images, as a sorted list of [fingerprint, source commit,
+# selection].
+instance_images() {
+  inc image list --format json | jq -c --arg instance "$p_instance" \
+    '[.[] | select(.properties["p.instance"]==$instance) |
+      [.fingerprint, .properties["p.source_commit"], .properties["p.selection"]]] | sort'
 }
 
 # The invalid devShell is a real local committed flake evaluated by the
@@ -287,11 +306,13 @@ old_uuid=$(session_uuid "$created")
 old_id=$(operation_id "$created")
 sessions+=("$old_uuid")
 blocked=$(wait_operation "$old_id" blocked)
-jq -e '.result.operation | .phase=="branch-assigned" and .committed==true and
- (.diagnostic | contains("present default devShell invalid")) and
- .evidence.environment!=null and .evidence.builder_tree_oid!=null and .evidence.environment_state==null and
+jq -e --arg base "$fingerprint" '.result.operation | .phase=="branch-assigned" and .committed==true and
+ .reason=="image_build_failed" and (.diagnostic | contains("present default devShell invalid")) and
+ .evidence.environment!=null and .evidence.image==null and .evidence.image_fingerprint==$base and
  .evidence.runtime_init_state=="not-attempted" and .evidence.environment_builder=={cycle:1,state:"absent"}' <<< "$blocked" >/dev/null
 assert_old_effects_absent
+# The failed build left no image.
+test "$(instance_images)" = '[]'
 images_before=$(inc image list --format json | jq -c '[.[].fingerprint]|sort')
 # Corrected committed source still cannot be integrated replacement of builder history.
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$bad_tip"
@@ -406,6 +427,14 @@ release_on_running "$new_uuid" "$new_id"
 wait_operation "$new_id" completed >/dev/null
 wait_ready "$new_uuid"
 test "$(exec_p "$new_uuid" git rev-parse HEAD)" = "$second"
+# The corrected commit has no flake: its creation built the commit's own image
+# from the base packages and its code, the only image this run added.
+new_image=$(inspect_session "$new_uuid" | jq -er --arg oid "$second" --arg base "$fingerprint" \
+  '.result.session.image | select(.commit_oid==$oid and .selection=="base" and .state=="built" and
+    .base_image_fingerprint==$base and .image_fingerprint!=$base) | .image_fingerprint')
+test "$(instance_images)" = "$(jq -nc --arg image "$new_image" --arg oid "$second" '[[$image,$oid,"no-flake"]]')"
+images_after=$(jq -c --arg image "$new_image" '. + [$image] | sort' <<< "$images_before")
+test "$(inc image list --format json | jq -c '[.[].fingerprint]|sort')" = "$images_after"
 new_key=$(sha256sum "$state/session_keys/$new_uuid" | cut -d' ' -f1)
 stop_process "$daemon_pid"
 daemon_pid=
@@ -420,6 +449,6 @@ test "$(exec_p "$sibling" cat /home/p/replacement-private)" = dummy-private
 test "$(exec_p "$sibling" cat /workspace/sibling-dirty)" = dirty
 test "$(exec_p "$sibling" cat /home/p/.config/p-fixture/credential)" = fixture-credential
 test "$("$host_git" -C "$repo" rev-parse refs/heads/main)" = "$first"
-test "$(inc image list --format json | jq -c '[.[].fingerprint]|sort')" = "$images_before"
+test "$(inc image list --format json | jq -c '[.[].fingerprint]|sort')" = "$images_after"
 rpc session.list '{"limit":8}' | jq -e '.result.sessions|length==2 and all(.[];.registry_state=="established")' >/dev/null
 echo P_FAILED_CREATE_CLEANUP_PASS

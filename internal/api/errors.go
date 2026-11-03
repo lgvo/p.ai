@@ -81,6 +81,7 @@ const (
 	ReasonWorkspaceMismatch   = "workspace_mismatch"    // the session's workspace is not on its assigned branch or tracks another upstream
 	ReasonInternal            = "internal"              // the operation's work failed in a way P did not classify, or panicked; the diagnostic holds the detail
 	ReasonImageBuilderChanged = "image_builder_changed" // the host's image builder configuration differs from the one the creation recorded
+	ReasonImageBuildFailed    = "image_build_failed"    // building the image of the session's source commit failed; the diagnostic says why
 	// retry
 	ReasonSessionHeld     = "session_held"      // another request or a running operation holds the session
 	ReasonTooManyRequests = "too_many_requests" // the connection has 16 requests in flight

@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Closed offline native Nix selection, realization and activation capture.
+# Closed offline native Nix selection, realization and activation capture,
+# from a clone of the commit's bundle.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-22"

@@ -116,9 +116,10 @@ func ParseMaterial(data []byte) (Material, error) {
 	return m, nil
 }
 
-// Digest binds the exact canonical material fields for a future trusted
-// image assembler and Handle.ContentIdentity. It does not authenticate the
-// material by itself; the assembler must verify its trusted image ownership.
+// Digest binds the exact canonical material fields. A commit image records
+// it, and a session checks its image's material against it. It does not
+// authenticate the material by itself; the assembler must verify its trusted
+// image ownership.
 func (m Material) Digest() (string, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -129,66 +130,6 @@ func (m Material) Digest() (string, error) {
 	}
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:]), nil
-}
-
-// KeyInputs are canonical environment identity inputs. The image locator is
-// deliberately separate: only an Incus image adapter interprets it.
-type KeyInputs struct {
-	AdapterVersion        string `json:"adapter_version"`
-	NixVersion            string `json:"nix_version"`
-	System                string `json:"system"`
-	ProjectPath           string `json:"project_path"`
-	BaseFingerprint       string `json:"base_fingerprint"`
-	RuntimeKitContract    string `json:"runtime_kit_contract"`
-	CommittedInputsDigest string `json:"committed_inputs_digest"`
-	DerivationPath        string `json:"derivation_path"`
-	NixPolicyDigest       string `json:"nix_policy_digest"`
-	ImageFormatVersion    string `json:"image_format_version"`
-}
-
-// Plan binds a committed source snapshot to the identity used by a future
-// isolated builder. SourceCommit is provenance, not itself a cache key.
-type Plan struct {
-	SourceCommit string    `json:"source_commit"`
-	DevShellAttr string    `json:"dev_shell_attr"`
-	KeyInputs    KeyInputs `json:"key_inputs"`
-}
-
-type Handle struct {
-	TargetKind      string `json:"target_kind"`
-	ContractVersion string `json:"contract_version"`
-	ContentIdentity string `json:"content_identity"`
-	Locator         string `json:"locator"`
-}
-
-func (k KeyInputs) Digest() (string, error) {
-	if k.AdapterVersion != AdapterVersion || k.NixVersion != NixVersion || (k.System != "x86_64-linux" && k.System != "aarch64-linux") ||
-		!validProjectIdentity(k.ProjectPath) || k.BaseFingerprint == "" ||
-		k.RuntimeKitContract == "" || k.CommittedInputsDigest == "" || k.DerivationPath == "" ||
-		k.NixPolicyDigest == "" || k.ImageFormatVersion == "" {
-		return "", errors.New("incomplete environment key inputs")
-	}
-	b, _ := json.Marshal(k)
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:]), nil
-}
-
-// Environment cache scope is P's logical project identity, not a host path.
-func validProjectIdentity(project string) bool {
-	if project == "" || len(project) > 255 {
-		return false
-	}
-	for _, part := range strings.Split(project, "/") {
-		if part == "" || part == "." || part == ".." || len(part) > 100 {
-			return false
-		}
-		for _, c := range part {
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // Parse accepts only the complete pinned schema. Version comes from the

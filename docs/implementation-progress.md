@@ -1,5 +1,38 @@
 # MVP implementation progress
 
+## TUI image reasons — 2026-11-03
+
+Moving step 1 (commit images) onto step 3 adds two operation reasons,
+`image_build_failed` and `image_builder_changed`, with sentences in
+`internal/errtext`. Before this change, a blocked creation with either reason
+showed the fallback "It stopped: image_build_failed. Retry it once that is
+resolved."
+
+LLM experience review (mock socket only): the LLM ran `just tui-mock --dataset
+small --theme dark` from exports of this change whose fixture operation was a
+blocked creation with each reason, and from one without the two sentences. It
+opened O, inspected the blocked creation at 120×35, 80×24 and 48×16, scrolled
+at 48×16 and went back. The first wording told a user with an invalid devShell
+both to create a new session and to Retry, put Retry after "discard the
+session", and pointed at discarding a blocked creation, which the TUI and
+`session.removal.preview` refuse. The sentences were reworded and the review
+repeated. The page now reads "The image of its source commit did not build;
+the diagnostic says why. For a fault in the commit, such as an invalid
+devShell, clean up this creation and create a session from a fixed commit;
+otherwise fix the cause. Retry it once that is resolved." and "The host's image
+builder configuration changed since this creation began. To use the new one,
+clean up this creation and create the session again; otherwise restore the
+configuration. Retry it once that is resolved." Both are complete, wrap between
+words and keep the Diagnostic on its own line, as on step 3's page. The cleanup
+they name is the API's failed-create cleanup; the TUI does not offer it. At
+48×16 each sentence takes six lines and the page still leaves six rows empty,
+so the next step and the Diagnostic are reached by scrolling; that layout
+predates this change. The prototype's selected browser has no operations page.
+Component checks: `internal/errtext`, `internal/tui` and the mock's tests
+passed; `just tui-tests` passed 8 terminal, 9 observer and 12 mock tests with
+both wordings. Evidence:
+[checkpoint](llm-interactive-review/tui/image-reasons/checkpoint.json).
+
 ## TUI operation reasons — 2026-11-03
 
 Step 3 of the interface rework gives a blocked or failed operation a `reason`
@@ -59,6 +92,42 @@ between words within the page at the three sizes. `just tui-tests` passed 8
 terminal, 9 observer and 12 mock tests. Frames, the action record and source
 hashes are in the
 [evidence](llm-interactive-review/tui/error-sentences/checkpoint.json).
+
+## Session image facts in the TUI — 2026-11-02
+
+Images now belong to a source commit, so the session view carries an image
+view instead of an environment view. The policy page (`p`) and Details replace
+their seven environment lines with six image facts: `Environment` (the devShell
+selection or `base`), `Source commit`, `Image` (`pending`, `building`, `built`
+or `reused`), `System`, `Base image` and `Image fingerprint`. The environment
+key and the cache line are gone. Page titles, help and the `branch-assigned`
+progress note are unchanged: creation still prepares the captured source and
+its environment, now as the commit's image.
+
+**LLM experience review (mock socket).** Tested on base revision 33722e3 plus
+the uncommitted change, with fresh fixture state each run, `--theme dark`. The
+LLM first ran the prototype (its policy page has no environment facts) and the
+unchanged product built from the base revision: the mock set no environment
+view, so neither page showed environment lines then. For the change the mock
+gives `forge / feat/device-login` a reused devShell image and leaves the other
+sessions without one. Through `./dev/tui-mock` (the `just tui-mock` recipe) the
+LLM opened `p`, Details, `p` from Details and Back at 120×35, a session without
+an image, help, then `p` and Details at 80×24 and 48×16 with scrolling, and a
+resize back to 120×35. All six facts are complete and readable at every size;
+fingerprints wrap after their label as the policy digest does. Back paths and
+controls are unchanged. No defect was found. Two unchanged behaviors were
+noted: Details for a session with a report and three services now needs a
+scroll at 120×35 to reach the last three facts, and a session without an image
+view shows no environment lines and no reason. The `branch-assigned` note could
+not be reached in the mock and was reviewed by reading. Evidence:
+[commit-image checkpoint](llm-interactive-review/tui/commit-image/checkpoint.json).
+
+**Component and integration checks.** `go test ./internal/tui/...
+./tests/integration/cmd/tui-mock/...` passed; the new
+`TestPolicyAndDetailsShowTheSessionCommitImage` and the updated long image
+fingerprint case failed before the change. `just tui-tests` passed all 29
+cases (8 terminal, 9 observer, 12 mock). No native VM run: this change is
+presentation only; the image view's production belongs to the backend change.
 
 ## TUI removal without loss inspection — 2026-11-02
 

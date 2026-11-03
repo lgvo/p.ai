@@ -22,7 +22,7 @@ func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.
 		t.Fatal(e)
 	}
 	image := strings.Repeat("a", 64)
-	env := &EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image}
+	env := &EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image, ImageBuilder: "incus-commit-image/1"}
 	req := ReserveSessionRequest{Key: "failed-create", Project: "app", Branch: "work", Choice: "existing"}
 	old, session, e := s.BeginSessionCreate(ctx, req, image, testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
 		return strings.Repeat("b", 40), true, nil
@@ -31,10 +31,9 @@ func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.
 		t.Fatal(e)
 	}
 	ev, _ := Evidence(old)
-	ev.BuilderTreeOID = strings.Repeat("c", 40)
 	states := []string{"not-attempted"}
 	if settled {
-		states = []string{"attempted", "owned", "absent"}
+		states = []string{"attempted", "absent"}
 	}
 	for _, state := range states {
 		cycle := uint64(1)
@@ -53,8 +52,7 @@ func failedNixCleanupFixtureAt(t *testing.T, settled bool) (*Store, string, api.
 		old.Evidence = raw
 	}
 	old.Status, old.Phase, old.Committed = "blocked", "branch-assigned", true
-	builder, _ := json.Marshal(ev.EnvironmentBuilder)
-	review := api.CreateCleanupPreview{UUID: old.SessionUUID, OldOperationID: old.ID, OldRequest: req, OldPhase: old.Phase, OldEvidenceSHA256: digest(old.Evidence), PolicySHA256: session.PolicySHA256, AssignedBranch: api.CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: ev.CapturedOID}, ImageFingerprint: image, EnvironmentBuilder: builder, Eligible: true, UnsafeReasons: []string{}, ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}
+	review := api.CreateCleanupPreview{UUID: old.SessionUUID, OldOperationID: old.ID, OldRequest: req, OldPhase: old.Phase, OldEvidenceSHA256: digest(old.Evidence), PolicySHA256: session.PolicySHA256, AssignedBranch: api.CreateReplaceBranch{Ref: "refs/heads/work", Observed: true, Exists: true, OID: ev.CapturedOID}, ImageFingerprint: image, EnvironmentBuilder: (*api.CreationBuilderState)(ev.EnvironmentBuilder), Eligible: true, UnsafeReasons: []string{}, ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano)}
 	return s, dir, old, CreateCleanupEvidence{Review: review, InstanceUUID: "11111111-1111-4111-8111-111111111111"}
 }
 func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *testing.T) {
@@ -162,7 +160,7 @@ func TestFailedCreateCleanupAtomicAuthorityReplayRecoveryAndSeparateCreate(t *te
 	}
 }
 func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
-	for _, name := range []string{"evidence", "expired", "retry-during-proof", "native-unavailable", "builder-attempted", "builder-legacy", "session-init-attempted", "origin", "publication", "later-workspace", "guard", "rollback"} {
+	for _, name := range []string{"evidence", "expired", "retry-during-proof", "native-unavailable", "builder-attempted", "builder-abandoned", "builder-without-environment", "session-init-attempted", "origin", "image", "later-workspace", "guard", "rollback"} {
 		t.Run(name, func(t *testing.T) {
 			s, _, old, ev := failedNixCleanupFixture(t)
 			ctx := context.Background()
@@ -175,14 +173,18 @@ func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
 				ev.Review.ExpiresAt = time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
 			case "builder-attempted":
 				creation.EnvironmentBuilder.State = "attempted"
-			case "builder-legacy":
-				creation.EnvironmentBuilder = nil
+			case "builder-abandoned":
+				creation.EnvironmentBuilder.State = "abandoned"
+			case "builder-without-environment":
+				creation.Environment = nil
 			case "session-init-attempted":
 				creation.RuntimeInitState = "attempted"
 			case "origin":
 				creation.OriginURL = "ssh://origin.invalid/repo"
-			case "publication":
-				creation.EnvironmentState = &EnvironmentState{BuilderRequest: old.ID}
+			case "image":
+				creation.ImageFingerprint = strings.Repeat("e", 64)
+				creation.Image = &CreationImage{Ref: creation.ImageFingerprint, Built: true, Selection: "no-flake"}
+				ev.Review.ImageFingerprint = creation.ImageFingerprint
 			case "later-workspace":
 				ev.Review.OldPhase = "workspace-ready"
 			case "guard":
@@ -190,7 +192,7 @@ func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
 			case "rollback":
 				s.db.ExecContext(ctx, `CREATE TRIGGER fail_cleanup BEFORE INSERT ON operations BEGIN SELECT RAISE(ABORT,'fixture rollback'); END`)
 			}
-			if name == "builder-attempted" || name == "builder-legacy" || name == "session-init-attempted" || name == "origin" || name == "publication" || name == "later-workspace" {
+			if name == "builder-attempted" || name == "builder-abandoned" || name == "builder-without-environment" || name == "session-init-attempted" || name == "origin" || name == "image" || name == "later-workspace" {
 				raw, _ := json.Marshal(creation)
 				ev.Review.OldEvidenceSHA256 = digest(raw)
 				// Fixture historical/unsafe durable state without weakening real monotonic API.
@@ -230,41 +232,6 @@ func TestFailedCreateCleanupRefusesUnsafeOrStaleSQLiteAuthority(t *testing.T) {
 		})
 	}
 }
-func TestBuilderLifecycleRequiresSettledOwnershipAndMonotonicCycle(t *testing.T) {
-	a := &CreationBuilderState{Cycle: 1, State: "attempted"}
-	if e := monotonicBuilderState(a, &CreationBuilderState{Cycle: 1, State: "absent"}); !errors.Is(e, ErrConflict) {
-		t.Fatal("inventory-only absence skipped settled owned checkpoint")
-	}
-	owned := &CreationBuilderState{Cycle: 1, State: "owned"}
-	absent := &CreationBuilderState{Cycle: 1, State: "absent"}
-	if e := monotonicBuilderState(a, owned); e != nil {
-		t.Fatal(e)
-	}
-	if e := monotonicBuilderState(owned, absent); e != nil {
-		t.Fatal(e)
-	}
-	if e := monotonicBuilderState(absent, a); !errors.Is(e, ErrConflict) {
-		t.Fatal("stale retry erased settled generation")
-	}
-	if e := monotonicBuilderState(a, &CreationBuilderState{Cycle: 2, State: "attempted"}); !errors.Is(e, ErrConflict) {
-		t.Fatal("unsettled absent init allowed another attempt")
-	}
-	if e := monotonicBuilderState(absent, &CreationBuilderState{Cycle: 2, State: "attempted"}); e != nil {
-		t.Fatal(e)
-	}
-}
-
-func TestFailedCreateCleanupLegacyBuilderCannotAcquireNoAttemptProvenance(t *testing.T) {
-	old := CreationEvidence{BuilderTreeOID: strings.Repeat("a", 40)}
-	next := old
-	next.EnvironmentBuilder = &CreationBuilderState{State: "not-attempted"}
-	a, _ := json.Marshal(old)
-	b, _ := json.Marshal(next)
-	if e := monotonicCreationEvidence("branch-assigned", a, b); !errors.Is(e, ErrConflict) {
-		t.Fatal("historical builder dispatch erased")
-	}
-}
-
 func TestFailedCreateCleanupUnavailableAfterConfirmationPreservesDisabledAuthority(t *testing.T) {
 	s, dir, old, ev := failedNixCleanupFixture(t)
 	ctx := context.Background()

@@ -8,13 +8,15 @@ func SameCreateSelection(a, b ReserveSessionRequest) bool {
 	return a == b
 }
 
-// ReplaceableCreationEvidence permits local choices without builder/publication
-// evidence; the checkpoint and reviewed local resources are checked separately.
-// RefCASIntent records a planned Git CAS; replacement never resets/deletes it.
+// ReplaceableCreationEvidence permits local choices before any image build or
+// accepted image; the checkpoint and reviewed local resources are checked
+// separately. RefCASIntent records a planned Git CAS; replacement never
+// resets/deletes it.
 func ReplaceableCreationEvidence(req ReserveSessionRequest, ev CreationEvidence) bool {
 	return ValidSessionCreateRequest(req) && req.OriginRef == "" && ev.OriginURL == "" && ev.OriginRef == "" &&
 		ev.BranchExisted == (req.Choice == "existing") && ev.RefCASIntent == (req.Choice == "new") &&
-		ev.BuilderTreeOID == "" && ev.EnvironmentState == nil && (ev.RuntimeInitState == "" || ev.RuntimeInitState == "not-attempted")
+		(ev.EnvironmentBuilder == nil || ev.EnvironmentBuilder.State == "not-attempted") && ev.Image == nil &&
+		(ev.RuntimeInitState == "" || ev.RuntimeInitState == "not-attempted")
 }
 
 // ReplaceableCreationPhase names the bounded local checkpoints, with a durable

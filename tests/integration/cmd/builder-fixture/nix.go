@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -11,9 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
@@ -34,6 +31,8 @@ const nativeValidFlake = `{
 }
 `
 
+// The hook writes into the workspace clone and roots a store object there:
+// the image must hold neither.
 const nativeImageFlake = `{
   outputs = { self }: {
     devShells.x86_64-linux.default = builtins.derivation {
@@ -61,8 +60,12 @@ const nativeImageFlake = `{
 const nativeInvalidFlake = `{ outputs = _: { devShells.x86_64-linux.default = 42; }; }
 `
 
-const nativeUnlockedFlake = `{ inputs.dep.url = "path:/opt/p/build/source/dep"; outputs = { self, dep }: { packages = dep.packages or {}; }; }
+// Its input is in the clone but not in a lock file: the builder must refuse
+// to lock it rather than update or write a lock.
+const nativeUnlockedFlake = `{ inputs.dep.url = "path:/workspace/dep"; outputs = { self, dep }: { packages = dep.packages or {}; }; }
 `
+
+const nixInstance = "a0000000-0000-4000-8000-000000000024"
 
 func runNixFixture(args []string, image bool) error {
 	if len(args) != 2 {
@@ -75,122 +78,114 @@ func runNixFixture(args []string, image bool) error {
 		return err
 	}
 	defer os.RemoveAll(state)
-	store, err := control.OpenStore(state)
+	store, git, repo, err := openRepository(ctx, state, args[0])
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	active, err := plugin.LoadActivation(args[0])
-	if err != nil {
-		return err
-	}
-	git, err := gitservice.New(store, state, active)
-	if err != nil {
-		return err
-	}
-	if err := git.InitBare(ctx, project); err != nil {
-		return err
-	}
-	repo, err := git.RepositoryPath(project)
-	if err != nil {
-		return err
-	}
 	binary, err := exec.LookPath("incus")
 	if err != nil {
 		return err
 	}
-	b, err := runtimeincus.New(runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"}, BuilderStoragePool: "builders", PInstanceID: "a0000000-0000-4000-8000-000000000024"})
+	b, err := runtimeincus.New(runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"}, BuilderStoragePool: "builders", PInstanceID: nixInstance})
 	if err != nil {
 		return err
 	}
 	base := strings.TrimSpace(args[1])
+	if image {
+		commit, err := seedNativeCommit(ctx, repo, nativeImageFlake, "valid-offline")
+		if err != nil {
+			return fmt.Errorf("image seed: %w", err)
+		}
+		if err := runImageCase(ctx, git, binary, state, b, base, commit); err != nil {
+			return fmt.Errorf("image: %w", err)
+		}
+		fmt.Println("P_BUILDER_PRIVATE_IMAGE_PASS")
+		return nil
+	}
 	cases := []struct {
 		name, flake, want string
 	}{
-		{"no-flake", "", "base"},
-		{"no-default", `{ outputs = _: { packages.x86_64-linux.default = 42; }; }`, "base"},
+		{"no-flake", "", string(runtimedriver.SelectionNoFlake)},
+		{"no-default", `{ outputs = _: { packages.x86_64-linux.default = 42; }; }`, string(runtimedriver.SelectionNoDefault)},
 		{"present-invalid", nativeInvalidFlake, "error"},
 		{"missing-lock-input", nativeUnlockedFlake, "lock-error"},
-		{"valid-offline", nativeValidFlake, "shell"},
-	}
-	if image {
-		cases = []struct{ name, flake, want string }{{"valid-offline", nativeImageFlake, "shell"}}
+		{"valid-offline", nativeValidFlake, string(runtimedriver.SelectionDevShell)},
 	}
 	for _, tc := range cases {
-		if err := seedNativeCommit(ctx, repo, tc.flake, tc.name); err != nil {
+		commit, err := seedNativeCommit(ctx, repo, tc.flake, tc.name)
+		if err != nil {
 			return fmt.Errorf("%s seed: %w", tc.name, err)
 		}
-		if err := runNixCase(ctx, git, binary, state, b, base, tc.want, image); err != nil {
+		if err := runNixCase(ctx, git, binary, state, b, base, commit, tc.want); err != nil {
 			return fmt.Errorf("%s: %w", tc.name, err)
 		}
 	}
-	if image {
-		fmt.Println("P_BUILDER_PRIVATE_IMAGE_PASS")
-	} else {
-		fmt.Println("P_BUILDER_NATIVE_NIX_PASS")
-	}
+	fmt.Println("P_BUILDER_NATIVE_NIX_PASS")
 	return nil
 }
 
-func seedNativeCommit(ctx context.Context, repo, flake, name string) error {
+func seedNativeCommit(ctx context.Context, repo, flake, name string) (string, error) {
 	readme, err := gitCommand(ctx, repo, []byte("fixture: "+name+"\n"), "hash-object", "-w", "--stdin")
 	if err != nil {
-		return err
+		return "", err
 	}
 	entries := "100644 blob " + readme + "\tREADME\x00"
 	if flake != "" {
 		hash, err := gitCommand(ctx, repo, []byte(flake), "hash-object", "-w", "--stdin")
 		if err != nil {
-			return err
+			return "", err
 		}
 		entries += "100644 blob " + hash + "\tflake.nix\x00"
 	}
 	if name == "valid-offline" {
 		setup, err := gitCommand(ctx, repo, []byte("export NATIVE_VALUE=ok\n"), "hash-object", "-w", "--stdin")
 		if err != nil {
-			return err
+			return "", err
 		}
 		setupTree, err := gitCommand(ctx, repo, []byte("100644 blob "+setup+"\tsetup\x00"), "mktree", "-z")
 		if err != nil {
-			return err
+			return "", err
 		}
 		entries += "040000 tree " + setupTree + "\tstdenv\x00"
 	}
 	if name == "missing-lock-input" {
 		depFlake, err := gitCommand(ctx, repo, []byte(`{ outputs = _: { packages = {}; }; }`), "hash-object", "-w", "--stdin")
 		if err != nil {
-			return err
+			return "", err
 		}
 		depTree, err := gitCommand(ctx, repo, []byte("100644 blob "+depFlake+"\tflake.nix\x00"), "mktree", "-z")
 		if err != nil {
-			return err
+			return "", err
 		}
 		entries += "040000 tree " + depTree + "\tdep\x00"
 	}
 	tree, err := gitCommand(ctx, repo, []byte(entries), "mktree", "-z")
 	if err != nil {
-		return err
+		return "", err
 	}
 	commit, err := gitCommand(ctx, repo, []byte("native "+name+"\n"), "commit-tree", tree)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = gitCommand(ctx, repo, nil, "update-ref", "refs/heads/main", commit)
-	return err
+	if _, err := gitCommand(ctx, repo, nil, "update-ref", "refs/heads/main", commit); err != nil {
+		return "", err
+	}
+	return commit, nil
 }
 
-func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state string, b *runtimeincus.Backend, base, want string, image bool) error {
-	snapshot, err := git.CaptureCommittedSource(ctx, project, plugin.GitSourceSelector{Kind: "branch", Value: "refs/heads/main"})
+// runNixCase takes one commit through the builder's lower-level steps:
+// create, transfer the bundle, start, clone, resolve and realize.
+func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state string, b *runtimeincus.Backend, base, commit, want string) error {
+	src, err := exportCommit(ctx, git, state, commit)
 	if err != nil {
 		return err
 	}
-	defer snapshot.Close()
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
+	uuid, err := newUUID()
+	if err != nil {
 		return err
 	}
-	uuid := fmt.Sprintf("%s-%s-%s-%s-%s", hex.EncodeToString(id[:4]), hex.EncodeToString(id[4:6]), hex.EncodeToString(id[6:8]), hex.EncodeToString(id[8:10]), hex.EncodeToString(id[10:]))
-	r := runtimeincus.Builder{RequestUUID: uuid, ProjectPath: project, CommitOID: snapshot.CommitOID(), TreeOID: snapshot.TreeOID(), BaseImageFingerprint: base, ContractVersion: "1"}
+	r := runtimeincus.Builder{RequestUUID: uuid, ProjectPath: project, CommitOID: commit, BaseImageFingerprint: base, ContractVersion: "1"}
 	created := false
 	defer func() {
 		if created {
@@ -203,31 +198,41 @@ func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state stri
 		return err
 	}
 	created = true
-	if err := b.TransferBuilderSource(ctx, r, snapshot); err != nil {
+	if err := b.TransferBuilderSource(ctx, r, src); err != nil {
 		return err
 	}
 	if _, err := b.StartBuilder(ctx, r); err != nil {
 		return err
 	}
+	if err := b.CloneBuilderSource(ctx, r, src); err != nil {
+		return err
+	}
 	selected, err := b.ResolveBuilderNix(ctx, r, "x86_64-linux")
-	if want == "error" || want == "lock-error" {
+	switch want {
+	case "error", "lock-error":
 		if err == nil {
 			return fmt.Errorf("invalid present/default input selected %+v", selected)
 		}
 		if want == "error" && !strings.Contains(err.Error(), "present default devShell invalid") {
 			return fmt.Errorf("present-invalid case failed before typed default validation: %w", err)
 		}
-		if want == "lock-error" && !strings.Contains(err.Error(), "cannot update unlocked flake input") {
+		// Nix refuses while locking the input, or when the lock would change;
+		// either way the builder never updates a lock.
+		if want == "lock-error" && !strings.Contains(err.Error(), "unlocked flake input") && !strings.Contains(err.Error(), "lock file changes") && !strings.Contains(err.Error(), "--no-update-lock-file") {
 			return fmt.Errorf("missing lock failed for another reason: %w", err)
 		}
-	} else if err != nil {
-		return err
-	} else if want == "base" {
-		if !selected.BaseOnly || selected.DerivationPath != "" || selected.KeyDigest != "" {
-			return fmt.Errorf("expected base-only, got %+v", selected)
+	case string(runtimedriver.SelectionNoFlake), string(runtimedriver.SelectionNoDefault):
+		if err != nil {
+			return err
 		}
-	} else {
-		if selected.BaseOnly || selected.DerivationPath == "" || selected.KeyDigest == "" || selected.Builder.CommitOID != snapshot.CommitOID() || selected.Builder.TreeOID != snapshot.TreeOID() {
+		if string(selected.Selection) != want || selected.DerivationPath != "" || (want == string(runtimedriver.SelectionNoFlake)) != (selected.SourceNarHash == "") {
+			return fmt.Errorf("expected %s, got %+v", want, selected)
+		}
+	default:
+		if err != nil {
+			return err
+		}
+		if selected.Selection != runtimedriver.SelectionDevShell || selected.DerivationPath == "" || selected.SourceNarHash == "" || selected.Builder.CommitOID != commit {
 			return fmt.Errorf("invalid shell selection %+v", selected)
 		}
 		other, err := b.ResolveBuilderNix(ctx, r, "aarch64-linux")
@@ -237,15 +242,8 @@ func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state stri
 			return fmt.Errorf("foreign system did not receive the architecture refusal: %+v %v", other, err)
 		}
 		result, err := b.RealizeBuilderNix(ctx, r, selected)
-		if err != nil || result.MaterialDigest == "" || !strings.Contains(result.Material.Script, "NATIVE_VALUE='ok'") || !strings.Contains(result.Material.Script, "NATIVE_REV='"+snapshot.CommitOID()+"'") {
+		if err != nil || result.MaterialDigest == "" || !strings.Contains(result.Material.Script, "NATIVE_VALUE='ok'") || !strings.Contains(result.Material.Script, "NATIVE_REV='"+commit+"'") {
 			return fmt.Errorf("offline build/capture: %+v %w", result, err)
-		}
-		if image {
-			if err := runPublishedImageCase(ctx, binary, state, b, r, result); err != nil {
-				return err
-			}
-			created = false
-			return nil
 		}
 		name := "p-builder-" + r.RequestUUID
 		if _, err := incus(ctx, binary, state, "config", "set", name, "user.p.builder_request_uuid=00000000-0000-4000-8000-000000000000"); err != nil {
@@ -267,10 +265,9 @@ func runNixCase(ctx context.Context, git *gitservice.Backend, binary, state stri
 		}
 		tampered = false
 	}
-	instanceName := "p-builder-" + r.RequestUUID
-	out, err := incus(ctx, binary, state, "exec", instanceName, "--", "/bin/sh", "-c", "test ! -e /opt/p/build/source/flake.lock")
-	if err != nil {
-		return fmt.Errorf("native command wrote a lock file: %w: %s", err, out)
+	// Nix read the commit from the clone's objects and wrote nothing there.
+	if out, err := guestUser(ctx, binary, state, "p-builder-"+r.RequestUUID, cloneCheck(commit)+"\ntest ! -e /workspace/flake.lock"); err != nil {
+		return fmt.Errorf("native command changed the clone or wrote a lock file: %w: %s", err, out)
 	}
 	if _, err := b.DeleteBuilder(ctx, r); err != nil {
 		return err

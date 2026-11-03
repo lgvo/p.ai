@@ -318,12 +318,20 @@ its own P instance; its daemon manages its own local Incus project.
 
 ### How does the cached Nix store work?
 
-P realizes the committed default devShell in a disposable restricted Incus
-builder, then publishes that coherent Nix store/database and activation state
-as a private immutable Incus image. Each session receives its own writable
-Incus root from that image. New Nix paths and database changes are private to
-the session; they survive stop/start and disappear when its instance is
-removed.
+An image belongs to a source commit. For the first session from a commit, a
+disposable restricted Incus builder clones the commit and realizes its default
+devShell, then P publishes that coherent Nix store/database, activation state
+and clone as a private immutable Incus image. Every later session from the
+same commit reuses it, with no build and no clone. Each session receives its
+own writable Incus root from that image. New Nix paths, database changes and
+work on the session's branch are private to the session; they survive
+stop/start and disappear when its instance is removed. P deletes the image
+once no session from its commit exists.
+
+Naming an image by its commit rather than by what its devShell resolves to
+keeps one identity instead of two. The cost is that a commit changing only
+code builds a full new image, and that code, including a secret committed by
+mistake, stays in an image until P deletes it.
 
 This shares the immutable starting point without a shared writable Nix daemon
 or database. Each builder/session runs its own local Nix daemon over its private
@@ -334,7 +342,7 @@ Nix devShells are not assumed to build quickly for every project: cold,
 substituted, image-hit, and session-private behavior depends on the project,
 cache, host, and storage driver.
 
-The environment builder is reusable, but Dockerfile/OCI behavior is not
+Images belong to the runtime that built them; Dockerfile/OCI behavior is not
 specified in MVP. See [environment building](environment-building.md).
 
 ### What happens when a project has no default devShell?

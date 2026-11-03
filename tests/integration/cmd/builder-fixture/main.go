@@ -1,6 +1,7 @@
 // builder-fixture exercises the native builder substrate and, in explicit nix
-// mode, closed offline resolution, realization, and activation capture.
-// Explicit nix-image mode also publishes a private image.
+// mode, closed offline resolution, realization, and activation capture from
+// a clone of the commit's bundle. Explicit nix-image mode builds a commit
+// image end to end through the Incus image driver.
 package main
 
 import (
@@ -19,6 +20,7 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
@@ -48,45 +50,29 @@ func run(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(state)
-	store, err := control.OpenStore(state)
+	store, git, repo, err := openRepository(ctx, state, args[0])
 	if err != nil {
 		return err
 	}
 	defer store.Close()
-	active, err := plugin.LoadActivation(args[0])
+	commit, err := seedCommit(ctx, repo)
 	if err != nil {
 		return err
 	}
-	git, err := gitservice.New(store, state, active)
+	src, err := exportCommit(ctx, git, state, commit)
 	if err != nil {
 		return err
 	}
-	if err := git.InitBare(ctx, project); err != nil {
-		return err
-	}
-	repo, err := git.RepositoryPath(project)
-	if err != nil {
-		return err
-	}
-	if err := seedCommit(ctx, repo); err != nil {
-		return err
-	}
-	snapshot, err := git.CaptureCommittedSource(ctx, project, plugin.GitSourceSelector{Kind: "branch", Value: "refs/heads/main"})
-	if err != nil {
-		return err
-	}
-	defer snapshot.Close()
 	binary, err := exec.LookPath("incus")
 	if err != nil {
 		return err
 	}
-	baseConfig := runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"}}
-	var id [16]byte
-	if _, err := rand.Read(id[:]); err != nil {
+	baseConfig := runtimeincus.Config{Binary: binary, UserSocket: "/var/lib/incus/unix.socket.user", Project: "user-1000", DiskSourceCeilings: []string{"/var/lib/p-vm/endpoints", "/var/lib/p-vm/grants"}, PInstanceID: "a0000000-0000-4000-8000-000000000021"}
+	uuid, err := newUUID()
+	if err != nil {
 		return err
 	}
-	uuid := fmt.Sprintf("%s-%s-%s-%s-%s", hex.EncodeToString(id[:4]), hex.EncodeToString(id[4:6]), hex.EncodeToString(id[6:8]), hex.EncodeToString(id[8:10]), hex.EncodeToString(id[10:]))
-	r := runtimeincus.Builder{RequestUUID: uuid, ProjectPath: project, CommitOID: snapshot.CommitOID(), TreeOID: snapshot.TreeOID(), BaseImageFingerprint: strings.TrimSpace(args[1]), ContractVersion: "1"}
+	r := runtimeincus.Builder{RequestUUID: uuid, ProjectPath: project, CommitOID: commit, BaseImageFingerprint: strings.TrimSpace(args[1]), ContractVersion: "1"}
 	name := "p-builder-" + uuid
 	// The VM's original dir pool is deliberately unsupported even though Incus
 	// accepts a root size string there without enforcing a quota.
@@ -118,8 +104,8 @@ func run(args []string) error {
 		return fmt.Errorf("builder create: %+v %w", o, err)
 	}
 	created = true
-	if err := b.TransferBuilderSource(ctx, r, snapshot); err != nil {
-		return fmt.Errorf("source transfer: %w", err)
+	if err := b.TransferBuilderSource(ctx, r, src); err != nil {
+		return fmt.Errorf("source bundle transfer: %w", err)
 	}
 	if o, err = b.StartBuilder(ctx, r); err != nil || o.Status != "Running" {
 		return fmt.Errorf("start sealed builder: %+v %w", o, err)
@@ -127,7 +113,10 @@ func run(args []string) error {
 	if err := waitGuestReady(ctx, binary, state, name); err != nil {
 		return err
 	}
-	if err := checkGuest(ctx, binary, state, name); err != nil {
+	if err := b.CloneBuilderSource(ctx, r, src); err != nil {
+		return fmt.Errorf("clone source bundle: %w", err)
+	}
+	if err := checkGuest(ctx, binary, state, name, commit); err != nil {
 		return err
 	}
 	if o, err = b.StopBuilder(ctx, r); err != nil || o.Status != "Stopped" {
@@ -139,52 +128,123 @@ func run(args []string) error {
 	if _, err := b.DeleteBuilder(ctx, r); err == nil {
 		return errors.New("foreign builder metadata accepted for deletion")
 	}
+	d := runtimeincus.NewDriver(b)
+	ref := runtimedriver.Ref{Kind: runtimedriver.KindBuild, ID: uuid}
+	if err := d.Delete(ctx, ref, func() error { return errors.New("gate reached for a foreign builder") }); !errors.Is(err, runtimedriver.ErrMismatch) {
+		return fmt.Errorf("driver delete of a foreign builder: %w", err)
+	}
 	if _, err := incus(ctx, binary, state, "config", "set", name, "user.p.builder_request_uuid="+uuid); err != nil {
 		return err
 	}
-	if o, err = b.DeleteBuilder(ctx, r); err != nil || o.Exists {
-		return fmt.Errorf("delete verified builder: %+v %w", o, err)
+	gates := 0
+	if err := d.Delete(ctx, ref, func() error { gates++; return nil }); err != nil || gates != 1 {
+		return fmt.Errorf("delete verified builder: gates=%d %w", gates, err)
 	}
 	created = false
+	if o, err = b.InspectBuilder(ctx, r); err != nil || o.Exists {
+		return fmt.Errorf("builder remains after delete: %+v %w", o, err)
+	}
 	fmt.Println("P_BUILDER_SUBSTRATE_PASS")
 	return nil
 }
 
-func seedCommit(ctx context.Context, repo string) error {
+// openRepository makes a P repository for the fixture project. The caller
+// closes the store.
+func openRepository(ctx context.Context, state, activation string) (*control.Store, *gitservice.Backend, string, error) {
+	store, err := control.OpenStore(state)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	git, repo, err := initRepository(ctx, store, state, activation)
+	if err != nil {
+		store.Close()
+		return nil, nil, "", err
+	}
+	return store, git, repo, nil
+}
+
+func initRepository(ctx context.Context, store *control.Store, state, activation string) (*gitservice.Backend, string, error) {
+	active, err := plugin.LoadActivation(activation)
+	if err != nil {
+		return nil, "", err
+	}
+	git, err := gitservice.New(store, state, active)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := git.InitBare(ctx, project); err != nil {
+		return nil, "", err
+	}
+	repo, err := git.RepositoryPath(project)
+	return git, repo, err
+}
+
+// exportCommit writes the commit's bundle into a private directory, as core
+// stages it for a build.
+func exportCommit(ctx context.Context, git *gitservice.Backend, state, commit string) (runtimedriver.SourceExport, error) {
+	dir, err := os.MkdirTemp(state, "export-")
+	if err != nil {
+		return runtimedriver.SourceExport{}, err
+	}
+	bundle, err := git.ExportBundle(ctx, project, commit, dir)
+	if err != nil {
+		return runtimedriver.SourceExport{}, fmt.Errorf("export commit bundle: %w", err)
+	}
+	if bundle.Commit != commit || bundle.Ref != gitservice.BundleRef {
+		return runtimedriver.SourceExport{}, fmt.Errorf("bundle names another commit: %+v", bundle)
+	}
+	return runtimedriver.SourceExport{Bundle: bundle.Path, Ref: bundle.Ref, Commit: bundle.Commit}, nil
+}
+
+func newUUID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", err
+	}
+	id[6] = id[6]&0x0f | 0x40
+	id[8] = id[8]&0x3f | 0x80
+	return fmt.Sprintf("%s-%s-%s-%s-%s", hex.EncodeToString(id[:4]), hex.EncodeToString(id[4:6]), hex.EncodeToString(id[6:8]), hex.EncodeToString(id[8:10]), hex.EncodeToString(id[10:])), nil
+}
+
+// seedCommit commits a tree with an executable, a relative link and a
+// dangling link to main, and returns the commit.
+func seedCommit(ctx context.Context, repo string) (string, error) {
 	flake, err := gitCommand(ctx, repo, []byte("{ outputs = _: {}; }\n"), "hash-object", "-w", "--stdin")
 	if err != nil {
-		return err
+		return "", err
 	}
 	script, err := gitCommand(ctx, repo, []byte("#!/bin/sh\nexit 0\n"), "hash-object", "-w", "--stdin")
 	if err != nil {
-		return err
+		return "", err
 	}
 	link, err := gitCommand(ctx, repo, []byte("../flake.nix"), "hash-object", "-w", "--stdin")
 	if err != nil {
-		return err
+		return "", err
 	}
 	dangling, err := gitCommand(ctx, repo, []byte("missing"), "hash-object", "-w", "--stdin")
 	if err != nil {
-		return err
+		return "", err
 	}
 	inner, err := gitCommand(ctx, repo, []byte("nested\n"), "hash-object", "-w", "--stdin")
 	if err != nil {
-		return err
+		return "", err
 	}
 	childTree, err := gitCommand(ctx, repo, []byte("120000 blob "+dangling+"\tdangling\x00100644 blob "+inner+"\tinner\x00120000 blob "+link+"\tlink\x00"), "mktree", "-z")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tree, err := gitCommand(ctx, repo, []byte("100644 blob "+flake+"\tflake.nix\x00100755 blob "+script+"\trun\x00040000 tree "+childTree+"\tdir\x00"), "mktree", "-z")
 	if err != nil {
-		return err
+		return "", err
 	}
 	commit, err := gitCommand(ctx, repo, []byte("builder fixture\n"), "commit-tree", tree)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = gitCommand(ctx, repo, nil, "update-ref", "refs/heads/main", commit)
-	return err
+	if _, err := gitCommand(ctx, repo, nil, "update-ref", "refs/heads/main", commit); err != nil {
+		return "", err
+	}
+	return commit, nil
 }
 
 func gitCommand(ctx context.Context, repo string, input []byte, args ...string) (string, error) {
@@ -250,26 +310,52 @@ if ! test -x /run/current-system/sw/bin/fallocate; then echo fallocate-missing; 
 	}
 }
 
-func checkGuest(ctx context.Context, binary, state, name string) error {
+// cloneCheck proves, as the session user, that /workspace is a clean clone
+// at the commit: the user's, detached, with no ref, no remote and no
+// initialization marker.
+func cloneCheck(commit string) string {
+	return `set -eu
+cd /workspace
+test "$(stat -c '%u:%g' /workspace /workspace/.git)" = "1000:1000
+1000:1000"
+test ! -e .git/p-initialized
+git=/run/current-system/sw/bin/git
+test "$($git rev-parse HEAD)" = ` + commit + `
+test "$($git rev-parse --symbolic-full-name HEAD)" = HEAD
+test -z "$($git for-each-ref)"
+test -z "$($git remote)"
+test -z "$($git status --porcelain --untracked-files=all)"`
+}
+
+func guestUser(ctx context.Context, binary, state, name, script string) (string, error) {
+	return incus(ctx, binary, state, "exec", name, "--user", "1000", "--group", "1000", "--cwd", "/workspace",
+		"--env", "HOME=/home/p", "--env", "USER=p", "--env", "LOGNAME=p", "--env", "NIX_REMOTE=daemon",
+		"--", "/run/current-system/sw/bin/bash", "-c", script)
+}
+
+func checkGuest(ctx context.Context, binary, state, name, commit string) error {
 	command := `set -eu
-test "$(stat -c '%u:%g:%a' /opt/p/build/source)" = 0:0:555
-test "$(stat -c '%u:%g:%a' /opt/p/build/source/dir)" = 0:0:555
-test "$(stat -c '%u:%g:%a' /opt/p/build/source/flake.nix)" = 0:0:444
-test "$(stat -c '%u:%g:%a' /opt/p/build/source/run)" = 0:0:555
-test "$(readlink /opt/p/build/source/dir/link)" = ../flake.nix
-test "$(cat /opt/p/build/source/dir/link)" = '{ outputs = _: {}; }'
-test "$(readlink /opt/p/build/source/dir/dangling)" = missing
-test -L /opt/p/build/source/dir/dangling
-test ! -e /opt/p/build/source/dir/dangling
-if chmod u+w /opt/p/build/source/flake.nix 2>/dev/null; then exit 41; fi
-if chmod u+w /opt/p/build/source/dir 2>/dev/null; then exit 42; fi`
-	out, err := incus(ctx, binary, state, "exec", name, "--user", "1000", "--group", "1000", "--", "/bin/sh", "-c", command)
-	if err != nil {
-		return fmt.Errorf("guest source immutability: %w: %s", err, out)
+test "$(stat -c '%u:%g:%a' /opt/p/build)" = 0:0:755
+test "$(stat -c '%u:%g:%a' /opt/p/build/source.bundle)" = 0:0:444
+if chmod u+w /opt/p/build/source.bundle 2>/dev/null; then exit 41; fi
+if : >> /opt/p/build/source.bundle 2>/dev/null; then exit 42; fi
+if : > /opt/p/build/other 2>/dev/null; then exit 43; fi
+cd /workspace
+test "$(readlink dir/link)" = ../flake.nix
+test "$(cat dir/link)" = '{ outputs = _: {}; }'
+test "$(readlink dir/dangling)" = missing
+test -L dir/dangling
+test ! -e dir/dangling
+test -x run`
+	if out, err := guestUser(ctx, binary, state, name, command); err != nil {
+		return fmt.Errorf("guest bundle immutability or clone content: %w: %s", err, out)
+	}
+	if out, err := guestUser(ctx, binary, state, name, cloneCheck(commit)); err != nil {
+		return fmt.Errorf("guest clone is not the commit: %w: %s", err, out)
 	}
 	// The 9 GiB allocation must hit the 8 GiB qgroup limit, rather than the
 	// outer disk or pool. The error text distinguishes EDQUOT from ENOSPC.
-	out, err = incus(ctx, binary, state, "exec", name, "--user", "1000", "--group", "1000", "--", "/run/current-system/sw/bin/fallocate", "-l", "9G", "/tmp/p-quota-probe")
+	out, err := incus(ctx, binary, state, "exec", name, "--user", "1000", "--group", "1000", "--", "/run/current-system/sw/bin/fallocate", "-l", "9G", "/tmp/p-quota-probe")
 	if err == nil || !strings.Contains(out, "Disk quota exceeded") {
 		return fmt.Errorf("expected EDQUOT from btrfs qgroup, got %v: %s", err, out)
 	}

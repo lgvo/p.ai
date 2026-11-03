@@ -1,5 +1,6 @@
 # shellcheck shell=bash
-# Native environment build through a real restricted builder and private image.
+# A commit image built end to end by the Incus image driver, two private roots
+# from it, and its delete.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-24"

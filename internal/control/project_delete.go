@@ -3,6 +3,8 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -23,6 +25,36 @@ type ProjectDeleteRequest struct {
 	Project     string `json:"project"`
 	TokenSHA256 string `json:"token_sha256"`
 }
+
+// CommitImageClaim is one reviewed commit image of a project deletion: its
+// index row, whether the image was present and its observed size, and a digest
+// of the sessions started from its commit. It is persisted before any image is
+// deleted and never rewritten on retry.
+type CommitImageClaim struct {
+	Image         CommitImage `json:"image"`
+	ImagePresent  bool        `json:"image_present"`
+	ObservedSize  int64       `json:"observed_size"`
+	RelatedDigest string      `json:"related_digest"`
+}
+
+// CommitImageClaimViews returns claims as the project deletion preview shows
+// them, each image's labels in name order.
+func CommitImageClaimViews(claims []CommitImageClaim) []api.CommitImageClaim {
+	views := make([]api.CommitImageClaim, 0, len(claims))
+	for _, c := range claims {
+		img := c.Image
+		labels := make([]api.ImageLabel, 0, len(img.Labels))
+		for _, name := range slices.Sorted(maps.Keys(img.Labels)) {
+			labels = append(labels, api.ImageLabel{Name: name, Value: img.Labels[name]})
+		}
+		views = append(views, api.CommitImageClaim{
+			Image: api.CommitImage{Key: api.CommitImageKey(img.Key), Ref: img.Ref, Build: img.Build, Labels: labels,
+				Selection: img.Selection, MaterialSHA256: img.MaterialSHA256, Size: img.Size, State: img.State},
+			ImagePresent: c.ImagePresent, ObservedSize: c.ObservedSize, RelatedDigest: c.RelatedDigest})
+	}
+	return views
+}
+
 type ProjectDeleteResource struct {
 	Kind         string `json:"kind"`
 	ID           string `json:"id"`
@@ -40,7 +72,7 @@ type ProjectDeleteEvidence struct {
 	StateSHA256      string                       `json:"state_sha256"`
 	ReviewSHA256     string                       `json:"review_sha256"`
 	Sessions         []api.ProjectDeleteSession   `json:"sessions"`
-	Images           []EnvironmentCollectionClaim `json:"images"`
+	Images           []CommitImageClaim           `json:"images"`
 	Repository       api.ReplacementLocalIdentity `json:"repository_identity"`
 	RepositoryParent api.ReplacementLocalIdentity `json:"repository_parent_identity"`
 	Resources        []ProjectDeleteResource      `json:"resources"`
@@ -59,6 +91,15 @@ const (
 	maxProjectDeleteReviewBytes   = 24 << 10
 	maxProjectDeleteEvidenceBytes = 56 << 10
 )
+
+// ProjectDeleteReviewFits reports whether a deletion can be confirmed with
+// ev: its encoding is within maxProjectDeleteReviewBytes, which leaves room
+// for a diagnostic on every resource. A review that does not fit is refused
+// before its token is issued.
+func ProjectDeleteReviewFits(ev ProjectDeleteEvidence) bool {
+	raw, err := json.Marshal(ev)
+	return err == nil && len(raw) <= maxProjectDeleteReviewBytes
+}
 
 // ResourceDiagnostic is d bounded for a resource in project deletion
 // evidence: at most api.MaxDiagnosticBytes, and at most that many once JSON
@@ -80,7 +121,7 @@ func projectDeleteResourceAbsent(r ProjectDeleteResource) bool {
 	return r.Status == "deleted" || r.Status == "already_absent"
 }
 func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
-	if !validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) || ev.IncusProject == "" || !validFingerprint(ev.StateSHA256) || !validFingerprint(ev.ReviewSHA256) || len(ev.Sessions) > 4 || len(ev.Images) > 20 || len(ev.Resources) != 2*len(ev.Sessions)+len(ev.Images)+1 {
+	if !validUUID(ev.InstanceUUID) || !validFingerprint(ev.BaseFingerprint) || ev.IncusProject == "" || !validFingerprint(ev.StateSHA256) || !validFingerprint(ev.ReviewSHA256) || len(ev.Sessions) > 4 || len(ev.Images) > MaxProjectDeleteImages || len(ev.Resources) != 2*len(ev.Sessions)+len(ev.Images)+1 {
 		return false
 	}
 	seen := map[string]bool{}
@@ -102,7 +143,7 @@ func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
 		}
 	}
 	for _, c := range ev.Images {
-		if !c.Image.valid() || c.Image.Fingerprint == ev.BaseFingerprint || c.Image.Properties["p.instance"] != ev.InstanceUUID || c.Image.Properties["p.incus_project"] != ev.IncusProject {
+		if !c.Image.valid() || c.Image.Ref == ev.BaseFingerprint {
 			return false
 		}
 	}
@@ -120,7 +161,7 @@ func validProjectDeleteEvidence(ev ProjectDeleteEvidence) bool {
 		}
 	}
 	for _, c := range ev.Images {
-		if !seen["image:"+c.Image.Key] {
+		if !seen["image:"+c.Image.Ref] {
 			return false
 		}
 	}

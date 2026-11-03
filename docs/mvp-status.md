@@ -25,7 +25,8 @@ pass their gates. Offline public devShell
 creation, project cache reuse/rebuild, activation, and private-state persistence
 also pass. Concurrent cache reuse passes its selected VM gate; explicit cache
 collection and the read-only `workspace.inspect` method have since been
-removed. The selected Codex adapter passes authentication-free event, private
+removed. Those gates passed against environment images, which commit images,
+one image per source commit, have since replaced. The selected Codex adapter passes authentication-free event, private
 initialization, dummy credential isolation, and Stop/Start VM checks. That serial delivery checkpoint covered all
 58 steps at its tested revision, including the native live-TUI test, bounded workspace inspection and
 interrupted-pause recovery. Bounded loss reports for Git-known
@@ -150,9 +151,12 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
   have no protection claim.
 - Incus system containers are the only MVP runtime. Each session has a private
   root, `/nix`, workspace, home, credentials, and narrow endpoints.
-- A restricted builder realizes a committed default Nix devShell into a
-  verified project-scoped Incus image. No devShell—or bootstrap without a
-  commit—uses the P base image.
+- With environment building configured, a restricted builder clones a source
+  commit and realizes its default Nix devShell into a verified project-scoped
+  Incus image of that commit, which every session from the commit reuses and
+  which P deletes once no such session exists. Without a devShell the image
+  holds the base packages only; a bootstrap without a commit, or a host
+  without environment building, uses the P base image.
 - Every base image implements the systemd contract: `p-session.target` starts
   `p-interactive.service`; the service activates the environment and supervises
   one persistent host; `/usr/libexec/p/attach` connects temporary terminals.
@@ -272,7 +276,7 @@ See [development validations](development-validations.md) for the gated tests.
 2. implement project/Git/origin and session lifecycle skeletons through the
    selected plugin contracts;
 3. implement and validate Incus, the systemd base-image contract, and Nix
-   environment images;
+   commit images;
 4. integrate attachment, observability, policy comparison, and recovery;
 5. integrate and validate the Codex adapter and session-local authentication;
    and

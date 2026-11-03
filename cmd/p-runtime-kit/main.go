@@ -29,6 +29,8 @@ func main() {
 			err = runtimekit.StageWorkspace()
 		case "populate-workspace":
 			err = runtimekit.PopulateWorkspace()
+		case "adopt-workspace":
+			err = runtimekit.AdoptWorkspace()
 		case "prepare-host":
 			err = runtimekit.PrepareHost()
 		case "run-command":

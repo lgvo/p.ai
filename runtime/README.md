@@ -86,9 +86,19 @@ for an empty P Git repository. Retry reconstructs interrupted unpublished
 scratch; a completed retained workspace is left intact, and unexpected
 contents at `/workspace` are preserved and refused. The protected staging and
 publication rules are owned by [runtime isolation](../docs/runtime-isolation.md#fixed-paths).
-Trusted workspace v2 binds the captured commit to the accepted environment
-selection: absent root flake, valid absent default, or selected devShell. The
-older workspace v1 contract still refuses an unresolved root flake. After assembly and boot, the
+That clone is workspace v1, which refuses a captured root flake: it has no
+image to activate one. Workspace v2 is for a session created from a commit
+image, whose `/workspace` already holds a clone detached at the captured
+commit, with no branch or remote. The hook then runs only the fixed
+`adopt-workspace` child, as uid/gid `1000:1000` in `/workspace` with the same
+Git restrictions. It checks that HEAD is at the captured commit and that the
+commit's root flake matches the image's devShell selection (`no-flake`,
+`no-default` or `devshell`); adds `origin` as `ssh://git@p/<repository>`;
+fetches the assigned branch and requires it still at the captured commit;
+creates and checks out that branch with `origin` as its upstream; and writes
+the initialization marker last. Each step accepts what its own earlier run
+left, so an interrupted adoption is repeated; once the marker exists, Start
+changes nothing. After assembly and boot, the
 stateless target dependency starts the host. If assembly happens after boot,
 reload systemd and start `p-session.target`. Confined file installation, socket
 connectivity, host/sibling denial, and retained-instance restart require VM proof.

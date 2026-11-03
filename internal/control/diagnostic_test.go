@@ -142,29 +142,35 @@ func TestOnlyStoppedOperationsRecordAReason(t *testing.T) {
 // TestProjectDeleteEvidenceFitsAtTheDiagnosticLimit checks that the largest
 // evidence a deletion can be confirmed with still fits its bound once every
 // resource carries a diagnostic at the limit, plain or escaped, and that the
-// operation then fits a response frame.
+// operation then fits a response frame. Every name is as long as P accepts.
 func TestProjectDeleteEvidenceFitsAtTheDiagnosticLimit(t *testing.T) {
 	_, _, _, ev := projectDeleteFixture(t)
+	project := strings.Repeat("p", 100) + "/" + strings.Repeat("q", 100) + "/" + strings.Repeat("r", 53)
 	for len(ev.Sessions) < 4 {
 		ps := ev.Sessions[0]
 		ps.Session.UUID = fmt.Sprintf("%08d-0000-4000-8000-000000000000", len(ev.Sessions))
-		ps.Session.Branch = strings.Repeat("b", 200)
 		ev.Sessions = append(ev.Sessions, ps)
+	}
+	for i := range ev.Sessions {
+		ev.Sessions[i].Session.Project, ev.Sessions[i].Session.Branch = project, strings.Repeat("b", 200)
 	}
 	withResources := func(images int, diagnostic string) ProjectDeleteEvidence {
 		e := ev
 		e.Images = nil
 		for len(e.Images) < images {
-			image := ev.Images[0]
-			image.Image.Key = fmt.Sprintf("%064d", len(e.Images))
-			e.Images = append(e.Images, image)
+			claim := ev.Images[0]
+			img := claim.Image
+			img.Key.Project, img.Key.Commit, img.Key.BuilderVersion = project, fmt.Sprintf("%064d", len(e.Images)), strings.Repeat("v", 128)
+			img.Ref, img.Labels = fmt.Sprintf("%064x", len(e.Images)), img.Key.Labels(img.Build)
+			claim.Image = img
+			e.Images = append(e.Images, claim)
 		}
 		e.Resources = nil
 		for _, ps := range e.Sessions {
 			e.Resources = append(e.Resources, ProjectDeleteResource{Kind: "runtime", ID: ps.Session.UUID}, ProjectDeleteResource{Kind: "local", ID: ps.Session.UUID})
 		}
 		for _, c := range e.Images {
-			e.Resources = append(e.Resources, ProjectDeleteResource{Kind: "image", ID: c.Image.Key})
+			e.Resources = append(e.Resources, ProjectDeleteResource{Kind: "image", ID: c.Image.Ref})
 		}
 		e.Resources = append(e.Resources, ProjectDeleteResource{Kind: "repository", ID: "bare"})
 		for i := range e.Resources {
@@ -172,16 +178,18 @@ func TestProjectDeleteEvidenceFitsAtTheDiagnosticLimit(t *testing.T) {
 		}
 		return e
 	}
-	// The most images whose confirmed evidence fits its bound.
+	// The most images whose confirmed evidence fits its bound: the review
+	// refuses more (ProjectDeleteReviewFits), whatever MaxProjectDeleteImages
+	// allows.
 	images := 0
-	for images < 20 {
-		raw, _ := json.Marshal(withResources(images+1, ""))
-		if len(raw) > maxProjectDeleteReviewBytes {
-			break
-		}
+	for images < MaxProjectDeleteImages && ProjectDeleteReviewFits(withResources(images+1, "")) {
 		images++
 	}
 	t.Logf("%d images fit the confirmed evidence", images)
+	// Each of four sessions started from its own commit keeps one image.
+	if images < len(ev.Sessions) {
+		t.Fatalf("only %d images fit the evidence of %d sessions", images, len(ev.Sessions))
+	}
 	var raw []byte
 	// Plain text, then characters JSON escapes into six bytes each.
 	for _, detail := range []string{strings.Repeat("d", api.MaxDiagnosticBytes), strings.Repeat("<", api.MaxDiagnosticBytes)} {

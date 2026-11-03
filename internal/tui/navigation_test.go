@@ -96,6 +96,28 @@ func TestProgressExplainsPendingSourcePreparation(t *testing.T) {
 	}
 }
 
+func TestPolicyAndDetailsShowTheSessionCommitImage(t *testing.T) {
+	commit, base, image := strings.Repeat("c", 40), strings.Repeat("b", 64), strings.Repeat("e", 64)
+	m := fixture()
+	m.width, m.height = 120, 35
+	for i := range m.data.sessions {
+		if m.data.sessions[i].UUID == m.selected {
+			m.data.sessions[i].Image = &api.ImageView{CommitOID: commit, System: "x86_64-linux", Selection: "devShells.x86_64-linux.default", State: "reused", BaseImageFingerprint: base, ImageFingerprint: image}
+		}
+	}
+	facts := []string{"Environment: devShells.x86_64-linux.default", "Source commit: " + commit, "Image: reused", "System: x86_64-linux", "Base image: " + base, "Image fingerprint: " + image}
+	for _, key := range []string{"p", "D"} {
+		m, _ = press(m, key)
+		frame := ansi.Strip(m.View().Content)
+		for _, fact := range facts {
+			if !strings.Contains(frame, fact) {
+				t.Fatalf("%s page hides %q:\n%s", m.page, fact, frame)
+			}
+		}
+		m, _ = press(m, "q")
+	}
+}
+
 // projectOf is the project a branch read asks about.
 func projectOf(t *testing.T, p any) string {
 	t.Helper()

@@ -18,13 +18,10 @@ func monotonicCreationEvidence(oldPhase string, oldRaw, newRaw json.RawMessage) 
 	}
 	if old.RuntimeInitState == "" && next.RuntimeInitState == "not-attempted" {
 		switch oldPhase {
-		case "source-ready", "branch-assigned", "environment-publishing", "environment-ready":
+		case "source-ready", "branch-assigned", "image-ready":
 		default:
 			return ErrConflict
 		}
-	}
-	if old.EnvironmentBuilder == nil && next.EnvironmentBuilder != nil && old.BuilderTreeOID != "" {
-		return ErrConflict
 	}
 	if err := monotonicBuilderState(old.EnvironmentBuilder, next.EnvironmentBuilder); err != nil {
 		return err

@@ -151,6 +151,7 @@ var operationSentences = map[string]string{
 	api.ReasonOutcomeUnknown:      "An effect it issued may or may not have happened; P does not issue it again. Check the resource the diagnostic names.",
 	api.ReasonWorkspaceMismatch:   "The session's workspace is not on its assigned branch or tracks another upstream; correct it with Git.",
 	api.ReasonImageBuilderChanged: "The host's image builder configuration changed since this creation began. To use the new one, clean up this creation and create the session again; otherwise restore the configuration.",
+	api.ReasonImageBuildFailed:    "The image of its source commit did not build; the diagnostic says why. For a fault in the commit, such as an invalid devShell, clean up this creation and create a session from a fixed commit; otherwise fix the cause.",
 	api.ReasonPolicyInvalid:       "The project's policy no longer holds on this host.",
 	api.ReasonPublicEgress:        "This P instance has no public network configured.",
 	api.ReasonRuntimeUnsettled:    "The session's container is in an unexpected state.",

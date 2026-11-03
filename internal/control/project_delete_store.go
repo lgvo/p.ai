@@ -97,7 +97,8 @@ func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project 
 	for _, query := range []string{
 		`SELECT id||':'||kind||':'||request_sha256||':'||status||':'||phase||':'||COALESCE(evidence_json,'') FROM operations WHERE project_path=? ORDER BY id`,
 		`SELECT fingerprint||':'||role||':'||COALESCE(session_uuid,'')||':'||active FROM git_principals WHERE project_path=? ORDER BY fingerprint`,
-		`SELECT environment_key||':'||fingerprint||':'||properties_json||':'||created_at||':'||last_used_at||':'||logical_size FROM environment_images WHERE project_path=? ORDER BY environment_key`,
+		`SELECT commit_oid||':'||base_image||':'||system||':'||builder_version||':'||image_ref||':'||build_ref||':'||labels_json||':'||selection||':'||material_sha256||':'||logical_size||':'||state||':'||created_at
+		 FROM commit_images WHERE project_path=? ORDER BY commit_oid,base_image,system,builder_version`,
 	} {
 		rows, err = q.QueryContext(ctx, query, project)
 		if err != nil {
@@ -204,7 +205,7 @@ func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest
 		}
 	}
 	for _, im := range ev.Images {
-		if im.Image.Project != req.Project {
+		if im.Image.Key.Project != req.Project {
 			return api.Operation{}, ErrConflict
 		}
 	}
@@ -313,7 +314,7 @@ func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operatio
 		`DELETE FROM git_unborn_grants WHERE session_uuid IN (SELECT uuid FROM sessions WHERE project_path=?)`,
 		`DELETE FROM git_ref_guards WHERE project_path=?`,
 		`DELETE FROM git_principals WHERE project_path=?`,
-		`DELETE FROM environment_images WHERE project_path=?`,
+		`DELETE FROM commit_images WHERE project_path=?`,
 		`DELETE FROM sessions WHERE project_path=?`,
 		`DELETE FROM origin_requests WHERE project_path=?`,
 		`DELETE FROM publication_requests WHERE project_path=?`,

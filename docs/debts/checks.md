@@ -37,15 +37,19 @@
 - Fix: run a public builder in the public-egress VM against VM-local fixtures on
   public-looking addresses (as scenario 37's DNAT target does) for the flake input, the
   binary cache and the DNS-over-HTTPS upstreams.
-- Fix when: before the next public-egress acceptance claim, or when step 1 moves the build
-  into the runtime driver.
+- Fix when: before the next public-egress acceptance claim.
 - Left by: the agent, by rule (behavior left untested: the step's brief forbids new checks
   that depend on external services).
-- Added 2026-11-02, updated 2026-11-02, 2 cases:
+- Added 2026-11-02, updated 2026-11-02, 3 cases:
   - 2026-11-02: "give builders public internet access only" gave builders public egress
     with unit tests only.
   - 2026-11-02: "fold the environment plugin into the image build" deleted scenario 23 and
     moved scenarios 24 and 25 to the native build; they still build offline.
+  - 2026-11-02: "one image per source commit" moved the build into the runtime driver
+    (`runtimeincus.Driver` `BuildImage`), which met the old "Fix when", without adding
+    the check: it still needs VM-local fixtures for the flake input, the binary cache and
+    the DNS-over-HTTPS upstreams, so "Fix when" now names only the next public-egress
+    acceptance claim.
 
 ## The pending manual Codex acceptance still inspects workspace loss
 

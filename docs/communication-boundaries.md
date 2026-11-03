@@ -39,7 +39,7 @@ channels.
 | Session RPC | identity, capabilities, latest agent condition, narrow act-on-self calls | other sessions, publication, host control |
 | Attachment | one validated interactive argv and terminal byte stream | lifecycle API or source transfer |
 | Bifrost HTTP (post-MVP) | approved model discovery and inference under a mandatory virtual key | P lifecycle; not an MVP session channel |
-| Incus builder | immutable commit input, bounded Nix capabilities, environment-image publication | ambient host authority or session identity |
+| Incus builder | a Git bundle of one source commit, bounded Nix capabilities, commit-image publication | ambient host authority or session identity |
 | Event handler | typed, versioned reduced P events | source contents, credentials, or source-of-truth state |
 
 Git already defines source transfer and ref integrity. JSON-RPC expresses the
@@ -405,15 +405,26 @@ Whole-project deletion is defined in
 Project-controlled evaluation and builds run through the isolation boundary in
 [environment-building.md](environment-building.md).
 
-- The daemon passes an immutable commit snapshot and validated Nix build plan
-  to a disposable builder in the confined Incus project.
+- P's Git service exports the source commit as a Git bundle: the commit and
+  every commit it reaches, under one ref, `refs/p/source`. A temporary bare
+  repository borrows P's objects through its alternates and holds that ref, so
+  P's repository is only read. The export holds the project's origin lock,
+  which a future P-controlled Git garbage collection must also take; P runs no
+  Git garbage collection today, so no object the export reads is pruned
+  underneath it. The bundle is written into a private directory under P's
+  state and removed after the build.
+- The runtime driver copies the bundle through the confined Incus file API
+  into the stopped builder, root-owned and read-only. The builder clones it
+  into its own `/workspace` and evaluates the commit from that clone; no tree
+  of the commit is checked out on the host.
 - The builder receives a private root and bounded scratch space; it receives no
   session identity, filesystem grant, or Incus socket.
 - With the host's public egress, the builder reaches public substituters and
   fetches; host/LAN/private access and ambient credentials are denied.
-- After verification and scrubbing, P asks Incus to publish the builder as a
-  private image. Incus returns the fingerprint and owns the bytes; RPC carries
-  only progress, bounded diagnostics, cache metadata, and the fingerprint.
+- After verification and scrubbing, the driver asks Incus to publish the
+  builder as a private image labeled with the commit's identity. Incus returns
+  the fingerprint and owns the bytes; RPC carries only progress, bounded
+  diagnostics, image metadata, and the fingerprint.
 
 ## Future attempts and Git-triggered checks
 
@@ -492,7 +503,7 @@ routing, MCP, budgets, and virtual-key policy.
 - Projects without model grants receive no key and do not depend on Bifrost
   readiness.
 - Session discard or deletion follows the revocation and cleanup rules in
-  [session lifecycle](session-lifecycle.md#credential-and-image-cache-cleanup).
+  [session lifecycle](session-lifecycle.md#credential-and-image-cleanup).
 
 These rules do not describe MVP Codex authentication, which remains inside the
 session's private home and outside P's credential management.

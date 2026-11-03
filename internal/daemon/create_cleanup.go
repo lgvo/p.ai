@@ -69,7 +69,17 @@ func checkCreateCleanupLocalAbsent(state string, endpoints *endpointManager, uui
 	return nil
 }
 func (l *lifecycle) createCleanupNativeAbsent(ctx context.Context, p api.CreateCleanupPreview, instance string) error {
-	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: instance, SessionUUID: p.UUID, ProjectPath: p.OldRequest.Project, ContractVersion: "1", ImageFingerprint: p.ImageFingerprint}, p.OldOperationID)
+	return l.runtime.ConfirmFailedCreateEffectsAbsent(ctx, runtimeincus.Session{InstanceUUID: instance, SessionUUID: p.UUID, ProjectPath: p.OldRequest.Project, ContractVersion: "1", ImageFingerprint: p.ImageFingerprint}, lastBuild(p.OldOperationID, p.EnvironmentBuilder))
+}
+
+// lastBuild names the creation's latest build, the only one whose builder
+// may remain: each earlier cycle ended with its builder absent. A creation
+// that never built is named by its operation.
+func lastBuild(operationID string, builder *api.CreationBuilderState) string {
+	if builder == nil || builder.Cycle == 0 {
+		return operationID
+	}
+	return control.BuildRef(operationID, builder.Cycle)
 }
 
 // createCleanupFacts reviews the cleanup of a failed creation. A creator
@@ -91,7 +101,7 @@ func (l *lifecycle) createCleanupFacts(ctx context.Context, uuid string) (api.Cr
 		return p, control.ErrConflict
 	}
 	p.OldOperationID, p.OldPhase, p.OldEvidenceSHA256 = op.ID, op.Phase, hexDigest(op.Evidence)
-	p.PolicySHA256, p.ImageFingerprint, p.EnvironmentBuilder = s.PolicySHA256, ev.ImageFingerprint, recordedFact(ev.EnvironmentBuilder)
+	p.PolicySHA256, p.ImageFingerprint, p.EnvironmentBuilder = s.PolicySHA256, ev.ImageFingerprint, (*api.CreationBuilderState)(ev.EnvironmentBuilder)
 	if op.Kind != "session.create" || op.Status != "blocked" || s.Registry != "creating" || p.OldRequest.Project != s.Project || p.OldRequest.Branch != s.Branch || ev.PolicySHA256 != s.PolicySHA256 {
 		unsafe("blocked_local_creation_required")
 	}

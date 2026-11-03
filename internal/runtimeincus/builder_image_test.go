@@ -2,9 +2,8 @@ package runtimeincus
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -17,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/lgvo/p.ai/internal/nixenv"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 type memoryImageFiles struct {
@@ -84,18 +84,6 @@ func (m *memoryImageFiles) deleteTree(_ context.Context, path string) error {
 func imageResultFixture(t *testing.T) (Builder, BuilderNixResult) {
 	t.Helper()
 	r := testBuilder()
-	h := sha256.Sum256([]byte(offlineBuilderNix.policy))
-	key := nixenv.KeyInputs{
-		AdapterVersion: nixenv.AdapterVersion, NixVersion: nixenv.NixVersion,
-		System: "x86_64-linux", ProjectPath: r.ProjectPath,
-		BaseFingerprint: r.BaseImageFingerprint, RuntimeKitContract: "p.runtime-session/v2",
-		CommittedInputsDigest: strings.Repeat("a", 64), DerivationPath: testDrv,
-		NixPolicyDigest: hex.EncodeToString(h[:]), ImageFormatVersion: builderImageFormatKey,
-	}
-	keyDigest, err := key.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
 	material := nixenv.Material{
 		Schema: nixenv.MaterialSchema, NixVersion: nixenv.NixVersion,
 		AdapterVersion: nixenv.AdapterVersion, Script: "# fixed activation\ntrue\n",
@@ -106,55 +94,17 @@ func imageResultFixture(t *testing.T) (Builder, BuilderNixResult) {
 		t.Fatal(err)
 	}
 	return r, BuilderNixResult{
-		Selection: BuilderNixSelection{Builder: r, System: "x86_64-linux", DevShellAttr: "devShells.x86_64-linux.default",
-			DerivationPath: testDrv, SourceNarHash: testNAR, CommittedInputsDigest: key.CommittedInputsDigest,
-			KeyInputs: key, KeyDigest: keyDigest},
-		Material: material, MaterialDigest: digest,
-		CaptureStorePath: "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-capture-env",
+		Selection: BuilderNixSelection{Builder: r, System: "x86_64-linux", Selection: runtimedriver.SelectionDevShell,
+			DevShellAttr: "devShells.x86_64-linux.default", DerivationPath: testDrv, SourceNarHash: testNAR},
+		Material: material, MaterialDigest: digest, CaptureStorePath: testCapture,
 	}
 }
 
-func TestBuilderSmokeUsesOnlyFixedUnprivilegedDisposableCopy(t *testing.T) {
-	r := testBuilder()
-	f := &fakeBuilderIncus{request: r, exists: true, status: "Running", rootLimit: true}
-	b := nixBuilderBackend(t, f, nil)
-	var commands [][]string
-	dirty := false
-	b.runBuilder = func(_ context.Context, _ string, argv, _ []string) ([]byte, error) {
-		if len(argv) < 5 || argv[3] != "exec" || !slices.Contains(argv, "--user") || !slices.Contains(argv, "1000") || !slices.Contains(argv, "--group") || !slices.Contains(argv, "--cwd") || !slices.Contains(argv, "/workspace") {
-			t.Fatalf("smoke copy escaped fixed UID/cwd: %q", argv)
-		}
-		at := slices.Index(argv, "--")
-		if at < 0 {
-			t.Fatalf("missing guest command: %q", argv)
-		}
-		guest := slices.Clone(argv[at+1:])
-		commands = append(commands, guest)
-		if guest[0] == "/run/current-system/sw/bin/ls" && dirty {
-			return []byte(" \n"), nil
-		}
-		return nil, nil
-	}
-	if err := b.prepareBuilderSmokeWorkspace(context.Background(), r); err != nil {
-		t.Fatal(err)
-	}
-	want := [][]string{
-		{"/run/current-system/sw/bin/ls", "-A", "/workspace"},
-		{"/run/current-system/sw/bin/cp", "-R", "-P", "--", builderSource + "/.", "/workspace/"},
-		{"/run/current-system/sw/bin/chmod", "-R", "u+rwX", "--", "/workspace"},
-	}
-	if !slices.EqualFunc(commands, want, slices.Equal) {
-		t.Fatalf("unexpected smoke copy commands: %q", commands)
-	}
-	commands = nil
-	dirty = true
-	if err := b.prepareBuilderSmokeWorkspace(context.Background(), r); err == nil || len(commands) != 1 {
-		t.Fatalf("dirty workspace copied over: %q %v", commands, err)
-	}
-	commands = nil
-	f.foreign = true
-	if err := b.prepareBuilderSmokeWorkspace(context.Background(), r); err == nil || len(commands) != 0 {
-		t.Fatalf("foreign builder reached copy: %q %v", commands, err)
+func testImageLabels(r Builder) runtimedriver.Labels {
+	return runtimedriver.Labels{
+		runtimedriver.LabelProject: r.ProjectPath, runtimedriver.LabelSourceCommit: r.CommitOID,
+		runtimedriver.LabelBaseImage: r.BaseImageFingerprint, runtimedriver.LabelSystem: "x86_64-linux",
+		runtimedriver.LabelBuilderVersion: ImageBuilderVersion, runtimedriver.LabelBuild: r.RequestUUID,
 	}
 }
 
@@ -165,15 +115,8 @@ func TestBuilderImageRejectsChangedResultAndMetadata(t *testing.T) {
 	}
 	for _, change := range []func(*BuilderNixResult){
 		func(x *BuilderNixResult) { x.Material.Script += "malicious" },
-		func(x *BuilderNixResult) { x.Selection.KeyDigest = strings.Repeat("0", 64) },
-		func(x *BuilderNixResult) {
-			x.Selection.KeyInputs.ImageFormatVersion = imageContract
-			digest, err := x.Selection.KeyInputs.Digest()
-			if err != nil {
-				t.Fatal(err)
-			}
-			x.Selection.KeyDigest = digest
-		},
+		func(x *BuilderNixResult) { x.Selection.Selection = runtimedriver.SelectionNoDefault },
+		func(x *BuilderNixResult) { x.Selection.SourceNarHash = "" },
 		func(x *BuilderNixResult) { x.Selection.Builder.ProjectPath = "other/project" },
 		func(x *BuilderNixResult) { x.CaptureStorePath = "/tmp/forged-env" },
 	} {
@@ -183,12 +126,14 @@ func TestBuilderImageRejectsChangedResultAndMetadata(t *testing.T) {
 			t.Fatalf("accepted changed image result: %+v", bad)
 		}
 	}
-	props := builderImageProperties(r, result, "00000000-0000-4000-8000-000000000000", "user-1000")
-	args := builderImagePublishArgs(r, props)
+	shell := runtimedriver.Shell{Selection: runtimedriver.SelectionDevShell, MaterialSHA256: result.MaterialDigest}
+	props := commitImageLabels(testImageLabels(r), shell, result.CaptureStorePath, testInstance, "user-1000")
+	args := commitImagePublishArgs(r, props)
 	if !slices.Equal(args[:4], []string{"publish", builderName(r), "--compression", "none"}) ||
-		!slices.Contains(args, "p.compression=none") || slices.Contains(args, "--public") ||
-		slices.Contains(args, "--alias") || slices.Contains(args, "--reuse") {
-		t.Fatalf("publish relied on host compression/default alias policy: %q", args)
+		!slices.Contains(args, "p.compression=none") || !slices.Contains(args, "p.source_commit="+r.CommitOID) ||
+		!slices.Contains(args, "p.build="+r.RequestUUID) || !slices.Contains(args, "p.builder_version="+ImageBuilderVersion) ||
+		slices.Contains(args, "--public") || slices.Contains(args, "--alias") || slices.Contains(args, "--reuse") {
+		t.Fatalf("publish relied on host compression/default alias policy or lost a label: %q", args)
 	}
 	base := builderImageJSON{Fingerprint: r.BaseImageFingerprint, Type: "container", Properties: map[string]string{"os": "NixOS", "release": "25.11"}}
 	merged, err := expectedBuilderImageProperties([]builderImageJSON{base}, r.BaseImageFingerprint, props)
@@ -244,11 +189,7 @@ func TestBuilderImageInstallVerifiesProfileAndRootOwnedMaterial(t *testing.T) {
 		"/nix/var/nix/gcroots":               {typ: "directory", uid: 0, gid: 0, mode: 0755},
 	}
 	copyFiles := func() *memoryImageFiles {
-		m := &memoryImageFiles{files: map[string]guestFile{}}
-		for key, value := range base {
-			m.files[key] = value
-		}
-		return m
+		return &memoryImageFiles{files: maps.Clone(base)}
 	}
 	m := copyFiles()
 	if err := installBuilderImageFiles(context.Background(), m, result); err != nil {
@@ -271,20 +212,150 @@ func TestBuilderImageInstallVerifiesProfileAndRootOwnedMaterial(t *testing.T) {
 	}
 }
 
+// builtTree is a stopped builder after a build: scratch, logs, the bundle,
+// the public resolver and the workspace clone.
+func builtTree(commit string) *memoryImageFiles {
+	dir := func(uid, mode int) guestFile { return guestFile{typ: "directory", uid: uid, gid: uid, mode: mode} }
+	file := func(uid, mode int, data string) guestFile {
+		return guestFile{typ: "file", uid: uid, gid: uid, mode: mode, data: []byte(data)}
+	}
+	return &memoryImageFiles{files: map[string]guestFile{
+		"/": dir(0, 0755), "/etc": dir(0, 0755), "/etc/resolv.conf": file(0, 0644, "nameserver 127.0.0.1\n"),
+		"/home": dir(0, 0755), "/home/p": dir(1000, 0700), "/home/p/.cache": dir(1000, 0755),
+		"/tmp": dir(0, 01777), "/tmp/hook-output": file(1000, 0644, "x"),
+		"/var": dir(0, 0755), "/var/tmp": dir(0, 01777), "/var/log": dir(0, 0755), "/var/log/journal": dir(0, 0755),
+		"/opt": dir(0, 0755), "/opt/p": dir(0, 0755), builderBuildDir: dir(0, 0755), builderBundle: file(0, 0444, "bundle"),
+		"/nix": dir(0, 0755), "/nix/var": dir(0, 0755), "/nix/var/log": dir(0, 0755), "/nix/var/log/nix": dir(0, 0755),
+		"/nix/var/nix": dir(0, 0755), "/nix/var/nix/gcroots": dir(0, 0755), "/nix/var/nix/gcroots/per-user": dir(0, 0755),
+		"/nix/var/nix/gcroots/per-user/p": dir(1000, 0755), "/nix/var/nix/profiles": dir(0, 0755), "/nix/var/nix/profiles/per-user": dir(0, 0755),
+		"/workspace": dir(1000, 0755), "/workspace/.git": dir(1000, 0755), "/workspace/.git/HEAD": file(1000, 0644, commit+"\n"),
+		"/workspace/flake.nix": file(1000, 0644, "{ outputs = _: {}; }\n"),
+	}}
+}
+
+func TestBuilderImageFinalScrubKeepsWorkspace(t *testing.T) {
+	ctx := context.Background()
+	commit := strings.Repeat("a", 40)
+	m := builtTree(commit)
+	if err := scrubBuilderImage(ctx, m); err != nil {
+		t.Fatal(err)
+	}
+	for _, kept := range []string{"/workspace", "/workspace/.git/HEAD", "/workspace/flake.nix"} {
+		if _, ok := m.files[kept]; !ok {
+			t.Fatalf("final scrub removed the clone's %s", kept)
+		}
+	}
+	for _, gone := range []string{"/home/p/.cache", "/tmp/hook-output", "/var/log/journal", builderBuildDir, builderBundle, "/nix/var/nix/gcroots/per-user/p"} {
+		if _, ok := m.files[gone]; ok {
+			t.Fatalf("final scrub kept %s", gone)
+		}
+	}
+	if slices.Contains(m.deletes, builderWorkspace) {
+		t.Fatalf("final scrub deleted the workspace: %q", m.deletes)
+	}
+	if got := m.files["/etc/resolv.conf"]; got.typ != "symlink" || string(got.data) != "/etc/static/resolv.conf" {
+		t.Fatalf("builder resolver kept: %+v", got)
+	}
+	if err := verifyBuilderWorkspace(ctx, m, commit); err != nil {
+		t.Fatalf("scrubbed image lost its clone: %v", err)
+	}
+	// Before collection the workspace goes too, with whatever a hook rooted
+	// there, and comes back empty and the builder user's.
+	m = builtTree(commit)
+	if err := scrubBuilderScratch(ctx, m, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.files["/workspace/.git/HEAD"]; ok || m.files["/workspace"].uid != 1000 || m.files["/workspace"].mode != 0755 {
+		t.Fatalf("scratch scrub kept the clone or lost the workspace: %+v", m.files["/workspace"])
+	}
+	if _, ok := m.files[builderBundle]; !ok {
+		t.Fatal("scratch scrub removed the bundle the second clone needs")
+	}
+}
+
+func TestBuilderImageScrubWithoutANixBuildLog(t *testing.T) {
+	ctx := context.Background()
+	commit := strings.Repeat("a", 40)
+	// A commit with nothing to realize: Nix never made its log tree.
+	m := builtTree(commit)
+	delete(m.files, "/nix/var/log")
+	delete(m.files, "/nix/var/log/nix")
+	if err := scrubBuilderImage(ctx, m); err != nil {
+		t.Fatalf("image without a Nix log tree refused: %v", err)
+	}
+	if _, ok := m.files["/nix/var/log"]; ok || slices.Contains(m.deletes, "/nix/var/log/nix") {
+		t.Fatalf("scrub made or touched a Nix log tree: %q", m.deletes)
+	}
+	if _, ok := m.files[builderBundle]; ok {
+		t.Fatal("scrub kept the bundle")
+	}
+	for name, edit := range map[string]func(*memoryImageFiles){
+		"writable log tree": func(m *memoryImageFiles) {
+			m.files["/nix/var/log"] = guestFile{typ: "directory", uid: 0, gid: 0, mode: 0777}
+		},
+		"user-owned log tree": func(m *memoryImageFiles) {
+			m.files["/nix/var/log"] = guestFile{typ: "directory", uid: 1000, gid: 1000, mode: 0755}
+		},
+		"linked log tree": func(m *memoryImageFiles) {
+			m.files["/nix/var/log"] = guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte("/outside")}
+		},
+		"log tree without nix": func(m *memoryImageFiles) { delete(m.files, "/nix/var/log/nix") },
+		"unsafe Nix ancestor": func(m *memoryImageFiles) {
+			m.files["/nix/var"] = guestFile{typ: "directory", uid: 0, gid: 0, mode: 0777}
+		},
+	} {
+		m := builtTree(commit)
+		edit(m)
+		if err := scrubBuilderImage(ctx, m); err == nil || slices.Contains(m.deletes, "/nix/var/log/nix") {
+			t.Fatalf("%s: scrub accepted or deleted below it: %v %q", name, err, m.deletes)
+		}
+	}
+}
+
+func TestBuilderImageWorkspaceIsTheDetachedClone(t *testing.T) {
+	ctx := context.Background()
+	commit := strings.Repeat("a", 40)
+	if err := verifyBuilderWorkspace(ctx, builtTree(commit), commit); err != nil {
+		t.Fatal(err)
+	}
+	for name, edit := range map[string]func(*memoryImageFiles){
+		"attached HEAD": func(m *memoryImageFiles) {
+			m.files["/workspace/.git/HEAD"] = guestFile{typ: "file", uid: 1000, gid: 1000, mode: 0644, data: []byte("ref: refs/heads/main\n")}
+		},
+		"other commit": func(m *memoryImageFiles) {
+			m.files["/workspace/.git/HEAD"] = guestFile{typ: "file", uid: 1000, gid: 1000, mode: 0644, data: []byte(strings.Repeat("c", 40) + "\n")}
+		},
+		"root-owned clone": func(m *memoryImageFiles) {
+			m.files["/workspace/.git"] = guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}
+		},
+		"linked .git": func(m *memoryImageFiles) {
+			m.files["/workspace/.git"] = guestFile{typ: "symlink", uid: 1000, gid: 1000, mode: 0777, data: []byte("/opt/elsewhere")}
+		},
+		"writable workspace": func(m *memoryImageFiles) {
+			m.files["/workspace"] = guestFile{typ: "directory", uid: 1000, gid: 1000, mode: 0777}
+		},
+		"initialized marker": func(m *memoryImageFiles) {
+			m.files["/workspace/.git/p-initialized"] = guestFile{typ: "file", uid: 1000, gid: 1000, mode: 0644}
+		},
+	} {
+		m := builtTree(commit)
+		edit(m)
+		if err := verifyBuilderWorkspace(ctx, m, commit); err == nil {
+			t.Fatalf("%s: accepted a workspace that is not the session-neutral clone", name)
+		}
+	}
+}
+
 func TestBuilderImageScrubRefusesSymlinkRootsAndAncestors(t *testing.T) {
 	ctx := context.Background()
-	m := &memoryImageFiles{files: map[string]guestFile{
-		"/":            {typ: "directory", uid: 0, gid: 0, mode: 0755},
-		"/opt":         {typ: "directory", uid: 0, gid: 0, mode: 0755},
-		"/opt/p":       {typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte("/outside")},
-		"/opt/p/build": {typ: "directory", uid: 0, gid: 0, mode: 0755},
-	}}
-	if err := scrubBuilderImage(ctx, m); err == nil || len(m.deletes) != 0 {
+	m := builtTree(strings.Repeat("a", 40))
+	m.files["/opt/p"] = guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte("/outside")}
+	if err := scrubBuilderImage(ctx, m); err == nil || slices.Contains(m.deletes, builderBuildDir) {
 		t.Fatalf("unsafe ancestor reached recursive delete: %v %q", err, m.deletes)
 	}
-	m.files["/opt/p"] = guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}
-	m.files["/opt/p/build"] = guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte("/outside")}
-	if err := scrubBuilderImage(ctx, m); err == nil || len(m.deletes) != 0 {
+	m = builtTree(strings.Repeat("a", 40))
+	m.files[builderBuildDir] = guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte("/outside")}
+	if err := scrubBuilderImage(ctx, m); err == nil || slices.Contains(m.deletes, builderBuildDir) {
 		t.Fatalf("symlink root reached recursive delete: %v %q", err, m.deletes)
 	}
 }
@@ -408,28 +479,77 @@ func TestBuilderImageScrubRestoresImageResolverLink(t *testing.T) {
 	}
 }
 
-func TestBuilderImagePublishGateRefusalIssuesNoPublish(t *testing.T) {
-	r, result := imageResultFixture(t)
-	f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true}
+// publishIncus serves a stopped builder and an image list that gains the
+// published image once the publish command ran.
+func publishIncus(t *testing.T, f *fakeBuilderIncus, publish func(args []string) ([]byte, error)) (*Backend, *[]builderImageJSON) {
+	t.Helper()
 	b := builderBackend(f)
-	b.config.PInstanceID = testUUID
-	published := false
+	images := []builderImageJSON{{Fingerprint: testImage, Type: "container", Architecture: "x86_64", Size: 1, Properties: map[string]string{"os": "NixOS"}}}
 	b.run = func(ctx context.Context, binary string, argv, env []string) ([]byte, error) {
-		if len(argv) > 3 && argv[3] == "publish" {
-			published = true
+		switch {
+		case slices.Equal(argv[3:], []string{"image", "list", "--format", "json"}):
+			return json.Marshal(images)
+		case argv[3] == "publish":
+			out, err := publish(argv[3:])
+			if err == nil {
+				properties := map[string]string{"os": "NixOS"}
+				for _, pair := range argv[7:] {
+					key, value, _ := strings.Cut(pair, "=")
+					properties[key] = value
+				}
+				images = append(images, builderImageJSON{Fingerprint: strings.Repeat("e", 64), Type: "container", Architecture: "x86_64", Project: "user-1000", Size: 4096, Properties: properties})
+			}
+			return out, err
 		}
 		return f.run(ctx, binary, argv, env)
 	}
-	refused := errors.New("durable claim not recorded")
-	var claims []BuilderImageClaim
-	_, _, err := b.publishStoppedBuilderImage(context.Background(), r, result, func(claim BuilderImageClaim) error {
-		claims = append(claims, claim)
-		return refused
+	return b, &images
+}
+
+func TestCommitImagePublishVerifiesWhatIncusReports(t *testing.T) {
+	r, result := imageResultFixture(t)
+	f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true}
+	b, _ := publishIncus(t, f, func(args []string) ([]byte, error) {
+		return []byte("Instance published with fingerprint: " + strings.Repeat("e", 64) + "\n"), nil
 	})
-	if !errors.Is(err, refused) || len(claims) != 1 || published {
-		t.Fatalf("gate refusal: claims=%d published=%v err=%v", len(claims), published, err)
+	shell := runtimedriver.Shell{Selection: runtimedriver.SelectionDevShell, MaterialSHA256: result.MaterialDigest}
+	labels := commitImageLabels(testImageLabels(r), shell, result.CaptureStorePath, testInstance, "user-1000")
+	publishing := false
+	image, err := b.publishCommitImage(context.Background(), r, labels, "x86_64-linux", &publishing)
+	if err != nil || !publishing || image.Fingerprint != strings.Repeat("e", 64) || image.Size != 4096 || image.Properties["os"] != "NixOS" {
+		t.Fatalf("publish: %+v publishing=%t %v", image, publishing, err)
 	}
-	if c := claims[0]; c.Key != result.Selection.KeyDigest || c.MaterialDigest != result.MaterialDigest || c.BuilderRequest != r.RequestUUID || len(c.Properties) == 0 {
-		t.Fatalf("gate saw a claim other than the realized result: %+v", c)
+	got, err := b.commitImage(image)
+	if err != nil || !maps.Equal(got.Labels, testImageLabels(r)) || got.Shell != shell {
+		t.Fatalf("published image reads back differently: %+v %v", got, err)
+	}
+}
+
+func TestCommitImagePublishFailureLeavesAnUnknownOutcome(t *testing.T) {
+	r, result := imageResultFixture(t)
+	shell := runtimedriver.Shell{Selection: runtimedriver.SelectionDevShell, MaterialSHA256: result.MaterialDigest}
+	labels := commitImageLabels(testImageLabels(r), shell, result.CaptureStorePath, testInstance, "user-1000")
+	for name, publish := range map[string]func([]string) ([]byte, error){
+		"client lost the reply": func([]string) ([]byte, error) { return nil, errors.New("connection reset") },
+		"no exact fingerprint":  func([]string) ([]byte, error) { return []byte("Instance published\n"), nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true}
+			b, _ := publishIncus(t, f, publish)
+			publishing := false
+			_, err := b.publishCommitImage(context.Background(), r, labels, "x86_64-linux", &publishing)
+			if err == nil || !publishing {
+				t.Fatalf("publish failure: publishing=%t %v", publishing, err)
+			}
+			if err := b.failedBuild(r, err, publishing); !errors.Is(err, runtimedriver.ErrUnknownOutcome) || !f.exists || len(f.mutations) != 0 {
+				t.Fatalf("publish failure settled as definite or removed the builder: %v %v", err, f.mutations)
+			}
+		})
+	}
+	f := &fakeBuilderIncus{request: r, exists: true, status: "Running", rootLimit: true}
+	b, _ := publishIncus(t, f, func([]string) ([]byte, error) { t.Fatal("published a running builder"); return nil, nil })
+	publishing := false
+	if _, err := b.publishCommitImage(context.Background(), r, labels, "x86_64-linux", &publishing); err == nil || publishing {
+		t.Fatalf("running builder reached publish: publishing=%t %v", publishing, err)
 	}
 }

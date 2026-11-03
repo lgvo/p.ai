@@ -8,8 +8,8 @@ credential facts.
 > lifecycle operations, concurrency, destructive-loss analysis, and recovery.
 > [communication-boundaries.md](communication-boundaries.md) owns what crosses
 > Git, RPC, SSH, and attachment channels;
-> [environment-building.md](environment-building.md) owns cached Incus
-> environment images and activation; [runtime-isolation.md](runtime-isolation.md)
+> [environment-building.md](environment-building.md) owns commit images, their
+> lifetime, and activation; [runtime-isolation.md](runtime-isolation.md)
 > owns Incus placement, grants, storage, systemd hosting, attachment execution,
 > metadata, and isolated workspace access; and
 > [session-observability.md](session-observability.md) owns agent-event
@@ -32,7 +32,7 @@ credential facts.
 - [Delete](#delete)
 - [Reconciliation](#reconciliation)
 - [Abandonment and orphans (post-MVP)](#abandonment-and-orphans-post-mvp)
-- [Credential and image-cache cleanup](#credential-and-image-cache-cleanup)
+- [Credential and image cleanup](#credential-and-image-cleanup)
 - [Operation recovery summary](#operation-recovery-summary)
 - [RPC and presentation](#rpc-and-presentation)
 - [MVP boundary](#mvp-boundary)
@@ -44,7 +44,7 @@ A session spans authorities with different failure behavior:
 
 - SQLite records P's identity, intent, and progress;
 - Git owns commits and refs;
-- Incus owns instances, runtime operations, writable roots, and cached images;
+- Incus owns instances, runtime operations, writable roots, and commit images;
 - P's Git authorization and activated external-service plugins own their
   provider-specific credentials; and
 - live RPC connections own attachment presence.
@@ -135,7 +135,7 @@ the assigned branch's current tip remain the source authority.
 | Commits, branch existence, branch tip | P bare Git repository | indexes expected ref and observed tip |
 | Workspace files and local refs | Incus instance root | records no duplicate file state |
 | Instance existence, state, root storage, and runtime operation | Incus | records project and deterministic instance name |
-| Cached environment-image bytes | Incus image store | indexes project-scoped environment key and fingerprint |
+| Commit image bytes, reference and labels | The runtime driver's backend: the Incus image store | indexes (project, commit, base image, system, builder version) to the image reference |
 | P Git write permission | P Git authorization using current SQLite assignment | records principal and revocation state |
 | Post-MVP external-service principal validity | Configured service | records only the protected binding and cleanup state required by its plugin contract |
 | Interactive-host readiness and failure | `p-interactive.service` and persistent system journal | records only bounded operation/last-start diagnostics |
@@ -317,16 +317,18 @@ otherwise the substrate-only environment applies.
 | `reserved` | Persist operation, UUID, project, branch assignment, and trusted project-configuration snapshot. |
 | `source-ready` | Existing branch: capture and verify its committed tip. New branch: resolve/import the selected source. Record the exact object ID and whether the ref predates this request. |
 | `branch-assigned` | Existing branch: verify its expected tip and exclusive assignment without changing the ref. New branch: atomically create the absent ref at the captured object ID and assign it. This is creation's commit point. |
-| `environment-ready` | Resolve or build a verified Incus environment image and record its fingerprint. |
+| `image-ready` | Reuse the image indexed for the source commit, or build one from a Git bundle of the commit and index it; record its reference. Without `runtime.environment`, creation skips this phase and the runtime uses the P base image. |
 | `principals-ready` | Create/activate the session Git principal and any bindings required by the selected MVP plugins. |
 | `runtime-created` | Create exactly one Incus instance named for the UUID from that image and record its locator. |
-| `workspace-ready` | Create a standalone clone of the assigned branch with its P upstream and install only session-scoped endpoints. |
+| `workspace-ready` | Put `/workspace` on the assigned branch with its P upstream, starting from the commit image's clone, and install only session-scoped endpoints. Without a commit image, create a standalone clone of the assigned branch from P. |
 | `systemd-ready` | Start the container; require activation and `p-interactive.service` readiness. Failure records diagnostics and returns the container to stopped. |
 | `established` | Verify branch, workspace, runtime, credentials, and required capabilities; set registry state established. |
 
-Environment realization may be shared with another operation. Once published,
-the immutable image is an Incus cache entry; the session's instance and later
-phases remain specific to its UUID.
+Every session started from one commit is created from that commit's image. A
+per-commit lock serializes lookup, build and acceptance, so concurrent
+creations from one commit build at most one image and the others reuse it. The
+image holds nothing of one session; the session's instance and later phases
+remain specific to its UUID ([environment building](environment-building.md#lookup-concurrency-and-image-lifetime)).
 
 Before it records or sends the runtime init, creation proves that the complete
 confined-project inventory holds no runtime carrying the session UUID. A
@@ -369,7 +371,7 @@ cleanup below retains the branch; ordinary established-session Discard also
 retains it, while Delete requires explicit branch-loss review. Cleanup must
 show runtime/workspace and local-credential losses, obtain explicit confirmation,
 revalidate identity and ownership, persist recovery intent, and preserve other
-refs, sessions, shared environment images and external mount contents. Its
+refs, sessions, shared commit images and external mount contents. Its
 exact CLI procedure must be documented and integration-validated for each
 supported failure shape; refusal alone does not satisfy this gate.
 
@@ -400,18 +402,20 @@ resolution after its exact owned builder was removed and positively verified
 absent. Both runtime and builder must be absent under the complete native
 identity inventory. The durable builder cycle must distinguish a settled
 removal from an unobserved init attempt; historical or uncertain evidence cannot
-be upgraded by an absence observation. An affirmative cycle-zero
-`not-attempted` builder record permits cleanup even with a captured source tree
-after a read-only preflight failure; fixing that preflight also permits exact
-Retry. The assigned P ref and its reviewed tip, sibling refs/sessions, shared
-images and external mount contents are preserved.
+be upgraded by an absence observation. A cycle recorded `abandoned`, settled as
+not accepted while its leftovers may remain, permits cleanup only after
+recovery deletes them and records the cycle `absent`. An affirmative cycle-zero
+`not-attempted` builder record permits cleanup after a read-only preflight
+failure; fixing that preflight also permits exact Retry. The assigned P ref
+and its reviewed tip, sibling refs/sessions, shared images and external mount
+contents are preserved.
 Reviewed P Git keys, principals and endpoint sockets may be removed. Runtime-
 local state is reported unavailable on this early path. P selects the path
 from the creator's phase. For the narrow stopped assembled case above, the
 preview reports the exact stopped container with `runtime_data_lost:true` and
 warns that deletion removes all private runtime state, including the
 workspace, home and agent credentials. P does not enumerate or hash their
-contents. Environment publication/cache history, origin/bootstrap
+contents. A creation that already recorded its commit image, origin/bootstrap
 ambiguity and other unsupported failures remain outside cleanup. Preserve those
 resources and use exact Retry only when its captured request can safely resume.
 Unreachable Incus never authorizes forgetting an accepted cleanup.
@@ -492,7 +496,7 @@ Create does not implicitly open an attachment. The TUI may implement
 
 Start makes an established stopped Incus instance ready again. It reuses the
 same UUID, branch assignment, instance, writable filesystem, workspace, home,
-credentials, and parent environment image.
+credentials, and parent image.
 
 Start does not reevaluate the branch's current devShell or apply changed host
 project configuration. It compares the immutable snapshot with current policy,
@@ -520,9 +524,9 @@ the retained filesystem may let the tool resume itself.
 - Missing, revoked, or changed Git/session credentials block start; P never
   reissues them, and the refusal directs the user to discard the session and
   create a new one. Post-MVP external-service plugins define their own health
-  and degradation evidence through their lifecycle contract. A missing cached
-  parent image does not affect an existing instance; it matters only to a
-  creation that needs it.
+  and degradation evidence through their lifecycle contract. A missing parent
+  image does not affect an existing instance; it matters only to a creation
+  that needs it.
 - Attachability requires `p-interactive.service` active/ready and the fixed
   attachment command present under trusted ownership.
 
@@ -584,7 +588,7 @@ loss, causes systemd to shut down the container.
 ### Rename meaning and preconditions
 
 Rename changes the actual session-owned Git branch while preserving the UUID,
-project, Incus instance, workspace contents, environment image, credentials,
+project, Incus instance, workspace contents, parent image, credentials,
 and selected plugin bindings. It never renames or deletes an origin ref.
 
 The new branch name must pass Git validation and be absent from the project's
@@ -798,9 +802,10 @@ After runtime removal verifies, P:
 When the assigned ref was already missing at preview, steps 1 and 2 have
 nothing to delete.
 
-Delete never deletes or renames an origin ref, external mount contents, cached
-environment images, or another P ref containing the same
-commits.
+Delete never deletes or renames an origin ref, external mount contents, or
+another P ref containing the same commits. It never deletes an image itself;
+once no session started from its commit remains, the daemon's release step
+deletes that commit's image ([image cleanup](#credential-and-image-cleanup)).
 
 Once runtime removal begins, delete completes forward even if branch deletion
 temporarily fails. The session remains `removing`, its Git principal stays
@@ -817,16 +822,18 @@ operation loses contact with an authority. It obtains the relevant locks and:
 
 - queries Git refs and expected object IDs;
 - lists and inspects Incus instance metadata and locators;
-- checks a cached image only when an operation needs to create an instance;
+- checks a commit image only when an operation needs to create an instance;
 - validates local Git authorization state;
 - asks participating plugins for required principal and resource state; and
 - resumes an already authorized operation according to its recorded phase.
 
 Automatic reconciliation may finish an operation the user already authorized,
 restore a missing local authorization record without widening it, or update an
-observed condition. It never deletes an unconfirmed branch, removes a runtime
-outside a committed removal operation, resets a workspace, or creates a second
-runtime while the original may exist.
+observed condition. At startup it also runs the image release step once for
+each project ([image cleanup](#credential-and-image-cleanup)). It never
+deletes an unconfirmed branch, removes a runtime outside a committed removal
+operation, resets a workspace, or creates a second runtime while the original
+may exist.
 
 ### Inconsistent sessions
 
@@ -848,8 +855,9 @@ retained branch:
 
 A new session on the retained branch starts from its committed tip. It cannot
 recover uncommitted files, unpushed commits, processes, terminal state, or
-conversations that existed only in the old runtime. Its environment comes from
-the branch's committed devShell, which may differ from the old session's image.
+conversations that existed only in the old runtime. It starts from the image
+of the branch's current commit, which is a different image when the old session
+moved the branch; when no session from that commit remains, P builds it again.
 
 ## Abandonment and orphans (post-MVP)
 
@@ -892,7 +900,7 @@ An explicit “forget tombstone” action is allowed only with a warning that P 
 no longer recognize or revoke later reappearing machinery. Age alone never
 expires a tombstone.
 
-## Credential and image-cache cleanup
+## Credential and image cleanup
 
 Local P authorization follows the SQLite assignment. Marking removal
 immediately prevents the session key from pushing even if a private
@@ -905,10 +913,17 @@ handle required for idempotent retry. A post-MVP Bifrost plugin applies that
 rule to its session virtual key. Upstream provider credentials never enter P's
 lifecycle state.
 
-Environment images are immutable Incus cache entries, not session-owned
-resources. Session lifecycle never leases or deletes them. Cache inspection and
-explicit deletion belong to environment building; a missing image is simply a
-cache miss the next time a creation needs it.
+A commit image is immutable and shared by every session started from its
+commit; no session owns it. An image is kept while some session started from
+its commit exists, in any registry state: `creating` (including a failed
+creation waiting for Retry), `established` or `removing`. Discard and Delete
+never delete an image themselves. Once the last session from a commit is gone,
+the daemon's release step, which runs after each operation of the project and
+at daemon start, deletes that commit's image; an operation never waits for it
+or fails because of it. Deleting an image never affects a runtime created from
+it, and a missing image is rebuilt the next time a creation needs it.
+[Environment building](environment-building.md#lookup-concurrency-and-image-lifetime)
+owns the release rule and its mechanics.
 
 ## Operation recovery summary
 

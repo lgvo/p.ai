@@ -1,13 +1,13 @@
 # P — runtime and isolation
 
-How P turns a branch-backed session and a cached Nix environment image into one
-isolated Incus instance.
+How P turns a branch-backed session and the image of its source commit into
+one isolated Incus instance.
 
 > **Status: design.** This document is authoritative for runtime placement,
 > Incus authority, storage, grants, networking, fixed paths, the systemd
 > interactive-host contract, attachment execution, and runtime cleanup.
-> [Environment building](environment-building.md) owns cached environment
-> images. [Session lifecycle](session-lifecycle.md) owns user-visible
+> [Environment building](environment-building.md) owns commit images and
+> their lifetime. [Session lifecycle](session-lifecycle.md) owns user-visible
 > operations and loss decisions.
 
 ## Contents
@@ -41,7 +41,9 @@ P never duplicates an Incus operation state machine in SQLite.
 Each MVP session is one unprivileged Incus system container named from its
 immutable session UUID. The instance receives only:
 
-- one immutable cached environment-image fingerprint;
+- one immutable image: its source commit's image, or the P base image when
+  the host configures no `runtime.environment` and for a blank project's
+  bootstrap session;
 - its private writable instance root;
 - the normalized project policy captured at creation; and
 - narrow P endpoints and credentials scoped to that session.
@@ -90,7 +92,7 @@ still provisions Incus, the restricted user project/profile, storage pools,
 allowed disk paths and imported base image. Enabling P does not widen them.
 
 The hardened service accepts only `network: none` policies and no public-egress
-substrate, so its environment builders stay offline too. Its no-new-privileges
+substrate, so its image builders stay offline too. Its no-new-privileges
 and empty capability boundary prevent the scoped privileged network proofs
 needed for public egress. Public-egress
 operation remains available through the separately owner-run daemon and its
@@ -169,22 +171,15 @@ assigned principal may create the first ref. After creation, the assigned P
 branch is source authority; it is not stored as a durable `base_commit`
 concept.
 
-Runtime creation receives the environment separately as an opaque
-`EnvironmentHandle`:
-
-```text
-target kind and contract version
-opaque immutable locator
-content identity/digest
-```
-
-`SessionSpec` and lifecycle code do not interpret the locator. The MVP Incus
-adapter accepts target kind `incus-system-image` and interprets the opaque
-locator as an Incus image fingerprint. SQLite separately indexes the
-project-scoped environment key and records the MVP handle each session's
-runtime was created from.
-This keeps the reusable backend seam honest without specifying formats for
-hypothetical providers.
+Runtime creation receives the image separately, as the reference the runtime
+driver's image operations returned for the session's commit image
+([environment building](environment-building.md#runtime-driver-image-operations)).
+Lifecycle code does not interpret the reference; the Incus driver's reference
+is an image fingerprint. SQLite indexes each commit image by project, commit,
+base image, system and builder version, and creation records the reference its
+runtime was created from. Only the image part of the runtime driver exists so
+far; its Incus implementation runs inside the daemon process, and runtime
+creation itself still goes to Incus directly.
 
 ## Runtime identity and authority
 
@@ -204,7 +199,7 @@ display metadata, not an ownership key, because rename may change it.
 | P refs and commits | P bare repository | records expected address only |
 | Incus instance, state, root disk, image parent, and operations | Incus | records configured project and instance name |
 | Workspace files and local Git state | Incus instance root | records no duplicate file state |
-| Cached environment image bytes | Incus image store | indexes project-scoped environment key and opaque MVP handle |
+| Commit image bytes, reference and labels | the runtime driver's backend: the Incus image store | indexes (project, commit, base image, system, builder version) to the image reference |
 | Git and selected-plugin credential validity | issuing service | records identifier and protected material needed by the session |
 
 P may cache the latest observation for presentation, but every lifecycle
@@ -224,11 +219,12 @@ An Incus instance root contains all session-private writable state:
 | `/tmp` and runtime-local configuration | retained | removed | instance root |
 | persistent systemd journal and P-owned diagnostics | retained | removed | instance root |
 | `/var/p/<name>` runtime-owned data/cache | retained | removed | instance root |
-| Cached image base and initial Nix store | shared immutable parent | retained as cache | Incus image store |
+| Commit image: base, initial Nix store, and the clone at the commit | shared immutable parent | kept while another session from its commit exists, then deleted by release | Incus image store |
 | External filesystem grant | remains external | never removed by P | host owner |
 
-The cached image contains the prepared Nix closure and database. Incus creates
-a private writable instance root from it. Nix store paths remain immutable by
+The commit image contains the prepared Nix closure and database and a clone of
+the commit at `/workspace`. Incus creates a private writable instance root from
+it. Nix store paths remain immutable by
 Nix semantics, while new paths and database updates belong only to that
 session. Sessions never share a writable `/nix` and never mount the host Nix
 store or daemon.
@@ -248,7 +244,7 @@ instance root or an explicit external grant.
 |---|---|
 | `/workspace` | assigned branch working repository |
 | `/home/p` | persistent session home |
-| `/nix` | cached image store plus private session additions |
+| `/nix` | image store plus private session additions |
 | `/opt/p/endpoints` | fixed Incus staging mount for session-specific P Unix sockets |
 | `/run/p` | read-only private bind of the staged sockets used by session processes |
 | `/etc/p/git` | session-specific P Git credentials and trusted SSH configuration in the private instance root |
@@ -256,7 +252,7 @@ instance root or an explicit external grant.
 | `/mnt/p/<grant-name>` | explicit external filesystem grant |
 | `/var/p/<name>` | declared runtime-owned data/cache directory |
 
-The cached image may not replace these paths with conflicting mounts or
+The image may not replace these paths with conflicting mounts or
 declarations. Incus mounts the P-owned per-session socket directory read-only
 at `/opt/p/endpoints` because NixOS activation recreates `/run` as tmpfs during
 boot. Before the interactive host starts, a root-owned fixed helper validates
@@ -265,12 +261,26 @@ bind of the same directory at `/run/p`. Both paths must refer to the same
 socket objects; neither mount is writable or shared. Trusted session assembly
 installs `/etc/p/git` through the confined
 Incus file API after instance creation; those files survive stop/start in the
-private instance root. A fixed first-boot helper initializes the standalone
-clone from the captured assigned branch through only the session's P Git SSH
-key; the checkout is never an image layer. Stopped-instance assembly reuses
-identical root-owned files and refuses unexpected existing files.
+private instance root. Stopped-instance assembly reuses identical root-owned
+files and refuses unexpected existing files.
 
-First initialization is transactional. A root supervisor owns
+A fixed first-boot helper puts `/workspace` on the assigned branch through only
+the session's P Git SSH key. With a commit image, the image already holds a
+clone detached at the captured commit, with no branch or remote, and the helper
+adopts it (workspace v2). It runs only as uid/gid `1000:1000` in `/workspace`,
+with the same Git restrictions as a first clone. It checks that HEAD is at the
+captured commit and that the commit's root flake matches the image's devShell
+selection; adds `origin` as `ssh://git@p/<repository>`; fetches the assigned
+branch and requires it still at the captured commit; creates and checks out
+that branch with `origin` as its upstream; and writes the initialization guard
+last. Each step accepts the state its own earlier run left, so an interrupted
+adoption is repeated from the start; once the guard exists, Start changes
+nothing. Without a commit image, when the host configures no
+`runtime.environment` or for a blank project's bootstrap, the helper clones the
+assigned branch from P (workspace v1), which refuses a captured root
+`flake.nix` because there is no image to activate it.
+
+A first clone from P is transactional. A root supervisor owns
 `/.p-workspace-init`, mode `0700`, and creates an unpublished staging tree
 inside it. A child with a private mount namespace binds that tree at
 `/workspace`, then runs all Git commands as uid/gid `1000:1000` with only the
@@ -376,7 +386,7 @@ There is no unsolicited inbound access, host network mode, published port, or
 general host route. A public forge may be reachable, but the runtime still
 receives no origin remote or origin credential.
 
-An environment builder is not a session, yet it gets this `public-egress`
+An image builder is not a session, yet it gets this `public-egress`
 network whenever the host configures the substrate, whatever its project's
 session policy: the same NIC, ACL and proofs, its creating session's address
 slot, and the same guest resolver, configured by the runtime kit as root after
@@ -613,8 +623,10 @@ keeps Incus's own bounded error text.
 Discard removes the verified Incus instance, its private root, endpoint
 directory, and session credentials while retaining the P branch. After the
 removal commit point, discard and delete force-stop a running instance before
-deleting it. Cached images are independent cache objects and are never deleted
-as a side effect of discard.
+deleting it. Discard never deletes an image itself; once no session started
+from the session's commit remains, the daemon's release step deletes that
+commit's image
+([environment building](environment-building.md#lookup-concurrency-and-image-lifetime)).
 
 Confirmed failed-creation cleanup of an assembled runtime deletes only the
 exact stopped instance it reviewed: native deletion targets the reviewed
@@ -630,7 +642,7 @@ boundary belongs to
 |---|---|
 | Incus user socket unavailable | Runtime state is `unreachable`; do not create duplicates or claim stop/removal |
 | Configured Incus project missing or unrestricted | Refuse runtime creation with an actionable host-setup error |
-| Image fingerprint missing | Existing instances continue. New creation rebuilds from its exact committed request. |
+| Commit image missing | Existing instances continue. The next creation from that commit forgets the index row and builds a new image from the commit. |
 | Instance absent | Report `missing`; do not recreate the session's runtime. The user discards or deletes the session and creates a new one; see [session lifecycle](session-lifecycle.md#inconsistent-sessions) |
 | Instance metadata conflicts | Refuse adoption, attachment, or deletion |
 | Incus operation interrupted | Query Incus operation and instance state; do not duplicate its workflow |
@@ -647,7 +659,7 @@ MVP includes:
 
 - one local, confined Incus project per P instance;
 - one unprivileged Incus system container per session;
-- immutable environment-image fingerprint plus private writable instance root;
+- an immutable commit image plus private writable instance root;
 - persistent workspace, home, and private Nix state across stop/start;
 - project-scoped filesystem grants within the Incus project ceiling;
 - `none` and validation-gated `public-egress` profiles;
@@ -669,13 +681,14 @@ The backend is supported only when tests prove:
    socket or attach an unapproved host path/device;
 2. two sessions receive distinct UUID-named instances, private roots,
    workspaces, homes, Nix database changes, and credentials;
-3. the cached image remains immutable, new session paths never appear in
+3. the commit image remains immutable, new session paths never appear in
    another session, and physical sharing/copying matches the recorded storage
    driver behavior;
 4. start/stop state and operation outcome come from Incus and survive a P
    daemon restart without duplicate instances;
 5. discard removes only the verified instance/private root and retains the P
-   branch and cached image;
+   branch; it deletes no image itself, and release deletes the commit's image
+   only once no session from that commit remains;
 6. sessions cannot reach Incus, host credentials, undeclared mounts, sibling
    instances, or disallowed network destinations;
 7. attachment uses fixed structured argv, never exposes general Incus

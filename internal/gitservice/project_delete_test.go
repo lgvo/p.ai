@@ -8,7 +8,7 @@ import (
 )
 
 func TestProjectRemovalLossAllHeadsAndBoundedHistory(t *testing.T) {
-	b, repo := selectedDeleteBackend(t)
+	b, repo := selectedBackend(t)
 	tree := strings.TrimSpace(gitTest(t, nil, "-C", repo, "mktree"))
 	// mktree with no stdin yields the ordinary empty tree. Each separate head's
 	// history disappears when deleting the entire project, including siblings.

@@ -247,13 +247,14 @@ preview_params() {
     '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
+# This daemon has no image builders configured: no builder may exist at all.
 assert_old_effects_absent() {
   test ! -e "$state/session_keys/$old_uuid"
   test ! -e "$endpoint_prefix/$old_uuid"
-  inc list --format json | jq -e --arg name "p-$old_uuid" --arg id "$old_id" \
-    'all(.[];.name!=$name and .name!=("p-builder-"+$id) and
+  inc list --format json | jq -e --arg name "p-$old_uuid" \
+    'all(.[];.name!=$name and (.name|startswith("p-builder-")|not) and
       (.config["user.p.session_uuid"] // "")!=($name|ltrimstr("p-")) and
-      (.config["user.p.builder_request_uuid"] // "")!=$id)' >/dev/null
+      .config["user.p.builder_request_uuid"]==null)' >/dev/null
 }
 
 # First public failure happens before Git executes its planned branch CAS.

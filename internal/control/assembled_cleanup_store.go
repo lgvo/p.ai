@@ -23,7 +23,7 @@ func AssembledCreationForCleanup(session Session, op api.Operation, base string)
 		!validOID(ev.CapturedOID) || !validFingerprint(base) || ev.ImageFingerprint != base || !ev.Selection.Valid() ||
 		ev.RuntimeInitState != "attempted" || ev.BranchExisted != (req.Choice == "existing") || ev.RefCASIntent != (req.Choice == "new") ||
 		req.OriginRef != "" || ev.OriginURL != "" || ev.OriginRef != "" ||
-		ev.Environment != nil || ev.EnvironmentState != nil || ev.EnvironmentBuilder != nil || ev.BuilderTreeOID != "" ||
+		ev.Environment != nil || ev.EnvironmentBuilder != nil ||
 		ev.SupersedesOperationID != "" || ev.SupersedesUUID != "" || ev.ReplacementCleanup != nil || ev.ReplacementTokenSHA256 != "" {
 		return fmt.Errorf("%w: assembled failed creation cleanup requires a blocked local base-image assembly-ready creator with recorded init", ErrConflict)
 	}

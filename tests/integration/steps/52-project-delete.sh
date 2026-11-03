@@ -234,11 +234,15 @@ work_creator=$(jq -er '.result.operation.id' <<< "$created")
 op_ids+=("$work_creator")
 wait_operation "$work_creator" completed >/dev/null
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
+ # The work session starts from the image its creation built for main's commit.
  view=$(rpc session.inspect "$(jq -nc --arg uuid "$work" '{uuid:$uuid}')")
- cache_image=$(jq -er '.result.session.environment|select(.cache=="miss")|.image_fingerprint|select(length==64)' <<< "$view")
- test "$cache_image" != "$base"
- inc image list --format json | jq -e --arg image "$cache_image" \
-  'any(.fingerprint==$image and .properties["p.project_path"]=="bulk-delete")' >/dev/null
+ commit_image=$(jq -er --arg oid "$tip" --arg base "$base" '.result.session.image |
+  select(.state=="built" and .commit_oid==$oid and .selection=="devShells.x86_64-linux.default" and
+   .base_image_fingerprint==$base) | .image_fingerprint | select(length==64)' <<< "$view")
+ test "$commit_image" != "$base"
+ inc image list --format json | jq -e --arg image "$commit_image" --arg oid "$tip" \
+  'any(.[]; .fingerprint==$image and .properties["p.project_path"]=="bulk-delete" and
+   .properties["p.source_commit"]==$oid and .properties["p.selection"]=="devshell")' >/dev/null
 fi
 created=$(rpc project.create '{"key":"unrelated-bootstrap","project":"bulk-other"}')
 unrelated=$(jq -er '.result.operation.session_uuid' <<< "$created")
@@ -284,7 +288,11 @@ review=$(preview)
 token=$(jq -er '.result.preview.confirmation_token' <<< "$review")
 first=$(jq -er '.result.preview.sessions[0].session.uuid' <<< "$review")
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
- jq -e --arg image "$cache_image" '.result.preview.cache_images|length==1 and .[0].image.fingerprint==$image' <<< "$review" >/dev/null
+ jq -e --arg image "$commit_image" --arg oid "$tip" '.result.preview | (has("cache_images")|not) and
+  (.images|length)==1 and (.images[0] | .image_present==true and .image.ref==$image and
+   .image.key.project=="bulk-delete" and .image.key.commit_oid==$oid and .image.state=="ready")' <<< "$review" >/dev/null
+else
+ jq -e '.result.preview | .images==[] and (has("cache_images")|not)' <<< "$review" >/dev/null
 fi
 second=$(jq -er '.result.preview.sessions[1].session.uuid' <<< "$review")
 # P does not look inside the containers: workspace bytes changed after the
@@ -341,7 +349,9 @@ for uuid in "$main" "$work"; do
 done
 test ! -e "$repo"
 if test "${P_PROJECT_DELETE_CACHED:-0}" = 1; then
- inc image list --format json | jq -e --arg image "$cache_image" 'all(.fingerprint!=$image)' >/dev/null
+ # Project deletion deleted the project's commit image.
+ inc image list --format json | jq -e --arg image "$commit_image" \
+  'all(.[]; .fingerprint!=$image and (.properties["p.project_path"] // "")!="bulk-delete")' >/dev/null
  printf 'P_PROJECT_DELETE_CACHED_IMAGE_PASS\n'
 fi
 test -d "$other_repo"

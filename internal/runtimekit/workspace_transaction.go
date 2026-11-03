@@ -17,12 +17,17 @@ const workspaceScratch = "/.p-workspace-init"
 // InitWorkspace supervises first initialization as container root. Repository
 // commands run as p in a private mount namespace; root only manages scratch and
 // atomically publishes the finished directory. No repository command runs root.
+// A commit image already holds the clone, so v2 only runs p's adoption child.
 func InitWorkspace() error {
 	if os.Geteuid() != 0 {
 		return errors.New("workspace publication requires container root")
 	}
-	if _, err := workspaceInputs(); err != nil {
+	c, err := workspaceInputs()
+	if err != nil {
 		return err
+	}
+	if c.Schema == "p.workspace/v2" {
+		return workspaceUserCommand("adopt-workspace").Run()
 	}
 	if err := endpointParent("/"); err != nil {
 		return err
@@ -88,11 +93,18 @@ func StageWorkspace() error {
 // The scratch lock belongs only to root. Passing its open file description to
 // p would let the child release the supervisor's flock or enumerate scratch.
 func populateWorkspaceCommand(stageFile *os.File) *exec.Cmd {
-	cmd := exec.Command(KitPath, "populate-workspace")
+	cmd := workspaceUserCommand("populate-workspace")
+	cmd.ExtraFiles = []*os.File{stageFile}
+	return cmd
+}
+
+// workspaceUserCommand runs one fixed runtime-kit operation as p in
+// /workspace with the closed helper environment.
+func workspaceUserCommand(operation string) *exec.Cmd {
+	cmd := exec.Command(KitPath, operation)
 	cmd.Dir = "/workspace"
 	cmd.Env = workspaceHelperEnvironment()
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.ExtraFiles = []*os.File{stageFile}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: 1000, Gid: 1000, Groups: []uint32{1000}}}
 	return cmd
 }
@@ -118,6 +130,18 @@ func PopulateWorkspace() error {
 		return err
 	}
 	return initWorkspaceAt(c, "/workspace", "/run/current-system/sw/bin/git")
+}
+
+// AdoptWorkspace is the fixed p child of InitWorkspace for a commit image.
+func AdoptWorkspace() error {
+	if os.Geteuid() != 1000 {
+		return errors.New("workspace adoption requires p uid 1000")
+	}
+	c, err := workspaceInputs()
+	if err != nil {
+		return err
+	}
+	return adoptWorkspaceRemote(c, "/workspace", "/run/current-system/sw/bin/git", pRemote(c))
 }
 
 func workspaceHelperEnvironment() []string {

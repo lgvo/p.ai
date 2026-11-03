@@ -3,7 +3,7 @@
 ## Lifecycle workers depend on concrete runtime, store and Git types
 
 - Where: internal/daemon `lifecycle` (fields `store`, `git`, `runtime`)
-- Problem: Workers call a concrete `*runtimeincus.Backend` (25 methods, about 63 calls),
+- Problem: Workers call a concrete `*runtimeincus.Backend` (16 methods, about 45 calls),
   `*control.Store` and `*gitCapability`, so no worker can run against a stand-in.
 - Evidence: daemon statement coverage is 18.7%; every `process*` worker except
   `processCreateCleanup` and `processRetainedRename` is at 0%.
@@ -13,7 +13,7 @@
   discard), then unit-test each worker's recovery branches.
 - Fix when: a worker's recovery logic changes, or before a second runtime backend.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-02, 7 cases:
+- Added 2026-11-01, updated 2026-11-02, 8 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -41,6 +41,10 @@
     call `ResolveBuilderNix` and `RealizeBuilderNix` on the concrete runtime itself, two
     more methods and calls than through environmentnix; only the publish goes through the
     narrow `gatedPublisher` interface, so the build path is still checked only in VM.
+  - 2026-11-02: "one image per source commit" replaced `buildEnvironment` with the image
+    step (image.go, image_release.go), which calls the narrow `runtimedriver.Images` and is
+    unit-tested on an in-memory driver; that took the runtime from 25 methods and 63 calls to
+    16 and 45.
 
 ## Long worker functions
 
@@ -67,15 +71,19 @@
     cut `processDiscard` from 422 lines to 241, `processAssembledCreateCleanup` from 302 to
     175 and `processRename` from 248 to 201; seven daemon functions still exceed 150 lines,
     and the copied helper and freeze sequences across workers are gone.
+  - 2026-11-03: "one image per source commit", moved onto step 3, put project deletion's
+    image delete in `deleteProjectImage` and creation's image step in `ensureImage`:
+    `processProjectDelete` went from 328 lines to 298 and `processCreation` from 300 to 285.
 
 ## Exclusion triggers read evidence JSON fields by their Go tag names
 
 - Where: internal/control schema.sql (`active_session_operation`,
   `active_assembled_cleanup`, `assembled_cleanup_guards`, the `assembled_cleanup_*`
-  triggers, `assembled_cleanup_requires_creator`)
+  triggers, `assembled_cleanup_requires_creator`); commit_images.go `commitSessionsWhere`
 - Problem: SQL invariants read JSON evidence fields by name (`$.review.runtime`,
-  `$.review.old_operation_id`, `$.runtime_absent`) that mirror Go struct tags.
-- Evidence: tags in create_cleanup.go and removal_preview.go.
+  `$.review.old_operation_id`, `$.runtime_absent`, `$.captured_oid`) that mirror Go struct
+  tags.
+- Evidence: tags in create_cleanup.go, removal_preview.go and lifecycle_store.go.
 - Risk: renaming an evidence field's tag silently disables an exclusion trigger.
 - Fix: a test that breaks each JSON-keyed trigger when its field is renamed.
 - Fix when: any change to an evidence struct those triggers read.
@@ -89,6 +97,11 @@
     admission trigger and its `$.creator_operation_id` and `$.runtime_init_state` reads, and
     renamed the guards that remain to `assembled_cleanup_*`; they still read the cleanup's
     evidence by tag name.
+  - 2026-11-02: "one image per source commit" changed `CreationEvidence` (removed
+    `builder_tree_oid` and `environment_state`, added `image`), which meets "Fix when",
+    without adding the test; its commit-image queries, which decide whether an image is
+    still in use and guard its release, read `$.captured_oid` in SQL, so renaming that
+    tag would let release delete images that sessions' commits still use.
 
 ## Incus exec and HTTP access is hand-built in many places
 
@@ -103,7 +116,7 @@
 - Fix when: the next change to how P reaches Incus.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
   step 8 consolidates only the instance inventory).
-- Added 2026-11-01, updated 2026-11-02, 4 cases:
+- Added 2026-11-01, updated 2026-11-02, 5 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
   - 2026-11-02: "deletions without inspection" deleted workspace_git.go and
     workspace_helper.go with the workspace helpers, and their exec and file-API clients.
@@ -112,6 +125,13 @@
     argv in builder_nix.go; the runtime driver's image build (step 1) takes both.
   - 2026-11-02: "wait for the guest's systemd before a graceful stop" (step 0j) builds
     one more file-API client by hand, in graceful_stop.go `awaitGuestSystemd`.
+  - 2026-11-02: "one image per source commit" put the build behind the runtime driver's
+    image operations (`runtimeincus.Driver`, in process) but kept both argument lists
+    hand-built: `prepareBuilderNetwork` is unchanged, and builder_nix.go
+    `builderGuestExecEnv` now also runs the builder's Git commands with an extra
+    environment list. It added one more HTTP-over-socket client, builder.go `putStream`,
+    which streams the source bundle into the builder: a change to how P reaches Incus that
+    meets "Fix when", with consolidation outside the step.
 
 ## Preview confirmation tokens are issued by copied code
 
@@ -128,7 +148,7 @@
   above), so each family's saturation can be characterized first.
 - Left by: the agent, by rule (a restructuring not pursued; the plan review cut it because its
   behavior cannot be characterized before the change).
-- Added 2026-11-01, updated 2026-11-02, 5 cases:
+- Added 2026-11-01, updated 2026-11-03, 7 cases:
   - 2026-11-01: "complete rework of P's implementation" cut it from step 5 after review.
   - 2026-11-02: "recover from a panic in a request handler" had to make the same lock change
     in each copy: the token read in all ten, the token delete in nine, the insert in seven.
@@ -140,6 +160,9 @@
     from `PreviewRemoval` and `PreviewProjectDelete`; each family still issues its own token.
   - 2026-11-03: "errors that name the next step" typed each family's token refusals
     (`expired`, `changed`) and its full-table refusal in each copy.
+  - 2026-11-03: "one image per source commit", moved onto step 3, moved
+    `PreviewProjectDelete`'s frame check into `boundProjectDeleteReview` beside the
+    evidence bound; the family still issues and stores its own token.
 
 ## Trusted configuration and the RPC server live in the store package
 
@@ -163,7 +186,7 @@
   gitservice, plugin and runtimeincus), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 5 cases:
+- Added 2026-11-01, updated 2026-11-03, 6 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -175,6 +198,9 @@
   - 2026-11-02: "fold the environment plugin into the image build" removed
     `activation_path` and `plugin_id` from `runtime.environment`, a change to host
     configuration that meets "Fix when"; the move was outside that removal.
+  - 2026-11-02: "one image per source commit" replaced the server's
+    `CreationEnvironmentView` in rpc_lifecycle.go with `CreationImageView`, which reads
+    creation evidence from the store package as before; the server stayed in control.
   - 2026-11-03: "errors that name the next step" added control's `Refusal` and error
     mapping; runtimeincus and gitservice return refusals from control too.
 
@@ -182,7 +208,8 @@
 
 - Where: internal/control (26 `UPDATE operations` statements across the `*_store.go` files;
   `ActiveSessionChange` in session_change.go and `SessionRemovalKind` in removal_kind.go
-  list kinds in SQL; schema.sql triggers name kinds and phases)
+  list kinds in SQL; commit_images.go `commitSessionsWhere` and the `session_creation` index
+  name `session.create` in SQL; schema.sql triggers name kinds and phases)
 - Problem: Inserts, the key rule and the unfinished listing have one owner in
   operation_journal.go, but status and phase changes are still written by each kind's store
   methods, and two queries keep their own lists of which kinds guard or remove a session.
@@ -194,7 +221,7 @@
 - Fix when: the next new operation kind, or together with the check-then-act fix.
 - Left by: the agent, by rule (a restructuring not pursued: step 4 of REWORK-PLAN.md was
   scoped to inserts, the key rule and the unfinished listing).
-- Added 2026-11-01, updated 2026-11-03, 6 cases:
+- Added 2026-11-01, updated 2026-11-03, 7 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 4.
   - 2026-11-02: "collapse the 21 migrations into one schema file" moved the triggers that
     name kinds and phases from the migrations into schema.sql, unchanged.
@@ -208,6 +235,9 @@
     from `ActiveWorkspaceInspect` (now `ActiveSessionChange`), the project-deletion snapshot
     query, a schema index, view and four triggers, and the daemon's dispatch tests, besides
     the journal's kind table; the assembled cleanup's phases are listed again in a trigger.
+  - 2026-11-02: "one image per source commit" names the `session.create` kind by hand in
+    SQL twice more: `commitSessionsWhere` in commit_images.go, which finds the sessions
+    started from a commit, and the `session_creation` index in schema.sql that serves it.
   - 2026-11-03: "a reason beside the diagnostic" added the `reason` column to every status
     update by hand, in each kind's store methods, and one more update, `BlockAfterPanic`.
 

@@ -6,16 +6,16 @@ import (
 )
 
 func TestSessionRemovalAcceptsAMissingAssignedRef(t *testing.T) {
-	b, repo := selectedDeleteBackend(t)
+	b, repo := selectedBackend(t)
 	ctx := context.Background()
-	tree := snapshotGit(t, repo, nil, "mktree")
-	base := snapshotCommit(t, repo, tree, "")
-	snapshotGit(t, repo, nil, "update-ref", "refs/heads/main", base)
-	work := snapshotCommit(t, repo, tree, base)
-	snapshotGit(t, repo, nil, "update-ref", "refs/heads/work", work)
+	tree := bareGit(t, repo, nil, "mktree")
+	base := bareCommit(t, repo, tree, "")
+	bareGit(t, repo, nil, "update-ref", "refs/heads/main", base)
+	work := bareCommit(t, repo, tree, base)
+	bareGit(t, repo, nil, "update-ref", "refs/heads/work", work)
 	// The session's branch ref is deleted outside P; its commit stays in the
 	// repository unreferenced.
-	snapshotGit(t, repo, nil, "update-ref", "-d", "refs/heads/work", work)
+	bareGit(t, repo, nil, "update-ref", "-d", "refs/heads/work", work)
 
 	snapshot, err := b.AssignedBranchSnapshot(ctx, "app", "work", true)
 	if err != nil || snapshot.AssignedRef != "refs/heads/work" || snapshot.AssignedTip != "" ||

@@ -62,20 +62,55 @@
 - Added 2026-11-03, 1 case:
   - 2026-11-03: "errors that name the next step" met it in the VM gate.
 
-## Project deletion evidence admits fewer images than the review accepts
+## Project deletion evidence admits fewer images than the review's cap
 
-- Where: internal/control project_delete.go `maxProjectDeleteReviewBytes` and
-  `validProjectDeleteEvidence`; project_delete_store.go `BeginProjectDelete`
-- Problem: The review accepts up to 20 environment images, but the evidence a deletion is
-  confirmed with must encode within 24 KiB, which four sessions and about eleven images
-  already fill; a larger project's confirmation is refused as invalid.
-- Evidence: control's `TestProjectDeleteEvidenceFitsAtTheDiagnosticLimit` measures that 11
-  images with four sessions fit; each image claim encodes to about 1.3 KiB.
-- Risk: a project with many environment images cannot be deleted through P.
-- Fix: bound the review by what the evidence can hold, or keep image claims smaller.
-- Fix when: step 1 of the interface rework (commit images) lands: at most one image per
-  session then fits.
+- Where: internal/control project_delete.go `MaxProjectDeleteImages`,
+  `maxProjectDeleteReviewBytes` and `ProjectDeleteReviewFits`; internal/daemon
+  project_delete.go `boundProjectDeleteReview`
+- Problem: The review accepts up to 20 commit images, but the evidence a deletion is
+  confirmed with must encode within 24 KiB, which four sessions and eight images fill when
+  the project, branch and builder-version names are as long as P accepts. The review
+  refuses a project whose evidence would not fit with `conflict`, reason `bound_exceeded`;
+  the confirmation no longer refuses it as invalid.
+- Evidence: control's `TestProjectDeleteEvidenceFitsAtTheDiagnosticLimit` measures eight
+  images with four sessions at those names; each commit image claim then encodes to about
+  1.7 KiB, and its resource to about 0.1 KiB.
+- Risk: a project with more images than its evidence can record cannot be deleted through
+  P until release deletes the unused ones. A project keeps one image per commit its
+  sessions started from, so this takes more images than sessions: images of an older base
+  image or builder version kept for a commit that still has sessions, or release held up
+  by an unreachable driver.
+- Fix: keep image claims smaller, such as the index key and reference with the rest read
+  back from the index, or let the evidence bound alone decide and drop the separate cap.
+- Fix when: a project deletion is refused this way, or the deletion evidence next changes.
 - Left by: the agent, by rule (a problem outside the change).
-- Added 2026-11-03, 1 case:
+- Added 2026-11-03, updated 2026-11-03, 2 cases:
   - 2026-11-03: "one diagnostic limit" found it while checking that the evidence fits at
     the new diagnostic limit.
+  - 2026-11-03: "one image per source commit", moved onto step 3, replaced environment
+    images with commit images, made the review refuse what the evidence cannot record,
+    and measured eight images at four sessions with the longest names.
+
+## A builder admitted after its creation's reply was lost is never collected
+
+- Where: internal/runtimeincus driver.go `BuildImage` and `Delete`; internal/daemon image.go
+  `buildImage` and `settleBuild`
+- Problem: When `incus init` of a builder loses its reply, the build's leftover removal
+  finds no builder and the cycle ends `absent`; the next attempt uses a new build reference.
+  Incus can still admit the lost request later and create the old builder, stopped. Nothing
+  lists builders to find it: the driver's `Inventory`, through which core is meant to delete
+  such a late object exactly ([runtime-driver.md](../../rework/runtime-driver.md#settling-uncertain-effects)),
+  lands in step 8 (M3).
+- Evidence: `Delete` looks for the reference's builder by name and in the instance
+  inventory once; the daemon records `absent` when that finds nothing. Before this step the
+  same case left the creation blocked ("builder init outcome unknown").
+- Risk: a stopped orphan container holds one slot of the Incus project's container limit and
+  its storage until someone deletes it by hand. It never starts, so it runs no code.
+- Fix: list builders labeled with this P instance in the driver's `Inventory` and delete
+  those whose build reference no unfinished creation holds.
+- Fix when: step 8's M3 (`Inventory`), or the first time such an orphan is seen.
+- Left by: the agent, by rule (behavior left untested: needs the driver's inventory, which
+  the plan places in a later step).
+- Added 2026-11-02, 1 case:
+  - 2026-11-02: "one image per source commit" gave each build attempt its own reference
+    and review found the late-admission case.

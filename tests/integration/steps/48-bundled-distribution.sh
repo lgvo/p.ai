@@ -12,6 +12,7 @@ endpoint_prefix=/var/lib/p-vm/endpoints/pdev/step48
 mkdir -m 0700 "$endpoint_prefix"
 export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 daemon_pid=
+p_instance=
 sessions=()
 inc() { timeout 90 incus --force-local --project user-1000 "$@"; }
 rpc() { timeout 45 p api "$socket" "$@"; }
@@ -39,6 +40,12 @@ cleanup() {
     inc delete --force "p-$target" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${target:?}"
   done
+  # The stopped daemon no longer releases the commit image it built.
+  if test -n "$p_instance"; then
+    inc image list --format json 2>/dev/null |
+      jq -r --arg instance "$p_instance" '.[] | select(.properties["p.instance"]==$instance) | .fingerprint' |
+      while IFS= read -r built; do inc image delete "$built" >/dev/null 2>&1 || true; done || true
+  fi
   rmdir "$endpoint_prefix" 2>/dev/null || true
 }
 on_error() {
@@ -133,6 +140,7 @@ wait_ready() {
   return 1
 }
 start_daemon
+p_instance=$(rpc system.hello | jq -er '.result.instance_id | select(length==36)')
 created=$(rpc project.create '{"key":"distribution-bootstrap","project":"bundled-distribution"}')
 boot_uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 sessions+=("$boot_uuid")
@@ -160,13 +168,16 @@ created=$(rpc session.create '{"key":"distribution-committed","project":"bundled
 uuid=$(jq -er '.result.operation.session_uuid | select(length==36)' <<< "$created")
 sessions+=("$uuid")
 result=$(wait_operation "$(jq -er '.result.operation.id' <<< "$created")")
-jq -e --arg oid "$oid" '.result.operation.evidence |
-  .captured_oid==$oid and .environment_state!=null and (.environment_state.flake_present // false)==false and
-  (.environment_state.key // "")==""' <<< "$result" >/dev/null
+# Main has no flake: the session starts from an image of main's commit built
+# from the base packages and the commit's code.
+jq -e --arg oid "$oid" --arg base "$image" '.result.operation.evidence |
+  .captured_oid==$oid and .image.selection=="no-flake" and .image.built==true and
+  .image_fingerprint==.image.ref and .image_fingerprint!=$base' <<< "$result" >/dev/null
 wait_ready "$uuid"
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
-  jq -e --arg oid "$oid" --arg image "$image" '.result.session.environment |
-    .commit_oid==$oid and .selection=="base" and .cache=="none" and .image_fingerprint==$image' >/dev/null
+  jq -e --arg oid "$oid" --arg base "$image" '.result.session.image |
+    .commit_oid==$oid and .selection=="base" and .state=="built" and
+    .base_image_fingerprint==$base and .image_fingerprint!=$base' >/dev/null
 test "$(guest "$uuid" git rev-parse HEAD)" = "$oid"
 guest "$uuid" /run/current-system/sw/bin/test -x /usr/libexec/p/codex-adapter
 # Adapter data is an explicit event fixture, not authenticated Codex execution.

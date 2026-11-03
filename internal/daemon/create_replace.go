@@ -167,22 +167,11 @@ func (l *lifecycle) createReplaceEffects(ctx context.Context, op api.Operation, 
 	return cleanup, err
 }
 
-// recordedFact is the JSON of a record that a preview shows as recorded; a
-// nil record stays absent. The records are plain strings and numbers, which
-// always encode.
-func recordedFact[T any](record *T) json.RawMessage {
-	if record == nil {
-		return nil
-	}
-	raw, _ := json.Marshal(record)
-	return raw
-}
-
 func (l *lifecycle) createReplaceFacts(ctx context.Context, oldUUID string, req control.ReserveSessionRequest) (api.CreateReplacePreview, error) {
 	selection := l.selection()
 	p := api.CreateReplacePreview{OldUUID: oldUUID, NewRequest: req, UnsafeReasons: []string{},
 		Provisional: api.CreateReplaceResources{RuntimeLocal: "unavailable"}, NewImageFingerprint: l.cfg.BaseImageFingerprint,
-		NewSelection: recordedFact(&selection), NewEnvironment: recordedFact(l.environmentIntent())}
+		NewSelection: api.CreationSelection(selection), NewEnvironment: (*api.EnvironmentIntent)(l.environmentIntent())}
 	unsafe := func(reason string) { p.UnsafeReasons = append(p.UnsafeReasons, reason) }
 	if !control.ValidSessionCreateRequest(req) {
 		return p, control.ErrInvalid

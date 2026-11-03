@@ -1,7 +1,6 @@
 package runtimekit
 
 import (
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -138,6 +137,32 @@ func TestWorkspaceConfigRejectsInvalidBranches(t *testing.T) {
 	}
 }
 
+func TestWorkspaceConfigV2NeedsTheCapturedCommitAndADevShellSelection(t *testing.T) {
+	oid := strings.Repeat("a", 40)
+	for _, selection := range []string{"no-flake", "no-default", "devshell"} {
+		raw := `{"schema":"p.workspace/v2","repository":"team/app","branch":"feature","initial_oid":"` + oid + `","environment_selection":"` + selection + `"}`
+		c, err := ParseWorkspaceConfig([]byte(raw))
+		if err != nil {
+			t.Fatalf("refused %s: %v", raw, err)
+		}
+		if want := (WorkspaceConfig{Schema: "p.workspace/v2", Repository: "team/app", Branch: "feature", InitialOID: oid, EnvironmentSelection: selection}); c != want {
+			t.Fatalf("parsed %+v, want %+v", c, want)
+		}
+	}
+	for _, raw := range []string{
+		`{"schema":"p.workspace/v2","repository":"app","branch":"main","environment_selection":"no-flake"}`,
+		`{"schema":"p.workspace/v2","repository":"app","branch":"main","initial_oid":"` + oid + `"}`,
+		`{"schema":"p.workspace/v2","repository":"app","branch":"main","initial_oid":"` + oid + `","environment_selection":"base-no-flake"}`,
+		`{"schema":"p.workspace/v2","repository":"app","branch":"main","initial_oid":"` + oid + `","environment_selection":"devshell","environment_key":"` + strings.Repeat("b", 64) + `"}`,
+		`{"schema":"p.workspace/v2","repository":"app","branch":"main","initial_oid":"` + oid + `","environment_selection":"no-default","environment_commit_oid":"` + oid + `"}`,
+		`{"schema":"p.workspace/v1","repository":"app","branch":"main","initial_oid":"` + oid + `","environment_selection":"no-flake"}`,
+	} {
+		if _, err := ParseWorkspaceConfig([]byte(raw)); err == nil {
+			t.Fatalf("accepted %s", raw)
+		}
+	}
+}
+
 func TestWorkspaceRefusesCapturedRootFlake(t *testing.T) {
 	base := t.TempDir()
 	remote := filepath.Join(base, "remote.git")
@@ -160,68 +185,16 @@ func TestWorkspaceRefusesCapturedRootFlake(t *testing.T) {
 	if err := initWorkspaceRemote(c, work, "git", remote); err == nil || !strings.Contains(err.Error(), "devShell") {
 		t.Fatalf("captured flake silently booted base: %v", err)
 	}
-	for _, selection := range []string{"base-no-flake", "base-no-default", "devshell"} {
-		accepted := c
-		accepted.Schema = "p.workspace/v2"
-		accepted.EnvironmentCommitOID = oid
-		accepted.EnvironmentSelection = selection
-		if selection == "devshell" {
-			accepted.EnvironmentKey = strings.Repeat("a", 64)
-		}
-		raw, err := json.Marshal(accepted)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := ParseWorkspaceConfig(raw); err != nil {
-			t.Fatalf("accepted resolution config %s: %v", selection, err)
-		}
-		fresh := filepath.Join(base, selection)
-		if err := os.Mkdir(fresh, 0755); err != nil {
-			t.Fatal(err)
-		}
-		err = initWorkspaceRemote(accepted, fresh, "git", remote)
-		if selection == "base-no-flake" {
-			if err == nil || !strings.Contains(err.Error(), "devShell") {
-				t.Fatalf("unresolved flake accepted as no-flake: %v", err)
-			}
-			continue
-		}
-		if err != nil || gitTest(t, fresh, "rev-parse", "HEAD") != oid {
-			t.Fatalf("accepted %s did not initialize captured commit: %v", selection, err)
-		}
-		if err := os.WriteFile(filepath.Join(fresh, "user-change"), []byte("retained"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		if err := initWorkspaceRemote(accepted, fresh, "git", remote); err != nil {
-			t.Fatalf("retained %s start: %v", selection, err)
-		}
-		if got, err := os.ReadFile(filepath.Join(fresh, "user-change")); err != nil || string(got) != "retained" {
-			t.Fatalf("retained workspace changed: %q %v", got, err)
-		}
+}
+
+func TestWorkspaceCloneFromPIsOnlyForV1(t *testing.T) {
+	c, remote, work, _ := workspaceFixture(t, false)
+	c.Schema = "p.workspace/v2"
+	c.EnvironmentSelection = "no-flake"
+	if err := initWorkspaceRemote(c, work, "git", remote); err == nil {
+		t.Fatal("v2 workspace cloned from P")
 	}
-	invalid := c
-	invalid.Schema = "p.workspace/v2"
-	invalid.EnvironmentCommitOID = strings.Repeat("b", 40)
-	invalid.EnvironmentSelection = "base-no-default"
-	raw, _ := json.Marshal(invalid)
-	if _, err := ParseWorkspaceConfig(raw); err == nil {
-		t.Fatal("resolution for a different commit accepted")
-	}
-	for _, selection := range []string{"base-no-flake", "base-no-default", "devshell"} {
-		plain, plainRemote, plainWork, _ := workspaceFixture(t, false)
-		plain.Schema = "p.workspace/v2"
-		plain.EnvironmentCommitOID = plain.InitialOID
-		plain.EnvironmentSelection = selection
-		if selection == "devshell" {
-			plain.EnvironmentKey = strings.Repeat("a", 64)
-		}
-		err := initWorkspaceRemote(plain, plainWork, "git", plainRemote)
-		if selection == "base-no-flake" {
-			if err != nil {
-				t.Fatalf("accepted absent flake rejected: %v", err)
-			}
-		} else if err == nil || !strings.Contains(err.Error(), "expected a captured root flake") {
-			t.Fatalf("forged %s accepted without flake: %v", selection, err)
-		}
+	if err := emptyWorkspace(work); err != nil {
+		t.Fatal(err)
 	}
 }

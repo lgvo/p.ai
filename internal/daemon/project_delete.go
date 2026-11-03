@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,13 +16,14 @@ import (
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 type projectDeletePreviewState struct {
 	Preview api.ProjectDeletionPreview
-	// Images are the reviewed image claims, which the preview shows as
-	// recorded.
-	Images  []control.EnvironmentCollectionClaim
+	// Images are the reviewed image claims that the preview shows and the
+	// deletion's evidence records.
+	Images  []control.CommitImageClaim
 	Request control.ProjectDeletePreviewRequest
 	Expiry  time.Time
 }
@@ -71,37 +73,38 @@ func collectionToken() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// observeCollection binds one indexed image's Incus presence, size and related
+// reviewCommitImage binds one indexed image's presence, size and related
 // sessions into the claim a project deletion reviews.
-func (l *lifecycle) observeCollection(ctx context.Context, entry control.EnvironmentImage) (control.EnvironmentCollectionClaim, error) {
-	claim := control.EnvironmentCollectionClaim{Image: entry}
-	info, found, err := l.runtime.ObserveOwnedBuilderImage(ctx, imageClaimFromCache(entry))
+func (l *lifecycle) reviewCommitImage(ctx context.Context, row control.CommitImage) (control.CommitImageClaim, error) {
+	claim := control.CommitImageClaim{Image: row, ObservedSize: row.Size}
+	img, found, err := l.images.InspectImage(ctx, runtimedriver.ImageRef(row.Ref))
 	if err != nil {
-		return claim, control.Failed(api.ReasonRuntime, err)
+		return claim, imageFailure(err)
 	}
-	claim.ImagePresent = found
-	claim.ObservedSize = entry.LogicalSize
 	if found {
-		claim.ObservedSize = info.Size
+		if !maps.Equal(img.Labels, row.Labels) {
+			return claim, imageFailure(fmt.Errorf("%w: image %s differs from its index row", runtimedriver.ErrMismatch, row.Ref))
+		}
+		claim.ImagePresent, claim.ObservedSize = true, img.Size
 	}
-	claim.RelatedDigest, err = l.store.RelatedEnvironmentDigest(ctx, entry.Project, entry.Key, entry.Fingerprint)
+	claim.RelatedDigest, err = l.store.CommitSessionsDigest(ctx, row.Key.Project, row.Key.Commit)
 	return claim, err
 }
-func projectDeleteNamedResources(sessions []api.ProjectDeleteSession, images []control.EnvironmentCollectionClaim) (map[string]bool, map[string]bool) {
-	names, fps := map[string]bool{}, map[string]bool{}
+func projectDeleteNamedResources(sessions []api.ProjectDeleteSession, images []control.CommitImageClaim) (map[string]bool, map[string]bool) {
+	names, refs := map[string]bool{}, map[string]bool{}
 	for _, s := range sessions {
 		names[s.Runtime.InstanceName] = true
 	}
 	for _, c := range images {
-		fps[c.Image.Fingerprint] = true
+		refs[c.Image.Ref] = true
 	}
-	return names, fps
+	return names, refs
 }
 
 // projectDeleteFacts reviews deleting req.Project and returns the review and
 // the image claims it shows.
-func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectDeletePreviewRequest) (api.ProjectDeletionPreview, []control.EnvironmentCollectionClaim, error) {
-	claims := []control.EnvironmentCollectionClaim{}
+func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectDeletePreviewRequest) (api.ProjectDeletionPreview, []control.CommitImageClaim, error) {
+	claims := []control.CommitImageClaim{}
 	p := api.ProjectDeletionPreview{Project: req.Project, Outcome: "delete_project_and_all_p_data", Attachments: []string{}, Sessions: []api.ProjectDeleteSession{}, Warnings: []string{
 		"All P refs, reachable and unreachable bare Git objects, runtime workspaces, private home files and runtime-local credentials will be deleted. P does not look inside the runtimes; their contents are not enumerated or hashed.",
 		"External filesystem-grant contents, shared/unindexed images and unrelated projects are preserved; delivered handler logs remain subject to the handler's own retention policy."}}
@@ -196,23 +199,21 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 		return p, nil, gitFailure(err)
 	}
 	p.BranchLoss = deleteReview(branchLoss)
-	entries, next, err := l.store.ListEnvironmentImages(ctx, req.Project, "", 20)
+	rows, more, err := l.store.ListCommitImages(ctx, req.Project, control.CommitImageKey{}, control.MaxProjectDeleteImages)
 	if err != nil {
 		return p, nil, err
 	}
-	if next != "" {
+	if more {
 		return p, nil, control.Conflict(api.ReasonBoundExceeded, api.TargetProject(req.Project))
 	}
-	for _, entry := range entries {
-		claim, e := l.observeCollection(ctx, entry)
+	for _, row := range rows {
+		claim, e := l.reviewCommitImage(ctx, row)
 		if e != nil {
 			return p, nil, e
 		}
 		claims = append(claims, claim)
 	}
-	if p.Images, err = json.Marshal(claims); err != nil {
-		return p, nil, err
-	}
+	p.Images = control.CommitImageClaimViews(claims)
 	names, images := projectDeleteNamedResources(p.Sessions, claims)
 	if err = l.runtime.CheckProjectDeletionInventory(ctx, req.Project, names, images); err != nil {
 		return p, nil, control.Failed(api.ReasonRuntime, err)
@@ -234,6 +235,38 @@ func (l *lifecycle) projectDeleteFacts(ctx context.Context, req control.ProjectD
 	}
 	return p, claims, nil
 }
+
+// boundProjectDeleteReview refuses a review whose answer would not fit a
+// response frame, or whose deletion could not be confirmed because its
+// evidence would exceed its bound.
+func (l *lifecycle) boundProjectDeleteReview(p api.ProjectDeletionPreview, claims []control.CommitImageClaim) error {
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return control.Internal(api.ReasonEncoding, err)
+	}
+	if len(raw) > api.MaxFrameBytes-1024 || !control.ProjectDeleteReviewFits(l.projectDeleteEvidence(p, claims, p.StateSHA256)) {
+		return control.Conflict(api.ReasonBoundExceeded, api.TargetProject(p.Project))
+	}
+	return nil
+}
+
+// projectDeleteEvidence is the evidence a deletion reviewed by preview, with
+// its image claims, is confirmed with at the project's state sha: every
+// reviewed resource, remaining.
+func (l *lifecycle) projectDeleteEvidence(preview api.ProjectDeletionPreview, images []control.CommitImageClaim, sha string) control.ProjectDeleteEvidence {
+	ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.cfg.IncusProject, StateSHA256: sha, Sessions: append([]api.ProjectDeleteSession(nil), preview.Sessions...), Images: images, Repository: preview.Repository, RepositoryParent: preview.RepositoryParent}
+	reviewed, _ := json.Marshal(preview)
+	ev.ReviewSHA256 = hexDigest(reviewed)
+	for i := range ev.Sessions {
+		ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "runtime", ID: ev.Sessions[i].Session.UUID, Status: "remaining"}, control.ProjectDeleteResource{Kind: "local", ID: ev.Sessions[i].Session.UUID, Status: "remaining"})
+	}
+	for _, im := range ev.Images {
+		ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "image", ID: im.Image.Ref, Status: "remaining"})
+	}
+	ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
+	return ev
+}
+
 func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.ProjectDeletePreviewRequest) (api.ProjectDeletionPreview, error) {
 	r, err := l.lockProjectDelete(ctx, req.Project)
 	if err != nil {
@@ -260,12 +293,8 @@ func (l *lifecycle) PreviewProjectDelete(ctx context.Context, req control.Projec
 	expiry := time.Now().Add(removalPreviewTTL)
 	p.ConfirmationToken = token
 	p.ExpiresAt = expiry.UTC().Format(time.RFC3339Nano)
-	raw, err := json.Marshal(p)
-	if err != nil {
-		return api.ProjectDeletionPreview{}, control.Internal(api.ReasonEncoding, err)
-	}
-	if len(raw) > api.MaxFrameBytes-1024 {
-		return api.ProjectDeletionPreview{}, control.Conflict(api.ReasonBoundExceeded, api.TargetProject(req.Project))
+	if err = l.boundProjectDeleteReview(p, claims); err != nil {
+		return api.ProjectDeletionPreview{}, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -349,18 +378,8 @@ func (l *lifecycle) ConfirmProjectDelete(ctx context.Context, req control.Projec
 			}
 			return nil
 		}
-		ev := control.ProjectDeleteEvidence{InstanceUUID: l.instanceID, BaseFingerprint: l.cfg.BaseImageFingerprint, IncusProject: l.cfg.IncusProject, StateSHA256: sha, Sessions: append([]api.ProjectDeleteSession(nil), state.Preview.Sessions...), Images: state.Images, Repository: state.Preview.Repository, RepositoryParent: state.Preview.RepositoryParent}
-		reviewed, _ := json.Marshal(state.Preview)
-		ev.ReviewSHA256 = hexDigest(reviewed)
-		for i := range ev.Sessions {
-			ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "runtime", ID: ev.Sessions[i].Session.UUID, Status: "remaining"}, control.ProjectDeleteResource{Kind: "local", ID: ev.Sessions[i].Session.UUID, Status: "remaining"})
-		}
-		for _, im := range ev.Images {
-			ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "image", ID: im.Image.Key, Status: "remaining"})
-		}
-		ev.Resources = append(ev.Resources, control.ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
 		var e error
-		accepted, e = l.store.BeginProjectDelete(ctx, saved, ev, state.Preview.ExpiresAt, verify)
+		accepted, e = l.store.BeginProjectDelete(ctx, saved, l.projectDeleteEvidence(state.Preview, state.Images, sha), state.Preview.ExpiresAt, verify)
 		return staleIfConflict(e)
 	})
 	if err != nil {

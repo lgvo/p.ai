@@ -181,8 +181,8 @@ reclaims, renames, publishes, or deletes retained branches automatically.
 
 **Delete project and all P data** is one bulk destructive action. It means that
 the project, every session and attachment, every assigned and retained P ref,
-the bare repository, credentials, runtimes, project-scoped cached environment
-images, observations, and registry records will become absent.
+the bare repository, credentials, runtimes, the project's commit images,
+observations, and registry records will become absent.
 
 It does not delete external filesystem-grant contents or retract events already
 delivered to a configured handler. Those are outside project-state authority;
@@ -202,7 +202,7 @@ report containing:
 - every assigned and retained P ref and the commits that lose their last P
   reference;
 - session and project credentials;
-- project-scoped builders, images, and other owned cache resources; and
+- project-scoped builders and every commit image of the project; and
 - external mounts and already-delivered event-log records that P will not
   delete.
 
@@ -261,14 +261,15 @@ session authority and are distinct from the excluded abandonment workflow.
 
 The CLI-first aggregate path accepts established, stopped, detached sessions,
 or explicit acknowledgement of positively proved missing runtimes. It accepts
-indexed, exactly owned environment images and bounded Git/history/report
-inventories. Project deletion does not stop sessions itself: running or
-attached sessions require detach and Stop first. Incomplete creators require
-supported separate cleanup or exact-identity investigation first. Oversized
-or unfamiliar inventories remain intact with preparation or investigation
-instructions; no uncertain resource is deleted to meet a limit. The
-[host API](control-api.md#aggregate-project-deletion) owns the request fields
-and current bounds; validation evidence belongs in the
+the project's indexed commit images, each read through the runtime driver and
+deleted exactly once the project's runtimes are proven absent, and bounded
+Git/history/report inventories. Project deletion does not stop sessions
+itself: running or attached sessions require detach and Stop first. Incomplete
+creators require supported separate cleanup or exact-identity investigation
+first. Oversized or unfamiliar inventories remain intact with preparation or
+investigation instructions; no uncertain resource is deleted to meet a limit.
+The [host API](control-api.md#aggregate-project-deletion) owns the request
+fields and current bounds; validation evidence belongs in the
 progress record.
 
 Within already-confirmed bulk ensure-absent work, an issued source DELETE is

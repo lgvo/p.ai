@@ -205,18 +205,18 @@ type OperationListResult struct {
 }
 
 type OperationSummary struct {
-	ID          string           `json:"id"`
-	Key         string           `json:"idempotency_key"`
-	Kind        string           `json:"kind"`
-	Project     string           `json:"project"`
-	SessionUUID string           `json:"session_uuid,omitempty"`
-	Intent      OperationIntent  `json:"intent"`
-	Status      string           `json:"status"`
-	Phase       string           `json:"phase"`
-	Committed   bool             `json:"committed"`
-	Reason      string           `json:"reason,omitempty"`
-	Diagnostic  string           `json:"diagnostic,omitempty"`
-	Environment *EnvironmentView `json:"environment,omitempty"`
+	ID          string          `json:"id"`
+	Key         string          `json:"idempotency_key"`
+	Kind        string          `json:"kind"`
+	Project     string          `json:"project"`
+	SessionUUID string          `json:"session_uuid,omitempty"`
+	Intent      OperationIntent `json:"intent"`
+	Status      string          `json:"status"`
+	Phase       string          `json:"phase"`
+	Committed   bool            `json:"committed"`
+	Reason      string          `json:"reason,omitempty"`
+	Diagnostic  string          `json:"diagnostic,omitempty"`
+	Image       *ImageView      `json:"image,omitempty"`
 }
 
 type SessionResult struct {
@@ -239,17 +239,17 @@ type SessionView struct {
 	AttachedCount             int                  `json:"attached_count"`
 	LatestUnattendedCondition *UnattendedCondition `json:"latest_unattended_condition"`
 	Diagnostic                string               `json:"diagnostic,omitempty"`
-	Environment               *EnvironmentView     `json:"environment,omitempty"`
+	Image                     *ImageView           `json:"image,omitempty"`
 }
 
-// EnvironmentView exposes bounded selection and cache state without store
-// paths, activation bytes, or builder credentials.
-type EnvironmentView struct {
+// ImageView shows the commit image a session is created from, without store
+// paths, activation bytes, or builder credentials. Selection is pending, base
+// or devShells.<system>.default; State is pending, building, built or reused.
+type ImageView struct {
 	CommitOID            string `json:"commit_oid,omitempty"`
 	System               string `json:"system"`
 	Selection            string `json:"selection"`
-	Cache                string `json:"cache"`
-	Key                  string `json:"environment_key,omitempty"`
+	State                string `json:"state"`
 	BaseImageFingerprint string `json:"base_image_fingerprint"`
 	ImageFingerprint     string `json:"image_fingerprint"`
 }

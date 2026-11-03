@@ -1,6 +1,8 @@
 # shellcheck shell=bash
-# Public daemon composition: captured Git source, native Nix environment build,
-# private image cache, and pre-host activation in persistent session roots.
+# Public daemon composition: captured Git source, one image per source commit
+# built natively and shared by the sessions started from that commit, its
+# release with the commit's last session, and pre-host activation in
+# persistent session roots.
 set -E
 umask 077
 if test "${P_CACHE_OVERLAP_PROBE:-0}" = 1; then
@@ -10,6 +12,9 @@ else
   step_dir="$P_TEST_TMP/step-25"
   endpoint_prefix=/var/lib/p-vm/endpoints/pdev/step25
 fi
+# While this file exists, the test-only Incus wrapper of step 26 appends the
+# builder named by every image publish.
+publish_count=/tmp/p-vm-publish-count-1000
 mkdir -m 0700 "$step_dir"
 state="$step_dir/state"
 mkdir -m 0700 "$state"
@@ -17,6 +22,8 @@ socket="$state/control.sock"
 mkdir -m 0700 "$endpoint_prefix"
 export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 daemon_pid=
+watcher_pid=
+p_instance=
 sessions=()
 
 inc() { timeout 60 incus --force-local --project user-1000 "$@"; }
@@ -41,11 +48,21 @@ stop_daemon() {
 }
 cleanup() {
   stop_daemon
-  rm -f -- /tmp/p-vm-publish-barrier-1000 /tmp/p-vm-publish-overlap-1000
+  if test -n "$watcher_pid"; then
+    kill "$watcher_pid" 2>/dev/null || true
+    wait "$watcher_pid" 2>/dev/null || true
+  fi
+  rm -f -- "$publish_count"
   for uuid in "${sessions[@]}"; do
     inc delete --force "p-$uuid" >/dev/null 2>&1 || true
     rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
   done
+  # The stopped daemon no longer releases the commit images it built.
+  if test -n "$p_instance"; then
+    inc image list --format json 2>/dev/null |
+      jq -r --arg instance "$p_instance" '.[] | select(.properties["p.instance"]==$instance) | .fingerprint' |
+      while IFS= read -r image; do inc image delete "$image" >/dev/null 2>&1 || true; done || true
+  fi
   rmdir "$endpoint_prefix" 2>/dev/null || true
 }
 on_error() {
@@ -175,6 +192,66 @@ discard_owned() {
   test "$(inc list --format json | jq --arg uuid "$uuid" '[.[]|select(.name==("p-"+$uuid))]|length')" -eq 0
   test ! -e "$state/session_keys/$uuid"
 }
+# The build reference P derives for a creation's build in one cycle
+# (control.BuildRef): SHA-256 of "<operation>/<cycle>", its first 16 bytes as
+# a version 4 UUID. A builder is named p-builder-<build reference>.
+build_ref() {
+  local sum
+  sum=$(printf '%s/%s' "$1" "$2" | sha256sum | cut -c1-32)
+  printf '%s-%s-4%s-%x%s-%s\n' "${sum:0:8}" "${sum:8:4}" "${sum:13:3}" \
+    "$(( (16#${sum:16:1} & 3) | 8 ))" "${sum:17:3}" "${sum:20:12}"
+}
+# This P instance's Incus images of one commit of this project.
+commit_images() {
+  inc image list --format json | jq -c --arg oid "$1" --arg instance "$p_instance" \
+    '[.[] | select(.properties["p.source_commit"]==$oid and .properties["p.instance"]==$instance and
+      .properties["p.project_path"]=="public-environment")]'
+}
+no_builders() {
+  inc list --format json | jq -e 'all(.[]; .name | startswith("p-builder-") | not)' >/dev/null
+}
+# A creation that built its commit's image in its first build cycle: the
+# session's image view, the creation's evidence and the Incus image's labels
+# agree, and the image is the commit's only one. Sets built_image.
+assert_built() {
+  local result="$1" view="$2" oid="$3" selection="$4" label="$5" op image
+  op=$(jq -er '.result.operation.id' <<< "$result")
+  image=$(jq -er '.result.session.image.image_fingerprint | select(length==64)' <<< "$view")
+  jq -e --arg oid "$oid" --arg base "$base" --arg selection "$selection" \
+    '.result.session.image | .state=="built" and .commit_oid==$oid and .system=="x86_64-linux" and
+      .selection==$selection and .base_image_fingerprint==$base and .image_fingerprint!=$base' \
+    <<< "$view" >/dev/null
+  jq -e --arg image "$image" --arg label "$label" '.result.operation.evidence |
+    .image_fingerprint==$image and .image.ref==$image and .image.built==true and .image.selection==$label and
+    ((.image.material_sha256 // "") | test(if $label=="devshell" then "^[0-9a-f]{64}$" else "^$" end)) and
+    .environment_builder=={cycle:1,state:"absent"}' <<< "$result" >/dev/null
+  commit_images "$oid" | jq -e --arg image "$image" --arg base "$base" --arg label "$label" \
+    --arg build "$(build_ref "$op" 1)" --argjson ev "$(jq -c '.result.operation.evidence' <<< "$result")" \
+    'length==1 and .[0].fingerprint==$image and (.[0].properties |
+      .["p.base_image"]==$base and .["p.system"]=="x86_64-linux" and .["p.selection"]==$label and
+      .["p.build"]==$build and .["p.material"]==$ev.image.material_sha256)' >/dev/null
+  built_image=$image
+}
+# A creation that reused the image another creation built for its commit,
+# without any build cycle of its own.
+assert_reused() {
+  local result="$1" view="$2" oid="$3" image="$4"
+  jq -e --arg oid "$oid" --arg image "$image" \
+    '.result.session.image | .state=="reused" and .commit_oid==$oid and .image_fingerprint==$image' \
+    <<< "$view" >/dev/null
+  jq -e --arg image "$image" '.result.operation.evidence | .image_fingerprint==$image and
+    .image.ref==$image and .image.built==false and .environment_builder=={cycle:0,state:"not-attempted"}' \
+    <<< "$result" >/dev/null
+}
+# Records every builder instance seen until the stop file appears.
+watch_builders() {
+  local seen="$1" stop="$2" deadline=$((SECONDS+600))
+  while test ! -e "$stop" && ((SECONDS < deadline)); do
+    inc list --format json 2>/dev/null |
+      jq -r '.[] | select(.name | startswith("p-builder-")) | .name' >> "$seen" 2>/dev/null || true
+    sleep 0.3
+  done
+}
 
 op_ids=()
 bootstrap=$(rpc project.create '{"key":"public-environment-bootstrap","project":"public-environment"}')
@@ -246,7 +323,8 @@ valid_oid=$(exec_p "$boot_uuid" git rev-parse HEAD)
 create_branch env-a env-a
 a_op=$new_op a_uuid=$new_uuid
 hook_seen=0
-deadline=$((SECONDS+160))
+# The hook runs once the creation has built C1's image.
+deadline=$((SECONDS+300))
 while ((SECONDS < deadline)); do
   if timeout 5 incus --force-local --project user-1000 file pull \
     "p-$a_uuid/home/p/hook-in-progress" "$step_dir/hook-progress" \
@@ -266,30 +344,48 @@ exec_p "$a_uuid" test ! -S /run/p-interactive/tmux.sock
 printf 'release\n' > "$step_dir/hook-gate-release"
 inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/hook-gate-release" \
   "p-$a_uuid/home/p/hook-gate-release"
-wait_operation "$a_op" completed >/dev/null
+a_result=$(wait_operation "$a_op" completed)
 a_view=$(wait_ready "$a_uuid")
-image_one=$(jq -er '.result.session.environment.image_fingerprint | select(length==64)' <<< "$a_view")
-key_one=$(jq -er '.result.session.environment.environment_key | select(length==64)' <<< "$a_view")
-jq -e --arg base "$base" --arg oid "$valid_oid" --arg image "$image_one" \
-  '.result.session.environment | .selection=="devShells.x86_64-linux.default" and
-    .cache=="miss" and .commit_oid==$oid and .base_image_fingerprint==$base and
-    .image_fingerprint==$image and .image_fingerprint!=$base' <<< "$a_view" >/dev/null
+# The first session from main@C1 builds C1's image: the commit's devShell and
+# a clone of C1, which the session's workspace puts on its own branch.
+assert_built "$a_result" "$a_view" "$valid_oid" devShells.x86_64-linux.default devshell
+image_one=$built_image
 test "$(exec_p "$a_uuid" git rev-parse HEAD)" = "$valid_oid"
+test "$(exec_p "$a_uuid" git symbolic-ref HEAD)" = refs/heads/env-a
+test "$(exec_p "$a_uuid" git for-each-ref --format='%(refname)')" = $'refs/heads/env-a\nrefs/remotes/origin/env-a'
+test "$(exec_p "$a_uuid" git remote)" = origin
+test "$(exec_p "$a_uuid" git remote get-url origin)" = ssh://git@p/public-environment
+test "$(exec_p "$a_uuid" git rev-parse --symbolic-full-name '@{upstream}')" = refs/remotes/origin/env-a
+test "$(exec_p "$a_uuid" git ls-remote origin refs/heads/env-a | cut -f1)" = "$valid_oid"
 test "$(exec_p "$a_uuid" cat /home/p/hook-rev)" = "$valid_oid"
 test "$(exec_p "$a_uuid" cat /home/p/hook-count)" = 1
 test "$(exec_p "$a_uuid" cat /workspace/hook-written)" = local
 wait_guest_file "$a_uuid" /home/p/pane-export
 test "$(exec_p "$a_uuid" cat /home/p/pane-export)" = ready
 
+# A second session from the same commit reuses its image: no builder runs.
+: > "$step_dir/builders-b"
+watch_builders "$step_dir/builders-b" "$step_dir/builders-b.stop" &
+watcher_pid=$!
 create_branch env-b env-b
 b_op=$new_op b_uuid=$new_uuid
-wait_operation "$b_op" completed >/dev/null
+b_result=$(wait_operation "$b_op" completed)
 b_view=$(wait_ready "$b_uuid")
-jq -e --arg image "$image_one" --arg key "$key_one" \
-  '.result.session.environment | .cache=="hit" and .image_fingerprint==$image and .environment_key==$key' \
-  <<< "$b_view" >/dev/null
+: > "$step_dir/builders-b.stop"
+wait "$watcher_pid"
+watcher_pid=
+if test -s "$step_dir/builders-b"; then
+  printf 'a builder ran for a reused image: %s\n' "$(sort -u "$step_dir/builders-b" | head -c 512)" >&2
+  exit 1
+fi
+assert_reused "$b_result" "$b_view" "$valid_oid" "$image_one"
+jq -e --argjson a "$(jq -c '.result.operation.evidence.image' <<< "$a_result")" \
+  '.result.operation.evidence.image | .selection==$a.selection and .material_sha256==$a.material_sha256' \
+  <<< "$b_result" >/dev/null
+test "$(commit_images "$valid_oid" | jq -r '[.[].fingerprint] | join(" ")')" = "$image_one"
+test "$(exec_p "$b_uuid" git symbolic-ref HEAD)" = refs/heads/env-b
+test "$(exec_p "$b_uuid" git rev-parse '@{upstream}')" = "$valid_oid"
 test "$(exec_p "$b_uuid" cat /home/p/hook-count)" = 1
-test "$(inc image list --format json | jq --arg image "$image_one" '[.[]|select(.fingerprint==$image)]|length')" -eq 1
 private_path=$(exec_p "$a_uuid" /run/current-system/sw/bin/bash -c \
   'printf unique-private-a > /workspace/private-a; nix-store --add /workspace/private-a')
 test "${private_path#/nix/store/}" != "$private_path"
@@ -304,120 +400,146 @@ test "$(exec_p "$a_uuid" cat /home/p/hook-count)" = 2
 exec_p "$a_uuid" nix path-info "$private_path" >/dev/null
 test "$(exec_p "$a_uuid" cat /workspace/private-a)" = unique-private-a
 
-# Removing only the cached source image must not damage either running private
-# root. The next same-key creation is a verified miss and publishes a new one.
-# Main remains a retained P ref after Discard; the bootstrap runtime has
+# Removing the commit's image outside P must not damage either running private
+# root. The next creation from that commit finds the image gone and builds it
+# again. Main remains a retained P ref after Discard; the bootstrap runtime has
 # finished its source edits, and releasing its durable reservation leaves a
 # builder slot under the four-container ceiling.
 discard_owned "$boot_uuid" bootstrap-before-c
 inc image delete "$image_one"
 create_branch env-c env-c
 c_op=$new_op c_uuid=$new_uuid
-wait_operation "$c_op" completed >/dev/null
+c_result=$(wait_operation "$c_op" completed)
 c_view=$(wait_ready "$c_uuid")
-image_two=$(jq -er '.result.session.environment.image_fingerprint | select(length==64)' <<< "$c_view")
+assert_built "$c_result" "$c_view" "$valid_oid" devShells.x86_64-linux.default devshell
+image_two=$built_image
 test "$image_two" != "$image_one"
-jq -e --arg key "$key_one" '.result.session.environment | .cache=="miss" and .environment_key==$key' \
-  <<< "$c_view" >/dev/null
+test "$(exec_p "$c_uuid" git rev-parse HEAD)" = "$valid_oid"
 test "$(exec_p "$a_uuid" cat /home/p/hook-count)" = 2
 exec_p "$a_uuid" nix path-info "$private_path" >/dev/null
 test "$(exec_p "$b_uuid" cat /home/p/pane-export)" = ready
+
+# A commit that changes only code, on C's branch.
+printf 'code only\n' > "$step_dir/code.txt"
+inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/code.txt" "p-$c_uuid/workspace/code.txt"
+exec_p "$c_uuid" git add code.txt
+exec_p "$c_uuid" git -c user.name=P -c user.email=p@example.invalid commit -qm code-only
+exec_p "$c_uuid" git push origin HEAD:refs/heads/env-c
+code_oid=$(exec_p "$c_uuid" git rev-parse HEAD)
+test "$(exec_p "$c_uuid" git diff --name-only "$valid_oid" "$code_oid")" = code.txt
+
 if test "${P_CACHE_OVERLAP_PROBE:-0}" = 1; then
-  # A keeps the private-root proof live; B has finished its cache-hit proof.
-  discard_owned "$b_uuid" b-before-d
-  test "$(exec_p "$a_uuid" git ls-remote origin refs/heads/env-a | cut -f1)" = "$valid_oid"
-  create_branch env-d env-d refs/heads/env-a
-  d_op=$new_op d_uuid=$new_uuid
-  wait_operation "$d_op" completed >/dev/null
-  d_view=$(wait_ready "$d_uuid")
-  jq -e --arg image "$image_two" '.result.session.environment | .cache=="hit" and .image_fingerprint==$image' <<< "$d_view" >/dev/null
-  # Without its cached image, the next two same-key creations both miss.
-  inc image delete "$image_two"
-  exec_p "$a_uuid" nix path-info "$private_path" >/dev/null
-  test "$(exec_p "$c_uuid" cat /home/p/pane-export)" = ready
-  test "$(exec_p "$d_uuid" cat /home/p/pane-export)" = ready
-  # A's private root and C's runtime survived the image deletion. Release A
-  # and C so D and two same-key builders can overlap.
+  # A and B have finished their private-root and reuse checks. Two creations
+  # from the code-only commit at the same time build its image once: one
+  # builds and the other reuses, and the wrapper sees one publish.
   discard_owned "$a_uuid" a-before-ef
-  discard_owned "$c_uuid" c-before-ef
-  printf 'pending\n' > /tmp/p-vm-publish-barrier-1000
-  chmod 0600 /tmp/p-vm-publish-barrier-1000
-  create_branch env-e env-e refs/heads/env-a
+  discard_owned "$b_uuid" b-before-ef
+  : > "$publish_count"
+  create_branch env-e env-e refs/heads/env-c
   e_op=$new_op e_uuid=$new_uuid
-  create_branch env-f env-f refs/heads/env-a
+  create_branch env-f env-f refs/heads/env-c
   f_op=$new_op f_uuid=$new_uuid
-  printf '%s %s\n' "$e_op" "$f_op" > /tmp/p-vm-publish-barrier-1000
-  wait_operation "$e_op" completed >/dev/null
-  wait_operation "$f_op" completed >/dev/null
-  test -f /tmp/p-vm-publish-overlap-1000
-  test ! -e /tmp/p-vm-publish-barrier-1000
+  e_result=$(wait_operation "$e_op" completed)
+  f_result=$(wait_operation "$f_op" completed)
   e_view=$(wait_ready "$e_uuid")
   f_view=$(wait_ready "$f_uuid")
-  image_three=$(jq -er '.result.session.environment.image_fingerprint | select(length==64)' <<< "$e_view")
+  case "$(jq -r '.result.session.image.state' <<< "$e_view") $(jq -r '.result.session.image.state' <<< "$f_view")" in
+    'built reused')
+      built_op=$e_op built_result=$e_result built_view=$e_view reused_result=$f_result reused_view=$f_view ;;
+    'reused built')
+      built_op=$f_op built_result=$f_result built_view=$f_view reused_result=$e_result reused_view=$e_view ;;
+    *) echo 'concurrent creations from one commit did not build exactly once' >&2; exit 1 ;;
+  esac
+  assert_built "$built_result" "$built_view" "$code_oid" devShells.x86_64-linux.default devshell
+  image_three=$built_image
+  assert_reused "$reused_result" "$reused_view" "$code_oid" "$image_three"
   test "$image_three" != "$image_two"
-  jq -e --arg image "$image_three" --arg key "$key_one" \
-    '.result.session.environment | .image_fingerprint==$image and .environment_key==$key' <<< "$f_view" >/dev/null
-  test "$(jq -r '.result.session.environment.cache' <<< "$e_view") $(jq -r '.result.session.environment.cache' <<< "$f_view")" = 'miss hit' ||
-    test "$(jq -r '.result.session.environment.cache' <<< "$e_view") $(jq -r '.result.session.environment.cache' <<< "$f_view")" = 'hit miss'
-  test "$(inc image list --format json | jq --arg key "$key_one" --arg instance "$p_instance" \
-    '[.[]|select(.properties["p.environment_key"]==$key and .properties["p.instance"]==$instance and .properties["p.project_path"]=="public-environment")]|length')" -eq 1
-  test "$(exec_p "$d_uuid" cat /home/p/pane-export)" = ready
+  test "$(cat "$publish_count")" = "p-builder-$(build_ref "$built_op" 1)"
+  rm -f -- "$publish_count"
+  no_builders
+  test "$(exec_p "$e_uuid" git rev-parse HEAD)" = "$code_oid"
+  test "$(exec_p "$f_uuid" git rev-parse HEAD)" = "$code_oid"
+  test "$(exec_p "$c_uuid" cat /home/p/pane-export)" = ready
   test "$(exec_p "$e_uuid" cat /home/p/pane-export)" = ready
   test "$(exec_p "$f_uuid" cat /home/p/pane-export)" = ready
   echo P_ENVIRONMENT_CACHE_OVERLAP_PASS
   exit 0
 fi
 
+# The code-only commit gets an image of its own. B has finished its reuse
+# checks; releasing it leaves a builder slot.
+discard_owned "$b_uuid" b-before-code
+create_branch env-code env-code refs/heads/env-c
+code_op=$new_op code_uuid=$new_uuid
+code_result=$(wait_operation "$code_op" completed)
+code_view=$(wait_ready "$code_uuid")
+assert_built "$code_result" "$code_view" "$code_oid" devShells.x86_64-linux.default devshell
+image_code=$built_image
+test "$image_code" != "$image_two"
+test "$(exec_p "$code_uuid" git rev-parse HEAD)" = "$code_oid"
+test "$(exec_p "$code_uuid" cat code.txt)" = 'code only'
+
+# Once the last session started from C1 is gone, P deletes C1's image. The
+# code-only commit's image stays while its session does.
+discard_owned "$a_uuid" a-before-release
+test "$(commit_images "$valid_oid" | jq -r '[.[].fingerprint] | join(" ")')" = "$image_two"
+discard_owned "$c_uuid" c-before-release
+release_deadline=$((SECONDS+120))
+while true; do
+  remaining=$(commit_images "$valid_oid" | jq -er 'length')
+  if test "$remaining" -eq 0; then break; fi
+  if ((SECONDS >= release_deadline)); then
+    echo "image of $valid_oid not released after its last session" >&2; exit 1
+  fi
+  sleep 1
+done
+inc image list --format json | jq -e --arg image "$image_two" 'all(.[]; .fingerprint!=$image)' >/dev/null
+test "$(commit_images "$code_oid" | jq -r '[.[].fingerprint] | join(" ")')" = "$image_code"
+
 # A present invalid default is an error, and exact retry remains pinned to
-# that captured commit even after main advances to a valid absent-default.
-# A and B have finished their private-root/cache checks. Release both before
-# recreating the retained main assignment for the source changes below.
-discard_owned "$c_uuid" c-before-defaults
-discard_owned "$a_uuid" a-before-defaults
-discard_owned "$b_uuid" b-before-defaults
-recreated=$(rpc session.create '{"key":"public-environment-recreate-main","project":"public-environment","branch":"main","choice":"existing"}')
-boot_op=$(operation_id "$recreated")
-boot_uuid=$(session_uuid "$recreated")
-op_ids+=("$boot_op")
-sessions+=("$boot_uuid")
-wait_operation "$boot_op" completed >/dev/null
-wait_ready "$boot_uuid" >/dev/null
-exec_p "$boot_uuid" git config user.name P
-exec_p "$boot_uuid" git config user.email p@example.invalid
+# that captured commit even after its source branch advances to a valid
+# absent-default.
 printf '{ outputs = _: { devShells.x86_64-linux.default = 42; }; }\n' > "$step_dir/invalid.nix"
-inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/invalid.nix" "p-$boot_uuid/workspace/flake.nix"
-exec_p "$boot_uuid" git add flake.nix
-exec_p "$boot_uuid" git commit -qm invalid-default
-exec_p "$boot_uuid" git push origin HEAD:main
-invalid_oid=$(exec_p "$boot_uuid" git rev-parse HEAD)
-create_branch env-invalid env-invalid
+inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/invalid.nix" "p-$code_uuid/workspace/flake.nix"
+exec_p "$code_uuid" git add flake.nix
+exec_p "$code_uuid" git -c user.name=P -c user.email=p@example.invalid commit -qm invalid-default
+exec_p "$code_uuid" git push origin HEAD:refs/heads/env-code
+invalid_oid=$(exec_p "$code_uuid" git rev-parse HEAD)
+create_branch env-invalid env-invalid refs/heads/env-code
 invalid_op=$new_op invalid_uuid=$new_uuid
 invalid_result=$(wait_operation "$invalid_op" blocked)
 jq -e --arg oid "$invalid_oid" --arg base "$base" \
-  '.result.operation | .phase=="branch-assigned" and
+  '.result.operation | .phase=="branch-assigned" and .reason=="image_build_failed" and
     (.diagnostic | contains("present default devShell invalid")) and
-    (.evidence | .captured_oid==$oid and .image_fingerprint==$base and .environment_state==null)' \
+    (.evidence | .captured_oid==$oid and .image_fingerprint==$base and .image==null and
+      .environment_builder=={cycle:1,state:"absent"})' \
   <<< "$invalid_result" >/dev/null
+inspect_session "$invalid_uuid" | jq -e --arg oid "$invalid_oid" --arg base "$base" \
+  '.result.session.image | .commit_oid==$oid and .selection=="pending" and .state=="pending" and
+    .image_fingerprint==$base' >/dev/null
 test "$(inc list --format json | jq --arg uuid "$invalid_uuid" '[.[]|select(.name==("p-"+$uuid))]|length')" -eq 0
+no_builders
+test "$(commit_images "$invalid_oid" | jq 'length')" -eq 0
 
 printf '{ outputs = _: { packages.x86_64-linux.default = 42; }; }\n' > "$step_dir/absent-default.nix"
-inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/absent-default.nix" "p-$boot_uuid/workspace/flake.nix"
-exec_p "$boot_uuid" git add flake.nix
-exec_p "$boot_uuid" git commit -qm absent-default
-exec_p "$boot_uuid" git push origin HEAD:main
-absent_oid=$(exec_p "$boot_uuid" git rev-parse HEAD)
+inc file push --uid 1000 --gid 1000 --mode 0644 "$step_dir/absent-default.nix" "p-$code_uuid/workspace/flake.nix"
+exec_p "$code_uuid" git add flake.nix
+exec_p "$code_uuid" git -c user.name=P -c user.email=p@example.invalid commit -qm absent-default
+exec_p "$code_uuid" git push origin HEAD:refs/heads/env-code
+absent_oid=$(exec_p "$code_uuid" git rev-parse HEAD)
 rpc operation.retry "$(jq -nc --arg id "$invalid_op" '{id:$id}')" >/dev/null
 retried=$(wait_operation "$invalid_op" blocked)
-jq -e --arg oid "$invalid_oid" '.result.operation |
-  (.diagnostic | contains("present default devShell invalid")) and .evidence.captured_oid==$oid' \
+jq -e --arg oid "$invalid_oid" '.result.operation | .reason=="image_build_failed" and
+  (.diagnostic | contains("present default devShell invalid")) and .evidence.captured_oid==$oid and
+  .evidence.image==null and .evidence.environment_builder=={cycle:2,state:"absent"}' \
   <<< "$retried" >/dev/null
-create_branch env-absent env-absent
+# A commit whose flake has no default devShell gets an image of the base
+# packages and its code.
+create_branch env-absent env-absent refs/heads/env-code
 absent_op=$new_op absent_uuid=$new_uuid
-wait_operation "$absent_op" completed >/dev/null
+absent_result=$(wait_operation "$absent_op" completed)
 absent_view=$(wait_ready "$absent_uuid")
-jq -e --arg oid "$absent_oid" --arg base "$base" \
-  '.result.session.environment | .commit_oid==$oid and .selection=="base" and
-    .cache=="none" and .image_fingerprint==$base' <<< "$absent_view" >/dev/null
+assert_built "$absent_result" "$absent_view" "$absent_oid" base no-default
 test "$(exec_p "$absent_uuid" git rev-parse HEAD)" = "$absent_oid"
 exec_p "$absent_uuid" test -f /workspace/flake.nix
 

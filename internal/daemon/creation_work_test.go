@@ -159,6 +159,7 @@ func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *tes
 	req := control.ReserveSessionRequest{Key: "old", Project: "app", Branch: "work", Choice: "new", Source: "refs/heads/main"}
 	request, _ := json.Marshal(req)
 	ev := control.CreationEvidence{CapturedOID: strings.Repeat("a", 40), ImageFingerprint: strings.Repeat("d", 64), RefCASIntent: true, RuntimeInitState: "not-attempted"}
+	builders := control.EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: strings.Repeat("d", 64), BuilderStoragePool: "default", BuilderPolicySHA256: strings.Repeat("d", 64), ImageBuilder: "incus-commit-image/1"}
 	for _, tc := range []struct {
 		name, status, phase string
 		mutate              func(*control.CreationEvidence)
@@ -170,17 +171,20 @@ func TestRecoveryKeepsReplaceableBlockedCreationDormantUntilExplicitRetry(t *tes
 		{name: "unknown", status: "unknown", phase: "source-ready"},
 		{name: "base-principals", status: "blocked", phase: "principals-ready", want: true},
 		{name: "later-runtime", status: "blocked", phase: "runtime-created"},
-		{name: "settled-invalid-nix", status: "blocked", phase: "branch-assigned", want: true, mutate: func(e *control.CreationEvidence) {
-			e.BuilderTreeOID = strings.Repeat("b", 40)
-			e.Environment = &control.EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: strings.Repeat("d", 64), BuilderStoragePool: "default", BuilderPolicySHA256: strings.Repeat("d", 64)}
+		{name: "settled-failed-build", status: "blocked", phase: "branch-assigned", want: true, mutate: func(e *control.CreationEvidence) {
+			e.Environment = &builders
 			e.EnvironmentBuilder = &control.CreationBuilderState{Cycle: 1, State: "absent"}
 		}},
-		{name: "uncertain-builder-attempt", status: "blocked", phase: "branch-assigned", mutate: func(e *control.CreationEvidence) {
-			e.BuilderTreeOID = strings.Repeat("b", 40)
-			e.Environment = &control.EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: strings.Repeat("d", 64), BuilderStoragePool: "default", BuilderPolicySHA256: strings.Repeat("d", 64)}
+		{name: "uncertain-build-attempt", status: "blocked", phase: "branch-assigned", mutate: func(e *control.CreationEvidence) {
+			e.Environment = &builders
 			e.EnvironmentBuilder = &control.CreationBuilderState{Cycle: 1, State: "attempted"}
 		}},
-		{name: "builder-intent", status: "blocked", phase: "branch-assigned", mutate: func(e *control.CreationEvidence) { e.BuilderTreeOID = strings.Repeat("b", 40) }},
+		{name: "accepted-image", status: "blocked", phase: "principals-ready", mutate: func(e *control.CreationEvidence) {
+			e.Environment = &builders
+			e.EnvironmentBuilder = &control.CreationBuilderState{Cycle: 1, State: "absent"}
+			e.Image = &control.CreationImage{Ref: strings.Repeat("e", 64), Built: true, Selection: "no-flake"}
+			e.ImageFingerprint = e.Image.Ref
+		}},
 		{name: "origin-intent", status: "blocked", phase: "source-ready", mutate: func(e *control.CreationEvidence) {
 			e.OriginURL = "ssh://origin.invalid/repo"
 			e.OriginRef = "refs/heads/main"

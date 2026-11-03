@@ -261,7 +261,7 @@ blocked=$(wait_operation "$creator" blocked)
 jq -e --arg tip "$tip" '.result.operation | .kind=="session.create" and .phase=="assembly-ready" and
  .committed==true and (.diagnostic|type=="string" and length>0) and
  .evidence.runtime_init_state=="attempted" and .evidence.captured_oid==$tip and
- .evidence.environment==null and .evidence.environment_state==null' <<< "$blocked" >/dev/null
+ .evidence.environment==null and .evidence.image==null' <<< "$blocked" >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
 native_uuid=$(inc list "^p-$uuid$" --format json | jq -er '.[0].config["volatile.uuid"]')
 generation=$(inc list "^p-$uuid$" --format json | jq -er '.[0].config["volatile.uuid.generation"]')
@@ -302,11 +302,12 @@ assert_retained() {
   cmp "$step_dir/sibling-before" "$step_dir/sibling-retained"
   inc list "^p-$sibling$" --format json | jq -e 'length==1 and .[0].status=="Running"' >/dev/null
 }
+# This daemon has no image builders configured: no builder may exist at all.
 assert_old_effects_absent() {
   test ! -e "$state/session_keys/$uuid"
   test ! -e "$endpoint_prefix/$uuid"
-  inc list --format json | jq -e --arg uuid "$uuid" --arg creator "$creator" \
-    'all(.[]; .name!=("p-"+$uuid) and .name!=("p-builder-"+$creator) and
+  inc list --format json | jq -e --arg uuid "$uuid" \
+    'all(.[]; .name!=("p-"+$uuid) and (.name|startswith("p-builder-")|not) and
      (.config["user.p.session_uuid"] // "")!=$uuid and
      (.expanded_config["user.p.session_uuid"] // "")!=$uuid)' >/dev/null
 }

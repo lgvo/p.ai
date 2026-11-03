@@ -25,7 +25,7 @@ runner and typed session asset plans are now available.
 | Git server | Wish SSH middleware around real `git-upload-pack` and `git-receive-pack` | P refs remain Git authority |
 | Runtime | local Incus, one confined user project | Incus owns instances, images, storage, state, and operations |
 | Session type | unprivileged Incus system container | one instance per session UUID |
-| Environment | default Nix devShell built into a private Incus image | Nix owns realization; Incus owns cached bytes |
+| Environment | one private Incus image per source commit: its default Nix devShell and a clone of the commit | Nix owns realization; Incus owns image bytes; SQLite indexes images by commit |
 | Interactive host | systemd unit plus fixed attach command; tmux by default | systemd owns readiness/lifetime |
 | Session observability | session/policy condition, confirmed attachments, latest unattended condition | reconciled authorities plus small live/persisted state |
 | Agent | Codex running as an ordinary session command | bundled status adapter; authentication remains in the session's private home |
@@ -80,7 +80,7 @@ that public contract:
 
 ```go
 type RuntimeBackend interface {
-    Create(context.Context, SessionSpec, EnvironmentHandle) (RuntimeLocator, error)
+    Create(context.Context, SessionSpec, runtimedriver.ImageRef) (RuntimeLocator, error)
     List(context.Context) ([]RuntimeInfo, error)
     Inspect(context.Context, RuntimeLocator) (RuntimeInfo, error)
     Start(context.Context, RuntimeLocator) (RuntimeOperation, error)
@@ -94,9 +94,9 @@ type RuntimeBackend interface {
 ```
 
 `SessionSpec` contains backend-neutral session and policy input. The separate
-`EnvironmentHandle` carries a target kind/contract version, content identity,
-and opaque locator; only the Incus adapter interprets MVP's locator as an image
-fingerprint.
+image reference names the commit image, or the pinned base image, the runtime
+is created from; it is opaque to core, and only the Incus adapter interprets it
+as an image fingerprint.
 
 The Incus adapter is always bound to the configured local confined user
 project. It uses deterministic instance names and P metadata, passes structured
@@ -118,31 +118,43 @@ type behind the same backend when their contract is validated. A Kubernetes P
 deployment is a later separate backend/placement implementation; an SSH host is
 never a backend.
 
-## Environment builder
+## Runtime driver images
 
-The environment seam separates project environment interpretation from session
-lifecycle:
+Images go through the image part of the runtime driver, `internal/runtimedriver`,
+which separates building and storing images from session lifecycle:
 
 ```go
-type EnvironmentBuilder interface {
-    Resolve(context.Context, EnvironmentRequest) (EnvironmentPlan, error)
-    Build(context.Context, EnvironmentPlan, EnvironmentTarget) (EnvironmentHandle, error)
+type Images interface {
+    Describe() Capabilities // the driver's builder version
+    BuildImage(context.Context, Build, Gate) (Image, error)
+    Images(context.Context) ([]Image, error)
+    InspectImage(context.Context, ImageRef) (Image, bool, error)
+    DeleteImage(context.Context, Image, Gate) error
+    Settle(context.Context, Effect) (Settlement, error)
+    Delete(context.Context, Ref, Gate) error // a build's leftovers, never an image
 }
 ```
 
-MVP has one implementation: resolve the committed repository's conventional
-default Nix devShell in a disposable restricted Incus builder and publish a
-verified private Incus system image. The image contains a coherent initial Nix
-store/database and activation material. Each session receives a private
-writable Incus root derived from it.
+Core names P's concepts: a build gets a new build reference, the image's
+labels (project, source commit, base image, system, builder version, build)
+and a Git bundle of the commit. The driver builds, stores, lists and deletes
+images, calls core's gate right before each mutation, and settles an effect
+whose outcome is unknown from native state. Each image records its devShell
+outcome beside its labels. Core keeps the commit-image index and the rule for
+deleting images ([environment building](environment-building.md)).
 
-The Incus adapter runs these Nix steps natively as part of the image build;
-no plugin takes part. `EnvironmentBuilder` is a design input, not a public
-plugin contract.
+MVP has one implementation, `runtimeincus.Driver`, which runs in the daemon
+process. It clones the commit in a disposable restricted Incus builder,
+resolves and realizes the conventional default Nix devShell natively, and
+publishes a verified private Incus system image. The image contains a coherent
+initial Nix store/database, activation material and the clone. Each session
+receives a private writable Incus root derived from it. No plugin takes part.
+The runtime driver is an internal Go interface for now, not a public plugin
+contract; its operations for sessions, workspaces, terminals and project
+services are not yet implemented.
 
-The interface remains reusable, but MVP does not specify Dockerfile, OCI, or a
-format-negotiation framework. A future provider must produce an image form
-accepted by its runtime backend without changing project/session/Git identity.
+An image only has to work with the runtime that built it. MVP does not specify
+Dockerfile, OCI, or a format-negotiation framework.
 
 ## Other extension seams
 
@@ -292,7 +304,8 @@ or needs to index, including:
 - project paths, immutable session UUIDs, and UUID-to-branch assignments;
 - normalized project-policy snapshots;
 - configured Incus project and deterministic UUID-to-instance relationship;
-- project-scoped environment key to opaque MVP `EnvironmentHandle` index;
+- the commit-image index: (project, source commit, base image, system, builder
+  version) to the runtime driver's image reference, with its release state;
 - cross-authority lifecycle operations and cleanup/orphan records;
 - protected session credential material/identifiers;
 - latest bounded Start/systemd diagnostic and current reconciled session/policy
@@ -352,7 +365,7 @@ gates.
 Support is claimed only after the relevant validation in
 [development validations](development-validations.md) passes. In particular,
 the configured Incus project/storage/network combination must prove confinement,
-stopped-workspace access, lifecycle operations, cached-image correctness,
+stopped-workspace access, lifecycle operations, commit-image correctness,
 systemd host readiness/exit behavior, confirmed attachment semantics, and no
 host/private-network access.
 
@@ -441,7 +454,7 @@ broker call; the interpreter does not own P identity or policy.
 - Linux is the execution platform, not an OS provider.
 - Incus is the only MVP runtime implementation, despite the retained backend
   interface.
-- Nix devShell-to-Incus-image is the only MVP environment implementation,
-  despite the retained builder interface.
+- Nix devShell-to-Incus-image is the only MVP image build, despite the
+  runtime driver interface.
 - P instances coordinate across machines only through a shared Git origin;
   daemon federation and runtime migration are out of scope.

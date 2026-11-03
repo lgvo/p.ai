@@ -25,9 +25,8 @@ type CreationEvidence struct {
 	Selection              CreationSelection             `json:"selection"`
 	OriginURL              string                        `json:"origin_url,omitempty"`
 	OriginRef              string                        `json:"origin_ref,omitempty"`
-	BuilderTreeOID         string                        `json:"builder_tree_oid,omitempty"`
 	Environment            *EnvironmentIntent            `json:"environment,omitempty"`
-	EnvironmentState       *EnvironmentState             `json:"environment_state,omitempty"`
+	Image                  *CreationImage                `json:"image,omitempty"`
 	SupersedesOperationID  string                        `json:"supersedes_operation_id,omitempty"`
 	SupersedesUUID         string                        `json:"supersedes_uuid,omitempty"`
 	ReplacementCleanup     *api.CreateReplacementCleanup `json:"replacement_cleanup,omitempty"`
@@ -42,26 +41,21 @@ type EnvironmentIntent struct {
 	BaseFingerprint     string `json:"base_fingerprint"`
 	BuilderStoragePool  string `json:"builder_storage_pool"`
 	BuilderPolicySHA256 string `json:"builder_policy_sha256"`
+	ImageBuilder        string `json:"image_builder"`
 }
 
 func (e EnvironmentIntent) Valid() bool {
-	return (e.System == "x86_64-linux" || e.System == "aarch64-linux") &&
-		validFingerprint(e.BaseFingerprint) && e.BuilderStoragePool != "" && len(e.BuilderStoragePool) <= 63 &&
-		validFingerprint(e.BuilderPolicySHA256)
+	return validSystem(e.System) && validFingerprint(e.BaseFingerprint) && e.BuilderStoragePool != "" && len(e.BuilderStoragePool) <= 63 &&
+		validFingerprint(e.BuilderPolicySHA256) && validImageBuilder(e.ImageBuilder)
 }
 
-// EnvironmentState is written only after an accepted native stage. An
-// empty fingerprint with full properties is a durable publish-attempt marker,
-// not permission to publish again after an uncertain outcome.
-type EnvironmentState struct {
-	Key              string            `json:"key"`
-	FlakePresent     bool              `json:"flake_present,omitempty"`
-	MaterialDigest   string            `json:"material_digest,omitempty"`
-	CaptureStorePath string            `json:"capture_store_path,omitempty"`
-	BuilderRequest   string            `json:"builder_request"`
-	Properties       map[string]string `json:"properties,omitempty"`
-	Fingerprint      string            `json:"fingerprint,omitempty"`
-	CacheHit         bool              `json:"cache_hit,omitempty"`
+// CreationImage is the commit image a creation uses, recorded when image-ready
+// accepts it: built by this creation, or reused from the commit-image index.
+type CreationImage struct {
+	Ref            string `json:"ref"`
+	Built          bool   `json:"built"`
+	Selection      string `json:"selection"`
+	MaterialSHA256 string `json:"material_sha256,omitempty"`
 }
 
 type CreationSelection struct {
@@ -659,8 +653,8 @@ func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
 		return err
 	}
 	defer tx.Rollback()
-	var sid, kind, status, project, evidence string
-	err = tx.QueryRowContext(ctx, `SELECT session_uuid,kind,status,project_path,COALESCE(evidence_json,'') FROM operations WHERE id=?`, opID).Scan(&sid, &kind, &status, &project, &evidence)
+	var sid, kind, status string
+	err = tx.QueryRowContext(ctx, `SELECT session_uuid,kind,status FROM operations WHERE id=?`, opID).Scan(&sid, &kind, &status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -688,22 +682,7 @@ func (s *Store) CompleteCreation(ctx context.Context, opID string) error {
 	if n != 1 {
 		return ErrConflict
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	if evidence != "" {
-		var ev CreationEvidence
-		if err = json.Unmarshal([]byte(evidence), &ev); err != nil {
-			return err
-		}
-		if ev.EnvironmentState != nil && ev.EnvironmentState.Key != "" && ev.EnvironmentState.Fingerprint != "" {
-			// A use counts only when the session becomes established, and only
-			// for the exact cache generation it actually used.
-			if _, err = tx.ExecContext(ctx, `UPDATE environment_images SET last_used_at=? WHERE project_path=? AND environment_key=? AND fingerprint=?`,
-				now, project, ev.EnvironmentState.Key, ev.EnvironmentState.Fingerprint); err != nil {
-				return err
-			}
-		}
-	}
-	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, now, opID)
+	_, err = tx.ExecContext(ctx, `UPDATE operations SET status='completed',phase='established',committed=1,reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), opID)
 	if err != nil {
 		return classifyWrite(err)
 	}
@@ -724,7 +703,16 @@ func Evidence(op api.Operation) (CreationEvidence, error) {
 	if ev.ReplacementCleanup != nil && (!ev.ReplacementCleanup.Valid() || ev.ReplacementCleanup.OldUUID != ev.SupersedesUUID || ev.ReplacementCleanup.OldOperationID != ev.SupersedesOperationID || ev.ReplacementCleanup.OldUUID == op.SessionUUID || !ev.ReplacementCleanup.Completed && op.Phase != "replacement-cleanup") {
 		return ev, ErrInvalid
 	}
-	if !validFingerprint(ev.ImageFingerprint) || ev.Environment != nil && (!ev.Environment.Valid() || ev.Environment.BaseFingerprint != ev.ImageFingerprint && ev.EnvironmentState == nil) {
+	if !validFingerprint(ev.ImageFingerprint) || ev.Environment != nil && !ev.Environment.Valid() {
+		return ev, ErrInvalid
+	}
+	// The runtime's image is the pinned base until image-ready, then the
+	// commit image.
+	if img := ev.Image; img == nil {
+		if ev.Environment != nil && ev.Environment.BaseFingerprint != ev.ImageFingerprint {
+			return ev, ErrInvalid
+		}
+	} else if ev.Environment == nil || !validImageRef(img.Ref) || img.Ref != ev.ImageFingerprint || !validImageSelection(img.Selection, img.MaterialSHA256) {
 		return ev, ErrInvalid
 	}
 	return ev, nil

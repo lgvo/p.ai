@@ -415,7 +415,7 @@ func TestWrappedReviewsExposeCompleteLongFields(t *testing.T) {
 func TestSmallInspectionPagesExposeLongFieldsAndHelp(t *testing.T) {
 	m := fixture()
 	m.width, m.height = 48, 16
-	m.contextSession = api.SessionView{UUID: runningID, Project: "app", Branch: "main", Diagnostic: strings.Repeat("detail/", 100) + "DIAGNOSTIC_END", LatestUnattendedCondition: &api.UnattendedCondition{Reason: strings.Repeat("reason/", 100) + "REPORT_END"}, Environment: &api.EnvironmentView{ImageFingerprint: strings.Repeat("image/", 100) + "IMAGE_END"}}
+	m.contextSession = api.SessionView{UUID: runningID, Project: "app", Branch: "main", Diagnostic: strings.Repeat("detail/", 100) + "DIAGNOSTIC_END", LatestUnattendedCondition: &api.UnattendedCondition{Reason: strings.Repeat("reason/", 100) + "REPORT_END"}, Image: &api.ImageView{ImageFingerprint: strings.Repeat("image/", 100) + "IMAGE_END"}}
 	for _, item := range []struct{ page, suffix string }{{"agents", "REPORT_END"}, {"policy", "IMAGE_END"}, {"progress", "DIAGNOSTIC_END"}, {"help", "manual test."}} {
 		m.navigate(item.page)
 		m, _ = press(m, "G")

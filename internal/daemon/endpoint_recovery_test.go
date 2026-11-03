@@ -53,8 +53,7 @@ func TestEndpointRecoveryRequiresRecognizedDurableCreationProgress(t *testing.T)
 	}{
 		{name: "blocked-source", phase: "source-ready"},
 		{name: "assigned", phase: "branch-assigned"},
-		{name: "builder-publishing", phase: "environment-publishing"},
-		{name: "builder-ready", phase: "environment-ready"},
+		{name: "image", phase: "image-ready"},
 		{name: "principals", phase: "principals-ready", want: true},
 		{name: "runtime", phase: "runtime-created", want: true},
 		{name: "assembly", phase: "assembly-ready", want: true},

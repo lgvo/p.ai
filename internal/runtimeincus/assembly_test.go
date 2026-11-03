@@ -223,6 +223,30 @@ func TestAssemblyFixedPlanAndGeneratedSSH(t *testing.T) {
 	}
 }
 
+func TestAssemblyBindsImageWorkspaceSelectionToDevShellActivation(t *testing.T) {
+	devshell := runtimekit.Config{Schema: "p.runtime-session/v2", Activation: "devshell", MaterialSHA256: strings.Repeat("e", 64), Command: []string{"/bin/bash", "-l"}}
+	base := runtimekit.Config{Schema: "p.runtime-session/v1", Activation: "base", Command: []string{"/bin/bash", "-l"}}
+	for _, tc := range []struct {
+		selection string
+		session   runtimekit.Config
+		accepted  bool
+	}{
+		{"no-flake", base, true},
+		{"no-default", base, true},
+		{"devshell", devshell, true},
+		{"no-flake", devshell, false},
+		{"no-default", devshell, false},
+		{"devshell", base, false},
+	} {
+		a := assemblyFixture(t)
+		a.Workspace = runtimekit.WorkspaceConfig{Schema: "p.workspace/v2", Repository: "team/app", Branch: "main", InitialOID: strings.Repeat("a", 40), EnvironmentSelection: tc.selection}
+		a.SessionConfig = tc.session
+		if _, err := validateAssembly(a); (err == nil) != tc.accepted {
+			t.Fatalf("%s with %s activation: %v, want accepted=%t", tc.selection, tc.session.Activation, err, tc.accepted)
+		}
+	}
+}
+
 func TestAssemblyPinsOptionalAgentAssetBeforeAnyGuestEffect(t *testing.T) {
 	a := assemblyFixture(t)
 	data := []byte("#!/bin/sh\nexit 0\n")

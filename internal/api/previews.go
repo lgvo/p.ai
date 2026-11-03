@@ -4,11 +4,6 @@ import "encoding/json"
 
 // The reviews that a risky change's preview method returns. Each carries a
 // short-lived confirmation token that its confirmation method takes.
-//
-// A few facts inside them are records that control owns and clients only
-// display: creation's plugin selection, environment intent and builder state,
-// and project deletion's environment images. They stay raw JSON here, as
-// operation evidence does, while their shapes change with commit images.
 
 type RemovalPreviewResult struct {
 	Preview RemovalPreview `json:"preview"`
@@ -106,7 +101,7 @@ type ProjectDeletionPreview struct {
 	Sessions            []ProjectDeleteSession   `json:"sessions"`
 	Attachments         []string                 `json:"attachments"`
 	BranchLoss          *RemovalBranchLoss       `json:"branch_loss"`
-	Images              json.RawMessage          `json:"cache_images"`
+	Images              []CommitImageClaim       `json:"images"`
 	Repository          ReplacementLocalIdentity `json:"repository_identity"`
 	RepositoryParent    ReplacementLocalIdentity `json:"repository_parent_identity"`
 	Warnings            []string                 `json:"warnings"`
@@ -121,6 +116,46 @@ type ProjectDeleteSession struct {
 	Condition string                   `json:"condition"`
 	Runtime   RemovalRuntimePreview    `json:"runtime"`
 	Local     CreateReplacementCleanup `json:"credentials"`
+}
+
+// CommitImageClaim is one commit image that project deletion deletes: its
+// index row, whether the runtime still holds it and the size observed, and a
+// digest of the sessions started from its commit.
+type CommitImageClaim struct {
+	Image         CommitImage `json:"image"`
+	ImagePresent  bool        `json:"image_present"`
+	ObservedSize  int64       `json:"observed_size"`
+	RelatedDigest string      `json:"related_digest"`
+}
+
+// CommitImage is one row of P's commit-image index: the image P keeps for
+// sessions started from a source commit. State is ready, or releasing once its
+// delete may have started.
+type CommitImage struct {
+	Key            CommitImageKey `json:"key"`
+	Ref            string         `json:"ref"`
+	Build          string         `json:"build"`
+	Labels         []ImageLabel   `json:"labels"`
+	Selection      string         `json:"selection"`
+	MaterialSHA256 string         `json:"material_sha256,omitempty"`
+	Size           int64          `json:"size"`
+	State          string         `json:"state"`
+}
+
+// CommitImageKey names a commit image: the commit's project, the base image
+// and system it was built for, and the image builder's version.
+type CommitImageKey struct {
+	Project        string `json:"project"`
+	Commit         string `json:"commit_oid"`
+	BaseImage      string `json:"base_image"`
+	System         string `json:"system"`
+	BuilderVersion string `json:"builder_version"`
+}
+
+// ImageLabel is one label P gave an image, in name order within its list.
+type ImageLabel struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
 }
 
 // SessionRecord is a session's registry record as P stores it.
@@ -175,14 +210,38 @@ type CreateReplacePreview struct {
 	NewRequest          SessionCreateRequest   `json:"new_request"`
 	NewCapturedOID      string                 `json:"new_captured_oid,omitempty"`
 	NewImageFingerprint string                 `json:"new_image_fingerprint"`
-	NewSelection        json.RawMessage        `json:"new_selection"`
-	NewEnvironment      json.RawMessage        `json:"new_environment,omitempty"`
+	NewSelection        CreationSelection      `json:"new_selection"`
+	NewEnvironment      *EnvironmentIntent     `json:"new_environment,omitempty"`
 	NewPolicySHA256     string                 `json:"new_policy_sha256,omitempty"`
 	Provisional         CreateReplaceResources `json:"provisional"`
 	UnsafeReasons       []string               `json:"unsafe_reasons"`
 	Eligible            bool                   `json:"eligible"`
 	ConfirmationToken   string                 `json:"confirmation_token,omitempty"`
 	ExpiresAt           string                 `json:"expires_at,omitempty"`
+}
+
+// CreationSelection is the runtime, host, source and agent plugins that a
+// creation pins, each by ID and digest.
+type CreationSelection struct {
+	RuntimeID     string `json:"runtime_id"`
+	RuntimeSHA256 string `json:"runtime_sha256"`
+	HostID        string `json:"host_id"`
+	HostSHA256    string `json:"host_sha256"`
+	SourceID      string `json:"source_id"`
+	SourceSHA256  string `json:"source_sha256"`
+	AgentID       string `json:"agent_id,omitempty"`
+	AgentSHA256   string `json:"agent_sha256,omitempty"`
+}
+
+// EnvironmentIntent is the image-builder configuration that a creation pins
+// when image builders are configured: the system, base image, builder pool
+// and policy, and the image builder's version.
+type EnvironmentIntent struct {
+	System              string `json:"system"`
+	BaseFingerprint     string `json:"base_fingerprint"`
+	BuilderStoragePool  string `json:"builder_storage_pool"`
+	BuilderPolicySHA256 string `json:"builder_policy_sha256"`
+	ImageBuilder        string `json:"image_builder"`
 }
 
 // CreateReplaceResources reports the provisional resources of a failed
@@ -261,7 +320,7 @@ type CreateCleanupPreview struct {
 	PolicySHA256       string                 `json:"policy_sha256"`
 	AssignedBranch     CreateReplaceBranch    `json:"assigned_branch"`
 	ImageFingerprint   string                 `json:"image_fingerprint"`
-	EnvironmentBuilder json.RawMessage        `json:"environment_builder,omitempty"`
+	EnvironmentBuilder *CreationBuilderState  `json:"environment_builder,omitempty"`
 	Provisional        CreateReplaceResources `json:"provisional"`
 	ExternalMounts     string                 `json:"external_mounts"`
 	SharedImages       string                 `json:"shared_images"`
@@ -271,4 +330,11 @@ type CreateCleanupPreview struct {
 	UnsafeReasons      []string               `json:"unsafe_reasons"`
 	ConfirmationToken  string                 `json:"confirmation_token,omitempty"`
 	ExpiresAt          string                 `json:"expires_at,omitempty"`
+}
+
+// CreationBuilderState is a creation's latest image build: its cycle, and its
+// state, not-attempted, attempted, abandoned or absent.
+type CreationBuilderState struct {
+	Cycle uint64 `json:"cycle"`
+	State string `json:"state"`
 }

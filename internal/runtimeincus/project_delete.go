@@ -7,7 +7,8 @@ import (
 )
 
 // CheckProjectDeletionInventory refuses unreviewed builders, helpers, renamed
-// runtimes or cache images. It grants no cleanup authority for unknown objects.
+// runtimes or images labeled with the project, the commit images P builds
+// among them. It grants no cleanup authority for unknown objects.
 func (b *Backend) CheckProjectDeletionInventory(ctx context.Context, project string, names, images map[string]bool) error {
 	if !validBuilderProject(project) {
 		return errors.New("invalid project deletion inventory")

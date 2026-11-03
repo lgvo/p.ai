@@ -88,6 +88,11 @@ Loading, unavailable, stopped and empty observations are distinct. `D` opens
 scrollable identity, policy/environment, report provenance, service states and
 diagnostics at every supported size; `A`, `S` and `p` opened there return to
 Details with Back. Page movement uses the capacity of the visible layout.
+`p` and Details show the image the session was created from: its environment
+(the commit's default devShell, or `base`), source commit, image state, system,
+and base and image fingerprints. Image `built` means this creation built the
+commit's image; `reused` means it reused the image of an earlier session from
+the same commit; `pending` and `building` appear while creation prepares it.
 
 Search stays inside the list. In branch/project name fields, letters including
 `q`, `g` and `G` are text; Escape/Ctrl-C cancels or goes back. On the final
@@ -493,8 +498,9 @@ Discard keeps the existing branch pushed to P. Delete removes that assigned
 branch too. Both remove the session's runtime and private home, including
 credentials, dirty files, and commits that exist only in its workspace.
 P does not look inside the runtime to list them; the preview states that
-everything in it is lost. Shared cached images and other sessions are
-preserved.
+everything in it is lost. Other sessions are preserved. The image of the
+session's source commit stays while another session started from that commit
+exists; P deletes it after the last one is gone.
 
 Detach every terminal first. A running session does not need Stop: P stops it
 as part of the removal. Choose the UUID carefully and request a preview:
@@ -563,6 +569,8 @@ the TUI shows a sentence for each. The daemon's log has the cause.
 | `capacity` | Every session slot is taken. Discard or Delete a session; Stop keeps its slot. |
 | `precondition_failed` | What you reviewed or expected changed, or the review expired. Preview again and confirm the new review. |
 | Reason `workspace_mismatch` | Compare the expected and actual values in the diagnostic, correct Git manually, then submit Rename again with a new key. |
+| Reason `image_build_failed` | The image of the session's source commit did not build; the diagnostic says why. Retry builds the same commit again, so for a fault in the commit, such as an invalid devShell, clean up the failed creation and create a session from a fixed commit. For another cause, such as a failed fetch, fix it and Retry. |
+| Reason `image_builder_changed` | The host's image builder configuration changed after the creation began. Restore it and Retry, or clean up the failed creation and create the session again. |
 | Reason `internal` | P failed in a way it does not classify, or its work panicked; the diagnostic has the detail, and the daemon's log a panic's stack. A blocked operation keeps its guards; Retry it once the cause is understood. |
 | Incus unavailable or runtime unreachable | Restore or investigate the authority. P retains identity and incomplete cleanup; it must not claim deletion or create an uncertain duplicate. |
 | Runtime missing | Discard the session with `acknowledge_missing_runtime: true` in its removal preview, then create a new session on the retained branch. P does not adopt an unfamiliar replacement container. |
@@ -590,11 +598,34 @@ recovery procedure.
 ## What to expect from the development environment
 
 The base environment supplies the common session tools. With environment
-building configured, a committed default devShell can select a prepared Nix
-environment. Without a committed default devShell, creation uses the base image;
-an invalid declared default fails instead of silently falling back.
+building configured, each session starts from an image of its source commit:
+the base, the commit's default devShell realized when it has one, and the code
+already checked out in `/workspace`; P then puts that checkout on the
+session's branch. Without a committed default devShell, the image holds the
+base packages only; an invalid declared default fails instead of silently
+falling back. Submodules are not fetched. Without environment building,
+sessions start from the base image and clone their branch at first start, and
+a commit with a root `flake.nix` is refused.
 
-The environment builder reaches the **public internet only**, and only when
+What commit images mean in practice:
+
+- A second session from the same commit reuses that commit's image: no build
+  and no clone.
+- A session from a new commit builds a new image, even when only code changed:
+  a full build, and a full image on disk while sessions from that commit
+  exist.
+- Discard followed by a new session on the kept branch normally builds again:
+  if the discarded session pushed work, the branch is at a new commit; if not,
+  the commit's image is deleted once its last session is gone, unless another
+  session from that commit still exists.
+- P deletes an image once no session started from its commit remains, and
+  deletes all of a project's images with the project. There is no manual image
+  cleanup.
+- Your code lives in images too. Deleting a branch does not remove its code
+  from images built from its commits, so a secret committed by mistake stays
+  in an image until that image is deleted.
+
+The image builder reaches the **public internet only**, and only when
 the host configures public egress: it fetches the committed flake inputs and
 substitutes from the public Nix binary cache (`cache.nixos.org`), with no route
 to the host or your LAN, no host Nix store, and no host credentials. Without
@@ -604,10 +635,9 @@ authenticated caches are not supported. P's committed VM checks build offline
 fixtures only; building from remote inputs has been checked by hand once.
 
 Editing a flake in a running workspace does not automatically rebuild that
-session. Creation captures committed source; other sessions' dirty workspaces
-do not become build inputs. Cached prepared images can speed up creation but
-do not restore another session's files or credentials. Your writable Nix state
-and private home remain session-local.
+session. An image is built only from a commit in P: no session's uncommitted
+work becomes a build input, and an image never holds another session's files
+or credentials. Your writable Nix state and private home remain session-local.
 
 Incus supplies the required isolation boundary. Nix build sandboxing is disabled
 inside P-managed containers; containers remain unprivileged with isolated user

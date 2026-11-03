@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -251,21 +252,52 @@ func TestRenameMismatchDiagnosticAndPagesRetainFullNamesWithinFrame(t *testing.T
 	}
 }
 
-func TestEnvironmentProjectionKeepsPinnedBaseAndSelectedImageDistinct(t *testing.T) {
-	base, selected := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	ev := CreationEvidence{
-		CapturedOID: strings.Repeat("c", 40), ImageFingerprint: selected,
-		Environment: &EnvironmentIntent{
-			System: "x86_64-linux", BaseFingerprint: base, BuilderStoragePool: "builders", BuilderPolicySHA256: strings.Repeat("f", 64),
-		},
-		EnvironmentState: &EnvironmentState{Key: strings.Repeat("1", 64), Fingerprint: selected, CacheHit: true},
+func TestCreationImageViewShowsTheCommitImage(t *testing.T) {
+	base, image, commit := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 40)
+	builder := func(cycle uint64, state string) *CreationBuilderState {
+		return &CreationBuilderState{Cycle: cycle, State: state}
 	}
-	raw, err := json.Marshal(ev)
-	if err != nil {
-		t.Fatal(err)
+	devshell := &CreationImage{Ref: image, Built: true, Selection: "devshell", MaterialSHA256: strings.Repeat("d", 64)}
+	cases := []struct {
+		name    string
+		kind    string
+		builder *CreationBuilderState
+		image   *CreationImage
+		want    *api.ImageView
+	}{
+		{"pending", "session.create", builder(0, "not-attempted"), nil,
+			&api.ImageView{CommitOID: commit, System: "aarch64-linux", Selection: "pending", State: "pending", BaseImageFingerprint: base, ImageFingerprint: base}},
+		{"building", "session.create", builder(1, "attempted"), nil,
+			&api.ImageView{CommitOID: commit, System: "aarch64-linux", Selection: "pending", State: "building", BaseImageFingerprint: base, ImageFingerprint: base}},
+		{"built devShell", "session.create", builder(1, "absent"), devshell,
+			&api.ImageView{CommitOID: commit, System: "aarch64-linux", Selection: "devShells.aarch64-linux.default", State: "built", BaseImageFingerprint: base, ImageFingerprint: image}},
+		{"reused without flake", "session.create", builder(0, "not-attempted"), &CreationImage{Ref: image, Selection: "no-flake"},
+			&api.ImageView{CommitOID: commit, System: "aarch64-linux", Selection: "base", State: "reused", BaseImageFingerprint: base, ImageFingerprint: image}},
+		{"reused without default devShell", "session.create", builder(0, "not-attempted"), &CreationImage{Ref: image, Selection: "no-default"},
+			&api.ImageView{CommitOID: commit, System: "aarch64-linux", Selection: "base", State: "reused", BaseImageFingerprint: base, ImageFingerprint: image}},
+		{"settled as not accepted", "session.create", builder(1, "abandoned"), nil,
+			&api.ImageView{CommitOID: commit, System: "aarch64-linux", Selection: "pending", State: "pending", BaseImageFingerprint: base, ImageFingerprint: base}},
+		{"rebuilding a vanished image", "session.create", builder(1, "attempted"), &CreationImage{Ref: image, Selection: "no-flake"},
+			&api.ImageView{CommitOID: commit, System: "aarch64-linux", Selection: "base", State: "building", BaseImageFingerprint: base, ImageFingerprint: image}},
+		{"not a creation", "session.rename", builder(0, "not-attempted"), nil, nil},
 	}
-	got := CreationEnvironmentView(api.Operation{Kind: "session.create", Evidence: raw})
-	if got == nil || got.BaseImageFingerprint != base || got.ImageFingerprint != selected || got.Cache != "hit" || got.Key != ev.EnvironmentState.Key {
-		t.Fatalf("lost bounded environment provenance: %+v", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := CreationEvidence{
+				CapturedOID: commit, ImageFingerprint: base, EnvironmentBuilder: tc.builder, Image: tc.image,
+				Environment: &EnvironmentIntent{System: "aarch64-linux", BaseFingerprint: base, BuilderStoragePool: "builders", BuilderPolicySHA256: strings.Repeat("f", 64), ImageBuilder: "incus-commit-image/1"},
+			}
+			if tc.image != nil {
+				ev.ImageFingerprint = tc.image.Ref
+			}
+			raw, _ := json.Marshal(ev)
+			if got := CreationImageView(api.Operation{Kind: tc.kind, Evidence: raw}); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+	raw, _ := json.Marshal(CreationEvidence{CapturedOID: commit, ImageFingerprint: base})
+	if got := CreationImageView(api.Operation{Kind: "session.create", Evidence: raw}); got != nil {
+		t.Fatalf("creation without builders shows an image: %+v", got)
 	}
 }

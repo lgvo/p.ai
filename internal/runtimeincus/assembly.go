@@ -73,11 +73,10 @@ func validateAssembly(a Assembly) ([]guestInstall, error) {
 	if _, err := runtimekit.ParseWorkspaceConfig(workspace); err != nil {
 		return nil, err
 	}
-	if a.Workspace.Schema == "p.workspace/v2" {
-		if a.Workspace.EnvironmentSelection == "devshell" && a.SessionConfig.Activation != "devshell" ||
-			(a.Workspace.EnvironmentSelection == "base-no-flake" || a.Workspace.EnvironmentSelection == "base-no-default") && a.SessionConfig.Activation != "base" {
-			return nil, errors.New("workspace environment differs from runtime activation")
-		}
+	// The commit image's devShell selection decides activation; the runtime
+	// config carries the material digest the image must hold.
+	if a.Workspace.Schema == "p.workspace/v2" && (a.Workspace.EnvironmentSelection == "devshell") != (a.SessionConfig.Activation == "devshell") {
+		return nil, errors.New("workspace environment differs from runtime activation")
 	}
 	if len(a.Identity) == 0 || len(a.Identity) > 16<<10 || bytes.IndexByte(a.Identity, 0) >= 0 {
 		return nil, errors.New("invalid session identity")

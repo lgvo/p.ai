@@ -1,0 +1,55 @@
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1793663578.9673336, "bytes": 7755, "run": "prototype"}
+{"op": "observe", "label": "start", "wait": 1.0, "frame": "0002-start", "timestamp": 1793663580.238124, "bytes": 7755, "run": "prototype"}
+{"op": "send", "label": "policy", "wait": 0.2, "text": "p", "hex": null, "frame": "0003-policy", "timestamp": 1793663583.4150414, "bytes": 12546, "run": "prototype"}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "0004-close", "timestamp": 1793663590.1376324, "bytes": 12546, "run": "prototype"}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1793663590.5578055, "bytes": 7763, "run": "before"}
+{"op": "observe", "label": "browser", "wait": 1.0, "frame": "0002-browser", "timestamp": 1793663591.728789, "bytes": 8328, "run": "before"}
+{"op": "send", "label": "policy-no-environment", "wait": 0.2, "text": "p", "hex": null, "frame": "0003-policy-no-environment", "timestamp": 1793663595.558722, "bytes": 8955, "run": "before"}
+{"op": "send", "label": "back", "wait": 0.2, "text": "q", "hex": null, "frame": "0004-back", "timestamp": 1793663600.3430963, "bytes": 17024, "run": "before"}
+{"op": "send", "label": "details", "wait": 0.2, "text": "D", "hex": null, "frame": "0005-details", "timestamp": 1793663600.744095, "bytes": 18722, "run": "before"}
+{"op": "send", "label": "details-end-no-environment", "wait": 0.2, "text": "G", "hex": null, "frame": "0006-details-end-no-environment", "timestamp": 1793663601.1064296, "bytes": 18722, "run": "before"}
+{"op": "resize", "label": "details-80x24", "wait": 0.2, "cols": 80, "rows": 24, "frame": "0007-details-80x24", "timestamp": 1793663606.7788508, "bytes": 20127, "run": "before"}
+{"op": "send", "label": "policy-from-details-80x24", "wait": 0.2, "text": "p", "hex": null, "frame": "0008-policy-from-details-80x24", "timestamp": 1793663607.1132553, "bytes": 20690, "run": "before"}
+{"op": "resize", "label": "policy-48x16", "wait": 0.2, "cols": 48, "rows": 16, "frame": "0009-policy-48x16", "timestamp": 1793663607.4411495, "bytes": 21195, "run": "before"}
+{"op": "send", "label": "back-48", "wait": 0.2, "text": "q", "hex": null, "frame": "0010-back-48", "timestamp": 1793663613.941164, "bytes": 21732, "run": "before"}
+{"op": "send", "label": "back-browser-48", "wait": 0.2, "text": "q", "hex": null, "frame": "0011-back-browser-48", "timestamp": 1793663614.2606742, "bytes": 23170, "run": "before"}
+{"op": "send", "label": "quit", "wait": 0.2, "text": "q", "hex": null, "frame": "0012-quit", "timestamp": 1793663614.3943002, "bytes": 23205, "run": "before"}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "0013-close", "timestamp": 1793663614.5255325, "bytes": 23205, "run": "before"}
+{"op": "start", "label": "start", "wait": 2.0, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1793665206.0435731, "bytes": 8328, "run": "after"}
+{"op": "observe", "label": "browser", "wait": 3.0, "frame": "0002-browser", "timestamp": 1793665209.2574358, "bytes": 8328, "run": "after"}
+{"op": "send", "label": "policy-image-120x35", "wait": 0.2, "text": "p", "hex": null, "frame": "0003-policy-image-120x35", "timestamp": 1793665214.5342872, "bytes": 10250, "run": "after"}
+{"op": "send", "label": "back-browser", "wait": 0.2, "text": "q", "hex": null, "frame": "0004-back-browser", "timestamp": 1793665227.1571927, "bytes": 18319, "run": "after"}
+{"op": "send", "label": "details-image-120x35", "wait": 0.2, "text": "D", "hex": null, "frame": "0005-details-image-120x35", "timestamp": 1793665227.5179887, "bytes": 20242, "run": "after"}
+{"op": "send", "label": "details-end-image-120x35", "wait": 0.2, "text": "G", "hex": null, "frame": "0006-details-end-image-120x35", "timestamp": 1793665248.8279855, "bytes": 26212, "run": "after"}
+{"op": "send", "label": "policy-from-details", "wait": 0.2, "text": "p", "hex": null, "frame": "0007-policy-from-details", "timestamp": 1793665254.2520401, "bytes": 27504, "run": "after"}
+{"op": "send", "label": "back-to-details", "wait": 0.2, "text": "q", "hex": null, "frame": "0008-back-to-details", "timestamp": 1793665254.6039455, "bytes": 29214, "run": "after"}
+{"op": "send", "label": "back-browser-2", "wait": 0.2, "text": "q", "hex": null, "frame": "0009-back-browser-2", "timestamp": 1793665260.1018968, "bytes": 38699, "run": "after"}
+{"op": "send", "label": "select-orbit", "wait": 0.2, "text": "j", "hex": null, "frame": "0010-select-orbit", "timestamp": 1793665260.4571843, "bytes": 39978, "run": "after"}
+{"op": "send", "label": "policy-no-image", "wait": 0.2, "text": "p", "hex": null, "frame": "0011-policy-no-image", "timestamp": 1793665260.817488, "bytes": 40602, "run": "after"}
+{"op": "send", "label": "back-browser-3", "wait": 0.2, "text": "q", "hex": null, "frame": "0012-back-browser-3", "timestamp": 1793665261.1650202, "bytes": 48665, "run": "after"}
+{"op": "send", "label": "details-no-image", "wait": 0.2, "text": "D", "hex": null, "frame": "0013-details-no-image", "timestamp": 1793665261.5229595, "bytes": 50360, "run": "after"}
+{"op": "send", "label": "details-no-image-end", "wait": 0.2, "text": "G", "hex": null, "frame": "0014-details-no-image-end", "timestamp": 1793665261.8747594, "bytes": 50360, "run": "after"}
+{"op": "send", "label": "back-browser-4", "wait": 0.2, "text": "q", "hex": null, "frame": "0015-back-browser-4", "timestamp": 1793665268.9012816, "bytes": 58927, "run": "after"}
+{"op": "send", "label": "select-forge", "wait": 0.2, "text": "k", "hex": null, "frame": "0016-select-forge", "timestamp": 1793665269.2594192, "bytes": 60212, "run": "after"}
+{"op": "send", "label": "help", "wait": 0.2, "text": "?", "hex": null, "frame": "0017-help", "timestamp": 1793665269.6175652, "bytes": 61652, "run": "after"}
+{"op": "send", "label": "back-browser-5", "wait": 0.2, "text": "q", "hex": null, "frame": "0018-back-browser-5", "timestamp": 1793665269.969627, "bytes": 69718, "run": "after"}
+{"op": "resize", "label": "browser-80x24", "wait": 0.2, "cols": 80, "rows": 24, "frame": "0019-browser-80x24", "timestamp": 1793665270.3276234, "bytes": 72911, "run": "after"}
+{"op": "send", "label": "policy-image-80x24", "wait": 0.2, "text": "p", "hex": null, "frame": "0020-policy-image-80x24", "timestamp": 1793665275.0143375, "bytes": 74283, "run": "after"}
+{"op": "send", "label": "back-80", "wait": 0.2, "text": "q", "hex": null, "frame": "0021-back-80", "timestamp": 1793665275.3448412, "bytes": 77475, "run": "after"}
+{"op": "send", "label": "details-80x24", "wait": 0.2, "text": "D", "hex": null, "frame": "0022-details-80x24", "timestamp": 1793665275.6771343, "bytes": 78428, "run": "after"}
+{"op": "send", "label": "details-pgdn-80x24", "wait": 0.2, "text": null, "hex": "1b5b367e", "frame": "0023-details-pgdn-80x24", "timestamp": 1793665276.0115917, "bytes": 79396, "run": "after"}
+{"op": "resize", "label": "details-48x16", "wait": 0.2, "cols": 48, "rows": 16, "frame": "0024-details-48x16", "timestamp": 1793665284.8682978, "bytes": 80557, "run": "after"}
+{"op": "send", "label": "details-end-48x16", "wait": 0.2, "text": "G", "hex": null, "frame": "0025-details-end-48x16", "timestamp": 1793665285.1826985, "bytes": 80950, "run": "after"}
+{"op": "send", "label": "details-up-48x16", "wait": 0.2, "text": "k", "hex": null, "frame": "0026-details-up-48x16", "timestamp": 1793665285.509707, "bytes": 81039, "run": "after"}
+{"op": "send", "label": "details-environment-48x16", "wait": 0.2, "text": "kkk", "hex": null, "frame": "0027-details-environment-48x16", "timestamp": 1793665291.0843477, "bytes": 81372, "run": "after"}
+{"op": "send", "label": "policy-48x16", "wait": 0.2, "text": "p", "hex": null, "frame": "0028-policy-48x16", "timestamp": 1793665297.7434583, "bytes": 82322, "run": "after"}
+{"op": "send", "label": "policy-end-48x16", "wait": 0.2, "text": "G", "hex": null, "frame": "0029-policy-end-48x16", "timestamp": 1793665298.0565865, "bytes": 82718, "run": "after"}
+{"op": "send", "label": "back-details-48", "wait": 0.2, "text": "q", "hex": null, "frame": "0030-back-details-48", "timestamp": 1793665298.3717577, "bytes": 83255, "run": "after"}
+{"op": "send", "label": "back-browser-48", "wait": 0.2, "text": "q", "hex": null, "frame": "0031-back-browser-48", "timestamp": 1793665298.6898823, "bytes": 84740, "run": "after"}
+{"op": "send", "label": "policy-48-again", "wait": 0.2, "text": "p", "hex": null, "frame": "0032-policy-48-again", "timestamp": 1793665304.2698047, "bytes": 85323, "run": "after"}
+{"op": "send", "label": "policy-48-end-again", "wait": 0.2, "text": "G", "hex": null, "frame": "0033-policy-48-end-again", "timestamp": 1793665304.5826323, "bytes": 85719, "run": "after"}
+{"op": "resize", "label": "policy-resized-120x35", "wait": 0.2, "cols": 120, "rows": 35, "frame": "0034-policy-resized-120x35", "timestamp": 1793665304.8954697, "bytes": 86757, "run": "after"}
+{"op": "send", "label": "back-browser-120", "wait": 0.2, "text": "q", "hex": null, "frame": "0035-back-browser-120", "timestamp": 1793665312.5073192, "bytes": 94826, "run": "after"}
+{"op": "send", "label": "quit", "wait": 1.0, "text": "q", "hex": null, "frame": "0036-quit", "timestamp": 1793665312.692595, "bytes": 94861, "run": "after"}
+{"op": "observe", "label": "after-quit", "wait": 1.0, "frame": "0037-after-quit", "timestamp": 1793665312.8349466, "bytes": 94861, "run": "after"}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "0038-close", "timestamp": 1793665312.9777377, "bytes": 94861, "run": "after"}

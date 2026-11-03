@@ -61,9 +61,10 @@ semantics.
 
 ## Sessions are cheap, and so is throwing them away
 
-Create a session and P prepares or reuses a private Incus environment image
-from your project's Nix `devShell`—or its base image when the project has
-none—assigns the existing branch you picked or creates a new branch from source,
+Create a session and P reuses the private Incus image of its source commit, or
+builds one holding the commit's code and Nix `devShell`—or only the base
+packages when the project has none—assigns the existing branch you picked or
+creates a new branch from source,
 assembles an isolated working copy, and starts the persistent host through
 systemd. Attach is a separate lifecycle action; the reviewed prototype
 combines creation, simulated startup, and entry into one flow. A disposable Incus builder
@@ -171,9 +172,10 @@ Nix devShell is the first environment provider, not P's session configuration
 language. A repository contributes only its ordinary default devShell; all
 P-specific settings are trusted host configuration at project scope. A
 repository without a default devShell uses P's immutable minimal session
-substrate, so project creation never requires generating a file. The environment
-builder and runtime backend remain reusable interfaces, but MVP specifies only
-Nix-to-Incus-image and local Incus containers.
+substrate, so project creation never requires generating a file. Image builds
+go through the runtime driver's image operations and the runtime backend
+remains a reusable interface, but MVP specifies only Nix-to-Incus-image and
+local Incus containers.
 
 P is single-user today. Multi-user policy is a later arc, and the runtime and
 authorization models leave room for it without making it an MVP claim.

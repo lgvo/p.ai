@@ -18,6 +18,7 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/gitservice"
 	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 	"github.com/lgvo/p.ai/internal/runtimekit"
 )
@@ -27,6 +28,7 @@ type lifecycle struct {
 	cfg                    control.RuntimeConfig
 	git                    *gitCapability
 	runtime                *runtimeincus.Backend
+	images                 runtimedriver.Images
 	runtimePlugin          plugin.Active
 	hostPlan               plugin.AssetPlan
 	sourcePlan             plugin.AssetPlan
@@ -50,7 +52,8 @@ type lifecycle struct {
 	eventContexts          map[string]eventContext
 	progress               map[string]string
 	changedPolicies        map[string]bool
-	cacheKeyLocks          map[string]chan struct{}
+	commitLocks            map[string]chan struct{}
+	releases               map[string]bool // projects whose image release runs; true asks for another run
 	removalPreviews        map[string]removalPreviewState
 	retainedDeletePreviews map[string]retainedDeletePreviewState
 	createReplacePreviews  map[string]createReplacePreviewState
@@ -159,7 +162,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, runtime: runtime, runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, startActive: map[string]bool{}, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, runtime: runtime, images: runtimeincus.NewDriver(runtime), runtimePlugin: *runtimeSelection, hostPlan: hostPlan, sourcePlan: sourcePlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: runtime.CheckConfinement, startActive: map[string]bool{}, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -319,7 +322,21 @@ func (l *lifecycle) Recover() error {
 		}
 	}
 	go l.schedule()
-	return nil
+	// Images left unused while the daemon was down go once recovery is under way.
+	after = ""
+	for {
+		projects, next, e := l.store.ListProjects(l.ctx, after, 100)
+		if e != nil {
+			return e
+		}
+		for _, p := range projects {
+			l.startRelease(p.Path)
+		}
+		if next == "" {
+			return nil
+		}
+		after = next
+	}
 }
 func (l *lifecycle) schedule() {
 	ticker := time.NewTicker(time.Second)
@@ -429,6 +446,7 @@ func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
 		BaseFingerprint:     l.cfg.BaseImageFingerprint,
 		BuilderStoragePool:  l.cfg.Environment.BuilderStoragePool,
 		BuilderPolicySHA256: runtimeincus.BuilderPolicyDigest(publicEgress),
+		ImageBuilder:        l.images.Describe().ImageBuilder,
 	}
 }
 
@@ -748,6 +766,9 @@ func (l *lifecycle) process(id string) {
 	if kind, ok := operationKinds[op.Kind]; ok {
 		kind.process(l, op)
 	}
+	// Once an operation of the project leaves the worker, the images no
+	// session of the project uses any more go.
+	l.startRelease(op.Project)
 }
 
 // recoverOperation recovers a panic in the work of operation id. It logs the
@@ -873,7 +894,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		return
 	}
 	var image, initialOID string
-	var environmentEvidence control.CreationEvidence
+	var creationEvidence control.CreationEvidence
 	if op.Kind == "project.create" {
 		var ev control.BlankProjectEvidence
 		if json.Unmarshal(op.Evidence, &ev) != nil {
@@ -889,7 +910,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		}
 		image = ev.ImageFingerprint
 		initialOID = ev.CapturedOID
-		environmentEvidence = ev
+		creationEvidence = ev
 		if op.Phase == "source-ready" {
 			var req control.ReserveSessionRequest
 			if json.Unmarshal(op.Request, &req) != nil {
@@ -928,13 +949,13 @@ func (l *lifecycle) processCreation(op api.Operation) {
 			return
 		}
 	}
-	if op.Kind == "session.create" && environmentEvidence.Environment != nil {
-		image, err = l.ensureEnvironment(ctx, &op, environmentEvidence)
+	if op.Kind == "session.create" && creationEvidence.Environment != nil {
+		image, err = l.ensureImage(ctx, &op, creationEvidence)
 		if err != nil {
 			fail(err)
 			return
 		}
-		environmentEvidence, err = control.Evidence(op)
+		creationEvidence, err = control.Evidence(op)
 		if err != nil {
 			fail(err)
 			return
@@ -1006,10 +1027,7 @@ func (l *lifecycle) processCreation(op api.Operation) {
 			fail(err)
 			return
 		}
-		activation := runtimekit.Config{Schema: "p.runtime-session/v1", Activation: "base", Command: selectedPolicy.Command}
-		if environmentEvidence.EnvironmentState != nil && environmentEvidence.EnvironmentState.Key != "" {
-			activation = runtimekit.Config{Schema: "p.runtime-session/v2", Activation: "devshell", MaterialSHA256: environmentEvidence.EnvironmentState.MaterialDigest, Command: selectedPolicy.Command}
-		}
+		activation, workspace := imageSessionConfig(creationEvidence.Image, session, initialOID, selectedPolicy.Command)
 		if l.agentPlan != nil {
 			if len(l.agentPlan.Files) != 1 || l.agentPlan.Files[0].Role != "p-codex-adapter" {
 				fail(control.Failed(api.ReasonPlugin, errors.New("selected agent asset role unavailable")))
@@ -1025,18 +1043,6 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		if publicIPv4 != "" {
 			activation.Schema = "p.runtime-session/v5"
 			activation.PublicNetwork = l.guestPublicNetwork(publicIPv4)
-		}
-		workspace := runtimekit.WorkspaceConfig{Schema: "p.workspace/v1", Repository: session.Project, Branch: session.Branch, InitialOID: initialOID}
-		if environmentEvidence.Environment != nil && environmentEvidence.EnvironmentState != nil {
-			workspace.Schema = "p.workspace/v2"
-			workspace.EnvironmentCommitOID = initialOID
-			workspace.EnvironmentSelection = "base-no-flake"
-			if environmentEvidence.EnvironmentState.Key != "" {
-				workspace.EnvironmentSelection = "devshell"
-				workspace.EnvironmentKey = environmentEvidence.EnvironmentState.Key
-			} else if environmentEvidence.EnvironmentState.FlakePresent {
-				workspace.EnvironmentSelection = "base-no-default"
-			}
 		}
 		assembly := runtimeincus.Assembly{HostAssets: l.hostPlan, SourceAssets: l.sourcePlan, AgentAssets: l.agentPlan, SessionConfig: activation, Workspace: workspace, Identity: key, ServerPublicKey: l.git.info.HostPublicKey}
 		scoped.Assembly = &assembly
@@ -1067,6 +1073,23 @@ func (l *lifecycle) processCreation(op api.Operation) {
 		l.recordProgress(op, "completed")
 		_, _ = l.InspectSession(ctx, op.SessionUUID)
 	}
+}
+
+// imageSessionConfig is the session configuration a runtime kit receives for
+// the image a session was created from. A commit image activates its
+// devShell, if it has one, and already holds the workspace's clone; without
+// one, the runtime kit clones the workspace from P at start.
+func imageSessionConfig(img *control.CreationImage, session control.Session, initialOID string, command []string) (runtimekit.Config, runtimekit.WorkspaceConfig) {
+	activation := runtimekit.Config{Schema: "p.runtime-session/v1", Activation: "base", Command: command}
+	workspace := runtimekit.WorkspaceConfig{Schema: "p.workspace/v1", Repository: session.Project, Branch: session.Branch, InitialOID: initialOID}
+	if img == nil {
+		return activation, workspace
+	}
+	if img.Selection == string(runtimedriver.SelectionDevShell) {
+		activation = runtimekit.Config{Schema: "p.runtime-session/v2", Activation: "devshell", MaterialSHA256: img.MaterialSHA256, Command: command}
+	}
+	workspace.Schema, workspace.EnvironmentSelection = "p.workspace/v2", img.Selection
+	return activation, workspace
 }
 
 func guestFilesystemGrants(policy control.ProjectPolicy) []runtimekit.FilesystemGrant {
@@ -1138,20 +1161,18 @@ func phaseRank(phase string) int {
 		return 1
 	case "branch-assigned":
 		return 2
-	case "environment-publishing":
+	case "image-ready":
 		return 3
-	case "environment-ready":
-		return 4
 	case "principals-ready":
-		return 5
+		return 4
 	case "runtime-created":
-		return 6
+		return 5
 	case "assembly-ready":
-		return 7
+		return 6
 	case "workspace-ready":
-		return 8
+		return 7
 	case "established":
-		return 9
+		return 8
 	default:
 		return -1
 	}
@@ -1355,7 +1376,7 @@ func (l *lifecycle) InspectSession(ctx context.Context, id string) (result api.S
 	if err != nil {
 		return api.SessionView{}, err
 	}
-	v.Environment = control.CreationEnvironmentView(created)
+	v.Image = control.CreationImageView(created)
 	v.PolicyCondition = l.policyCondition(ctx, s)
 	if s.Registry == "creating" {
 		v.Condition = "creating"

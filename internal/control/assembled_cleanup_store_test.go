@@ -47,7 +47,7 @@ func assembledCreatorFixture(t *testing.T) (*Store, string, api.Operation, Sessi
 }
 
 func TestAssembledCreationForCleanupRefusesUnsupportedCreators(t *testing.T) {
-	for _, name := range []string{"legacy-init", "not-attempted", "early", "workspace-ready", "running", "bootstrap", "origin", "builder", "environment", "publication", "captured-oid", "policy", "image", "selection", "replacement"} {
+	for _, name := range []string{"legacy-init", "not-attempted", "early", "workspace-ready", "running", "bootstrap", "origin", "builder", "environment", "captured-oid", "policy", "image", "selection", "replacement"} {
 		t.Run(name, func(t *testing.T) {
 			_, _, op, session := assembledCreatorFixture(t)
 			creation, _ := Evidence(op)
@@ -70,8 +70,6 @@ func TestAssembledCreationForCleanupRefusesUnsupportedCreators(t *testing.T) {
 				creation.EnvironmentBuilder = &CreationBuilderState{State: "absent", Cycle: 1}
 			case "environment":
 				creation.Environment = &EnvironmentIntent{}
-			case "publication":
-				creation.EnvironmentState = &EnvironmentState{}
 			case "captured-oid":
 				creation.CapturedOID = ""
 			case "policy":

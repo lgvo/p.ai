@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/control"
 )
 
 func TestFailedCreateCleanupAbsentLocalResourcesRefusesUnexpectedIdentity(t *testing.T) {
@@ -70,5 +71,21 @@ func TestFailedCreateCleanupCancelledWhileCreationOwnsUUIDDoesNotAct(t *testing.
 		t.Fatal(e)
 	} else {
 		release()
+	}
+}
+
+func TestFailedCreateCleanupProvesTheLastBuildsBuilderAbsent(t *testing.T) {
+	op := "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		builder *api.CreationBuilderState
+		want    string
+	}{
+		{nil, op},
+		{&api.CreationBuilderState{State: "not-attempted"}, op},
+		{&api.CreationBuilderState{Cycle: 3, State: "absent"}, control.BuildRef(op, 3)},
+	} {
+		if got := lastBuild(op, tc.builder); got != tc.want {
+			t.Fatalf("builder %+v: proved %s absent, want %s", tc.builder, got, tc.want)
+		}
 	}
 }

@@ -51,8 +51,9 @@ wait_health() {
   test "$SECONDS" -lt "$deadline"; sleep 0.2
  done
 }
+# A creation from a commit with no image first builds the commit's image.
 wait_completed() {
- local id=$1 result status deadline=$((SECONDS+160))
+ local id=$1 result status deadline=$((SECONDS+300))
  while ((SECONDS<deadline)); do
   result=$(rpc operation.inspect "$(jq -nc --arg id "$id" '{id:$id}')")
   status=$(jq -er '.result.operation.status' <<< "$result")

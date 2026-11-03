@@ -93,43 +93,53 @@ func answers(err error, kind api.ErrorKind, reason string) bool {
 }
 
 func TestReplaceBlockedCreateRefusesProvisionalBuilderAndPrincipal(t *testing.T) {
-	s, _ := openTestStore(t)
-	ctx := context.Background()
-	if e := s.CreateProject(ctx, "team/app", json.RawMessage(`{"network":"none"}`)); e != nil {
-		t.Fatal(e)
-	}
-	oldReq := ReserveSessionRequest{Key: "builder-old", Project: "team/app", Branch: "work", Choice: "existing"}
-	old, session, e := s.BeginSessionCreate(ctx, oldReq, strings.Repeat("d", 64), testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
-		return strings.Repeat("a", 40), true, nil
-	})
-	if e != nil {
-		t.Fatal(e)
-	}
-	ev, _ := Evidence(old)
-	ev.BuilderTreeOID = strings.Repeat("c", 40)
-	raw, _ := json.Marshal(ev)
-	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "internal", "builder failed"); e != nil {
-		t.Fatal(e)
-	}
-	intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256,
-		TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "builder-new", Project: "team/app", Branch: "work", Choice: "existing"}}
-	observe := func(context.Context, []CapacityReservation) (CapacityObservation, error) {
-		return CapacityObservation{Limit: 4, Occupied: map[string]bool{}}, nil
-	}
-	if _, e = s.ReplaceBlockedCreate(ctx, intent, strings.Repeat("d", 64), testSelection(), nil, observe, func(context.Context) (string, error) { return strings.Repeat("b", 40), nil }); !errors.Is(e, ErrConflict) {
-		t.Fatalf("builder intent admitted: %v", e)
-	}
-	ev.BuilderTreeOID = ""
-	raw, _ = json.Marshal(ev)
-	if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "internal", "before key"); e != nil {
-		t.Fatal(e)
-	}
-	intent.OldEvidenceSHA256 = digest(raw)
-	if e = s.RegisterGitPrincipal(ctx, strings.Repeat("e", 64), "session", session.Project, session.UUID); e != nil {
-		t.Fatal(e)
-	}
-	if _, e = s.ReplaceBlockedCreate(ctx, intent, strings.Repeat("d", 64), testSelection(), nil, observe, func(context.Context) (string, error) { return strings.Repeat("b", 40), nil }); !errors.Is(e, ErrConflict) {
-		t.Fatalf("registered principal admitted: %v", e)
+	for _, name := range []string{"", "builder-attempted", "builder-abandoned", "builder-absent", "principal"} {
+		t.Run(name, func(t *testing.T) {
+			s, _ := openTestStore(t)
+			ctx := context.Background()
+			if e := s.CreateProject(ctx, "team/app", json.RawMessage(`{"network":"none"}`)); e != nil {
+				t.Fatal(e)
+			}
+			base := strings.Repeat("d", 64)
+			env := &EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: base, BuilderStoragePool: "default", BuilderPolicySHA256: base, ImageBuilder: "incus-commit-image/1"}
+			oldReq := ReserveSessionRequest{Key: "builder-old", Project: "team/app", Branch: "work", Choice: "existing"}
+			old, session, e := s.BeginSessionCreate(ctx, oldReq, base, testSelection(), func(context.Context, ReserveSessionRequest) (string, bool, error) {
+				return strings.Repeat("a", 40), true, nil
+			}, env)
+			if e != nil {
+				t.Fatal(e)
+			}
+			ev, _ := Evidence(old)
+			states := map[string][]string{"builder-attempted": {"attempted"}, "builder-abandoned": {"attempted", "abandoned"}, "builder-absent": {"attempted", "absent"}}[name]
+			for _, state := range states {
+				ev.EnvironmentBuilder = &CreationBuilderState{Cycle: 1, State: state}
+				raw, _ := json.Marshal(ev)
+				if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "internal", "builder failed"); e != nil {
+					t.Fatal(e)
+				}
+			}
+			raw, _ := json.Marshal(ev)
+			if e = s.AdvanceOperation(ctx, old.ID, "blocked", "branch-assigned", true, raw, "internal", "before key"); e != nil {
+				t.Fatal(e)
+			}
+			if name == "principal" {
+				if e = s.RegisterGitPrincipal(ctx, strings.Repeat("e", 64), "session", session.Project, session.UUID); e != nil {
+					t.Fatal(e)
+				}
+			}
+			intent := CreateReplaceIntent{OldOperationID: old.ID, OldUUID: session.UUID, OldEvidenceSHA256: digest(raw), OldPolicySHA256: session.PolicySHA256, NewPolicySHA256: session.PolicySHA256,
+				TokenSHA256: strings.Repeat("f", 64), ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano), New: ReserveSessionRequest{Key: "builder-new", Project: "team/app", Branch: "work", Choice: "existing"}}
+			observe := func(context.Context, []CapacityReservation) (CapacityObservation, error) {
+				return CapacityObservation{Limit: 4, Occupied: map[string]bool{}}, nil
+			}
+			_, e = s.ReplaceBlockedCreate(ctx, intent, base, testSelection(), nil, observe, func(context.Context) (string, error) { return strings.Repeat("b", 40), nil })
+			if name == "" && e != nil {
+				t.Fatalf("pinned builder that never ran refused: %v", e)
+			}
+			if name != "" && !errors.Is(e, ErrConflict) {
+				t.Fatalf("%s admitted: %v", name, e)
+			}
+		})
 	}
 }
 
@@ -165,7 +175,7 @@ func TestReplaceBlockedCreateSQLiteRefusalsPreserveReservation(t *testing.T) {
 			case "ref-cas":
 				ev.RefCASIntent = true
 			case "environment-effect":
-				ev.EnvironmentState = &EnvironmentState{}
+				ev.Image = &CreationImage{Ref: strings.Repeat("e", 64), Selection: "no-flake"}
 			}
 			raw, _ := json.Marshal(ev)
 			if e = s.AdvanceOperation(ctx, old.ID, status, phase, committed, raw, testReason(status), ""); e != nil {
@@ -384,7 +394,7 @@ func TestReplaceBlockedLocalNewCreateChoicesAndRestartReplay(t *testing.T) {
 }
 
 func TestReplaceBlockedNewCreateRefusesOccupiedGuardedOrUnchangedTarget(t *testing.T) {
-	for _, name := range []string{"occupied", "guarded", "unchanged", "origin-new", "foreign-existing", "stale-source", "late-builder", "stale-during-proof"} {
+	for _, name := range []string{"occupied", "guarded", "unchanged", "origin-new", "foreign-existing", "stale-source", "image", "stale-during-proof"} {
 		t.Run(name, func(t *testing.T) {
 			s, _ := openTestStore(t)
 			ctx := context.Background()
@@ -399,8 +409,8 @@ func TestReplaceBlockedNewCreateRefusesOccupiedGuardedOrUnchangedTarget(t *testi
 				t.Fatal(e)
 			}
 			ev, _ := Evidence(old)
-			if name == "late-builder" {
-				ev.BuilderTreeOID = strings.Repeat("c", 40)
+			if name == "image" {
+				ev.Image = &CreationImage{Ref: strings.Repeat("e", 64), Selection: "no-flake"}
 			}
 			raw, _ := json.Marshal(ev)
 			if e = s.AdvanceOperation(ctx, old.ID, "blocked", "source-ready", false, raw, "internal", ""); e != nil {

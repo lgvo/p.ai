@@ -61,31 +61,38 @@ configured routing and packet-level test results.
 **Gate:** `none` first, then the public-egress project capability. Narrow Unix
 endpoint access may proceed independently.
 
-## 4. Nix environment images
+## 4. Nix commit images
 
-**Validate:** In a disposable restricted Incus builder, evaluate an immutable
-commit, resolve the conventional default devShell without lock mutation,
-realize it without host Nix state, capture activation, create the GC root,
-verify/scrub it, and publish a coherent private Incus image. Pin the Nix
-version and validate the experimental `nix print-dev-env --json` contract:
-feature flags/argv, JSON schema and value types, quoting/unset/export behavior,
-functions, hooks, failures, and activation equivalence against representative
-`nix develop` fixtures. Reject unknown output rather than sourcing an
-unvalidated fallback.
+**Validate:** Prove that the Git bundle P exports for a source commit clones to
+exactly that commit. In a disposable restricted Incus builder, clone the
+bundle, evaluate the commit from the clone, resolve the conventional default
+devShell without lock mutation, realize it without host Nix state, capture
+activation, create the GC root, verify/scrub it, and publish a coherent private
+Incus image holding the clone. Pin the Nix version and validate the
+experimental `nix print-dev-env --json` contract: feature flags/argv, JSON
+schema and value types, quoting/unset/export behavior, functions, hooks,
+failures, and activation equivalence against representative `nix develop`
+fixtures. Reject unknown output rather than sourcing an unvalidated fallback.
 
-Verify the cache key includes P project scope, the materialized checkout and
-unreachable temporary paths are absent, and any committed source-derived store
-path retained by the closure cannot be reused by another P project.
+Verify the image's identity includes P project scope and its source commit,
+the source bundle and unreachable temporary paths are absent, the clone is
+detached at the commit with no ref, remote or credentials, and any committed
+source-derived store path retained by the closure cannot be reused by another
+P project.
 
-Launch two sessions from one fingerprint and prove:
+Launch two sessions from one commit and prove:
 
-- each activates the expected environment;
+- the second reuses the first one's image and runs no builder;
+- each activates the expected environment and works on its own branch;
 - each local Nix daemon can update only its own private store/database;
 - each has a private writable Nix database/store delta;
 - new paths in one session do not affect the image or the other session;
 - stop/start retains private paths while removal deletes them;
-- removing the cached image does not break existing instances and becomes a
-  cache miss for new creation; and
+- a commit that changes only code builds a new image;
+- deleting the last session from a commit deletes its image, while a session
+  from that commit that still exists keeps it;
+- removing an image externally does not break existing instances, and the next
+  creation from its commit rebuilds it; and
 - base-only behavior works when no default devShell exists.
 
 Run the complete [Nix project workflow validation](nix-project-workflow-validation.md)
@@ -164,7 +171,7 @@ loss does not claim private credential enumeration.
 create/rename/discard/delete converge without duplicate Incus instances or
 silent Git ref loss. Verify Incus-owned start/stop uses Incus operation/state
 without a duplicate P workflow. Test missing versus unreachable, identity
-conflicts, image cache misses, immutable-policy current/outdated/invalid
+conflicts, missing images, immutable-policy current/outdated/invalid
 comparison, and cleanup failures. Branch/upstream
 mismatches must show expected and actual values, block dependent actions, and
 recheck on the next attempt after manual Git correction. No dedicated mismatch
@@ -537,8 +544,8 @@ authenticated Codex execution remains the user's manual gate.
 ## 12. Performance and capacity
 
 **Validate:** On representative `x86_64-linux` and `aarch64-linux` machines,
-measure cold realization, substituted realization, cached-image hit, builder
-publication, session launch/activation, private Nix growth, cache deletion, and
+measure cold realization, substituted realization, commit-image hit, builder
+publication, session launch/activation, private Nix growth, image deletion, and
 storage-driver physical use for small and real projects.
 
 Results describe tested projects, inputs, caches, storage drivers, and hosts;

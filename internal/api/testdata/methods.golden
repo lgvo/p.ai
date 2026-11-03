@@ -248,12 +248,11 @@ control session.inspect (runtime)
         received_at string
         receive_sequence integer
       diagnostic string (optional)
-      environment object (optional)
+      image object (optional)
         commit_oid string (optional)
         system string
         selection string
-        cache string
-        environment_key string (optional)
+        state string
         base_image_fingerprint string
         image_fingerprint string
 control session.list (runtime)
@@ -279,12 +278,11 @@ control session.list (runtime)
         received_at string
         receive_sequence integer
       diagnostic string (optional)
-      environment object (optional)
+      image object (optional)
         commit_oid string (optional)
         system string
         selection string
-        cache string
-        environment_key string (optional)
+        state string
         base_image_fingerprint string
         image_fingerprint string
     next string
@@ -310,12 +308,11 @@ control session.start (runtime)
         received_at string
         receive_sequence integer
       diagnostic string (optional)
-      environment object (optional)
+      image object (optional)
         commit_oid string (optional)
         system string
         selection string
-        cache string
-        environment_key string (optional)
+        state string
         base_image_fingerprint string
         image_fingerprint string
 control session.stop (runtime)
@@ -340,12 +337,11 @@ control session.stop (runtime)
         received_at string
         receive_sequence integer
       diagnostic string (optional)
-      environment object (optional)
+      image object (optional)
         commit_oid string (optional)
         system string
         selection string
-        cache string
-        environment_key string (optional)
+        state string
         base_image_fingerprint string
         image_fingerprint string
 control operation.inspect (runtime)
@@ -405,12 +401,11 @@ control operation.list (runtime)
       committed boolean
       reason string (optional)
       diagnostic string (optional)
-      environment object (optional)
+      image object (optional)
         commit_oid string (optional)
         system string
         selection string
-        cache string
-        environment_key string (optional)
+        state string
         base_image_fingerprint string
         image_fingerprint string
     next string
@@ -723,7 +718,26 @@ control project.delete.preview (runtime)
           containing_branches array of string
           observed_refs_digest string (optional)
           unresolved_refs array of string
-      cache_images raw
+      images array of object
+        image object
+          key object
+            project string
+            commit_oid string
+            base_image string
+            system string
+            builder_version string
+          ref string
+          build string
+          labels array of object
+            name string
+            value string
+          selection string
+          material_sha256 string (optional)
+          size integer
+          state string
+        image_present boolean
+        observed_size integer
+        related_digest string
       repository_identity object
         device integer
         inode integer
@@ -880,8 +894,21 @@ control session.create.replace.preview (runtime)
         expected_origin_url string (optional)
       new_captured_oid string (optional)
       new_image_fingerprint string
-      new_selection raw
-      new_environment raw (optional)
+      new_selection object
+        runtime_id string
+        runtime_sha256 string
+        host_id string
+        host_sha256 string
+        source_id string
+        source_sha256 string
+        agent_id string (optional)
+        agent_sha256 string (optional)
+      new_environment object (optional)
+        system string
+        base_fingerprint string
+        builder_storage_pool string
+        builder_policy_sha256 string
+        image_builder string
       new_policy_sha256 string (optional)
       provisional object
         assigned_ref string
@@ -995,7 +1022,9 @@ control session.create.cleanup.preview (runtime)
         exists boolean
         oid string (optional)
       image_fingerprint string
-      environment_builder raw (optional)
+      environment_builder object (optional)
+        cycle integer
+        state string
       provisional object
         assigned_ref string
         runtime string (optional)

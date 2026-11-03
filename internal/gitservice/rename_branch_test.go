@@ -9,13 +9,13 @@ import (
 )
 
 func TestSelectedRenameRefCreateRequiresOldExactAndNewAbsent(t *testing.T) {
-	b, repo := selectedDeleteBackend(t)
+	b, repo := selectedBackend(t)
 	ctx := context.Background()
-	tree := snapshotGit(t, repo, nil, "mktree")
-	base := snapshotCommit(t, repo, tree, "")
-	other := snapshotCommit(t, repo, tree, base)
-	snapshotGit(t, repo, nil, "update-ref", "refs/heads/main", base)
-	snapshotGit(t, repo, nil, "update-ref", "refs/heads/sibling", base)
+	tree := bareGit(t, repo, nil, "mktree")
+	base := bareCommit(t, repo, tree, "")
+	other := bareCommit(t, repo, tree, base)
+	bareGit(t, repo, nil, "update-ref", "refs/heads/main", base)
+	bareGit(t, repo, nil, "update-ref", "refs/heads/sibling", base)
 	if err := b.CreateRenameBranchExact(ctx, "app", "main", "renamed", other); !errors.Is(err, control.ErrConflict) {
 		t.Fatalf("stale old tip accepted: %v", err)
 	}
@@ -36,13 +36,13 @@ func TestSelectedRenameRefCreateRequiresOldExactAndNewAbsent(t *testing.T) {
 }
 
 func TestSelectedRetainedRenamePreservesSiblingAndNeverTouchesOrigin(t *testing.T) {
-	b, repo := selectedDeleteBackend(t)
+	b, repo := selectedBackend(t)
 	ctx := context.Background()
-	tree := snapshotGit(t, repo, nil, "mktree")
-	base := snapshotCommit(t, repo, tree, "")
-	tip := snapshotCommit(t, repo, tree, base)
-	snapshotGit(t, repo, nil, "update-ref", "refs/heads/retained", tip)
-	snapshotGit(t, repo, nil, "update-ref", "refs/heads/sibling", base)
+	tree := bareGit(t, repo, nil, "mktree")
+	base := bareCommit(t, repo, tree, "")
+	tip := bareCommit(t, repo, tree, base)
+	bareGit(t, repo, nil, "update-ref", "refs/heads/retained", tip)
+	bareGit(t, repo, nil, "update-ref", "refs/heads/sibling", base)
 	if err := b.CreateRenameBranchExact(ctx, "app", "retained", "archive", tip); err != nil {
 		t.Fatal(err)
 	}

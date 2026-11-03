@@ -6,9 +6,12 @@ import (
 	"errors"
 
 	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
-func CreationEnvironmentView(op api.Operation) *api.EnvironmentView {
+// CreationImageView shows the commit image of a creation that has image
+// builders configured.
+func CreationImageView(op api.Operation) *api.ImageView {
 	if op.Kind != "session.create" {
 		return nil
 	}
@@ -16,21 +19,19 @@ func CreationEnvironmentView(op api.Operation) *api.EnvironmentView {
 	if err != nil || ev.Environment == nil {
 		return nil
 	}
-	v := &api.EnvironmentView{CommitOID: ev.CapturedOID, System: ev.Environment.System, BaseImageFingerprint: ev.Environment.BaseFingerprint,
-		Selection: "pending", Cache: "pending", ImageFingerprint: ev.ImageFingerprint}
-	if s := ev.EnvironmentState; s != nil {
-		if s.Key == "" {
-			v.Selection, v.Cache = "base", "none"
-		} else {
-			v.Selection, v.Key = "devShells."+v.System+".default", s.Key
-			if s.Fingerprint == "" {
-				v.Cache = "publishing"
-			} else if s.CacheHit {
-				v.Cache = "hit"
-			} else {
-				v.Cache = "miss"
-			}
+	v := &api.ImageView{CommitOID: ev.CapturedOID, System: ev.Environment.System, Selection: "pending", State: "pending",
+		BaseImageFingerprint: ev.Environment.BaseFingerprint, ImageFingerprint: ev.ImageFingerprint}
+	if img := ev.Image; img != nil {
+		v.Selection, v.State = "base", "reused"
+		if img.Selection == string(runtimedriver.SelectionDevShell) {
+			v.Selection = "devShells." + v.System + ".default"
 		}
+		if img.Built {
+			v.State = "built"
+		}
+	}
+	if b := ev.EnvironmentBuilder; b != nil && b.State == "attempted" {
+		v.State = "building"
 	}
 	return v
 }
@@ -81,7 +82,7 @@ func boundedPage[T, R any](values []T, next string, cursor func(T) string, page 
 // SummarizeOperation is o without its request and evidence, for
 // operation.list; its diagnostic is the same as operation.inspect's.
 func SummarizeOperation(o api.Operation) api.OperationSummary {
-	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Intent: o.Intent, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Reason: o.Reason, Diagnostic: o.Diagnostic, Environment: CreationEnvironmentView(o)}
+	return api.OperationSummary{ID: o.ID, Key: o.Key, Kind: o.Kind, Project: o.Project, SessionUUID: o.SessionUUID, Intent: o.Intent, Status: o.Status, Phase: o.Phase, Committed: o.Committed, Reason: o.Reason, Diagnostic: o.Diagnostic, Image: CreationImageView(o)}
 }
 
 type LifecycleAPI interface {

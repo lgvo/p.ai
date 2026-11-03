@@ -339,8 +339,8 @@ func (m Model) inspectionContent() (string, []string, string) {
 		return "Agent reports", lines, "q/Esc back"
 	case "policy":
 		lines := []string{"Session: " + m.contextSession.Project + " / " + m.contextSession.Branch, "Captured policy digest: " + m.contextSession.PolicySHA256, "Policy condition: " + m.contextSession.PolicyCondition, "", "Host configuration owns grants; this page does not edit them.", "Outdated sessions retain captured policy. Invalid policy can block Start."}
-		if e := m.contextSession.Environment; e != nil {
-			lines = append(lines, "", "Environment: "+e.Selection, "Source commit: "+e.CommitOID, "Cache: "+e.Cache, "System: "+e.System, "Environment key: "+e.Key, "Base image: "+e.BaseImageFingerprint, "Image: "+e.ImageFingerprint)
+		if i := m.contextSession.Image; i != nil {
+			lines = append(append(lines, ""), imageFacts(*i)...)
 		}
 		return "Session policy and environment", lines, "q/Esc back"
 	case "progress":
@@ -614,13 +614,19 @@ func (m Model) fullSessionDetails(s api.SessionView) []string {
 		lines = append(lines, u.Name+" · "+u.Detail, u.Description)
 	}
 	lines = append(lines, "", "Policy digest: "+s.PolicySHA256)
-	if e := s.Environment; e != nil {
-		lines = append(lines, "Environment: "+e.Selection, "Source commit: "+e.CommitOID, "Cache: "+e.Cache, "System: "+e.System, "Environment key: "+e.Key, "Base image: "+e.BaseImageFingerprint, "Image: "+e.ImageFingerprint)
+	if i := s.Image; i != nil {
+		lines = append(lines, imageFacts(*i)...)
 	}
 	if s.Diagnostic != "" {
 		lines = append(lines, "Diagnostic: "+s.Diagnostic)
 	}
 	return lines
+}
+
+// A session's environment is the image of its source commit, so the image's
+// devShell selection keeps the Environment label.
+func imageFacts(i api.ImageView) []string {
+	return []string{"Environment: " + i.Selection, "Source commit: " + i.CommitOID, "Image: " + i.State, "System: " + i.System, "Base image: " + i.BaseImageFingerprint, "Image fingerprint: " + i.ImageFingerprint}
 }
 
 // Styling happens after sanitizing and clipping daemon-owned text. Recognize

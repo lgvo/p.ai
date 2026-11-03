@@ -8,24 +8,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
-	"github.com/lgvo/p.ai/internal/gitservice"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // Builder is a core-selected disposable build request, never a Session. Its
 // identity is fixed before any Incus mutation and is not selected by source.
 type Builder struct {
-	RequestUUID          string
+	RequestUUID          string // the build reference
 	ProjectPath          string
 	CommitOID            string
-	TreeOID              string
 	BaseImageFingerprint string
 	ContractVersion      string
 	PublicIPv4           string // its session's SQLite-reserved static address; empty means no NIC
@@ -47,7 +49,14 @@ const (
 	builderMemory    = "4GiB"
 	builderProcesses = "512"
 	builderRootSize  = "8GiB"
-	builderSource    = "/opt/p/build/source"
+	// The build's one input is a Git bundle of the commit, root-owned and
+	// read-only in the guest. The builder user clones it into the workspace.
+	builderBuildDir  = "/opt/p/build"
+	builderBundle    = builderBuildDir + "/source.bundle"
+	builderWorkspace = "/workspace"
+	// The clone fetches the bundle's one ref here and deletes it again, so
+	// the workspace ends with no ref at all.
+	builderBundleRef = "refs/p/bundle"
 	// The image links its runtime kit here at boot.
 	builderRuntimeKit = "/usr/libexec/p/runtime-kit"
 )
@@ -62,7 +71,7 @@ func BuilderPolicyDigest(publicEgressSHA256 string) string {
 	if publicEgressSHA256 != "" {
 		network, nix = "public-egress="+publicEgressSHA256, publicBuilderNix
 	}
-	sum := sha256.Sum256([]byte("p.builder/v1;cpu=" + builderCPU + ";memory=" + builderMemory + ";processes=" + builderProcesses + ";root=" + builderRootSize + ";pool=btrfs;" + network + ";no-nesting;no-privilege;source-readonly;" + nix.policy))
+	sum := sha256.Sum256([]byte("p.builder/v1;cpu=" + builderCPU + ";memory=" + builderMemory + ";processes=" + builderProcesses + ";root=" + builderRootSize + ";pool=btrfs;" + network + ";no-nesting;no-privilege;source-bundle;" + nix.policy))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -114,7 +123,7 @@ func (b *Backend) checkBuilderPool(ctx context.Context) error {
 }
 
 func validateBuilder(r Builder) error {
-	if !uuidPattern.MatchString(r.RequestUUID) || !validBuilderProject(r.ProjectPath) || !validBuilderOID(r.CommitOID) || !validBuilderOID(r.TreeOID) || !fingerprintPattern.MatchString(r.BaseImageFingerprint) || len(r.ContractVersion) == 0 || len(r.ContractVersion) > 32 || strings.ContainsAny(r.ContractVersion, "\x00\r\n") {
+	if !uuidPattern.MatchString(r.RequestUUID) || !validBuilderProject(r.ProjectPath) || !validBuilderOID(r.CommitOID) || !fingerprintPattern.MatchString(r.BaseImageFingerprint) || len(r.ContractVersion) == 0 || len(r.ContractVersion) > 32 || strings.ContainsAny(r.ContractVersion, "\x00\r\n") {
 		return errors.New("invalid builder request identity")
 	}
 	return nil
@@ -153,10 +162,12 @@ func validBuilderOID(oid string) bool {
 	return true
 }
 
-func builderName(r Builder) string { return "p-builder-" + r.RequestUUID }
+func builderName(r Builder) string { return builderNameFor(r.RequestUUID) }
 
-func builderIdentity(c map[string]string, r Builder) bool {
-	return c != nil && c["user.p.builder_request_uuid"] == r.RequestUUID && c["user.p.builder_project_path"] == r.ProjectPath && c["user.p.builder_commit_oid"] == r.CommitOID && c["user.p.builder_tree_oid"] == r.TreeOID && c["user.p.builder_contract_version"] == r.ContractVersion && c["user.p.builder_base_image"] == r.BaseImageFingerprint && c["volatile.base_image"] == r.BaseImageFingerprint
+func builderNameFor(request string) string { return "p-builder-" + request }
+
+func builderIdentity(c map[string]string, r Builder, instance string) bool {
+	return c != nil && c["user.p.instance"] == instance && c["user.p.builder_request_uuid"] == r.RequestUUID && c["user.p.builder_project_path"] == r.ProjectPath && c["user.p.builder_commit_oid"] == r.CommitOID && c["user.p.builder_contract_version"] == r.ContractVersion && c["user.p.builder_base_image"] == r.BaseImageFingerprint && c["volatile.base_image"] == r.BaseImageFingerprint
 }
 
 // InspectBuilder verifies identity, isolation, effective devices, and resource
@@ -172,6 +183,9 @@ func (b *Backend) inspectBuilder(ctx context.Context, r Builder, allowPendingDev
 	if err := validateBuilder(r); err != nil {
 		return out, installed, err
 	}
+	if !uuidPattern.MatchString(b.config.PInstanceID) {
+		return out, installed, errors.New("trusted P instance identity required for builders")
+	}
 	var nic map[string]string
 	if r.PublicIPv4 != "" {
 		if b.config.PublicEgress == nil {
@@ -185,22 +199,15 @@ func (b *Backend) inspectBuilder(ctx context.Context, r Builder, allowPendingDev
 	if err := b.checkBuilderPool(ctx); err != nil {
 		return out, installed, err
 	}
-	raw, err := b.command(ctx, "list", "^"+builderName(r)+"$", "--format", "json")
+	instances, err := b.listBuilder(ctx, r.RequestUUID)
 	if err != nil {
-		return out, installed, err
-	}
-	var instances []instanceJSON
-	if err := decode(raw, &instances); err != nil {
 		return out, installed, err
 	}
 	if len(instances) == 0 {
 		return out, installed, nil
 	}
-	if len(instances) != 1 || instances[0].Name != builderName(r) {
-		return out, installed, errors.New("ambiguous builder observation")
-	}
 	in := instances[0]
-	if in.Type != "container" || len(in.Profiles) != 1 || in.Profiles[0] != "default" || !builderIdentity(in.Config, r) || !builderIdentity(in.ExpandedConfig, r) || !safeSecurity(in.Config) || !safeSecurity(in.ExpandedConfig) || in.ExpandedConfig["security.idmap.isolated"] != "true" {
+	if in.Type != "container" || len(in.Profiles) != 1 || in.Profiles[0] != "default" || !builderIdentity(in.Config, r, b.config.PInstanceID) || !builderIdentity(in.ExpandedConfig, r, b.config.PInstanceID) || !safeSecurity(in.Config) || !safeSecurity(in.ExpandedConfig) || in.ExpandedConfig["security.idmap.isolated"] != "true" {
 		return out, installed, errors.New("builder identity or security changed")
 	}
 	for _, c := range []map[string]string{in.Config, in.ExpandedConfig} {
@@ -259,6 +266,24 @@ func (b *Backend) inspectBuilder(ctx context.Context, r Builder, allowPendingDev
 	return BuilderObservation{Exists: true, Name: in.Name, Status: in.Status, Ready: ready}, installed, nil
 }
 
+// listBuilder reads whatever instance holds a build reference's builder name,
+// P's or not.
+func (b *Backend) listBuilder(ctx context.Context, request string) ([]instanceJSON, error) {
+	name := builderNameFor(request)
+	raw, err := b.command(ctx, "list", "^"+name+"$", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var instances []instanceJSON
+	if err := decode(raw, &instances); err != nil {
+		return nil, err
+	}
+	if len(instances) > 1 || len(instances) == 1 && instances[0].Name != name {
+		return nil, errors.New("ambiguous builder observation")
+	}
+	return instances, nil
+}
+
 func btoi(b bool) int {
 	if b {
 		return 1
@@ -273,15 +298,9 @@ func (b *Backend) CreateBuilder(ctx context.Context, r Builder) (BuilderObservat
 	return b.createBuilder(ctx, r, nil)
 }
 
-// CreateBuilderWithGate records trusted dispatch intent after read-only
-// confinement, pool, ownership and pinned-image preflight, before native init.
-// Existing owned builders are observed without issuing another init or gate.
-func (b *Backend) CreateBuilderWithGate(ctx context.Context, r Builder, beforeInit func() error) (BuilderObservation, error) {
-	if beforeInit == nil {
-		return BuilderObservation{}, errors.New("builder init gate unavailable")
-	}
-	return b.createBuilder(ctx, r, beforeInit)
-}
+// createBuilder with a gate requires the builder to be absent: it runs the
+// read-only confinement, pool, identity and pinned-image checks, calls the
+// gate, and only then initializes the builder.
 func (b *Backend) createBuilder(ctx context.Context, r Builder, beforeInit func() error) (BuilderObservation, error) {
 	if err := validateBuilder(r); err != nil {
 		return BuilderObservation{}, err
@@ -295,6 +314,9 @@ func (b *Backend) createBuilder(ctx context.Context, r Builder, beforeInit func(
 	before, installed, err := b.inspectBuilder(ctx, r, true)
 	if err != nil {
 		return before, err
+	}
+	if before.Exists && beforeInit != nil {
+		return before, fmt.Errorf("%w: a builder already holds the build's name", runtimedriver.ErrMismatch)
 	}
 	if before.Exists && before.Ready {
 		return before, nil
@@ -323,7 +345,7 @@ func (b *Backend) createBuilder(ctx context.Context, r Builder, beforeInit func(
 				return BuilderObservation{}, err
 			}
 		}
-		_, createErr := b.command(ctx, "init", r.BaseImageFingerprint, builderName(r), "--profile", "default", "--storage", b.config.BuilderStoragePool, "--device", "root,size="+builderRootSize, "--config", "security.idmap.isolated=true", "--config", "security.privileged=false", "--config", "security.nesting=false", "--config", "limits.cpu="+builderCPU, "--config", "limits.memory="+builderMemory, "--config", "limits.processes="+builderProcesses, "--config", "user.p.builder_request_uuid="+r.RequestUUID, "--config", "user.p.builder_project_path="+r.ProjectPath, "--config", "user.p.builder_commit_oid="+r.CommitOID, "--config", "user.p.builder_tree_oid="+r.TreeOID, "--config", "user.p.builder_contract_version="+r.ContractVersion, "--config", "user.p.builder_base_image="+r.BaseImageFingerprint)
+		_, createErr := b.command(ctx, "init", r.BaseImageFingerprint, builderName(r), "--profile", "default", "--storage", b.config.BuilderStoragePool, "--device", "root,size="+builderRootSize, "--config", "security.idmap.isolated=true", "--config", "security.privileged=false", "--config", "security.nesting=false", "--config", "limits.cpu="+builderCPU, "--config", "limits.memory="+builderMemory, "--config", "limits.processes="+builderProcesses, "--config", "user.p.instance="+b.config.PInstanceID, "--config", "user.p.builder_request_uuid="+r.RequestUUID, "--config", "user.p.builder_project_path="+r.ProjectPath, "--config", "user.p.builder_commit_oid="+r.CommitOID, "--config", "user.p.builder_contract_version="+r.ContractVersion, "--config", "user.p.builder_base_image="+r.BaseImageFingerprint)
 		before, installed, err = b.inspectBuilder(ctx, r, true)
 		if err != nil || !before.Exists {
 			return before, errors.Join(createErr, err, errors.New("builder creation postcondition failed"))
@@ -365,10 +387,8 @@ func (b *Backend) StartBuilder(ctx context.Context, r Builder) (BuilderObservati
 	if err != nil || !before.Exists || !before.Ready {
 		return before, errors.Join(err, errors.New("builder not ready to start"))
 	}
-	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: builderName(r)}
-	source, exists, err := api.get(ctx, builderSource)
-	if err != nil || !exists || source.typ != "directory" || source.uid != 0 || source.gid != 0 || source.mode != 0555 {
-		return before, errors.Join(err, errors.New("builder source is not sealed"))
+	if err := b.checkBuilderBundle(ctx, r); err != nil {
+		return before, err
 	}
 	if err := b.checkPublicAddressCollision(ctx, builderName(r), r.PublicIPv4); err != nil {
 		return before, err
@@ -378,6 +398,21 @@ func (b *Backend) StartBuilder(ctx context.Context, r Builder) (BuilderObservati
 		return after, err
 	}
 	return after, b.prepareBuilderNetwork(ctx, r)
+}
+
+// checkBuilderBundle proves the transferred bundle is still the root-owned,
+// read-only input it was transferred as. Its size has no bound.
+func (b *Backend) checkBuilderBundle(ctx context.Context, r Builder) error {
+	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: builderName(r)}
+	dir, exists, err := api.head(ctx, builderBuildDir, 0)
+	if err != nil || !exists || dir.typ != "directory" || dir.uid != 0 || dir.gid != 0 || dir.mode != 0755 {
+		return errors.Join(err, errors.New("builder source bundle directory changed"))
+	}
+	bundle, exists, err := api.head(ctx, builderBundle, math.MaxInt64)
+	if err != nil || !exists || bundle.typ != "file" || bundle.uid != 0 || bundle.gid != 0 || bundle.mode != 0444 {
+		return errors.Join(err, errors.New("builder source bundle is not sealed"))
+	}
+	return nil
 }
 
 // prepareBuilderNetwork gives a started public builder the network of a
@@ -400,16 +435,19 @@ func (b *Backend) prepareBuilderNetwork(ctx context.Context, r Builder) error {
 	return nil
 }
 
-// waitBuilderBoot waits until early boot has created the image's fixed
-// runtime paths. The Nix daemon socket listens only after sysinit.target,
-// which follows systemd-tmpfiles setup.
+// waitBuilderBoot waits until this boot's systemd manager is up and early
+// boot has created the image's fixed runtime paths. The manager's private
+// socket lives on the /run tmpfs, so it proves the current boot: the Nix
+// daemon socket file and the runtime kit link persist on the builder's disk
+// from an earlier boot. The Nix daemon socket listens only after
+// sysinit.target, which follows systemd-tmpfiles setup.
 func (b *Backend) waitBuilderBoot(ctx context.Context, r Builder) error {
 	ready, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if _, err := b.builderGuestExec(ready, r, "/bin/sh", "-c", "test -S "+builderNixSocket+" && test -x "+builderRuntimeKit); err == nil {
+		if _, err := b.builderGuestExec(ready, r, "/bin/sh", "-c", "test -S /run/systemd/private && test -S "+builderNixSocket+" && test -x "+builderRuntimeKit); err == nil {
 			return nil
 		}
 		select {
@@ -482,14 +520,64 @@ func (b *Backend) builderTransition(ctx context.Context, r Builder, action strin
 	return after, nil
 }
 
-// TransferBuilderSource copies a sealed committed snapshot via the confined
-// Incus file API. The source path is never mounted or supplied to a plugin.
-// A transfer may be retried by cleaning the verified builder and creating it
-// again; existing source entries are never overwritten or adopted.
-func (b *Backend) TransferBuilderSource(ctx context.Context, r Builder, s *gitservice.SourceSnapshot) error {
-	if s == nil || s.Project() != r.ProjectPath || s.CommitOID() != r.CommitOID || s.TreeOID() != r.TreeOID || s.Entries() > gitservice.SnapshotMaxEntries || s.Bytes() > gitservice.SnapshotMaxSourceBytes {
-		return errors.New("source snapshot differs from builder request")
+// validBundleRef accepts the one ref a source export names: a plain ref
+// below refs/ that a fixed Git argv can carry.
+func validBundleRef(ref string) bool {
+	name, ok := strings.CutPrefix(ref, "refs/")
+	if !ok || !safeGitToken.MatchString(name) || strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".lock") || strings.Contains(name, "//") {
+		return false
 	}
+	for _, part := range strings.Split(name, "/") {
+		if part == "" || strings.HasPrefix(part, ".") {
+			return false
+		}
+	}
+	return true
+}
+
+func checkSourceExport(src runtimedriver.SourceExport, r Builder) error {
+	if src.Commit != r.CommitOID || !validBundleRef(src.Ref) {
+		return errors.New("source export differs from builder request")
+	}
+	return nil
+}
+
+// openBundle opens the host bundle core staged: a non-empty regular file the
+// daemon owns, never through a symlink.
+func openBundle(path string) (*os.File, int64, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, 0, errors.New("source bundle path must be absolute and clean")
+	}
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, 0, fmt.Errorf("open source bundle: %w", err)
+	}
+	f := os.NewFile(uintptr(fd), path)
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || !ownedByCurrentUser(info) || info.Size() <= 0 {
+		f.Close()
+		return nil, 0, errors.Join(err, errors.New("source bundle is not a non-empty regular file the daemon owns"))
+	}
+	return f, info.Size(), nil
+}
+
+// TransferBuilderSource puts the source export's bundle at
+// /opt/p/build/source.bundle in the stopped builder, root-owned and
+// read-only, through the confined Incus file API. The bytes stream from the
+// host file and are never held in memory; the guest file's size is checked
+// afterwards. Existing entries are never overwritten or adopted.
+func (b *Backend) TransferBuilderSource(ctx context.Context, r Builder, src runtimedriver.SourceExport) error {
+	if err := validateBuilder(r); err != nil {
+		return err
+	}
+	if err := checkSourceExport(src, r); err != nil {
+		return err
+	}
+	bundle, size, err := openBundle(src.Bundle)
+	if err != nil {
+		return err
+	}
+	defer bundle.Close()
 	if err := b.CheckConfinement(ctx); err != nil {
 		return err
 	}
@@ -497,8 +585,123 @@ func (b *Backend) TransferBuilderSource(ctx context.Context, r Builder, s *gitse
 	if err != nil || !o.Exists || o.Status != "Stopped" || !o.Ready {
 		return errors.Join(err, errors.New("source transfer requires owned stopped builder"))
 	}
-	api := &builderCheckedFileAPI{backend: b, request: r, inner: &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: builderName(r)}}
-	return transferBuilderSource(ctx, api, s)
+	if err := transferBuilderBundle(ctx, b.checkedBuilderFiles(r), bundle, size); err != nil {
+		return err
+	}
+	// The file is core's; a change while it streamed is a different input.
+	if info, err := bundle.Stat(); err != nil || info.Size() != size {
+		return errors.Join(err, errors.New("source bundle changed during transfer"))
+	}
+	return nil
+}
+
+type builderBundleFiles interface {
+	fileAPI
+	putStream(ctx context.Context, path string, f guestFile, body io.Reader, size int64) error
+	headSize(ctx context.Context, path string) (guestFile, int64, bool, error)
+}
+
+func transferBuilderBundle(ctx context.Context, api builderBundleFiles, bundle io.Reader, size int64) error {
+	// The fixed image may already have /opt and /opt/p. Create absent ancestors
+	// through Incus, but never follow or replace an existing entry.
+	for _, p := range []string{"/", "/opt", "/opt/p"} {
+		f, exists, err := api.get(ctx, p)
+		if err == nil && !exists && p != "/" {
+			if err = createGuestAbsent(ctx, api, p, guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}); err != nil {
+				return err
+			}
+			f, exists, err = api.get(ctx, p)
+		}
+		if err != nil || !exists || f.typ != "directory" || f.uid != 0 || f.gid != 0 || f.mode&022 != 0 || f.mode&0005 != 0005 {
+			return errors.Join(err, fmt.Errorf("unsafe builder source ancestor %s", p))
+		}
+	}
+	// The bundle's directory is new, so nothing in it is overwritten.
+	if err := createGuestAbsent(ctx, api, builderBuildDir, guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}); err != nil {
+		return err
+	}
+	want := guestFile{typ: "file", uid: 0, gid: 0, mode: 0444}
+	if err := api.putStream(ctx, builderBundle, want, io.LimitReader(bundle, size), size); err != nil {
+		return fmt.Errorf("stream builder source bundle: %w", err)
+	}
+	got, written, exists, err := api.headSize(ctx, builderBundle)
+	if err != nil || !exists || got.typ != want.typ || got.uid != want.uid || got.gid != want.gid || got.mode != want.mode || written != size {
+		return errors.Join(err, fmt.Errorf("builder source bundle postcondition failed: %d of %d bytes", written, size))
+	}
+	return nil
+}
+
+// filesURL addresses one guest path through the fixed instance file endpoint.
+func (a *unixFileAPI) filesURL(path string) string {
+	u := url.URL{Scheme: "http", Host: "incus", Path: "/1.0/instances/" + url.PathEscape(a.instance) + "/files"}
+	q := u.Query()
+	q.Set("project", a.project)
+	q.Set("path", path)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// putStream creates a guest file from exactly size bytes of body. Unlike
+// put, it holds no copy of the bytes and has no request time limit of its
+// own: ctx bounds it.
+func (a *unixFileAPI) putStream(ctx context.Context, path string, f guestFile, body io.Reader, size int64) error {
+	if f.typ != "file" || size < 0 {
+		return errors.New("streamed upload is for regular files only")
+	}
+	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "unix", a.socket)
+	}}
+	defer transport.CloseIdleConnections()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.filesURL(path), io.NopCloser(body))
+	if err != nil {
+		return err
+	}
+	req.ContentLength = size
+	req.Header.Set("X-Incus-type", f.typ)
+	req.Header.Set("X-Incus-uid", strconv.Itoa(f.uid))
+	req.Header.Set("X-Incus-gid", strconv.Itoa(f.gid))
+	req.Header.Set("X-Incus-mode", fmt.Sprintf("%04o", f.mode))
+	resp, err := (&http.Client{Transport: transport}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("Incus file POST status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// headSize reads a guest path's metadata and, for a regular file, its size,
+// with no bound on the size. HTTP HEAD follows symlinks.
+func (a *unixFileAPI) headSize(ctx context.Context, path string) (guestFile, int64, bool, error) {
+	resp, err := a.request(ctx, http.MethodHead, path, guestFile{})
+	if err != nil {
+		return guestFile{}, 0, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return guestFile{}, 0, false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return guestFile{}, 0, false, fmt.Errorf("Incus file HEAD status %d", resp.StatusCode)
+	}
+	meta, err := guestMetadata(resp.Header)
+	if err != nil {
+		return guestFile{}, 0, false, err
+	}
+	var size int64 = -1
+	if meta.typ == "file" {
+		size, err = strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
+		if err != nil || size < 0 {
+			return guestFile{}, 0, false, errors.New("Incus file size unavailable")
+		}
+	}
+	return meta, size, true, nil
+}
+
+func (b *Backend) checkedBuilderFiles(r Builder) *builderCheckedFileAPI {
+	return &builderCheckedFileAPI{backend: b, request: r, inner: &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: builderName(r)}}
 }
 
 // Recheck the Incus authority and exact stopped builder before every file API
@@ -518,7 +721,7 @@ func (a *builderCheckedFileAPI) check(ctx context.Context) error {
 		return err
 	}
 	if !o.Exists || !o.Ready || o.Status != "Stopped" {
-		return errors.New("builder changed during source transfer")
+		return errors.New("builder changed while stopped for a file operation")
 	}
 	return nil
 }
@@ -540,11 +743,29 @@ func (a *builderCheckedFileAPI) getSymlinkBounded(ctx context.Context, path stri
 	}
 	return a.inner.getSymlinkBounded(ctx, path, maxBytes)
 }
+func (a *builderCheckedFileAPI) headSize(ctx context.Context, path string) (guestFile, int64, bool, error) {
+	if err := a.check(ctx); err != nil {
+		return guestFile{}, 0, false, err
+	}
+	return a.inner.headSize(ctx, path)
+}
+func (a *builderCheckedFileAPI) lstat(ctx context.Context, path string) (guestFile, error) {
+	if err := a.check(ctx); err != nil {
+		return guestFile{}, err
+	}
+	return a.inner.lstat(ctx, path)
+}
 func (a *builderCheckedFileAPI) put(ctx context.Context, path string, f guestFile) error {
 	if err := a.check(ctx); err != nil {
 		return err
 	}
 	return a.inner.put(ctx, path, f)
+}
+func (a *builderCheckedFileAPI) putStream(ctx context.Context, path string, f guestFile, body io.Reader, size int64) error {
+	if err := a.check(ctx); err != nil {
+		return err
+	}
+	return a.inner.putStream(ctx, path, f, body, size)
 }
 func (a *builderCheckedFileAPI) chmodDirectory(ctx context.Context, path string, mode int) error {
 	if err := a.check(ctx); err != nil {
@@ -565,118 +786,68 @@ func (a *builderCheckedFileAPI) deleteTree(ctx context.Context, path string) err
 	return a.inner.deleteTree(ctx, path)
 }
 
-type builderSourceSnapshot interface {
-	Path() string
-	Entries() int
-	Bytes() int64
+// CloneBuilderSource clones the transferred bundle into the running
+// builder's empty workspace as the builder user, with fixed Git arguments
+// and no hooks, filters or configuration beyond the repository's own. It
+// then proves the result: a clone at the commit with a detached HEAD, no
+// branch, no remote, no other ref and a clean tree.
+func (b *Backend) CloneBuilderSource(ctx context.Context, r Builder, src runtimedriver.SourceExport) error {
+	if err := checkSourceExport(src, r); err != nil {
+		return err
+	}
+	// The clone's tools and the workspace come from this boot's activation,
+	// so the clone waits for the boot, whoever started the builder.
+	if err := b.waitBuilderBoot(ctx, r); err != nil {
+		return err
+	}
+	contents, err := b.builderGuestExec(ctx, r, "/run/current-system/sw/bin/ls", "-A", builderWorkspace)
+	if err != nil || len(contents) != 0 {
+		return errors.Join(err, errors.New("builder workspace is not empty"))
+	}
+	// The files ref backend keeps HEAD in .git/HEAD, where the stopped image
+	// is checked through the file API.
+	init := []string{"init", "-q", "--ref-format=files"}
+	if len(r.CommitOID) == 64 {
+		init = append(init, "--object-format=sha256")
+	}
+	if _, err := b.builderGit(ctx, r, init...); err != nil {
+		return fmt.Errorf("initialize builder workspace: %w", err)
+	}
+	if _, err := b.builderGit(ctx, r, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", builderBundle, "+"+src.Ref+":"+builderBundleRef); err != nil {
+		return fmt.Errorf("fetch builder source bundle: %w", err)
+	}
+	fetched, err := b.builderGit(ctx, r, "rev-parse", "--verify", "--quiet", builderBundleRef+"^{commit}")
+	if err != nil || strings.TrimSpace(string(fetched)) != r.CommitOID {
+		return errors.Join(err, errors.New("the bundle's ref does not name the build's commit"))
+	}
+	if _, err := b.builderGit(ctx, r, "checkout", "-q", "--detach", r.CommitOID); err != nil {
+		return fmt.Errorf("check out the build's commit: %w", err)
+	}
+	if _, err := b.builderGit(ctx, r, "update-ref", "-d", builderBundleRef); err != nil {
+		return fmt.Errorf("remove the fetched bundle ref: %w", err)
+	}
+	return b.verifyBuilderClone(ctx, r)
 }
 
-func transferBuilderSource(ctx context.Context, api fileAPI, s builderSourceSnapshot) error {
-	root := s.Path()
-	info, err := os.Lstat(root)
-	if err != nil || !info.IsDir() || info.Mode().Perm() != 0500 || !ownedByCurrentUser(info) {
-		return errors.New("snapshot root is not sealed and daemon-owned")
-	}
-	// The fixed image may already have /opt and /opt/p. Create absent ancestors
-	// through Incus, but never follow or replace an existing entry.
-	for _, p := range []string{"/", "/opt", "/opt/p"} {
-		f, exists, err := api.get(ctx, p)
-		if err == nil && !exists && p != "/" {
-			if err = createGuestAbsent(ctx, api, p, guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}); err != nil {
-				return err
-			}
-			f, exists, err = api.get(ctx, p)
-		}
-		if err != nil || !exists || f.typ != "directory" || f.uid != 0 || f.gid != 0 || f.mode&022 != 0 || f.mode&0005 != 0005 {
-			return errors.Join(err, fmt.Errorf("unsafe builder source ancestor %s", p))
+// verifyBuilderClone proves the workspace is a clean clone at the build's
+// commit, detached, with no ref and no remote.
+func (b *Backend) verifyBuilderClone(ctx context.Context, r Builder) error {
+	for _, check := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"rev-parse", "--verify", "HEAD"}, r.CommitOID},
+		{[]string{"rev-parse", "--symbolic-full-name", "HEAD"}, "HEAD"},
+		{[]string{"for-each-ref"}, ""},
+		{[]string{"remote"}, ""},
+		{[]string{"status", "--porcelain=v1", "--untracked-files=all"}, ""},
+	} {
+		out, err := b.builderGit(ctx, r, check.args...)
+		if err != nil || strings.TrimSpace(string(out)) != check.want {
+			return errors.Join(err, fmt.Errorf("builder workspace clone differs from the commit (git %s)", strings.Join(check.args, " ")))
 		}
 	}
-	if err := createGuestAbsent(ctx, api, "/opt/p/build", guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}); err != nil {
-		return err
-	}
-	if err := createGuestAbsent(ctx, api, builderSource, guestFile{typ: "directory", uid: 0, gid: 0, mode: 0700}); err != nil {
-		return err
-	}
-	var dirs []string
-	links := map[string]string{}
-	var entries int
-	var total int64
-	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if path == root {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil || !safeBuilderRelative(rel) {
-			return errors.New("unsafe snapshot path")
-		}
-		entries++
-		if entries > gitservice.SnapshotMaxEntries {
-			return errors.New("snapshot entry limit exceeded")
-		}
-		info, err := os.Lstat(path)
-		if err != nil || !ownedByCurrentUser(info) {
-			return errors.New("snapshot entry changed owner")
-		}
-		target := builderSource + "/" + filepath.ToSlash(rel)
-		var f guestFile
-		switch {
-		case info.IsDir() && info.Mode().Perm() == 0500:
-			f = guestFile{typ: "directory", uid: 0, gid: 0, mode: 0700}
-			dirs = append(dirs, target)
-		case info.Mode().IsRegular() && (info.Mode().Perm() == 0400 || info.Mode().Perm() == 0500):
-			if info.Size() < 0 || info.Size() > gitservice.SnapshotMaxSourceBytes-total {
-				return errors.New("snapshot bytes exceed limit")
-			}
-			if stat, ok := info.Sys().(*syscall.Stat_t); !ok || stat.Nlink != 1 {
-				return errors.New("snapshot file has unexpected links")
-			}
-			data, err := readSealedFile(path, info, info.Size())
-			if err != nil {
-				return err
-			}
-			total += int64(len(data))
-			mode := 0444
-			if info.Mode().Perm()&0100 != 0 {
-				mode = 0555
-			}
-			f = guestFile{typ: "file", uid: 0, gid: 0, mode: mode, data: data}
-		case info.Mode()&os.ModeSymlink != 0:
-			link, err := os.Readlink(path)
-			if err != nil || !safeBuilderLink(rel, link) || len(link) > int(gitservice.SnapshotMaxSymlinkBytes) {
-				return errors.New("unsafe snapshot symlink")
-			}
-			total += int64(len(link))
-			if total > gitservice.SnapshotMaxSourceBytes {
-				return errors.New("snapshot bytes exceed limit")
-			}
-			f = guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte(link)}
-			links[filepath.ToSlash(rel)] = link
-		default:
-			return errors.New("unsupported snapshot entry")
-		}
-		return createGuestAbsent(ctx, api, target, f)
-	})
-	if err != nil {
-		return err
-	}
-	if entries != s.Entries() || total != s.Bytes() {
-		return errors.New("snapshot metadata changed during transfer")
-	}
-	if err := validateBuilderLinks(ctx, links); err != nil {
-		return err
-	}
-	for i := len(dirs) - 1; i >= 0; i-- {
-		if err := sealGuestDirectory(ctx, api, dirs[i]); err != nil {
-			return err
-		}
-	}
-	return sealGuestDirectory(ctx, api, builderSource)
+	return nil
 }
 
 func createGuestAbsent(ctx context.Context, api fileAPI, path string, f guestFile) error {
@@ -685,14 +856,14 @@ func createGuestAbsent(ctx context.Context, api fileAPI, path string, f guestFil
 		return err
 	}
 	if exists {
-		return fmt.Errorf("builder source target %s already exists", path)
+		return fmt.Errorf("builder target %s already exists", path)
 	}
 	if err := api.put(ctx, path, f); err != nil {
 		return err
 	}
 	got, exists, err := getBuilderFile(ctx, api, path, f.typ, int64(len(f.data)))
 	if err != nil || !exists || got.typ != f.typ || got.uid != f.uid || got.gid != f.gid || got.mode != f.mode || (f.typ == "file" || f.typ == "symlink") && !bytes.Equal(got.data, f.data) {
-		return errors.Join(err, fmt.Errorf("builder source target %s postcondition failed", path))
+		return errors.Join(err, fmt.Errorf("builder target %s postcondition failed", path))
 	}
 	return nil
 }
@@ -730,114 +901,4 @@ func (a *unixFileAPI) getSymlinkBounded(ctx context.Context, path string, maxByt
 	}
 	meta.data = data
 	return meta, true, nil
-}
-
-func validateBuilderLinks(ctx context.Context, links map[string]string) error {
-	steps := 0
-	for path, target := range links {
-		current := make([]string, 0, 8)
-		queue := append(strings.Split(filepath.Dir(path), "/"), strings.Split(target, "/")...)
-		expansions := 0
-		for len(queue) > 0 {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			part := queue[0]
-			queue = queue[1:]
-			steps++
-			if steps > 1<<20 {
-				return errors.New("snapshot symlink resolution exceeds limit")
-			}
-			switch part {
-			case "", ".":
-				continue
-			case "..":
-				if len(current) == 0 {
-					return fmt.Errorf("snapshot symlink %q escapes source", path)
-				}
-				current = current[:len(current)-1]
-			default:
-				candidate := strings.Join(append(current, part), "/")
-				if next, ok := links[candidate]; ok {
-					expansions++
-					if expansions > 40 {
-						return fmt.Errorf("snapshot symlink %q has cycle", path)
-					}
-					queue = append(strings.Split(next, "/"), queue...)
-				} else {
-					current = append(current, part)
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func sealGuestDirectory(ctx context.Context, api fileAPI, path string) error {
-	f, exists, err := api.get(ctx, path)
-	if err != nil || !exists || f.typ != "directory" || f.uid != 0 || f.gid != 0 || f.mode != 0700 {
-		return errors.Join(err, errors.New("builder source directory changed before sealing"))
-	}
-	sealer, ok := api.(interface {
-		chmodDirectory(context.Context, string, int) error
-	})
-	if !ok {
-		return errors.New("builder file API cannot seal directories")
-	}
-	if err := sealer.chmodDirectory(ctx, path, 0555); err != nil {
-		return err
-	}
-	f, exists, err = api.get(ctx, path)
-	if err != nil || !exists || f.typ != "directory" || f.uid != 0 || f.gid != 0 || f.mode != 0555 {
-		return errors.Join(err, errors.New("builder source directory seal failed"))
-	}
-	return nil
-}
-
-func safeBuilderRelative(path string) bool {
-	if path == "" || path == "." || filepath.IsAbs(path) || len(path) > gitservice.SnapshotMaxPathBytes || !utf8.ValidString(path) {
-		return false
-	}
-	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
-		if part == "" || part == "." || part == ".." || strings.EqualFold(part, ".git") {
-			return false
-		}
-		for _, c := range part {
-			if unicode.IsControl(c) || c == '\\' {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func safeBuilderLink(path, target string) bool {
-	if target == "" || filepath.IsAbs(target) || !utf8.ValidString(target) || strings.ContainsRune(target, '\\') {
-		return false
-	}
-	for _, c := range target {
-		if unicode.IsControl(c) {
-			return false
-		}
-	}
-	clean := filepath.Clean(filepath.Join(filepath.Dir(path), target))
-	return clean != ".." && !strings.HasPrefix(clean, "../") && !filepath.IsAbs(clean)
-}
-
-func readSealedFile(path string, before os.FileInfo, size int64) ([]byte, error) {
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, err
-	}
-	f := os.NewFile(uintptr(fd), path)
-	defer f.Close()
-	after, err := f.Stat()
-	if err != nil || !os.SameFile(before, after) || after.Size() != size {
-		return nil, errors.New("snapshot file changed during open")
-	}
-	data, err := io.ReadAll(io.LimitReader(f, size+1))
-	if err != nil || int64(len(data)) != size {
-		return nil, errors.New("snapshot file changed during read")
-	}
-	return data, nil
 }

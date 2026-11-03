@@ -160,6 +160,10 @@ func newFixture(dir, dataset string) *fixture {
 			if (name == "forge" || name == "orbit") && i == 0 {
 				s.LatestUnattendedCondition = &api.UnattendedCondition{Condition: "attention", Source: "Codex", Reason: "Waiting for review", ReceivedAt: "2026-10-01T12:00:00Z", Adapter: "fixture", AdapterVersion: "1", ReceiveSequence: 1}
 			}
+			if name == "forge" && i == 0 {
+				// One session shows its source commit's image; the others were created without image builders.
+				s.Image = &api.ImageView{CommitOID: tip, System: "x86_64-linux", Selection: "devShells.x86_64-linux.default", State: "reused", BaseImageFingerprint: strings.Repeat("d", 64), ImageFingerprint: strings.Repeat("b", 64)}
+			}
 			f.sessions[id] = s
 		}
 		count := 4

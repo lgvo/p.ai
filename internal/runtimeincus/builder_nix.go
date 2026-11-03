@@ -2,8 +2,6 @@ package runtimeincus
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,21 +12,30 @@ import (
 	"time"
 
 	"github.com/lgvo/p.ai/internal/nixenv"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 const (
-	builderNixBinary      = "/run/current-system/sw/bin/nix"
-	builderNixSocket      = "/nix/var/nix/daemon-socket/socket"
-	builderNixFlake       = "path:" + builderSource
+	builderNixBinary = "/run/current-system/sw/bin/nix"
+	builderGitBinary = "/run/current-system/sw/bin/git"
+	builderNixSocket = "/nix/var/nix/daemon-socket/socket"
+	// Nix exports the flake from the clone's Git objects at the commit, so the
+	// working tree cannot change what it evaluates.
+	builderNixFlake       = "git+file://" + builderWorkspace
 	builderCaptureProfile = "/home/p/.p-devshell-capture"
 	// The base image lists this cache as its one trusted substituter.
 	builderPublicCache = "https://cache.nixos.org"
+	// builderNixRules are the Nix rules every builder follows whatever its
+	// network: the flags builderNixExec passes and the sandbox setting
+	// builderNixReady checks. They are part of how an image is built, so a
+	// change to them must also change builderNixRulesVersion.
+	builderNixRules        = "pure-eval;accept-flake-config=false;flake-registry=empty;no-lock-update;no-lock-write;sandbox=false"
+	builderNixRulesVersion = "rules/1"
 )
 
-// builderNix is how a builder runs Nix. Its policy is keyed into the
-// environment. A builder without a NIC stays offline with no substituters; one
-// with public egress fetches flake inputs and substitutes from the public
-// cache.
+// builderNix is how a builder runs Nix. A builder without a NIC stays
+// offline with no substituters; one with public egress fetches flake inputs
+// and substitutes from the public cache.
 type builderNix struct {
 	policy       string
 	substituters string
@@ -36,8 +43,8 @@ type builderNix struct {
 }
 
 var (
-	offlineBuilderNix = builderNix{policy: "nix-2.34.8;offline;pure-eval;accept-flake-config=false;flake-registry=empty;substituters=empty;no-lock-update;no-lock-write;sandbox=false", offline: true}
-	publicBuilderNix  = builderNix{policy: "nix-2.34.8;public-egress;pure-eval;accept-flake-config=false;flake-registry=empty;substituters=" + builderPublicCache + ";no-lock-update;no-lock-write;sandbox=false", substituters: builderPublicCache}
+	offlineBuilderNix = builderNix{policy: "nix-" + nixenv.NixVersion + ";offline;" + builderNixRules + ";substituters=empty", offline: true}
+	publicBuilderNix  = builderNix{policy: "nix-" + nixenv.NixVersion + ";public-egress;" + builderNixRules + ";substituters=" + builderPublicCache, substituters: builderPublicCache}
 )
 
 func builderNixFor(r Builder) builderNix {
@@ -50,25 +57,24 @@ func builderNixFor(r Builder) builderNix {
 var builderDrvPattern = regexp.MustCompile(`^/nix/store/[0-9abcdfghijklmnpqrsvwxyz]{32}-[A-Za-z0-9+._?=-]+\.drv$`)
 var builderNarHashPattern = regexp.MustCompile(`^sha256-[A-Za-z0-9+/]{43}=$`)
 
-// The commit is flake self.rev provenance. The NAR hash, derivation and
-// committed-input digest remain the cache identity, so a source-only commit
-// can reuse an otherwise identical environment image.
+// builderFlakeAt names the commit in the workspace clone before its NAR
+// hash is known; builderLockedFlake pins both.
+func builderFlakeAt(commit string) string { return builderNixFlake + "?rev=" + commit }
+
 func builderLockedFlake(narHash, commit string) string {
 	return builderNixFlake + "?narHash=" + url.QueryEscape(narHash) + "&rev=" + commit
 }
 
-// BuilderNixSelection is a core-owned resolution of a committed source. A
-// base-only selection has no environment key or derivation to realize.
+// BuilderNixSelection is what a builder resolved at the commit: no flake, a
+// flake without a default devShell for the system, or that devShell's
+// derivation.
 type BuilderNixSelection struct {
-	Builder               Builder
-	System                string
-	BaseOnly              bool
-	DevShellAttr          string
-	DerivationPath        string
-	SourceNarHash         string
-	CommittedInputsDigest string
-	KeyInputs             nixenv.KeyInputs
-	KeyDigest             string
+	Builder        Builder
+	System         string
+	Selection      runtimedriver.Selection
+	DevShellAttr   string // devshell only
+	DerivationPath string // devshell only
+	SourceNarHash  string // empty for no-flake
 }
 
 type BuilderNixResult struct {
@@ -82,39 +88,55 @@ func validBuilderSystem(system string) bool {
 	return system == "x86_64-linux" || system == "aarch64-linux"
 }
 
-// ResolveBuilderNix distinguishes an absent conventional devShell from a
-// present invalid one using a boolean Nix expression, never error text.
+// ResolveBuilderNix reads the commit's flake from the workspace clone. It
+// distinguishes an absent conventional devShell from a present invalid one
+// using a boolean Nix expression, never error text.
 func (b *Backend) ResolveBuilderNix(ctx context.Context, r Builder, system string) (BuilderNixSelection, error) {
-	var out BuilderNixSelection
 	if !validBuilderSystem(system) {
-		return out, errors.New("unsupported builder Nix system")
+		return BuilderNixSelection{}, errors.New("unsupported builder Nix system")
 	}
-	out.Builder, out.System = r, system
 	if err := b.checkBuilderRunning(ctx, r); err != nil {
 		return BuilderNixSelection{}, err
 	}
 	if err := b.checkBuilderSystem(ctx, r, system); err != nil {
 		return BuilderNixSelection{}, err
 	}
-	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: builderName(r)}
-	flake, exists, err := builderInput(ctx, api, builderSource+"/flake.nix")
+	entry, err := b.builderGit(ctx, r, "ls-tree", "-z", r.CommitOID, "--", "flake.nix")
+	if err != nil {
+		return BuilderNixSelection{}, fmt.Errorf("read the commit's flake.nix entry: %w", err)
+	}
+	present, err := parseFlakeEntry(entry)
 	if err != nil {
 		return BuilderNixSelection{}, err
 	}
-	if !exists {
-		out.BaseOnly = true
-		return out, nil
-	}
-	lock, lockExists, err := builderInput(ctx, api, builderSource+"/flake.lock")
-	if err != nil {
-		return BuilderNixSelection{}, err
+	if !present {
+		return BuilderNixSelection{Builder: r, System: system, Selection: runtimedriver.SelectionNoFlake}, nil
 	}
 	if err := b.builderNixReady(ctx, r); err != nil {
 		return BuilderNixSelection{}, err
 	}
-	return resolveBuilderNixInputs(r, system, flake, lock, lockExists, func(args ...string) ([]byte, error) {
+	return resolveBuilderNixInputs(r, system, func(args ...string) ([]byte, error) {
 		return b.builderNixExec(ctx, r, args...)
 	})
+}
+
+// parseFlakeEntry reads `git ls-tree -z <commit> -- flake.nix`: nothing, or
+// the one top-level entry, which must be a file or a symlink.
+func parseFlakeEntry(raw []byte) (bool, error) {
+	if len(raw) == 0 {
+		return false, nil
+	}
+	line, ok := strings.CutSuffix(string(raw), "\x00")
+	meta, name, tab := strings.Cut(line, "\t")
+	fields := strings.Fields(meta)
+	if !ok || !tab || name != "flake.nix" || len(fields) != 3 || !validBuilderOID(fields[2]) {
+		return false, errors.New("invalid flake.nix tree entry")
+	}
+	switch fields[0] + " " + fields[1] {
+	case "100644 blob", "100755 blob", "120000 blob":
+		return true, nil
+	}
+	return false, errors.New("the commit's flake.nix is not a file")
 }
 
 func (b *Backend) checkBuilderSystem(ctx context.Context, r Builder, system string) error {
@@ -148,21 +170,22 @@ func (b *Backend) checkBuilderSystem(ctx context.Context, r Builder, system stri
 	return nil
 }
 
-// The input bytes come from the sealed guest tree. The only executable
-// operations supplied here are the fixed Nix commands below.
-func resolveBuilderNixInputs(r Builder, system string, flake, lock guestFile, lockExists bool, execNix func(...string) ([]byte, error)) (BuilderNixSelection, error) {
-	out := BuilderNixSelection{Builder: r, System: system, CommittedInputsDigest: digestBuilderInputs(flake, lock, lockExists)}
-	raw, err := execNix("hash", "path", "--type", "sha256", "--format", "sri", builderSource)
+// The only executable operations supplied here are the fixed Nix commands
+// below, all of them on the commit in the workspace clone.
+func resolveBuilderNixInputs(r Builder, system string, execNix func(...string) ([]byte, error)) (BuilderNixSelection, error) {
+	out := BuilderNixSelection{Builder: r, System: system}
+	raw, err := execNix("flake", "metadata", "--json", builderFlakeAt(r.CommitOID))
 	if err != nil {
-		return BuilderNixSelection{}, fmt.Errorf("builder source hash failed: %w", err)
+		return BuilderNixSelection{}, fmt.Errorf("builder flake metadata failed: %w", err)
 	}
-	out.SourceNarHash = strings.TrimSpace(string(raw))
-	if !builderNarHashPattern.MatchString(out.SourceNarHash) {
-		return BuilderNixSelection{}, errors.New("invalid builder source NAR hash")
+	out.SourceNarHash, err = parseFlakeNarHash(raw, r.CommitOID)
+	if err != nil {
+		return BuilderNixSelection{}, err
 	}
 	lockedFlake := builderLockedFlake(out.SourceNarHash, r.CommitOID)
 	attr := "devShells." + system + ".default"
-	// All interpolated values are closed constants or a validated system.
+	// All interpolated values are closed constants, a validated system, a
+	// validated commit and an SRI hash.
 	expr := `let flake = builtins.getFlake "` + lockedFlake + `"; shells = flake.devShells or {}; arch = shells."` + system + `" or {}; in builtins.hasAttr "default" arch`
 	raw, err = execNix("eval", "--json", "--expr", expr)
 	if err != nil {
@@ -170,7 +193,7 @@ func resolveBuilderNixInputs(r Builder, system string, flake, lock guestFile, lo
 	}
 	switch strings.TrimSpace(string(raw)) {
 	case "false":
-		out.BaseOnly = true
+		out.Selection = runtimedriver.SelectionNoDefault
 		return out, nil
 	case "true":
 	default:
@@ -196,36 +219,43 @@ func resolveBuilderNixInputs(r Builder, system string, flake, lock guestFile, lo
 	if err := checkBuilderDerivation(raw, drv, system); err != nil {
 		return BuilderNixSelection{}, err
 	}
-	out.DevShellAttr, out.DerivationPath = attr, drv
-	policy := sha256.Sum256([]byte(builderNixFor(r).policy))
-	out.KeyInputs = nixenv.KeyInputs{
-		AdapterVersion: nixenv.AdapterVersion, NixVersion: nixenv.NixVersion,
-		System: system, ProjectPath: r.ProjectPath, BaseFingerprint: r.BaseImageFingerprint,
-		RuntimeKitContract: "p.runtime-session/v2", CommittedInputsDigest: out.CommittedInputsDigest,
-		DerivationPath: drv, NixPolicyDigest: hex.EncodeToString(policy[:]),
-		ImageFormatVersion: builderImageFormatKey,
-	}
-	out.KeyDigest, err = out.KeyInputs.Digest()
-	if err != nil {
-		return BuilderNixSelection{}, err
-	}
+	out.Selection, out.DevShellAttr, out.DerivationPath = runtimedriver.SelectionDevShell, attr, drv
 	return out, nil
 }
 
+// parseFlakeNarHash takes the NAR hash Nix locked the commit's flake to,
+// and requires the lock to name the commit.
+func parseFlakeNarHash(raw []byte, commit string) (string, error) {
+	var metadata struct {
+		Locked struct {
+			NarHash string `json:"narHash"`
+			Rev     string `json:"rev"`
+		} `json:"locked"`
+	}
+	if len(raw) == 0 || len(raw) > 2<<20 || json.Unmarshal(raw, &metadata) != nil {
+		return "", errors.New("invalid builder flake metadata")
+	}
+	if !builderNarHashPattern.MatchString(metadata.Locked.NarHash) || metadata.Locked.Rev != commit {
+		return "", errors.New("builder flake metadata does not lock the commit to an SRI NAR hash")
+	}
+	return metadata.Locked.NarHash, nil
+}
+
 // RealizeBuilderNix builds only the derivation selected above and captures
-// pinned activation material. Publication, rooting and scrubbing are later
+// pinned activation material. Imaging, rooting and scrubbing are later
 // stages; this method does not claim an image-ready builder.
 func (b *Backend) RealizeBuilderNix(ctx context.Context, r Builder, selected BuilderNixSelection) (BuilderNixResult, error) {
 	var out BuilderNixResult
-	if selected.BaseOnly || selected.Builder != r || !validBuilderSystem(selected.System) ||
-		selected.DevShellAttr != "devShells."+selected.System+".default" || !builderDrvPattern.MatchString(selected.DerivationPath) {
+	if selected.Selection != runtimedriver.SelectionDevShell || selected.Builder != r || !validBuilderSystem(selected.System) ||
+		selected.DevShellAttr != "devShells."+selected.System+".default" || !builderDrvPattern.MatchString(selected.DerivationPath) ||
+		!builderNarHashPattern.MatchString(selected.SourceNarHash) {
 		return out, errors.New("invalid builder Nix selection")
 	}
 	current, err := b.ResolveBuilderNix(ctx, r, selected.System)
 	if err != nil {
 		return out, err
 	}
-	if current.BaseOnly || current.KeyDigest != selected.KeyDigest || current.DerivationPath != selected.DerivationPath || current.CommittedInputsDigest != selected.CommittedInputsDigest || current.SourceNarHash != selected.SourceNarHash {
+	if current != selected {
 		return out, errors.New("builder Nix selection changed before realization")
 	}
 	if _, err := b.builderNixExec(ctx, r, "build", "--no-link", selected.DerivationPath+"^*"); err != nil {
@@ -283,12 +313,7 @@ func (b *Backend) checkBuilderRunning(ctx context.Context, r Builder) error {
 	if !o.Exists || !o.Ready || o.Status != "Running" {
 		return errors.New("verified running builder required")
 	}
-	api := &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: builderName(r)}
-	f, exists, err := api.head(ctx, builderSource, 0)
-	if err != nil || !exists || f.typ != "directory" || f.uid != 0 || f.gid != 0 || f.mode != 0555 {
-		return errors.Join(err, errors.New("builder source seal changed"))
-	}
-	return nil
+	return b.checkBuilderBundle(ctx, r)
 }
 
 func (b *Backend) builderNixReady(ctx context.Context, r Builder) error {
@@ -342,7 +367,7 @@ func (b *Backend) builderNixExec(ctx context.Context, r Builder, command ...stri
 	mode := builderNixFor(r)
 	args := []string{builderNixBinary, "--extra-experimental-features", "nix-command flakes", "--option", "accept-flake-config", "false", "--option", "pure-eval", "true", "--option", "flake-registry", "", "--option", "substituters", mode.substituters}
 	args = append(args, command...)
-	if len(command) > 0 && (command[0] == "eval" || command[0] == "build" || command[0] == "print-dev-env") {
+	if len(command) > 0 && (command[0] == "flake" || command[0] == "eval" || command[0] == "build" || command[0] == "print-dev-env") {
 		if mode.offline {
 			args = append(args, "--offline")
 		}
@@ -351,20 +376,38 @@ func (b *Backend) builderNixExec(ctx context.Context, r Builder, command ...stri
 	return b.builderGuestExec(ctx, r, args...)
 }
 
-func (b *Backend) builderGuestExec(ctx context.Context, r Builder, guestArgv ...string) ([]byte, error) {
-	return b.builderGuestExecAt(ctx, r, builderSource, guestArgv...)
+// builderGitEnv keeps system and global Git configuration, replace refs,
+// system attributes and prompts out of every builder Git command.
+var builderGitEnv = []string{
+	"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_SYSTEM=/dev/null", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_COUNT=0",
+	"GIT_NO_REPLACE_OBJECTS=1", "GIT_ATTR_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0",
 }
 
-func (b *Backend) builderGuestExecAt(ctx context.Context, r Builder, cwd string, guestArgv ...string) ([]byte, error) {
-	if cwd != builderSource && cwd != "/workspace" {
-		return nil, errors.New("unsupported builder guest working directory")
-	}
+// builderGit runs one fixed Git command in the workspace as the builder
+// user, with no hooks, fsmonitor, credential helper or background
+// maintenance.
+func (b *Backend) builderGit(ctx context.Context, r Builder, args ...string) ([]byte, error) {
+	argv := append([]string{builderGitBinary, "--no-pager", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "credential.helper=", "-c", "gc.auto=0", "-c", "maintenance.auto=false"}, args...)
+	return b.builderGuestExecEnv(ctx, r, builderGitEnv, argv...)
+}
+
+func (b *Backend) builderGuestExec(ctx context.Context, r Builder, guestArgv ...string) ([]byte, error) {
+	return b.builderGuestExecEnv(ctx, r, nil, guestArgv...)
+}
+
+// builderGuestExecEnv runs a fixed command as the unprivileged builder user
+// in the workspace, with a fixed environment and any extra variables given.
+func (b *Backend) builderGuestExecEnv(ctx context.Context, r Builder, env []string, guestArgv ...string) ([]byte, error) {
 	if err := b.checkBuilderRunning(ctx, r); err != nil {
 		return nil, err
 	}
-	args := []string{"exec", builderName(r), "--mode", "non-interactive", "--user", "1000", "--group", "1000", "--cwd", cwd,
+	args := []string{"exec", builderName(r), "--mode", "non-interactive", "--user", "1000", "--group", "1000", "--cwd", builderWorkspace,
 		"--env", "HOME=/home/p", "--env", "USER=p", "--env", "LOGNAME=p", "--env", "PATH=/run/current-system/sw/bin:/usr/bin:/bin", "--env", "LANG=C", "--env", "LC_ALL=C", "--env", "TERM=dumb",
-		"--env", "NIX_PATH=", "--env", "NIX_CONFIG=", "--env", "NIX_USER_CONF_FILES=/dev/null", "--env", "NIX_REMOTE=daemon", "--env", "LD_PRELOAD=", "--env", "LD_LIBRARY_PATH=", "--env", "BASH_ENV=", "--"}
+		"--env", "NIX_PATH=", "--env", "NIX_CONFIG=", "--env", "NIX_USER_CONF_FILES=/dev/null", "--env", "NIX_REMOTE=daemon", "--env", "LD_PRELOAD=", "--env", "LD_LIBRARY_PATH=", "--env", "BASH_ENV="}
+	for _, variable := range env {
+		args = append(args, "--env", variable)
+	}
+	args = append(args, "--")
 	args = append(args, guestArgv...)
 	out, err := b.builderCommand(ctx, args...)
 	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
@@ -379,34 +422,6 @@ func (b *Backend) builderGuestExecAt(ctx context.Context, r Builder, cwd string,
 		return nil, errors.Join(err, errors.New("builder stopped after interrupted guest command"))
 	}
 	return out, err
-}
-
-func builderInput(ctx context.Context, api *unixFileAPI, path string) (guestFile, bool, error) {
-	f, exists, err := api.head(ctx, path, 1<<20)
-	if err != nil || !exists {
-		return f, exists, err
-	}
-	switch f.typ {
-	case "file":
-		return api.getBounded(ctx, path, 1<<20)
-	case "symlink":
-		return api.getSymlinkBounded(ctx, path, 4096)
-	default:
-		return guestFile{}, false, errors.New("builder flake input is not a file or symlink")
-	}
-}
-
-func digestBuilderInputs(flake, lock guestFile, hasLock bool) string {
-	h := sha256.New()
-	for _, f := range []guestFile{flake, lock} {
-		_, _ = h.Write([]byte(f.typ + "\x00"))
-		_, _ = h.Write(f.data)
-		_, _ = h.Write([]byte{0})
-	}
-	if !hasLock {
-		_, _ = h.Write([]byte("no-lock"))
-	}
-	return hex.EncodeToString(h.Sum(nil))
 }
 
 func checkBuilderDerivation(raw []byte, path, system string) error {

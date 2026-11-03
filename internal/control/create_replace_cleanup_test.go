@@ -35,7 +35,7 @@ func replacementCleanupIntent(t *testing.T, old api.Operation, image string) *ap
 }
 
 func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
-	for _, negative := range []string{"", "principal-changed", "inactive", "extra-principal", "cleanup-unreviewed", "cleanup-image", "late-builder", "environment", "init-attempted", "legacy-init", "rollback", "retry-during-proof"} {
+	for _, negative := range []string{"", "principal-changed", "inactive", "extra-principal", "cleanup-unreviewed", "cleanup-image", "image", "environment", "init-attempted", "legacy-init", "rollback", "retry-during-proof"} {
 		t.Run(negative, func(t *testing.T) {
 			s, dir := openTestStore(t)
 			ctx := context.Background()
@@ -59,11 +59,11 @@ func TestReplacePrincipalsReadyAtomicCleanupReplayRestart(t *testing.T) {
 				ev.RuntimeInitState = "attempted"
 			}
 
-			if negative == "late-builder" {
-				ev.BuilderTreeOID = strings.Repeat("c", 40)
+			if negative == "image" {
+				ev.Image = &CreationImage{Ref: strings.Repeat("e", 64), Selection: "no-flake"}
 			}
 			if negative == "environment" {
-				ev.Environment = &EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image}
+				ev.Environment = &EnvironmentIntent{System: "x86_64-linux", BaseFingerprint: image, BuilderStoragePool: "default", BuilderPolicySHA256: image, ImageBuilder: "incus-commit-image/1"}
 			}
 			raw, _ := json.Marshal(ev)
 			if err = s.AdvanceOperation(ctx, old.ID, "blocked", "principals-ready", true, raw, "internal", "native init refused before effect"); err != nil {

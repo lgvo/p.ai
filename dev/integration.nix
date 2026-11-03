@@ -43,8 +43,8 @@ let
     subPackages = [ "tests/integration/cmd/git-fixture" ];
     doCheck = false;
   };
-  snapshotFixture = pPackage.overrideAttrs {
-    subPackages = [ "tests/integration/cmd/snapshot-fixture" ];
+  bundleFixture = pPackage.overrideAttrs {
+    subPackages = [ "tests/integration/cmd/bundle-fixture" ];
     doCheck = false;
   };
   runtimeFixture = pPackage.overrideAttrs {
@@ -86,28 +86,14 @@ let
     GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -o "$out/runtime.wasm" ./plugins/bundled/runtime-incus
     cp plugins/bundled/runtime-incus/plugin.json "$out/"
   '';
-  # Test-only immutable client shim: hold an image publication until two named
-  # same-key builders exist, so their builds provably overlap.
-  publishBarrierIncusWrapper = pkgs.writeShellScriptBin "p-incus-publish-barrier-wrapper" ''
+  # Test-only immutable client shim: while the count file exists, append the
+  # builder each image publish names (`--force-local --project P publish
+  # NAME ...`), so a scenario counts its builds.
+  publishCountIncusWrapper = pkgs.writeShellScriptBin "p-incus-publish-count-wrapper" ''
     set -eu
-    barrier=/tmp/p-vm-publish-barrier-1000
-    if test "''${4-}" = publish && test -f "$barrier"; then
-      deadline=$((SECONDS+90))
-      while test "$SECONDS" -lt "$deadline"; do
-        first= second=
-        read -r first second < "$barrier" || true
-        if test -n "$first" && test -n "$second" &&
-           ${pkgs.incus}/bin/incus --force-local --project user-1000 list "^p-builder-$first$" --format json |
-             ${pkgs.jq}/bin/jq -e --arg name "p-builder-$first" 'any(.[]; .name==$name)' >/dev/null &&
-           ${pkgs.incus}/bin/incus --force-local --project user-1000 list "^p-builder-$second$" --format json |
-             ${pkgs.jq}/bin/jq -e --arg name "p-builder-$second" 'any(.[]; .name==$name)' >/dev/null; then
-          ${pkgs.coreutils}/bin/touch /tmp/p-vm-publish-overlap-1000
-          ${pkgs.coreutils}/bin/rm -f -- "$barrier"
-          break
-        fi
-        ${pkgs.coreutils}/bin/sleep 0.2
-      done
-      test ! -f "$barrier" || exit 124
+    count=/tmp/p-vm-publish-count-1000
+    if test "''${4-}" = publish && test -f "$count"; then
+      printf '%s\n' "''${5-}" >> "$count"
     fi
     exec ${pkgs.incus}/bin/incus "$@"
   '';
@@ -200,7 +186,7 @@ let
     runtimeInputs = with pkgs; [
       pPackage
       gitFixture
-      snapshotFixture
+      bundleFixture
       runtimeFixture
       builderFixture
       attachmentFixture
@@ -231,7 +217,7 @@ let
       export P_TEST_GIT_ALTERNATE=${wasiGitAlternate}
       export P_TEST_RUNTIME_IMAGE_FILE=${runtimeIdentity}
       export P_TEST_RUNTIME_PLUGIN=${wasiRuntime}
-      export P_TEST_INCUS_WRAPPER=${publishBarrierIncusWrapper}/bin/p-incus-publish-barrier-wrapper
+      export P_TEST_INCUS_WRAPPER=${publishCountIncusWrapper}/bin/p-incus-publish-count-wrapper
       export P_TEST_RUNTIME_HOSTILE=${wasiRuntimeHostile}
       export P_TEST_NIX_FIXTURE=${nixActivationFixture}
       export P_TEST_SELECTED_STEPS=${nixpkgs.lib.escapeShellArg (nixpkgs.lib.concatStringsSep "\n" selectedSteps)}
@@ -298,7 +284,7 @@ in
   inherit
     pPackage
     gitFixture
-    snapshotFixture
+    bundleFixture
     originFixture
     nixActivationFixture
     runtimeFixture

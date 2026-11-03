@@ -47,14 +47,14 @@ func TestCreationInitGateDurableBeforeDispatchAndNoBlindRetry(t *testing.T) {
 }
 
 func TestCreationInitLegacyOnlyEarlyCheckpointCanProveNoAttempt(t *testing.T) {
-	for _, phase := range []string{"source-ready", "branch-assigned", "environment-ready", "principals-ready", "runtime-created", "future-phase"} {
+	for _, phase := range []string{"source-ready", "branch-assigned", "image-ready", "principals-ready", "runtime-created", "future-phase"} {
 		raw, _ := json.Marshal(control.CreationEvidence{ImageFingerprint: strings.Repeat("a", 64)})
 		op := api.Operation{Kind: "session.create", Phase: phase, Evidence: raw, Committed: phase != "source-ready"}
 		if err := prepareCreationInitState(&op); err != nil {
 			t.Fatal(err)
 		}
 		ev, _ := control.Evidence(op)
-		early := phase == "source-ready" || phase == "branch-assigned" || phase == "environment-ready"
+		early := phase == "source-ready" || phase == "branch-assigned" || phase == "image-ready"
 		if (ev.RuntimeInitState == "not-attempted") != early {
 			t.Fatalf("legacy phase %s fabricated dispatch provenance", phase)
 		}

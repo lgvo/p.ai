@@ -19,18 +19,18 @@ const WorkspaceConfigPath = "/etc/p/workspace.json"
 
 var workspaceName = regexp.MustCompile(`^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$`)
 var workspaceOID = regexp.MustCompile(`^[0-9a-f]{40}$`)
-var workspaceKey = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // WorkspaceConfig is trusted creation input. A blank bootstrap has no OID and
 // must be the unborn main branch. Repository is a P Git project identifier.
+// v1 clones Repository from P at the first Start. v2 adopts the clone the
+// commit image already holds at InitialOID; EnvironmentSelection is what the
+// image build found at that commit: no-flake, no-default or devshell.
 type WorkspaceConfig struct {
 	Schema               string `json:"schema"`
 	Repository           string `json:"repository"`
 	Branch               string `json:"branch"`
 	InitialOID           string `json:"initial_oid,omitempty"`
 	EnvironmentSelection string `json:"environment_selection,omitempty"`
-	EnvironmentCommitOID string `json:"environment_commit_oid,omitempty"`
-	EnvironmentKey       string `json:"environment_key,omitempty"`
 }
 
 func ParseWorkspaceConfig(data []byte) (WorkspaceConfig, error) {
@@ -66,15 +66,12 @@ func ParseWorkspaceConfig(data []byte) (WorkspaceConfig, error) {
 	} else if !workspaceOID.MatchString(c.InitialOID) {
 		return c, errors.New("invalid initial OID")
 	}
-	if c.Schema == "p.workspace/v1" {
-		if c.EnvironmentSelection != "" || c.EnvironmentCommitOID != "" || c.EnvironmentKey != "" {
-			return c, errors.New("unresolved workspace cannot carry environment selection")
-		}
-	} else if c.Schema == "p.workspace/v2" && (c.InitialOID == "" || c.EnvironmentCommitOID != c.InitialOID ||
-		!(c.EnvironmentSelection == "base-no-flake" && c.EnvironmentKey == "" ||
-			c.EnvironmentSelection == "base-no-default" && c.EnvironmentKey == "" ||
-			c.EnvironmentSelection == "devshell" && workspaceKey.MatchString(c.EnvironmentKey))) {
-		return c, errors.New("accepted workspace environment differs from captured commit")
+	if c.Schema == "p.workspace/v1" && c.EnvironmentSelection != "" {
+		return c, errors.New("unresolved workspace cannot carry environment selection")
+	}
+	if c.Schema == "p.workspace/v2" && (c.InitialOID == "" ||
+		c.EnvironmentSelection != "no-flake" && c.EnvironmentSelection != "no-default" && c.EnvironmentSelection != "devshell") {
+		return c, errors.New("image workspace needs its commit and environment selection")
 	}
 	return c, nil
 }
@@ -142,18 +139,18 @@ func ValidateGitCredentials() error {
 }
 
 func initWorkspaceAt(c WorkspaceConfig, dir, git string) error {
-	return initWorkspaceRemote(c, dir, git, "ssh://git@p/"+c.Repository)
+	return initWorkspaceRemote(c, dir, git, pRemote(c))
 }
 
-func initWorkspaceRemote(c WorkspaceConfig, dir, git, url string) error {
-	st, err := os.Lstat(dir)
-	if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-		return errors.New("workspace root missing or unsafe")
-	}
-	if owner(st) != uint32(os.Geteuid()) {
-		return errors.New("workspace owner mismatch")
-	}
-	gitRun := func(args ...string) (string, error) {
+// pRemote is the origin a workspace fetches its assigned branch from: P's Git
+// service, reached through the session's fixed SSH configuration.
+func pRemote(c WorkspaceConfig) string { return "ssh://git@p/" + c.Repository }
+
+// workspaceGit runs Git in dir as the session user's first initialization
+// does: no hooks, credential helpers, fsmonitor, or system and global config,
+// with bounded output and a deadline per command.
+func workspaceGit(dir, git string) func(args ...string) (string, error) {
+	return func(args ...string) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, git, append([]string{"-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "core.fsmonitor=false"}, args...)...)
@@ -175,6 +172,20 @@ func initWorkspaceRemote(c WorkspaceConfig, dir, git, url string) error {
 		}
 		return strings.TrimSpace(string(out)), nil
 	}
+}
+
+func initWorkspaceRemote(c WorkspaceConfig, dir, git, url string) error {
+	if c.Schema != "p.workspace/v1" {
+		return errors.New("only workspace v1 clones from P")
+	}
+	st, err := os.Lstat(dir)
+	if err != nil || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+		return errors.New("workspace root missing or unsafe")
+	}
+	if owner(st) != uint32(os.Geteuid()) {
+		return errors.New("workspace owner mismatch")
+	}
+	gitRun := workspaceGit(dir, git)
 	marker := filepath.Join(dir, ".git", "p-initialized")
 	if initialized, err := workspaceInitialized(dir, uint32(os.Geteuid())); err != nil || initialized {
 		return err
@@ -203,22 +214,15 @@ func initWorkspaceRemote(c WorkspaceConfig, dir, git, url string) error {
 			return errors.New("blank workspace remote has refs")
 		}
 	} else {
-		if _, err := gitRun("fetch", "--quiet", "--no-progress", "--no-tags", "origin", "+refs/heads/"+c.Branch+":refs/remotes/origin/"+c.Branch); err != nil {
+		if err := fetchAssignedBranch(gitRun, c); err != nil {
 			return err
-		}
-		oid, err := gitRun("rev-parse", "refs/remotes/origin/"+c.Branch)
-		if err != nil || oid != c.InitialOID {
-			return errors.New("assigned branch moved from captured OID")
 		}
 		tree, err := gitRun("ls-tree", c.InitialOID, "--", "flake.nix")
 		if err != nil {
 			return err
 		}
-		if tree != "" && (c.Schema == "p.workspace/v1" || c.EnvironmentSelection == "base-no-flake") {
+		if tree != "" {
 			return errors.New("committed devShell activation unavailable for root flake")
-		}
-		if tree == "" && c.Schema == "p.workspace/v2" && c.EnvironmentSelection != "base-no-flake" {
-			return errors.New("accepted environment expected a captured root flake")
 		}
 		if _, err := gitRun("update-ref", "refs/heads/"+c.Branch, c.InitialOID); err != nil {
 			return err
@@ -295,4 +299,112 @@ func (b *boundedWorkspaceOutput) Write(p []byte) (int, error) {
 		return 0, errors.New("Git output limit")
 	}
 	return b.Buffer.Write(p)
+}
+
+// fetchAssignedBranch requires that P still holds the session's branch at the
+// captured commit.
+func fetchAssignedBranch(gitRun func(...string) (string, error), c WorkspaceConfig) error {
+	if _, err := gitRun("fetch", "--quiet", "--no-progress", "--no-tags", "origin", "+refs/heads/"+c.Branch+":refs/remotes/origin/"+c.Branch); err != nil {
+		return err
+	}
+	oid, err := gitRun("rev-parse", "refs/remotes/origin/"+c.Branch)
+	if err != nil || oid != c.InitialOID {
+		return errors.New("assigned branch moved from captured OID")
+	}
+	return nil
+}
+
+// adoptWorkspaceRemote puts the clone a commit image holds, detached at the
+// captured commit, on the session's branch with P as its upstream. Each step
+// accepts the state its own earlier run leaves, so an interrupted adoption is
+// repeated from the start; the marker comes last.
+func adoptWorkspaceRemote(c WorkspaceConfig, dir, git, url string) error {
+	if c.Schema != "p.workspace/v2" {
+		return errors.New("only workspace v2 adopts an image clone")
+	}
+	uid := uint32(os.Geteuid())
+	for _, path := range []string{dir, filepath.Join(dir, ".git")} {
+		if err := workspaceDirectory(path, uid); err != nil {
+			return err
+		}
+	}
+	if initialized, err := workspaceInitialized(dir, uid); err != nil || initialized {
+		return err
+	}
+	gitRun := workspaceGit(dir, git)
+	// The image leaves HEAD detached at the commit; an earlier run may have
+	// switched it to the branch already.
+	if head, err := gitRun("rev-parse", "--verify", "HEAD"); err != nil || head != c.InitialOID {
+		return errors.Join(err, errors.New("image workspace HEAD is not the captured commit"))
+	}
+	if name, err := gitRun("rev-parse", "--symbolic-full-name", "HEAD"); err != nil || name != "HEAD" && name != "refs/heads/"+c.Branch {
+		return errors.Join(err, errors.New("image workspace HEAD is on another branch"))
+	}
+	if flake, err := gitRun("ls-tree", c.InitialOID, "--", "flake.nix"); err != nil {
+		return err
+	} else if (flake != "") != (c.EnvironmentSelection != "no-flake") {
+		return errors.New("image environment selection differs from the commit's root flake")
+	}
+	switch remotes, err := gitRun("remote"); {
+	case err != nil:
+		return err
+	case remotes == "":
+		if _, err := gitRun("remote", "add", "origin", url); err != nil {
+			return err
+		}
+	case remotes == "origin":
+		if urls, err := gitRun("remote", "get-url", "--all", "origin"); err != nil || urls != url {
+			return errors.Join(err, errors.New("image workspace origin is not P"))
+		}
+	default:
+		return errors.New("image workspace has a remote other than P")
+	}
+	if err := fetchAssignedBranch(gitRun, c); err != nil {
+		return err
+	}
+	switch tip, err := gitRun("branch", "--list", "--format=%(objectname)", c.Branch); {
+	case err != nil:
+		return err
+	case tip == "":
+		if _, err := gitRun("update-ref", "refs/heads/"+c.Branch, c.InitialOID, strings.Repeat("0", len(c.InitialOID))); err != nil {
+			return err
+		}
+	case tip != c.InitialOID:
+		return errors.New("assigned branch exists at another commit")
+	}
+	if _, err := gitRun("checkout", "--quiet", c.Branch, "--"); err != nil {
+		return err
+	}
+	if _, err := gitRun("branch", "--set-upstream-to", "origin/"+c.Branch, c.Branch); err != nil {
+		return err
+	}
+	return publishWorkspaceMarker(filepath.Join(dir, ".git"))
+}
+
+// publishWorkspaceMarker makes Git's changes durable, then the marker appears
+// complete or not at all: a crash leaves either a repeatable adoption or a
+// finished one, never a torn marker that blocks every later Start.
+func publishWorkspaceMarker(gitDir string) error {
+	if err := syncWorkspaceTree(gitDir); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(gitDir, ".p-initialized-")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = f.WriteString("p.workspace/v1\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if e := f.Close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(f.Name(), filepath.Join(gitDir, "p-initialized")); err != nil {
+		return err
+	}
+	return syncWorkspaceDirectory(gitDir)
 }

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimeincus"
 )
 
@@ -203,40 +205,7 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 		if !runtimesAbsent {
 			continue
 		}
-		current, found, e := l.store.GetEnvironmentImage(ctx, c.Image.Project, c.Image.Key)
-		if e != nil || found && !control.SameEnvironmentImage(current, c.Image) {
-			if !fail(index, errors.Join(e, errors.New("cache index identity changed"))) {
-				return
-			}
-			continue
-		}
-		owned := imageClaimFromCache(c.Image)
-		_, present, e := l.runtime.ObserveOwnedBuilderImage(ctx, owned)
-		if e != nil {
-			if !fail(index, e) {
-				return
-			}
-			continue
-		}
-		if present {
-			if projectDeleteAbsent(ev.Resources[index]) || !c.ImagePresent {
-				if !fail(index, errors.New("cache image reappeared after reviewed/confirmed absence")) {
-					return
-				}
-				continue
-			}
-			ev.Resources[index].DeleteIssued = true
-			if e = persist("running", "", ""); e != nil {
-				return
-			}
-			if e = l.runtime.DeleteOwnedBuilderImage(ctx, owned); e != nil {
-				if !fail(index, e) {
-					return
-				}
-				continue
-			}
-		}
-		if e = l.store.DeleteEnvironmentImageExact(ctx, c.Image); e != nil {
+		if e := l.deleteProjectImage(ctx, c, &ev.Resources[index], func() error { return persist("running", "", "") }); e != nil {
 			if !fail(index, e) {
 				return
 			}
@@ -267,13 +236,16 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 			}
 		}
 		for _, c := range ev.Images {
-			_, found, e := l.runtime.ObserveOwnedBuilderImage(call, imageClaimFromCache(c.Image))
-			if e != nil || found {
-				return errors.Join(e, errors.New("project cache image absence unavailable"))
+			_, found, e := l.images.InspectImage(call, runtimedriver.ImageRef(c.Image.Ref))
+			if e != nil {
+				return imageFailure(e)
 			}
-			_, found, e = l.store.GetEnvironmentImage(call, c.Image.Project, c.Image.Key)
+			if found {
+				return control.Failed(api.ReasonRuntime, fmt.Errorf("project image %s remains", c.Image.Ref))
+			}
+			_, found, e = l.store.GetCommitImage(call, c.Image.Key)
 			if e != nil || found {
-				return errors.Join(e, errors.New("project cache index remains"))
+				return errors.Join(e, errors.New("project image index remains"))
 			}
 		}
 		return nil
@@ -361,4 +333,36 @@ func (l *lifecycle) processProjectDelete(observed api.Operation) {
 	if persist("blocked", reason, diagnostic) == nil {
 		l.recordProgress(op, "blocked")
 	}
+}
+
+// deleteProjectImage deletes one reviewed image of a project deletion and
+// forgets its index row. The delete is recorded as issued right before it
+// starts. An image present again after its reviewed or confirmed absence is
+// never deleted: it is not the reviewed one.
+func (l *lifecycle) deleteProjectImage(ctx context.Context, c control.CommitImageClaim, r *control.ProjectDeleteResource, persist func() error) error {
+	current, found, err := l.store.GetCommitImage(ctx, c.Image.Key)
+	if err != nil {
+		return err
+	}
+	if found && !reflect.DeepEqual(current, c.Image) {
+		return refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, fmt.Errorf("index row of image %s changed", c.Image.Ref))
+	}
+	_, present, err := l.images.InspectImage(ctx, runtimedriver.ImageRef(c.Image.Ref))
+	if err != nil {
+		return imageFailure(err)
+	}
+	if present {
+		if projectDeleteAbsent(*r) || !c.ImagePresent {
+			return refusalBecause(api.KindPreconditionFailed, api.ReasonChanged, "", control.ErrConflict, fmt.Errorf("image %s present after its reviewed or confirmed absence", c.Image.Ref))
+		}
+		var gateErr error
+		err = l.images.DeleteImage(ctx, indexedImage(c.Image), func() error { r.DeleteIssued = true; gateErr = persist(); return gateErr })
+		if gateErr != nil {
+			return err
+		}
+		if err != nil {
+			return imageFailure(err)
+		}
+	}
+	return l.store.ForgetCommitImage(ctx, c.Image.Key, c.Image.Ref)
 }

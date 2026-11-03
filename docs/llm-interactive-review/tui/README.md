@@ -24,6 +24,26 @@ powered off and removed their disposable disks. The
 records acceptance and retained limitations. The real devShell extension and
 authenticated Codex acceptance remain separate pending milestones.
 
+## Session image facts — 2026-11-02
+
+The [commit-image checkpoint](commit-image/checkpoint.json) records the review
+of the policy page (`p`) and Details after images moved to source commits. The
+LLM inspected the prototype and the unchanged product first: the prototype's
+[policy page](commit-image/prototype-0003-policy.png) has no environment facts,
+and the mock gave no session an environment view, so the unchanged
+[policy page](commit-image/before-0003-policy-no-environment.png) and
+[Details](commit-image/before-0006-details-end-no-environment.png) showed none.
+The mock now gives `forge / feat/device-login` a reused devShell image. The
+changed [policy page](commit-image/after-0003-policy-image-120x35.png) and
+[Details](commit-image/after-0006-details-end-image-120x35.png) show the
+environment, source commit, image state, system, and base and image
+fingerprints, complete at [80×24](commit-image/after-0023-details-pgdn-80x24.png)
+and [48×16](commit-image/after-0027-details-environment-48x16.png); a session
+without an image view shows [none](commit-image/after-0011-policy-no-image.png).
+No defect was found. The [action record](commit-image/actions.ndjson) keeps the
+LLM's choices apart from the passing 29-test TUI gate. This is mock/socket
+evidence only.
+
 ## VM serial-console redraw correction
 
 The [before/after review](serial-console/README.md) reproduces the reported
@@ -99,6 +119,27 @@ is below the fold although six rows are empty, which predates this change;
 the [completed state](operation-reasons/after2-0009-operation-completed-120x35.png)
 were checked. The [checkpoint](operation-reasons/checkpoint.json) lists the
 findings. Mock-socket evidence only.
+
+## Image reasons — 2026-11-03
+
+Moving commit images onto step 3 adds the operation reasons
+`image_build_failed` and `image_builder_changed`. In the
+[before frame](image-reasons/before-0003-operation-page-120x35.png) a blocked
+creation shows the fallback "It stopped: image_build_failed." The first wording
+advised both a new session and Retry for an invalid devShell, put Retry after
+discard, and named a discard the TUI refuses for a blocked creation; the
+sentences were reworded. The changed page names the
+[failed build](image-reasons/after2-build-0003-operation-page-120x35.png) and
+the [changed image builder](image-reasons/after2-changed-0003-operation-page-120x35.png)
+with one next step per case, Retry after the case it fits, and the Diagnostic on
+its own line as in step 3. Both wrap between words at
+[80×24](image-reasons/after2-build-0004-operation-page-80x24.png). At
+[48×16](image-reasons/after2-build-0005-operation-page-48x16.png) the first
+screen ends mid-sentence while six rows stay empty, which predates this change;
+[scrolling](image-reasons/after2-build-0011-operation-page-48x16-scroll.png)
+shows the rest and the Diagnostic. The [checkpoint](image-reasons/checkpoint.json)
+lists the findings; the [action record](image-reasons/actions.ndjson) keeps the
+first-wording runs and the prototype check. Mock-socket evidence only.
 
 ## Removal without loss inspection — 2026-11-02
 

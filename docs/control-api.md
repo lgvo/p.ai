@@ -122,7 +122,7 @@ names and uses TCP 443 without host DNS or plaintext fallback. A `none` session
 receives no NIC or running resolver even in a project that
 permits the public bridge. A changed or missing public substrate makes the
 captured public policy `invalid` and blocks Start. With this substrate,
-environment builders get the same network, whatever the project's policy
+image builders get the same network, whatever the project's policy
 ([environment building](environment-building.md#security-boundary)).
 
 Up to eight filesystem grants may name an exact canonical host file
@@ -146,10 +146,11 @@ entry or losing the trusted confinement authority makes the condition
 `invalid` and blocks Start; restoring the entry re-enables comparison. A new
 session captures the newly configured policy.
 
-An optional `runtime.environment` object turns on environment building and
-selects its system and restricted builder pool. The Incus adapter builds the
-environment natively ([environment building](environment-building.md)). Offline
-public session composition passed its pinned VM gate; see
+An optional `runtime.environment` object turns on commit images and selects
+the system and restricted builder pool their builds use. A session then starts
+from the image of its source commit, which holds the commit's devShell and a
+clone of the commit; the runtime driver builds a missing one
+([environment building](environment-building.md)). VM evidence is recorded in
 [implementation progress](implementation-progress.md).
 
 ```json
@@ -159,7 +160,7 @@ public session composition passed its pinned VM gate; see
 The system is explicitly `x86_64-linux` or `aarch64-linux` and must match the
 observed Incus host and pinned base architecture before selection. Current VM
 evidence covers x86_64; aarch64 support still requires its corresponding
-validation. The builder pool must satisfy the native adapter's btrfs quota
+validation. The builder pool must satisfy the Incus driver's btrfs quota
 checks.
 With `public_egress` configured, the builder gets the public-egress network
 and the public binary cache, using its session's address slot while it builds
@@ -167,15 +168,21 @@ and the public binary cache, using its session's address slot while it builds
 without it, the builder gets no NIC or substituters. It never gets a host
 store, filesystem grants, or credentials.
 
-Creation records the system, base image, builder pool and policy, and captured
-commit before effects. Retry requires the same selection and never recaptures
-a moving branch or origin. An interrupted image publication is reconciled
-against its durable attempt before proceeding.
-Concurrent requests for the same project/environment key share the resulting
-verified image. An unresolved prior publication blocks another publication for
-that key until its original operation is reconciled; it cannot silently replace
-the indexed image. Concurrent creation passed the selected 7c3 VM gate below.
-Omitting `runtime.environment` retains the base-image creation path.
+Creation records the system, base image, builder pool and policy, the
+driver's builder version (`image_builder`), and the captured commit before
+effects. Retry requires the same selection and never recaptures a moving
+branch or origin. A creation whose recorded selection no longer matches the
+host blocks with reason `image_builder_changed`, a failed build with
+`image_build_failed`, and a build whose outcome is unknown with
+`outcome_unknown`. A build whose outcome is unknown is settled against its
+durable attempt before another is sent, and every new attempt gets a new build
+reference. A build settled as not accepted is recorded `abandoned` before its
+leftovers are deleted and `absent` after; recovery from `abandoned` deletes the
+leftovers and never settles that build again. Concurrent creations from one
+commit build at most one image: the later one reuses the image the first
+indexed. VM scenarios 25 and 26 cover commit images in the daemon.
+Without `runtime.environment`, sessions use the pinned base image and the
+runtime kit clones the workspace from P at first start.
 
 An optional `runtime.agent_adapter` object selects one session asset package:
 
@@ -418,7 +425,7 @@ rename and deletion and the project deletion methods in this table need the
 | `project.retained.rename` | `{"key":"idempotency-key","project":"team/app","old_branch":"saved","new_branch":"archive","expected_old_tip":"<exact P commit OID>"}` | `operation` (`kind:"project.retained.rename"`). The source must be an unassigned retained P branch at that exact commit, and the destination must be absent and unassigned. A completed key replays; changed inputs with the same key answer `invalid` with reason `key_reused`. |
 | `project.retained.delete.preview` | `{"project":"team/app","branch":"saved"}` | `preview` with the unassigned P `ref`/`tip`, `branch_loss` (commits losing all P reachability, complete P refs, fresh origin preservation or explicit `unknown`), `confirmation_token`, and `expires_at`. It is read-only and needs no runtime inspection. |
 | `project.retained.delete.confirm` | `{"key":"idempotency-key","project":"team/app","branch":"saved","confirmation_token":"<32 lowercase hex>"}` | `operation` (`kind:"project.retained.delete"`). A completed exact key replays; changed key inputs answer `invalid` with reason `key_reused`. |
-| `project.delete.preview` | `{"project":"team/app","acknowledge_missing":[]}` | aggregate `preview` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, exact credentials/repository/cache identities, preserved external mounts, warnings, token and expiry. It contacts no origin. |
+| `project.delete.preview` | `{"project":"team/app","acknowledge_missing":[]}` | aggregate `preview` for whole-project deletion, including sessions, runtime loss by category, all P branch loss, exact credentials/repository/image identities, preserved external mounts, warnings, token and expiry. It contacts no origin. |
 | `project.delete.confirm` | `{"key":"idempotency-key","project":"team/app","confirmation_token":"<32 lowercase hex>"}` | durable `operation` (`kind:"project.delete"`), returned at once. A fresh preview must match the reviewed one before atomic authority closure. Completed exact confirmation replays without deleting again. |
 
 An origin state has `project`, optional `url`, `status` (`local-only`, `fresh`,
@@ -472,9 +479,9 @@ available. A create response returns a durable operation immediately. The
 daemon continues creation under its own context. Clients inspect the
 operation until it is `completed` or `blocked`. `operation.retry` resumes the
 same captured request, UUID, source commit, policy, and selected plugin
-digests. It reuses the recorded image when available. A verified cache miss
-before an instance exists may rebuild from the same captured source; an
-uncertain instance or publication cannot trigger blind recreation. A changed
+digests. It reuses the recorded image when available. If that image is gone
+before an instance exists, Retry rebuilds it from the same captured commit; an
+uncertain instance or build cannot trigger blind recreation. A changed
 request needs a new idempotency key. Reusing a blocked creation's assigned
 branch requires the explicit replacement methods below, or supported confirmed
 failed-create cleanup followed by a separate Create.
@@ -526,7 +533,8 @@ operations record:
 | `internal` | The operation's work failed in a way P did not classify, or panicked; the diagnostic holds the detail, and the daemon logs a panic's stack. A panicked operation is recorded `blocked`, keeps its guards and waits for `operation.retry`. |
 | `outcome_unknown` | The operation issued an effect, such as an Incus delete or a Git ref change, and cannot tell whether it happened. P does not issue it again; the diagnostic names the resource to check before Retry. |
 | `workspace_mismatch` | A Rename refused before any change: the workspace is not on its assigned branch, or its branch tracks another upstream. The diagnostic names the expected and actual values. |
-| `image_builder_changed` | A creation's image work found the host's image builder configuration (system, base image, builder pool or builder policy) different from the one the creation recorded. Retry runs only once the configuration is restored. |
+| `image_build_failed` | A creation's build of the image of its source commit failed, for example because the commit declares an invalid default devShell or its realization failed. The diagnostic says why. Retry builds again from the same commit, so a fault in the commit needs a session from a corrected one. |
+| `image_builder_changed` | A creation's image work found the host's image builder configuration (system, base image, builder pool, builder policy or the driver's image builder version) different from the one the creation recorded. Retry runs only once the configuration is restored. |
 
 The diagnostic holds detail only, never advice: clients say what to do from the
 reason. Every diagnostic P records, an operation's, a session's start
@@ -551,8 +559,8 @@ will not materialize; replacement refuses it. Historical `principals-ready`
 evidence without this tracked state is also ineligible. Exact Retry refuses a
 second absent-runtime init after an uncertain attempt, while an observed exact
 owned instance may continue without another init.
-Builder tree/publication evidence, environment effects, and later phases are
-outside this slice. Fresh full native inventory must positively prove both the
+An attempted or settled image build, an accepted commit image, and later
+phases are outside this slice. Fresh full native inventory must positively prove both the
 runtime UUID and creation builder absent; unavailable or ambiguous observations
 are ineligible. An existing-branch failure may select the same existing branch. A
 local-source new-branch failure may select an absent target with `choice:"new"`
@@ -630,16 +638,18 @@ Confirmed failed-create cleanup is a separate fallback for a blocked, local
 committed-source Create in `source-ready`, `branch-assigned`, or
 `principals-ready`. It preserves the assigned P ref at its reviewed tip and
 all other refs. It creates no new session or runtime. In addition to the early
-paths above, it supports an immutable Nix selection/resolution failure when
-`environment_builder` durably records a settled `absent` cycle: the worker
-recorded its init attempt, positively observed the exact owned builder, removed
-it, and verified full native absence. A captured tree with affirmative cycle-zero
-`not-attempted` evidence also permits cleanup after a builder preflight failure.
-The dispatch gate runs after confinement, storage and pinned-image preflight;
-correcting such a failure permits exact Retry without a new request. An
-attempted-but-unobserved builder, historical builder evidence without this
-tracking, environment publication or
-cache state and origin requests are ineligible. Later runtime/workspace phases
+paths above, it supports a failed image build, such as an immutable Nix
+selection/resolution failure, when `environment_builder` durably records a
+settled `absent` cycle: the build's gate recorded the attempt, and the runtime
+driver then proved the build's builder deleted, when the build failed
+definitely or when Retry settled an unknown outcome. Affirmative cycle-zero
+`not-attempted` evidence also permits cleanup after a failure before the
+build's gate, such as a builder preflight failure. The gate runs after
+confinement, storage and pinned-image preflight; correcting such a failure
+permits exact Retry without a new request. These are ineligible: a build still
+`attempted`, whose outcome is unknown; a build recorded `abandoned`, whose
+leftovers may remain until recovery deletes them; an accepted commit image; and
+origin requests. Later runtime/workspace phases
 require the separate narrow assembled path below; they cannot use early absence
 evidence. Early cleanup requires runtime initialization to affirmatively remain
 `not-attempted`. Native
@@ -704,16 +714,18 @@ See the [CLI procedure](session-lifecycle.md#confirmed-failed-create-cleanup).
 
 Each session view returns all four [public status facts](session-observability.md#status-model).
 When a session was created with environment selection, its view also includes
-`environment`: the captured `commit_oid`, `system`, `selection`, `cache`, optional
-`environment_key`, `base_image_fingerprint`, and `image_fingerprint`.
-Operation-list summaries expose the
-same projection; `operation.inspect` returns the detailed durable evidence.
-`selection` is `pending`, `base`, or `devShells.<system>.default`. `cache` is
-`pending`, `none` for a base selection, `publishing`, `hit`, or `miss`.
+`image`, an `api.ImageView` of the commit image it is created from: the
+captured `commit_oid`, `system`, `selection`, `state`,
+`base_image_fingerprint`, and `image_fingerprint`. Operation-list summaries
+carry the same `image`; `operation.inspect` returns the detailed durable
+evidence. `selection` is `pending` until the image is ready, then `base` for an
+image without a default devShell or `devShells.<system>.default`. `state` is
+`pending`, `building` while the creation's build is `attempted`, `built` when
+this creation built the image, or `reused` when it reused the image indexed for
+the commit.
 `image_fingerprint` is creation's currently recorded runtime image, initially
-the base and then the accepted environment image. These fields report
-creation's recorded selection; they do not imply that
-an image still exists in the cache or that the current workspace is unchanged.
+the base and then the commit image. These fields report creation's record;
+they do not imply that the current workspace is unchanged.
 
 `latest_unattended_condition` is `null` or an object with `condition`,
 `adapter`, `adapter_version`, optional `source` and `reason`, plus daemon-assigned
@@ -722,13 +734,15 @@ helper connections. The list methods may return fewer than the requested limit t
 keep the encoded JSON-RPC response within 64 KiB; use the returned `next`
 cursor until it is empty, including when a short page has a nonempty cursor.
 
-Without `runtime.environment`, creation uses the pinned base image and refuses
-a selected committed root `flake.nix` during first workspace initialization.
-With environment selection, a trusted `p.workspace/v2` configuration binds the
-accepted result to the captured commit. It permits a realized default devShell
-or a valid flake without that default, and preserves the distinction from a
-commit without a flake. Invalid defaults fail without fallback. The offline
-public VM gate covers these selection and activation cases.
+Without `runtime.environment`, creation uses the pinned base image, its
+trusted `p.workspace/v1` configuration clones the assigned branch from P at
+first start, and it refuses a selected committed root `flake.nix` there.
+With environment selection, the commit image already holds a clone of the
+captured commit, and a trusted `p.workspace/v2` configuration names that commit
+and the image's selection: `no-flake`, `no-default` or `devshell`. The runtime
+kit adopts the clone only when its HEAD is at the commit and the commit's root
+flake matches the selection, then puts it on the assigned branch with P as its
+upstream. Invalid defaults fail the image build without fallback.
 Retry does not delete the assigned branch or reset an unexpected workspace;
 unrecognized workspace state leaves the creation blocked. `ready`
 requires the Incus instance running and `p-interactive.service` observed
@@ -907,14 +921,22 @@ missing session of the project answers `invalid` with field
 `acknowledge_missing`. Unknown native identity or unavailable Incus cannot be
 acknowledged into deletion authority.
 
-At most twenty indexed, exactly owned environment images and bounded Git/history
-and report inventories are accepted. The preview covers every assigned and
-retained P ref and the union of commits losing P reachability. It contacts no
-origin, and its `branch_loss` has no origin evidence. Its expiry is at most two
-minutes. Changed facts or an expired preview need a new preview/token/key.
-Refused preparation directs the caller to Stop/detach, supported
-failed-creation cleanup or identity investigation; P does not delete uncertain
-resources.
+At most twenty indexed commit images and bounded Git/history and report
+inventories are accepted. The review also answers `conflict` with reason
+`bound_exceeded` when the evidence the deletion would be confirmed with
+exceeds 24 KiB, so the effective image limit depends on the sessions and
+names: with four sessions and the longest project, branch and builder-version
+names P accepts, eight images fit. The preview's `images` lists each commit image the
+project's index holds as an `api.CommitImageClaim`: its index row (`image`: the
+image's key, reference, build, labels as a list of `{name, value}`, selection,
+material digest, size and state), whether the runtime driver found the image
+(`image_present`), its observed size (`observed_size`), and a digest of the
+sessions started from its commit (`related_digest`). The preview covers every assigned and retained P ref and
+the union of commits losing P reachability. It contacts no origin, and its
+`branch_loss` has no origin evidence. Its expiry is at most two minutes.
+Changed facts or an expired preview need a new preview/token/key. Refused
+preparation directs the caller to Stop/detach, supported failed-creation
+cleanup or identity investigation; P does not delete uncertain resources.
 
 After reviewing the complete preview, call `project.delete.confirm` with its
 token and a new key. A fresh preview must match the reviewed one in full
@@ -928,9 +950,10 @@ resumes the same confirmed outcome; it does not grant replacement machinery.
 An issued source DELETE is never dispatched again. Available name and full
 inventory checks may positively prove absence after a crash; a still-present,
 renamed, competing or uncertain source keeps cleanup blocked for investigation.
-Owned indexed images are deleted only after runtime absence. The repository and
-registry disappear last. Shared/base images, other projects, external grant
-contents and delivered logs remain. Completion clears bulky claims and old raw
+Indexed commit images are deleted exactly, through the runtime driver, only
+after runtime absence, and their index rows with them. The repository and
+registry disappear last. The base image, other projects and their images,
+external grant contents and delivered logs remain. Completion clears bulky claims and old raw
 requests/evidence, retaining a minimal completed result and immutable retired
 key/operation-ID/kind/request-digest receipts. Replaying old Create, origin or
 publication keys refuses instead of recreating deleted authority.

@@ -382,24 +382,32 @@ division is in [communication boundaries](docs/communication-boundaries.md).
 
 ## Environments and isolation
 
-Every session begins from a P-owned Incus base image containing Nix, a shell,
+Every session's image starts from a P-owned Incus base image containing Nix, a shell,
 basic userland, Git and SSH, CA certificates, tmux, and P's runtime helper. The
 project environment is selected in MVP as:
 
 1. the project's ordinary default Nix `devShell`, when present; or
 2. the minimal substrate alone.
 
-The MVP Nix builder consumes immutable committed source in a disposable,
-restricted Incus builder. It realizes the devShell and publishes a verified
-private Incus image with a coherent Nix store/database and activation material.
+When the host configures environment building, an image belongs to a source
+commit. The first session from a commit builds its image: a disposable,
+restricted Incus builder clones a Git bundle of the commit into `/workspace`,
+realizes the devShell, and publishes a verified private Incus image with a
+coherent Nix store/database, activation material and that clone. Every later
+session from the same commit reuses the image with no build and no clone; a
+new commit, even one that changes only code, builds a new image. P deletes an
+image once no session started from its commit exists, and with its project.
+Without environment building, sessions start from the base image and clone
+their branch from P at first start.
+
 Each session receives its own writable Incus root on top, including a private
 `/nix`, workspace, and home. Sessions do not mount the host Nix store/daemon or
 share a writable store. A session may build additional private Nix paths; they
-survive stop/start and disappear with the session. Cache behavior, physical
-deduplication, and build time remain project/storage-driver dependent.
+survive stop/start and disappear with the session. Build time and physical
+deduplication remain project/storage-driver dependent.
 
-The `EnvironmentBuilder` interface remains reusable, but Dockerfile and OCI
-providers are not specified for MVP.
+The runtime driver's image operations build, list, inspect and delete images
+for one runtime; Dockerfile and OCI providers are not specified for MVP.
 
 MVP external grants are project-scoped under `{project}/*`. The namespace
 `{project}/{branch}` is reserved for later branch-specific grants. A session
@@ -420,8 +428,8 @@ instances, or Incus administration. P Git and private session RPC use narrow
 session endpoints. P MVP does not declare, supervise, health-check, or restart
 project services.
 
-See [environment building](docs/environment-building.md) for Nix image
-building, activation, and caching, and
+See [environment building](docs/environment-building.md) for commit-image
+building, activation, reuse and deletion, and
 [runtime and isolation](docs/runtime-isolation.md) for runtime assembly,
 storage, mounts, network policy, labels, and cleanup.
 
@@ -612,7 +620,7 @@ MVP closes the loop for one user on Linux:
 - create explicit SSH-origin or blank projects and create sessions from
   committed sources, with one unborn-`main` bootstrap exception;
 - enforce immutable UUID-to-branch ownership and transactional rename;
-- build cached Nix environment images and run unprivileged local Incus
+- build one Nix image per source commit and run unprivileged local Incus
   containers;
 - enter a systemd-supervised persistent interactive host through a fixed
   attach entrypoint;

@@ -10,17 +10,20 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
-	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/nixenv"
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 const (
 	builderGCPath         = "/nix/var/nix/gcroots/p-devshell"
 	builderActivationPath = "/etc/p/devshell/activate.sh"
-	imageContract         = "p.incus-system-image/v2"
-	builderImageFormatKey = imageContract + ";compression=none"
+	// commitImageContract names what a commit image holds and how its
+	// properties read: the base image, the commit's devShell realized into
+	// /nix with its activation material, and /workspace holding a clone at
+	// the commit, detached, with no branch, remote or credentials.
+	commitImageContract    = "p.incus-commit-image/v1"
+	commitImageCompression = "none"
 )
 
 var profileGeneration = regexp.MustCompile(`^\.p-devshell-capture-[1-9][0-9]{0,6}-link$`)
@@ -30,132 +33,24 @@ type builderImageFiles interface {
 	getBounded(context.Context, string, int64) (guestFile, bool, error)
 	getSymlinkBounded(context.Context, string, int64) (guestFile, bool, error)
 	fullDirectoryMode(context.Context, string) (guestFile, error)
+	lstat(context.Context, string) (guestFile, error)
 	chmodDirectory(context.Context, string, int) error
 	deleteTree(context.Context, string) error
 }
 
-// BuilderImageInfo records the private Incus object verified after publish.
-// The fingerprint remains the only image locator; properties are assertions,
-// not an alias or a cache index.
-type BuilderImageInfo struct {
-	Fingerprint           string
-	Project               string
-	Size                  int64
-	Properties            map[string]string
-	BuilderCleanupPending bool
-}
-
 func validateBuilderImageResult(r Builder, result BuilderNixResult) error {
 	s := result.Selection
-	if s.Builder != r || s.BaseOnly || s.System == "" || !validBuilderSystem(s.System) ||
-		s.KeyDigest == "" || s.KeyInputs.System != s.System || s.KeyInputs.ProjectPath != r.ProjectPath ||
-		s.KeyInputs.BaseFingerprint != r.BaseImageFingerprint || s.KeyInputs.ImageFormatVersion != builderImageFormatKey ||
-		s.KeyInputs.DerivationPath != s.DerivationPath || s.KeyInputs.CommittedInputsDigest != s.CommittedInputsDigest ||
-		s.DerivationPath == "" || !builderDrvPattern.MatchString(s.DerivationPath) ||
+	if s.Builder != r || s.Selection != runtimedriver.SelectionDevShell || !validBuilderSystem(s.System) ||
+		s.DevShellAttr != "devShells."+s.System+".default" || !builderDrvPattern.MatchString(s.DerivationPath) ||
+		!builderNarHashPattern.MatchString(s.SourceNarHash) ||
 		!builderStorePathPattern.MatchString(result.CaptureStorePath) || !strings.HasSuffix(result.CaptureStorePath, "-env") {
 		return errors.New("invalid accepted builder image result")
-	}
-	key, err := s.KeyInputs.Digest()
-	if err != nil || key != s.KeyDigest {
-		return errors.New("builder image key changed")
 	}
 	digest, err := result.Material.Digest()
 	if err != nil || digest != result.MaterialDigest {
 		return errors.New("builder image material changed")
 	}
 	return nil
-}
-
-// PublishBuilderImageWithGate consumes only a realized native result. It never
-// evaluates project code on the host or accepts an Incus name, label, or
-// command, and a failure returns no handle. It invokes gate after all
-// reversible assembly, smoke, scrub and pre-publish checks, immediately before
-// the Incus publish command. Callers durably record the exact claim there. A
-// failed gate issues no publish command.
-func (b *Backend) PublishBuilderImageWithGate(ctx context.Context, r Builder, result BuilderNixResult, gate func(BuilderImageClaim) error) (nixenv.Handle, BuilderImageInfo, error) {
-	var empty nixenv.Handle
-	var noImage BuilderImageInfo
-	if gate == nil {
-		return empty, noImage, errors.New("durable publication gate required")
-	}
-	if err := validateBuilderImageResult(r, result); err != nil {
-		return empty, noImage, err
-	}
-	if !uuidPattern.MatchString(b.config.PInstanceID) {
-		return empty, noImage, errors.New("trusted P instance identity required for image publication")
-	}
-	if err := b.checkBuilderRunning(ctx, r); err != nil {
-		return empty, noImage, err
-	}
-	current, err := b.ResolveBuilderNix(ctx, r, result.Selection.System)
-	if err != nil || current.BaseOnly || current.KeyDigest != result.Selection.KeyDigest ||
-		current.SourceNarHash != result.Selection.SourceNarHash ||
-		current.DerivationPath != result.Selection.DerivationPath ||
-		current.CommittedInputsDigest != result.Selection.CommittedInputsDigest {
-		return empty, noImage, errors.Join(err, errors.New("builder selection changed before image assembly"))
-	}
-	// Verify the captured environment through the live daemon before changing
-	// the filesystem. A later rooted image must retain this exact store object.
-	if err := b.verifyBuilderCapture(ctx, r, result, true); err != nil {
-		return empty, noImage, err
-	}
-	if _, err := b.StopBuilder(ctx, r); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, err)
-	}
-	api := &builderCheckedFileAPI{backend: b, request: r, inner: &unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: builderName(r)}}
-	if err := installBuilderImageFiles(ctx, api, result); err != nil {
-		return empty, noImage, err
-	}
-	if _, err := b.StartBuilder(ctx, r); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, err)
-	}
-	if err := b.builderNixReady(ctx, r); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, fmt.Errorf("smoke boot readiness: %w", err))
-	}
-	if err := b.smokeBuilderImage(ctx, r, result); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, err)
-	}
-	// Stop every hook descendant before removing its writable home. A second
-	// boot runs only fixed Nix maintenance; no activation hook is sourced.
-	if _, err := b.StopBuilder(ctx, r); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, err)
-	}
-	if err := scrubBuilderScratch(ctx, api); err != nil {
-		return empty, noImage, err
-	}
-	if _, err := b.StartBuilder(ctx, r); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, err)
-	}
-	if err := b.builderNixReady(ctx, r); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, fmt.Errorf("collection boot readiness: %w", err))
-	}
-	// The P-owned GC root is installed. The unprivileged daemon client can
-	// collect only paths outside the captured closure and system roots.
-	if _, err := b.builderNixExec(ctx, r, "store", "gc"); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, fmt.Errorf("builder Nix garbage collection failed: %w", err))
-	}
-	if err := b.verifyBuilderCapture(ctx, r, result, false); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, err)
-	}
-	if _, err := b.StopBuilder(ctx, r); err != nil {
-		return empty, noImage, b.settleImageBuilder(r, err)
-	}
-	if err := scrubBuilderImage(ctx, api); err != nil {
-		return empty, noImage, err
-	}
-	if err := verifyBuilderImageFiles(ctx, api, result); err != nil {
-		return empty, noImage, err
-	}
-	return b.publishStoppedBuilderImage(ctx, r, result, gate)
-}
-
-func (b *Backend) settleImageBuilder(r Builder, cause error) error {
-	cleanup, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	if _, err := b.StopBuilder(cleanup, r); err != nil {
-		return errors.Join(cause, fmt.Errorf("builder stop outcome unresolved; exact owned builder may remain active: %w", err))
-	}
-	return errors.Join(cause, errors.New("verified builder stopped; image stage refused"))
 }
 
 func (b *Backend) verifyBuilderCapture(ctx context.Context, r Builder, result BuilderNixResult, checkDerivation bool) error {
@@ -200,16 +95,10 @@ func installBuilderImageFiles(ctx context.Context, api builderImageFiles, result
 	if err := ensureGuestFile(ctx, api, nixenv.AttrsDir, guestFile{typ: "directory", uid: 0, gid: 0, mode: 0755}); err != nil {
 		return err
 	}
-	files := []guestInstall{
-		{builderActivationPath, guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: []byte(result.Material.Script)}},
-		{nixenv.AttrsDir + "/.attrs.sh", guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: []byte(result.Material.AttrsSH)}},
-		{nixenv.AttrsDir + "/.attrs.json", guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: []byte(result.Material.AttrsJSON)}},
-	}
-	manifest, err := json.Marshal(result.Material)
+	files, err := builderImageMaterial(result)
 	if err != nil {
 		return err
 	}
-	files = append(files, guestInstall{nixenv.AttrsDir + "/material.json", guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: manifest}})
 	for _, f := range files {
 		if err := ensureGuestFile(ctx, api, f.path, f.file); err != nil {
 			return err
@@ -218,17 +107,27 @@ func installBuilderImageFiles(ctx context.Context, api builderImageFiles, result
 	return verifyBuilderImageFiles(ctx, api, result)
 }
 
-func verifyBuilderImageFiles(ctx context.Context, api builderImageFiles, result BuilderNixResult) error {
+// builderImageMaterial is the root-owned, read-only activation material a
+// devShell image holds.
+func builderImageMaterial(result BuilderNixResult) ([]guestInstall, error) {
 	manifest, err := json.Marshal(result.Material)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, f := range []guestInstall{
+	return []guestInstall{
 		{builderActivationPath, guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: []byte(result.Material.Script)}},
 		{nixenv.AttrsDir + "/.attrs.sh", guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: []byte(result.Material.AttrsSH)}},
 		{nixenv.AttrsDir + "/.attrs.json", guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: []byte(result.Material.AttrsJSON)}},
 		{nixenv.AttrsDir + "/material.json", guestFile{typ: "file", uid: 0, gid: 0, mode: 0444, data: manifest}},
-	} {
+	}, nil
+}
+
+func verifyBuilderImageFiles(ctx context.Context, api builderImageFiles, result BuilderNixResult) error {
+	files, err := builderImageMaterial(result)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
 		got, exists, err := api.getBounded(ctx, f.path, int64(len(f.file.data)))
 		if err != nil || !exists || got.typ != "file" || got.uid != 0 || got.gid != 0 || got.mode != 0444 || string(got.data) != string(f.file.data) {
 			return errors.Join(err, fmt.Errorf("image material %s changed", f.path))
@@ -241,6 +140,9 @@ func verifyBuilderImageFiles(ctx context.Context, api builderImageFiles, result 
 	return nil
 }
 
+// smokeBuilderImage sources the installed activation in the workspace clone
+// as the builder user, then resolves again: the commit's NAR hash and
+// derivation must be what was realized.
 func (b *Backend) smokeBuilderImage(ctx context.Context, r Builder, result BuilderNixResult) error {
 	if err := b.checkBuilderRunning(ctx, r); err != nil {
 		return err
@@ -254,49 +156,30 @@ func (b *Backend) smokeBuilderImage(ctx context.Context, r Builder, result Build
 	if err := b.verifyBuilderCapture(ctx, r, result, true); err != nil {
 		return err
 	}
-	if err := b.prepareBuilderSmokeWorkspace(ctx, r); err != nil {
-		return err
-	}
 	// The script and hook run only as the unprivileged builder user. The
 	// builder has no host store, session credentials, or devices beyond its
 	// root disk and, with public egress, its public NIC.
 	const smoke = "source /etc/p/devshell/activate.sh && test \"$HOME\" = /home/p && test \"$USER\" = p && test \"$PWD\" = /workspace && command -v bash >/dev/null && command -v nix >/dev/null && test -e /nix/var/nix/daemon-socket/socket"
-	if _, err := b.builderGuestExecAt(ctx, r, "/workspace", "/run/current-system/sw/bin/bash", "-c", smoke); err != nil {
+	if _, err := b.builderGuestExec(ctx, r, "/run/current-system/sw/bin/bash", "-c", smoke); err != nil {
 		return fmt.Errorf("unprivileged devShell activation smoke failed: %w", err)
 	}
-	// Copying and sourcing as UID 1000 must not change the sealed evaluation
-	// tree. The source NAR and selected derivation remain authoritative.
+	// The hook may change the clone's working tree, but Nix reads the commit
+	// from its objects: the NAR hash and derivation must not move.
 	current, err := b.ResolveBuilderNix(ctx, r, result.Selection.System)
-	if err != nil || current.BaseOnly || current.SourceNarHash != result.Selection.SourceNarHash ||
-		current.DerivationPath != result.Selection.DerivationPath || current.KeyDigest != result.Selection.KeyDigest {
-		return errors.Join(err, errors.New("sealed source changed during activation smoke"))
+	if err != nil || current != result.Selection {
+		return errors.Join(err, errors.New("the commit's flake changed during activation smoke"))
 	}
 	return nil
 }
 
-func (b *Backend) prepareBuilderSmokeWorkspace(ctx context.Context, r Builder) error {
-	// The captured Git export is already limited to 20,000 entries and 256 MiB,
-	// and every relative symlink was validated before transfer. An unprivileged
-	// fixed copy gives hooks their eventual writable repository cwd without
-	// making the sealed Nix evaluation tree writable.
-	contents, err := b.builderGuestExecAt(ctx, r, "/workspace", "/run/current-system/sw/bin/ls", "-A", "/workspace")
-	if err != nil || len(contents) != 0 {
-		return errors.Join(err, errors.New("builder smoke workspace is not empty"))
-	}
-	if _, err := b.builderGuestExecAt(ctx, r, "/workspace", "/run/current-system/sw/bin/cp", "-R", "-P", "--", builderSource+"/.", "/workspace/"); err != nil {
-		return fmt.Errorf("copy captured source into disposable smoke workspace: %w", err)
-	}
-	if _, err := b.builderGuestExecAt(ctx, r, "/workspace", "/run/current-system/sw/bin/chmod", "-R", "u+rwX", "--", "/workspace"); err != nil {
-		return fmt.Errorf("make disposable smoke workspace writable: %w", err)
-	}
-	return nil
-}
-
+// scrubBuilderImage leaves the image only what it must hold: it removes the
+// builder's scratch, its source bundle, its logs and its network
+// configuration, and keeps the workspace clone.
 func scrubBuilderImage(ctx context.Context, api builderImageFiles) error {
 	// The builder is stopped: hook descendants cannot repopulate these trees.
 	// Incus's SFTP RemoveAll starts with Stat, so all roots and ancestors
 	// must be Lstat-verified real directories before recursive deletion.
-	if err := scrubBuilderScratch(ctx, api); err != nil {
+	if err := scrubBuilderScratch(ctx, api, true); err != nil {
 		return err
 	}
 	for _, item := range []struct {
@@ -304,11 +187,22 @@ func scrubBuilderImage(ctx context.Context, api builderImageFiles) error {
 		uid, gid, mode int
 		recreate       bool
 	}{
-		{"/opt/p/build", 0, 0, 0755, false},
+		{builderBuildDir, 0, 0, 0755, false},
 		{"/var/log", 0, 0, 0755, true},
-		{"/nix/var/log/nix", 0, 0, 0755, true},
 	} {
 		if err := scrubBuilderPath(ctx, api, item.path, item.uid, item.gid, item.mode, item.recreate); err != nil {
+			return err
+		}
+	}
+	// Nix makes its log tree only when it builds something: a commit without
+	// a devShell to realize leaves none, and then there is nothing to scrub.
+	if err := verifyScrubAncestors(ctx, api, "/nix/var/log"); err != nil {
+		return err
+	}
+	if _, exists, err := api.get(ctx, "/nix/var/log"); err != nil {
+		return err
+	} else if exists {
+		if err := scrubBuilderPath(ctx, api, "/nix/var/log/nix", 0, 0, 0755, true); err != nil {
 			return err
 		}
 	}
@@ -343,19 +237,23 @@ func scrubBuilderResolver(ctx context.Context, api builderImageFiles) error {
 	return createGuestAbsent(ctx, api, path, guestFile{typ: "symlink", uid: 0, gid: 0, mode: 0777, data: []byte(imageTarget)})
 }
 
-func scrubBuilderScratch(ctx context.Context, api builderImageFiles) error {
+// scrubBuilderScratch empties the builder user's writable trees and user Nix
+// roots while the builder is stopped. Before collection it empties the
+// workspace too, so a root registered from the clone cannot keep anything;
+// the final scrub keeps the fresh clone made after collection.
+func scrubBuilderScratch(ctx context.Context, api builderImageFiles, keepWorkspace bool) error {
 	// A shellHook can register indirect Nix roots from any user-writable
-	// location. Remove those paths while stopped, before collection. The
-	// trusted root under gcroots/p-devshell is outside these trees.
-	for _, item := range []struct {
+	// location. The trusted root under gcroots/p-devshell is outside these
+	// trees.
+	type scratch struct {
 		path           string
 		uid, gid, mode int
-	}{
-		{"/home/p", 1000, 1000, 0700},
-		{"/workspace", 1000, 1000, 0755},
-		{"/tmp", 0, 0, 01777},
-		{"/var/tmp", 0, 0, 01777},
-	} {
+	}
+	trees := []scratch{{"/home/p", 1000, 1000, 0700}, {"/tmp", 0, 0, 01777}, {"/var/tmp", 0, 0, 01777}}
+	if !keepWorkspace {
+		trees = append(trees, scratch{builderWorkspace, 1000, 1000, 0755})
+	}
+	for _, item := range trees {
 		if err := scrubBuilderPath(ctx, api, item.path, item.uid, item.gid, item.mode, true); err != nil {
 			return err
 		}
@@ -432,101 +330,137 @@ func verifyScrubAncestors(ctx context.Context, api builderImageFiles, path strin
 	return nil
 }
 
-func builderImageProperties(r Builder, result BuilderNixResult, instance, project string) map[string]string {
-	return map[string]string{
-		"p.contract":           imageContract,
-		"p.compression":        "none",
-		"p.instance":           instance,
-		"p.incus_project":      project,
-		"p.project_path":       r.ProjectPath,
-		"p.builder_request":    r.RequestUUID,
-		"p.base_image":         r.BaseImageFingerprint,
-		"p.environment_key":    result.Selection.KeyDigest,
-		"p.material":           result.MaterialDigest,
-		"p.capture_store_path": result.CaptureStorePath,
-		"p.system":             result.Selection.System,
+// verifyBuilderWorkspace reads the stopped image's workspace without
+// following a symlink: the builder user's clone with a detached HEAD at the
+// commit.
+func verifyBuilderWorkspace(ctx context.Context, api builderImageFiles, commit string) error {
+	workspace, err := api.fullDirectoryMode(ctx, builderWorkspace)
+	if err != nil || workspace.typ != "directory" || workspace.uid != 1000 || workspace.gid != 1000 || workspace.mode != 0755 {
+		return errors.Join(err, errors.New("image workspace is not the builder user's directory"))
 	}
+	for _, item := range []struct{ path, typ string }{{builderWorkspace + "/.git", "directory"}, {builderWorkspace + "/.git/HEAD", "file"}} {
+		f, err := api.lstat(ctx, item.path)
+		if err != nil || f.typ != item.typ || f.uid != 1000 || f.gid != 1000 {
+			return errors.Join(err, fmt.Errorf("image workspace %s is not the clone's", item.path))
+		}
+	}
+	head, exists, err := api.getBounded(ctx, builderWorkspace+"/.git/HEAD", 128)
+	if err != nil || !exists || head.typ != "file" || head.uid != 1000 || string(head.data) != commit+"\n" {
+		return errors.Join(err, errors.New("image workspace HEAD is not the commit, detached"))
+	}
+	// A session's runtime kit initializes the workspace once and marks it;
+	// the image must leave that to every session.
+	if _, exists, err := api.get(ctx, builderWorkspace+"/.git/p-initialized"); err != nil || exists {
+		return errors.Join(err, errors.New("image workspace is marked initialized"))
+	}
+	return nil
 }
 
-func (b *Backend) publishStoppedBuilderImage(ctx context.Context, r Builder, result BuilderNixResult, gate func(BuilderImageClaim) error) (nixenv.Handle, BuilderImageInfo, error) {
-	var zero nixenv.Handle
-	var info BuilderImageInfo
+// commitLabelProperties names the image property that stores each core
+// label.
+var commitLabelProperties = [...]struct{ label, property string }{
+	{runtimedriver.LabelProject, "p.project_path"},
+	{runtimedriver.LabelSourceCommit, "p.source_commit"},
+	{runtimedriver.LabelBaseImage, "p.base_image"},
+	{runtimedriver.LabelSystem, "p.system"},
+	{runtimedriver.LabelBuilderVersion, "p.builder_version"},
+	{runtimedriver.LabelBuild, "p.build"},
+}
+
+// commitImageLabels are the P properties a commit image carries: the core
+// labels under Incus names, this instance and project, and the devShell
+// outcome. Incus merges the base image's own properties in.
+func commitImageLabels(labels runtimedriver.Labels, shell runtimedriver.Shell, capture, instance, project string) map[string]string {
+	out := map[string]string{
+		"p.contract":      commitImageContract,
+		"p.compression":   commitImageCompression,
+		"p.instance":      instance,
+		"p.incus_project": project,
+		"p.selection":     string(shell.Selection),
+	}
+	for _, l := range commitLabelProperties {
+		out[l.property] = labels[l.label]
+	}
+	if shell.Selection == runtimedriver.SelectionDevShell {
+		out["p.material"] = shell.MaterialSHA256
+		out["p.capture_store_path"] = capture
+	}
+	return out
+}
+
+func commitImagePublishArgs(r Builder, labels map[string]string) []string {
+	args := []string{"publish", builderName(r), "--compression", commitImageCompression}
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		args = append(args, key+"="+labels[key])
+	}
+	return args
+}
+
+// publishCommitImage publishes the stopped, scrubbed builder as a private
+// image and verifies the image Incus reports. It sets *publishing before the
+// publish command: from then on a failure leaves an outcome to settle.
+func (b *Backend) publishCommitImage(ctx context.Context, r Builder, labels map[string]string, system string, publishing *bool) (builderImageJSON, error) {
+	var zero builderImageJSON
 	if err := b.CheckConfinement(ctx); err != nil {
-		return zero, info, err
+		return zero, err
 	}
 	o, err := b.InspectBuilder(ctx, r)
 	if err != nil || !o.Exists || !o.Ready || o.Status != "Stopped" {
-		return zero, info, errors.Join(err, errors.New("verified stopped builder required for publication"))
+		return zero, errors.Join(err, errors.New("verified stopped builder required for publication"))
 	}
 	before, err := b.imageList(ctx)
 	if err != nil {
-		return zero, info, err
+		return zero, err
 	}
-	labels := builderImageProperties(r, result, b.config.PInstanceID, b.config.Project)
 	properties, err := expectedBuilderImageProperties(before, r.BaseImageFingerprint, labels)
 	if err != nil {
-		return zero, info, err
+		return zero, err
 	}
-	claim := BuilderImageClaim{
-		ProjectPath: r.ProjectPath, Key: result.Selection.KeyDigest, BaseFingerprint: r.BaseImageFingerprint,
-		System: result.Selection.System, MaterialDigest: result.MaterialDigest,
-		CaptureStorePath: result.CaptureStorePath, BuilderRequest: r.RequestUUID,
-		Properties: maps.Clone(properties),
-	}
-	if err := gate(claim); err != nil {
-		return zero, info, err
-	}
-	args := builderImagePublishArgs(r, labels)
-	raw, err := b.builderCommand(ctx, args...)
+	*publishing = true
+	raw, err := b.builderCommand(ctx, commitImagePublishArgs(r, labels)...)
 	if err != nil {
-		return zero, info, errors.Join(err, b.unresolvedBuilderPublish(before, properties, result.Selection.System))
+		return zero, fmt.Errorf("Incus publish outcome unknown: %w", err)
 	}
 	const prefix = "Instance published with fingerprint: "
 	line := strings.TrimSpace(string(raw))
-	if !strings.HasPrefix(line, prefix) || !fingerprintPattern.MatchString(strings.TrimPrefix(line, prefix)) {
-		return zero, info, errors.Join(errors.New("Incus publish returned no exact fingerprint"), b.unresolvedBuilderPublish(before, properties, result.Selection.System))
+	fingerprint, ok := strings.CutPrefix(line, prefix)
+	if !ok || !fingerprintPattern.MatchString(fingerprint) {
+		return zero, errors.New("Incus publish returned no exact fingerprint")
 	}
-	fingerprint := strings.TrimPrefix(line, prefix)
 	for _, image := range before {
 		if image.Fingerprint == fingerprint {
-			return zero, info, errors.New("published fingerprint existed before request")
+			return zero, errors.New("published fingerprint existed before request")
 		}
 	}
 	after, err := b.imageList(ctx)
 	if err != nil {
-		return zero, info, errors.Join(err, fmt.Errorf("published fingerprint %s remains unaccepted pending metadata verification", fingerprint))
+		return zero, errors.Join(err, fmt.Errorf("published fingerprint %s unverified", fingerprint))
 	}
+	var published builderImageJSON
 	var matches int
 	for _, image := range after {
 		if image.Fingerprint != fingerprint {
 			continue
 		}
 		matches++
-		if err := checkPublishedBuilderImage(image, properties, result.Selection.System, b.config.Project); err != nil {
-			return zero, info, errors.Join(err, fmt.Errorf("published fingerprint %s remains unaccepted", fingerprint))
+		if err := checkPublishedBuilderImage(image, properties, system, b.config.Project); err != nil {
+			return zero, errors.Join(err, fmt.Errorf("published fingerprint %s differs from its build", fingerprint))
 		}
-		info = BuilderImageInfo{Fingerprint: fingerprint, Project: b.config.Project, Size: image.Size, Properties: properties}
+		published = image
 	}
 	if matches != 1 {
-		return zero, BuilderImageInfo{}, control.OutcomeUnknown(fmt.Errorf("published fingerprint %s missing or ambiguous", fingerprint))
+		return zero, fmt.Errorf("published fingerprint %s missing or ambiguous", fingerprint)
 	}
 	afterBuilder, err := b.InspectBuilder(ctx, r)
 	if err != nil || !afterBuilder.Exists || afterBuilder.Status != "Stopped" {
-		return zero, BuilderImageInfo{}, errors.Join(err, fmt.Errorf("builder changed during publication of fingerprint %s; image remains unaccepted", fingerprint))
+		return zero, errors.Join(err, fmt.Errorf("builder changed during publication of fingerprint %s", fingerprint))
 	}
-	info.BuilderCleanupPending = true
-	if _, err := b.DeleteBuilder(ctx, r); err == nil {
-		info.BuilderCleanupPending = false
-	}
-	return nixenv.Handle{TargetKind: "incus-system-image", ContractVersion: imageContract, ContentIdentity: result.MaterialDigest, Locator: fingerprint}, info, nil
-}
-
-func builderImagePublishArgs(r Builder, labels map[string]string) []string {
-	args := []string{"publish", builderName(r), "--compression", "none"}
-	for _, key := range []string{"p.contract", "p.compression", "p.instance", "p.incus_project", "p.project_path", "p.builder_request", "p.base_image", "p.environment_key", "p.material", "p.capture_store_path", "p.system"} {
-		args = append(args, key+"="+labels[key])
-	}
-	return args
+	return published, nil
 }
 
 // Incus exports the instance's inherited base metadata.yaml and merges the
@@ -560,31 +494,26 @@ func expectedBuilderImageProperties(before []builderImageJSON, base string, labe
 	return properties, nil
 }
 
-// A canceled client can leave a daemon operation in flight. One immediate
-// inventory cannot prove absence, so a failed publish never yields a handle,
-// never retries automatically, and never deletes a possible orphan.
-func (b *Backend) unresolvedBuilderPublish(before []builderImageJSON, properties map[string]string, system string) error {
-	probe, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	after, err := b.imageList(probe)
-	if err == nil {
-		old := map[string]bool{}
-		for _, image := range before {
-			old[image.Fingerprint] = true
-		}
-		for _, image := range after {
-			if old[image.Fingerprint] || !fingerprintPattern.MatchString(image.Fingerprint) {
-				continue
-			}
-			if checkPublishedBuilderImage(image, properties, system, b.config.Project) == nil {
-				return control.OutcomeUnknown(fmt.Errorf("image publication outcome unresolved; P-labeled orphan image %s", image.Fingerprint))
-			}
+func checkPublishedBuilderImage(image builderImageJSON, properties map[string]string, system, project string) error {
+	if err := checkPrivateImage(image, system, project); err != nil {
+		return err
+	}
+	if len(image.Properties) != len(properties) {
+		missing, extra := imagePropertyKeyDifference(image.Properties, properties)
+		return fmt.Errorf("published image property count changed: got %d expected %d missing=%s extra=%s", len(image.Properties), len(properties), missing, extra)
+	}
+	for key, value := range properties {
+		actual, ok := image.Properties[key]
+		if !ok || actual != value {
+			return fmt.Errorf("published image property %s changed", key)
 		}
 	}
-	return control.OutcomeUnknown(errors.New("image publication outcome unresolved; a P-labeled image may appear after the client disconnects"))
+	return nil
 }
 
-func checkPublishedBuilderImage(image builderImageJSON, properties map[string]string, system, project string) error {
+// checkPrivateImage holds for every image P builds: a private container image
+// of the system's architecture in P's Incus project, with no alias.
+func checkPrivateImage(image builderImageJSON, system, project string) error {
 	if image.Type != "container" {
 		return errors.New("published image type changed")
 	}
@@ -602,16 +531,6 @@ func checkPublishedBuilderImage(image builderImageJSON, properties map[string]st
 	}
 	if image.Project != "" && image.Project != project {
 		return errors.New("published image project changed")
-	}
-	if len(image.Properties) != len(properties) {
-		missing, extra := imagePropertyKeyDifference(image.Properties, properties)
-		return fmt.Errorf("published image property count changed: got %d expected %d missing=%s extra=%s", len(image.Properties), len(properties), missing, extra)
-	}
-	for key, value := range properties {
-		actual, ok := image.Properties[key]
-		if !ok || actual != value {
-			return fmt.Errorf("published image property %s changed", key)
-		}
 	}
 	return nil
 }
@@ -668,4 +587,27 @@ func (b *Backend) imageList(ctx context.Context) ([]builderImageJSON, error) {
 		return nil, err
 	}
 	return images, nil
+}
+
+// pendingImagePublications counts the image operations Incus is running. A
+// publish runs as one; until none is left, a missing image may still appear.
+func (b *Backend) pendingImagePublications(ctx context.Context) (int, error) {
+	raw, err := b.command(ctx, "operation", "list", "--format", "json")
+	if err != nil {
+		return 0, err
+	}
+	var operations []struct {
+		Description string `json:"description"`
+		Status      string `json:"status"`
+	}
+	if err := decode(raw, &operations); err != nil {
+		return 0, err
+	}
+	var pending int
+	for _, op := range operations {
+		if op.Description == "Downloading image" && (op.Status == "Running" || op.Status == "Pending") {
+			pending++
+		}
+	}
+	return pending, nil
 }

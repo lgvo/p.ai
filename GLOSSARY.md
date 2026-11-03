@@ -32,6 +32,23 @@ successfully contacted empty origin.
 - **Rules:** It is the only MVP session without a committed source. Its first
   push creates `main`; no artificial commit is created by P.
 
+### Commit image
+
+The immutable image sessions started from one source commit are created from:
+the P base, that commit's Nix development environment, and a clone of the
+commit in the workspace.
+
+- **Related:** [Session](#session), [runtime driver](#runtime-driver).
+- **Boundaries:** It holds nothing that belongs to one session: no UUID,
+  branch, credentials, endpoints, or home. A session's later work stays in its
+  runtime and never changes the image.
+- **Rules:** P keeps one image per project, source commit, base image, system,
+  and builder version, builds it in an isolated builder, and deletes it once
+  no session started from its commit exists, or with its project. Images apply
+  only when trusted host configuration enables image building; otherwise a
+  session starts from the P base image.
+- **Avoid:** `environment image` and `cached image` for this concept.
+
 ### Event handler
 
 A host-side capability that receives versioned, reduced P events after domain
@@ -182,6 +199,21 @@ The replaceable execution machinery associated with a session.
 - **Boundaries:** A runtime is not session identity, an attachment, or an
   agent. MVP realizes it as one Incus system container, but the concept does not
   depend on that implementation.
+
+### Runtime driver
+
+The trusted code that owns runtime machinery for P core, addressed in P's
+terms rather than its backend's.
+
+- **Related:** [Runtime](#runtime), [commit image](#commit-image).
+- **Boundaries:** It is part of trusted P, not a plugin; repositories,
+  requests, and plugins never reach it. Only its image part exists so far:
+  building, listing, inspecting, and deleting commit images, settling a build
+  whose outcome is unknown, and removing a build's leftovers. Its Incus
+  implementation runs inside the P daemon; other runtime effects do not yet go
+  through the driver.
+- **Rules:** It acts only on objects carrying its P instance's labels, stores
+  those labels immutably, and claims nothing after an error.
 
 ### Session
 

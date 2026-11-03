@@ -18,7 +18,7 @@ func prepareCreationInitState(op *api.Operation) error {
 		return nil
 	}
 	switch op.Phase {
-	case "source-ready", "branch-assigned", "environment-publishing", "environment-ready":
+	case "source-ready", "branch-assigned", "image-ready":
 		ev.RuntimeInitState = "not-attempted"
 		op.Evidence, err = json.Marshal(ev)
 	}

@@ -44,6 +44,9 @@ CREATE UNIQUE INDEX active_assembled_cleanup ON operations(session_uuid)
  WHERE status IN ('running','blocked','unknown') AND
  kind='session.create.cleanup' AND COALESCE(json_type(evidence_json,'$.review.runtime'),'')='object';
 CREATE UNIQUE INDEX one_project_delete ON operations(project_path) WHERE kind='project.delete' AND status IN ('running','blocked','unknown');
+-- A session's creation, found by its session: which commit a session was
+-- started from decides whether its commit's image is still in use.
+CREATE INDEX session_creation ON operations(session_uuid) WHERE kind='session.create';
 
 CREATE TABLE git_principals (
  fingerprint TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('host','session')),
@@ -98,27 +101,30 @@ CREATE TABLE publication_requests (
  result_json TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE environment_images (
+-- One image per source commit: the index P uses to find the image a session
+-- from a commit is created from. The runtime stores the same facts as the
+-- image's labels. A releasing row is never reused until its delete settles.
+CREATE TABLE commit_images (
  project_path TEXT NOT NULL REFERENCES projects(path),
- environment_key TEXT NOT NULL,
- fingerprint TEXT NOT NULL,
- base_fingerprint TEXT NOT NULL,
+ commit_oid TEXT NOT NULL,
+ base_image TEXT NOT NULL,
  system TEXT NOT NULL,
- material_digest TEXT NOT NULL,
- capture_store_path TEXT NOT NULL,
- builder_request_uuid TEXT NOT NULL,
- properties_json TEXT NOT NULL,
+ builder_version TEXT NOT NULL,
+ image_ref TEXT NOT NULL UNIQUE,
+ build_ref TEXT NOT NULL,
+ labels_json TEXT NOT NULL,
+ selection TEXT NOT NULL CHECK(selection IN ('no-flake','no-default','devshell')),
+ material_sha256 TEXT NOT NULL DEFAULT '',
+ logical_size INTEGER NOT NULL CHECK(logical_size >= 0),
+ state TEXT NOT NULL CHECK(state IN ('ready','releasing')),
  created_at TEXT NOT NULL,
- logical_size INTEGER NOT NULL DEFAULT 0 CHECK(logical_size >= 0),
- last_used_at TEXT NOT NULL DEFAULT '',
- PRIMARY KEY(project_path, environment_key)
+ PRIMARY KEY(project_path, commit_oid, base_image, system, builder_version)
 );
-CREATE INDEX environment_images_fingerprint ON environment_images(fingerprint);
 
 -- Public IPv4 slots are reserved with the session row, including a blank
--- project's bootstrap session, and for a creating session's environment
--- builder until its environment is ready. The four slots fit the confined
--- Incus ceiling and cannot be claimed twice by concurrent transactions.
+-- project's bootstrap session, and for a creating session's image builder
+-- until its image is ready. The four slots fit the confined Incus ceiling and
+-- cannot be claimed twice by concurrent transactions.
 CREATE TABLE session_public_addresses (
  session_uuid TEXT PRIMARY KEY REFERENCES sessions(uuid) ON DELETE CASCADE,
  slot INTEGER NOT NULL UNIQUE CHECK(slot BETWEEN 0 AND 3)
@@ -308,11 +314,11 @@ CREATE TRIGGER publication_requests_retired_key BEFORE INSERT ON publication_req
  WHEN EXISTS(SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=NEW.idempotency_key)
  BEGIN SELECT RAISE(ABORT,'constraint failed: project-deleted request retired'); END;
 
--- environment_images
-CREATE TRIGGER deleting_project_environment_images_insert BEFORE INSERT ON environment_images
+-- commit_images
+CREATE TRIGGER deleting_project_commit_images_insert BEFORE INSERT ON commit_images
  WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
  BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
-CREATE TRIGGER deleting_project_environment_images_update BEFORE UPDATE ON environment_images
+CREATE TRIGGER deleting_project_commit_images_update BEFORE UPDATE ON commit_images
  WHEN EXISTS(SELECT 1 FROM projects WHERE path=NEW.project_path AND registry_state='deleting')
  BEGIN SELECT RAISE(ABORT,'constraint failed: project deletion authority closed'); END;
 

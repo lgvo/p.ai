@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Native restricted builder only: committed source transfer and real quota.
+# Native restricted builder only: the commit's bundle, its clone and real quota.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-21"

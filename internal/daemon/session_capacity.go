@@ -75,22 +75,25 @@ func associateSessionCapacity(ctx context.Context, reservations []control.Capaci
 				continue
 			}
 		}
-		if reservation.Kind != "session.create" || !names["p-builder-"+reservation.OperationID] {
+		if reservation.Kind != "session.create" {
 			continue
 		}
+		// Only the build of an attempted or abandoned cycle can hold a builder.
 		var ev control.CreationEvidence
-		if json.Unmarshal(reservation.Evidence, &ev) != nil || ev.Environment == nil || ev.CapturedOID == "" {
+		if json.Unmarshal(reservation.Evidence, &ev) != nil || ev.Environment == nil || ev.CapturedOID == "" ||
+			ev.EnvironmentBuilder == nil || ev.EnvironmentBuilder.State != "attempted" && ev.EnvironmentBuilder.State != "abandoned" {
 			continue
 		}
-		if ev.BuilderTreeOID == "" {
-			continue // older unresolved builder: physical plus reservation, conservatively
+		build := control.BuildRef(reservation.OperationID, ev.EnvironmentBuilder.Cycle)
+		if !names["p-builder-"+build] {
+			continue
 		}
 		address, err := builderAddress(ctx, reservation.SessionUUID)
 		if err != nil {
 			continue // physical slot remains counted
 		}
-		builder := runtimeincus.Builder{RequestUUID: reservation.OperationID, ProjectPath: reservation.Project,
-			CommitOID: ev.CapturedOID, TreeOID: ev.BuilderTreeOID, BaseImageFingerprint: ev.Environment.BaseFingerprint,
+		builder := runtimeincus.Builder{RequestUUID: build, ProjectPath: reservation.Project,
+			CommitOID: ev.CapturedOID, BaseImageFingerprint: ev.Environment.BaseFingerprint,
 			ContractVersion: "1", PublicIPv4: address}
 		if native, err := inspectBuilder(ctx, builder); err == nil && native.Exists {
 			observed.Occupied[reservation.SessionUUID] = true

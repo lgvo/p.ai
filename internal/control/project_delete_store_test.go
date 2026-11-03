@@ -43,17 +43,16 @@ func projectDeleteFixture(t *testing.T) (*Store, string, ProjectDeleteRequest, P
 	if ev.Sessions[0].Session.UUID > ev.Sessions[1].Session.UUID {
 		ev.Sessions[0], ev.Sessions[1] = ev.Sessions[1], ev.Sessions[0]
 	}
-	image := testEnvironmentImage("bulk")
-	image.Fingerprint = strings.Repeat("e", 64)
-	if e := s.PutEnvironmentImage(ctx, image); e != nil {
+	image := testCommitImage("bulk", strings.Repeat("a", 40))
+	if e := s.PutCommitImage(ctx, image); e != nil {
 		t.Fatal(e)
 	}
-	image, _, _ = s.GetEnvironmentImage(ctx, image.Project, image.Key)
-	ev.Images = []EnvironmentCollectionClaim{{Image: image, ImagePresent: true, ObservedSize: 1024, RelatedDigest: strings.Repeat("c", 64)}}
+	image, _, _ = s.GetCommitImage(ctx, image.Key)
+	ev.Images = []CommitImageClaim{{Image: image, ImagePresent: true, ObservedSize: 1024, RelatedDigest: strings.Repeat("c", 64)}}
 	for _, ps := range ev.Sessions {
 		ev.Resources = append(ev.Resources, ProjectDeleteResource{Kind: "runtime", ID: ps.Session.UUID, Status: "remaining"}, ProjectDeleteResource{Kind: "local", ID: ps.Session.UUID, Status: "remaining"})
 	}
-	ev.Resources = append(ev.Resources, ProjectDeleteResource{Kind: "image", ID: image.Key, Status: "remaining"}, ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
+	ev.Resources = append(ev.Resources, ProjectDeleteResource{Kind: "image", ID: image.Ref, Status: "remaining"}, ProjectDeleteResource{Kind: "repository", ID: "bare", Status: "remaining"})
 	if _, e := s.db.ExecContext(ctx, `INSERT INTO origin_requests VALUES('old-origin','bulk','remove','ssh://host/private-origin','','completed','now','now','{}')`); e != nil {
 		t.Fatal(e)
 	}
@@ -101,6 +100,8 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 		`INSERT INTO origin_requests VALUES('late','bulk','remove','','','prepared','now','','')`,
 		`INSERT INTO git_ref_guards VALUES('bulk','late','` + op.ID + `')`,
 		`INSERT INTO operations(id,idempotency_key,kind,project_path,request_json,request_sha256,intent_json,status,phase,created_at,updated_at) VALUES('late','late','session.create','bulk','{}','hash','{}','running','reserved','now','now')`,
+		`INSERT INTO commit_images(project_path,commit_oid,base_image,system,builder_version,image_ref,build_ref,labels_json,selection,logical_size,state,created_at) VALUES('bulk','late','base','x86_64-linux','v1','late','build','{}','no-flake',0,'ready','now')`,
+		`UPDATE commit_images SET state='releasing' WHERE project_path='bulk'`,
 	} {
 		if _, e := s.db.ExecContext(ctx, q); e == nil {
 			t.Fatal("late authority bypass", q)
@@ -236,7 +237,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 	if _, e = (OriginAPI{Store: s, Runner: publicationRunner}).PublishPublication(ctx, PublicationRequest{Key: "old-publication", Project: "bulk", ExpectedOriginURL: "ssh://host/private-origin", Kind: "retained", Source: "main", SourceOID: strings.Repeat("a", 40), DestinationRef: "refs/heads/main"}); !errors.Is(e, ErrConflict) || publicationRunner.observes != 0 || publicationRunner.pushes != 0 {
 		t.Fatal("retired publication contacted external authority", e)
 	}
-	for _, table := range []string{"origin_requests", "publication_requests", "sessions", "projects", "environment_images"} {
+	for _, table := range []string{"origin_requests", "publication_requests", "sessions", "projects", "commit_images"} {
 		var count int
 		if e = s.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+func() string {
 			if table == "projects" {
@@ -264,7 +265,7 @@ func TestProjectDeleteAtomicClosureSQLiteReopenAndMonotonicResources(t *testing.
 	}
 }
 func TestProjectDeleteStaleSnapshotAndAdmissionRace(t *testing.T) {
-	for _, change := range []string{"verify", "expiry", "policy", "new-session", "active-operation", "origin", "cache"} {
+	for _, change := range []string{"verify", "expiry", "policy", "new-session", "active-operation", "origin", "image"} {
 		t.Run(change, func(t *testing.T) {
 			s, _, req, ev := projectDeleteFixture(t)
 			ctx := context.Background()
@@ -289,9 +290,8 @@ func TestProjectDeleteStaleSnapshotAndAdmissionRace(t *testing.T) {
 				if e != nil {
 					t.Fatal(e)
 				}
-			case "cache":
-				_, e := s.db.ExecContext(ctx, `UPDATE environment_images SET logical_size=999 WHERE project_path='bulk'`)
-				if e != nil {
+			case "image":
+				if e := s.MarkCommitImageReleasing(ctx, ev.Images[0].Image.Key, ev.Images[0].Image.Ref); e != nil {
 					t.Fatal(e)
 				}
 			}
@@ -323,5 +323,28 @@ func TestProjectDeleteStaleSnapshotAndAdmissionRace(t *testing.T) {
 	wg.Wait()
 	if (deleteErr == nil) == (createErr == nil) {
 		t.Fatalf("authority race elected %v / %v", deleteErr, createErr)
+	}
+}
+
+func TestProjectDeletionPreviewShowsEachReviewedImageClaim(t *testing.T) {
+	img := testCommitImage("bulk", strings.Repeat("a", 40))
+	img.State = "releasing"
+	claim := CommitImageClaim{Image: img, ImagePresent: true, ObservedSize: 2048, RelatedDigest: strings.Repeat("f", 64)}
+	k := img.Key
+	want := []api.CommitImageClaim{{
+		Image: api.CommitImage{
+			Key: api.CommitImageKey{Project: "bulk", Commit: k.Commit, BaseImage: k.BaseImage, System: "x86_64-linux", BuilderVersion: "incus-commit-image/1"},
+			Ref: img.Ref, Build: img.Build,
+			Labels: []api.ImageLabel{{Name: "base_image", Value: k.BaseImage}, {Name: "build", Value: img.Build}, {Name: "builder_version", Value: "incus-commit-image/1"},
+				{Name: "project", Value: "bulk"}, {Name: "source_commit", Value: k.Commit}, {Name: "system", Value: "x86_64-linux"}},
+			Selection: "devshell", MaterialSHA256: img.MaterialSHA256, Size: 1024, State: "releasing",
+		},
+		ImagePresent: true, ObservedSize: 2048, RelatedDigest: strings.Repeat("f", 64),
+	}}
+	if got := CommitImageClaimViews([]CommitImageClaim{claim}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("preview shows %+v, want %+v", got, want)
+	}
+	if got := CommitImageClaimViews(nil); got == nil || len(got) != 0 {
+		t.Fatalf("a deletion without images shows %#v, not an empty list", got)
 	}
 }

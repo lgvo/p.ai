@@ -4,7 +4,7 @@ A manual experiment for validating P's Incus/Nix environment model against a
 real Nix repository before relying on P automation.
 
 > **Status: development validation, not product authority.** The authoritative
-> design is [Nix environment images](environment-building.md) and
+> design is [commit images](environment-building.md) and
 > [runtime and isolation](runtime-isolation.md). Record evidence here or beside
 > the eventual tests; do not weaken those boundaries merely to make the
 > experiment pass.
@@ -15,7 +15,7 @@ Use the Nix repository that manages the homelab fleet as the demanding fixture.
 Prove that an unprivileged, confined Incus system container can:
 
 - evaluate and realize the committed default devShell;
-- become a reusable private Incus environment image;
+- become a reusable private Incus image of the commit, holding its clone;
 - launch independent sessions with private writable Nix state;
 - evaluate and build the repository's ordinary outputs after workspace edits;
 - use public substitutes/fetches without host or LAN authority; and
@@ -66,7 +66,7 @@ Test at least:
 | Network | `none`; gated `public-egress` |
 | Storage | the actual production driver; compare `dir` with a CoW driver when choosing defaults |
 | Repository | a small fixture and the real homelab repository |
-| Session count | two sessions from one environment fingerprint |
+| Session count | two sessions from one commit image |
 
 For each phase capture elapsed time, peak disk/logical size where practical,
 Incus operation/result, image fingerprint, private instance growth, command
@@ -110,12 +110,14 @@ ambient authority.
 ## Phase 2: resolve and realize the committed devShell
 
 Create a disposable unprivileged builder from the exact base fingerprint.
-Materialize a read-only snapshot of the selected Git commit at a build-only
-path. Do not use a dirty checkout.
+Transfer a Git bundle of the selected commit into it, read-only, and clone the
+bundle into `/workspace`, detached at the commit, without submodules. Do not
+use a dirty checkout.
 
 Inside the builder:
 
-1. resolve `devShells.<system>.default` in pure mode;
+1. resolve `devShells.<system>.default` in pure mode from the clone, as
+   `git+file:///workspace?rev=<commit>` pinned by its NAR hash;
 2. prevent flake-lock creation/update and ambient registry/`NIX_PATH` use;
 3. realize the environment using only declared public substituters/fetches;
 4. capture versioned activation material with the pinned, compatibility-tested
@@ -133,19 +135,22 @@ unsupported system, sandbox limitation, blocked fetch, or resource exhaustion.
 They must be actionable and must not silently fall back to the base image when
 a default devShell exists but fails.
 
-## Phase 3: scrub and publish the environment image
+## Phase 3: scrub and publish the commit image
 
-Before publication, remove the materialized checkout, unreachable temporary
-Nix paths, temporary build output, transient logs/network material, and any
-credential. Verify the builder contains:
+Before publication, remove the source bundle, unreachable temporary Nix paths,
+temporary build output, transient logs/network material, and any credential,
+and replace the workspace with a fresh clone made after the last shell hook
+ran. Verify the builder contains:
 
 - the coherent base plus realized devShell store/database;
 - the selected environment GC root;
-- activation material and fixed runtime kit; and
-- no writable/materialized repository checkout, session UUID, branch, private
-  key, origin credential/remote, host path, other-project material, or
-  builder-only state. Record any committed source-derived Nix store paths that
-  the retained closure legitimately requires.
+- activation material and fixed runtime kit;
+- `/workspace` holding a clean clone of the commit, detached, with no branch,
+  ref, remote or credential; and
+- no source bundle, session UUID, branch, private key, origin
+  credential/remote, host path, other-project material, or builder-only
+  state. Record any committed source-derived Nix store paths that the
+  retained closure legitimately requires.
 
 Stop the builder, publish it as a private Incus image, record its fingerprint,
 and delete the builder. If cleanup is interrupted, verify its labels make it an
@@ -153,21 +158,21 @@ obvious builder orphan rather than an adoptable session.
 
 ## Phase 4: launch two isolated sessions
 
-Create two unprivileged instances from the same environment fingerprint. For
-each, create a standalone clone at `/workspace` only after instance creation;
-give it a distinct branch and no origin remote/credential. Provide a private
-`/home/p`, `/run/p`, and instance-root `/nix`.
+Create two unprivileged instances from the same commit image. In each, put the
+image's clone at `/workspace` on a distinct branch, with no origin
+remote/credential. Provide a private `/home/p`, `/run/p`, and instance-root
+`/nix`.
 
 Verify:
 
 - both activate the expected devShell and shell hook;
-- the environment image/fingerprint is identical;
+- the image fingerprint is identical;
 - workspace, home, Nix database changes, profiles, roots, and new store paths
   are private to each instance;
 - no host `/nix` path or daemon socket is mounted;
 - stopping and starting retains files and private Nix paths but terminates
   tmux/processes; and
-- deleting one instance does not affect the other or the cached image.
+- deleting one instance does not affect the other or the image.
 
 Measure logical root sizes and storage-pool physical use. Attribute observed
 sharing to the tested Incus storage driver, not to a P guarantee.
@@ -187,8 +192,9 @@ needs:
    session A's private root.
 
 Session B must retain its original environment and must not observe session
-A's Nix changes. The cached environment image fingerprint must remain
-unchanged. Dirty workspace changes are never promoted to a new shared image.
+A's Nix changes. The image fingerprint must remain unchanged. Session work,
+committed or not, never becomes an image; only a session from a new source
+commit builds one.
 
 Classify failures rather than broadening authority:
 
@@ -202,22 +208,27 @@ Classify failures rather than broadening authority:
 | KVM/device/nesting | future explicit capability or VM backend |
 | remote Nix builder | future design |
 
-## Phase 6: cache and failure behavior
+## Phase 6: image reuse and failure behavior
 
 Repeat creation under these conditions:
 
-- existing registered image fingerprint: verify no builder is needed;
-- SQLite/index entry missing but image present: record chosen safe discovery or
-  rebuild behavior;
-- index present but image externally removed: verify a cache miss/rebuild;
-- two concurrent requests for one missing key: verify one shared in-memory job
-  or harmless duplicate prevention through deterministic builder metadata;
-- daemon interruption during build/publish/cleanup: query Incus and retry
-  without inventing a durable phase workflow for image bytes; and
-- explicit cache deletion while existing sessions run/stay stopped: verify
+- a commit that already has an image: verify no builder and no clone are
+  needed;
+- a commit that changes only code: verify a new image is built;
+- SQLite/index entry missing but image present: verify P builds a new image
+  and its release step deletes the unindexed one;
+- index present but image externally removed: verify a rebuild;
+- two concurrent creations from one commit without an image: verify one
+  build, which the second creation reuses;
+- daemon interruption during build/publish/cleanup: verify Retry settles the
+  build from Incus state, without inventing a durable phase workflow for image
+  bytes, and that a new attempt uses a new build reference;
+- deleting the last session from a commit: verify its image is deleted; and
+- external image deletion while existing sessions run/stay stopped: verify
   their private roots continue and future creation rebuilds.
 
-There are no session artifact leases and no automatic age/pressure collection.
+There are no artifact leases and no age or pressure collection: an image lives
+while some session started from its commit exists and goes with its project.
 
 ## Phase 7: network and secret-negative tests
 
@@ -248,10 +259,12 @@ record shows:
 
 1. confined user authority without administrative fallback;
 2. reproducible committed default-devShell selection and no lock mutation;
-3. coherent scrubbed immutable Incus environment image;
+3. coherent scrubbed immutable Incus commit image holding a clean clone of
+   the commit;
 4. independent private session `/nix`, workspace, and home deltas;
 5. representative homelab evaluate/build work after workspace changes;
-6. correct stop/start/remove/cache-miss behavior;
+6. correct stop/start/remove/missing-image behavior, and image deletion with
+   the last session from its commit;
 7. documented cold/substituted/image-hit performance and physical storage for
    the tested driver; and
 8. no host/LAN/credential/Incus-authority escape.

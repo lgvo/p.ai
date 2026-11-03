@@ -534,7 +534,7 @@ invocation snapshots also acquire leases and honor disable markers.
 Removal requires trusted deselection and no durable dependency. Existing
 session/operation evidence, unresolved provenance, pending
 origin/publication recovery or a live package lease refuse removal. Indexed
-environment images do not refuse removal: no package builds them. Finish
+commit images do not refuse removal: no package builds them. Finish
 supported lifecycle cleanup or recovery first; unknown holders require
 investigation and preserve the package. The manager rechecks
 trusted selection and dependencies under the exclusive package lease, syncs a

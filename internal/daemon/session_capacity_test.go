@@ -18,9 +18,10 @@ func TestCapacityAssociationExactSessionAndPendingBuilders(t *testing.T) {
 	base := strings.Repeat("a", 64)
 	selected := strings.Repeat("b", 64)
 	first, _ := json.Marshal(control.BlankProjectEvidence{ImageFingerprint: base})
+	// Each creation's attempted build is its second cycle.
 	creator := func(oid string) json.RawMessage {
-		ev := control.CreationEvidence{CapturedOID: oid, BuilderTreeOID: strings.Repeat("c", 40), ImageFingerprint: selected,
-			Environment: &control.EnvironmentIntent{BaseFingerprint: base}}
+		ev := control.CreationEvidence{CapturedOID: oid, ImageFingerprint: selected,
+			Environment: &control.EnvironmentIntent{BaseFingerprint: base}, EnvironmentBuilder: &control.CreationBuilderState{Cycle: 2, State: "attempted"}}
 		data, _ := json.Marshal(ev)
 		return data
 	}
@@ -34,7 +35,7 @@ func TestCapacityAssociationExactSessionAndPendingBuilders(t *testing.T) {
 		{SessionUUID: ids[2], Project: project, Policy: policy, Kind: "session.create", OperationID: ops[1], Evidence: creator(strings.Repeat("e", 40))},
 	}
 	physical := runtimeincus.SessionCapacity{Limit: 4, Instances: []runtimeincus.SessionCapacityInstance{
-		{Name: "p-" + ids[0]}, {Name: "p-builder-" + ops[0]}, {Name: "p-builder-" + ops[1]},
+		{Name: "p-" + ids[0]}, {Name: "p-builder-" + control.BuildRef(ops[0], 2)}, {Name: "p-builder-" + control.BuildRef(ops[1], 2)},
 	}}
 	inspectSession := func(_ context.Context, session runtimeincus.Session) (runtimeincus.Observation, error) {
 		if session.SessionUUID != ids[0] || session.EndpointSource != filepath.Join("/run/p-endpoints", ids[0]) || session.ImageFingerprint != base {
@@ -50,10 +51,10 @@ func TestCapacityAssociationExactSessionAndPendingBuilders(t *testing.T) {
 		return "", nil
 	}
 	inspectBuilder := func(_ context.Context, builder runtimeincus.Builder) (runtimeincus.BuilderObservation, error) {
-		if builder.TreeOID != strings.Repeat("c", 40) || builder.BaseImageFingerprint != base || builder.ProjectPath != project {
+		if builder.RequestUUID != control.BuildRef(ops[0], 2) && builder.RequestUUID != control.BuildRef(ops[1], 2) || builder.BaseImageFingerprint != base || builder.ProjectPath != project || len(builder.CommitOID) != 40 {
 			t.Fatalf("builder inspection lacks durable identity: %+v", builder)
 		}
-		if (builder.RequestUUID == ops[0]) != (builder.PublicIPv4 == "10.233.0.11/24") {
+		if (builder.RequestUUID == control.BuildRef(ops[0], 2)) != (builder.PublicIPv4 == "10.233.0.11/24") {
 			t.Fatalf("builder inspected without its session's address: %+v", builder)
 		}
 		return runtimeincus.BuilderObservation{Exists: true}, nil
@@ -65,7 +66,7 @@ func TestCapacityAssociationExactSessionAndPendingBuilders(t *testing.T) {
 	// A same-name but wrong-label builder fails exact inspection. It still
 	// consumes a physical slot while its session may yet need another.
 	badBuilder := func(_ context.Context, builder runtimeincus.Builder) (runtimeincus.BuilderObservation, error) {
-		if builder.RequestUUID == ops[1] {
+		if builder.RequestUUID == control.BuildRef(ops[1], 2) {
 			return runtimeincus.BuilderObservation{}, nil
 		}
 		return runtimeincus.BuilderObservation{Exists: true}, nil
@@ -73,6 +74,28 @@ func TestCapacityAssociationExactSessionAndPendingBuilders(t *testing.T) {
 	got, err = associateSessionCapacity(context.Background(), reservations, physical, ids[0], "/run/p-endpoints", inspectSession, badBuilder, builderAddress)
 	if err != nil || got.PhysicalCount != 3 || got.Occupied[ids[2]] || len(got.Occupied) != 2 {
 		t.Fatalf("unverified builder incorrectly covered reservation: %+v %v", got, err)
+	}
+	// A build settled as not accepted keeps its builder until its leftovers
+	// are deleted, and that builder still holds its session's slot.
+	abandoned := append([]control.CapacityReservation(nil), reservations...)
+	settled := control.CreationEvidence{CapturedOID: strings.Repeat("e", 40), ImageFingerprint: selected,
+		Environment: &control.EnvironmentIntent{BaseFingerprint: base}, EnvironmentBuilder: &control.CreationBuilderState{Cycle: 2, State: "abandoned"}}
+	abandoned[2].Evidence, _ = json.Marshal(settled)
+	got, err = associateSessionCapacity(context.Background(), abandoned, physical, ids[0], "/run/p-endpoints", inspectSession, inspectBuilder, builderAddress)
+	if err != nil || got.PhysicalCount != 3 || !got.Occupied[ids[2]] || len(got.Occupied) != 3 {
+		t.Fatalf("an abandoned build's builder did not cover its reservation: %+v %v", got, err)
+	}
+	// Only an attempted or abandoned cycle's build holds a builder: one named
+	// for an ended cycle, or for the operation itself, is never this session's.
+	ended := append([]control.CapacityReservation(nil), reservations...)
+	ev := control.CreationEvidence{CapturedOID: strings.Repeat("e", 40), ImageFingerprint: selected,
+		Environment: &control.EnvironmentIntent{BaseFingerprint: base}, EnvironmentBuilder: &control.CreationBuilderState{Cycle: 2, State: "absent"}}
+	ended[2].Evidence, _ = json.Marshal(ev)
+	stale := physical
+	stale.Instances = append(append([]runtimeincus.SessionCapacityInstance(nil), physical.Instances...), runtimeincus.SessionCapacityInstance{Name: "p-builder-" + ops[1]})
+	got, err = associateSessionCapacity(context.Background(), ended, stale, ids[0], "/run/p-endpoints", inspectSession, inspectBuilder, builderAddress)
+	if err != nil || got.PhysicalCount != 4 || got.Occupied[ids[2]] || len(got.Occupied) != 2 {
+		t.Fatalf("a builder of an ended cycle covered a reservation: %+v %v", got, err)
 	}
 }
 

@@ -257,13 +257,14 @@ preview_params() {
     '{old_uuid:$uuid,key:$key,project:"replacement",branch:$branch,choice:$choice} +
       (if $choice=="new" then {source:$source} else {} end)'
 }
+# This daemon has no image builders configured: no builder may exist at all.
 assert_old_effects_absent() {
   test ! -e "$state/session_keys/$old_uuid"
   test ! -e "$endpoint_prefix/$old_uuid"
-  inc list --format json | jq -e --arg name "p-$old_uuid" --arg id "$old_id" \
-    'all(.[];.name!=$name and .name!=("p-builder-"+$id) and
+  inc list --format json | jq -e --arg name "p-$old_uuid" \
+    'all(.[];.name!=$name and (.name|startswith("p-builder-")|not) and
       (.config["user.p.session_uuid"] // "")!=($name|ltrimstr("p-")) and
-      (.config["user.p.builder_request_uuid"] // "")!=$id)' >/dev/null
+      .config["user.p.builder_request_uuid"]==null)' >/dev/null
 }
 
 "$host_git" -C "$repo" update-ref refs/heads/work "$first"
@@ -279,14 +280,14 @@ blocked=$(wait_operation "$old_id" blocked)
 test "$(cat "$step_dir/image-fault-seen")" = "$old_uuid"
 rm "$step_dir/image-fault" "$step_dir/image-fault-seen"
 jq -e '.result.operation | .phase=="principals-ready" and .committed==true and
- .evidence.environment==null and .evidence.builder_tree_oid==null and
+ .evidence.environment==null and .evidence.image==null and
  .evidence.runtime_init_state=="not-attempted"' <<< "$blocked" >/dev/null
 test -f "$state/session_keys/$old_uuid"
 test -S "$endpoint_prefix/$old_uuid/git.sock"
 test -S "$endpoint_prefix/$old_uuid/session.sock"
-inc list --format json | jq -e --arg uuid "$old_uuid" --arg id "$old_id" \
- 'all(.[];.name!=("p-"+$uuid) and .name!=("p-builder-"+$id) and
-  (.config["user.p.session_uuid"] // "")!=$uuid and (.config["user.p.builder_request_uuid"] // "")!=$id)' >/dev/null
+inc list --format json | jq -e --arg uuid "$old_uuid" \
+ 'all(.[];.name!=("p-"+$uuid) and (.name|startswith("p-builder-")|not) and
+  (.config["user.p.session_uuid"] // "")!=$uuid and .config["user.p.builder_request_uuid"]==null)' >/dev/null
 # Changed committed source keeps the same existing branch and preserves every ref.
 "$host_git" -C "$repo" update-ref refs/heads/work "$second" "$first"
 params=$(preview_params replace-key-endpoint work existing '')

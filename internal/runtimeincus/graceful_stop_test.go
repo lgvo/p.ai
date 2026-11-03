@@ -62,8 +62,11 @@ func (g *fakeGuest) serveFiles() string {
 			w.Header().Set("X-Incus-type", typ)
 		}
 		switch r.URL.Query().Get("path") {
-		case builderSource:
-			header("directory", "0555")
+		case builderBuildDir:
+			header("directory", "0755")
+		case builderBundle:
+			header("file", "0444")
+			w.Header().Set("Content-Length", "16")
 		case "/run/systemd/private":
 			g.mu.Lock()
 			up := g.systemdUp

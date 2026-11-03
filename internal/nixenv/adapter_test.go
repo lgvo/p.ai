@@ -232,7 +232,7 @@ func TestMaterialRejectsNullWrongTypesAndMissingAttrs(t *testing.T) {
 	}
 }
 
-func TestRejectUnsafeOutputAndKey(t *testing.T) {
+func TestRejectUnsafeOutput(t *testing.T) {
 	e, err := Parse(NixVersion, []byte(fixture))
 	if err != nil {
 		t.Fatal(err)
@@ -240,33 +240,5 @@ func TestRejectUnsafeOutputAndKey(t *testing.T) {
 	e.Variables["out"] = Variable{Type: "var", Value: []byte(`"/tmp/not-a-store-path"`)}
 	if _, err := Render(e); err == nil {
 		t.Fatal("accepted output outside store")
-	}
-	if _, err := (KeyInputs{}).Digest(); err == nil {
-		t.Fatal("accepted incomplete key")
-	}
-	k := KeyInputs{AdapterVersion: AdapterVersion, NixVersion: NixVersion, System: "x86_64-linux", ProjectPath: "team/project", BaseFingerprint: "abc", RuntimeKitContract: "v1", CommittedInputsDigest: "source", DerivationPath: "/nix/store/demo.drv", NixPolicyDigest: "policy", ImageFormatVersion: "v1"}
-	a, err := k.Digest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := k.Digest()
-	if err != nil || a != b {
-		t.Fatal("nondeterministic key")
-	}
-	k.ProjectPath = "team/other"
-	c, err := k.Digest()
-	if err != nil || a == c {
-		t.Fatal("project scope omitted from key")
-	}
-	for _, project := range []string{"", "/srv/p/project", "team/../other", "team//app", "team/", "team\\app", "team/\napp", strings.Repeat("a", 101), strings.Repeat("a/", 128) + "a"} {
-		k.ProjectPath = project
-		if _, err := k.Digest(); err == nil {
-			t.Fatalf("accepted invalid project identity %q", project)
-		}
-	}
-	k.ProjectPath = "team/other"
-	k.NixVersion = "2.35.0"
-	if _, err := k.Digest(); err == nil {
-		t.Fatal("accepted unsupported Nix key version")
 	}
 }

@@ -41,7 +41,7 @@ owned by the design set:
 - [session observability](session-observability.md) owns the four public facts,
   status reduction, attachment presence, and typed P events;
 - [environment building](environment-building.md) owns Nix selection,
-  realization, activation, and image caching;
+  realization, activation, and commit images and their lifetime;
 - [model gateway](model-gateway.md) retains the post-MVP Bifrost design; and
 - [technology stack](technology-stack.md) owns implementation interfaces and
   library/tool choices.
@@ -121,8 +121,9 @@ does not change owner-document lifecycle semantics.
   `/usr/libexec/p/attach` entrypoint.
 - [ ] Implement systemd activation/host supervision, journal diagnostic
   capture, and container shutdown on clean or failed persistent-host exit.
-- [ ] Implement the Nix environment builder, compatibility gate, immutable
-  image cache, private session roots, and blank bootstrap base-image path.
+- [ ] Implement the Nix image builder, compatibility gate, immutable commit
+  images and their release, private session roots, and blank bootstrap
+  base-image path.
 - [ ] Implement typed filesystem/network grants and policy comparison as
   `current`, `outdated`, or `invalid`, including guided recreation.
 - [ ] Complete every relevant real-machine gate in

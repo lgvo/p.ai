@@ -7,18 +7,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
+const testInstance = "11111111-1111-4111-8111-111111111111"
+
 func testBuilder() Builder {
-	return Builder{RequestUUID: testUUID, ProjectPath: "team/repo", CommitOID: strings.Repeat("a", 40), TreeOID: strings.Repeat("b", 40), BaseImageFingerprint: testImage, ContractVersion: "1"}
+	return Builder{RequestUUID: testUUID, ProjectPath: "team/repo", CommitOID: strings.Repeat("a", 40), BaseImageFingerprint: testImage, ContractVersion: "1"}
+}
+
+func testExport(r Builder) runtimedriver.SourceExport {
+	return runtimedriver.SourceExport{Bundle: "/srv/p/state/build/source.bundle", Ref: "refs/p/source", Commit: r.CommitOID}
 }
 
 type fakeBuilderIncus struct {
@@ -28,6 +39,7 @@ type fakeBuilderIncus struct {
 	status           string
 	rootLimit        bool
 	foreign          bool
+	instance         string // the builder's P instance label; empty means testInstance
 	unsafeNIC        bool
 	unsafeEnv        bool
 	poolDriver       string
@@ -79,9 +91,14 @@ func (f *fakeBuilderIncus) run(ctx context.Context, binary string, argv, env []s
 			return []byte("[]"), nil
 		}
 		r := f.request
+		instance := f.instance
+		if instance == "" {
+			instance = testInstance
+		}
 		config := map[string]string{
+			"user.p.instance":             instance,
 			"user.p.builder_request_uuid": r.RequestUUID, "user.p.builder_project_path": r.ProjectPath,
-			"user.p.builder_commit_oid": r.CommitOID, "user.p.builder_tree_oid": r.TreeOID,
+			"user.p.builder_commit_oid":       r.CommitOID,
 			"user.p.builder_contract_version": r.ContractVersion, "user.p.builder_base_image": r.BaseImageFingerprint,
 			"volatile.base_image": r.BaseImageFingerprint, "limits.cpu": builderCPU,
 			"limits.memory": builderMemory, "limits.processes": builderProcesses,
@@ -89,10 +106,7 @@ func (f *fakeBuilderIncus) run(ctx context.Context, binary string, argv, env []s
 		if f.foreign {
 			config["user.p.builder_request_uuid"] = "foreign"
 		}
-		expanded := map[string]string{}
-		for k, v := range config {
-			expanded[k] = v
-		}
+		expanded := maps.Clone(config)
 		expanded["security.idmap.isolated"] = "true"
 		if f.unsafeEnv {
 			expanded["environment.NIX_CONFIG"] = "accept-flake-config = true"
@@ -117,7 +131,7 @@ func (f *fakeBuilderIncus) run(ctx context.Context, binary string, argv, env []s
 		}
 		return json.Marshal([]instanceJSON{{Name: builderName(r), Type: "container", Status: f.status, Config: config, ExpandedConfig: expanded, Devices: devices, ExpandedDevices: expandedDevices, Profiles: []string{"default"}}})
 	case "init":
-		if len(args) < 4 || args[1] != f.request.BaseImageFingerprint || args[2] != builderName(f.request) || !slices.Contains(args, "root,size="+builderRootSize) || !slices.Contains(args, "--storage") || !slices.Contains(args, "builders") || !slices.Contains(args, "security.privileged=false") || !slices.Contains(args, "security.nesting=false") || !slices.Contains(args, "limits.memory="+builderMemory) {
+		if len(args) < 4 || args[1] != f.request.BaseImageFingerprint || args[2] != builderName(f.request) || !slices.Contains(args, "root,size="+builderRootSize) || !slices.Contains(args, "--storage") || !slices.Contains(args, "builders") || !slices.Contains(args, "security.privileged=false") || !slices.Contains(args, "security.nesting=false") || !slices.Contains(args, "limits.memory="+builderMemory) || !slices.Contains(args, "user.p.instance="+testInstance) {
 			return nil, errors.New("unsafe builder init")
 		}
 		f.exists, f.status, f.rootLimit = true, "Stopped", true
@@ -167,7 +181,108 @@ func (f *fakeBuilderIncus) run(ctx context.Context, binary string, argv, env []s
 func builderBackend(f *fakeBuilderIncus) *Backend {
 	b := fakeBackend(&f.base)
 	b.config.BuilderStoragePool = "builders"
+	b.config.PInstanceID = testInstance
 	b.run = f.run
+	return b
+}
+
+// fakeBuilderFiles is a builder's file tree as Incus's file endpoint serves it.
+type fakeBuilderFiles struct {
+	mu    sync.Mutex
+	files map[string]guestFile
+	posts []fakePost
+}
+
+type fakePost struct {
+	path          string
+	contentLength int64
+	chunked       bool
+}
+
+// sealedGuest holds a transferred bundle.
+func sealedGuest() *fakeBuilderFiles {
+	return &fakeBuilderFiles{files: map[string]guestFile{
+		builderBuildDir: {typ: "directory", uid: 0, gid: 0, mode: 0755},
+		builderBundle:   {typ: "file", uid: 0, gid: 0, mode: 0444, data: []byte("# v2 git bundle\n")},
+	}}
+}
+
+// guestBackend serves the builder's file endpoint and the server's
+// architecture over a private Unix socket, as Incus does.
+func guestBackend(t *testing.T, f *fakeBuilderIncus, g *fakeBuilderFiles) *Backend {
+	t.Helper()
+	socket := filepath.Join(t.TempDir(), "incus.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Path == "/1.0" {
+			if req.Method != http.MethodGet || req.URL.Query().Get("project") != "user-1000" {
+				t.Errorf("unconfined server architecture request: %s", req.URL)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			arch := f.hostArchitecture
+			if arch == "" {
+				arch = "x86_64"
+			}
+			_, _ = w.Write([]byte(`{"type":"sync","status_code":200,"metadata":{"environment":{"kernel_architecture":"` + arch + `"}}}`))
+			return
+		}
+		if req.URL.Path != "/1.0/instances/"+builderName(f.request)+"/files" || req.URL.Query().Get("project") != "user-1000" {
+			t.Errorf("unconfined file request: %s", req.URL)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		path := req.URL.Query().Get("path")
+		if path == guestSystemdSocket && req.Method == http.MethodHead {
+			// The running builder has booted: Incus reports systemd's socket
+			// as an empty file.
+			w.Header().Set("X-Incus-type", "file")
+			w.Header().Set("X-Incus-uid", "0")
+			w.Header().Set("X-Incus-gid", "0")
+			w.Header().Set("X-Incus-mode", "0700")
+			w.Header().Set("Content-Length", "0")
+			return
+		}
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		if req.Method == http.MethodPost {
+			mode, err := strconv.ParseInt(req.Header.Get("X-Incus-mode"), 8, 32)
+			uid, e1 := strconv.Atoi(req.Header.Get("X-Incus-uid"))
+			gid, e2 := strconv.Atoi(req.Header.Get("X-Incus-gid"))
+			data, e3 := io.ReadAll(req.Body)
+			if err != nil || e1 != nil || e2 != nil || e3 != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			g.posts = append(g.posts, fakePost{path: path, contentLength: req.ContentLength, chunked: slices.Contains(req.TransferEncoding, "chunked")})
+			g.files[path] = guestFile{typ: req.Header.Get("X-Incus-type"), uid: uid, gid: gid, mode: int(mode), data: data}
+			return
+		}
+		file, ok := g.files[path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("X-Incus-type", file.typ)
+		w.Header().Set("X-Incus-uid", strconv.Itoa(file.uid))
+		w.Header().Set("X-Incus-gid", strconv.Itoa(file.gid))
+		w.Header().Set("X-Incus-mode", fmt.Sprintf("%04o", file.mode&0777))
+		if file.typ == "file" {
+			w.Header().Set("Content-Length", strconv.Itoa(len(file.data)))
+		}
+		if req.Method == http.MethodGet {
+			_, _ = w.Write(file.data)
+		}
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close(); _ = listener.Close() })
+	b := builderBackend(f)
+	b.config.UserSocket = socket
+	f.socket = socket
+	f.base.socket = socket
 	return b
 }
 
@@ -271,11 +386,13 @@ func TestBuilderRefusesForeignAndUnsafeInstance(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
 		foreign, nic, env bool
+		instance          string
 	}{
-		{"foreign", true, false, false}, {"extra NIC", false, true, false}, {"inherited Nix config", false, false, true},
+		{name: "foreign request", foreign: true}, {name: "other P instance", instance: "22222222-2222-4222-8222-222222222222"},
+		{name: "extra NIC", nic: true}, {name: "inherited Nix config", env: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true, foreign: tc.foreign, unsafeNIC: tc.nic, unsafeEnv: tc.env}
+			f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true, foreign: tc.foreign, unsafeNIC: tc.nic, unsafeEnv: tc.env, instance: tc.instance}
 			b := builderBackend(f)
 			if _, err := b.DeleteBuilder(context.Background(), r); err == nil {
 				t.Fatal("accepted unowned or unsafe builder")
@@ -288,6 +405,12 @@ func TestBuilderRefusesForeignAndUnsafeInstance(t *testing.T) {
 	r.RequestUUID = "bad"
 	if _, err := builderBackend(&fakeBuilderIncus{request: testBuilder()}).CreateBuilder(context.Background(), r); err == nil {
 		t.Fatal("accepted invalid request")
+	}
+	f := &fakeBuilderIncus{request: testBuilder()}
+	b := builderBackend(f)
+	b.config.PInstanceID = ""
+	if _, err := b.CreateBuilder(context.Background(), testBuilder()); err == nil || len(f.mutations) != 0 {
+		t.Fatalf("builder created without a P instance label: %v %v", err, f.mutations)
 	}
 }
 
@@ -340,7 +463,8 @@ func TestBuilderReadlinkPacketPreservesLiteralTarget(t *testing.T) {
 	}
 }
 
-func TestBuilderSFTPSealsDirectoryAndReadsLiteralLink(t *testing.T) {
+func TestBuilderSFTPChmodsDirectoryAndReadsLiteralLink(t *testing.T) {
+	const dir, link = "/var/tmp", "/home/p/.p-devshell-capture"
 	socket := filepath.Join(t.TempDir(), "incus.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
@@ -354,12 +478,12 @@ func TestBuilderSFTPSealsDirectoryAndReadsLiteralLink(t *testing.T) {
 		}
 		if r.Method == http.MethodHead {
 			headCount++
-			if r.URL.Query().Get("path") != "/opt/p/build/source/link" {
+			if r.URL.Query().Get("path") != link {
 				t.Error("wrong symlink HEAD")
 			}
 			w.Header().Set("X-Incus-type", "symlink")
-			w.Header().Set("X-Incus-uid", "0")
-			w.Header().Set("X-Incus-gid", "0")
+			w.Header().Set("X-Incus-uid", "1000")
+			w.Header().Set("X-Incus-gid", "1000")
 			w.Header().Set("X-Incus-mode", "0777")
 			return
 		}
@@ -397,16 +521,16 @@ func TestBuilderSFTPSealsDirectoryAndReadsLiteralLink(t *testing.T) {
 		switch request[0] {
 		case 9:
 			setstatCount++
-			if binary.BigEndian.Uint32(request[5:9]) != uint32(len(builderSource)) || string(request[9:9+len(builderSource)]) != builderSource || binary.BigEndian.Uint32(request[9+len(builderSource):13+len(builderSource)]) != 4 || binary.BigEndian.Uint32(request[13+len(builderSource):17+len(builderSource)]) != 0555 {
+			if binary.BigEndian.Uint32(request[5:9]) != uint32(len(dir)) || string(request[9:9+len(dir)]) != dir || binary.BigEndian.Uint32(request[9+len(dir):13+len(dir)]) != 4 || binary.BigEndian.Uint32(request[13+len(dir):17+len(dir)]) != 01777 {
 				t.Error("unexpected chmod packet")
 			}
 			_ = writePacket(conn, []byte{0, 0, 0, 9, 101, 0, 0, 0, 1, 0, 0, 0, 0})
 		case 19:
 			readlinkCount++
-			if string(request[9:]) != "/opt/p/build/source/link" {
+			if string(request[9:]) != link {
 				t.Error("wrong readlink path")
 			}
-			target := []byte("flake.nix")
+			target := []byte(".p-devshell-capture-1-link")
 			packet := make([]byte, 1+4+4+4+len(target)+4+len(target)+4)
 			packet[0] = 104
 			binary.BigEndian.PutUint32(packet[1:5], 1)
@@ -427,11 +551,11 @@ func TestBuilderSFTPSealsDirectoryAndReadsLiteralLink(t *testing.T) {
 	go server.Serve(listener)
 	defer server.Close()
 	api := &unixFileAPI{socket: socket, project: "test", instance: "p-builder-test"}
-	if err := api.chmodDirectory(context.Background(), builderSource, 0555); err != nil {
+	if err := api.chmodDirectory(context.Background(), dir, 01777); err != nil {
 		t.Fatal(err)
 	}
-	f, exists, err := api.getSymlinkBounded(context.Background(), builderSource+"/link", 9)
-	if err != nil || !exists || string(f.data) != "flake.nix" {
+	f, exists, err := api.getSymlinkBounded(context.Background(), link, 64)
+	if err != nil || !exists || string(f.data) != ".p-devshell-capture-1-link" {
 		t.Fatalf("literal symlink: %+v %v", f, err)
 	}
 	if headCount != 2 || getCount != 0 || setstatCount != 1 || readlinkCount != 1 {
@@ -439,98 +563,88 @@ func TestBuilderSFTPSealsDirectoryAndReadsLiteralLink(t *testing.T) {
 	}
 }
 
-type testSnapshot struct {
-	path    string
-	entries int
-	bytes   int64
+// writeBundle stages a host bundle as core does: a regular file the daemon
+// owns in a private directory.
+func writeBundle(t *testing.T, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "source.bundle")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
-func (s testSnapshot) Path() string { return s.path }
-func (s testSnapshot) Entries() int { return s.entries }
-func (s testSnapshot) Bytes() int64 { return s.bytes }
-
-type memoryBuilderFiles map[string]guestFile
-
-func (m memoryBuilderFiles) get(_ context.Context, path string) (guestFile, bool, error) {
-	f, ok := m[path]
-	return f, ok, nil
-}
-func (m memoryBuilderFiles) put(_ context.Context, path string, f guestFile) error {
-	if current, exists := m[path]; exists && current.typ == "directory" {
-		return nil
-	} // pinned HTTP POST does not chmod existing dirs
-	f.data = bytes.Clone(f.data)
-	m[path] = f
-	return nil
-}
-func (m memoryBuilderFiles) chmodDirectory(_ context.Context, path string, mode int) error {
-	f, exists := m[path]
-	if !exists || f.typ != "directory" {
-		return errors.New("not a directory")
-	}
-	f.mode = mode
-	m[path] = f
-	return nil
-}
-
-func TestBuilderSourceTransferPreservesModesAndLinks(t *testing.T) {
-	root := t.TempDir()
-	t.Cleanup(func() { _ = os.Chmod(root, 0700) })
-	if err := os.WriteFile(filepath.Join(root, "flake.nix"), []byte("source"), 0400); err != nil {
+func TestBuilderSourceTransferStreamsTheBundle(t *testing.T) {
+	r := testBuilder()
+	f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true}
+	g := &fakeBuilderFiles{files: map[string]guestFile{"/": {typ: "directory", mode: 0755}}}
+	b := guestBackend(t, f, g)
+	data := bytes.Repeat([]byte("bundle-bytes "), 1<<17) // more than any bounded file read
+	src := testExport(r)
+	src.Bundle = writeBundle(t, data)
+	if err := b.TransferBuilderSource(context.Background(), r, src); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "run"), []byte("#!"), 0500); err != nil {
-		t.Fatal(err)
+	bundle := g.files[builderBundle]
+	if bundle.typ != "file" || bundle.uid != 0 || bundle.gid != 0 || bundle.mode != 0444 || !bytes.Equal(bundle.data, data) {
+		t.Fatalf("bundle not transferred root-owned and read-only: %s %d:%d %o (%d bytes)", bundle.typ, bundle.uid, bundle.gid, bundle.mode, len(bundle.data))
 	}
-	if err := os.Symlink("flake.nix", filepath.Join(root, "link")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(root, 0500); err != nil {
-		t.Fatal(err)
-	}
-	api := memoryBuilderFiles{
-		"/": {typ: "directory", mode: 0755},
-	}
-	s := testSnapshot{root, 3, int64(len("source") + len("#!") + len("flake.nix"))}
-	if err := transferBuilderSource(context.Background(), api, s); err != nil {
-		t.Fatal(err)
-	}
-	if api[builderSource].mode != 0555 || api[builderSource+"/run"].mode != 0555 || string(api[builderSource+"/link"].data) != "flake.nix" {
-		t.Fatalf("transfer lost modes or link: %+v", api)
-	}
-	for _, path := range []string{"/opt", "/opt/p", "/opt/p/build", builderSource, builderSource + "/flake.nix", builderSource + "/run"} {
-		f := api[path]
-		if f.uid != 0 || f.gid != 0 || f.mode&0022 != 0 || f.mode&0004 == 0 || f.typ == "directory" && f.mode&0001 == 0 {
-			t.Fatalf("guest cannot safely read immutable source %s: %+v", path, f)
+	for _, dir := range []string{"/opt", "/opt/p", builderBuildDir} {
+		if d := g.files[dir]; d.typ != "directory" || d.uid != 0 || d.gid != 0 || d.mode != 0755 {
+			t.Fatalf("unsafe bundle ancestor %s: %+v", dir, d)
 		}
 	}
-	if err := transferBuilderSource(context.Background(), api, s); err == nil {
-		t.Fatal("adopted existing source")
+	upload := g.posts[len(g.posts)-1]
+	if upload.path != builderBundle || upload.contentLength != int64(len(data)) || upload.chunked {
+		t.Fatalf("bundle not streamed with its exact length: %+v", upload)
 	}
-	for _, ancestor := range []string{"/opt", "/opt/p"} {
-		unsafe := memoryBuilderFiles{
-			"/":      {typ: "directory", mode: 0755},
-			"/opt":   {typ: "directory", mode: 0755},
-			"/opt/p": {typ: "directory", mode: 0755},
-		}
-		f := unsafe[ancestor]
-		f.mode = 0700
-		unsafe[ancestor] = f
-		if err := transferBuilderSource(context.Background(), unsafe, s); err == nil {
-			t.Fatalf("accepted unreadable source ancestor %s", ancestor)
-		}
-		if _, exists := unsafe["/opt/p/build"]; exists {
-			t.Fatalf("mutated source tree after rejecting %s", ancestor)
-		}
+	if err := b.TransferBuilderSource(context.Background(), r, src); err == nil {
+		t.Fatal("transfer adopted an existing bundle directory")
+	}
+	if len(f.mutations) != 0 {
+		t.Fatalf("transfer changed the builder: %v", f.mutations)
 	}
 }
 
-func TestBuilderSourceRejectsSymlinkEscape(t *testing.T) {
-	if err := validateBuilderLinks(context.Background(), map[string]string{"a": "../outside"}); err == nil {
-		t.Fatal("accepted escape")
-	}
-	if err := validateBuilderLinks(context.Background(), map[string]string{"a": "b", "b": "a"}); err == nil {
-		t.Fatal("accepted cycle")
+func TestBuilderSourceTransferRefusesUnsafeInput(t *testing.T) {
+	r := testBuilder()
+	ctx := context.Background()
+	for name, edit := range map[string]func(*runtimedriver.SourceExport, *fakeBuilderIncus, *fakeBuilderFiles){
+		"other commit": func(s *runtimedriver.SourceExport, _ *fakeBuilderIncus, _ *fakeBuilderFiles) {
+			s.Commit = strings.Repeat("c", 40)
+		},
+		"unsafe ref": func(s *runtimedriver.SourceExport, _ *fakeBuilderIncus, _ *fakeBuilderFiles) {
+			s.Ref = "refs/p/../heads/main"
+		},
+		"relative bundle": func(s *runtimedriver.SourceExport, _ *fakeBuilderIncus, _ *fakeBuilderFiles) {
+			s.Bundle = "source.bundle"
+		},
+		"symlinked bundle": func(s *runtimedriver.SourceExport, _ *fakeBuilderIncus, _ *fakeBuilderFiles) {
+			link := filepath.Join(filepath.Dir(s.Bundle), "link.bundle")
+			if err := os.Symlink(s.Bundle, link); err != nil {
+				t.Fatal(err)
+			}
+			s.Bundle = link
+		},
+		"running builder": func(_ *runtimedriver.SourceExport, f *fakeBuilderIncus, _ *fakeBuilderFiles) { f.status = "Running" },
+		"writable ancestor": func(_ *runtimedriver.SourceExport, _ *fakeBuilderIncus, g *fakeBuilderFiles) {
+			g.files["/opt"] = guestFile{typ: "directory", mode: 0777}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeBuilderIncus{request: r, exists: true, status: "Stopped", rootLimit: true}
+			g := &fakeBuilderFiles{files: map[string]guestFile{"/": {typ: "directory", mode: 0755}}}
+			b := guestBackend(t, f, g)
+			src := testExport(r)
+			src.Bundle = writeBundle(t, []byte("bundle"))
+			edit(&src, f, g)
+			if err := b.TransferBuilderSource(ctx, r, src); err == nil {
+				t.Fatal("unsafe transfer accepted")
+			}
+			if _, exists := g.files[builderBundle]; exists {
+				t.Fatal("bundle written after a refusal")
+			}
+		})
 	}
 }
 
@@ -578,20 +692,21 @@ func TestBuilderInitGatePreflightFailureThenCorrectedExactRetry(t *testing.T) {
 				}
 				return nil
 			}
-			if _, e := b.CreateBuilderWithGate(context.Background(), r, gate); e == nil || gates != 0 || len(f.mutations) != 0 {
+			if _, e := b.createBuilder(context.Background(), r, gate); e == nil || gates != 0 || len(f.mutations) != 0 {
 				t.Fatalf("read-only preflight crossed dispatch: gates=%d native=%v err=%v", gates, f.mutations, e)
 			}
-			// Correct only the preflight condition. The UUID/source/image request is
-			// exactly the original; one gate immediately precedes one native init.
+			// Correct only the preflight condition. The request is exactly the
+			// original; one gate immediately precedes one native init.
 			missing = false
 			f.base.unsafeProfile = false
 			f.poolStatus = "Created"
-			got, e := b.CreateBuilderWithGate(context.Background(), r, gate)
+			got, e := b.createBuilder(context.Background(), r, gate)
 			if e != nil || !got.Exists || !got.Ready || gates != 1 || !slices.Equal(f.mutations, []string{"init"}) {
 				t.Fatalf("corrected exact retry: %+v gates=%d native=%v err=%v", got, gates, f.mutations, e)
 			}
-			if _, e = b.CreateBuilderWithGate(context.Background(), r, func() error { t.Fatal("existing builder issued another init marker"); return nil }); e != nil {
-				t.Fatal(e)
+			// A gated creation never adopts the builder it finds.
+			if _, e = b.createBuilder(context.Background(), r, func() error { t.Fatal("existing builder issued another init marker"); return nil }); !errors.Is(e, runtimedriver.ErrMismatch) {
+				t.Fatalf("gated creation adopted an existing builder: %v", e)
 			}
 		})
 	}
@@ -602,7 +717,7 @@ func TestBuilderInitGatePersistenceFailureAndLostReply(t *testing.T) {
 	f := &fakeBuilderIncus{request: r}
 	b := builderBackend(f)
 	refused := errors.New("fixture marker persistence failed")
-	if _, e := b.CreateBuilderWithGate(context.Background(), r, func() error { return refused }); !errors.Is(e, refused) || len(f.mutations) != 0 {
+	if _, e := b.createBuilder(context.Background(), r, func() error { return refused }); !errors.Is(e, refused) || len(f.mutations) != 0 {
 		t.Fatal("native init ran after gate refusal", e, f.mutations)
 	}
 	attempts := 0
@@ -612,11 +727,11 @@ func TestBuilderInitGatePersistenceFailureAndLostReply(t *testing.T) {
 		}
 		return f.run(ctx, binary, argv, env)
 	}
-	if _, e := b.CreateBuilderWithGate(context.Background(), r, func() error { attempts++; return nil }); e == nil || attempts != 1 || f.exists {
+	if _, e := b.createBuilder(context.Background(), r, func() error { attempts++; return nil }); e == nil || attempts != 1 || f.exists {
 		t.Fatal("unknown init lost dispatch marker")
 	}
 	// Core refuses a second absent outcome using its durable attempted marker.
-	if _, e := b.CreateBuilderWithGate(context.Background(), r, func() error { return refused }); !errors.Is(e, refused) || attempts != 1 {
+	if _, e := b.createBuilder(context.Background(), r, func() error { return refused }); !errors.Is(e, refused) || attempts != 1 {
 		t.Fatal("lost reply admitted another init")
 	}
 }
@@ -660,5 +775,113 @@ func TestInterruptedPublicBuilderCreationCanBeCleanedUpOrFinished(t *testing.T) 
 	f.publicNIC = nil
 	if got, err := b.DeleteBuilder(ctx, r); err != nil || got.Exists {
 		t.Fatalf("owned builder awaiting its NIC not removed: %+v %v", got, err)
+	}
+}
+
+// guestGit is the Git command a fake builder exec saw, without the fixed
+// hardening options, or nil for another command.
+func guestGit(t *testing.T, argv []string) []string {
+	t.Helper()
+	guest := argv[slices.Index(argv, "--")+1:]
+	if guest[0] != builderGitBinary {
+		return nil
+	}
+	for _, env := range []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"} {
+		if !slices.Contains(argv[:slices.Index(argv, "--")], env) {
+			t.Fatalf("Git reads system or global configuration: %q", argv)
+		}
+	}
+	fixed := []string{"--no-pager", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "credential.helper=", "-c", "gc.auto=0", "-c", "maintenance.auto=false"}
+	if len(guest) <= len(fixed) || !slices.Equal(guest[1:1+len(fixed)], fixed) {
+		t.Fatalf("Git runs hooks, fsmonitor, credentials or maintenance: %q", guest)
+	}
+	return guest[1+len(fixed):]
+}
+
+// cloneGuest answers a clone's Git commands as a clean detached clone at the
+// commit would, unless answers say otherwise.
+func cloneGuest(t *testing.T, commit string, answers map[string]string, commands *[][]string) runner {
+	return func(_ context.Context, _ string, argv, _ []string) ([]byte, error) {
+		if argv[3] != "exec" || argv[slices.Index(argv, "--user")+1] != "1000" || argv[slices.Index(argv, "--cwd")+1] != "/workspace" {
+			t.Fatalf("clone outside the builder user's workspace: %q", argv)
+		}
+		guest := guestGit(t, argv)
+		if guest == nil {
+			guest = argv[slices.Index(argv, "--")+1:]
+		}
+		if commands != nil {
+			*commands = append(*commands, slices.Clone(guest))
+		}
+		key := strings.Join(guest, " ")
+		if out, ok := answers[key]; ok {
+			return []byte(out), nil
+		}
+		switch key {
+		case "rev-parse --verify --quiet refs/p/bundle^{commit}", "rev-parse --verify HEAD":
+			return []byte(commit + "\n"), nil
+		case "rev-parse --symbolic-full-name HEAD":
+			return []byte("HEAD\n"), nil
+		}
+		return nil, nil
+	}
+}
+
+func TestBuilderCloneUsesFixedHardenedGit(t *testing.T) {
+	r := testBuilder()
+	f := &fakeBuilderIncus{request: r, exists: true, status: "Running", rootLimit: true}
+	b := guestBackend(t, f, sealedGuest())
+	var commands [][]string
+	b.runBuilder = cloneGuest(t, r.CommitOID, nil, &commands)
+	if err := b.CloneBuilderSource(context.Background(), r, testExport(r)); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		// The clone waits for this boot first.
+		{"/bin/sh", "-c", "test -S /run/systemd/private && test -S /nix/var/nix/daemon-socket/socket && test -x /usr/libexec/p/runtime-kit"},
+		{"/run/current-system/sw/bin/ls", "-A", "/workspace"},
+		{"init", "-q", "--ref-format=files"},
+		{"fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-recurse-submodules", builderBundle, "+refs/p/source:refs/p/bundle"},
+		{"rev-parse", "--verify", "--quiet", "refs/p/bundle^{commit}"},
+		{"checkout", "-q", "--detach", r.CommitOID},
+		{"update-ref", "-d", "refs/p/bundle"},
+		{"rev-parse", "--verify", "HEAD"},
+		{"rev-parse", "--symbolic-full-name", "HEAD"},
+		{"for-each-ref"},
+		{"remote"},
+		{"status", "--porcelain=v1", "--untracked-files=all"},
+	}
+	if !slices.EqualFunc(commands, want, slices.Equal) {
+		t.Fatalf("clone commands:\n got %q\nwant %q", commands, want)
+	}
+	commands = nil
+	b.runBuilder = cloneGuest(t, r.CommitOID, map[string]string{"rev-parse --verify --quiet refs/p/bundle^{commit}": strings.Repeat("c", 40)}, &commands)
+	if err := b.CloneBuilderSource(context.Background(), r, testExport(r)); err == nil || len(commands) != 5 {
+		t.Fatalf("checked out a ref naming another commit: %v %q", err, commands)
+	}
+	other := testExport(r)
+	other.Commit = strings.Repeat("c", 40)
+	commands = nil
+	if err := b.CloneBuilderSource(context.Background(), r, other); err == nil || len(commands) != 0 {
+		t.Fatalf("cloned an export of another commit: %v %q", err, commands)
+	}
+}
+
+func TestBuilderCloneRefusesADirtyOrForeignClone(t *testing.T) {
+	r := testBuilder()
+	for name, answers := range map[string]map[string]string{
+		"workspace not empty": {"/run/current-system/sw/bin/ls -A /workspace": "leftover\n"},
+		"attached HEAD":       {"rev-parse --symbolic-full-name HEAD": "refs/heads/main\n"},
+		"a branch":            {"for-each-ref": r.CommitOID + " commit\trefs/heads/main\n"},
+		"a remote":            {"remote": "origin\n"},
+		"dirty tree":          {"status --porcelain=v1 --untracked-files=all": "?? stray\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeBuilderIncus{request: r, exists: true, status: "Running", rootLimit: true}
+			b := guestBackend(t, f, sealedGuest())
+			b.runBuilder = cloneGuest(t, r.CommitOID, answers, nil)
+			if err := b.CloneBuilderSource(context.Background(), r, testExport(r)); err == nil {
+				t.Fatal("accepted a clone that is not exactly the commit")
+			}
+		})
 	}
 }
