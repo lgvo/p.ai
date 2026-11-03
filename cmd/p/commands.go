@@ -26,6 +26,8 @@ var commands = []*command{
 			fs.BoolVar(&in.attach, "attach", false, "enter the project's first session once created, when creation makes one")
 			keyFlags(fs, in)
 		}},
+	{noun: "project", verb: "delete", args: "PROJECT", minArgs: 1, maxArgs: 1, run: runProjectDelete, flags: askFlags,
+		summary: "Delete a project with its sessions and branches, after showing the plan and asking"},
 
 	{noun: "branch", verb: "list", args: "PROJECT", minArgs: 1, maxArgs: 1, run: runBranchList,
 		summary: "List the project's P branches, or with --retained those no session holds",
@@ -34,6 +36,8 @@ var commands = []*command{
 		}},
 	{noun: "branch", verb: "rename", args: "PROJECT:BRANCH NEW", minArgs: 2, maxArgs: 2, run: runBranchRename, flags: keyFlags,
 		summary: "Rename a branch no session holds, and wait for it"},
+	{noun: "branch", verb: "delete", args: "PROJECT:BRANCH", minArgs: 1, maxArgs: 1, run: runBranchDelete, flags: askFlags,
+		summary: "Delete a branch no session holds, after showing the plan and asking"},
 
 	{noun: "origin", verb: "show", args: "PROJECT", minArgs: 1, maxArgs: 1, run: runOriginShow,
 		summary: "Show the project's origin and its last observation",
@@ -46,6 +50,12 @@ var commands = []*command{
 		summary: "Set or replace the project's origin, and wait for it"},
 	{noun: "origin", verb: "remove", args: "PROJECT", minArgs: 1, maxArgs: 1, run: runOriginRemove, flags: keyFlags,
 		summary: "Remove the project's origin, and wait for it"},
+	{noun: "origin", verb: "publish", args: "PROJECT:BRANCH", minArgs: 1, maxArgs: 1, run: runOriginPublish,
+		summary: "Push a P branch to the origin, after showing the plan and asking",
+		flags: func(fs *flag.FlagSet, in *invocation) {
+			stringFlag(fs, &in.to, "to", "publish to the origin's branch `NAME`; the same name by default")
+			askFlags(fs, in)
+		}},
 
 	{noun: "session", verb: "list", run: runSessionList,
 		summary: "List the sessions",
@@ -55,12 +65,14 @@ var commands = []*command{
 	{noun: "session", verb: "show", args: "SESSION", minArgs: 1, maxArgs: 1, run: runSessionShow,
 		summary: "Show a session's conditions, attachments, latest agent report, policy and diagnostic"},
 	{noun: "session", verb: "create", args: "PROJECT:BRANCH", minArgs: 1, maxArgs: 1, run: runSessionCreate,
-		summary: "Create a session on a kept branch, or on a new one with --from or --from-origin, and wait for it",
+		summary: "Create a session on a kept branch, or a new one with --from or --from-origin; --replace replaces a blocked creation, after asking",
 		flags: func(fs *flag.FlagSet, in *invocation) {
 			stringFlag(fs, &in.from, "from", "start a new branch from a P branch or commit `REF`")
 			stringFlag(fs, &in.fromOrigin, "from-origin", "start a new branch from the origin's branch, or full ref such as refs/tags/v1, `REF`")
 			fs.BoolVar(&in.attach, "attach", false, "enter the session once created")
+			stringFlag(fs, &in.replace, "replace", "replace the blocked creation of `SESSION` with this one, after showing the plan and asking")
 			keyFlags(fs, in)
+			runFlags(fs, in)
 		}},
 	{noun: "session", verb: "start", args: "SESSION", minArgs: 1, maxArgs: 1, run: runSessionStart, flags: noWaitFlag,
 		summary: "Start a session and wait until it is ready"},
@@ -68,6 +80,12 @@ var commands = []*command{
 		summary: "Stop a session, keeping its files, and wait until it is stopped"},
 	{noun: "session", verb: "rename", args: "SESSION NEW", minArgs: 2, maxArgs: 2, run: runSessionRename, flags: keyFlags,
 		summary: "Rename a stopped session's branch, and wait for it"},
+	{noun: "session", verb: "discard", args: "SESSION", minArgs: 1, maxArgs: 1, run: runSessionDiscard, flags: askFlags,
+		summary: "Remove a session and keep its branch, after showing the plan and asking"},
+	{noun: "session", verb: "delete", args: "SESSION", minArgs: 1, maxArgs: 1, run: runSessionDelete, flags: askFlags,
+		summary: "Remove a session and its branch, after showing the plan and asking"},
+	{noun: "session", verb: "cleanup", args: "SESSION", minArgs: 1, maxArgs: 1, run: runSessionCleanup, flags: askFlags,
+		summary: "End a blocked creation and keep its branch, after showing the plan and asking"},
 
 	{noun: "attach", args: "[SOCKET] SESSION", minArgs: 1, maxArgs: 2, socketArg: true, run: runAttach,
 		summary: "Enter a session's terminal, starting the session first when it is not ready"},
@@ -167,8 +185,8 @@ func runProjectList(in *invocation) error {
 // refuseAttachWith refuses --attach beside a flag that leaves no terminal to
 // enter or no wait to enter after.
 func refuseAttachWith(in *invocation) error {
-	if in.attach && (in.noWait || in.json) {
-		return usageError("--attach enters a terminal once the change is done: it cannot be combined with --no-wait or --json")
+	if in.attach && (in.noWait || in.json || in.dryRun) {
+		return usageError("--attach enters a terminal once the change is done: it cannot be combined with --no-wait, --json or --dry-run")
 	}
 	return nil
 }
@@ -411,8 +429,13 @@ func runSessionCreate(in *invocation) error {
 	if err != nil {
 		return err
 	}
-	if in.from != "" && in.fromOrigin != "" {
+	switch {
+	case in.from != "" && in.fromOrigin != "":
 		return usageError("--from and --from-origin exclude each other")
+	case in.replace != "" && in.fromOrigin != "":
+		return usageError("a replacement cannot start from the origin: --replace and --from-origin exclude each other")
+	case in.replace == "" && (in.force || in.dryRun || in.ifMatch != ""):
+		return usageError("only a replacement asks first: --force, --dry-run and --if-match need --replace")
 	}
 	if err := refuseAttachWith(in); err != nil {
 		return err
@@ -424,9 +447,17 @@ func runSessionCreate(in *invocation) error {
 	if in.fromOrigin != "" {
 		choice, ref = "new", originRef(in.fromOrigin)
 	}
+	if in.replace != "" {
+		op, err := replaceCreation(in, b, choice, source)
+		if err != nil || !in.attach {
+			return err
+		}
+		return in.enter(op.SessionUUID)
+	}
 	op, err := keyedChange(in, api.SessionCreate,
 		func(i api.OperationIntent) bool {
-			return i.Project == b.project && i.Branch == b.branch && i.Choice == choice && i.Source == source && i.OriginRef == ref
+			return i.Project == b.project && i.Branch == b.branch && i.Choice == choice && i.Source == source && i.OriginRef == ref &&
+				i.ReplacesSession == "" && i.ReplacesBranch == ""
 		},
 		func(key string) (api.SessionCreateRequest, error) {
 			req := api.SessionCreateRequest{Key: key, Project: b.project, Branch: b.branch, Choice: choice, Source: source}

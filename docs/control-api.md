@@ -297,6 +297,20 @@ after any other `retry` refusal, for up to 10 seconds; and after
 action or `operation.retry`. Their exit status is 0 done, 1 failed, 2 invalid
 arguments, 3 not run, nothing changed, and 4 not finished.
 
+The commands for the seven [risky changes](#risky-changes) ask first:
+`p session discard`, `delete` and `cleanup`, `p session create --replace`,
+`p project delete`, `p branch delete` and `p origin publish`. Each makes the
+dry run, prints the plan on standard error with a sentence per refusal, what
+is already gone and a warning listing every loss item, and only when the plan
+is allowed asks `[y/N]` on a terminal. The run repeats the dry run's params
+with a new key and the change tag; a run refused with `precondition_failed`
+prints the new plan and asks again. `--force` runs without asking, after a
+10-second countdown when the plan's `loss` is not empty, and stops at a
+refused run; so does a run under `--key`, so one key never goes with two
+tags. `--dry-run` prints the plan and its change tag, and `--if-match TAG`
+runs the plan that tag names with no dry run. Without a terminal and without
+`--force`, a command prints the plan and exits 3.
+
 `p api [socket-path] <method> [json-params]` stays for protocol work: it
 makes no keys, does not wait, and repeats nothing. It connects, sends
 `system.hello` itself, then sends one request and writes that request's full

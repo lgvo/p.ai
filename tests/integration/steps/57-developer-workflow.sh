@@ -1,39 +1,23 @@
 # shellcheck shell=bash
-# Real provisioned notes application through owner API and confined session tools.
+# Real provisioned notes application through the CLI's task commands and
+# confined session tools.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-57"
 mkdir -m 0700 "$step_dir"
 socket=/var/lib/p-service55/control.sock
+export P_SOCKET=$socket
 uuid=
 uuid_a=
 uuid_b=
 uuid_sibling=
-op=
 export INCUS_SOCKET=/var/lib/incus/unix.socket.user
 inc() { timeout 60 incus --force-local --project user-1000 "$@"; }
 service_control() { /run/wrappers/bin/sudo -n "$P_TEST_SERVICE_CONTROL_BINARY" "$1"; }
-rpc() {
- local response status deadline=$((SECONDS+40)) read_only=false
- case "$1" in system.health|session.inspect|session.services|session.service.logs|operation.wait) read_only=true ;; esac
- while true; do
-  if response=$(timeout 150 p api "$socket" "$@"); then
-   printf '%s\n' "$response"; return
-  else status=$?; fi
-  # An unfinished operation on the session, such as a reconciliation, holds
-  # it. Retry only explicit retry answers, never hide other refusals or
-  # redispatch mutations here.
-  if test "$read_only" = true && test "$SECONDS" -lt "$deadline" && \
-   jq -e '.error.message=="retry"' <<< "$response" >/dev/null 2>&1; then sleep 0.1; continue; fi
-  if test "$read_only" = true; then
-   printf 'P_NOTES_RPC_FAILURE method=%s status=%s\n' "$1" "$status" >&2
-   jq -c ' .error' <<< "$response" >&2 || true
-  fi
-  printf '%s\n' "$response"
-  return "${status:-1}"
- done
-}
-params() { jq -nc --arg uuid "$uuid" '{uuid:$uuid}'; }
+# The task commands wait for the operations they start and repeat a call the
+# daemon answers retry only where a second call cannot act twice. A creation
+# from a commit with no image first builds the commit's image.
+cli() { timeout 420 p "$@"; }
 guest() {
  inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
   --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh \
@@ -43,52 +27,34 @@ guest() {
 sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
 # An action returns once the session's service manager has queued it; the
 # inventory shows when it is done.
-action() {
- rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$1.service" --arg action "$2" \
-  '{uuid:$uuid,name:$name,action:$action}')" >/dev/null
-}
+action() { cli service "$2" "$uuid" "p-project-notes-$1.service" >/dev/null; }
 start_unit() { action "$1" start; wait_unit "$1" running; }
 stop_unit() { action "$1" stop; wait_unit "$1" stopped; }
+condition() { cli session show "$uuid" --json | jq -e --arg condition "$1" '.session.session_condition==$condition' >/dev/null; }
 wait_health() {
  local deadline=$((SECONDS+45))
- while ! rpc system.health | jq -e '.result.control_state=="ready"' >/dev/null 2>&1; do
+ while ! p status --json 2>/dev/null | jq -e '.control_state=="ready"' >/dev/null 2>&1; do
   test "$SECONDS" -lt "$deadline"; sleep 0.2
  done
-}
-# A creation from a commit with no image first builds the commit's image.
-wait_completed() {
- local id=$1 result status deadline=$((SECONDS+300))
- while ((SECONDS<deadline)); do
-  result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
-  status=$(jq -er '.result.operation.status' <<< "$result")
-  if test "$status" = completed; then return; fi
-  if test "$status" = failed || test "$status" = blocked; then printf '%s\n' "$result" >&2; return 1; fi
-  if test "$status" != running; then sleep 0.2; fi
- done
- return 1
 }
 wait_ready() {
  local deadline=$((SECONDS+60))
- while ! rpc session.inspect "$(params)" | jq -e '.result.session.session_condition=="ready"' >/dev/null; do
+ while ! condition ready; do
   test "$SECONDS" -lt "$deadline"; sleep 0.2
  done
 }
+# Stop and start wait for their operations; each must change the session.
 stop_session() {
- local deadline=$((SECONDS+45)) response stop
- while ! response=$(rpc session.stop "$(params)"); do
-  jq -e '.error.message=="retry"' <<< "$response" >/dev/null
-  test "$SECONDS" -lt "$deadline"; sleep 0.2
- done
- stop=$(jq -er '.result | select(.changed==true and .operation.kind=="session.stop") | .operation.id' <<< "$response")
- wait_completed "$stop"
- rpc session.inspect "$(params)" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+ cli session stop "$uuid" --json |
+  jq -e '.changed==true and .operation.kind=="session.stop" and .operation.status=="completed"' >/dev/null
+ condition stopped
 }
 start_session() {
- local start
- start=$(rpc session.start "$(params)" |
-  jq -er '.result | select(.changed==true and .operation.kind=="session.start") | .operation.id')
- wait_completed "$start"
+ cli session start "$uuid" --json |
+  jq -e '.changed==true and .operation.kind=="session.start" and .operation.status=="completed"' >/dev/null
 }
+# created prints the session a creation's completed operation made.
+created() { jq -er '.operation | select(.status=="completed") | .session_uuid'; }
 wait_sql() {
  local query=$1 expected=$2 deadline=$((SECONDS+30))
  while test "$(sql "$query")" != "$expected"; do
@@ -99,10 +65,10 @@ wait_unit() {
  # The notes database may take its whole 45-second start timeout.
  local unit=$1 expected=$2 deadline=$((SECONDS+60)) observed
  while ((SECONDS<deadline)); do
-  observed=$(rpc session.services "$(params)")
+  observed=$(cli service list "$uuid" --json)
   # An installed unit the user manager unloaded reports stopped.
   if jq -e --arg name "p-project-notes-$unit.service" --arg state "$expected" \
-   '.result.services|any(.name==$name and .state==$state)' <<< "$observed" >/dev/null; then return; fi
+   '.services|any(.name==$name and .state==$state)' <<< "$observed" >/dev/null; then return; fi
   sleep 0.1
  done
  printf '%s\n' "$observed" >&2
@@ -142,15 +108,17 @@ setup() {
  start_unit worker
  guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 }
+# Without a terminal a removal does not ask: --force runs it after the
+# countdown its loss starts; a reviewed plan runs by its change tag.
 remove_session() {
- local kind=$1 key=$2 response tag
+ local kind=$1 tag
  stop_session
- response=$(rpc "session.$kind" "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')")
- tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$response")
- response=$(rpc "session.$kind" "$(jq -nc --arg uuid "$uuid" --arg key "$key" --arg tag "$tag" \
-  '{uuid:$uuid,key:$key,if_match:$tag}')")
- op=$(jq -er '.result.operation.id' <<< "$response")
- wait_completed "$op"
+ if test "$kind" = discard; then
+  cli session discard "$uuid" --force --json | jq -e '.plan.allowed and (.plan.loss|length>0) and .operation.status=="completed"' >/dev/null
+ else
+  tag=$(cli session "$kind" "$uuid" --dry-run)
+  cli session "$kind" "$uuid" --if-match "$tag" --json | jq -e '.operation.status=="completed"' >/dev/null
+ fi
  inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 }
 cleanup() {
@@ -163,8 +131,8 @@ on_error() {
  printf 'P_NOTES_WORKFLOW_FAIL line=%s status=%s\n' "$2" "$1" >&2
  service_control diagnostic >&2 || true
  if test -n "$uuid"; then
-  rpc session.inspect "$(params)" >&2 || true
-  rpc session.services "$(params)" >&2 || true
+  p session show "$uuid" --json >&2 || true
+  p service list "$uuid" --json >&2 || true
   guest systemctl --user --no-pager status p-project-notes-{db,web,worker}.service >&2 || true
   guest journalctl --user --no-pager -n 20 -u p-project-notes-db -u p-project-notes-web -u p-project-notes-worker >&2 || true
  fi
@@ -173,15 +141,12 @@ trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 service_control start
 wait_health
-created=$(rpc project.create '{"key":"notes57-bootstrap","project":"notes57"}')
-uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
+uuid=$(cli project create notes57 --json | created)
 uuid_a=$uuid
-op=$(jq -er '.result.operation.id' <<< "$created")
-wait_completed "$op"
 wait_ready
 # No installed project units is a successful empty inventory. systemctl's
 # list-unit-files command may return exit 1 with [], rather than exit 0.
-rpc session.services "$(params)" | jq -e '(.result.services // [])==[]' >/dev/null
+cli service list "$uuid" --json | jq -e '(.services // [])==[]' >/dev/null
 if empty_units=$(guest /usr/libexec/p/systemctl --user list-unit-files --type=service --no-pager --output=json 'p-project-*.service'); then
  empty_status=0
 else empty_status=$?; fi
@@ -189,10 +154,10 @@ test "$empty_status" -eq 0 || test "$empty_status" -eq 1
 jq -e '.==[]' <<< "$empty_units" >/dev/null
 printf 'P_NOTES_EMPTY_SERVICES_PASS native-exit=%s\n' "$empty_status"
 # An unborn bootstrap has no committed source for another stream.
-if refused=$(rpc session.create '{"key":"notes57-unborn","project":"notes57","branch":"too-soon","choice":"new","source":"refs/heads/main"}'); then
+if refused=$(cli session create notes57:too-soon --from main --json); then
  echo 'accepted another stream before the first commit' >&2; exit 1
 fi
-jq -e 'has("error") and (has("result")|not)' <<< "$refused" >/dev/null
+jq -e 'has("error") and (has("operation")|not)' <<< "$refused" >/dev/null
 
 seed_sample
 guest git config user.name P
@@ -206,7 +171,7 @@ guest postgres --version
 guest python3 -c 'import sys, psycopg; print(sys.version); print("Psycopg", psycopg.__version__)'
 guest python3 examples/notes/tests.py
 setup
-rpc session.services "$(params)" | jq -e '.result.services|[.[]|select(.name|startswith("p-project-notes-"))]|length==3' >/dev/null
+cli service list "$uuid" --json | jq -e '.services|[.[]|select(.name|startswith("p-project-notes-"))]|length==3' >/dev/null
 # Session-local socket has SQL access and no TCP listener.
 test "$(sql 'SHOW listen_addresses')" = ''
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and ([.[0].expanded_devices[]|select(.type=="nic")]|length)==0' >/dev/null
@@ -219,11 +184,9 @@ start_unit worker
 wait_sql 'SELECT word_count FROM notes WHERE id=1' 4
 # Real unit-specific logs via the public interface.
 for unit in db web worker; do
- rpc session.service.logs "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$unit.service" '{uuid:$uuid,name:$name}')" \
-  | jq -e '.result.logs|length>0' >/dev/null
+ cli service logs "$uuid" "p-project-notes-$unit.service" --json | jq -e '.logs|length>0' >/dev/null
 done
-rpc session.service.logs "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid,name:"p-project-notes-worker.service"}')" \
- | jq -e '.result.logs|contains("processed job=")' >/dev/null
+cli service logs "$uuid" p-project-notes-worker.service --json | jq -e '.logs|contains("processed job=")' >/dev/null
 # Kill the actual worker service and inspect its failed state alongside active web.
 guest systemctl --user kill --signal=KILL --kill-whom=main p-project-notes-worker.service
 wait_unit worker failed
@@ -292,10 +255,7 @@ start_unit worker
 # Exact committed source excludes the source session's private home/unpushed work.
 guest bash -euc 'printf private-A > /home/p/notes-private; printf dirty-A > notes-dirty; printf local-only > local-only; git add local-only; git commit -qm local-only'
 local_oid=$(guest git rev-parse HEAD)
-created=$(rpc session.create '{"key":"notes57-feature","project":"notes57","branch":"feature-notes","choice":"new","source":"refs/heads/main"}')
-uuid_b=$(jq -er '.result.operation.session_uuid' <<< "$created")
-op=$(jq -er '.result.operation.id' <<< "$created")
-wait_completed "$op"
+uuid_b=$(cli session create notes57:feature-notes --from main --json | created)
 uuid=$uuid_b
 wait_ready
 test "$(guest git rev-parse HEAD)" = "$sample_oid"
@@ -314,7 +274,7 @@ test "$(sql 'SELECT count(*) FROM notes')" = 2
 uuid=$uuid_b
 test "$(sql 'SELECT count(*) FROM notes')" = 1
 test "$(sql "SELECT count(*) FROM information_schema.columns WHERE table_name='notes' AND column_name='session_a_label'")" = 0
-if refused=$(rpc session.create '{"key":"notes57-duplicate-branch","project":"notes57","branch":"feature-notes","choice":"existing"}'); then exit 1; fi
+if refused=$(cli session create notes57:feature-notes --json); then exit 1; fi
 jq -e 'has("error")' <<< "$refused" >/dev/null
 
 # Stop/start preserves local/dirty/private/database/unit state but ends old processes.
@@ -325,7 +285,7 @@ stop_session
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].status=="Stopped"' >/dev/null
 service_control restart
 wait_health
-rpc session.inspect "$(params)" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+condition stopped
 start_session
 wait_ready
 test "$(guest git rev-parse HEAD)" = "$local_oid"
@@ -348,17 +308,15 @@ test "$(sha256sum "/var/lib/p-service55/session_keys/$uuid" | cut -d ' ' -f1)" =
 test "$(guest git rev-parse HEAD)" = "$local_oid"
 
 # Rename needs the session stopped; it retains UUID/data and adjusts the
-# ordinary branch/upstream.
+# ordinary branch/upstream. The command expects the branch's tip in P.
 uuid=$uuid_b
-rename_params=$(jq -nc --arg uuid "$uuid" --arg oid "$sample_oid" '{key:"notes57-rename",uuid:$uuid,new_branch:"retained-notes",expected_old_tip:$oid}')
-if refused=$(rpc session.rename "$rename_params"); then
+cli branch list notes57 --json | jq -e --arg oid "$sample_oid" 'any(.ref=="refs/heads/feature-notes" and .oid==$oid)' >/dev/null
+if refused=$(cli session rename "$uuid" retained-notes --json); then
  echo 'renamed a running session' >&2; exit 1
 fi
-jq -e '.error.message=="conflict" and .error.data.reason=="session_not_stopped" and (has("result")|not)' <<< "$refused" >/dev/null
+jq -e '.error.message=="conflict" and .error.data.reason=="session_not_stopped" and (has("operation")|not)' <<< "$refused" >/dev/null
 stop_session
-renamed=$(rpc session.rename "$rename_params")
-op=$(jq -er '.result.operation.id' <<< "$renamed")
-wait_completed "$op"
+cli session rename "$uuid" retained-notes --json | jq -e '.operation.status=="completed"' >/dev/null
 start_session
 wait_ready
 test "$(guest git branch --show-current)" = retained-notes
@@ -369,13 +327,10 @@ test "$(sql 'SELECT count(*) FROM notes')" = 1
 
 # Discard keeps the pushed source, then existing-branch assignment has fresh state.
 old_b=$uuid_b
-remove_session discard notes57-discard
-rpc project.retained_branches '{"project":"notes57","limit":8}' | jq -e --arg oid "$sample_oid" \
- '.result.branches|any(.branch=="retained-notes" and .oid==$oid)' >/dev/null
-created=$(rpc session.create '{"key":"notes57-existing","project":"notes57","branch":"retained-notes","choice":"existing"}')
-uuid_b=$(jq -er '.result.operation.session_uuid' <<< "$created")
-op=$(jq -er '.result.operation.id' <<< "$created")
-wait_completed "$op"
+remove_session discard
+cli branch list notes57 --retained --json | jq -e --arg oid "$sample_oid" \
+ 'any(.branch=="retained-notes" and .oid==$oid)' >/dev/null
+uuid_b=$(cli session create notes57:retained-notes --json | created)
 uuid=$uuid_b
 wait_ready
 test "$uuid_b" != "$old_b"
@@ -384,14 +339,11 @@ guest test ! -e /home/p/.local/state/p-notes/cluster
 setup
 test "$(sql 'SELECT count(*) FROM notes')" = 0
 test "$(sql 'SELECT count(*) FROM jobs')" = 0
-remove_session delete notes57-delete
-rpc project.branches '{"project":"notes57","limit":8}' | jq -e '.result.refs|all(.ref!="refs/heads/retained-notes")' >/dev/null
+remove_session delete
+cli branch list notes57 --json | jq -e 'all(.ref!="refs/heads/retained-notes")' >/dev/null
 uuid_b=
 # A sibling project/database must survive the reviewed aggregate deletion.
-created=$(rpc project.create '{"key":"notes57-sibling-project","project":"notes57-sibling"}')
-uuid_sibling=$(jq -er '.result.operation.session_uuid' <<< "$created")
-op=$(jq -er '.result.operation.id' <<< "$created")
-wait_completed "$op"
+uuid_sibling=$(cli project create notes57-sibling --json | created)
 uuid=$uuid_sibling
 wait_ready
 seed_sample
@@ -404,22 +356,15 @@ wait_sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL' 0
 uuid=$uuid_a
 test "$(sql 'SELECT count(*) FROM notes')" = 3
 stop_session
-plan=$(rpc project.delete '{"project":"notes57"}')
-tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$plan")
-removed=$(rpc project.delete "$(jq -nc --arg tag "$tag" '{key:"notes57-project-delete",project:"notes57",if_match:$tag}')")
-op=$(jq -er '.result.operation.id' <<< "$removed")
-wait_completed "$op"
+tag=$(cli project delete notes57 --dry-run --json | jq -er 'select(.plan.allowed==true) | .change_tag')
+cli project delete notes57 --if-match "$tag" --json | jq -e '.operation.status=="completed"' >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 uuid_a=
 uuid=$uuid_sibling
 test "$(sql 'SELECT body FROM notes')" = 'sibling survives'
 guest python3 examples/notes/client.py health | jq -e '.database=="ready"' >/dev/null
 stop_session
-plan=$(rpc project.delete '{"project":"notes57-sibling"}')
-tag=$(jq -er '.result | select(.plan.allowed==true) | .change_tag' <<< "$plan")
-removed=$(rpc project.delete "$(jq -nc --arg tag "$tag" '{key:"notes57-sibling-project-delete",project:"notes57-sibling",if_match:$tag}')")
-op=$(jq -er '.result.operation.id' <<< "$removed")
-wait_completed "$op"
+cli project delete notes57-sibling --force --json | jq -e '.operation.status=="completed"' >/dev/null
 inc list "^p-$uuid$" --format json | jq -e 'length==0' >/dev/null
 uuid_sibling=
 printf 'P_NOTES_WORKFLOW_PASS SQL HTTP workers readiness recovery branches isolation attach StopStart daemon-restart rename discard reassignment delete\n'

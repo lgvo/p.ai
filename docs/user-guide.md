@@ -118,8 +118,11 @@ it does not turn old state into proof that cleanup succeeded.
 Inside the actual terminal, tmux owns input. **Ctrl+B, then lowercase `d`** detaches and
 returns to the picker. Detach before opening Agents/Services: the prototype's
 in-terminal popup is not implemented. Agents shows the latest retained report,
-not an active-instance inventory or conversation history. Bulk project deletion,
-publication and plugin management remain CLI/API workflows.
+not an active-instance inventory or conversation history. Project deletion
+(`p project delete`), retained-branch deletion (`p branch delete`),
+publication (`p origin publish`), failed-creation cleanup and replacement
+(`p session cleanup`, `p session create --replace`) and plugin management
+(`p plugins`) remain CLI workflows.
 
 Policy, agent reports, operation diagnostics and Help also support `j/k`, paging,
 and `gg/G` scrolling. Long fields wrap so they remain readable in small terminals.
@@ -188,31 +191,28 @@ restricted public-egress configuration. A session cannot grant itself network
 access or host directory mounts. Ask the instance owner to configure those
 capabilities before planning an online agent task.
 
-The following host commands use **Bash and p on PATH**; the walkthroughs that
-still send raw API requests also use jq. Every client command, such as
+The following host commands use **Bash and p on PATH**; a few examples also
+use jq to read `--json` output. Every client command, such as
 `p status`, `p tui` and `p attach demo:main`, uses the configured instance.
 The standard socket is `/var/lib/p/control.sock`; export `P_SOCKET` to
 override it, or pass `--socket PATH`. Existing explicit socket arguments of
 `p tui`, `p attach` and `p api` remain supported. See
 [socket selection](control-api.md#host-framing-and-request-envelope).
 
-For the standard NixOS service, this guide uses these shell helpers to run
+For the standard NixOS service, this guide uses this shell function to run
 commands as the owning account:
 
 ```bash
 p() { sudo --preserve-env=P_SOCKET -u p p "$@"; }
-api() { p api "$@"; }
 ```
 
 The `p` function runs the `p` binary through sudo; it does not call itself.
 Preserving `P_SOCKET` carries the configured socket or your exported override
-through sudo's environment reset. `api` is a convenience function, not an
-additional P command. If you run your own daemon, use its absolute socket path
-and its owning account, with no `p` function:
+through sudo's environment reset. If you run your own daemon, use its absolute
+socket path and its owning account, with no `p` function:
 
 ```bash
 export P_SOCKET=/absolute/path/to/control.sock
-api() { p api "$@"; }
 ```
 
 Use one of these configurations, then check the instance:
@@ -245,12 +245,25 @@ without the command.
 The examples are separate tasks, not one script to run from top to bottom.
 Choose your own project, branch and session names.
 
-The sections on removal and publication still send raw requests with `p api`.
-Its responses are JSON-RPC envelopes: successful values are under `result`;
-an error is under `error` and the CLI exits unsuccessfully. Lists are
-paginated: follow `result.next` by supplying it as `after` with the same
-method. Choose a unique action key for each raw change, and keep the same key
-only when replaying the same intent.
+A change that can lose work or replace something asks before it runs:
+discard, delete, project and branch deletion, publication, and failed-creation
+cleanup and replacement. The command first makes a dry run, which changes
+nothing, and shows its plan on standard error: what the change acts on, why
+it cannot run now if P does not allow it, what is already gone, and a large
+**THIS WILL LOSE WORK** warning listing everything it destroys. Then it asks
+`[y/N]`; only `y` or `yes` runs it, and anything else exits 3 with nothing
+changed. The run carries the plan's change tag, so it happens only if nothing
+changed since the plan and within two minutes of it. If something did change,
+the command says so, shows the new plan and asks again.
+
+The command can ask only when standard input and standard error are both
+terminals; otherwise it shows the plan and exits 3 without running it. Scripts
+have two ways to run such a change. `--force` runs it without asking; when
+the plan loses work, it first counts down 10 seconds, and Ctrl-C or SIGTERM
+during the countdown cancels with nothing sent. `--dry-run` shows the plan and
+prints its change tag on standard output, and `--if-match TAG` later runs
+that plan without asking, if nothing changed since. A plan P does not allow
+exits 3 with or without `--force`.
 
 ## Create your first project and commit
 
@@ -280,8 +293,9 @@ change again, so the change happens at most once. Running the command again
 without `--key` is a new request. Reusing a key for a different change is
 refused with exit status 2.
 
-Once creation completes, read the session and enter it. Later sections use its
-UUID, kept here as `SESSION`:
+Once creation completes, read the session and enter it. `PROJECT:BRANCH`
+names the session that holds the branch; its UUID names it too, and stays the
+same when the branch is renamed:
 
 ```bash
 p session show "$PROJECT:main"
@@ -442,62 +456,46 @@ than silently altering the session. See [status semantics](session-observability
 ## Publish work to the external origin
 
 First commit and push your workspace changes to P. Then review the project's
-external origin and the exact retained branch tip on the host:
+external origin and the P branch you want to publish on the host:
 
 ```bash
-api origin.inspect "$(jq -nc --arg project "$PROJECT" '{project:$project}')"
-api project.branches "$(jq -nc --arg project "$PROJECT" '{project:$project,limit:8}')"
+p origin show "$PROJECT"
+p branch list "$PROJECT"
 ```
 
-A local-only project needs an explicit origin association before publication;
-use `origin.change` from the [origin API table](control-api.md). It answers
-an operation; wait for it with `operation.wait` and read the result with
-`origin.inspect`. Setting or replacing an origin compares the exact prior URL
-and contacts the new origin. It does not retarget an already captured creation
-request.
+A local-only project needs an origin first: `p origin set PROJECT URL` sets
+it and waits for the change, which compares the exact prior URL and contacts
+the new origin. It does not retarget an already captured creation request.
 
-Copy the reviewed origin URL and assigned branch's P commit OID into the
-following variables. Use the UUID of the session being published:
+Publish a P branch, held by a session or retained, to the origin branch of
+the same name, or to another with `--to NAME`:
 
 ```bash
-ORIGIN_URL=ssh://git.example.com/team/app.git
-SOURCE_OID=replace-with-reviewed-P-commit-OID
-DESTINATION=refs/heads/feature
-PUBLICATION=$(jq -nc --arg project "$PROJECT" --arg url "$ORIGIN_URL" \
-  --arg session "$SESSION" --arg oid "$SOURCE_OID" --arg dest "$DESTINATION" \
-  '{project:$project,expected_origin_url:$url,kind:"session",source:$session,source_oid:$oid,destination_ref:$dest}')
-PLAN=$(api origin.publish "$PUBLICATION")
-jq '.result.plan' <<< "$PLAN"
+p origin publish "$PROJECT:feature"
 ```
 
-This first call is a dry run: it contacts the origin and returns the
-publication's plan without publishing. Review the origin, source, destination,
-and commit relationship in its `details`. A destination with commits your
-source lacks makes the plan not allowed, with the refusal
-`destination_divergent` and no change tag. Only proceed
-if the plan describes the action you intend. Send the same request again with
-an idempotency key and the plan's change tag:
+The command reads the origin's URL and the branch's tip in P, then makes a dry
+run, which contacts the origin and publishes nothing. Its plan names the
+origin, the source commit, the destination branch and what the push does:
+create the branch, fast-forward it, or nothing when the origin already has
+the commit. A destination with commits your source lacks makes the plan not
+allowed, with the refusal `destination_divergent`, and the command exits 3.
+Answer `y` only if the plan describes the action you intend.
 
-```bash
-TAG=$(jq -er '.result.change_tag' <<< "$PLAN")
-PUBLISH=$(api origin.publish "$(jq -c --arg tag "$TAG" '. + {key:"demo-publish-1",if_match:$tag}' <<< "$PUBLICATION")")
-api operation.wait "$(jq -nc --arg id "$(jq -er '.result.operation.id' <<< "$PUBLISH")" '{id:$id,timeout:20}')"
-```
+The run plans again, with the same reviewed origin URL and exact source, and
+runs only when nothing changed and within two minutes of the dry run. It
+creates an absent destination or advances it by an ordinary fast-forward; it
+does not force-push. The command waits for the operation and says what the
+push did. When the origin's server rejects the push, the operation completes
+without publishing and the command says so and exits 1. A destination that
+diverged after the run was accepted ends the operation `failed` with reason
+`changed`, without a push. An unknown outcome ends it `failed` with reason
+`outcome_unknown`: investigate and reconcile the recorded publication
+(`p operation show ID` holds it under `evidence.publication`); do not blindly
+publish again.
 
-The change tag expires two minutes after the dry run. Publication plans again,
-with the same reviewed origin identity and exact source, and runs only when
-nothing changed. It creates an absent destination or advances it by an
-ordinary fast-forward; it does not force-push. The operation's
-`evidence.publication.status` distinguishes `created`, `advanced`,
-`satisfied`, `refused`, and `outcome_unknown`. `refused` means the origin's
-server rejected the push: the operation completes without publishing. A destination that diverged after the run
-was accepted ends the operation `failed` with reason `changed`, without a
-push. An unknown outcome ends the operation `failed` with reason
-`outcome_unknown`: investigate and reconcile the recorded publication; do not
-blindly submit a new key.
-
-The plan's `workspace_status: "unknown"` matters: publication reviews P's
-retained commit, not dirty files or unpushed commits in the workspace.
+Publication reviews P's retained commit, not dirty files or unpushed commits
+in the workspace: the plan's `workspace_status` is `unknown`.
 
 ## Rename a stream
 
@@ -537,60 +535,48 @@ session's source commit stays while another session started from that commit
 exists; P deletes it after the last one is gone.
 
 Detach every terminal first. A running session does not need Stop: P stops it
-as part of the removal. Choose the UUID carefully and make a dry run, which
-returns the removal's plan without removing anything:
+as part of the removal. Name the session carefully:
 
 ```bash
-ACTION=discard  # Set delete only when you also intend to remove the P branch.
-REQUEST=$(jq -nc --arg uuid "$SESSION" '{uuid:$uuid}')
-PLAN=$(api "session.$ACTION" "$REQUEST")
-jq '.result.plan' <<< "$PLAN"
+p session discard "$PROJECT:feature"
+# or, to remove its P branch too:
+p session delete "$PROJECT:feature"
 ```
 
-**Pause here and review the session identity, branch, runtime, and what the
-plan says is lost.** `loss` lists what the removal destroys: a `runtime_data`
-item means the runtime and everything in it will be deleted, and Delete's
-`p_commits` item counts the commits that leave P's repository, which
-`details.branch_loss` lists in full. P does not check whether the external
-origin has those commits. If that is not acceptable, keep the session and
-push or copy out the work you need first, then make a new dry run. When the assigned branch is already
-gone, the plan has `assigned_ref_missing: true` and no tip; Discard then keeps
-no branch and ends like Delete.
+**Read the plan before you answer.** It names the session and its branch and
+says whether the branch stays or goes. The loss warning lists what the removal
+destroys: the session's container and everything in it, and for Delete the
+commits that leave P's repository, counted; `--json` prints them all under
+`details.branch_loss`. P does not check whether the external origin has
+those commits. If that is not acceptable, answer no, push or copy out the work
+you need, and run the command again. When the assigned branch is already gone,
+the plan says so: Discard then keeps no branch and ends like Delete.
 
-When `allowed` is `false`, the plan lists `refusals` instead and has no change
-tag: each `code` names what stops the removal, such as `attachment_active` for
-an attached terminal. Resolve it and make a new dry run.
+When P does not allow the removal, the plan says why instead of asking, one
+sentence per refusal, such as an attached terminal, and the command exits 3.
+Resolve it and run the command again.
 
-Only after deciding to authorize the displayed removal, send the same request
-with an idempotency key and the plan's change tag:
-
-```bash
-TAG=$(jq -er '.result.change_tag' <<< "$PLAN")
-REMOVE=$(api "session.$ACTION" "$(jq -c --arg tag "$TAG" --arg key "demo-$ACTION-1" \
-  '. + {key:$key,if_match:$tag}' <<< "$REQUEST")")
-REMOVE_OPERATION=$(jq -er '.result.operation.id' <<< "$REMOVE")
-api operation.wait "$(jq -nc --arg id "$REMOVE_OPERATION" '{id:$id,timeout:20}')"
-```
-
-Wait until complete. An accepted run is not proof that cleanup finished. The
-change tag expires two minutes after the dry run. An expired tag, or facts
-that changed since the dry run, answer `precondition_failed` and record
-nothing: make a new dry run and review it again. P rechecks the branch tip and
+After `y`, the command runs the plan and waits until the removal completes; an
+accepted run is not proof that cleanup finished. A plan older than two
+minutes, or facts that changed since it, refuse the run with nothing recorded:
+the command shows the new plan and asks again. P rechecks the branch tip and
 the runtime identity once more before committing removal. An already accepted
 operation retains its exact intent and key across restart.
 
-If Incus positively proves the runtime missing, the plan says so:
-`details.runtime.condition` is `missing`, and `gone` lists the runtime's
-contents as already lost rather than as loss the removal causes. An
-unavailable Incus service does not prove absence: the dry run answers
-`failed`.
+If Incus positively proves the runtime missing, the plan says so and lists its
+contents as already gone, not as loss the removal causes, so `--force` does not
+count down for it. An unavailable Incus service does not prove absence: the
+dry run fails instead.
 
-For an unassigned retained branch, use `project.retained.delete` the same way;
-no runtime is involved. Whole project deletion, `project.delete`, makes one
-plan covering every session and branch. It stops running sessions itself,
-refuses while a terminal is attached, and lists a missing runtime's contents
-in `gone`; failed creations need supported cleanup first.
-See the [project lifecycle](project-lifecycle.md) and
+For a retained branch no session holds, `p branch delete PROJECT:BRANCH`
+shows the commits that leave P's repository and asks the same way; no runtime
+is involved. `p project delete PROJECT` makes one plan covering every session
+and branch of the project, and says what deletion keeps: the contents of
+granted host directories, shared images, other projects, and logs already
+delivered to event handlers, whose retention is each handler's own. It stops
+running sessions itself, refuses while a terminal is attached, and lists a
+missing runtime's contents as already gone; failed creations need cleanup
+first. See the [project lifecycle](project-lifecycle.md) and
 [API schemas](control-api.md#risky-changes).
 
 ## When something does not finish
@@ -611,16 +597,16 @@ under `error.data.reason`. The daemon's log has the cause.
 | `retry` | Something holds the session for a moment, such as another request or a running operation named in `error.data.target`. The commands wait for a named operation, or pause briefly, and send the same request again themselves; with `p api`, send it again once the holder finishes. |
 | `conflict` | The state forbids the action until something changes it: an attached terminal, a session that must be stopped or started, a blocked operation, an assigned or reserved branch. `error.data.reason` names it; change that state, then try again. |
 | `capacity` | Every session slot is taken. Discard or Delete a session; Stop keeps its slot. |
-| `precondition_failed` | What you reviewed or expected changed, or the change tag expired. Make a new dry run, review its plan, and run that. |
-| `precondition_required` | A run sent `key` without `if_match`. Send the dry run's change tag in `if_match`. |
-| A plan with `allowed: false` | Read its `refusals`: each `code` names what stops the change, and `target` names the session or operation it is about when that is not the plan's own target. Resolve it, or investigate Incus manually, then make a new dry run. Uncertain resources remain untouched. |
+| `precondition_failed` | What you reviewed or expected changed, or the change tag expired. A command that asks shows the new plan and asks again; after `--force`, `--key` or `--if-match` it stops: review the plan again, with `--dry-run` for a script. |
+| `precondition_required` | With `p api`, a run sent `key` without `if_match`. Send the dry run's change tag in `if_match`. |
+| A plan P does not allow | The command says why, one sentence per refusal, naming the session or operation it is about; `--json` prints the plan's `refusals`. Resolve it, or investigate Incus manually, then run the command again. Uncertain resources remain untouched. |
 | Reason `workspace_mismatch` | Compare the expected and actual values in the diagnostic, correct Git manually, then run Rename again without `--key`. |
 | Reason `image_build_failed` | The image of the session's source commit did not build; the diagnostic says why. Retry builds the same commit again, so for a fault in the commit, such as an invalid devShell, clean up the failed creation and create a session from a fixed commit. For another cause, such as a failed fetch, fix it and Retry. |
 | Reason `image_builder_changed` | The host's image builder configuration changed after the creation began. Restore it and Retry, or clean up the failed creation and create the session again. |
 | Reason `internal` | P failed in a way it does not classify, or its work panicked; the diagnostic has the detail, and the daemon's log a panic's stack. A blocked operation keeps its guards; Retry it once the cause is understood. |
 | Incus unavailable or runtime unreachable | Restore or investigate the authority. P retains identity and incomplete cleanup; it must not claim deletion or create an uncertain duplicate. |
-| Runtime missing | Discard the session: its plan lists the runtime's contents under `gone`. Then create a new session on the retained branch. P does not adopt an unfamiliar replacement container. |
-| Failed Create needs different inputs | Try the explicit replacement, `session.create.replace`, only for supported cases. Otherwise use confirmed failed-create cleanup, `session.create.cleanup`, then a new Create. |
+| Runtime missing | Discard the session: its plan lists the runtime's contents as already gone. Then create a new session on the retained branch. P does not adopt an unfamiliar replacement container. |
+| Failed Create needs different inputs | Try the explicit replacement, `p session create PROJECT:BRANCH [--from REF] --replace SESSION`, only for supported cases; it cannot start from the origin. Otherwise clean up the failed creation with `p session cleanup SESSION`, which keeps its branch, then create again. Both show their plan and ask. |
 
 Retry example, with the operation's ID:
 

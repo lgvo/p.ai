@@ -24,8 +24,8 @@ type fakeDaemon struct {
 	mu     sync.Mutex
 	calls  []fakeCall
 	// lose counts, per method, the replies to drop by closing the
-	// connection after the handler ran.
-	lose map[string]int
+	// connection after the handler ran, once keep replies passed.
+	lose, keep map[string]int
 }
 
 type fakeCall struct {
@@ -35,7 +35,7 @@ type fakeCall struct {
 
 func newFakeDaemon(t *testing.T) *fakeDaemon {
 	t.Helper()
-	d := &fakeDaemon{socket: filepath.Join(t.TempDir(), "control.sock"), table: control.NewMethodTable(), lose: map[string]int{}}
+	d := &fakeDaemon{socket: filepath.Join(t.TempDir(), "control.sock"), table: control.NewMethodTable(), lose: map[string]int{}, keep: map[string]int{}}
 	listener, err := net.Listen("unix", d.socket)
 	if err != nil {
 		t.Fatal(err)
@@ -68,9 +68,11 @@ func (d *fakeDaemon) handler(conn net.Conn) control.Handler {
 		}
 		result, answer := dispatch(ctx, method, params)
 		d.mu.Lock()
-		lost := d.lose[method] > 0
+		lost := d.lose[method] > 0 && d.keep[method] == 0
 		if lost {
 			d.lose[method]--
+		} else if d.lose[method] > 0 {
+			d.keep[method]--
 		}
 		d.mu.Unlock()
 		if lost {
@@ -89,6 +91,15 @@ func handle[Req api.Request, Res any](d *fakeDaemon, m api.Method[Req, Res], h f
 func (d *fakeDaemon) loseReply(method string) {
 	d.mu.Lock()
 	d.lose[method]++
+	d.mu.Unlock()
+}
+
+// loseReplyAfter drops the reply to method after kept replies passed, such
+// as the run that follows a dry run.
+func (d *fakeDaemon) loseReplyAfter(method string, kept int) {
+	d.mu.Lock()
+	d.lose[method]++
+	d.keep[method] = kept
 	d.mu.Unlock()
 }
 
@@ -128,15 +139,24 @@ type cliRun struct {
 	pauses int
 }
 
-// runCLI runs a client command against d with ctx and returns what it
-// printed and its exit status.
+// runCLI runs a client command against d with ctx, without a terminal, and
+// returns what it printed and its exit status.
 func runCLI(ctx context.Context, d *fakeDaemon, args ...string) cliRun {
+	return runCLIWith(ctx, d, nil, args...)
+}
+
+// runCLIWith is runCLI with the cli set up by setup, such as with a terminal
+// and a clock of its own.
+func runCLIWith(ctx context.Context, d *fakeDaemon, setup func(*cli), args ...string) cliRun {
 	var stdout, stderr bytes.Buffer
 	var r cliRun
-	c := &cli{stdout: &stdout, stderr: &stderr, pause: func(ctx context.Context, _ time.Duration) error {
+	c := &cli{stdout: &stdout, stderr: &stderr, stdin: strings.NewReader(""), pause: func(ctx context.Context, _ time.Duration) error {
 		r.pauses++
 		return ctx.Err()
 	}}
+	if setup != nil {
+		setup(c)
+	}
 	// The socket flag goes before any "--", after which every argument is
 	// positional.
 	end := len(args)

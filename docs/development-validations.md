@@ -471,11 +471,12 @@ PostgreSQL/Python/Psycopg runtime before acceptance. Verify real SQL, HTTP
 requests and worker results in a confined session, with a private Unix socket
 and no database TCP listener or published application port.
 
-The CLI/API selection `57-developer-workflow.sh` covers blank bootstrap and
-first push, new and retained branches, edit/fail/fix, attachment teardown,
-three discoverable user services and journals, dependency failure/recovery,
-private databases and schema, Stop/Start, daemon restart, rename and reviewed
-cleanup. Independently verify Git tips, native processes, rows/jobs and
+The CLI selection `57-developer-workflow.sh` runs through the task commands,
+with `--force` and with `--dry-run` then `--if-match` for the removals. It
+covers blank bootstrap and first push, new and retained branches,
+edit/fail/fix, attachment teardown, three discoverable user services and
+journals, dependency failure/recovery, private databases and schema,
+Stop/Start, daemon restart, rename and reviewed cleanup. Independently verify Git tips, native processes, rows/jobs and
 resource absence. Existing origin/publication gates retain their own scope;
 they do not establish a sample-source origin walkthrough.
 

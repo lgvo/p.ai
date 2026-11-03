@@ -191,9 +191,14 @@ func (in *invocation) follow(op api.Operation) (api.Operation, error) {
 // report follows op unless --no-wait, then says how it ended; done is the
 // line for a completed operation.
 func (in *invocation) report(op api.Operation, done func(api.Operation) string) (api.Operation, error) {
+	return in.reportAs(op, done, func(op api.Operation) any { return api.OperationResult{Operation: op} })
+}
+
+// reportAs is report whose --json output is result of the operation.
+func (in *invocation) reportAs(op api.Operation, done func(api.Operation) string, result func(api.Operation) any) (api.Operation, error) {
 	if in.noWait {
 		if in.json {
-			in.printJSON(api.OperationResult{Operation: op})
+			in.printJSON(result(op))
 		} else {
 			fmt.Fprintln(in.stdout, op.ID)
 			fmt.Fprintf(in.stderr, "Accepted. Wait for it with: p operation wait %s\n", op.ID)
@@ -202,7 +207,7 @@ func (in *invocation) report(op api.Operation, done func(api.Operation) string) 
 	}
 	op, err := in.follow(op)
 	if in.json && !answered(err) {
-		in.printJSON(api.OperationResult{Operation: op})
+		in.printJSON(result(op))
 	}
 	if err != nil {
 		return op, err
@@ -220,8 +225,8 @@ func answered(err error) bool {
 // ended says how op, which is no longer running, ended.
 func (in *invocation) ended(op api.Operation, done func(api.Operation) string) error {
 	if op.Status == "completed" {
-		if !in.json {
-			fmt.Fprintln(in.stdout, done(op))
+		if line := done(op); line != "" && !in.json {
+			fmt.Fprintln(in.stdout, line)
 		}
 		return nil
 	}
@@ -253,44 +258,70 @@ func newKey() string {
 
 // keyedChange runs a change of m, a method that takes an idempotency key and
 // records an operation of its own name. With --key it first looks the key up
-// in the journal: an operation whose intent matches is reported without
-// sending anything, and one recorded for another command is refused.
-// Otherwise request resolves the command's arguments from live state into
-// the request to send with key; done is the line for a completed operation.
-// It returns the operation as it last saw it.
+// in the journal (recordedChange). Otherwise request resolves the command's
+// arguments from live state into the request to send with key; done is the
+// line for a completed operation. It returns the operation as it last saw
+// it.
 func keyedChange[Req api.Request](in *invocation, m api.Method[Req, api.OperationResult], matches func(api.OperationIntent) bool, request func(key string) (Req, error), done func(api.Operation) string) (api.Operation, error) {
-	key := in.key
-	if key != "" {
-		recorded, found, err := in.lookupKey(key)
-		if err != nil {
-			return api.Operation{}, err
-		}
-		if found {
-			if recorded.Kind != m.Name || !matches(recorded.Intent) {
-				return api.Operation{}, usageError("The key %s was used for another request: operation %s (%s). Use a new key, or none.", key, recorded.ID, recorded.Kind)
-			}
-			r, err := call(in, api.OperationInspect, api.OperationInspectRequest{ID: recorded.ID})
-			if err != nil {
-				return api.Operation{}, err
-			}
-			return in.report(r.Operation, done)
-		}
-	} else {
-		key = newKey()
+	recorded, err := in.recordedChange(m.Name, matches)
+	if err != nil {
+		return api.Operation{}, err
 	}
+	if recorded != nil {
+		return in.report(*recorded, done)
+	}
+	key := in.changeKey()
 	req, err := request(key)
 	if err != nil {
 		return api.Operation{}, err
 	}
 	r, err := call(in, m, req)
-	var lost *lostReplyError
-	if errors.As(err, &lost) {
-		return api.Operation{}, &exitError{code: exitFailed, text: fmt.Sprintf("%s The change may have been made. Repeat it with the same key, which makes it at most once:\n  %s", lost.Error(), in.repeatCommand(key))}
-	}
 	if err != nil {
-		return api.Operation{}, err
+		return api.Operation{}, in.lostChange(err, key)
 	}
 	return in.report(r.Operation, done)
+}
+
+// recordedChange looks --key up in the journal before the command resolves
+// any argument from live state, which the first request may have changed:
+// the operation of kind it recorded, when its intent matches the command,
+// or nil when none is recorded or no --key was given. A key recorded for
+// another command is a usage error.
+func (in *invocation) recordedChange(kind string, matches func(api.OperationIntent) bool) (*api.Operation, error) {
+	if in.key == "" {
+		return nil, nil
+	}
+	recorded, found, err := in.lookupKey(in.key)
+	if err != nil || !found {
+		return nil, err
+	}
+	if recorded.Kind != kind || !matches(recorded.Intent) {
+		return nil, usageError("The key %s was used for another request: operation %s (%s). Use a new key, or none.", in.key, recorded.ID, recorded.Kind)
+	}
+	r, err := call(in, api.OperationInspect, api.OperationInspectRequest{ID: recorded.ID})
+	if err != nil {
+		return nil, err
+	}
+	return &r.Operation, nil
+}
+
+// changeKey is the key of a change to send: --key, or a new one.
+func (in *invocation) changeKey() string {
+	if in.key != "" {
+		return in.key
+	}
+	return newKey()
+}
+
+// lostChange is err, the error of a change sent under key, with the
+// command that repeats it when its reply was lost: the change may have been
+// made, and the key makes it at most once.
+func (in *invocation) lostChange(err error, key string) error {
+	var lost *lostReplyError
+	if !errors.As(err, &lost) {
+		return err
+	}
+	return &exitError{code: exitFailed, text: fmt.Sprintf("%s The change may have been made. Repeat it with the same key, which makes it at most once:\n  %s", lost.Error(), in.repeatCommand(key))}
 }
 
 // lookupKey pages the journal for the operation recorded under key.
@@ -409,21 +440,9 @@ func (in *invocation) sentence(err error) string {
 	}
 	text := errtext.Sentence(answer)
 	if target := answer.Target(); target != "" {
-		text += " (" + describeTarget(target) + ")"
+		text += " (" + errtext.Target(target) + ")"
 	}
 	return text
-}
-
-// describeTarget names an error's target in the words of the command line:
-// "project/team/app:branch/work" is branch team/app:work.
-func describeTarget(target string) string {
-	if project, branch, ok := strings.Cut(strings.TrimPrefix(target, "project/"), ":branch/"); ok {
-		return "branch " + project + ":" + branch
-	}
-	if kind, name, ok := strings.Cut(target, "/"); ok {
-		return kind + " " + name
-	}
-	return target
 }
 
 func (in *invocation) printJSON(v any) {

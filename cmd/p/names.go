@@ -50,6 +50,17 @@ func (n sessionName) named(intent api.OperationIntent) bool {
 	return intent.Project == n.at.project && intent.Branch == n.at.branch
 }
 
+// replaced reports whether a replacement's intent names this session as
+// the blocked creation it replaced: by UUID, or by the project and branch
+// that creation held. That session no longer exists, so only the intent
+// names it.
+func (n sessionName) replaced(intent api.OperationIntent) bool {
+	if n.uuid != "" {
+		return intent.ReplacesSession == n.uuid
+	}
+	return intent.Project == n.at.project && intent.ReplacesBranch == n.at.branch
+}
+
 // sessionID is the UUID of the session n names.
 func (in *invocation) sessionID(n sessionName) (string, error) {
 	if n.uuid != "" {
@@ -66,18 +77,7 @@ func (in *invocation) session(n sessionName) (api.SessionView, error) {
 		r, err := call(in, api.SessionInspect, api.SessionInspectRequest{UUID: n.uuid})
 		return r.Session, err
 	}
-	var found *api.SessionView
-	err := pages(in, api.SessionList, func(after string) api.SessionListRequest {
-		return api.SessionListRequest{Limit: 8, After: after}
-	}, func(r api.SessionListResult) (string, bool) {
-		for i, s := range r.Sessions {
-			if s.Project == n.at.project && s.Branch == n.at.branch {
-				found = &r.Sessions[i]
-				return "", false
-			}
-		}
-		return r.Next, true
-	})
+	found, err := in.holder(n.at)
 	if err != nil {
 		return api.SessionView{}, err
 	}
@@ -85,6 +85,24 @@ func (in *invocation) session(n sessionName) (api.SessionView, error) {
 		return api.SessionView{}, &exitError{code: exitFailed, text: fmt.Sprintf("No session holds branch %s.", n.at)}
 	}
 	return *found, nil
+}
+
+// holder is the session that holds branch b, found with session.list, or
+// nil when none does.
+func (in *invocation) holder(b branchName) (*api.SessionView, error) {
+	var found *api.SessionView
+	err := pages(in, api.SessionList, func(after string) api.SessionListRequest {
+		return api.SessionListRequest{Limit: 8, After: after}
+	}, func(r api.SessionListResult) (string, bool) {
+		for i, s := range r.Sessions {
+			if s.Project == b.project && s.Branch == b.branch {
+				found = &r.Sessions[i]
+				return "", false
+			}
+		}
+		return r.Next, true
+	})
+	return found, err
 }
 
 // branchTip is the commit at the tip of P branch b, which a rename names as

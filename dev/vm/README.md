@@ -83,10 +83,9 @@ p-demo-poweroff                # clean shutdown, retaining all demo state
 
 The lab sets `P_SOCKET=/var/lib/p-demo/control.sock`; commands read it without
 requiring a socket argument. You can override it for another instance. The
-standard installation defaults to `/var/lib/p/control.sock`. For the user
-guide's raw API examples, define `api() { p api "$@"; }` in the guest shell.
-The older `p-demo` and `p-demo-api` helpers remain compatible aliases;
-`p-demo` waits for daemon readiness before opening the browser.
+standard installation defaults to `/var/lib/p/control.sock`. The older
+`p-demo` and `p-demo-api` helpers remain compatible aliases; `p-demo` waits
+for daemon readiness before opening the browser.
 On first boot, initialization can take a while; check that `p status` shows
 the control state `ready` before issuing lifecycle commands. The repository
 seed has its own readiness check above. Quit the TUI
@@ -169,8 +168,10 @@ Use a terminal tool with a PTY: start `./dev/demo-vm` with `tty: true`, retain i
 session identifier, and send input through that same session. The lab opens a
 shell; wait for its prompt between commands and check daemon health before
 lifecycle commands; wait for `p-lab-repository` to finish before inspecting the
-seeded project. JSON responses from `p api` and live
-`p tui --snapshot` frames are easy to inspect. Finish with
+seeded project. The task commands' `--json` output, `p api` replies and live
+`p tui --snapshot` frames are easy to inspect. A change that asks before it
+runs needs `--force`, or `--dry-run` and then `--if-match TAG`, without a
+terminal. Finish with
 `p-demo-poweroff`, then wait for QEMU to exit before starting another VM.
 An agent sandbox may need approved host execution for the Nix daemon and KVM.
 

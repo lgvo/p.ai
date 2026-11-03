@@ -110,3 +110,89 @@ func TestOperationSentenceNamesTheNextStep(t *testing.T) {
 		t.Error("an operation without a reason has a sentence")
 	}
 }
+
+// apiLossKinds is the value of every loss kind constant in internal/api.
+func apiLossKinds(t *testing.T) map[string]string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "../api/plans.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]string{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		value, ok := n.(*ast.ValueSpec)
+		if !ok {
+			return true
+		}
+		for i, ident := range value.Names {
+			if i >= len(value.Values) || !strings.HasPrefix(ident.Name, "Loss") || ident.Name == "LossNotEnumerated" {
+				continue
+			}
+			if lit, ok := value.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				kinds[ident.Name], _ = strconv.Unquote(lit.Value)
+			}
+		}
+		return false
+	})
+	if len(kinds) == 0 {
+		t.Fatal("found no loss kinds in internal/api")
+	}
+	return kinds
+}
+
+func TestEveryLossKindHasASentence(t *testing.T) {
+	for name, kind := range apiLossKinds(t) {
+		if lossSentences[kind] == nil {
+			t.Errorf("%s (%q) has no sentence", name, kind)
+		}
+	}
+}
+
+// A loss sentence names where the lost thing lives and how many there are;
+// one P cannot rule out reads "possibly".
+func TestLossNamesItsTargetAndCount(t *testing.T) {
+	session := "4f1c2a9e-0000-4000-8000-000000000001"
+	for _, test := range []struct {
+		item api.Loss
+		want []string
+	}{
+		{api.Loss{Kind: api.LossRuntimeData, Target: api.TargetSession(session), Certain: true}, []string{"session " + session}},
+		{api.Loss{Kind: api.LossPCommits, Target: api.TargetBranch("team/app", "work"), Count: 2, Certain: true}, []string{"2 commits", "branch work"}},
+		{api.Loss{Kind: api.LossPCommits, Target: api.TargetBranch("team/app", "work"), Count: 1, Certain: true}, []string{"1 commit ", "branch work"}},
+		{api.Loss{Kind: api.LossPCommits, Target: api.TargetProject("team/app"), Count: 3, Certain: true}, []string{"3 commits", "project team/app"}},
+		{api.Loss{Kind: "something_new", Target: api.TargetProject("team/app"), Certain: true}, []string{"something_new", "project team/app"}},
+	} {
+		got := Loss(test.item)
+		for _, want := range test.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("%+v reads %q, without %q", test.item, got, want)
+			}
+		}
+		if strings.HasPrefix(got, "possibly") {
+			t.Errorf("a certain loss reads %q", got)
+		}
+	}
+	uncertain := Loss(api.Loss{Kind: api.LossUnreachableObjects, Target: api.TargetProject("team/app"), Reason: api.LossNotEnumerated})
+	if !strings.HasPrefix(uncertain, "possibly: ") {
+		t.Errorf("an uncertain loss reads %q", uncertain)
+	}
+	if gone := Gone(api.Loss{Kind: api.LossRuntimeData, Target: api.TargetSession(session), Certain: true}); !strings.Contains(gone, "session "+session) || gone == Loss(api.Loss{Kind: api.LossRuntimeData, Target: api.TargetSession(session), Certain: true}) {
+		t.Errorf("a runtime already gone reads %q", gone)
+	}
+}
+
+// A target reads as the command line names it.
+func TestTargetReadsAsTheCommandLineNamesIt(t *testing.T) {
+	for target, want := range map[string]string{
+		api.TargetSession("4f1c"):                  "session 4f1c",
+		api.TargetOperation("9b0e"):                "operation 9b0e",
+		api.TargetProject("team/app"):              "project team/app",
+		api.TargetBranch("team/app", "work"):       "branch team/app:work",
+		api.TargetOriginBranch("team/app", "main"): "branch main of the origin of team/app",
+		"something": "something",
+	} {
+		if got := Target(target); got != want {
+			t.Errorf("%s reads %q, want %q", target, got, want)
+		}
+	}
+}

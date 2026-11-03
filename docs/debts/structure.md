@@ -322,3 +322,23 @@
     a session `Delete` whose `sessionRuntime` reads `user.p.instance_uuid` as one more
     literal.
 
+
+## The TUI writes its own loss sentences
+
+- Where: internal/tui workflows.go `lossLines` and `goneLines`; internal/errtext `Loss`
+  and `Gone`
+- Problem: The CLI states each loss item with errtext's sentence for its kind, and the TUI's
+  removal review writes its own sentence for the same kinds, so the two clients keep two
+  tables of one fact by hand.
+- Evidence: rework/cli.md "Printing the plan" puts one sentence per loss kind in a table the
+  TUI and the CLI share; step 7b created that table in errtext and was not to change the
+  TUI.
+- Risk: a new loss kind, or a reworded one, reaches one client and not the other; the TUI
+  prints an unknown kind as its code.
+- Fix: have `lossLines` and `goneLines` take their sentence from `errtext.Loss` and
+  `errtext.Gone`, keeping the TUI's own commit list beneath a `p_commits` item.
+- Fix when: the TUI's removal review changes, or a loss kind is added or reworded.
+- Left by: the agent, by rule (a problem outside the change).
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "CLI task commands for risky changes" added errtext's loss sentences for the
+    CLI and left the TUI's removal review as it was.

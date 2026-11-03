@@ -22,12 +22,14 @@ func TestHelpListsTheCommands(t *testing.T) {
 	for _, want := range []string{
 		"p status", "p project create PROJECT", "p branch rename PROJECT:BRANCH NEW", "p origin refs PROJECT",
 		"p session create PROJECT:BRANCH", "p attach [SOCKET] SESSION", "p service restart SESSION NAME", "p operation retry ID",
+		"p project delete PROJECT", "p branch delete PROJECT:BRANCH", "p origin publish PROJECT:BRANCH", "p session discard SESSION",
+		"p session delete SESSION", "p session cleanup SESSION",
 		"p tui [SOCKET]", "p api [SOCKET] METHOD", "Host commands (run on the P host as the instance owner):", "p daemon HOST_JSON", "p version",
 	} {
 		contains(t, all.String(), want)
 	}
 	printNounHelp(&session, "session")
-	contains(t, session.String(), "p session create PROJECT:BRANCH [--attach] [--from REF] [--from-origin REF] [--key KEY] [--no-wait]")
+	contains(t, session.String(), "p session create PROJECT:BRANCH [--attach] [--dry-run] [--force] [--from REF] [--from-origin REF] [--if-match TAG] [--key KEY] [--no-wait] [--replace SESSION]")
 	contains(t, session.String(), "--from-origin REF")
 	if strings.Contains(session.String(), "p project") {
 		t.Errorf("session help describes other nouns:\n%s", session.String())

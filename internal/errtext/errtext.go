@@ -7,6 +7,8 @@ package errtext
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/lgvo/p.ai/internal/api"
 )
@@ -209,4 +211,70 @@ var operationSentences = map[string]string{
 	api.ReasonBranch:              "A branch it needs is gone.",
 	api.ReasonSource:              "Its source is gone.",
 	api.ReasonOperation:           "An operation it depends on is gone.",
+}
+
+// Loss is the sentence a client shows for item, one category of what a
+// change would destroy. An item P cannot rule out reads "possibly: …".
+func Loss(item api.Loss) string {
+	sentence := item.Kind + " at " + Target(item.Target)
+	if s, ok := lossSentences[item.Kind]; ok {
+		sentence = s(item)
+	}
+	if !item.Certain {
+		return "possibly: " + sentence
+	}
+	return sentence
+}
+
+// lossSentences says what each kind of loss destroys.
+var lossSentences = map[string]func(api.Loss) string{
+	api.LossRuntimeData: func(item api.Loss) string {
+		return "the container of " + Target(item.Target) + " and everything in it: uncommitted changes, files outside Git, commits not pushed to P; P does not look inside"
+	},
+	api.LossPCommits: func(item api.Loss) string {
+		commits := "commits"
+		switch {
+		case item.Count == 1:
+			commits = "1 commit"
+		case item.Count > 1:
+			commits = fmt.Sprintf("%d commits", item.Count)
+		}
+		where := "of " + Target(item.Target)
+		if _, branch, ok := strings.Cut(item.Target, ":branch/"); ok {
+			where = "on branch " + branch
+		} else if project, ok := strings.CutPrefix(item.Target, "project/"); ok {
+			where = "in project " + project
+		}
+		return commits + " " + where + " will be removed from P's repository; P does not check whether the origin has them"
+	},
+	api.LossUnreachableObjects: func(item api.Loss) string {
+		return "Git objects in P's repository of " + Target(item.Target) + " that no branch reaches; P does not count them"
+	},
+}
+
+// Gone is the sentence a client shows for item, which was lost before the
+// change: information, not something the change destroys.
+func Gone(item api.Loss) string {
+	if item.Kind == api.LossRuntimeData {
+		return "the runtime of " + Target(item.Target) + " is already missing; whatever it held is gone"
+	}
+	return item.Kind + " at " + Target(item.Target) + " is already gone"
+}
+
+// Target names target, what an error, refusal or loss item is about, as the
+// command line names it: "project/team/app:branch/work" is branch
+// team/app:work.
+func Target(target string) string {
+	if path, ok := strings.CutPrefix(target, "project/"); ok {
+		if project, branch, ok := strings.Cut(path, ":branch/"); ok {
+			return "branch " + project + ":" + branch
+		}
+		if project, branch, ok := strings.Cut(path, ":origin-branch/"); ok {
+			return "branch " + branch + " of the origin of " + project
+		}
+	}
+	if kind, name, ok := strings.Cut(target, "/"); ok {
+		return kind + " " + name
+	}
+	return target
 }

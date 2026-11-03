@@ -28,6 +28,14 @@ prints the operation's ID once the daemon accepts it. A change makes its own
 idempotency key; after a lost reply it prints the command to repeat with
 --key KEY, which makes the change at most once.
 
+A change that can lose work or replace something (project delete, branch
+delete, origin publish, session discard, delete and cleanup, and session
+create --replace) first shows its plan, with a warning of everything it
+loses, and asks [y/N] on a terminal. --force runs it without asking, after a
+10-second countdown when it loses work. --dry-run shows the plan and prints
+its change tag; --if-match TAG runs that plan without asking, if nothing
+changed since and within two minutes.
+
 Exit status: 0 done; 1 failed; 2 invalid arguments; 3 not run, nothing
 changed; 4 not finished: the operation is blocked, or runs on without the CLI.
 `

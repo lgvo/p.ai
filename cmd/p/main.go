@@ -13,6 +13,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/attachment"
 	"github.com/lgvo/p.ai/internal/control"
@@ -56,7 +57,9 @@ func run(args []string) error {
 		// SIGHUP too: a closed terminal ends an attachment.
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 		defer stop()
-		return (&cli{stdout: os.Stdout, stderr: os.Stderr, pause: pause}).runCommand(ctx, args)
+		return (&cli{stdout: os.Stdout, stderr: os.Stderr, stdin: os.Stdin,
+			stdinTerminal: term.IsTerminal(os.Stdin.Fd()), stderrTerminal: term.IsTerminal(os.Stderr.Fd()),
+			pause: pause}).runCommand(ctx, args)
 	}
 	if args[0] == "version" {
 		if len(args) != 1 {

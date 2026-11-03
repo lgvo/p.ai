@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -65,10 +66,16 @@ func exitStatus(err error) int {
 }
 
 // cli runs the client task commands. It holds what a command reaches outside
-// the daemon, so a test can give it buffers and its own pause.
+// the daemon, so a test can give it buffers, a terminal and its own clock.
 type cli struct {
 	stdout, stderr io.Writer
-	// pause waits d between automatic repeats, or until ctx ends.
+	// stdin answers the question of a change that asks.
+	stdin io.Reader
+	// stdinTerminal and stderrTerminal say whether standard input and
+	// standard error are terminals: a change asks only when both are.
+	stdinTerminal, stderrTerminal bool
+	// pause waits d, between automatic repeats or for a second of a --force
+	// countdown, or until ctx ends.
 	pause func(ctx context.Context, d time.Duration) error
 }
 
@@ -116,9 +123,14 @@ type invocation struct {
 	// key and noWait are the flags of changes.
 	key    string
 	noWait bool
+	// force, dryRun and ifMatch are the flags of changes that ask.
+	force, dryRun bool
+	ifMatch       string
 	// The flags of single commands.
-	origin, from, fromOrigin, project string
-	attach, retained, refresh         bool
+	origin, from, fromOrigin, project, to, replace string
+	attach, retained, refresh                      bool
+	// answers reads the person's answers from stdin.
+	answers *bufio.Reader
 }
 
 // findCommand is the command args name, or nil.
@@ -241,6 +253,26 @@ func keyFlags(fs *flag.FlagSet, in *invocation) {
 		return nil
 	})
 	noWaitFlag(fs, in)
+}
+
+// askFlags are the flags of a change that asks before it runs.
+func askFlags(fs *flag.FlagSet, in *invocation) {
+	keyFlags(fs, in)
+	runFlags(fs, in)
+}
+
+// runFlags choose how a change that asks runs: after asking, by default, or
+// forced, or only planned, or as a plan reviewed before.
+func runFlags(fs *flag.FlagSet, in *invocation) {
+	fs.BoolVar(&in.force, "force", false, "run without asking; a change that loses work counts down 10 seconds first")
+	fs.BoolVar(&in.dryRun, "dry-run", false, "show the plan and the change tag that runs it, and change nothing")
+	fs.Func("if-match", "run the plan that `TAG` from --dry-run names, without asking, if nothing changed since", func(tag string) error {
+		if !api.ValidChangeTag(tag) {
+			return errors.New("not a change tag")
+		}
+		in.ifMatch = tag
+		return nil
+	})
 }
 
 // stringFlag declares a string flag that refuses an empty value: an empty
