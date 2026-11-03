@@ -102,8 +102,9 @@ Rename confirmations default to **No**; Enter declines; `s` on a stopped
 session says it is already stopped. Long policy, source,
 confirmation and loss fields wrap and can be scrolled; explicit `y` authorizes
 Stop, Rename and removal. Discard and Delete show the daemon's plan before
-asking: what the removal loses, and, for a session whose runtime is missing,
-that its contents are already gone, in the sentences the CLI prints. A plan
+asking: first what the removal loses, and, for a session whose runtime is
+missing, that its contents are already gone, in the sentences the CLI prints,
+then the session, its container and its branch. A plan
 that is not allowed shows why instead and offers nothing to authorize. If the
 plan changed or the review expired before `y`, nothing is removed and the
 current plan is shown to review again. `r` on Retained branches reads them
@@ -111,7 +112,9 @@ again.
 
 Leaving creation/startup progress does not cancel accepted daemon work and
 prevents automatic terminal entry afterward. While Enter starts a stopped
-session, its page reads `starting`. A read that fails while the page
+session, its page reads `starting`. After a Create, the page names the new
+session by the project and branch the Create asked for until P has read it.
+A read that fails while the page
 follows an operation is sent again on the next refresh, and entry still
 follows. Use Operations to inspect an operation; `r` retries a blocked one with
 its durable intent. A failed refresh marks cached inventory stale;
@@ -129,7 +132,9 @@ publication (`p origin publish`), failed-creation cleanup and replacement
 
 Policy, agent reports, operation diagnostics and Help also support `j/k`, paging,
 and `gg/G` scrolling. Long fields wrap so they remain readable in small terminals,
-and a page longer than the terminal ends with how many lines are below.
+and such a page, or a creation, confirmation or removal review, longer than the
+terminal ends with how many lines are below; a removal review whose losses are
+still below says so.
 
 ### Project services
 

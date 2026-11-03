@@ -151,6 +151,29 @@ func TestFixtureCreationIdempotencyAndSourceFreshness(t *testing.T) {
 	}
 }
 
+// The fixture's changes record what their caller named, as the daemon's
+// operations do: a creation names its new session, its project and branch.
+func TestFixtureChangesRecordWhatTheirCallerNamed(t *testing.T) {
+	f := newFixture(t.TempDir(), "small")
+	h := connect(f)
+	created := do(t, h, api.SessionCreate, api.SessionCreateRequest{Key: "create", Project: "forge", Branch: "feat/new", Choice: "new", Source: tip}).Operation
+	if want := (api.OperationIntent{Project: "forge", Session: created.SessionUUID, Branch: "feat/new", Choice: "new", Source: tip}); created.Intent != want {
+		t.Errorf("session creation intent %+v, want %+v", created.Intent, want)
+	}
+	project := do(t, h, api.ProjectCreate, api.ProjectCreateRequest{Key: "project", Project: "fresh"}).Operation
+	if want := (api.OperationIntent{Project: "fresh", Session: project.SessionUUID}); project.Intent != want {
+		t.Errorf("project creation intent %+v, want %+v", project.Intent, want)
+	}
+	id := sessionID(f, "forge", "feat/new")
+	s := f.sessions[id]
+	s.Condition = "stopped"
+	f.sessions[id] = s
+	renamed := do(t, h, api.SessionRename, api.SessionRenameRequest{Key: "rename", UUID: id, NewBranch: "feat/renamed", ExpectedOldTip: tip}).Operation
+	if want := (api.OperationIntent{Project: "forge", Session: id, Branch: "feat/new", NewBranch: "feat/renamed"}); renamed.Intent != want {
+		t.Errorf("rename intent %+v, want %+v", renamed.Intent, want)
+	}
+}
+
 // The fixture's removal runs only with the tag of its own plan: an expired
 // tag, a changed state, and the tag of another kind or session are refused.
 func TestFixtureRemovalRunsOnlyItsOwnPlan(t *testing.T) {

@@ -524,7 +524,11 @@ func (m *Model) followOperation(op api.Operation, requested bool) tea.Cmd {
 		return m.stopped(op.SessionUUID)
 	}
 	if m.attachOnComplete && op.SessionUUID != "" {
-		m.contextSession.UUID = op.SessionUUID
+		if op.SessionUUID != m.contextSession.UUID {
+			// A created session: until its read answers, it is what its
+			// creation named, not the session the page showed before.
+			m.contextSession = api.SessionView{UUID: op.SessionUUID, Project: op.Intent.Project, Branch: op.Intent.Branch}
+		}
 		m.operationID = ""
 		return m.begin(callOf(api.SessionInspect, api.SessionInspectRequest{UUID: op.SessionUUID}))
 	}
@@ -567,7 +571,22 @@ func removalReview(kind, uuid string, p api.Plan[api.RemovalDetails], tag string
 	if kind == "delete" {
 		action = "Delete"
 	}
-	lines := []string{action + " " + d.Project + " / " + d.Branch + "?", "UUID: " + uuid}
+	// What is lost comes first, as the CLI prints it, so the first screen
+	// shows it unless a long name fills that screen.
+	lines := []string{action + " " + d.Project + " / " + d.Branch + "?"}
+	if len(p.Loss) > 0 {
+		lines = append(lines, lossHeading)
+		for _, item := range p.Loss {
+			lines = append(lines, lossLines(item, d)...)
+		}
+	}
+	if len(p.Gone) > 0 {
+		lines = append(lines, "Already gone:")
+		for _, item := range p.Gone {
+			lines = append(lines, "- "+errtext.Gone(item))
+		}
+	}
+	lines = append(lines, "", "UUID: "+uuid)
 	if expiry, ok := api.ParseChangeTag(tag); ok {
 		lines = append(lines, "Review expires: "+expiry.Format(time.RFC3339))
 	}
@@ -579,18 +598,6 @@ func removalReview(kind, uuid string, p api.Plan[api.RemovalDetails], tag string
 		}
 	} else {
 		lines = append(lines, "Container: "+d.Runtime.InstanceName+" is missing from Incus project "+d.Runtime.IncusProject+".")
-	}
-	if len(p.Loss) > 0 {
-		lines = append(lines, "This will lose work; push or copy out what you need before you authorize:")
-		for _, item := range p.Loss {
-			lines = append(lines, lossLines(item, d)...)
-		}
-	}
-	if len(p.Gone) > 0 {
-		lines = append(lines, "Already gone:")
-		for _, item := range p.Gone {
-			lines = append(lines, "- "+errtext.Gone(item))
-		}
 	}
 	lines = append(lines, "")
 	switch {
@@ -611,6 +618,9 @@ func removalReview(kind, uuid string, p api.Plan[api.RemovalDetails], tag string
 	}
 	return strings.Join(lines, "\n")
 }
+
+// lossHeading opens the loss items of a removal review.
+const lossHeading = "This will lose work; push or copy out what you need before you authorize:"
 
 // lossLines states loss item item of a removal planned as d in the CLI's
 // sentence, with the commits that leave P beneath a p_commits item.

@@ -33,3 +33,25 @@
     the check: it still needs VM-local fixtures for the flake input, the binary cache and
     the DNS-over-HTTPS upstreams, so "Fix when" now names only the next public-egress
     acceptance claim.
+
+## A runtime driver test records a systemd poll its client abandoned
+
+- Where: internal/runtimeincus graceful_stop_test.go, `TestStopIsSentWhenGuestSystemdNeverComesUp`
+  and its `fakeGuest`
+- Problem: The test asserts that the fake guest saw "systemd not up", then the graceful stop,
+  then the forced stop, in that order. When `awaitGuestSystemd`'s 30-second wait ends during
+  a poll, the client abandons that request, but the fake guest's handler can still record
+  "systemd not up" after the stop was sent; the order the test asserts then fails.
+- Evidence: 2026-11-03, the package build inside `./dev/test-vm` for scenarios 56 and 58 failed
+  once with "graceful stop not sent after the wait, then forced: 304 events, last [stop
+  --timeout 30 systemd not up stop --force]" while another lane's VM gate ran; the same tree
+  passed `just unit-tests`, two `nix build .#default` runs and the VM gate's builds. The
+  mechanism is read from the code, not reproduced.
+- Risk: the package build, and with it any VM run, fails at random under load, and reruns can
+  hide a real failure of the graceful stop.
+- Fix: record a poll only when its client still waits for it, or assert the stop's order
+  without the abandoned poll.
+- Fix when: the next change to the graceful stop or its tests, or the next time it fails a gate.
+- Left by: the agent, by rule (a problem outside the change).
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "TUI T5 and T6" saw it fail once while building the VM for scenarios 56 and 58.

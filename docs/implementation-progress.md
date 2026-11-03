@@ -1,5 +1,44 @@
 # MVP implementation progress
 
+## Third TUI review fixes — 2026-11-03
+
+This change fixes the two observations the second TUI fixes left open. After a
+Create, the page that reads the new session before entering it now names that
+session by the project and branch the Create asked for (the operation's intent)
+and states no condition until the read answers; before, it showed the session
+opened before, with its condition, beside the new UUID. The creation review,
+the confirmations and the removal review now scroll as the inspection pages do:
+a screen with more below ends with "… N more lines below", paging moves by the
+lines above that cue, and the offset stays within the text. The removal review
+states what is lost first, right after its question, as the CLI's dry run
+prints the plan, so its first screen shows the loss at every size; when a long
+project name fills the first screen, its cue reads "… N more lines below, with
+what is lost". The mock fixture records each change's intent as the daemon does.
+
+LLM experience review (mock socket only): the LLM ran the prototype's selected
+browser (its boot page after a Create names "forge / main"; its Stop
+confirmation fits 48×16), then drove the production `p tui --theme dark`
+against the fixture server (`--dataset small`) through `tui-observe.py`, built
+from an export of `5fe572d` and from this change, at 120×35, 80×24 and 48×16.
+It opened Details, created a session on `retained/00` and on a new branch with
+`session.inspect` slowed, reviewed the creation at 48×16, reviewed Discard and
+Delete of a running session, paged through them, stopped a session, renamed it
+to a long branch and paged through the confirmation, and checked Help's cue. On
+the final tree it repeated the Create and the Discard review and created a
+project with a 254-byte path to review its Discard at 48×16. The before frames
+showed both observations; the after frames show them fixed. Component checks:
+`internal/tui` and the mock have a test for each changed behavior, each failing
+on `5fe572d` except the paging test, which fails when the cue is kept but
+paging moves by the full rows; `just tui-tests` passed 8 terminal, 9 observer and 12 mock
+tests three times, and the mock driver now also checks that the read before
+entry after a Create names the created session (it fails on `5fe572d`).
+The VM gate (scenarios 01–36 and 38–58 in two VMs, from exports of the tree with
+this change) matched the baseline markers, and `./dev/test-vm --step
+56-live-tui.sh --step 58-notes-tui.sh` passed (`P_LIVE_TUI_PASS`,
+`P_NOTES_TUI_PASS`) on its second run; the first stopped in the package build
+on a runtime driver test's race, recorded as debt. Evidence:
+[checkpoint](llm-interactive-review/tui/tui-fixes3/checkpoint.json).
+
 ## Second TUI review fixes — 2026-11-03
 
 This change fixes the four issues the first TUI fixes left open and the debt

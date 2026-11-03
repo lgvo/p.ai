@@ -420,7 +420,7 @@ and are excluded from production capabilities.
 | A reports; p policy; b branches; ? help; r refresh | Actual production inspection pages, complete paginated branch inventory, help return and socket inventory refresh |
 | Enter session | Start, production attachment claim/confirmation, real tmux command output, resize, detach, re-entry, presence teardown and workspace retention |
 | s Stop | Default No and explicit decline issue no Stop; confirmation changes fixture condition; subsequent Start retains files |
-| c Create | Project creation, new branch from P source, captured external origin, retained-branch resume; assigned identity, source params and automatic attachment |
+| c Create | Project creation, new branch from P source, captured external origin, retained-branch resume; assigned identity, source params, the created session named before entry, and automatic attachment |
 | R Rename | Literal q/g/G in forms, editing/cancel, reviewed rename preserving UUID and changing assigned ref |
 | d Discard; X Delete | Detach requirement, bound plan stating the runtime's loss by category or a missing runtime's contents as already gone, cancel with no removal; Discard retains ref, Delete removes it |
 | O operations; Enter inspect; r retry | Inspect failed operation, retry request and completed observation |

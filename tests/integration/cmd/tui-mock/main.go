@@ -451,10 +451,11 @@ func (f *fixture) session(id string) (api.SessionView, error) {
 }
 
 // registerChange serves m, a change that records an operation, for the
-// session that change returns, under the request's idempotency key. A
-// repeated key answers the operation it recorded when the request is the
-// same, and conflict otherwise.
-func registerChange[Req api.Request](t *control.MethodTable, f *fixture, m api.Method[Req, api.OperationResult], key func(Req) string, change func(Req) (api.SessionView, error)) {
+// session that change returns, under the request's idempotency key, with
+// what intent says the caller named, as the daemon records it. A repeated
+// key answers the operation it recorded when the request is the same, and
+// conflict otherwise.
+func registerChange[Req api.Request](t *control.MethodTable, f *fixture, m api.Method[Req, api.OperationResult], key func(Req) string, intent func(Req) api.OperationIntent, change func(Req) (api.SessionView, error)) {
 	control.Register(t, m, func(_ context.Context, r Req) (api.OperationResult, error) {
 		request, err := json.Marshal(r)
 		if err != nil {
@@ -467,12 +468,14 @@ func registerChange[Req api.Request](t *control.MethodTable, f *fixture, m api.M
 			}
 			return api.OperationResult{Operation: op}, nil
 		}
+		named := intent(r)
 		s, err := change(r)
 		if err != nil {
 			return api.OperationResult{}, err
 		}
+		named.Session = s.UUID
 		now := time.Now().UTC().Format(time.RFC3339Nano)
-		op := api.Operation{ID: uuid.NewString(), Key: key(r), Kind: m.Name, Project: s.Project, SessionUUID: s.UUID, Status: "completed", Phase: "complete", Committed: true, Request: request, CreatedAt: now, UpdatedAt: now}
+		op := api.Operation{ID: uuid.NewString(), Key: key(r), Kind: m.Name, Project: s.Project, SessionUUID: s.UUID, Intent: named, Status: "completed", Phase: "complete", Committed: true, Request: request, CreatedAt: now, UpdatedAt: now}
 		f.ops[op.ID] = op
 		f.keys[op.Key] = op.ID
 		return api.OperationResult{Operation: op}, nil
@@ -497,7 +500,9 @@ func (f *fixture) sessionChange(kind string, s api.SessionView, request any) *ap
 }
 
 func (f *fixture) registerLifecycle(t *control.MethodTable) {
-	registerChange(t, f, api.ProjectCreate, func(r api.ProjectCreateRequest) string { return r.Key }, func(r api.ProjectCreateRequest) (api.SessionView, error) {
+	registerChange(t, f, api.ProjectCreate, func(r api.ProjectCreateRequest) string { return r.Key }, func(r api.ProjectCreateRequest) api.OperationIntent {
+		return api.OperationIntent{Project: r.Project, URL: r.URL}
+	}, func(r api.ProjectCreateRequest) (api.SessionView, error) {
 		if _, ok := f.projects[r.Project]; ok {
 			return api.SessionView{}, mockError(api.KindConflict, api.ReasonProjectExists, api.TargetProject(r.Project))
 		}
@@ -507,7 +512,9 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 		f.sessions[s.UUID] = s
 		return s, nil
 	})
-	registerChange(t, f, api.SessionCreate, func(r api.SessionCreateRequest) string { return r.Key }, func(r api.SessionCreateRequest) (api.SessionView, error) {
+	registerChange(t, f, api.SessionCreate, func(r api.SessionCreateRequest) string { return r.Key }, func(r api.SessionCreateRequest) api.OperationIntent {
+		return api.OperationIntent{Project: r.Project, Branch: r.Branch, Choice: r.Choice, Source: r.Source, OriginRef: r.OriginRef}
+	}, func(r api.SessionCreateRequest) (api.SessionView, error) {
 		if _, ok := f.projects[r.Project]; !ok {
 			return api.SessionView{}, mockError(api.KindNotFound, api.ReasonProject, api.TargetProject(r.Project))
 		}
@@ -568,7 +575,10 @@ func (f *fixture) registerLifecycle(t *control.MethodTable) {
 		f.sessions[s.UUID] = s
 		return api.SessionChangeResult{Changed: true, Operation: f.sessionChange(api.SessionStop.Name, s, r)}, nil
 	})
-	registerChange(t, f, api.SessionRename, func(r api.SessionRenameRequest) string { return r.Key }, func(r api.SessionRenameRequest) (api.SessionView, error) {
+	registerChange(t, f, api.SessionRename, func(r api.SessionRenameRequest) string { return r.Key }, func(r api.SessionRenameRequest) api.OperationIntent {
+		s := f.sessions[r.UUID]
+		return api.OperationIntent{Project: s.Project, Branch: s.Branch, NewBranch: r.NewBranch}
+	}, func(r api.SessionRenameRequest) (api.SessionView, error) {
 		s, err := f.session(r.UUID)
 		if err != nil {
 			return s, err

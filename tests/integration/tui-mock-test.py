@@ -358,6 +358,10 @@ class MockTUITests(unittest.TestCase):
         self.key("\r", "Attachment ended: Start this session first.")
 
     def test_04_create_local_origin_retained_and_project(self):
+        # Open another session first: the page that reads the created session
+        # before entry must not show that one.
+        self.key("D", "Session details")
+        self.key("q", "All project sessions")
         for choice, branch in (("local", "feat/local"), ("origin", "feat/origin"), ("retained", "retained/00")):
             with self.subTest(choice=choice):
                 self.choose_project()
@@ -370,7 +374,15 @@ class MockTUITests(unittest.TestCase):
                         self.key("/External\r")
                     self.key("\r", "New branch name")
                     self.key(branch + "\r", "Create · policy review")
-                self.key("\r", "MOCK · Ctrl-B d detach")
+                if choice == "local":
+                    self.rpc("mock.configure", method="session.inspect", delay_ms=1500)
+                    self.key("\r", "Leaving startup prevents automatic entry")
+                    readiness = self.screen()
+                    self.assertIn("forge / " + branch, readiness)
+                    self.assertNotIn("Condition:", readiness)
+                    self.wait("MOCK · Ctrl-B d detach")
+                else:
+                    self.key("\r", "MOCK · Ctrl-B d detach")
                 self.assertEqual(self.session(branch)["session_condition"], "ready")
                 self.detach()
         calls = [c["params"] for c in self.rpc("mock.inspect")["calls"] if c["method"] == "session.create"]

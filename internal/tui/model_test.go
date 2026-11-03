@@ -1118,3 +1118,148 @@ func TestPagingALongTextPageShowsEveryLine(t *testing.T) {
 		end = m.reviewOffset
 	}
 }
+
+// TestCreatedSessionIsNamedByItsCreation: once a Create completes, the page
+// that waits for the new session's read names that session from the
+// creation's intent, never from the session the browser showed before, and
+// states no condition until the read answers.
+func TestCreatedSessionIsNamedByItsCreation(t *testing.T) {
+	for _, item := range []struct {
+		method, intent, name string
+	}{
+		{"session.create", `{"project":"z","session":"` + targetID + `","branch":"new-work"}`, "z / new-work"},
+		{"project.create", `{"project":"z","session":"` + targetID + `"}`, "z"},
+	} {
+		t.Run(item.method, func(t *testing.T) {
+			m := fixture()
+			m.client = &fakeClient{fn: func(string, any) (any, error) { return nil, nil }}
+			m.contextSession = m.data.sessions[1]
+			op := `{"operation":{"id":"creation","kind":"` + item.method + `","session_uuid":"` + targetID + `","intent":` + item.intent + `,"status":"%s"}}`
+			updated, _ := m.Update(reply(t, m.epoch, item.method, fmt.Sprintf(op, "running")))
+			m = updated.(Model)
+			updated, _ = m.Update(reply(t, m.epoch, "operation.wait", fmt.Sprintf(op, "completed")))
+			m = updated.(Model)
+			if m.pendingMethod != api.SessionInspect.Name {
+				t.Fatalf("completion did not read the session: pending %q", m.pendingMethod)
+			}
+			_, lines, _ := m.inspectionContent()
+			text := strings.Join(lines, "\n")
+			if lines[0] != item.name || !strings.Contains(text, "Session: "+targetID) {
+				t.Fatalf("the created session is not named %q:\n%s", item.name, text)
+			}
+			if strings.Contains(text, "feature") || strings.Contains(text, "Condition:") {
+				t.Fatalf("the page states the earlier session's facts:\n%s", text)
+			}
+			updated, _ = m.Update(reply(t, m.epoch, "session.inspect", `{"session":{"uuid":"`+targetID+`","project":"z","branch":"new-work","session_condition":"stopped","diagnostic":"boot failed"}}`))
+			m = updated.(Model)
+			if _, lines, _ = m.inspectionContent(); !strings.Contains(strings.Join(lines, "\n"), "Condition: stopped") {
+				t.Fatalf("after the read:\n%s", strings.Join(lines, "\n"))
+			}
+		})
+	}
+}
+
+// reviewRows is a review of n numbered rows.
+func reviewRows(n int) string {
+	rows := []string{}
+	for i := 1; i <= n; i++ {
+		rows = append(rows, fmt.Sprintf("row %02d", i))
+	}
+	return strings.Join(rows, "\n")
+}
+
+// frameRows is the frame's rows, without styling or trailing space.
+func frameRows(m Model) []string {
+	rows := strings.Split(ansi.Strip(m.View().Content), "\n")
+	for i := range rows {
+		rows[i] = strings.TrimRight(rows[i], " ")
+	}
+	return rows
+}
+
+// TestReviewPagesSayHowManyLinesAreBelow: a creation, confirmation or
+// removal review longer than its rows ends each screen but the last with how
+// many lines are below, as the inspection pages do.
+func TestReviewPagesSayHowManyLinesAreBelow(t *testing.T) {
+	for _, page := range []string{"creation-review", "confirm", "review"} {
+		t.Run(page, func(t *testing.T) {
+			m := fixture()
+			m.width, m.height = 48, 16
+			m.page = page
+			m.review = reviewRows(30)
+			capacity := m.capacity()
+			rows := strings.Join(frameRows(m), "\n")
+			cue := fmt.Sprintf("… %d more lines below", 30-(capacity-1))
+			if !strings.Contains(rows, fmt.Sprintf("row %02d\n%s\n", capacity-1, cue)) || strings.Contains(rows, fmt.Sprintf("row %02d", capacity)) {
+				t.Fatalf("the first screen does not end with %q:\n%s", cue, rows)
+			}
+			m, _ = press(m, "G")
+			if rows = strings.Join(frameRows(m), "\n"); strings.Contains(rows, "below") || !strings.Contains(rows, "row 30") {
+				t.Fatalf("the last screen:\n%s", rows)
+			}
+		})
+	}
+}
+
+// TestPagingAReviewShowsEveryLine: Page Down and Page Up on a review move by
+// the lines a screen shows above its cue, so paging skips no line.
+func TestPagingAReviewShowsEveryLine(t *testing.T) {
+	for _, page := range []string{"creation-review", "confirm", "review"} {
+		t.Run(page, func(t *testing.T) {
+			m := fixture()
+			m.width, m.height = 48, 16
+			m.page = page
+			m.review = reviewRows(30)
+			// shown is the first and last row the current screen shows.
+			shown := func(m Model) (int, int) {
+				first, last := 0, 0
+				for _, row := range frameRows(m) {
+					var n int
+					if _, err := fmt.Sscanf(row, "row %d", &n); err == nil {
+						if first == 0 {
+							first = n
+						}
+						last = n
+					}
+				}
+				return first, last
+			}
+			first, last := shown(m)
+			for last < 30 {
+				updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+				m = updated.(Model)
+				next, end := shown(m)
+				if next > last+1 || end <= last {
+					t.Fatalf("Page Down from rows %d-%d showed rows %d-%d", first, last, next, end)
+				}
+				first, last = next, end
+			}
+			for first > 1 {
+				updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
+				m = updated.(Model)
+				next, end := shown(m)
+				if end < first-1 || next >= first {
+					t.Fatalf("Page Up from rows %d-%d showed rows %d-%d", first, last, next, end)
+				}
+				first, last = next, end
+			}
+		})
+	}
+}
+
+// TestLongFeedbackKeepsAReviewsControls: when feedback leaves a review one row
+// for its text, the review still shows its controls and its default-No prompt.
+func TestLongFeedbackKeepsAReviewsControls(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	m.page = "confirm"
+	m.review = reviewRows(30)
+	m.notice = strings.Repeat("The daemon's answer is long. ", 12)
+	if m.capacity() != 1 {
+		t.Fatalf("the feedback leaves %d rows, want 1", m.capacity())
+	}
+	frame := strings.Join(frameRows(m), "\n")
+	if !strings.Contains(frame, "row 01") || strings.Contains(frame, "row 02") || !strings.Contains(frame, "y confirm") || !strings.Contains(frame, "Confirm [y/N]") {
+		t.Fatalf("the review lost its controls:\n%s", frame)
+	}
+}

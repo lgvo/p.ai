@@ -231,31 +231,22 @@ func (m Model) View() tea.View {
 		content = m.listPage("Project services", m.rows(), width, commands, details)
 
 	case "agents", "policy", "progress", "help", "details":
-		title, lines, commands := m.inspectionContent()
-		content = m.textPage(title, lines, width, commands)
+		title, _, commands := m.inspectionContent()
+		content = m.textPage(title, m.screen(width), width, "j/k/Pg scroll · "+commands)
 	case "operations":
 		content = m.listPage("Durable operations", m.rows(), width, "Enter inspect · j/k select · q/Esc back", nil)
 
 	case "creation-review":
-		lines := m.reviewLines()
-		start := min(m.reviewOffset, max(0, len(lines)-m.capacity()))
-		lines = lines[start:min(len(lines), start+m.capacity())]
 		commands := "Enter create, boot and enter · j/k/Pg scroll · q/Esc back"
 		if m.confirm.method == api.ProjectCreate.Name {
 			commands = "Enter create project · j/k/Pg scroll · q/Esc back"
 		}
-		content = m.textPage("Create · policy review", lines, width, commands)
+		content = m.textPage("Create · policy review", m.screen(width), width, commands)
 	case "confirm":
-		lines := m.reviewLines()
-		start := min(m.reviewOffset, max(0, len(lines)-1))
-		lines = lines[start:min(len(lines), start+m.capacity())]
-		content = m.textPage("Confirm action", lines, width, "j/k/Pg scroll · y confirm · n/Enter decline · q/Esc back")
+		content = m.textPage("Confirm action", m.screen(width), width, "j/k/Pg scroll · y confirm · n/Enter decline · q/Esc back")
 		content += "\n" + m.styles.warning.Render("Confirm [y/N] · Enter means No")
 	case "review":
-		lines := m.reviewLines()
-		start := min(m.reviewOffset, max(0, len(lines)-m.capacity()))
-		shown := lines[start:min(len(lines), start+m.capacity())]
-		content = m.textPage("Removal loss preview", shown, width, "j/k/PgUp/PgDn scroll · y authorize · n/q/Esc cancel")
+		content = m.textPage("Removal loss preview", m.screen(width), width, "j/k/PgUp/PgDn scroll · y authorize · n/q/Esc cancel")
 		content += "\n" + m.styles.danger.Render(ansi.Wrap("[y/N] Default No · review all losses; daemon rechecks freshness and ownership", width, ""))
 	case "form":
 		prompt := map[string]string{"project-name": "Project path", "project-url": "SSH origin URL (Enter for local-only)", "branch-name": "New branch name", "rename": "New assigned branch name"}[m.form]
@@ -264,7 +255,7 @@ func (m Model) View() tea.View {
 		if ansi.StringWidth(input) > available {
 			input = "…" + ansi.TruncateLeft(input, ansi.StringWidth(input)-available+1, "")
 		}
-		content = m.textPage("Create / rename", []string{prompt + "> " + input + "▏", "", "Letters, including q/g/G, are ordinary text here."}, width, "Enter continue · Esc/Ctrl-C cancel/back")
+		content = m.textPage("Create / rename", m.renderLines([]string{prompt + "> " + input + "▏", "", "Letters, including q/g/G, are ordinary text here."}, width-4), width, "Enter continue · Esc/Ctrl-C cancel/back")
 	case "journal":
 		lines := []string{}
 		end := min(len(m.journal), m.journalOffset+m.capacity())
@@ -282,7 +273,7 @@ func (m Model) View() tea.View {
 		} else if m.find != "" {
 			title += " · find: " + m.find
 		}
-		content = m.textPage(title, lines, width, "j/k/Pg scroll · h/l pan · / find · n/N match · f follow · q/Esc back")
+		content = m.textPage(title, m.renderLines(lines, width-4), width, "j/k/Pg scroll · h/l pan · / find · n/N match · f follow · q/Esc back")
 
 	}
 	if m.working {
@@ -352,6 +343,55 @@ func (m Model) inspectionPage() bool {
 	}
 	return false
 }
+
+// scrollsText reports whether the page is text that scrolls by reviewOffset:
+// an inspection page, or a creation, confirmation or removal review.
+func (m Model) scrollsText() bool {
+	switch m.page {
+	case "creation-review", "confirm", "review":
+		return true
+	}
+	return m.inspectionPage()
+}
+
+// pageText is the wrapped text of a page that scrolls.
+func (m Model) pageText() []string {
+	if m.inspectionPage() {
+		_, lines, _ := m.inspectionContent()
+		return m.wrappedText(lines)
+	}
+	return m.reviewLines()
+}
+
+// screen is the rows of the page's text from reviewOffset that fit its
+// capacity, rendered to width. As the prototype ends a clipped list, a screen
+// with more below ends by saying how much.
+func (m Model) screen(width int) []string {
+	text, capacity := m.pageText(), m.capacity()
+	start := min(m.reviewOffset, max(0, len(text)-capacity))
+	body := m.renderLines(text[start:], width-4)
+	if len(body) > capacity && capacity > 1 {
+		cue := fmt.Sprintf("… %d more lines below", len(body)-capacity+1)
+		if m.page == "review" && lossBelow(text, start+capacity-1) {
+			// Nobody authorizes a removal without being told its losses
+			// follow, even when a long name fills the screen above them.
+			cue += ", with what is lost"
+		}
+		body = append(body[:capacity-1], m.styles.muted.Render(cue))
+	}
+	return body[:min(len(body), capacity)]
+}
+
+// lossBelow reports whether the losses of a removal review's wrapped text
+// start at row or below it.
+func lossBelow(text []string, row int) bool {
+	for i, line := range text {
+		if line != "" && strings.HasPrefix(lossHeading, line) {
+			return i >= row
+		}
+	}
+	return false
+}
 func (m Model) inspectionContent() (string, []string, string) {
 	switch m.page {
 	case "details":
@@ -417,13 +457,20 @@ func (m Model) inspectionContent() (string, []string, string) {
 			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Runtime: "+runtimeLabel(m.contextSession), "", status)
 			commands = "q/Esc back"
 		} else {
-			condition := m.contextSession.Condition
-			if condition == "stopped" && m.working && m.attachOnComplete {
+			name := m.contextSession.Project
+			if m.contextSession.Branch != "" {
+				name += " / " + m.contextSession.Branch
+			}
+			lines = append(lines, name, "Session: "+m.contextSession.UUID)
+			// A created session states its condition once its read answers.
+			switch condition := m.contextSession.Condition; {
+			case condition == "stopped" && m.working && m.attachOnComplete:
 				// Enter's start, or the read of the session before entry, is
 				// in flight.
-				condition = "starting"
+				lines = append(lines, "Condition: starting")
+			case condition != "":
+				lines = append(lines, "Condition: "+condition)
 			}
-			lines = append(lines, m.contextSession.Project+" / "+m.contextSession.Branch, "Session: "+m.contextSession.UUID, "Condition: "+condition)
 			if m.contextSession.Diagnostic != "" {
 				lines = withDetail(lines, []string{m.contextSession.Diagnostic})
 			}
@@ -449,22 +496,11 @@ func isSessionChange(kind string) bool {
 func (m Model) wrappedText(lines []string) []string {
 	return strings.Split(ansi.Wrap(strings.Join(plainLines(strings.Join(lines, "\n")), "\n"), max(1, min(m.width, 96)-4), ""), "\n")
 }
-func (m Model) textPage(title string, lines []string, width int, commands string) string {
-	body := m.renderLines(lines, width-4)
-	capacity := max(1, m.height-8-max(0, m.feedbackHeight()-2))
-	if m.inspectionPage() {
-		body = m.wrappedText(lines)
-		capacity = m.capacity()
-		start := min(m.reviewOffset, max(0, len(body)-capacity))
-		body = m.renderLines(body[start:], width-4)
-		commands = "j/k/Pg scroll · " + commands
-		// As the prototype ends a clipped list, a screen with more below
-		// ends by saying how much.
-		if len(body) > capacity && capacity > 1 {
-			body = append(body[:capacity-1], m.styles.muted.Render(fmt.Sprintf("… %d more lines below", len(body)-capacity+1)))
-		}
-	}
-	if len(body) > capacity {
+
+// textPage is title, the rendered rows of body that fit the page, and its
+// commands. The screen of a page whose text scrolls already fits it.
+func (m Model) textPage(title string, body []string, width int, commands string) string {
+	if capacity := max(1, m.height-8-max(0, m.feedbackHeight()-2)); !m.scrollsText() && len(body) > capacity {
 		body = body[:capacity]
 	}
 	titleStyle := m.styles.heading

@@ -396,8 +396,9 @@ func TestRemovalReviewUsesTheTextPageHeightAndKeepsItsPromptReadable(t *testing.
 		}
 		m.review = strings.Join(rows, "\n")
 		frame := ansi.Strip(m.View().Content)
-		if last := fmt.Sprintf("row %02d", size.rows); !strings.Contains(frame, last) || strings.Contains(frame, fmt.Sprintf("row %02d", size.rows+1)) {
-			t.Errorf("%dx%d review does not show rows 1-%d:\n%s", size.width, size.height, size.rows, frame)
+		// Its last row says how many lines are below.
+		if last := fmt.Sprintf("row %02d", size.rows-1); !strings.Contains(frame, last) || strings.Contains(frame, fmt.Sprintf("row %02d", size.rows)) || !strings.Contains(frame, fmt.Sprintf("… %d more lines below", 40-size.rows+1)) {
+			t.Errorf("%dx%d review does not show rows 1-%d and how many are below:\n%s", size.width, size.height, size.rows-1, frame)
 		}
 		if !strings.Contains(frame, "ownership") {
 			t.Errorf("%dx%d review clips its confirmation prompt:\n%s", size.width, size.height, frame)
@@ -480,5 +481,42 @@ func TestChangedOrExpiredRemovalRunShowsTheCurrentPlan(t *testing.T) {
 	m = updated.(Model)
 	if m.page != "review" || cmd != nil {
 		t.Fatalf("a failed run left the review: page %s", m.page)
+	}
+}
+
+// TestRemovalReviewShowsWhatIsLostOnItsFirstScreen: whatever the terminal's
+// size, the first screen of a removal review shows what the removal loses, or,
+// when the session's name alone fills it, says that what is lost follows, so
+// nobody authorizes a removal without having been told.
+func TestRemovalReviewShowsWhatIsLostOnItsFirstScreen(t *testing.T) {
+	const tip = "1111111111111111111111111111111111111111"
+	const lost = "2222222222222222222222222222222222222222"
+	long := strings.Repeat("p", 84) + "/" + strings.Repeat("q", 84) + "/" + strings.Repeat("r", 84)
+	if !api.ValidProject(long) {
+		t.Fatalf("%q is not a valid project path", long)
+	}
+	for _, kind := range []string{"discard", "delete"} {
+		for _, project := range []string{"a", long} {
+			for _, size := range []struct{ width, height int }{{120, 35}, {80, 24}, {48, 16}} {
+				t.Run(fmt.Sprintf("%s/%d/%dx%d", kind, len(project), size.width, size.height), func(t *testing.T) {
+					m := fixture()
+					m.width, m.height = size.width, size.height
+					m.contextSession = m.data.sessions[0]
+					m.removal = &removalIntent{UUID: stoppedID, Kind: kind}
+					m.page = "progress"
+					raw := `{"plan":{"action":"session.` + kind + `","target":"session/` + stoppedID + `","allowed":true,"refusals":[],` +
+						`"loss":[{"kind":"runtime_data","target":"session/` + stoppedID + `","certain":true},{"kind":"p_commits","target":"project/` + project + `:branch/main","count":1,"sample":["` + lost + `"],"certain":true}],"gone":[],` +
+						`"details":{"project":"` + project + `","branch":"main","assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","runtime":{"condition":"present","incus_project":"p-a","instance_name":"p-` + stoppedID + `","original_status":"Running"},` +
+						`"branch_loss":{"assigned_ref":"refs/heads/main","assigned_tip":"` + tip + `","commits_losing_p_reachability":["` + lost + `"],"p_refs":[]}}},"change_tag":"` + reviewTag + `"}`
+					updated, _ := m.Update(reply(t, m.epoch, "session."+kind, raw))
+					m = updated.(Model)
+					frame := strings.Join(strings.Fields(ansi.Strip(m.View().Content)), " ")
+					shown := strings.Contains(frame, "This will lose work") && strings.Contains(frame, "- the container of session")
+					if !shown && !strings.Contains(frame, "more lines below, with what is lost") {
+						t.Fatalf("the first screen neither shows nor announces what is lost:\n%s", ansi.Strip(m.View().Content))
+					}
+				})
+			}
+		}
 	}
 }

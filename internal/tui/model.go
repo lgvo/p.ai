@@ -187,7 +187,7 @@ func (m *Model) navigate(page string) {
 	m.queuedService = nil
 	m.resume = daemonCall{}
 	m.reviewNotice = ""
-	if page == "creation-review" || page == "confirm" || page == "review" || m.inspectionPage() {
+	if m.scrollsText() {
 		m.reviewOffset = 0
 	}
 }
@@ -643,7 +643,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			if m.page == "journal" {
 				m.journalOffset = 0
 				m.follow = false
-			} else if m.page == "creation-review" || m.page == "review" || m.page == "confirm" || m.inspectionPage() {
+			} else if m.scrollsText() {
 				m.reviewOffset = 0
 			} else {
 				m.cursor = 0
@@ -662,7 +662,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			}
 			return m.begin(m.confirm)
 		}
-		m.scroll(key, &m.reviewOffset)
+		m.scrollText(key)
 		return nil
 	}
 	if m.page == "confirm" {
@@ -675,7 +675,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		case "n", "N", "enter":
 			return m.back()
 		default:
-			m.scroll(key, &m.reviewOffset)
+			m.scrollText(key)
 		}
 		return nil
 	}
@@ -689,8 +689,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		case "n", "N":
 			return m.back()
 		default:
-			m.scroll(key, &m.reviewOffset)
-			m.reviewOffset = min(m.reviewOffset, max(0, len(m.reviewLines())-m.capacity()))
+			m.scrollText(key)
 		}
 		return nil
 	}
@@ -752,9 +751,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if isMove(key) {
 		if m.inspectionPage() {
-			m.scroll(key, &m.reviewOffset)
-			_, lines, _ := m.inspectionContent()
-			m.reviewOffset = min(m.reviewOffset, max(0, len(m.wrappedText(lines))-m.capacity()))
+			m.scrollText(key)
 			return nil
 		}
 		m.move(key)
@@ -1010,9 +1007,16 @@ func (m *Model) move(k string) {
 	}
 	m.clamp()
 }
+
+// scrollText moves the offset of a page whose text scrolls by key, within
+// its text.
+func (m *Model) scrollText(key string) {
+	m.scroll(key, &m.reviewOffset)
+	m.reviewOffset = min(m.reviewOffset, max(0, len(m.pageText())-m.capacity()))
+}
 func (m *Model) scroll(k string, p *int) {
 	page := m.capacity()
-	if m.inspectionPage() && page > 1 {
+	if m.scrollsText() && page > 1 {
 		// A screen with more below shows one line less above its cue.
 		page--
 	}
@@ -1034,11 +1038,8 @@ func (m *Model) scroll(k string, p *int) {
 	case "end", "G":
 		if m.page == "journal" {
 			*p = max(0, len(m.journal)-m.capacity())
-		} else if m.inspectionPage() {
-			_, lines, _ := m.inspectionContent()
-			*p = max(0, len(m.wrappedText(lines))-m.capacity())
 		} else {
-			*p = max(0, len(m.reviewLines())-m.capacity())
+			*p = max(0, len(m.pageText())-m.capacity())
 		}
 	}
 	*p = max(0, *p)

@@ -24,6 +24,29 @@ powered off and removed their disposable disks. The
 records acceptance and retained limitations. The real devShell extension and
 authenticated Codex acceptance remain separate pending milestones.
 
+## Third review fixes — 2026-11-03
+
+The [tui-fixes3 checkpoint](tui-fixes3/checkpoint.json) records the fixes of
+the two observations the [tui-fixes2 review](tui-fixes2/checkpoint.json) left
+open. After a Create, the page that reads the new session before entering it
+named the session opened before, with its condition, beside the new UUID
+([before](tui-fixes3/before-0012-create-enter.png)); it now names the session
+the Create asked for and states no condition until the read answers
+([120×35](tui-fixes3/after-0013-create-enter.png),
+[48×16](tui-fixes3/after-0043-create-read-48x16.png)), as the prototype's boot
+page names its session ([prototype](tui-fixes3/proto-0010-create-yes.png)). At
+48×16 the Discard review ended its first screen above what is lost, with no
+cue ([before](tui-fixes3/before-0018-discard-review-48x16.png)); it now states
+what is lost right after its question and ends with how many lines are below
+([after](tui-fixes3/after-0021-discard-review-48x16.png)), and when a long
+project name fills the first screen the cue says what is lost follows
+([after](tui-fixes3/after2-0025-discard-long-48x16.png)). The creation review
+and the confirmations end their screens the same way
+([before](tui-fixes3/before-0026-rename-confirm-48x16.png),
+[after](tui-fixes3/after-0033-rename-confirm-48x16.png)). The
+[action record](tui-fixes3/actions.ndjson) keeps the LLM's choices apart from
+the passing TUI gate. This is mock/socket evidence only.
+
 ## Second review fixes — 2026-11-03
 
 The [tui-fixes2 checkpoint](tui-fixes2/checkpoint.json) records the fixes of

@@ -1,0 +1,37 @@
+{
+ "date": "2026-11-03",
+ "head": "5fe572d",
+ "working_tree": "5fe572d (lane C, branch rework-lane-c) plus this batch's earlier commits (scenario 37's redirect fixture, the observer test's wait, the control store's per-session state; none touches the TUI) and the uncommitted TUI fixes; final_files_sha256 names the reviewed files",
+ "scope": "Production p tui against the disposable mock socket only: the fixture server (tests/integration/cmd/tui-mock, --dataset small) and p tui SOCKET --theme dark started directly with a known socket and driven through tests/integration/tui-observe.py with dev/tui-test-shell.nix's Python. mock.configure slowed session.inspect by 4 s before a Create's Enter (recorded in actions.ndjson before the action it affects). The two observations the tui-fixes2 review left open (T5, T6), at 120x35, 80x24 and 48x16. No Incus, Git, systemd or real-daemon claim",
+ "prototype": "run 'proto': the prototype's selected browser (--dataset standard). Creating a session on forge/main shows its boot page 'STARTING SESSION (forge / main)', the project and branch the Create named (proto-0010). Its Stop confirmation fits 48x16 (proto-0004); a clipped frame ends with a muted '… frame clipped' row (tui-fixes2 proto-0003). The prototype has no removal review",
+ "runs": {
+  "before": "export of 5fe572d (git archive): D on forge/feat/device-login, q, c, forge, retained/00, the creation review at 48x16 (before-0010), Enter with session.inspect slowed 4 s (before-0012), entry, detach; d on forge/fix/token-refresh at 120x35, 80x24, 48x16 (before-0016, before-0018), n; s at 48x16, y; R to 'fix/token-refresh-after-the-oauth-device-flow-review', its confirmation at 48x16 (before-0026), n",
+  "after": "the 'before' path on the fix as first reviewed by the LLM, plus Page Down through the creation review and the Discard review at 48x16, X (Delete review) at 48x16, Page Down through the rename confirmation, a Create of feat/compact at 48x16 with session.inspect slowed (after-0043), Help at 48x16 and a blocked operation at 80x24",
+  "after2": "final tree (after both review rounds): the Create on retained/00 with session.inspect slowed (after2-0009), a new project with a 254-byte path (its creation review at 48x16, after2-0017), d on its session at 48x16 (after2-0025) and Page Down (after2-0026), d on forge/fix/token-refresh at 48x16 (after2-0030)"
+ },
+ "sizes": [
+  "120x35",
+  "80x24",
+  "48x16"
+ ],
+ "findings": {
+  "T5": "fixed: after a Create, the page that reads the new session before entry named the session opened before with its condition beside the new UUID ('forge / feat/device-login', 'Condition: ready', before-0012). It now names the session from the operation's intent, the project and branch the Create asked for, and states no condition until the read answers ('forge / retained/00', after-0013 and after2-0009; 'forge / feat/compact' at 48x16, after-0043), as the prototype's boot page names its session. A project creation's intent names no branch: the page names the project alone (by component test). The mock now records each change's intent as the daemon does",
+  "T6": "fixed: the creation review, the confirmations and the removal review now end each screen but the last with '… N more lines below', page by the lines above it and keep the offset within the text, as the inspection pages do. The creation review at 48x16 ended at 'New session gets a private workspace and' with nothing below (before-0010), now '… 8 more lines below' (after-0009), and Page Down starts at the next line (after-0010). The rename confirmation at 48x16 hid its last sentence with no cue (before-0026), now '… 3 more lines below' (after-0033, after-0034). The Discard review at 48x16 ended at 'P stops the running container before', above its loss (before-0018); it now states what is lost right after its question, as the CLI's dry run prints the plan, so its first screen shows the loss heading and item at every size (after-0019, after-0020, after-0021, after-0025, after2-0030). When a long project name fills the first screen, the cue reads '… 20 more lines below, with what is lost' (after2-0025), and the next screen starts with the loss (after2-0026)"
+ },
+ "findings_open": 0,
+ "observations_open": {},
+ "component_tests": "go test ./internal/tui ./tests/integration/cmd/tui-mock: ok. New: TestCreatedSessionIsNamedByItsCreation, TestReviewPagesSayHowManyLinesAreBelow, TestPagingAReviewShowsEveryLine, TestRemovalReviewShowsWhatIsLostOnItsFirstScreen, TestLongFeedbackKeepsAReviewsControls, TestFixtureChangesRecordWhatTheirCallerNamed. Each failed on 5fe572d's code or on the fix as first built, except TestPagingAReviewShowsEveryLine, which passes on 5fe572d (no cue, full pages) and fails when the cue is kept but paging moves by the full rows. TestRemovalReviewUsesTheTextPageHeightAndKeepsItsPromptReadable now expects one row less above the cue",
+ "tui_tests": "just tui-tests three times on the final tree: 8 terminal, 9 observer and 12 mock tests OK each time. The mock driver's test_04 now opens Details first and checks that the read before entry after a Create names 'forge / feat/local' and no condition; it fails on 5fe572d's TUI ('forge / feat/device-login', 'Condition: ready')",
+ "vm": "Through vmslot.sh and vmgate.sh, from exports of the final tree: the VM gate (01-36 and 38-58 in two VMs) matched the baseline markers with none missing or extra, and ./dev/test-vm --step 56-live-tui.sh --step 58-notes-tui.sh passed (P_LIVE_TUI_PASS, P_NOTES_TUI_PASS) on its second run; the first stopped in the package build on internal/runtimeincus TestStopIsSentWhenGuestSystemdNeverComesUp, a race outside this change recorded in docs/debts/checks.md",
+ "review": "Two normal rounds by Codex (gpt-6.1-sol, high effort; a different provider from the driving agent). Round 1: with feedback leaving one row, a review's screen returned every row and the frame lost its controls and default-No prompt; fixed with TestLongFeedbackKeepsAReviewsControls, which failed first. Two cuts were not applied: the mock's rename intent (the mock would otherwise record a partial intent no daemon operation has) and the loss-first order (the generic cue says how many lines follow, not that the loss does). Round 2: a valid 254-byte project path fills the 48x16 first screen above the loss; fixed after the round limit with the loss-specific cue and a long-identity case of TestRemovalReviewShowsWhatIsLostOnItsFirstScreen, which failed first, and checked live (after2-0025); not re-reviewed",
+ "final_files_sha256": {
+  "internal/tui/model.go": "07eafba82199fe11880bd85320cbf8d637764bee6a211ee1361ccb560ab09013",
+  "internal/tui/view.go": "65e1cfefad91711321c870dea5e7faf84b0ed4c9e0c62c34ca95c171e09ef276",
+  "internal/tui/workflows.go": "a7a987aba40e6ec3edec589c9793ac8f6d95e0da3459464176e9cb1b941d7a2b",
+  "internal/tui/model_test.go": "b7e01dbd2f74f24c73673452291cdb671713a62710591dd7d3eaced74cf27645",
+  "internal/tui/removal_test.go": "52c07d653fe70f1dd57a17dec01832937ebb54cd03b1682846cfcddd5c0724ae",
+  "tests/integration/cmd/tui-mock/main.go": "550cd5a22234f303452a19778af0ba399f8d9abd886b67fd313e2f888bbce7dc",
+  "tests/integration/cmd/tui-mock/main_test.go": "704d5ae1f54abab8cfb3bd0523807a15afa080c28c9ddd8a2864269f85f7cb23",
+  "tests/integration/tui-mock-test.py": "e499f03c176690cd00d2299ac51bbd731cc9b4a069a2c0285723b04dad36f515"
+ }
+}
