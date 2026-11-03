@@ -44,7 +44,7 @@ means the document does not exist yet.
 
 ## Steps
 
-Each step lands as one commit, or a few where it splits cleanly (step 2 took three), after its decision document is settled. The 0 steps need no decision document: each rests only on a decision already made, and each lands as its own commit. Steps 8 and 9 are the exceptions: step 8 lands as the runtime driver's migration steps and step 9 as the source driver's (S1–S7) and then the plugin changes, one commit each.
+Each step lands as one commit, or a few where it splits cleanly (steps 1 to 4 took two or three each), after its decision document is settled. The 0 steps need no decision document: each rests only on a decision already made, and each lands as its own commit. Steps 8 and 9 are the exceptions: step 8 lands as the runtime driver's migration steps and step 9 as the source driver's (S1–S7) and then the plugin changes, one commit each.
 
 | Step | What | Why in this order |
 |---|---|---|
@@ -55,13 +55,14 @@ Each step lands as one commit, or a few where it splits cleanly (step 2 took thr
 | 0h | **Done** (02612f6). Remove session repair: its code, its nine methods and its operation kinds ([repairs.md](repairs.md)). | Decided; needs no design. Before 0e, which would otherwise convert ref repair from freezing to stopped-only and adapt its VM scenario only for 0h to delete it. The cost is a few commits in which a session with a missing branch ref cannot be removed, acceptable with fresh installs only and no users. |
 | 0i | **Done** (2406b5a). Stop is not refused while a read of the session holds its lock (scenario 58's flake). | A bug fix found by step 0h's VM gate; makes later gates reliable. |
 | 0j | **Done** (756b401, 4e221ba). A graceful stop waits for the guest's systemd and forces after the timeout. | A bug fix traced from VM flakes in scenarios 06 and 49; makes later gates reliable. |
+| 0k | **Done** (e073c75, 7cfe56a). A removal waits out the Incus execs that a cancelled read leaves behind, and inspection waits out the placeholder Incus answers while it cleans up after a guest powers off. | Bug fixes traced from VM flakes in scenarios 58 and 51; make later gates reliable. |
 | 0e | **Done** (f7dca2e). Deletions without inspection: no loss inspection or origin check before discard, delete or project deletion; P stops running sessions itself; no freezing, so rename requires a stopped session. With the loss inspection, the workspace helpers lose their last consumers, so they go too, with their Git analysis and their capacity reservation. Removal accepts a missing branch ref: delete then has nothing in P's repository to remove, and discard acts as a delete ([repairs.md](repairs.md)). | Decided; removes the loss-inspection path and its Incus calls, so step 5 has less to convert. |
 | 0f | **Done** (8ae2d6d). Collapse the 21 migrations into one schema file. | Follows from fresh installs only; later steps edit the schema directly. |
 | 0g | **Done** (8fe88c8). Give builders public internet access only, as designed in docs/environment-building.md. | Decided; makes real devShells buildable; the code moves into the driver later mostly unchanged. |
-| 1 | Images | Introduces the runtime driver's image operations (`BuildImage`, `Settle` for publishing), writes commit images against them, folds the Nix environment plugin into the image build, gives the builder a Git bundle of the commit to clone instead of a tree checked on the host (gitservice writes it until the source driver's `Export`, S4), and moves builder public access (from 0g) into it. Needs [runtime-driver.md](runtime-driver.md) settled first. Runs in parallel with the API steps, in a second worktree (lane B). |
+| 1 | **Done** (a86f76c, 7b6c210). Images | Introduces the runtime driver's image operations (`BuildImage`, `Settle` for publishing), writes commit images against them, folds the Nix environment plugin into the image build, gives the builder a Git bundle of the commit to clone instead of a tree checked on the host (gitservice writes it until the source driver's `Export`, S4), and moves builder public access (from 0g) into it. Needs [runtime-driver.md](runtime-driver.md) settled first. Runs in parallel with the API steps, in a second worktree (lane B). |
 | 2 | **Done** (26ad1ff, 564daf1, d0d98c9). Wire types | Every later step changes method shapes. With shared types, a changed shape fails to compile at each caller instead of failing in a VM run. |
-| 3 | Errors | Small, and steps 4 and 5 use the new retry and precondition kinds. |
-| 4 | Waiting | Start and stop become operations and clients wait with `operation.wait`. `project.delete.confirm` already records an operation; the wait inside it, for fresh loss inspections, goes in 0e, so the confirm returns its operation at once, which step 5 needs. |
+| 3 | **Done** (dfd1e74, 389310d; da9d917 recorded a debt its review found). Errors | Small, and steps 4 and 5 use the new retry and precondition kinds. |
+| 4 | **Done** (0036066, 6da1084, 3d737c0). Waiting | Start and stop become operations and clients wait with `operation.wait`. `project.delete.confirm` already records an operation; the wait inside it, for fresh loss inspections, goes in 0e, so the confirm returns its operation at once, which step 5 needs. |
 | 5 | Risky changes | Needs the shared types (2), the precondition errors (3) and `operation.wait` (4), with which clients follow the operation each run returns. |
 | 6 | Dropped | Session repair is removed in 0h ([repairs.md](repairs.md)). |
 | 7 | CLI | Builds on steps 4 and 5. |
@@ -86,8 +87,10 @@ Every step:
 |---|---|---|
 | 34, `34-missing-runtime-removal` | Start reported `ready` while its watcher still held the session lock. | Fixed in step 0b (804680e); renamed from the missing-runtime repair scenario in 0h |
 | 37, public egress | Depends on an external redirect service that now refuses the probe. | Stays a known failure |
+| 51, `51-assembled-failed-create-cleanup`, flaky | Inspection read the placeholder Incus lists while it cleans up after a guest's poweroff as an identity mismatch, so a failed startup's stop gave up and the creation was blocked before its container stopped. | Fixed in step 0k (7cfe56a) |
 | 58, notes TUI | The driver expected the session-row format from before 0dfc4ad. | Fixed in step 0a (51d7ac3) |
 | 58, notes TUI, flaky | Stop was refused while the TUI's services poll held the session lock. | Fixed in step 0i (2406b5a) |
+| 58, notes TUI, flaky | A services read the TUI cancelled left an Incus exec running; the discard worker met it and blocked until Retry. | Fixed in step 0k (e073c75) |
 
 ## Not in this plan
 

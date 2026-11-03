@@ -103,7 +103,11 @@ Three ideas carry it:
   that are idempotent by reference, never by sending a non-idempotent effect
   again.
 
-The sketch is illustrative.
+The sketch is illustrative. Step 1 landed its image part as
+`runtimedriver.Images` (internal/runtimedriver/driver.go): `Describe`, the
+four image operations, `Settle` for a build or an image delete, and `Delete`
+for a build's leftovers. A build has no incarnation, so step 1's `Delete`
+takes none: `Delete(ctx, r Ref, g Gate)`.
 
 ```go
 package runtimedriver // internal/runtimedriver
@@ -121,7 +125,7 @@ type Driver interface {
 	Create(ctx context.Context, s Session, at Incarnation, g Gate) (Observation, error) // at empty: initialize; set: only complete that runtime
 	Start(ctx context.Context, s Session) (Observation, error)                          // returns with the host ready, or stopped with a diagnostic
 	Stop(ctx context.Context, s Session) (Observation, error)
-	Delete(ctx context.Context, r Ref, at Incarnation, g Gate) error // a session, or a build's leftovers
+	Delete(ctx context.Context, r Ref, at Incarnation, g Gate) error // a session at its incarnation, or a build's leftovers, which have none
 	OpenTerminal(ctx context.Context, t Target, size Size) (Terminal, error)
 
 	// The workspace of a stopped session; paths relative to its root
@@ -163,9 +167,22 @@ type Session struct {
 }
 
 type Build struct {
-	Ref    Ref            // kind build
-	Labels Labels         // the image's identity: project, commit, base, system, builder version
-	Source SourceExport   // a Git bundle of the commit, as the source driver's Export wrote it
+	Ref     Ref          // kind build, new for every attempt
+	Labels  Labels       // the image's identity: project, commit, base, system, builder version, and the build's ID
+	Source  SourceExport // a Git bundle of the commit, as the source driver's Export wrote it
+	Network Network      // the builder's: public egress at the address P reserved, or none
+}
+
+type Image struct {
+	Ref    ImageRef
+	Labels Labels
+	Shell  Shell // what the build found at the commit
+	Size   int64 // bytes, as the backend reports them
+}
+
+type Shell struct {
+	Selection      Selection // no-flake, no-default or devshell: whether the commit's default devShell is in the image
+	MaterialSHA256 string    // the devShell's activation material in the image
 }
 
 type Target struct {
@@ -206,6 +223,7 @@ type Service struct {
 }
 
 type Capabilities struct {
+	ImageBuilder    string   // the image builder's version; part of every image's identity
 	System          string   // for example x86_64-linux
 	Networks        []string // none, public-egress
 	EgressAddresses int      // 4 for Incus; 0 when the backend assigns addresses
@@ -231,11 +249,11 @@ var (
 | `Inspect` | Report `absent` only when its direct address for the reference finds nothing; report `ErrMismatch` for an object that carries the reference but differs from the spec. |
 | `Create` | With no incarnation: look through the whole scope first, so a natively renamed runtime blocks creation; call the gate; initialize; then install everything the spec names and leave the runtime stopped. With an incarnation: never initialize; complete that stopped runtime, keeping identical guest files, installing missing ones and refusing different ones. |
 | `Start`, `Stop` | Converge on the state and do nothing when it holds. `Start` re-checks grants, endpoints and the egress substrate and returns once the session host is ready; if the host fails, the runtime ends stopped and `Start` returns the bounded diagnostic. When the host exits, the runtime stops and is never restarted. `Stop` is graceful and bounded. |
-| `Delete` | Act only on the given incarnation; stop a running runtime first. After success the reference is absent and its private storage gone. |
+| `Delete` | Act only on the given incarnation; stop a running runtime first. After success the reference is absent and its private storage gone. For a build, which has no incarnation: remove what it left behind, such as its builder, and never an image. |
 | `Inventory` | List every object in scope, P's or not, including ones being deleted, with labels as stored, within a stated bound; an error rather than a partial list. |
 | Workspace operations | Act only on a stopped session of the given incarnation. Never run code the session or its repository can change; never follow symlinks; report a path absent, or its type, owner and mode, and read and write exact owner, mode and bytes, within bounds; reach only the session's private storage. |
 | `OpenTerminal` | Attach the session user to the session host with a PTY. Arm a completion witness before the attach starts, or fail; report `Proven` completion only from it. |
-| `BuildImage` | Build an image of the commit for this runtime, label it, and leave no builder behind on success or definite failure. The builder gets the commit's Git bundle, which it clones into `/workspace`, the public-egress network and nothing else. |
+| `BuildImage` | Call the gate once, after every check and right before the builder is initialized; core records the build attempted there, so a failed gate leaves no builder. Build an image of the commit for this runtime, label it, and leave no builder behind on success or definite failure. The builder gets the commit's Git bundle, which it clones into `/workspace`, the build's network and nothing else. |
 | Images | Store labels immutably and return them verbatim. `DeleteImage` acts on the exact reference and labels and never affects runtimes created from the image. |
 | `Settle` | `Applied` only when the intended outcome is present exactly and nothing admitted on the target is still running; `NotApplied` only when the backend proves the effect can never be admitted later; otherwise `Unknown`. For `create`, the intended outcome is the initialized runtime at the reference, complete or not. Use native state only, so the answer holds after a restart. |
 | Services | Act only on the target session's project services, at its incarnation, while its host is ready, with the session user's authority; never on the runtime's own units. Return a complete, bounded inventory or an error; queue actions and return once queued, with progress shown in the inventory; bound the logs. The full table is in [services-plugin.md](services-plugin.md#guarantees). |

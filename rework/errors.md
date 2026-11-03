@@ -79,20 +79,30 @@ After
 | Kind | Code | The client's next step | Reasons, for example |
 |---|---|---|---|
 | `parse_error` | -32700 | Fix the client: the line is not JSON | — |
-| `invalid_request` | -32600 | Fix the client: not a valid request | `hello_required`, `duplicate_id` |
+| `invalid_request` | -32600 | Fix the client: not a valid request | `hello_required`, `duplicate_id`, `envelope`, `connection` |
 | `method_not_found` | -32601 | The protocol has no such method | — |
 | `invalid` | -32602 | Fix the params | `param` (with `field`), `key_reused` |
-| `internal` | -32603 | Nothing to do but report it; the daemon logged the cause | `panic`, `store`, `encoding` |
+| `internal` | -32603 | Nothing to do but report it; the daemon logged the cause | `panic`, `store`, `encoding`, `unexpected` |
 | `cancelled` | -32001 | Nothing: the client cancelled | — |
-| `unsupported_version` | -32002 | Use a client that speaks a protocol in `supported` | `protocol` |
+| `unsupported_version` | -32002 | Use a client that speaks a protocol in `supported` | `protocol`, `jsonrpc` |
 | `retry` | -32010 | Send the same request again, after the `target` operation leaves `running` if one is named | `session_held`, `too_many_requests`, `deadline` |
 | `conflict` | -32011 | Change the named state first: detach, Retry, wait for a person | `attachment_active`, `session_not_established`, `operation_blocked`, `operation_superseded` |
 | `capacity` | -32012 | Discard or delete a session to free a slot | `session_capacity` |
 | `precondition_failed` | -32013 | Read the state again and decide again: for a risky change, a new dry run ([state-hash-confirmation.md](state-hash-confirmation.md)) | `expired`, `changed` |
 | `precondition_required` | -32014 | Send the change tag in `if_match` | `if_match_missing` |
-| `not_found` | -32015 | Stop: the named record does not exist | The kind of record: `session`, `operation`, `project`, `branch`, `service` |
+| `not_found` | -32015 | Stop: the named record does not exist | The kind of record: `session`, `operation`, `project`, `branch`, `source` |
 | `not_configured` | -32016 | Configure the named capability on the host | The capability: `git`, `runtime`, `services` |
-| `failed` | -32017 | Check the named authority, then send the request again | The authority: `runtime`, `git`, `origin`, `plugin` |
+| `failed` | -32017 | Check the named authority, then send the request again | The authority: `runtime`, `git`, `origin`, `plugin`, `services` |
+
+Step 3 added four reasons this design did not name: `envelope` (JSON that is
+not a valid request object), `connection` (a method this connection may not
+call), `jsonrpc` (a `jsonrpc` member other than `"2.0"`) and `unexpected` (an
+error nobody typed). `not_found` uses `source` for a source ref or commit to
+create from, and no `service`: an action on a project service the session
+does not have reaches the service manager, which refuses it, so it answers
+`failed` with reason `services`.
+[services-plugin.md](services-plugin.md#guarantees) plans `not_found`,
+`service` for the runtime driver's `ErrNoService`.
 
 The codes for P's own kinds are new numbers in JSON-RPC's range for server
 errors (-32000 to -32099). `busy` (-32003) and `unavailable` (-32004) go and
@@ -172,18 +182,30 @@ by three rules, applied in this order:
    | `ErrNotFound` | `not_found` with the target; `not_configured` where it stands for a missing capability |
    | A failure from an adapter of an outside authority: the runtime plugin and `runtimeincus`, the [source driver](source-driver.md) (`gitservice` and the source-Git plugin until step 9), except a `CheckNames` refusal | `failed`, with the authority as reason |
 
-3. **Anything untyped answers `internal`** and is logged with its cause:
+3. **Anything untyped answers `internal`, reason `unexpected`,** and is
+   logged with its cause:
    SQLite, file and encoding errors. A condition that nobody typed then shows
    as `internal` in the log, instead of hiding as "lifecycle authority is
    unavailable".
+
+**A retained-branch deletion reports an unreachable origin in its review,
+not as an error.** Its preview records the origin in `branch_loss.origin` as
+status `unknown` with reason `origin_refresh_unavailable`, and still answers;
+no retained-branch deletion answers `failed` with reason `origin`. When the
+source-Git plugin fails its check before the origin is contacted, the request
+answers `failed` with reason `plugin` (`withOriginScope` in
+internal/daemon/origin.go). Confirmation and the worker compare a fresh review
+with the reviewed one. If the origin's answer changed in between,
+confirmation answers `precondition_failed`, reason `changed`, and the worker
+ends the operation `failed`, reason `changed`, before its effect.
 
 The fixed answers outside the mapper:
 
 | Site | Today | After |
 |---|---|---|
-| `parseRequest`, `ReadFrame` (internal/control/rpc.go) | `parse_error`, `invalid_request`, `unsupported_version` for `jsonrpc` other than 2.0, `invalid_params` for missing params | The same kinds; missing params mean `{}` |
+| `parseRequest`, `ReadFrame` (internal/control/rpc.go) | `parse_error`, `invalid_request`, `unsupported_version` for `jsonrpc` other than 2.0, `invalid_params` for missing params | The same kinds, with reason `envelope` for `invalid_request` and `jsonrpc` for `unsupported_version`; missing params mean `{}` |
 | `ServeConn`: duplicate in-flight ID; too many concurrent requests; a handler returning both or neither of result and error | `invalid_request`; `busy`; `internal` | `invalid_request`, `duplicate_id`; `retry`, `too_many_requests`; `internal`, `encoding` |
-| The attachment helper's connection calling another method, or `attachment.claim` from an untrusted connection | `busy`; `invalid_params` | `invalid_request` |
+| The attachment helper's connection calling another method, or `attachment.claim` from an untrusted connection | `busy`; `invalid_params` | `invalid_request`, reason `connection` |
 | `unconfiguredMethod` and `methodTable.unavailable` | `unavailable` with three messages, or "record was not found" | `not_configured` with the capability for a method of the protocol; `method_not_found` for any other name ([wire-types.md](wire-types.md#the-method-table)) |
 | `projectDeleteRPC` and rpc_services.go's fixed texts | `busy` with the error's text, or `unavailable` with fixed advice | The rules above; the texts go to the log |
 | The session RPC (session_rpc.go) | Its own `unavailable`, `internal`, `invalid_request`, `method_not_found` | `not_found` for a session that is not established; the other kinds unchanged, in the new shape |
@@ -284,12 +306,18 @@ and the store already refuses anything longer. Three cases constrain it:
 - A page of 20 operations at the limit adds 20 KiB, inside the 63 KiB that
   `boundedLifecyclePage` allows, and that function already shortens a page
   that would not fit.
-- Project deletion's evidence holds about 13 resource diagnostics (at most
-  four sessions with two resources each, after
-  [commit images](commit-images.md) at most one image per session, and the
-  repository) under a 24 KiB evidence bound (project_delete_store.go). I did
-  not measure the rest of that evidence, so the step checks that it fits at
-  the new limit, or raises the bound.
+- Project deletion's evidence holds up to 29 resource diagnostics: four
+  sessions with two resources each, up to 20
+  [commit images](commit-images.md), and the repository. Step 3 raised the
+  bound: the evidence a deletion is confirmed with stays within 24 KiB and
+  may grow to 56 KiB as its resources record diagnostics, each cut to take at
+  most 1024 bytes once JSON encodes it (`ResourceDiagnostic`,
+  `maxProjectDeleteReviewBytes` and `maxProjectDeleteEvidenceBytes` in
+  internal/control/project_delete.go); `operation.inspect` of the largest
+  still fits the 64 KiB frame. Step 1 found that four sessions and eight
+  images at the longest names fill the 24 KiB, so the review refuses a
+  larger project with `conflict`, reason `bound_exceeded`
+  ([state-safety debt](../docs/debts/state-safety.md#project-deletion-evidence-admits-fewer-images-than-the-reviews-cap)).
 
 ## Options set aside
 

@@ -111,15 +111,21 @@ published image, with no builder left behind. The builder's input is a Git
 bundle of the commit, which it clones into `/workspace`; the
 [source driver](source-driver.md)'s `Export` writes it, and gitservice until that driver lands in step 9. The host no
 longer checks the commit's tree (gitservice's snapshot.go), since the checkout
-happens in the isolated builder. An image only has to work with the runtime
-that built it. The builder gets
+happens in the isolated builder. The builder makes the clone without
+`git clone`: it initializes an empty repository, fetches the bundle's one
+ref, checks the commit out detached and deletes the fetched ref, then proves
+that HEAD is the commit with no branch, ref or remote and a clean tree
+(`CloneBuilderSource` in internal/runtimeincus/builder.go). An image only has
+to work with the runtime that built it. The builder gets
 public internet access only, with no host or local-network route, as
 [environment building](../docs/environment-building.md) already designs
-("Realize" and "Security boundary"); today's builder is still offline, and
-implementing that access is step 0g. Builds fetch from the public
-package caches directly. A commit that changes only code therefore costs a
-full build; with the Incus driver the published image is a full copy on disk,
-because Incus images are not layered. A P-run package cache to speed builds
+("Realize" and "Security boundary"); step 0g implemented that access. A host
+without the public-egress substrate keeps its builders offline: no network and
+no substituters, so only a devShell that needs nothing from the network
+builds. With access, builds fetch from the public package caches directly. A
+commit that changes only code therefore costs a full build; with the Incus
+driver the published image is a full copy on disk, because Incus images are
+not layered. A P-run package cache to speed builds
 up is left for later, possibly as a plugin.
 
 **The first session of a blank project** has no commit, and keeps using the
@@ -159,7 +165,13 @@ The mechanics:
   deleted. Release first marks the index row `releasing`, then has the driver
   delete the exact image by its reference and labels, then removes the row. A `releasing` row is never reused,
   even if the delete outcome is unknown, until the delete is settled.
-- **Project deletion** deletes all of the project's images, as today.
+- **Project deletion** deletes all of the project's images, as today. Its
+  review answers `conflict` with reason `bound_exceeded` for a project with
+  more than 20 indexed commit images, or whose deletion evidence would exceed
+  24 KiB; with four sessions and the longest names P accepts, eight images
+  fit. A project over either bound cannot be deleted through P until release
+  deletes the unused images
+  ([state-safety debt](../docs/debts/state-safety.md#project-deletion-evidence-admits-fewer-images-than-the-reviews-cap)).
 
 ## What users notice
 

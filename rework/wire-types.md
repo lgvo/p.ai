@@ -256,9 +256,15 @@ first request together. `rpc.cancel` loses `v` and keeps its other behavior.
 
 | Capability | Configured when | Methods |
 |---|---|---|
-| `git` | Host configuration has Git | Project reads, origins, publication, retained branches |
-| `runtime` | Host configuration also has a runtime | Lifecycle, operations, attachment |
+| `git` | Host configuration has Git | Project reads, origins, publication, retained branches; from step 4 also the operation methods (`operation.inspect`, `operation.list`, `operation.wait`, `operation.retry`) |
+| `runtime` | Host configuration also has a runtime | Lifecycle, attachment; operations until step 4 |
 | `services` | The runtime driver offers services ([services-plugin.md](services-plugin.md#sketch)) | The three services methods |
+
+Step 4 moved the operation methods from `runtime` to `git`
+(`api.Methods()` in internal/api/method.go): origin change and publish became
+operations, and a daemon with Git and no runtime runs them, so its clients
+need the operation methods to follow them. VM scenario 16 waits for origin
+changes on a daemon whose hello lists only `git`.
 
 Clients use `api.Dial`, which connects and sends the hello, and `api.Do`,
 which runs `Validate` and makes one typed call. The TUI may keep its one

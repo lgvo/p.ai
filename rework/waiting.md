@@ -122,8 +122,10 @@ operation on the same session goes through one admission check of the
 journal: it answers `retry` naming the operation while it is `running`, and
 `conflict` with reason `operation_blocked` once it is `blocked`, since a
 blocked operation waits for Retry ([errors.md](errors.md)). So between the
-release and the recorded end, competing work is refused by the journal, not
-by the lock; and once `operation.wait` returns the end, nothing of that
+release and the recorded end, competing work is held back by the journal, not
+by the lock: P's store has one SQLite connection, and the transaction that
+records the end holds it, so the admission check waits for that commit and
+then admits the work. Once `operation.wait` returns the end, nothing of that
 operation holds the session.
 
 The check refuses competing work only. Requests that act on the unfinished
@@ -211,8 +213,11 @@ each start and stop does not add a row that the TUI loads on every refresh
 until it reaches its 4096-record limit. Only real starts and stops count,
 since a repeat records nothing. The session view takes a failed start's
 diagnostic from that newest operation, replacing the
-`session.start.diag:<uuid>` metadata rows, which are never deleted today
-([state-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session)).
+`session.start.diag:<uuid>` metadata rows, which are never deleted today.
+That settles half of the
+[state-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session)
+"Per-session state outlives its session"; the in-memory status rate maps,
+which only project deletion clears, remain, and the entry stays for them.
 
 `session.attach` no longer starts the session. It accepts a ready session,
 and answers `retry` naming an unfinished start, or `conflict` for a session
@@ -349,7 +354,7 @@ newest finished start or stop per session bounds the rows they add.
   return operations, and a publication's `outcome_unknown` is a failed
   operation's reason.
 - [State-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session):
-  the start diagnostic rows go.
+  the start diagnostic rows go; the entry narrows to the status rate maps.
 
 ## Options set aside
 
@@ -372,7 +377,10 @@ newest finished start or stop per session bounds the rows they add.
   follows the operation with `operation.wait` then starts or attaches to the
   session (creation) or renames it (start, stop) without
   meeting the session's lock. With the hook placed before the commit
-  instead, the same requests get `retry` naming the operation.
+  instead, the same requests wait for the commit and are then admitted,
+  since the journal's transaction holds the store's one SQLite connection
+  (`TestOperationEndsOnlyAfterItsWorkerLetsGo` in
+  internal/daemon/journal_test.go).
 - A unit test of the shared admission check: competing work on a session
   held by a `running` operation gets `retry` naming it, and held by a
   `blocked` one, `conflict` with reason `operation_blocked`, for every method
