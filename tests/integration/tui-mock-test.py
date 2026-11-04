@@ -53,8 +53,8 @@ class MockTUITests(unittest.TestCase):
         self.state_dir = Path(self.tmp.name)
         self.sock = str(self.state_dir / "control.sock")
         self.log = open(self.state_dir / "server.log", "w+")
-        self.backend = subprocess.Popen([self.server, "--state-dir", self.tmp.name,
-                                         "--dataset", "empty" if "empty" in self._testMethodName else "portfolio"],
+        dataset = "empty" if "empty" in self._testMethodName else "portfolio"
+        self.backend = subprocess.Popen([self.server, "--state-dir", self.tmp.name, "--dataset", dataset],
                                         stdout=self.log, stderr=self.log)
         self.ui = None
         try:
@@ -67,6 +67,10 @@ class MockTUITests(unittest.TestCase):
             self.ui = observer.Observer([self.cli, "tui", self.sock], str(self.state_dir / "frames"), 120, 35)
             self.wait("All project sessions")
             self.wait("q/Esc back")  # Wait for the complete initial frame, including controls.
+            if dataset == "portfolio":
+                # The view renders before its sessions load, while the list
+                # still reads "0–0 of 0"; no test may act or read before then.
+                self.wait("of 120 · selected")
         except BaseException:
             self.tearDown()
             raise
@@ -166,9 +170,7 @@ class MockTUITests(unittest.TestCase):
                               ("\x1b[6~", page + 1), ("\x1b[5~", 1),
                               ("\x06", page + 1), ("\x02", 1), ("\x04", page // 2 + 1),
                               ("\x15", 1), ("G", 120), ("gg", 1), ("\x1b[F", 120), ("\x1b[H", 1)):
-            self.key(key)
-            actual = int(re.search(r'selected (\d+)', self.screen()).group(1))
-            self.assertEqual(actual, selected, f"Decoder/selection failed for {key!r}")
+            self.key(key, f"· selected {selected} ")  # The count line, once the key is drawn.
             start, end = map(int, re.search(r'(\d+)–(\d+) of 120', self.screen()).groups())
             self.assertEqual((start, end), (max(1, selected - page + 1), max(page, selected)), f"Viewport failed for {key!r}")
         self.key("ggD", "Session details")
@@ -212,8 +214,7 @@ class MockTUITests(unittest.TestCase):
             self.assertIn("D details", self.screen())
             self.key("gg")
             visible = int(re.search(r'1–(\d+) of 120', self.screen()).group(1))
-            self.key("\x1b[6~")
-            self.assertEqual(int(re.search(r'selected (\d+)', self.screen()).group(1)), visible + 1)
+            self.key("\x1b[6~", f"· selected {visible + 1} ")
             self.key("gg")
             self.assertEqual((self.ui.screen.columns, self.ui.screen.lines), (cols, rows))
 
@@ -495,7 +496,7 @@ class MockTUITests(unittest.TestCase):
         self.ui.close()
         self.ui = observer.Observer([launcher, "--dataset=small", "--theme=light"], str(self.state_dir / "launcher"), 80, 24)
         self.wait("All project sessions", timeout=30)
-        self.assertIn("of 4 · selected", self.screen())
+        self.wait("of 4 · selected")  # The sessions load after the view renders.
         # Find only this launcher's descendant server; concurrent exploratory
         # terminals and their private directories are never cleanup targets.
         pending, children = [self.ui.process.pid], []

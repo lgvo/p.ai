@@ -82,24 +82,23 @@
   - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) finished the
     runtime driver without it.
 
-## Two TUI mock tests read the screen before its sessions load
+## Two TUI mock tests read the screen a fixed time after a resize
 
-- Where: tests/integration/tui-mock-test.py, `setUp` (waits for "All project sessions" and
-  "q/Esc back"), `test_01_navigation_reports_policy_branches_operations_search_resize`
-  (reads "1–N of 120" at once) and `launcher` (asserts "of 4 · selected" at once)
-- Problem: The view's title and controls render before the first page of sessions arrives,
-  when the list still reads "0–0 of 0". Both tests wait for the title, then read the screen
-  once and expect the loaded count, so a slow first page fails them. `test_zz_all_tui_rpc_actions_covered`
-  then fails too, because test_01 stopped before its actions.
-- Evidence: 2026-11-03, in step 9 S7's checks, `test_07_launcher_owns_background_server_and_cleans_up`
-  failed once with the screen at "0–0 of 0 · selected 0", and later test_01 failed once on a
-  missing "1–N of 120", while two VMs ran; each passed on two reruns.
-- Risk: `just tui-tests` fails at random under load, and reruns can hide a real failure of
-  the first page.
-- Fix: wait for the loaded count ("of 120", "of 4 · selected") with `self.wait` before
-  reading it.
-- Fix when: the next change to the TUI mock tests, or the next time it fails a check.
-- Left by: the agent, by rule (a problem outside the change).
+- Where: tests/integration/tui-mock-test.py, `test_01_navigation_reports_policy_branches_operations_search_resize`
+  (its resize loop reads "X delete", "D details" and the page size "1–N of 120" 100 ms after
+  the resize and 40 ms after `gg`) and `test_03_attachment_stop_start_rename_and_cancel`
+  (reads the tmux pane's size 150 ms after a resize)
+- Problem: Each reads the screen, or the pane, once, a fixed time after the resize, so when the
+  TUI takes longer to redraw it reads the previous size: the resize loop then expects a page
+  of the old size and fails.
+- Evidence: 2026-11-03, read from the code. Under 16 busy loops pinned to the tests' two CPUs,
+  the same kind of read a fixed time after a key failed in test_01's movement and resize
+  loops (now waits); these reads after a resize did not fail in those runs.
+- Risk: `just tui-tests` fails at random on a heavily loaded machine.
+- Fix: after a resize, wait with a deadline for a frame drawn at the new size (for example
+  the panel border at the new width) before reading it.
+- Fix when: the next change to these tests, or the next time one fails a check.
+- Left by: the agent, by rule (a problem outside the change, suspected only).
 - Added 2026-11-03, 1 case:
-  - 2026-11-03: "the source driver as its own executable" (step 9, S7) saw both tests fail
-    once each while VM gates ran.
+  - 2026-11-03: "wait for the sessions to load before the TUI mock tests act" found it while
+    proving that fix under load.
