@@ -4,7 +4,7 @@
 
 > Written as if MVP already shipped. It is a product narrative, not an
 > announcement or protocol authority. The subject-specific design documents are
-> authoritative; [README.md](../README.md) summarizes the current design and
+> authoritative; [README.md](../../README.md) summarizes the current design and
 > [FAQ.md](FAQ.md) explains its tradeoffs.
 
 ---

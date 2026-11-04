@@ -56,11 +56,11 @@ func reasonConstants(t *testing.T, dir string) map[string]string {
 }
 
 func TestEveryKindAndReasonIsDocumented(t *testing.T) {
-	doc, err := os.ReadFile("../../docs/control-api.md")
+	doc, err := os.ReadFile("../../docs/archive/control-api.md")
 	if errors.Is(err, fs.ErrNotExist) {
 		// The package build copies the sources without the docs; the
 		// repository's unit tests run this check.
-		t.Skip("docs/control-api.md is not in this source tree")
+		t.Skip("docs/archive/control-api.md is not in this source tree")
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestEveryKindAndReasonIsDocumented(t *testing.T) {
 	for _, kind := range Kinds() {
 		row := "`" + string(kind) + "` | " + strconv.Itoa(kind.Code())
 		if !strings.Contains(text, row) {
-			t.Errorf("docs/control-api.md lacks the row %q", row)
+			t.Errorf("docs/archive/control-api.md lacks the row %q", row)
 		}
 	}
 	reasons := reasonConstants(t, ".")
@@ -78,7 +78,7 @@ func TestEveryKindAndReasonIsDocumented(t *testing.T) {
 	}
 	for name, value := range reasons {
 		if !strings.Contains(text, "`"+value+"`") {
-			t.Errorf("docs/control-api.md does not list %s (%q)", name, value)
+			t.Errorf("docs/archive/control-api.md does not list %s (%q)", name, value)
 		}
 	}
 }

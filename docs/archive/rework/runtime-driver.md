@@ -563,7 +563,7 @@ that describes other capabilities than at its first start is refused, and
 the supervisor tries again. A driver that hangs with its connection open is
 not detected: nothing checks that it still answers, so its calls wait until
 their contexts end
-([debt](../docs/debts/state-safety.md#a-hung-driver-is-never-restarted)).
+([debt](../../debts/state-safety.md#a-hung-driver-is-never-restarted)).
 
 ## Images and step 1
 
@@ -579,7 +579,7 @@ steps are part of how the Incus driver builds. No reason to keep it separate
 was found.
 
 **Builders get public internet access only**, as
-[environment building](../docs/environment-building.md) already designs in
+[environment building](../environment-building.md) already designs in
 "Realize" and "Security boundary": public substituters and fetches, with a
 session's destination isolation. Before step 0g the builder had no NIC; 0g
 gave it that access before the driver existed, and step 1 moved the code
@@ -617,7 +617,7 @@ planned, its row says so.
 
 ## Departures from agreements
 
-- [Plugin contract](../docs/plugin-contract.md): the `runtime` and
+- [Plugin contract](../plugin-contract.md): the `runtime` and
   `environment` capabilities, their grants and WASI ABI sections, and two of
   the six bundled packages go. An activation file with a runtime or
   environment entry is invalid. The interactive-host package's units and
@@ -627,31 +627,31 @@ planned, its row says so.
   and no host is selected. Its part 2 (818c627) reversed the rule that
   "merely running a native executable in a separate process does not meet
   this contract": an executable plugin is now trusted code.
-- [Runtime isolation](../docs/runtime-isolation.md): Incus becomes the Incus
+- [Runtime isolation](../runtime-isolation.md): Incus becomes the Incus
   driver, and the properties above get their own section. Network `none`
   means nothing reachable rather than "no general NIC". The systemd host
   contract and "Project user services" become the Incus driver's.
   "Non-activating workspace access" shrinks to the workspace operations on a
   stopped session, with no helper.
-- [Technology stack](../docs/technology-stack.md): `RuntimeBackend` and
+- [Technology stack](../technology-stack.md): `RuntimeBackend` and
   `EnvironmentBuilder`, never implemented, give way to `Driver` and
   `BuildImage`; "Product direction requires Incus support to become a bundled
   runtime plugin" is reversed.
-- [Environment building](../docs/environment-building.md): the build becomes
+- [Environment building](../environment-building.md): the build becomes
   the driver's, the environment plugin goes, builders get public egress.
-- [Session lifecycle](../docs/session-lifecycle.md): the authorities table
+- [Session lifecycle](../session-lifecycle.md): the authorities table
   names the driver; quiescence and the loss inspections go
   ([plan-shape.md](plan-shape.md#by-category)).
-- [Communication boundaries](../docs/communication-boundaries.md): attachment
+- [Communication boundaries](../communication-boundaries.md): attachment
   steps 4 and 7, image-build communication.
-- [Control API](../docs/control-api.md): the host configuration's `runtime`
+- [Control API](../control-api.md): the host configuration's `runtime`
   object and environment selection; the "Workspace inspection foundation"
   and "Workspace loss inspection" sections.
-- [Glossary](../GLOSSARY.md): a "Runtime driver" entry; "Plugin" and
+- [Glossary](../../../GLOSSARY.md): a "Runtime driver" entry; "Plugin" and
   "Host-side capability" no longer name a runtime provider; an internal
   session service is supervised by the runtime, not "through the runtime's
   systemd contract".
-- [PROJECT.md](../PROJECT.md): no text changes. Destructive actions explain
+- [PROJECT.md](../../../PROJECT.md): no text changes. Destructive actions explain
   their loss by category, by the maintainer's decision; the runtime stays
   replaceable without rebuilding P.
 
@@ -664,7 +664,7 @@ planned, its row says so.
 | Generic guest file and command operations (`Run`), with core driving assembly, host readiness, the Nix steps, and services by building `systemctl` commands | Core would depend on one guest layout, but images are runtime-specific. |
 | A stronger `Inspect` instead of `Settle` | An empty operation list does not exclude a request Incus has not registered yet, and what settles depends on the effect. |
 | The driver hands out egress addresses | The reservation would leave the session's SQLite transaction, so creations could race for an address. |
-| hashicorp/go-plugin | MPL-2.0 is not on P's [licensing list](../docs/technology-stack.md#licensing-policy), and it adds gRPC next to P's JSON-RPC. |
+| hashicorp/go-plugin | MPL-2.0 is not on P's [licensing list](../technology-stack.md#licensing-policy), and it adds gRPC next to P's JSON-RPC. |
 | CRI as the protocol | Pods and containers only: no image build, no stopped-storage access, no Incus. |
 
 ## How it will be checked
@@ -716,7 +716,7 @@ planned, its row says so.
   not, and still drives the Incus driver through its own fixture commands,
   since the suite's controls exist only for the in-memory driver and the
   stubbed Incus
-  ([debt](../docs/debts/checks.md#the-conformance-suite-never-runs-against-real-incus)).
+  ([debt](../../debts/checks.md#the-conformance-suite-never-runs-against-real-incus)).
   Scenario 59 (59-runtime-driver-restart.sh) kills the driver with SIGKILL
   during a creation and during an attachment, against real Incus. The plan
   asked for create, start and attach times before and after; they follow.

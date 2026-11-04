@@ -6,7 +6,7 @@ import (
 )
 
 // ErrorKind names the client's next step after an error. It is the error
-// object's message; docs/control-api.md#errors lists each kind with its code
+// object's message; docs/archive/control-api.md#errors lists each kind with its code
 // and reasons.
 type ErrorKind string
 
@@ -112,7 +112,7 @@ const (
 	ReasonBoundExceeded          = "bound_exceeded"           // the answer would exceed the response bound
 	ReasonPublicEgressUnassigned = "public_egress_unassigned" // the session on the public network holds no address slot
 	// Refusals in plans only: a risky change's plan names them when it is not
-	// allowed (docs/control-api.md#refusals). The conflict reasons above are
+	// allowed (docs/archive/control-api.md#refusals). The conflict reasons above are
 	// refusals in plans too.
 	ReasonDestinationDivergent = "destination_divergent" // the origin branch has commits the source lacks
 	// A blocked creation's replacement.

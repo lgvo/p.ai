@@ -57,7 +57,7 @@ open, cancelled with `n`, `q` and Esc, and authorized a Discard. "Runtime:"
 reads on into "P stops the running container before deleting it." No defect
 was found. The mock cannot make a runtime missing, so the `Runtime: missing`
 line was not reviewed live; a component test covers it. Evidence:
-[runtime-name checkpoint](llm-interactive-review/tui/runtime-name/checkpoint.json).
+[runtime-name checkpoint](../llm-interactive-review/tui/runtime-name/checkpoint.json).
 
 **Component and integration checks.** `go test ./internal/tui/
 ./tests/integration/cmd/tui-mock/` passed, including
@@ -91,7 +91,7 @@ frame's cells and cursor are identical between the builds; the session counted
 one attachment while attached and none after detach. No defect was found. The
 prototype's simulated terminal and Ctrl+B popup remain outside implemented
 scope, as before. Evidence:
-[attach-relay checkpoint](llm-interactive-review/tui/attach-relay/checkpoint.json).
+[attach-relay checkpoint](../llm-interactive-review/tui/attach-relay/checkpoint.json).
 That review ran before the change moved onto steps 3 to 5, where `p attach`
 starts the session and waits for it before it attaches; it was not repeated
 on that base.
@@ -140,7 +140,7 @@ this change) matched the baseline markers, and `./dev/test-vm --step
 56-live-tui.sh --step 58-notes-tui.sh` passed (`P_LIVE_TUI_PASS`,
 `P_NOTES_TUI_PASS`) on its second run; the first stopped in the package build
 on a runtime driver test's race, recorded as debt. Evidence:
-[checkpoint](llm-interactive-review/tui/tui-fixes3/checkpoint.json).
+[checkpoint](../llm-interactive-review/tui/tui-fixes3/checkpoint.json).
 
 ## Second TUI review fixes — 2026-11-03
 
@@ -185,7 +185,7 @@ changed behavior, each failing before the fix; `just tui-tests` passed 8
 terminal, 9 observer and 12 mock tests, and the mock driver now also checks
 that a recovered refresh clears its sentence and that the review states the
 container's loss in the CLI's words; both checks fail on `2b14a2b`. Evidence:
-[checkpoint](llm-interactive-review/tui/tui-fixes2/checkpoint.json).
+[checkpoint](../llm-interactive-review/tui/tui-fixes2/checkpoint.json).
 
 ## TUI review fixes — 2026-11-03
 
@@ -232,7 +232,7 @@ so a wait answering `running` was not reached. Component checks:
 fix; `just tui-tests` passed 8 terminal, 9 observer and 12 mock tests, and the
 mock driver now also covers `s` on a stopped session, `p attach`'s sentence, `r`
 on Retained branches and a changed removal run. Evidence:
-[checkpoint](llm-interactive-review/tui/tui-fixes/checkpoint.json).
+[checkpoint](../llm-interactive-review/tui/tui-fixes/checkpoint.json).
 
 ## TUI removal plans — 2026-11-03
 
@@ -278,7 +278,7 @@ missing runtime and no commits leaving P, so those reviews were not rendered.
 The prototype has no session removal. Component checks: `internal/tui`,
 `internal/errtext`, `internal/control` and the mock's tests passed; `just tui-tests` passed 8
 terminal, 9 observer and 12 mock tests. Evidence:
-[checkpoint](llm-interactive-review/tui/removal-plans/checkpoint.json).
+[checkpoint](../llm-interactive-review/tui/removal-plans/checkpoint.json).
 
 ## TUI start and stop operations — 2026-11-03
 
@@ -355,7 +355,7 @@ Component checks: `internal/tui`, the mock, `internal/errtext` and
 and stop, the Stop page's readiness lines, a completed stop opened from O and
 its layout, and an already stopped session. `just tui-tests` passed 8
 terminal, 9 observer and 12 mock tests before and after each fix.
-Evidence: [checkpoint](llm-interactive-review/tui/start-stop-operations/checkpoint.json).
+Evidence: [checkpoint](../llm-interactive-review/tui/start-stop-operations/checkpoint.json).
 
 ## TUI operation wait — 2026-11-03
 
@@ -399,7 +399,7 @@ covers the repeated wait; `TestProgressPageFollowsTheInventory` covers the
 phase follow, the wait after an error and the re-read of an operation changed
 elsewhere. `just tui-tests` passed 8 terminal, 9 observer and 12 mock tests
 before and after the fix.
-Evidence: [checkpoint](llm-interactive-review/tui/operation-wait/checkpoint.json).
+Evidence: [checkpoint](../llm-interactive-review/tui/operation-wait/checkpoint.json).
 
 ## TUI image reasons — 2026-11-03
 
@@ -432,7 +432,7 @@ predates this change. The prototype's selected browser has no operations page.
 Component checks: `internal/errtext`, `internal/tui` and the mock's tests
 passed; `just tui-tests` passed 8 terminal, 9 observer and 12 mock tests with
 both wordings. Evidence:
-[checkpoint](llm-interactive-review/tui/image-reasons/checkpoint.json).
+[checkpoint](../llm-interactive-review/tui/image-reasons/checkpoint.json).
 
 ## TUI operation reasons — 2026-11-03
 
@@ -458,7 +458,7 @@ failed operation, so "It ended; start a new request." was not rendered.
 Component checks: `internal/errtext` and `internal/tui` test the sentence for
 each status and the separate diagnostic line; `just tui-tests` passed 8
 terminal, 9 observer and 12 mock tests. Evidence:
-[checkpoint](llm-interactive-review/tui/operation-reasons/checkpoint.json).
+[checkpoint](../llm-interactive-review/tui/operation-reasons/checkpoint.json).
 
 ## TUI error sentences — 2026-11-03
 
@@ -492,7 +492,7 @@ reason has a sentence and that an unknown reason falls back to its kind's;
 between words within the page at the three sizes. `just tui-tests` passed 8
 terminal, 9 observer and 12 mock tests. Frames, the action record and source
 hashes are in the
-[evidence](llm-interactive-review/tui/error-sentences/checkpoint.json).
+[evidence](../llm-interactive-review/tui/error-sentences/checkpoint.json).
 
 ## Session image facts in the TUI — 2026-11-02
 
@@ -521,7 +521,7 @@ noted: Details for a session with a report and three services now needs a
 scroll at 120×35 to reach the last three facts, and a session without an image
 view shows no environment lines and no reason. The `branch-assigned` note could
 not be reached in the mock and was reviewed by reading. Evidence:
-[commit-image checkpoint](llm-interactive-review/tui/commit-image/checkpoint.json).
+[commit-image checkpoint](../llm-interactive-review/tui/commit-image/checkpoint.json).
 
 **Component and integration checks.** `go test ./internal/tui/...
 ./tests/integration/cmd/tui-mock/...` passed; the new
@@ -573,7 +573,7 @@ Word wrap replaced hard wrap for review text, which affects the creation and
 confirmation reviews too. No findings remain. The review page is still unframed,
 unlike the prototype's panel probe; that page layout predates this change.
 Frames, the action record and source hashes are in the
-[evidence](llm-interactive-review/tui/removal-without-inspection/checkpoint.json).
+[evidence](../llm-interactive-review/tui/removal-without-inspection/checkpoint.json).
 
 Component and integration checks: new `internal/tui` tests failed before the
 change and passed after it: `d`/`X` request the preview for stopped, running and
@@ -633,7 +633,7 @@ filter includes only the required helper and parents for packaged unit checks.
 The observation helper no longer disables output processing at startup or
 during capture. Its former recurring correction had masked this production
 defect; historical evidence now states that limitation. The
-[interactive review](llm-interactive-review/tui/serial-console/README.md)
+[interactive review](../llm-interactive-review/tui/serial-console/README.md)
 archives native before/after frames, exact source/build provenance and adaptive
 actions separately from integration tests. The LLM reviewed the prototype and
 current production mock before the fix, then the actual corrected
@@ -729,7 +729,7 @@ and waits for HTTP/database health before recording completion. Later boots
 preserve edits/data and do not recreate an intentionally removed sample.
 
 Native verification used a fresh alternate disk: the
-[lab assertions](../tests/integration/lab-public-check.sh) passed both
+[lab assertions](../../tests/integration/lab-public-check.sh) passed both
 `prepare` through `just lab-public` and `check` after full shutdown/relaunch
 through `just lab-notes`. These checks established both project/session
 identities, three active services, HTTP note creation, PostgreSQL worker
@@ -751,7 +751,7 @@ request, source and policy information, repeat-submission guard and stale-reply
 protection. Stop/Rename and removal retain their existing explicit confirmations.
 This intentionally supersedes the old prototype's creation `[y/N]` control.
 
-The [interactive checkpoint](llm-interactive-review/tui/creation-enter/checkpoint.json)
+The [interactive checkpoint](../llm-interactive-review/tui/creation-enter/checkpoint.json)
 binds prototype/before/after builds, source hashes and adaptive actions. Review
 passed local project and retained/origin-source session entry, Back editing,
 120×35 / 80×24 / 48×16 scrolling, and unchanged default-No Stop. Focused Go tests
@@ -763,7 +763,7 @@ evidence without rerunning native VM workflows or widening earlier support claim
 A separate fresh-context reviewer accepted the same product build with zero
 findings after live new-branch Back/edit/Enter, local-project Enter and retained-
 branch Back/Enter entry, 80×24 / 48×16 review scrolling, and Stop Enter decline.
-The [independent checkpoint](llm-interactive-review/tui/creation-enter/reviewer/checkpoint.json)
+The [independent checkpoint](../llm-interactive-review/tui/creation-enter/reviewer/checkpoint.json)
 records its actions, rendered frames, exact creation requests, zero Stop requests,
 and clean shutdown of its owned fixture and observer.
 
@@ -774,7 +774,7 @@ separate application, native workflow and adaptive experience checks. The final
 `just test` checkpoint passed all 58 scenarios on 2026-10-01; the provisioned
 sample delivery is complete. The committed default-devShell extension retains
 its separately pending offline-input-resolution milestone. The
-[experience record](llm-interactive-review/tui/README.md) indexes exact
+[experience record](../llm-interactive-review/tui/README.md) indexes exact
 builds, test-owned lab state, chosen actions and original rendered frames.
 Earlier checkpoints below retain their scope and do not establish a full-suite
 pass for this checkout.
@@ -789,7 +789,7 @@ Back/cancel, default-No, entry/detach/re-entry and error pages received adaptive
 review. The reviewed handoff frames did not expose the earlier console; this
 is not a guarantee about every transient frame.
 
-The [notes example](../examples/notes/README.md) contains a Python HTTP app,
+The [notes example](../../examples/notes/README.md) contains a Python HTTP app,
 PostgreSQL and a queued word-count worker, each with its own session-user unit.
 The optional notes runtime provides PostgreSQL 18.6 and Python 3.14.7 with
 Psycopg 3.3.4, preserving the ordinary production image. Source is copied into
@@ -819,7 +819,7 @@ A separate dedicated persistent-lab CLI/API proof passed clean shutdown and
 relaunch on the same disk, with different boot IDs and retained source,
 local-only/dirty/private files, principals, units, SQL rows and a pending job.
 Explicit startup resumed the job. Both shutdowns exited 0; the
-[exact persistence record](llm-interactive-review/tui/README.md#persistent-notes-lab-cliapi-evidence--2026-09-30)
+[exact persistence record](../llm-interactive-review/tui/README.md#persistent-notes-lab-cliapi-evidence--2026-09-30)
 distinguishes this from daemon restart and TUI navigation.
 
 Adaptive sample review completed actual terminal edit/fail/fix and application
@@ -905,7 +905,7 @@ explicit source selection and session entry, the real eleven-test sample suite,
 three service Starts, private SQL and worker execution, P-only push, explicit
 owner publication, reviewed Delete and empty-project cleanup. P, native SSH
 and the remote agreed on the exact final published source. The
-[origin record](llm-interactive-review/tui/README.md#sample-ssh-origin-through-api-and-visible-import--2026-10-01-utc)
+[origin record](../llm-interactive-review/tui/README.md#sample-ssh-origin-through-api-and-visible-import--2026-10-01-utc)
 distinguishes terminal navigation from owner API publication and records clean
 removal of the generated SSH fixture and temporary service override.
 
@@ -1009,7 +1009,7 @@ native SQL, services/journals, branch isolation, attachment and reviewed cleanup
 | Public network, 1 step | `.cache/p-vm/integration-20261001T040510Z-2027733.log` | `926f89beb121f273cca3ab9249428da300f3689d35f4f07fc69a4cdbb0a09c3d` |
 | Restricted/sample, 20 steps | `.cache/p-vm/integration-20261001T040719Z-2029340.log` | `9feac2940ba1f220107d4782f13df4ddc85c6b514c158953b1c9914bcfd9c79d` |
 
-The [checkpoint audit](llm-interactive-review/tui/delivery-checkpoint.json)
+The [checkpoint audit](../llm-interactive-review/tui/delivery-checkpoint.json)
 records the exact command, counts, log and source hashes, binary and sample
 runtime identities. No scenario was missing, duplicated or unexpected. The
 integration lock was released and an actual host process check found no QEMU
@@ -1018,7 +1018,7 @@ the preserved seeded P session were retained.
 
 Fresh-context review accepted the final implementation and adaptive evidence
 after its schema, journal, driver synchronization and concurrent-removal findings
-were resolved. The [270-frame experience record](llm-interactive-review/tui/README.md)
+were resolved. The [270-frame experience record](../llm-interactive-review/tui/README.md)
 maps every required provisioned-sample journey to separate CLI/API and adaptive
 navigation evidence. Every product UI change received affected live review
 before driver acceptance. These results complete the initial provisioned-sample
@@ -1116,7 +1116,7 @@ it. Earlier VM evidence below is preserved as history and predates these fixes.
   `git diff --check` passed. The first test invocation exposed Nix's long
   temporary-directory path exceeding Linux's Unix socket path limit; the
   recipe now creates and cleans a short private temporary directory.
-- The default [interactive lab](../dev/vm/README.md) now builds this checkout
+- The default [interactive lab](../../dev/vm/README.md) now builds this checkout
   and opens a shell with a configured daemon, bundled plugins and
   production runtime image. The CLI/API is available directly; `p tui` opens
   the actual P TUI on request. `--public` selects the existing bounded public-egress
@@ -1135,7 +1135,7 @@ it. Earlier VM evidence below is preserved as history and predates these fixes.
   The full Go suite and 17 Python tests passed. A fresh native lab seeded the
   local-only repository, supported all three short commands, and retained a
   pushed commit and uncommitted VM file after reboot; see
-  [default-socket validation](../dev/vm/VALIDATION.md#default-host-socket-and-ordinary-lab-commands--2026-09-28).
+  [default-socket validation](../../dev/vm/VALIDATION.md#default-host-socket-and-ordinary-lab-commands--2026-09-28).
 - Lab exploration found and fixed missing `GIT_SSH` in the persistent host's
   closed environment. Native VM55+56 passed, including ordinary Git push from
   the attached TUI terminal; the rebuilt full Go suite and 17 Python tests passed.
@@ -1146,7 +1146,7 @@ it. Earlier VM evidence below is preserved as history and predates these fixes.
   disposable KVM disks. A retained workspace resumed after a changed build;
   a real public HTTPS request returned HTTP 200 and the public session returned ready
   after reboot. Native VM37 passed the shared public-egress provisioning and
-  its detailed network/denial probes. [Lab validation](../dev/vm/VALIDATION.md#interactive-p-lab--2026-09-28)
+  its detailed network/denial probes. [Lab validation](../../dev/vm/VALIDATION.md#interactive-p-lab--2026-09-28)
   records the passing evidence and initial failures that informed the fixes.
 - Branch: `feature/live-tui`. Production TUI implementation authorized, guided
   by `.prototype/tui-options/DECISIONS.md`; existing CLI evidence is preserved.
@@ -1239,7 +1239,7 @@ it. Earlier VM evidence below is preserved as history and predates these fixes.
 
 Execution record for the CLI-first implementation requested on 2026-09-23.
 This is a non-normative tracker. The [implementation plan](implementation-plan.md)
-and [project authority map](../PROJECT.md#authority-map) identify the governing
+and [project authority map](../../PROJECT.md#authority-map) identify the governing
 contracts. The production TUI was initially deferred for CLI-first delivery;
 the 2026-09-27 browser authorization and separate acceptance record below
 supersede that deferral. Existing CLI/RPC behavior remains supported.
@@ -1572,7 +1572,7 @@ cases. The test input is the fetched commit, not the uncommitted implementation.
 
 - Starting point: the infrastructure lab passes its existing confinement,
   private-root/Nix-store, Git/tmux and stop/start probes. See
-  [the lab validation](../dev/vm/VALIDATION.md). It does not yet execute P.
+  [the lab validation](../../dev/vm/VALIDATION.md). It does not yet execute P.
 - Step 1: fresh implementation and independent review agents agreed after
   fixes for digest/read consistency, invocation revalidation, bounded reads
   and directory scanning, log-path confinement, hard links, and typed event
@@ -6501,7 +6501,7 @@ at 80×24 confirmed entry, detach, and clean quit. Editing the launcher during
 an earlier review caused its running shell to return 2 on quit; after edits
 finished, the repeat and automated launcher test returned 0 and removed the
 owned server/directory. Representative frames, chosen actions, code hashes and
-scope are retained in the [mock checkpoint](llm-interactive-review/tui/mock/checkpoint.json).
+scope are retained in the [mock checkpoint](../llm-interactive-review/tui/mock/checkpoint.json).
 
 Validation: `just tui-tests` passed eight terminal parser tests, three observer
 PTY tests, and ten socket/PTY integration tests. The final integration slice
@@ -6551,7 +6551,7 @@ reviewer independently accepted the palette and light contrast with zero
 findings after reviewing those sizes, project selection/Back, reports and
 unavailable feedback, and an empty search. Representative frames, actions,
 source hashes, fixture scope and checks are retained in the
-[theme checkpoint](llm-interactive-review/tui/theme/checkpoint.json).
+[theme checkpoint](../llm-interactive-review/tui/theme/checkpoint.json).
 
 The light review uncovered an observer defect: numeric-only RGB hex `137333`
 was interpreted as an ANSI index and rendered white. The helper now distinguishes
@@ -6607,7 +6607,7 @@ shows unavailable service observations; a fresh inventory restarts observation. 
 parser now handles backward tabs and seeds default stops through its bounded
 resize domain, preserving custom stops and CSI 3g across resizing. Curated
 before/prototype/after PNGs, chosen actions and build/source hashes are in the
-[layout checkpoint](llm-interactive-review/tui/layout/checkpoint.json).
+[layout checkpoint](../llm-interactive-review/tui/layout/checkpoint.json).
 
 Validation: focused layout/information/page-capacity, theme fact rendering,
 disclosure/Back, selected-read coalescing/cancellation/generation and malformed

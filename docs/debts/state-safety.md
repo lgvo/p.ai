@@ -72,7 +72,7 @@
   finds no builder and the cycle ends `absent`; the next attempt uses a new build reference.
   Incus can still admit the lost request later and create the old builder, stopped. Nothing
   lists builders to find it: the driver's `Inventory`, through which core is meant to delete
-  such a late object exactly ([runtime-driver.md](../../rework/runtime-driver.md#settling-uncertain-effects)),
+  such a late object exactly ([runtime-driver.md](../archive/rework/runtime-driver.md#settling-uncertain-effects)),
   lands in step 8 (M3).
 - Evidence: `Delete` looks for the reference's builder by name and in the instance
   inventory once; the daemon records `absent` when that finds nothing. Before this step the
@@ -148,7 +148,7 @@
   package from running.
 - Fix: confine the handler before it runs: a separate account without P's state or the
   `incus` group, Landlock rules applied by a small launcher, or systemd sandboxing of the
-  process, which rework/plugins.md ("Later improvement") weighs. Confinement brings grants
+  process, which docs/archive/rework/plugins.md ("Later improvement") weighs. Confinement brings grants
   back in a new form: a plugin's config names what it may reach.
 - Fix when: an executable plugin other than the bundled file-log is to be selected, or the
   next change to how the daemon starts plugins.
@@ -163,7 +163,7 @@
 - Where: internal/driverwire/launch launch.go `startChecked`
 - Problem: launch gives every process it starts, the runtime driver, the source driver and
   the event handler, the daemon's own standard error as its standard output and error, with
-  no bound. rework/plugins.md ("Protocol") requires a plugin's output to be bounded.
+  no bound. docs/archive/rework/plugins.md ("Protocol") requires a plugin's output to be bounded.
 - Evidence: `startChecked` sets the child's descriptors 1 and 2 to `os.Stderr`; nothing
   reads, limits or rate-limits what the child writes there.
 - Risk: a driver or handler that loops on a message fills the daemon's log (the journal on

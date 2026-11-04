@@ -15,12 +15,12 @@ without changing its project model.
 > The design documents under [`docs/`](docs/) are authoritative for their
 > subjects. This README is the product summary.
 
-Start with the [user guide](docs/user-guide.md) for creating a project, working
+Start with the [user guide](docs/archive/user-guide.md) for creating a project, working
 in sessions, resuming work, publishing commits, and reviewing cleanup.
 Machine owners can follow [NixOS installation](#nixos-installation) to set up the CLI.
-The [host API reference](docs/control-api.md) documents creation, inspection,
-attachment and lifecycle commands. [Implementation progress](docs/implementation-progress.md)
-records automated checkpoints and live TUI review; [manual Codex acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
+The [host API reference](docs/archive/control-api.md) documents creation, inspection,
+attachment and lifecycle commands. [Implementation progress](docs/archive/implementation-progress.md)
+records automated checkpoints and live TUI review; [manual Codex acceptance](docs/archive/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
 remains pending. The production TUI below connects to that daemon; the original
 prototype remains a separate fixture-backed design reference.
 
@@ -50,8 +50,8 @@ invent active-agent inventories or conversation previews.
 Project services are user units named `p-project-*.service`; the browser can
 start, stop and restart them, with fixed commands under the session UID. It
 cannot control host/system or P infrastructure units. See the
-[user guide](docs/user-guide.md#use-the-terminal-browser) and
-[API reference](docs/control-api.md#project-services) for setup and boundaries.
+[user guide](docs/archive/user-guide.md#use-the-terminal-browser) and
+[API reference](docs/archive/control-api.md#project-services) for setup and boundaries.
 
 ## Develop P
 
@@ -103,7 +103,7 @@ inventories. Enter opens a real local tmux shell; Ctrl-B then lowercase d
 detaches. Every invocation starts fresh and removes its socket, tmux server,
 and temporary workspaces on exit. Services, Git, and lifecycle effects are
 simulated; the shell runs as your local user. See the
-[mock TUI workflow and coverage](docs/development-validations.md#mock-socket-tui-exploration-and-fast-integration).
+[mock TUI workflow and coverage](docs/archive/development-validations.md#mock-socket-tui-exploration-and-fast-integration).
 
 ## Start from the current prototype
 
@@ -121,7 +121,7 @@ go run .
 The browser has a project-filtered session list, fuzzy search, a simulated
 terminal with a Ctrl+B action popup, and dedicated Agents and Services pages.
 Everything runs on fixtures; production integration remains open. See
-[MVP status](docs/mvp-status.md) for the implementation boundary.
+[MVP status](docs/archive/mvp-status.md) for the implementation boundary.
 
 The [iteration history](.prototype/tui-options/ITERATIONS.md) preserves the
 earlier comparison gallery and explains how it led to this starting point.
@@ -144,7 +144,7 @@ console; no workstation checkout, credentials, or Nix store is shared.
 For repeatable validation, `just vm-tests` exercises the daemon, CLI, TUI, and
 real containers in fresh VMs. `just vm-incus-tests` checks the Incus backend;
 `nix run path:./dev/vm#incus-lab` retains the original infrastructure-only lab.
-See the [progress record](docs/implementation-progress.md) for validation evidence.
+See the [progress record](docs/archive/implementation-progress.md) for validation evidence.
 
 ## The idea
 
@@ -304,7 +304,7 @@ on it creates a new UUID and assigns that same retained branch. Creating a
 different branch from it is a separate choice that asks for a source.
 
 Creation, start, attachment, rename, stop, destructive preflight, and crash
-recovery are specified in [session lifecycle](docs/session-lifecycle.md).
+recovery are specified in [session lifecycle](docs/archive/session-lifecycle.md).
 
 A separate project-level operation, **Delete project and all P data**, first
 shows a plan of all sessions, retained branches, credentials, runtimes, and
@@ -315,7 +315,7 @@ need separate supported cleanup first. P records minimal durable confirmed
 intent and idempotently ensures each resource is absent; if some cleanup fails,
 the user retries and P reports the smaller remainder. Project creation, retained
 branches, origins, and whole-project deletion are specified in
-[project lifecycle](docs/project-lifecycle.md).
+[project lifecycle](docs/archive/project-lifecycle.md).
 
 ## Overview and status
 
@@ -352,7 +352,7 @@ Separately, P exposes typed, versioned reduced events to configured handlers.
 MVP provides a redacted local NDJSON log handler. Events are an extension seam,
 not another state authority or a built-in notification protocol.
 
-See [session observability](docs/session-observability.md) for the reducer and
+See [session observability](docs/archive/session-observability.md) for the reducer and
 adapter rules.
 
 ## Git and RPC
@@ -382,7 +382,7 @@ post-MVP; the daemon never initiates SSH or returns a shell string.
 
 Git carries commits, objects, and refs. RPC carries lifecycle, configuration,
 runtime state, attachment leases, status, and subscriptions. The complete
-division is in [communication boundaries](docs/communication-boundaries.md).
+division is in [communication boundaries](docs/archive/communication-boundaries.md).
 
 ## Environments and isolation
 
@@ -432,16 +432,16 @@ instances, or Incus administration. P Git and private session RPC use narrow
 session endpoints. P MVP does not declare, supervise, health-check, or restart
 project services.
 
-See [environment building](docs/environment-building.md) for commit-image
+See [environment building](docs/archive/environment-building.md) for commit-image
 building, activation, reuse and deletion, and
-[runtime and isolation](docs/runtime-isolation.md) for runtime assembly,
+[runtime and isolation](docs/archive/runtime-isolation.md) for runtime assembly,
 storage, mounts, network policy, labels, and cleanup.
 
 ## Model access
 
 Codex is the MVP's sole planned agent integration. The pinned adapter passes
 authentication-free event and private-storage fixtures; real authenticated
-execution remains [pending the user's manual acceptance](docs/implementation-progress.md#manual-codex-acceptance--pending-user-validation).
+execution remains [pending the user's manual acceptance](docs/archive/implementation-progress.md#manual-codex-acceptance--pending-user-validation).
 Codex runs inside
 the isolated session as an ordinary command, and the user authenticates it
 within that session's private home. P does not copy, inject, or manage the
@@ -454,7 +454,7 @@ Codex use that requires network access uses the project's explicitly selected,
 validated `public-egress` grant. P supplies no model endpoint in MVP.
 
 Managed, session-scoped model access through Bifrost is post-MVP. Its retained
-design is in [model gateway](docs/model-gateway.md).
+design is in [model gateway](docs/archive/model-gateway.md).
 
 ## Extensibility
 
@@ -483,7 +483,7 @@ mechanisms while P provides explicitly granted, session-scoped access.
 Host-side capabilities participate in lifecycle work without being exposed to
 the session.
 
-The [plugin contract](docs/plugin-contract.md) defines package manifests,
+The [plugin contract](docs/archive/plugin-contract.md) defines package manifests,
 selection by path and digest in trusted host configuration, the launch checks
 and the event-handler protocol. An event handler is a native executable the
 daemon starts and supervises, by default the bundled file-log; it is trusted
@@ -493,10 +493,10 @@ bundled selections and tries an event handler with `p plugins run-event`.
 Packaged bundled composition and managed install/update/removal are
 validated within the package contract's explicit boundaries. Track current
 changes and VM evidence in the
-[implementation progress record](docs/implementation-progress.md). See
+[implementation progress record](docs/archive/implementation-progress.md). See
 [product direction](docs/PRODUCT.md),
 [project guidance](PROJECT.md#make-extension-a-product-capability), and the
-[package management contract](docs/plugin-contract.md#managed-package-commands).
+[package management contract](docs/archive/plugin-contract.md#managed-package-commands).
 
 ## Configuration
 
@@ -556,8 +556,8 @@ The machine owner provisions local Incus, the service account's restricted
 `user-UID` project, profile, allowed endpoint/grant paths, storage pools and base
 image. Import the metadata tarball and squashfs through that account's confined
 user socket; use the fingerprint stored in `result-p-fingerprint` as the trusted base
-fingerprint. The [isolation contract](docs/runtime-isolation.md#incus-boundary)
-and [host API configuration](docs/control-api.md) own these restrictions and
+fingerprint. The [isolation contract](docs/archive/runtime-isolation.md#incus-boundary)
+and [host API configuration](docs/archive/control-api.md) own these restrictions and
 configuration fields.
 
 Add the flake's `nixosModules.default` to the host's imports and configure:
@@ -578,7 +578,7 @@ the confined socket/project and imported image fingerprint. Its
 driver gives no `path`, the module pins the package's `bin/p-runtime-incus` or
 `bin/p-source-git` and that file's SHA-256, computed when the configuration is
 built, and gives `p-source-git` the system's Git and OpenSSH unless its
-`config` names them ([host configuration](docs/control-api.md)).
+`config` names them ([host configuration](docs/archive/control-api.md)).
 `bundledActivation` selects the package's bundled file-log, writing
 `/var/lib/p/events.ndjson`, and Codex adapter in the generated host
 configuration, by path and digest, unless your settings select their own
@@ -604,7 +604,7 @@ through sudo's environment reset.
 
 Host configuration is privately generated from declarative settings at service
 start. State survives restarts. Installation
-acceptance is recorded in [implementation progress](docs/implementation-progress.md);
+acceptance is recorded in [implementation progress](docs/archive/implementation-progress.md);
 authenticated Codex execution remains your separate manual gate.
 
 ### macOS and Windows
@@ -652,17 +652,17 @@ MVP closes the loop for one user on Linux:
 - reconcile SQLite, Git, credentials, and runtime state after interruption.
 
 Implementation uncertainties that need real-machine evidence are tracked in
-[development validations](docs/development-validations.md). They gate only the
+[development validations](docs/archive/development-validations.md). They gate only the
 affected milestone or capability unless evidence disproves a core invariant.
 
 The current documentation/readiness snapshot is in
-[MVP status](docs/mvp-status.md), and current implementation findings, remaining
+[MVP status](docs/archive/mvp-status.md), and current implementation findings, remaining
 gates and validation evidence are in
-[implementation progress](docs/implementation-progress.md).
+[implementation progress](docs/archive/implementation-progress.md).
 
 The implementation choices and build-vs-buy decisions are in
-[technology stack](docs/technology-stack.md). The [FAQ](docs/FAQ.md) explains
-the main tradeoffs, and the [product landscape and design space](docs/design-space.md)
+[technology stack](docs/archive/technology-stack.md). The [FAQ](docs/archive/FAQ.md) explains
+the main tradeoffs, and the [product landscape and design space](docs/archive/design-space.md)
 maps neighboring projects, differentiation, and validation wedges without
 defining P's behavior.
 

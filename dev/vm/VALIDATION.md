@@ -1,7 +1,7 @@
 # VM infrastructure validation — 2026-09-23
 
 This records a narrow lab result. It does not close the full
-[P runtime/environment gates](../../docs/development-validations.md).
+[P runtime/environment gates](../../docs/archive/development-validations.md).
 
 ## Tested configuration
 
@@ -24,7 +24,7 @@ This records a narrow lab result. It does not close the full
 Exact provisioning and restriction values are in [machine.nix](machine.nix).
 The table records the original run. Current tests use an 8 GiB VM and disable
 Nix build sandboxing inside containers under the required Incus boundary;
-[implementation progress](../../docs/implementation-progress.md) records their
+[implementation progress](../../docs/archive/implementation-progress.md) records their
 separate validation results.
 The VM does not mount the workstation's Nix store, checkout, or home; its
 store is supplied through a generated disk image. Containers receive only
@@ -133,7 +133,7 @@ P_VM_SMOKE_PASS
 
 The VM shut down and its temporary disk was removed. Review findings and the
 corrected assertions from earlier runs are recorded in the
-[implementation progress log](../../docs/implementation-progress.md).
+[implementation progress log](../../docs/archive/implementation-progress.md).
 
 ## Git substrate — 2026-09-23
 

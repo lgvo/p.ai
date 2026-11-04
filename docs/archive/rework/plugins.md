@@ -21,7 +21,7 @@ the rest of the proposal below. The event handler is now the executable
 by path and SHA-256, and the activation file, plugin grants, WASI and
 wazero are gone. P ships two packages, file-log and codex-adapter. Each section below
 says where part 2 differs from the proposal; the
-[plugin contract](../docs/plugin-contract.md) describes the result.
+[plugin contract](../plugin-contract.md) describes the result.
 
 **Decided by the maintainer on 2026-11-02:**
 
@@ -56,7 +56,7 @@ says where part 2 differs from the proposal; the
 An executable plugin gains the authority of P's account. The maintainer
 accepted this on 2026-11-02 and keeps OS confinement as a later improvement
 ([Trust](#trust)); part 2 recorded it as debt
-([state-safety risks](../docs/debts/state-safety.md#executable-plugins-run-with-ps-authority)).
+([state-safety risks](../../debts/state-safety.md#executable-plugins-run-with-ps-authority)).
 
 ## Before and after
 
@@ -138,7 +138,7 @@ file-log declares a `declarative` entry, and core's `appendFile`
 handler (plugins/examples/filter-log) may only choose whether core appends;
 with no sockets it cannot notify anything, so the handlers the documents
 anticipate (notification, webhook, metrics, in
-[session observability](../docs/session-observability.md#typed-p-events))
+[session observability](../session-observability.md#typed-p-events))
 cannot be written in it.
 
 Here a native executable makes sense: P starts it, sends it reduced events
@@ -164,7 +164,7 @@ P never runs it: Codex's hooks run it inside the session, and it sends
 `status.report` to `/run/p/session.sock`. Its grant `agent.status.report` is
 checked only at selection, while the socket accepts reports from any process
 in the session
-([communication boundaries](../docs/communication-boundaries.md#session-rpc-audience)),
+([communication boundaries](../communication-boundaries.md#session-rpc-audience)),
 so the session container is what contains it. Only the delivery changes: core
 hands the verified file to the driver in `Session.Assets`, and the Incus
 driver installs it at today's `/usr/libexec/p/codex-adapter`. Part 1 found
@@ -237,7 +237,7 @@ Launch gives every process it starts, both drivers included, the daemon's own
 standard error as its standard output and error, with no limit, so the output
 reaches only the daemon's log, never API clients, but can flood it. This is
 recorded as debt
-([state-safety risks](../docs/debts/state-safety.md#a-drivers-or-plugins-output-is-not-bounded)).
+([state-safety risks](../../debts/state-safety.md#a-drivers-or-plugins-output-is-not-bounded)).
 
 ### Lifecycle
 
@@ -404,9 +404,9 @@ Part 2 (818c627) applied them.
 ## Later improvement: confining executable plugins
 
 Not designed, and not part of step 9. When native plugins land, step 9's
-commit records the gap as a debt entry in [docs/debts](../docs/debts/), listed
-in [DEBT.md](../DEBT.md); the gap exists only from then on. Part 2 recorded
-it: [Executable plugins run with P's authority](../docs/debts/state-safety.md#executable-plugins-run-with-ps-authority).
+commit records the gap as a debt entry in [docs/debts](../../debts/), listed
+in [DEBT.md](../../../DEBT.md); the gap exists only from then on. Part 2 recorded
+it: [Executable plugins run with P's authority](../../debts/state-safety.md#executable-plugins-run-with-ps-authority).
 
 **What it would protect.** P's state (SQLite, the Git repositories, the Git
 server and client keys, staged packages), the Incus user socket, and the
@@ -463,7 +463,7 @@ All of it is gone since part 2, except what earlier steps removed, as marked.
 
 Part 2 changed each of these documents with its code.
 
-- [Plugin contract](../docs/plugin-contract.md): "WASI is the selected
+- [Plugin contract](../plugin-contract.md): "WASI is the selected
   executable boundary … Merely running a native executable in a separate
   process does not meet this contract" is reversed, and "Packages never
   receive … unrestricted filesystem or network access" holds for executable
@@ -471,15 +471,15 @@ Part 2 changed each of these documents with its code.
   `event-handler` and `agent-adapter` with no grants; the declarative and WASI
   kinds, their ABI sections and trusted activation go; asset destinations
   become the driver's.
-- [PROJECT.md](../PROJECT.md) and [product direction](../docs/PRODUCT.md): the
+- [PROJECT.md](../../../PROJECT.md) and [product direction](../../PRODUCT.md): the
   lines replaced in [Proposed wording](#proposed-wording); the first-party
   composition becomes the Incus driver, the source driver, file-log and the
   Codex adapter.
-- [MVP status](../docs/mvp-status.md) and
-  [technology stack](../docs/technology-stack.md): the tmux host and Git
+- [MVP status](../mvp-status.md) and
+  [technology stack](../technology-stack.md): the tmux host and Git
   source as WASI or asset plugins ("Product direction requires tmux support to be a bundled
   internal-session-service plugin"), the event-handler seam, and wazero.
-- [Control API](../docs/control-api.md) and [glossary](../GLOSSARY.md): the
+- [Control API](../control-api.md) and [glossary](../../../GLOSSARY.md): the
   plugin selections in host configuration; "Plugin", "Grant" and "Host-side
   capability", as in [Proposed wording](#proposed-wording).
 

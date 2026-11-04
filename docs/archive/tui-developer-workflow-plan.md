@@ -4,7 +4,7 @@
 > completed 2026-10-01. The real devShell extension remains separately pending.
 > This document preserves the requested work sequence; passing results and
 > exact evidence are recorded in [implementation progress](implementation-progress.md#final-delivery-checkpoint--2026-10-01).
-> [Project guidance](../PROJECT.md), the subject contracts and the
+> [Project guidance](../../PROJECT.md), the subject contracts and the
 > [TUI change and validation workflow](development-validations.md#tui-change-and-validation-workflow)
 > remain authoritative.
 
@@ -33,7 +33,7 @@ contain older source and captured runtime images, so record those identities.
 
 Provide a persistent terminal observation helper with start, observe, send,
 resize and close operations. Reuse the query-response and scrolling handling
-in [the existing PTY driver](../tests/integration/tui-drive.py), while allowing
+in [the existing PTY driver](../../tests/integration/tui-drive.py), while allowing
 the LLM to choose the next action after reading each screen. Preserve terminal
 cell positions, colors, selection and cursor in rendered captures. Service
 terminal queries continuously while the LLM inspects captures or waits for

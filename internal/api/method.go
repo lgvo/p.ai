@@ -44,7 +44,7 @@ func info[Req Request, Res any](m Method[Req, Res], capability Capability) Metho
 }
 
 // The control protocol, p.control/v2. The attachment helper's three methods
-// are answered only for the helper (see docs/control-api.md).
+// are answered only for the helper (see docs/archive/control-api.md).
 var (
 	SystemHello   = Method[HelloRequest, HelloResult]{"system.hello"}
 	SystemHealth  = Method[HealthRequest, HealthResult]{"system.health"}

@@ -146,7 +146,7 @@ with an unknown outcome, which core settles through the restarted driver and
 never sends again. Terminals end unproven ([attachment](#attachment)); a Git
 service keeps its lease until the restarted source driver settles it ended.
 The daemon does not detect a driver that hangs with its connection open
-([debt](debts/state-safety.md#a-hung-driver-is-never-restarted)).
+([debt](../debts/state-safety.md#a-hung-driver-is-never-restarted)).
 
 ## Incus boundary
 

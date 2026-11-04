@@ -11,7 +11,7 @@ publication, project deletion, retained-branch deletion, origin changes and
 the repairs. The user picks idempotency keys, polls `operation.inspect`, and
 for a deletion runs a loss inspection, previews, copies a confirmation token
 into the confirm call and polls again
-([user guide](../docs/user-guide.md#discard-or-delete-safely)).
+([user guide](../user-guide.md#discard-or-delete-safely)).
 
 **Proposed:** one task command for each thing a user does, named by noun and
 verb: `p session delete`, `p project create`, `p origin publish`. Each
@@ -66,7 +66,7 @@ commit ID, as the source driver decides
 had only the daemon know Git's syntax, but step 9's S2 left the CLI parsing
 branch names and commit IDs by the bundled driver's rules (`api.ValidBranch`
 and `api.ValidOID`), recorded as
-[debt](../docs/debts/structure.md#the-cli-parses-branch-names-and-commit-ids-by-the-bundled-drivers-rules).
+[debt](../../debts/structure.md#the-cli-parses-branch-names-and-commit-ids-by-the-bundled-drivers-rules).
 
 ### Command set
 
@@ -459,7 +459,7 @@ Settled by step 5:
 
 - **Refusal codes:** every `conflict` reason a risky change meets while it
   plans, and the codes that only plans use
-  ([control-api.md](../docs/control-api.md#refusals)).
+  ([control-api.md](../control-api.md#refusals)).
 - **Publication's guards:** `origin.publish` still takes
   `expected_origin_url` and `source_oid` beside the tag. The CLI reads the
   URL with `origin.inspect` and the branch's tip with `project.branches`.
@@ -468,13 +468,13 @@ Settled by step 5:
 
 Steps 7a and 7b made these changes:
 
-- [User guide](../docs/user-guide.md): every walkthrough uses the task
+- [User guide](../user-guide.md): every walkthrough uses the task
   commands instead of `api` helpers and hand-written JSON, and the TUI
   section names the commands for the workflows the TUI lacks.
-- [Control API](../docs/control-api.md#host-framing-and-request-envelope):
+- [Control API](../control-api.md#host-framing-and-request-envelope):
   the paragraph on `p api` gains the task commands; `p api`'s two-minute
   deadline had already gone in step 0e.
-- [README](../README.md#nixos-installation): the first-run checks use
+- [README](../../../README.md#nixos-installation): the first-run checks use
   `p status` and `p project list`.
 - `p help` lists the commands (cmd/p/help.go).
 

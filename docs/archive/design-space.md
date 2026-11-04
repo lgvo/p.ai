@@ -2,7 +2,7 @@
 
 - Status: supporting product research, not an authoritative product decision
 - Research cutoff: 2026-09-02
-- Decision owner: the governing user through [`PRODUCT.md`](PRODUCT.md)
+- Decision owner: the governing user through [`PRODUCT.md`](../PRODUCT.md)
 - Coverage: product positions, prior-art inventory, differentiation, and validation wedges
 - Supersedes: the prior-art inventory dated 2026-08-20
 
@@ -21,7 +21,7 @@ of the landscape, but the governing user did not adopt “authority-centric
 control plane” as P's central product identity. Authority enforcement is an
 essential property that makes concurrency and adaptation trustworthy.
 
-The adopted product proposition in [`PRODUCT.md`](PRODUCT.md) is:
+The adopted product proposition in [`PRODUCT.md`](../PRODUCT.md) is:
 
 > P is an open-source, self-contained, extensible control plane for an
 > individual developer's concurrent agent-driven development. It makes those
@@ -30,7 +30,7 @@ The adopted product proposition in [`PRODUCT.md`](PRODUCT.md) is:
 > developer-controlled activation.
 
 This section records the governing user's decision after reviewing the
-research; [`PRODUCT.md`](PRODUCT.md) remains authoritative.
+research; [`PRODUCT.md`](../PRODUCT.md) remains authoritative.
 
 ### What P can provide that is different
 
@@ -892,7 +892,7 @@ It covered local, self-hosted, and managed products. Open source was an
 evaluation criterion and possible differential, not an inclusion filter or
 security guarantee.
 
-The binding product direction remained [`PRODUCT.md`](PRODUCT.md): P is for an
+The binding product direction remained [`PRODUCT.md`](../PRODUCT.md): P is for an
 individual developer; the developer remains the governor; streams have durable
 branch and session identity; authority is explicit and bounded; the complete
 core operates independently; and extensions cannot activate or expand their own

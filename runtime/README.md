@@ -35,11 +35,11 @@ optional Codex adapter appears at `/usr/libexec/p/codex-adapter` through
 session-user configuration without overwriting existing user state; it does
 not log in or trust hooks on the user's behalf. Authentication-free fixture
 evidence and the pending manual gate are recorded in
-[implementation progress](../docs/implementation-progress.md).
+[implementation progress](../docs/archive/implementation-progress.md).
 
 The image uses static local account lookup without nscd/nsncd. Hostnames use
 standard `files dns` lookup; additional NSS modules are excluded by the
-[runtime substrate contract](../docs/runtime-isolation.md#non-activating-workspace-access).
+[runtime substrate contract](../docs/archive/runtime-isolation.md#non-activating-workspace-access).
 
 NixOS links `/etc/systemd/system` to an immutable generated store tree, so the
 image provides fixed unit links from the units' visible destinations to
@@ -55,7 +55,7 @@ appears at `/usr/libexec/p/git-ssh` through `/etc/p/assets/p-git-ssh`.
 Assembly writes verified bytes to those mutable targets.
 
 Before `p-interactive.service` starts, trusted assembly must establish the
-paths specified by [runtime isolation](../docs/runtime-isolation.md#fixed-paths):
+paths specified by [runtime isolation](../docs/archive/runtime-isolation.md#fixed-paths):
 
 - Incus mounts the socket-only host directory read-only, private, and unshifted
   at `/opt/p/endpoints`. Its host owner is unmapped inside the container. A
@@ -85,7 +85,7 @@ assigned branch against the captured object ID, or establishes unborn `main`
 for an empty P Git repository. Retry reconstructs interrupted unpublished
 scratch; a completed retained workspace is left intact, and unexpected
 contents at `/workspace` are preserved and refused. The protected staging and
-publication rules are owned by [runtime isolation](../docs/runtime-isolation.md#fixed-paths).
+publication rules are owned by [runtime isolation](../docs/archive/runtime-isolation.md#fixed-paths).
 That clone is workspace v1, which refuses a captured root flake: it has no
 image to activate one. Workspace v2 is for a session created from a commit
 image, whose `/workspace` already holds a clone detached at the captured

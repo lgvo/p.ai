@@ -78,7 +78,7 @@ P pursues that value through an integrated set of choices:
   pretending every implementation has the same authority or behavior.
 - Make first-party functionality prove the same contracts available to other
   implementations. The current bundled composition and implementation scope
-  remain in the [MVP snapshot](mvp-status.md), not in product direction.
+  remain in the [MVP snapshot](archive/mvp-status.md), not in product direction.
 - Keep P core and the bundled first-party implementations required for a
   complete, independently operable installation open source. Optional
   proprietary capabilities remain integrations rather than prerequisites.
@@ -148,7 +148,7 @@ work. The personal MVP may be rough or specific to that workflow, but it must
 exercise the secure first-party composition and reveal whether concurrent
 sessions and the plugin contracts remain useful under ordinary use. Detailed
 MVP scope and implementation state remain in the
-[MVP snapshot](mvp-status.md).
+[MVP snapshot](archive/mvp-status.md).
 
 The first coherent version shared publicly centers on the concurrent-session
 experience and includes an end-to-end guide for changing a real P workflow

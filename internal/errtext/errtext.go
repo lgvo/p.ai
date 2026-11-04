@@ -1,6 +1,6 @@
 // Package errtext holds the sentences P's clients show for control-API
 // errors and plan refusals. The daemon answers with a kind and a reason code,
-// or a plan's refusal codes, and no text (docs/control-api.md#errors); the
+// or a plan's refusal codes, and no text (docs/archive/control-api.md#errors); the
 // TUI and the CLI write their sentence from those codes here, one per kind
 // and one per reason or refusal code.
 package errtext

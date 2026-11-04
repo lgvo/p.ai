@@ -275,7 +275,7 @@ connection per call; on a local socket the hello costs one more line.
 contract in step 9. Step 9 kept `v` and added no hello
 ([plugins.md](plugins.md#the-codex-adapter-stays-a-package-of-files)). It is
 the agent-facing socket of
-[communication boundaries](../docs/communication-boundaries.md#session-rpc-audience),
+[communication boundaries](../communication-boundaries.md#session-rpc-audience),
 part of the plugin contract, and its main message, `status.report`, is a
 notification that receives no reply and so cannot take part in a hello. Its
 clients are agent adapters (the bundled Codex adapter sends `status.report`).
@@ -325,12 +325,12 @@ and their outcome checks stay.
 
 ## Departures from current docs
 
-- [Control API](../docs/control-api.md#host-framing-and-request-envelope):
+- [Control API](../control-api.md#host-framing-and-request-envelope):
   "System methods take exactly `{"v":1}`", every params and result table, the
   `system.capabilities` row, and `p api`'s default params.
-- [User guide](../docs/user-guide.md): its `"v":1` examples and
+- [User guide](../user-guide.md): its `"v":1` examples and
   `api system.capabilities '{"v":1}'`.
-- [Session lifecycle](../docs/session-lifecycle.md): its `"v":1` examples.
+- [Session lifecycle](../session-lifecycle.md): its `"v":1` examples.
 - `p version` reports `control_api_version: 1`; it reports the protocol
   string instead.
 

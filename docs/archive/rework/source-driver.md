@@ -433,7 +433,7 @@ As landed, the request types check only these bounds (`BoundedName` and the
 names and commit IDs by the bundled driver's rules (`api.ValidBranch` and
 `api.ValidOID`, over gitnames), so with a driver of another backend it could
 refuse a name the driver accepts
-([debt](../docs/debts/structure.md#the-cli-parses-branch-names-and-commit-ids-by-the-bundled-drivers-rules)).
+([debt](../../debts/structure.md#the-cli-parses-branch-names-and-commit-ids-by-the-bundled-drivers-rules)).
 
 ### The Git service and ref guards
 
@@ -731,26 +731,26 @@ The steps changed these answers to clients:
 
 These documents changed with the steps, and say what landed:
 
-- [Plugin contract](../docs/plugin-contract.md): the `source-git` capability,
+- [Plugin contract](../plugin-contract.md): the `source-git` capability,
   the `git.project` grant, the WASI source-Git ABI and the `p-git-ssh` asset
   role go.
-- [Technology stack](../docs/technology-stack.md): "Git server" keeps Wish in
+- [Technology stack](../technology-stack.md): "Git server" keeps Wish in
   core as P's SSH server, with Git its one service; the source-git paragraph and "read-side
   queries shell out to Git" become the bundled driver's; "no generic VCS
   provider" stays, since this is a Git driver.
-- [Communication boundaries](../docs/communication-boundaries.md): the
+- [Communication boundaries](../communication-boundaries.md): the
   services run in the driver and the approval is `Approve`; core decides and
   guards, the driver performs; the origin runner is the driver's.
-- [Project lifecycle](../docs/project-lifecycle.md) and
-  [session lifecycle](../docs/session-lifecycle.md): repositories are created
+- [Project lifecycle](../project-lifecycle.md) and
+  [session lifecycle](../session-lifecycle.md): repositories are created
   and deleted through the driver, deletion by incarnation; the authorities
   table names the driver; creation pins no source package; rename's clone
   edits come from the driver; the driver checks branch names.
-- [Control API](../docs/control-api.md): the `git` block; `system.inspect`'s
+- [Control API](../control-api.md): the `git` block; `system.inspect`'s
   `source_plugin_id` and `source_sha256` give way to the driver's backend,
   version and digest.
-- [Glossary](../GLOSSARY.md): a "Source driver" entry.
-- [Product direction](../docs/PRODUCT.md): "first-party implementations can be
+- [Glossary](../../../GLOSSARY.md): a "Source driver" entry.
+- [Product direction](../../PRODUCT.md): "first-party implementations can be
   replaced" covers Git source again; no line there names the Git source, so
   the text did not change.
 

@@ -71,11 +71,11 @@ Groundwork step 0h removed, in 02612f6:
   keeps its missing-runtime discard and delete checks, as
   `34-missing-runtime-removal.sh`.
 
-These changed with it: [session lifecycle](../docs/session-lifecycle.md#inconsistent-sessions),
+These changed with it: [session lifecycle](../session-lifecycle.md#inconsistent-sessions),
 whose "Repair" section became "Inconsistent sessions", the repair sections of
-the [control API](../docs/control-api.md), the troubleshooting rows of the
-[user guide](../docs/user-guide.md), and the record-removal sentence in
-[session observability](../docs/session-observability.md).
+the [control API](../control-api.md), the troubleshooting rows of the
+[user guide](../user-guide.md), and the record-removal sentence in
+[session observability](../session-observability.md).
 
 ## How it will be checked
 

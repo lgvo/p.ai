@@ -195,7 +195,7 @@ that the exported bundle clones to exactly the commit; scenarios 21, 22 and 24
 cover the builder, its Nix steps and an image built end to end, and scenarios
 25 and 26 the daemon's commit images. These scenarios build offline fixtures.
 No committed check builds through a public builder; one exploratory VM run
-did, from a locked remote nixpkgs input ([checks debt](debts/checks.md)).
+did, from a locked remote nixpkgs input ([checks debt](../debts/checks.md)).
 
 ## P base image
 

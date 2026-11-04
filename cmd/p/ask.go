@@ -13,7 +13,7 @@ import (
 
 // riskyChange is a change that asks: one whose method is called twice, first
 // as a dry run that returns the change's plan and its change tag, then with
-// a key and the tag to run that plan (docs/control-api.md#risky-changes).
+// a key and the tag to run that plan (docs/archive/control-api.md#risky-changes).
 type riskyChange[Req api.Request, D any] struct {
 	method api.Method[Req, api.ChangeResult[D]]
 	// kind is the kind of operation a run records, and matches whether a

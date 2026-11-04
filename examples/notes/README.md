@@ -33,8 +33,8 @@ git commit -m 'Add notes application'
 git push origin HEAD:main
 ```
 
-For CLI/API navigation, follow the [project creation walkthrough](../../docs/user-guide.md#create-your-first-project-and-commit)
-and [new/retained stream examples](../../docs/user-guide.md#create-another-stream),
+For CLI/API navigation, follow the [project creation walkthrough](../../docs/archive/user-guide.md#create-your-first-project-and-commit)
+and [new/retained stream examples](../../docs/archive/user-guide.md#create-another-stream),
 using the sample commit above in place of the generic first file. The same
 owner API operations back the TUI controls.
 
@@ -55,7 +55,7 @@ origin containing this sample and prints its URL and exact main OID. Create
 an imported project using that URL, then explicitly assign `main` from the
 observed source. The fixture refuses an existing owner SSH configuration and
 uses its own temporary keys. Publication still requires the documented
-[owner API](../../docs/user-guide.md#publish-work-to-the-external-origin).
+[owner API](../../docs/archive/user-guide.md#publish-work-to-the-external-origin).
 After the exercise, `bash /etc/p-notes-origin-fixture.sh cleanup` removes only
 the unchanged fixture configuration, server and repository. It does not
 remove P's imported project or sessions; review those losses separately.
@@ -220,7 +220,7 @@ maps the native and adaptive TUI journeys separately, including the corrected
 13-test attached suite and all three service journals. A separate dedicated
 persistent lab passed clean shutdown/relaunch, retained source/private
 files/units/SQL data and resumed its pending job after explicit service startup.
-See the [validation workflow](../../docs/development-validations.md#three-service-developer-workflow)
+See the [validation workflow](../../docs/archive/development-validations.md#three-service-developer-workflow)
 for the separate evidence requirements. Existing origin/import/publication/retry
 gates (VM17, VM20 and creation recovery gates) test those contracts; they do not
 by themselves establish a sample-source origin journey; the evidence index
@@ -228,5 +228,5 @@ records the actual sample import and explicit publication instead. Major TUI
 selection `58-notes-tui.sh` checks reviewed integration effects after live
 navigation. Exact native results, failures, fresh review and the aggregate
 checkpoint are recorded in
-[implementation progress](../../docs/implementation-progress.md#tui-and-three-service-developer-workflows--2026-09-30).
+[implementation progress](../../docs/archive/implementation-progress.md#tui-and-three-service-developer-workflows--2026-09-30).
 The committed default-devShell extension remains a separate pending milestone.

@@ -206,7 +206,7 @@ runs; a function that reads the state and plans the change; how to find the
 operation a run's key recorded; and the operation it writes once confirmed.
 
 This removes the debt entry "Preview confirmation tokens are issued by copied
-code" in [docs/debts/structure.md](../docs/debts/structure.md).
+code" in [docs/debts/structure.md](../../debts/structure.md).
 
 ## How the change hash and tag are built
 

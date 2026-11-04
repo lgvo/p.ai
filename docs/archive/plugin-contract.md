@@ -4,7 +4,7 @@ This document owns plugin packaging, discovery, selection, the launch checks,
 the event-handler protocol, the agent adapter's files, and the minimum
 conformance workflow. [Technology stack](technology-stack.md) owns
 implementation dependencies and capability behavior. [Product
-direction](PRODUCT.md) owns the reason for the extension model. This contract
+direction](../PRODUCT.md) owns the reason for the extension model. This contract
 is **v2**: the `p.plugin/v2` package, selection by path and digest in trusted
 host configuration, the executable `event-handler` capability with its bundled
 file-log, and the `agent-adapter` package of files are implemented. P rejects
@@ -33,7 +33,7 @@ checks make sure only root or P's account can change the files it runs
 from. Running a plugin in a separate process does not by itself limit what it
 can do. Confining executable plugins at the operating-system level is a later
 improvement, recorded as debt
-([state-safety risks](debts/state-safety.md#executable-plugins-run-with-ps-authority)).
+([state-safety risks](../debts/state-safety.md#executable-plugins-run-with-ps-authority)).
 
 Registration and discovery are read-only. Agents and developers can create and
 test packages, including outside this repository, without rebuilding P. Only

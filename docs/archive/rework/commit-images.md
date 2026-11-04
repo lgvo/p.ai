@@ -118,7 +118,7 @@ that HEAD is the commit with no branch, ref or remote and a clean tree
 (`CloneBuilderSource` in internal/runtimedriver/incus/builder.go). An image
 only has to work with the runtime that built it. The builder gets
 public internet access only, with no host or local-network route, as
-[environment building](../docs/environment-building.md) already designs
+[environment building](../environment-building.md) already designs
 ("Realize" and "Security boundary"); step 0g implemented that access. A host
 without the public-egress substrate keeps its builders offline: no network and
 no substituters, so only a devShell that needs nothing from the network
@@ -171,7 +171,7 @@ The mechanics:
   24 KiB; with four sessions and the longest names P accepts, eight images
   fit. A project over either bound cannot be deleted through P until release
   deletes the unused images
-  ([state-safety debt](../docs/debts/state-safety.md#project-deletion-evidence-admits-fewer-images-than-the-reviews-cap)).
+  ([state-safety debt](../../debts/state-safety.md#project-deletion-evidence-admits-fewer-images-than-the-reviews-cap)).
 
 ## What users notice
 
@@ -208,14 +208,14 @@ unfinished collections.
 
 These documents describe today's model and change with this step:
 
-- [environment building](../docs/environment-building.md): the image holds
+- [environment building](../environment-building.md): the image holds
   the environment only, is named by the environment key, and "the workspace
   … [is] never part of the cached image"; MVP has no automatic collection;
   resolution receives a tree checked on the host, not a bundle.
-- [session lifecycle](../docs/session-lifecycle.md): the `environment-ready`
+- [session lifecycle](../session-lifecycle.md): the `environment-ready`
   and `workspace-ready` phases, and "Session lifecycle never leases or deletes"
   images.
-- [control API](../docs/control-api.md): the cache collection section.
+- [control API](../control-api.md): the cache collection section.
 
 ## Options set aside
 

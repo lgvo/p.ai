@@ -1,6 +1,6 @@
 # P — technology stack
 
-The implementation-facing companion to [README.md](../README.md). This
+The implementation-facing companion to [README.md](../../README.md). This
 document is authoritative for implementation choices, extension seams, and
 dependency policy. Subject documents remain authoritative for protocol,
 environment, runtime, lifecycle, observability, and gateway behavior.
@@ -77,7 +77,7 @@ The runtime driver, `internal/runtimedriver`, is the seam that owns runtime
 machinery: images and their builds, session runtimes, the session host,
 project services, terminals, devices, network, and the proofs of its own
 boundary. Core addresses it in P's terms, through the operations in
-[`internal/runtimedriver/driver.go`](../internal/runtimedriver/driver.go): the
+[`internal/runtimedriver/driver.go`](../../internal/runtimedriver/driver.go): the
 host (`Describe`, `Check`, `Inventory`), sessions (`Inspect`, `Create`,
 `Start`, `Stop`, `Delete`, `HostLog`, `OpenTerminal`), the workspace of a stopped session
 (`ReadWorkspace`, `WriteWorkspace`, `RemoveWorkspace`), images (`BuildImage`,
@@ -371,7 +371,7 @@ profiling justifies it.
 The source driver, `internal/sourcedriver`, is the seam that owns P's
 repositories and every Git effect, as the runtime driver owns runtime
 machinery. Core addresses it in P's terms through the operations in
-[`internal/sourcedriver/driver.go`](../internal/sourcedriver/driver.go): the
+[`internal/sourcedriver/driver.go`](../../internal/sourcedriver/driver.go): the
 host (`Describe`, `Check`), Git's syntax for the names P stores
 (`CheckNames`), repositories, heads with compare-and-swap, commits (including
 the commit `Export` for image builds), the Git edits that rename a session's

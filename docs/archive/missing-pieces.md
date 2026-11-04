@@ -46,7 +46,7 @@ owned by the design set:
 - [technology stack](technology-stack.md) owns implementation interfaces and
   library/tool choices.
 
-The [current prototype decisions](../.prototype/tui-options/DECISIONS.md)
+The [current prototype decisions](../../.prototype/tui-options/DECISIONS.md)
 record the reviewed session-browser layout and controls. Production integration
 and the agent/service extensions remain unresolved; prototype presentation
 does not change owner-document lifecycle semantics.
@@ -88,7 +88,7 @@ does not change owner-document lifecycle semantics.
 ## Plugin contract
 
 - [x] Reconcile the package/activation foundation with the confirmed
-  [product direction](PRODUCT.md): define the trusted P-core boundary and how
+  [product direction](../PRODUCT.md): define the trusted P-core boundary and how
   authoritative lifecycle operations invoke plugins without delegating policy,
   grants, recovery, or user confirmation.
 - [x] Assign [the plugin contract](plugin-contract.md) as the detailed owner
@@ -174,7 +174,7 @@ does not change owner-document lifecycle semantics.
   changes**, policy warnings/diffs, retained branches, destructive previews,
   bulk project deletion progress/retry, and attach/switch/detach behavior.
 - [x] Record the reviewed prototype layout/navigation/key map in the
-  [current decision record](../.prototype/tui-options/DECISIONS.md).
+  [current decision record](../../.prototype/tui-options/DECISIONS.md).
 - [ ] Resolve real attachment, agent inventory/preview, and project-service
   integration boundaries before implementing the thin production TUI.
 - [ ] Implement the local Unix RPC transport and trusted attachment helper.

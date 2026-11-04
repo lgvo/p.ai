@@ -173,7 +173,7 @@ outside Git, commits only in the runtime) are lost before any change runs. P
 counts a runtime as missing only after Incus reports it absent and a full
 inventory of P's Incus project finds no instance with that session's UUID; an
 unreachable Incus refuses the change instead
-([control-api.md](../docs/control-api.md#session-removal-and-rename)).
+([control-api.md](../control-api.md#session-removal-and-rename)).
 
 The maintainer decided on 2026-11-02 that this is not loss: nothing is left
 to save, so the `--force` countdown would protect nothing. The plan lists it
@@ -223,7 +223,7 @@ it. An attached terminal still refuses them, with `attachment_active`.
 By the same decision, the plan meets PROJECT.md's success signal,
 "destructive actions explain what will be lost before proceeding", by
 category rather than by file list. The loss-analysis section of
-[session lifecycle](../docs/session-lifecycle.md#runtime-local-loss), which
+[session lifecycle](../session-lifecycle.md#runtime-local-loss), which
 lists changed files, ignored-file summaries and local-only commits, changes
 when step 5 lands.
 
@@ -271,7 +271,7 @@ leave P's repository, always as certain loss, and no longer contact the origin
 during the dry run. Today's `branch_loss.origin` (status, containing branches,
 unresolved refs) is removed from their details, and `CompareOriginRemoval`
 (`internal/gitservice/removal_preview.go`) is no longer called for them. This
-departs from [project lifecycle](../docs/project-lifecycle.md), which asks the
+departs from [project lifecycle](../project-lifecycle.md), which asks the
 deletion report for "fresh origin-preservation evidence"; that document
 changes when the deletion step lands.
 
@@ -387,7 +387,7 @@ preview.
    images, unrelated projects, delivered handler logs) is the same on every
    call, so it carries no information the plan needs: the CLI and TUI state
    it in their own words. This changes one sentence in
-   [project lifecycle](../docs/project-lifecycle.md#project-deletion), which
+   [project lifecycle](../project-lifecycle.md#project-deletion), which
    has the preview point to the handler's own log-retention policy; the CLI
    and TUI do that instead.
 2. **Refusals raised as errors.** Removal, project deletion and
@@ -402,7 +402,7 @@ preview.
    and becomes the plan's refusal (`Change.plan` in
    internal/control/change.go). So a plan's refusal codes are the conflict
    reasons it meets, plus the codes that only plans use, which the
-   [refusals table](../docs/control-api.md#refusals) lists.
+   [refusals table](../control-api.md#refusals) lists.
    Errors stay for invalid
    input, unknown records, unreachable authorities, and a session held for
    the moment by another request or a running operation (`retry`); methods

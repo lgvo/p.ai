@@ -3,7 +3,7 @@
 Current snapshot of P's design and implementation readiness.
 
 > **Status: non-normative snapshot, updated 2026-10-01.**
-> [Project guidance](../PROJECT.md) owns enduring direction; subject design
+> [Project guidance](../../PROJECT.md) owns enduring direction; subject design
 > documents remain authoritative for detailed behavior.
 > [Missing pieces](missing-pieces.md) tracks implementation work.
 > [Implementation plan](implementation-plan.md) proposes testable delivery
@@ -51,7 +51,7 @@ assigned to their owner documents; the gateway retains a post-MVP design.
 
 The fixture-backed TUI prototype now has a reviewed session-browser direction:
 Resource topology, a session picker, prefix-driven terminal navigation, and
-agent/service inspection pages. [Current interaction decisions](../.prototype/tui-options/DECISIONS.md)
+agent/service inspection pages. [Current interaction decisions](../../.prototype/tui-options/DECISIONS.md)
 record that direction and its integration limits. The authorized production
 browser implements live sessions, terminal attachment, reports, policy inspection,
 and bounded session-user service control. The user guide records its supported
@@ -66,14 +66,14 @@ paths. Arbitrary-failure recovery remains outside this delivery; the subject
 contracts define safe refusals and supported cleanup. Browser validation evidence
 is recorded separately from the preserved CLI checkpoint in the progress record.
 
-A [disposable NixOS/Incus lab](../dev/vm/README.md) now provides a pinned
+A [disposable NixOS/Incus lab](../../dev/vm/README.md) now provides a pinned
 container fixture and an automated VM smoke test for runtime infrastructure.
 The separate product suite runs P's daemon and CLI against real Incus
 containers. Its latest checkpoint covers all 58 repository scenarios; see the
 [final delivery record](implementation-progress.md#final-delivery-checkpoint--2026-10-01).
 Authenticated Codex acceptance remains the user-run delivery gate.
 
-[Product direction](PRODUCT.md) requires MVP to prove P's composable plugin
+[Product direction](../PRODUCT.md) requires MVP to prove P's composable plugin
 model through secure first-party defaults for Incus runtime support, the tmux
 persistent host, Git source and session access, the structured file-log
 handler, and the Codex adapter. Nix environment preparation is part of the
@@ -235,8 +235,8 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
 
 ## Current prototype interaction direction
 
-The [runnable prototype](../.prototype/tui-options/README.md) and
-[decision record](../.prototype/tui-options/DECISIONS.md) capture the reviewed
+The [runnable prototype](../../.prototype/tui-options/README.md) and
+[decision record](../../.prototype/tui-options/DECISIONS.md) capture the reviewed
 layout and controls as of 2026-09-09. The browser uses branch labels, a roughly
 65% session-list split, exact project selection, fuzzy search, a prefix popup
 inside fake terminals, and dedicated Agents/Services/journal pages.

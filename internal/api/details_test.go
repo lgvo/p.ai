@@ -11,7 +11,7 @@ import (
 // preview, field by field as the preview methods returned it before plans,
 // with its plan: every field is in the details, or moved to the envelope (the
 // action, the target, allowed and refusals, a loss item), or is one the plan
-// removes by design (docs/control-api.md#risky-changes), or one a later
+// removes by design (docs/archive/control-api.md#risky-changes), or one a later
 // change added by design.
 func TestPlanDetailsKeepEveryPreviewField(t *testing.T) {
 	for _, change := range []struct {

@@ -60,7 +60,7 @@ externally granted directories.
 With a configured instance, run `sudo --preserve-env=P_SOCKET -u p p tui` for the standard service,
 or `p tui` as the owner of your separately run daemon with `P_SOCKET` configured.
 The layout and navigation follow the
-[reviewed prototype decisions](../.prototype/tui-options/DECISIONS.md).
+[reviewed prototype decisions](../../.prototype/tui-options/DECISIONS.md).
 
 | Key | Action |
 |---|---|
@@ -140,7 +140,7 @@ still below says so.
 
 For a complete application with a database, HTTP server and background worker,
 use the seeded `notes/main` project in `just lab-public`
-([notes walkthrough](../examples/notes/README.md)).
+([notes walkthrough](../../examples/notes/README.md)).
 Its walkthrough includes installation, edit/test/run, service failure and
 recovery, new branch sessions and private database state.
 
@@ -191,7 +191,7 @@ page then shows the unit `starting` or `stopping` and later its result.
 The supported MVP installation is **NixOS with local Incus on x86_64-linux**.
 The machine owner first installs P, provisions the confined Incus account and
 base image, and configures trusted project policies. Follow the
-[NixOS installation instructions](../README.md#nixos-installation) for that
+[NixOS installation instructions](../../README.md#nixos-installation) for that
 operator work. Having the CLI binary alone is not a configured instance.
 
 The hardened NixOS service currently supports `network: none`. Sessions that
@@ -724,10 +724,10 @@ you have run it; successful automated fixtures do not close it.
 - [Project lifecycle](project-lifecycle.md): origin association, retained branches,
   and whole-project deletion.
 - [Session lifecycle](session-lifecycle.md): detailed lifecycle and recovery rules.
-- [NixOS installation](../README.md#nixos-installation): machine-owner setup.
+- [NixOS installation](../../README.md#nixos-installation): machine-owner setup.
 - [Plugin contract](plugin-contract.md): optional extension and managed package
   installation. Package changes require trusted review and explicit selection;
   installing a package alone does not activate it.
-- [VM lab and tests](../dev/vm/README.md): repository development and validation.
+- [VM lab and tests](../../dev/vm/README.md): repository development and validation.
 - [Current MVP scope](mvp-status.md) and [evidence record](implementation-progress.md):
   implemented support and remaining manual acceptance.

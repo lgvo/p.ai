@@ -216,7 +216,7 @@ since a repeat records nothing. The session view takes a failed start's
 diagnostic from that newest operation, replacing the
 `session.start.diag:<uuid>` metadata rows, which are never deleted today.
 That settles half of the
-[state-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session)
+[state-safety debt](../../debts/state-safety.md#per-session-state-outlives-its-session)
 "Per-session state outlives its session"; the in-memory status rate maps,
 which only project deletion clears, remain, and the entry stays for them.
 
@@ -263,7 +263,7 @@ Today `operation.progress` comes from 8 of 17 kinds, each emitting its own
 subset. After, every kind emits one event per status change, with the
 `phase` values the file-log handler already accepts. Phase changes inside a
 kind emit nothing: as
-[session observability](../docs/session-observability.md#typed-p-events)
+[session observability](../session-observability.md#typed-p-events)
 says, these are "not the journal's internal workflow phase names".
 
 | Journal change | `phase` |
@@ -343,21 +343,21 @@ newest finished start or stop per session bounds the rows they add.
 
 ## Departures from current docs
 
-- [Control API](../docs/control-api.md#implemented-methods): `session.start`
+- [Control API](../control-api.md#implemented-methods): `session.start`
   ("poll `session.inspect`"), `session.stop`, `session.attach` ("Starts a
   stopped runtime and waits for readiness"), `operation.list`'s cursor, and
   the new `operation.wait`.
-- [Session lifecycle](../docs/session-lifecycle.md): "A blocked early local
+- [Session lifecycle](../session-lifecycle.md): "A blocked early local
   request … stays blocked across restart" becomes the rule for every kind;
   "Attach and detach are the live exception … Any start required by attach"
   loses its last sentence, since attach no longer starts.
-- [Session observability](../docs/session-observability.md#typed-p-events):
+- [Session observability](../session-observability.md#typed-p-events):
   the `stopping` condition, and which journal changes emit
   `operation.progress`.
-- [Control API](../docs/control-api.md): `origin.change` and `origin.publish`
+- [Control API](../control-api.md): `origin.change` and `origin.publish`
   return operations, and a publication's `outcome_unknown` is a failed
   operation's reason.
-- [State-safety debt](../docs/debts/state-safety.md#per-session-state-outlives-its-session):
+- [State-safety debt](../../debts/state-safety.md#per-session-state-outlives-its-session):
   the start diagnostic rows go; the entry narrows to the status rate maps.
 
 ## Options set aside

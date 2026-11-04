@@ -19,7 +19,7 @@ var (
 )
 
 // Refusal is an error that answers its request with its own kind and reason
-// (docs/control-api.md#errors). Its cause classifies it inside the daemon
+// (docs/archive/control-api.md#errors). Its cause classifies it inside the daemon
 // and goes to the daemon's log, never into the answer.
 type Refusal struct {
 	Kind   api.ErrorKind

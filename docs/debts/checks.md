@@ -63,7 +63,7 @@
 
 - Where: internal/runtimedriver/conformance (its `Fixture` controls);
   tests/integration/steps/06-runtime-incus.sh; internal/runtimedriver/incus conformance_test.go
-- Problem: rework/runtime-driver.md ("How it will be checked") expects scenario 06 to run
+- Problem: docs/archive/rework/runtime-driver.md ("How it will be checked") expects scenario 06 to run
   the runtime driver conformance suite against real Incus. The suite runs only against the
   in-memory driver, the Incus driver over a stubbed Incus, and the in-memory driver over
   the driver protocol. Scenario 06 still drives the Incus driver through its own fixture
@@ -102,3 +102,26 @@
 - Added 2026-11-03, 1 case:
   - 2026-11-03: "wait for the sessions to load before the TUI mock tests act" found it while
     proving that fix under load.
+
+## The error-kind documentation test reads an archived document
+
+- Where: internal/api/errors_test.go, `TestEveryKindAndReasonIsDocumented` (reads
+  docs/archive/control-api.md); internal/api/methods_test.go (its comment and failure message
+  say to update docs/archive/control-api.md with the method shapes)
+- Problem: The test checks that every error kind and refusal reason appears in
+  docs/archive/control-api.md, which is no longer maintained: the documentation rules allow
+  edits under docs/archive/ only to fix links. A new error kind or reason fails the test
+  unless someone edits the archived document, and the methods test tells them to edit it for
+  a method change.
+- Evidence: 2026-11-04, the maintainer's decision "Define current docs as archive" moved
+  docs/control-api.md to docs/archive/; the test was repointed so it keeps passing.
+- Risk: a contributor either edits the archive, which then reads as maintained, or weakens
+  the test; and the error kinds have no maintained reference.
+- Fix: point both tests at a live API reference once one exists, or drop the documentation
+  check.
+- Fix when: a live API reference exists, or the next change that adds an error kind, a
+  refusal reason or a method.
+- Left by: the agent, by rule (a check that now reads a document outside the maintained set).
+- Added 2026-11-04, 1 case:
+  - 2026-11-04: "archive the design, status and plan documents" repointed the test to the
+    archived copy.

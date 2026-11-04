@@ -6,7 +6,7 @@ import (
 )
 
 // A risky change, one that can lose work or replace something, has one
-// method that is called twice (docs/control-api.md#risky-changes). The first
+// method that is called twice (docs/archive/control-api.md#risky-changes). The first
 // call, a dry run, sends neither Key nor IfMatch and returns the change's plan
 // and, when the change is allowed, its change tag. The second call sends the
 // tag back in IfMatch with an idempotency Key; the daemon plans the change

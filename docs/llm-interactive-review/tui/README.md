@@ -20,7 +20,7 @@ The initial provisioned-sample delivery passed its final `just test` checkpoint
 on 2026-10-01: all 58 scenarios ran exactly once across three serial VMs, which
 powered off and removed their disposable disks. The
 [checkpoint audit](delivery-checkpoint.json) records exact counts and hashes;
-[implementation progress](../../implementation-progress.md#final-delivery-checkpoint--2026-10-01)
+[implementation progress](../../archive/implementation-progress.md#final-delivery-checkpoint--2026-10-01)
 records acceptance and retained limitations. The real devShell extension and
 authenticated Codex acceptance remain separate pending milestones.
 
@@ -663,7 +663,7 @@ remain in ignored cache; these representative PNGs preserve presentation.
 
 The supported live walkthrough passed before its remaining steps were encoded
 in VM58. This section records LLM navigation and native effects; the separately
-run VM gates are recorded in [implementation progress](../../implementation-progress.md).
+run VM gates are recorded in [implementation progress](../../archive/implementation-progress.md).
 The real devShell extension remains separately gated. The lab used the same
 task-owned notes-workflow-review disk and preserved developer demo/demo-public
 disks throughout.
@@ -1322,7 +1322,7 @@ gates in the checkpoint above.
 ## Authorized journey matrix
 
 This maps every provisioned-sample row of the
-[delivery plan](../../tui-developer-workflow-plan.md#4-establish-cliapi-journeys-first)
+[delivery plan](../../archive/tui-developer-workflow-plan.md#4-establish-cliapi-journeys-first)
 to its CLI/API gate and completed live scope. The primary agent records native
 selection results and aggregate acceptance in implementation progress;
 references to a step identify its scenario rather than claiming that reading

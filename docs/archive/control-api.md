@@ -53,7 +53,7 @@ carries that driver's own settings in `config`, which only the driver reads.
 `path` and `sha256` pin it as they pin `runtime.driver` below: the
 absolute, clean path of the executable and its SHA-256. P ships one
 source driver, the Git driver, as `bin/p-source-git` in its package; the
-[NixOS module](../README.md#nixos-installation) fills in that path and digest
+[NixOS module](../../README.md#nixos-installation) fills in that path and digest
 when `git.driver` gives no `path`. Loading the host configuration checks only
 the shape: `path` absolute and clean, `sha256` 64 lowercase hex digits, and
 `config` an object. The daemon starts the driver as it starts, with the same
@@ -133,7 +133,7 @@ cannot add networking, mounts, commands, or other grants.
 carries that driver's own settings in `config`, which only the driver reads.
 `path` is the absolute, clean path of the executable and `sha256` its SHA-256
 in 64 lowercase hex digits. P ships one driver, the Incus driver, as
-`bin/p-runtime-incus` in its package; the [NixOS module](../README.md#nixos-installation)
+`bin/p-runtime-incus` in its package; the [NixOS module](../../README.md#nixos-installation)
 fills in that path and digest when `runtime.driver` gives no `path`. Loading
 the host configuration checks only the shape: `path` absolute and clean,
 `sha256` 64 lowercase hex digits, and `config` an object. The daemon starts

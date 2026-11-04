@@ -67,7 +67,7 @@ empty, and accept the configured policy. Enter attaches to the resulting session
 Inside the session, make a Git commit and push it to P; use **Ctrl+B, then d**
 to detach and return to the browser. Stop/Start, services, branch creation,
 rename, and reviewed removal operate on real Incus instances and P state.
-See [Using P](../../docs/user-guide.md) for the complete workflows.
+See [Using P](../../docs/archive/user-guide.md) for the complete workflows.
 
 A clean lab reset uses the disk-reset procedure below.
 
@@ -152,7 +152,7 @@ with a different runtime image before creation finishes, its operation can
 remain blocked by the base-image mismatch. Retry requires a matching
 configuration; ordinary Delete/Discard can remain unavailable while creation
 is unsettled and its builder is present. See the
-[recorded lab diagnosis](../../docs/implementation-progress.md) for the observed
+[recorded lab diagnosis](../../docs/archive/implementation-progress.md) for the observed
 case. Resetting the disk removes the entire selected lab, including unrelated
 sessions and private work; it does not recover that individual operation.
 
@@ -212,7 +212,7 @@ The test checks:
 This does not prove project Nix builds/devShell activation, public egress,
 the complete endpoint/mount policy, P attachment leases, Git branch authority,
 or P lifecycle recovery. Those remain in the
-[development validation gates](../../docs/development-validations.md).
+[development validation gates](../../docs/archive/development-validations.md).
 
 ## Automated P validation
 
@@ -279,7 +279,7 @@ For the automated relaunch check in a dedicated test-owned notes lab, run
 ### Browser and integration checks
 
 For TUI changes, follow the
-[TUI change and validation workflow](../../docs/development-validations.md#tui-change-and-validation-workflow).
+[TUI change and validation workflow](../../docs/tui-validation-workflow.md).
 Review actual navigation and rendered screens against the prototype with an
 LLM before using the driver to validate major integration effects. `just test`
 runs automated checks; it does not perform that experience review.
@@ -315,7 +315,7 @@ that VM suite.
 `tests/integration/test-vm-selection.sh` checks selection and markers with mock
 commands in an isolated fixture checkout without starting a VM or sharing a
 running lab's lock. It runs as part of `just unit-tests`.
-See [implementation progress](../../docs/implementation-progress.md) for
+See [implementation progress](../../docs/archive/implementation-progress.md) for
 the exact supported CLI scope and acceptance evidence. The suite exercises
 plugin management, durable lifecycle/RPC, Git/SSH, isolated environments,
 networking and reviewed cleanup. Authenticated Codex execution remains the

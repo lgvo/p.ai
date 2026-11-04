@@ -5,7 +5,7 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 ## Summary
 
 **Today** the control API answers with nine error kinds
-([control API](../docs/control-api.md#errors-and-current-capability-boundary)).
+([control API](../control-api.md#errors-and-current-capability-boundary)).
 Two of them cover situations that need different next steps:
 
 - `busy` (-32003) means a held session lock, a key reused for another
@@ -159,7 +159,7 @@ mapped, with the method and request ID, so the daemon's log shows what the
 reply leaves out.
 
 `internal/api` declares every reason as a constant, and the
-[control API](../docs/control-api.md) lists them. A client that meets a
+[control API](../control-api.md) lists them. A client that meets a
 reason it does not know falls back to its sentence for the kind.
 
 ## Mapping today's errors
@@ -317,7 +317,7 @@ and the store already refuses anything longer. Three cases constrain it:
   still fits the 64 KiB frame. Step 1 found that four sessions and eight
   images at the longest names fill the 24 KiB, so the review refuses a
   larger project with `conflict`, reason `bound_exceeded`
-  ([state-safety debt](../docs/debts/state-safety.md#project-deletion-evidence-admits-fewer-images-than-the-reviews-cap)).
+  ([state-safety debt](../../debts/state-safety.md#project-deletion-evidence-admits-fewer-images-than-the-reviews-cap)).
 
 ## Options set aside
 

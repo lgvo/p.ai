@@ -15,7 +15,7 @@ var update = flag.Bool("update", false, "rewrite testdata/methods.golden from th
 
 // TestMethodShapesMatchGolden pins every method's JSON field names and types:
 // a renamed JSON tag compiles everywhere and still breaks shell clients, so it
-// must change this file, docs/control-api.md and the VM scripts together.
+// must change this file, docs/archive/control-api.md and the VM scripts together.
 // Run `go test ./internal/api -run Golden -update` to rewrite it.
 func TestMethodShapesMatchGolden(t *testing.T) {
 	var b strings.Builder
@@ -45,7 +45,7 @@ func TestMethodShapesMatchGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != string(want) {
-		t.Fatalf("method shapes differ from testdata/methods.golden; update it, docs/control-api.md and the VM scripts together (go test ./internal/api -run Golden -update)")
+		t.Fatalf("method shapes differ from testdata/methods.golden; update it, docs/archive/control-api.md and the VM scripts together (go test ./internal/api -run Golden -update)")
 	}
 }
 

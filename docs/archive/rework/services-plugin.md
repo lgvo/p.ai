@@ -59,8 +59,8 @@ defines services is that driver's documented convention.
 
 | Question | Today | Seen in |
 |---|---|---|
-| Who defines a service | The user or agent by hand, or a committed project script that renders committed unit templates | [User guide](../docs/user-guide.md#project-services) example; scenario 56; `examples/notes/install.py` |
-| When and where | Any time after the session is ready, in `~/.config/systemd/user/` inside the container; again in every new session, which gets a fresh home | [Notes walkthrough](../examples/notes/README.md): "Run these commands inside `/workspace` in each new session" |
+| Who defines a service | The user or agent by hand, or a committed project script that renders committed unit templates | [User guide](../user-guide.md#project-services) example; scenario 56; `examples/notes/install.py` |
+| When and where | Any time after the session is ready, in `~/.config/systemd/user/` inside the container; again in every new session, which gets a fresh home | [Notes walkthrough](../../../examples/notes/README.md): "Run these commands inside `/workspace` in each new session" |
 | What a unit uses | `Description`, `ExecStart`, `WorkingDirectory`, `Environment`, `ExecStartPre` and `ExecStartPost` as readiness steps, `Requires`, `BindsTo` and `After` between services, `KillSignal`, `KillMode`, the start and stop timeouts, `Type=exec`, `Restart=no`, `UMask` | The five project units in the repository: the three notes units, the user guide's example, scenario 56's demo unit |
 | Start with the session | `systemctl --user enable`; the base image's lingering user manager starts enabled units at boot | `dev/vm/seed-notes.sh` enables the notes units; lab-public-check expects them active after a VM relaunch; scenario 57 and notes-lab-persistence start them by hand after each Start |
 | Done in the session, never through P | Writing and reloading units, `enable`, `status`, `kill`, `reset-failed`, longer `journalctl` reads | Notes walkthrough; scenario 57 simulates a crash with `systemctl --user kill --signal=KILL` |
@@ -176,7 +176,7 @@ follows [errors.md](errors.md), as step 8 landed it (`servicesRefusal` and
 
 This design had `ErrUnavailable` answer `failed`, reason `runtime`; step 8
 kept `services`, the answer the
-[control API](../docs/control-api.md#project-services) already documented. The Incus driver also reports a host it cannot read
+[control API](../control-api.md#project-services) already documented. The Incus driver also reports a host it cannot read
 during the call as `ErrUnavailable`, so that case answers `services`.
 
 ## The Incus driver
@@ -250,18 +250,18 @@ where the `plugin.RunRuntime` calls moved to the driver.
 
 ## Departures from current docs
 
-- [Control API](../docs/control-api.md#project-services): "uses selected WASI
+- [Control API](../control-api.md#project-services): "uses selected WASI
   `runtime.services`", the "compatible selected runtime package"
   requirement, and the field names above.
-- [Runtime isolation](../docs/runtime-isolation.md#project-user-services):
+- [Runtime isolation](../runtime-isolation.md#project-user-services):
   "uses the selected runtime WASI package with a core-bound
   `runtime.services` broker"; the section becomes the Incus driver's.
-- [Plugin contract](../docs/plugin-contract.md#wasi-runtime-abi): the
+- [Plugin contract](../plugin-contract.md#wasi-runtime-abi): the
   `runtime.services` paragraph, which goes with the WASI runtime ABI.
-- [Glossary](../GLOSSARY.md#internal-session-service): an internal session
+- [Glossary](../../../GLOSSARY.md#internal-session-service): an internal session
   service is "supervised through the runtime's systemd contract"; it becomes
   "supervised by the runtime, through the runtime driver".
-- The [user guide](../docs/user-guide.md#project-services) and the notes
+- The [user guide](../user-guide.md#project-services) and the notes
   walkthrough stay as they are: they describe the Incus runtime.
 
 ## Options set aside

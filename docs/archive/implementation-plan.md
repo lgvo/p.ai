@@ -1,7 +1,7 @@
 # P — implementation plan for a testable MVP
 
 > Proposed delivery plan, 2026-09-23. This document sequences implementation;
-> it does not change product scope or define new contracts. [Project guidance](../PROJECT.md),
+> it does not change product scope or define new contracts. [Project guidance](../../PROJECT.md),
 > the subject design documents, and [development validations](development-validations.md)
 > remain authoritative. [Missing pieces](missing-pieces.md) remains the work tracker.
 
@@ -19,7 +19,7 @@ not wait for the entire MVP.
 
 The repository currently contains design and a fixture-backed TUI prototype,
 not a production daemon or runtime integration. Reuse the
-[reviewed browser interactions](../.prototype/tui-options/DECISIONS.md), with
+[reviewed browser interactions](../../.prototype/tui-options/DECISIONS.md), with
 production behavior supplied by the daemon.
 
 Assume one Linux host, one architecture, one storage driver, and a locally

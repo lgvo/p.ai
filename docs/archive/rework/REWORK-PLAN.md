@@ -2,12 +2,12 @@
 
 Status: done, 2026-11-04. Every step of this plan has landed, the last being
 step 9's plugin part 2 (818c627), and nothing in it remains open work. What
-the rework left unfixed is recorded as debt in [DEBT.md](../DEBT.md), among
+the rework left unfixed is recorded as debt in [DEBT.md](../../../DEBT.md), among
 it executable plugins that run with P's authority, driver and plugin output
 that is not bounded, a hung driver that is never restarted, and trusted
 configuration and the RPC server still in `internal/control`. The earlier
 implementation rework is finished too; its record is
-[../REWORK-PLAN.md](../REWORK-PLAN.md).
+[../REWORK-PLAN.md](../../../REWORK-PLAN.md).
 
 ## Goal
 
@@ -112,7 +112,7 @@ keeps the failures earlier gates met and what resolved each.
 
 Moving configuration and the RPC server out of `internal/control` (steps 2
 and 3b of the earlier rework) stays recorded as debt in
-[docs/debts/structure.md](../docs/debts/structure.md).
+[docs/debts/structure.md](../../debts/structure.md).
 
 ## Waits on you
 

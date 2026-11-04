@@ -1,7 +1,7 @@
 // Package api is the control-API contract that the daemon and its clients
 // share: one request and one result type per method, bound to the method's
 // name (Method), the framing limits, error objects, and the client.
-// docs/control-api.md describes the methods.
+// docs/archive/control-api.md describes the methods.
 package api
 
 import (
