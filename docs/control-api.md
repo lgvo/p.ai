@@ -72,12 +72,12 @@ clean path of the trusted Git it runs on P's repositories and origins, and
 The driver inherits no `PATH` and never looks either up; the NixOS module
 sets them to the system's Git and OpenSSH unless `config` names them. In the
 hello it refuses unknown, missing or duplicate settings and paths that are
-not absolute and clean, and it checks that its storage is private to the
-daemon user and that its Git runs. The daemon records the driver's backend
-at its first start; while any project exists, deleting ones included, it
-refuses to start with a driver of another backend, whose storage holds none
-of the instance's repositories. A driver of the same backend at another
-version starts.
+not absolute and clean; at every start, before it serves, it checks that its
+storage is private to the daemon user and that its Git and OpenSSH run. The
+daemon records the driver's backend at its first start; while any project
+exists, deleting ones included, it refuses to start with a driver of another
+backend, whose storage holds none of the instance's repositories. A driver of
+the same backend at another version starts.
 
 The state directory holds persistent `git_server_key` and `git_client_key`
 Ed25519 private files at mode `0600`. The daemon registers the latter as its

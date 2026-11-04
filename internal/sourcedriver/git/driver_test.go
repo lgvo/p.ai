@@ -28,31 +28,55 @@ func TestNewTakesTheGitAndSSHItRunsFromItsConfig(t *testing.T) {
 			t.Errorf("New accepted config %s", config)
 		}
 	}
-	// A git that is not the one on PATH runs: Check runs the configured
-	// one.
+	// A git and an ssh that are not the ones on PATH run: Check runs the
+	// configured ones.
 	t.Setenv("PATH", "/nonexistent")
-	fake := filepath.Join(t.TempDir(), "git")
-	marker := filepath.Join(t.TempDir(), "ran")
-	if err := os.WriteFile(fake, []byte("#!/bin/sh\n: > '"+marker+"'\necho 'git version 2.0.0'\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	d, err := New(filepath.Join(shortTempDir(t), "source"), driverConfig(fake, "/usr/bin/ssh"), testBinary())
+	git := fakeProgram(t, "git", "echo 'git version 2.0.0'")
+	ssh := fakeProgram(t, "ssh", "echo 'OpenSSH_10.0p2, OpenSSL 3.0.0' >&2")
+	d, err := New(filepath.Join(shortTempDir(t), "source"), driverConfig(git, ssh), testBinary())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if err := d.Check(t.Context()); err != nil {
-		t.Fatalf("Check with the configured git: %v", err)
+		t.Fatalf("Check with the configured git and ssh: %v", err)
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("Check did not run the configured git: %v", err)
+	for _, program := range []string{git, ssh} {
+		if _, err := os.Stat(program + ".ran"); err != nil {
+			t.Fatalf("Check did not run the configured %s: %v", filepath.Base(program), err)
+		}
 	}
-	missing, err := New(filepath.Join(shortTempDir(t), "source"), driverConfig("/nonexistent/git", "/usr/bin/ssh"), testBinary())
-	if err != nil {
-		t.Fatalf("New: %v", err)
+}
+
+func TestCheckRefusesAGitOrSSHThatDoesNotRun(t *testing.T) {
+	git := fakeProgram(t, "git", "echo 'git version 2.0.0'")
+	ssh := fakeProgram(t, "ssh", "echo 'OpenSSH_10.0p2, OpenSSL 3.0.0' >&2")
+	for _, c := range []struct {
+		name, git, ssh, refusal string
+	}{
+		{"a git that is not there", "/nonexistent/git", ssh, "git"},
+		{"an ssh that is not there", git, "/nonexistent/ssh", "ssh"},
+		{"an ssh that fails", git, fakeProgram(t, "failing-ssh", "echo 'No user exists for uid 1000' >&2\nexit 255"), "ssh"},
+		{"an ssh that is not OpenSSH", git, fakeProgram(t, "other-ssh", "echo 'Dropbear v2025.88' >&2"), "ssh"},
+	} {
+		d, err := New(filepath.Join(shortTempDir(t), "source"), driverConfig(c.git, c.ssh), testBinary())
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		if err := d.Check(t.Context()); err == nil || !strings.Contains(err.Error(), c.refusal) {
+			t.Errorf("Check with %s = %v, want a refusal naming %s", c.name, err, c.refusal)
+		}
 	}
-	if err := missing.Check(t.Context()); err == nil || !strings.Contains(err.Error(), "git") {
-		t.Fatalf("Check with a git that is not there = %v, want a refusal naming git", err)
+}
+
+// fakeProgram writes an executable shell script that runs body after it
+// leaves a file at its own path plus ".ran", and returns its path.
+func fakeProgram(t *testing.T, name, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n: > '"+path+".ran'\n"+body+"\n"), 0o700); err != nil {
+		t.Fatal(err)
 	}
+	return path
 }
 
 // The Git service's pre-receive hook runs the executable New names, as

@@ -70,9 +70,13 @@ func TestAPushThroughTheExecutableRunsItsHook(t *testing.T) {
 	if err != nil {
 		t.Skip("Git unavailable")
 	}
+	ssh, err := exec.LookPath("ssh")
+	if err != nil {
+		t.Skip("OpenSSH unavailable")
+	}
 	dir := shortDir(t)
 	path := installed(t, dir, executableName)
-	config, err := json.Marshal(map[string]string{"git": git, "ssh": "/nonexistent/ssh"})
+	config, err := json.Marshal(map[string]string{"git": git, "ssh": ssh})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -72,7 +72,7 @@ func Run(t *testing.T, newFixture func(t *testing.T) Fixture) {
 		{"settling", settlingCases},       // head effects whose outcome was lost, settled after a restart
 		{"workspace", workspaceCases},     // RenameWorkspace on fixture files
 		{"service", serviceCases},         // Describe's commands, ServeGit, and settling a lost service
-		{"origin", originCases},           // ObserveOrigin, FetchOrigin, ComparePublication, Publish
+		{"origin", originCases},           // ObserveOrigin, FetchOrigin, ComparePublication, Publish, and Check of the transport
 	}
 	for _, g := range groups {
 		t.Run(g.name, func(t *testing.T) {

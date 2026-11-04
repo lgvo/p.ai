@@ -45,6 +45,10 @@ type OriginControls interface {
 	// answer to it, as a connection dropped after the origin accepted
 	// would.
 	LoseNextOriginAnswer(url string)
+	// RemoveOriginTransport takes away what the driver reaches every origin
+	// through, as uninstalling the OpenSSH it runs would. On the bundled
+	// driver: the ssh its config names is deleted.
+	RemoveOriginTransport()
 }
 
 // observe observes the origin through the driver and returns its refs by
@@ -275,6 +279,19 @@ var originCases = []testCase{
 		// the origin heard it.
 		if got, err := f.Driver().Publish(t.Context(), "p", p.to("main", sourcedriver.RelationFastForward), func() error { return nil }); err == nil || got != "" {
 			t.Fatalf("Publish to an unreachable origin = %q, %v; want an error and no answer", got, err)
+		}
+	}},
+	{"without its transport the driver fails Check and every origin is ErrUnavailable", func(t *testing.T, f Fixture) {
+		url := f.Origin().NewOrigin()
+		if err := f.Driver().Check(t.Context()); err != nil {
+			t.Fatalf("Check with the transport: %v", err)
+		}
+		f.Origin().RemoveOriginTransport()
+		if err := f.Driver().Check(t.Context()); err == nil {
+			t.Fatal("Check without the transport succeeded")
+		}
+		if refs, err := f.Driver().ObserveOrigin(t.Context(), url); !errors.Is(err, sourcedriver.ErrUnavailable) || refs != nil {
+			t.Fatalf("ObserveOrigin without the transport = %v, %v; want ErrUnavailable", refs, err)
 		}
 	}},
 	{"no destination is absent and an equal one is equal, without contacting the origin", func(t *testing.T, f Fixture) {

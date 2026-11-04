@@ -25,6 +25,9 @@ type World struct {
 	// unsafeStorage: a control made the storage writable by others, so
 	// Check and every mutation refuse.
 	unsafeStorage bool
+	// noOriginTransport: a control took away what the driver reaches
+	// origins through, so Check refuses and no origin can be reached.
+	noOriginTransport bool
 	// partial holds the projects whose address holds something that is not
 	// a complete repository, as a crash or an administrator could leave it.
 	partial map[string]bool

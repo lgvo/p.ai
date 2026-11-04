@@ -100,6 +100,14 @@ func (w *World) CutOffOrigin(url string) {
 	w.originOf(url).unreachable = true
 }
 
+// RemoveOriginTransport takes away what the driver reaches origins
+// through: Check refuses, and no origin can be reached, from now on.
+func (w *World) RemoveOriginTransport() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.noOriginTransport = true
+}
+
 // RejectNextOriginPush makes the origin refuse the next push that would
 // change a ref.
 func (w *World) RejectNextOriginPush(url string) {
@@ -300,7 +308,7 @@ func validPublication(p sourcedriver.Publication) error {
 // w.mu.
 func (w *World) reach(url string) (*origin, error) {
 	o := w.origins[url]
-	if o == nil || o.unreachable {
+	if o == nil || o.unreachable || w.noOriginTransport {
 		return nil, fmt.Errorf("the origin %q cannot be reached: %w", url, sourcedriver.ErrUnavailable)
 	}
 	return o, nil

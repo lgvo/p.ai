@@ -297,6 +297,28 @@ func (d *Driver) originEnv(extra ...string) []string {
 	return append(env, extra...)
 }
 
+// checkSSH proves for Check that the configured ssh runs as OpenSSH in the
+// environment Git against an origin gives it, with the bounds and errors of
+// Check's git: `ssh -V` prints OpenSSH's version on its standard error.
+func (d *Driver) checkSSH(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, d.sshPath, "-V")
+	cmd.Env = d.originEnv()
+	stdout, stderr := &boundedOutput{max: 4096}, &boundedOutput{max: 4096}
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	var exit *exec.ExitError
+	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() > 0) {
+		return fmt.Errorf("ssh -V could not run: %w", err)
+	}
+	if err != nil || !strings.HasPrefix(stderr.buf.String(), "OpenSSH_") {
+		return errors.New("the ssh executable does not run")
+	}
+	return nil
+}
+
 // userHome is the daemon account's home, or a path that does not exist.
 func userHome() string {
 	h, err := os.UserHomeDir()

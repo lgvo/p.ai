@@ -64,7 +64,7 @@ type Config struct {
 // by absolute clean path, which its caller names: p-source-git's own file,
 // as the daemon checked it, or the program of a caller that runs the
 // driver in its own process. It touches nothing; Check makes the storage
-// and runs the git.
+// and runs the git and the ssh.
 func New(storage string, config json.RawMessage, hook string) (*Driver, error) {
 	if !absoluteClean(storage) {
 		return nil, errors.New("source storage must be an absolute, clean path")

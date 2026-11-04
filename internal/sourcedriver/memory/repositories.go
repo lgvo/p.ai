@@ -9,18 +9,26 @@ import (
 )
 
 var (
-	errUnsafeStorage = errors.New("the storage is not private to P's account")
-	errPartial       = errors.New("the project's address holds an incomplete repository")
+	errUnsafeStorage     = errors.New("the storage is not private to P's account")
+	errNoOriginTransport = errors.New("the driver has nothing to reach origins through")
+	errPartial           = errors.New("the project's address holds an incomplete repository")
 )
 
-// Check succeeds unless a control made the storage unsafe.
+// Check succeeds unless a control made the storage unsafe or took the
+// origin transport away.
 func (d *Driver) Check(context.Context) error {
 	if err := d.alive(); err != nil {
 		return err
 	}
 	d.w.mu.Lock()
 	defer d.w.mu.Unlock()
-	return d.w.checkStorage()
+	if err := d.w.checkStorage(); err != nil {
+		return err
+	}
+	if d.w.noOriginTransport {
+		return errNoOriginTransport
+	}
+	return nil
 }
 
 // checkStorage is the check every mutation makes first. The caller holds

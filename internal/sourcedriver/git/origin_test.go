@@ -20,13 +20,15 @@ import (
 
 // originServer serves a fixture's origins: bare repositories in dir, which
 // the driver reaches through the ssh script at dir/bin/ssh, the ssh its
-// config names. The URL git@fixture:o<n>.git names dir/o<n>.git.
+// config names, which answers -V as OpenSSH does. The URL
+// git@fixture:o<n>.git names dir/o<n>.git.
 type originServer struct {
 	dir   string
 	count int
 }
 
 const sshScript = `#!/bin/sh
+if [ "$*" = -V ]; then echo 'OpenSSH_10.0p2, fixture' >&2; exit 0; fi
 for command; do :; done
 [ "$GIT_TERMINAL_PROMPT" = 0 ] || exit 81
 case "$GIT_SSH_COMMAND" in *BatchMode=yes*) ;; *) exit 80 ;; esac
@@ -152,6 +154,13 @@ func (f *fixture) OriginRef(url, ref string) sourcedriver.OID {
 func (f *fixture) CutOffOrigin(url string) { f.originMarker(url, ".cut-off") }
 
 func (f *fixture) LoseNextOriginAnswer(url string) { f.originMarker(url, ".lose-answer") }
+
+// RemoveOriginTransport deletes the ssh script the driver's config names.
+func (f *fixture) RemoveOriginTransport() {
+	if err := os.Remove(f.origins.ssh()); err != nil {
+		f.t.Fatal(err)
+	}
+}
 
 // RejectNextOriginPush installs a pre-receive hook in the origin that
 // refuses one push and removes itself.

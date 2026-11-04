@@ -22,7 +22,7 @@ import (
 const incarnationFile = "p-incarnation"
 
 // Check makes the storage and its repositories directory when absent,
-// proves both private to P's account, and proves that git runs.
+// proves both private to P's account, and proves that git and ssh run.
 func (d *Driver) Check(ctx context.Context) error {
 	if err := d.prepareStorage(); err != nil {
 		return err
@@ -37,7 +37,7 @@ func (d *Driver) Check(ctx context.Context) error {
 	if result.Exit != 0 || !strings.HasPrefix(result.Stdout, "git version ") {
 		return errors.New("the git executable does not run")
 	}
-	return nil
+	return d.checkSSH(ctx)
 }
 
 // repositories is the directory that holds every repository.

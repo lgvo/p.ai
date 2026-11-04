@@ -104,8 +104,9 @@ func testBinary() string {
 	return self
 }
 
-// localConfig is the driver's config for a case that reaches no origin: the
-// git on PATH, and an ssh that is never run.
+// localConfig is the driver's config for a case that neither checks the
+// driver nor reaches an origin: the git on PATH, and an ssh that is not
+// there, which Check would refuse.
 func localConfig() json.RawMessage {
 	git, err := exec.LookPath("git")
 	if err != nil {
