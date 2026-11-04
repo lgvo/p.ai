@@ -298,13 +298,15 @@ starts, supervises and addresses in P's terms rather than its backend's over
 the driver protocol.
 
 - **Related:** [Runtime](#runtime), [commit image](#commit-image).
-- **Boundaries:** It is part of trusted P, not a plugin; repositories,
-  requests, and plugins never reach it. Its contract covers images and their
-  builds, session runtimes, the workspace of a stopped session, terminals and
-  project services; host configuration pins its executable by path and
-  SHA-256 as `runtime.driver`. Its Incus implementation,
-  `internal/runtimedriver/incus`, runs as the `p-runtime-incus` executable
-  shipped with P; the daemon holds nothing of it but the driver interface.
+- **Boundaries:** It is part of trusted P, not a plugin. Repositories,
+  requests, and plugins never reach it through P, though an executable
+  plugin, which runs with P's authority, can open the Incus user socket
+  itself. Its contract covers images and their builds, session runtimes, the
+  workspace of a stopped session, terminals and project services; host
+  configuration pins its executable by path and SHA-256 as `runtime.driver`.
+  Its Incus implementation, `internal/runtimedriver/incus`, runs as the
+  `p-runtime-incus` executable shipped with P; the daemon holds nothing of it
+  but the driver interface.
   Every runtime effect goes through it: images, sessions, their removal, the
   workspace edits of a rename, terminals, project services, the boundary check
   and the inventory that admission and the proofs of absence read. The
@@ -340,7 +342,7 @@ than Git's layout over the source driver protocol.
   Git implementation, `internal/sourcedriver/git`, runs as the `p-source-git`
   executable shipped with P; the daemon holds nothing of it but the driver
   interface. The daemon reaches P's repositories and Git only through the
-  driver; no other code runs `git` or `ssh` on the host.
+  driver; no other P code runs `git` or `ssh` on the host.
   Core pins the driver's backend at its first start and refuses another while
   any project exists; sessions pin no source package.
 - **Rules:** It acts only on P's repositories in its configured storage,
