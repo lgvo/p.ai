@@ -12,15 +12,20 @@ without changing its project model.
 > **Status: CLI-first implementation validated; authenticated Codex acceptance pending.**
 > [PROJECT.md](PROJECT.md) owns P's enduring project
 > guidance, and [product direction](docs/PRODUCT.md) owns P's product strategy.
-> The design documents under [`docs/`](docs/) are authoritative for their
-> subjects. This README is the product summary.
+> The [architecture account](docs/architecture/README.md) describes the current
+> system, and the code is its source of truth. The design, status and plan
+> documents under [`docs/archive/`](docs/archive/README.md) are history as of
+> 471a3eb, not authority. This README is the product summary.
 
 Start with the [user guide](docs/archive/user-guide.md) for creating a project, working
 in sessions, resuming work, publishing commits, and reviewing cleanup.
 Machine owners can follow [NixOS installation](#nixos-installation) to set up the CLI.
 The [host API reference](docs/archive/control-api.md) documents creation, inspection,
 attachment and lifecycle commands. [Implementation progress](docs/archive/implementation-progress.md)
-records automated checkpoints and live TUI review; [manual Codex acceptance](docs/archive/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
+records automated checkpoints and live TUI review up to 471a3eb; later TUI
+reviews are recorded in the
+[interactive LLM review evidence](docs/llm-interactive-review/tui/README.md).
+[Manual Codex acceptance](docs/archive/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
 remains pending. The production TUI below connects to that daemon; the original
 prototype remains a separate fixture-backed design reference.
 
@@ -121,7 +126,10 @@ go run .
 The browser has a project-filtered session list, fuzzy search, a simulated
 terminal with a Ctrl+B action popup, and dedicated Agents and Services pages.
 Everything runs on fixtures; production integration remains open. See
-[MVP status](docs/archive/mvp-status.md) for the implementation boundary.
+[control protocol and clients](docs/architecture/control-protocol-and-clients.md#the-tui)
+for what the production TUI implements, and the archived
+[MVP status](docs/archive/mvp-status.md) for the implementation boundary as of
+2026-10-01.
 
 The [iteration history](.prototype/tui-options/ITERATIONS.md) preserves the
 earlier comparison gallery and explains how it led to this starting point.
@@ -303,8 +311,12 @@ Discard releases that assignment and leaves an ordinary P branch; continuing
 on it creates a new UUID and assigns that same retained branch. Creating a
 different branch from it is a separate choice that asks for a source.
 
-Creation, start, attachment, rename, stop, destructive preflight, and crash
-recovery are specified in [session lifecycle](docs/archive/session-lifecycle.md).
+[Control plane](docs/architecture/control-plane.md) and
+[control protocol and clients](docs/architecture/control-protocol-and-clients.md)
+describe how creation, start, attachment, rename, stop, destructive preflight,
+and crash recovery work now; the archived
+[session lifecycle](docs/archive/session-lifecycle.md) design records how they
+were specified.
 
 A separate project-level operation, **Delete project and all P data**, first
 shows a plan of all sessions, retained branches, credentials, runtimes, and
@@ -313,9 +325,12 @@ path stops running sessions itself and requires every terminal detached; a
 positively missing runtime is shown as already gone, and incomplete creations
 need separate supported cleanup first. P records minimal durable confirmed
 intent and idempotently ensures each resource is absent; if some cleanup fails,
-the user retries and P reports the smaller remainder. Project creation, retained
-branches, origins, and whole-project deletion are specified in
-[project lifecycle](docs/archive/project-lifecycle.md).
+the user retries and P reports the smaller remainder.
+[Source driver and P's Git endpoint](docs/architecture/source-driver-and-git-endpoint.md)
+and [control plane](docs/architecture/control-plane.md) describe how project
+creation, retained branches, origins, and whole-project deletion work now; the
+archived [project lifecycle](docs/archive/project-lifecycle.md) design records
+how they were specified.
 
 ## Overview and status
 
@@ -352,8 +367,10 @@ Separately, P exposes typed, versioned reduced events to configured handlers.
 MVP provides a redacted local NDJSON log handler. Events are an extension seam,
 not another state authority or a built-in notification protocol.
 
-See [session observability](docs/archive/session-observability.md) for the reducer and
-adapter rules.
+See [plugins and events](docs/architecture/plugins-and-events.md) for how the
+status reducer and the agent adapter work now, and the archived
+[session observability](docs/archive/session-observability.md) design for their
+original rules.
 
 ## Git and RPC
 
@@ -381,8 +398,11 @@ driver on a fixed attach command. A client-initiated SSH-to-Unix transport is
 post-MVP; the daemon never initiates SSH or returns a shell string.
 
 Git carries commits, objects, and refs. RPC carries lifecycle, configuration,
-runtime state, attachment leases, status, and subscriptions. The complete
-division is in [communication boundaries](docs/archive/communication-boundaries.md).
+runtime state, attachment leases, status, and subscriptions. The
+[architecture overview](docs/architecture/README.md#boundaries) describes each
+boundary and what crosses it now; the archived
+[communication boundaries](docs/archive/communication-boundaries.md) design
+records the original division.
 
 ## Environments and isolation
 
@@ -483,19 +503,24 @@ mechanisms while P provides explicitly granted, session-scoped access.
 Host-side capabilities participate in lifecycle work without being exposed to
 the session.
 
-The [plugin contract](docs/archive/plugin-contract.md) defines package manifests,
-selection by path and digest in trusted host configuration, the launch checks
-and the event-handler protocol. An event handler is a native executable the
+[Plugins and events](docs/architecture/plugins-and-events.md) describes package
+manifests, selection by path and digest in trusted host configuration and the
+event-handler protocol, and the [driver model](docs/architecture/driver-model.md#launch-checks-and-start)
+describes the launch checks; the archived
+[plugin contract](docs/archive/plugin-contract.md) records how they were first
+defined. An event handler is a native executable the
 daemon starts and supervises, by default the bundled file-log; it is trusted
 code with P's authority. The Codex agent adapter is a package of files the
 runtime driver installs in sessions. The CLI validates packages, prints the
 bundled selections and tries an event handler with `p plugins run-event`.
 Packaged bundled composition and managed install/update/removal are
-validated within the package contract's explicit boundaries. Track current
-changes and VM evidence in the
-[implementation progress record](docs/archive/implementation-progress.md). See
+validated within the package contract's explicit boundaries. The archived
+[implementation progress record](docs/archive/implementation-progress.md) holds
+the VM evidence up to 471a3eb. See
 [product direction](docs/PRODUCT.md),
-[project guidance](PROJECT.md#make-extension-a-product-capability), and the
+[project guidance](PROJECT.md#make-extension-a-product-capability),
+[managed packages](docs/architecture/plugins-and-events.md#managed-packages-and-p-plugins),
+and the archived
 [package management contract](docs/archive/plugin-contract.md#managed-package-commands).
 
 ## Configuration
@@ -556,9 +581,12 @@ The machine owner provisions local Incus, the service account's restricted
 `user-UID` project, profile, allowed endpoint/grant paths, storage pools and base
 image. Import the metadata tarball and squashfs through that account's confined
 user socket; use the fingerprint stored in `result-p-fingerprint` as the trusted base
-fingerprint. The [isolation contract](docs/archive/runtime-isolation.md#incus-boundary)
-and [host API configuration](docs/archive/control-api.md) own these restrictions and
-configuration fields.
+fingerprint. [Deployment on NixOS](docs/architecture/nixos-deployment.md#what-the-machine-owner-provisions)
+describes these restrictions and the
+[trusted host configuration](docs/architecture/nixos-deployment.md#the-trusted-host-configuration)
+its fields; the archived
+[isolation contract](docs/archive/runtime-isolation.md#incus-boundary) and
+[host API configuration](docs/archive/control-api.md) record their design.
 
 Add the flake's `nixosModules.default` to the host's imports and configure:
 
@@ -651,17 +679,24 @@ MVP closes the loop for one user on Linux:
 - emit reduced typed events to a local file-log handler; and
 - reconcile SQLite, Git, credentials, and runtime state after interruption.
 
-Implementation uncertainties that need real-machine evidence are tracked in
-[development validations](docs/archive/development-validations.md). They gate only the
-affected milestone or capability unless evidence disproves a core invariant.
+The [architecture overview](docs/architecture/README.md) describes how the
+current code is validated and lists its
+[known limits and open questions](docs/architecture/README.md#known-limits-and-open-questions).
+Up to 471a3eb, implementation uncertainties that needed real-machine evidence
+were tracked in the archived
+[development validations](docs/archive/development-validations.md), where each
+gated only the affected milestone or capability unless evidence disproved a
+core invariant.
 
-The current documentation/readiness snapshot is in
-[MVP status](docs/archive/mvp-status.md), and current implementation findings, remaining
-gates and validation evidence are in
-[implementation progress](docs/archive/implementation-progress.md).
+The archived [MVP status](docs/archive/mvp-status.md) snapshot records
+documentation and readiness as of 2026-10-01, and the archived
+[implementation progress](docs/archive/implementation-progress.md) log records
+implementation findings, remaining gates and validation evidence up to 471a3eb.
 
-The implementation choices and build-vs-buy decisions are in
-[technology stack](docs/archive/technology-stack.md). The [FAQ](docs/archive/FAQ.md) explains
+The archived [technology stack](docs/archive/technology-stack.md) records the
+implementation choices and build-vs-buy decisions as they stood; no live
+document replaces it yet
+([Q11](docs/architecture/README.md#open-questions)). The [FAQ](docs/archive/FAQ.md) explains
 the main tradeoffs, and the [product landscape and design space](docs/archive/design-space.md)
 maps neighboring projects, differentiation, and validation wedges without
 defining P's behavior.

@@ -1323,8 +1323,9 @@ gates in the checkpoint above.
 
 This maps every provisioned-sample row of the
 [delivery plan](../../archive/tui-developer-workflow-plan.md#4-establish-cliapi-journeys-first)
-to its CLI/API gate and completed live scope. The primary agent records native
-selection results and aggregate acceptance in implementation progress;
+to its CLI/API gate and completed live scope. The primary agent recorded native
+selection results and aggregate acceptance in the archived
+[implementation progress](../../archive/implementation-progress.md);
 references to a step identify its scenario rather than claiming that reading
 its source is a passing run. VM58 covers reviewed major effects, while the
 additional adaptive records retain flows deliberately outside its driver.

@@ -63,8 +63,9 @@
 
 - Where: internal/runtimedriver/conformance (its `Fixture` controls);
   tests/integration/steps/06-runtime-incus.sh; internal/runtimedriver/incus conformance_test.go
-- Problem: docs/archive/rework/runtime-driver.md ("How it will be checked") expects scenario 06 to run
-  the runtime driver conformance suite against real Incus. The suite runs only against the
+- Problem: the archived runtime driver design, docs/archive/rework/runtime-driver.md ("How it
+  will be checked"), expected scenario 06 to run the runtime driver conformance suite against
+  real Incus. The suite runs only against the
   in-memory driver, the Incus driver over a stubbed Incus, and the in-memory driver over
   the driver protocol. Scenario 06 still drives the Incus driver through its own fixture
   commands.

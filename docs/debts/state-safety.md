@@ -163,7 +163,8 @@
 - Where: internal/driverwire/launch launch.go `startChecked`
 - Problem: launch gives every process it starts, the runtime driver, the source driver and
   the event handler, the daemon's own standard error as its standard output and error, with
-  no bound. docs/archive/rework/plugins.md ("Protocol") requires a plugin's output to be bounded.
+  no bound. The archived plugin design, docs/archive/rework/plugins.md ("Protocol"), required
+  a plugin's output to be bounded.
 - Evidence: `startChecked` sets the child's descriptors 1 and 2 to `os.Stderr`; nothing
   reads, limits or rate-limits what the child writes there.
 - Risk: a driver or handler that loops on a message fills the daemon's log (the journal on

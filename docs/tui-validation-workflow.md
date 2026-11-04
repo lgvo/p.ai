@@ -7,8 +7,10 @@ accepted or its workflow is encoded in the integration driver. Passing driver
 checks alone does not satisfy this review.
 
 1. **Establish the intended experience.** Read the
-   [reviewed prototype decisions](../.prototype/tui-options/DECISIONS.md) and
-   the [implemented keys and limitations](archive/user-guide.md#use-the-terminal-browser).
+   [reviewed prototype decisions](../.prototype/tui-options/DECISIONS.md), the
+   TUI's current scope in [control protocol and clients](architecture/control-protocol-and-clients.md#the-tui),
+   and the keys and limitations that the archived
+   [user guide](archive/user-guide.md#use-the-terminal-browser) recorded at 471a3eb.
    Run the current prototype using its [launch instructions](../.prototype/tui-options/README.md#run-the-current-browser)
    and inspect the affected interaction. Use its selected browser as the
    comparison baseline; the older gallery captures are historical evidence.
@@ -51,12 +53,11 @@ checks alone does not satisfy this review.
    during investigation; they do not replace the LLM review.
 5. **Record both kinds of evidence.** Record the tested revision/build,
    instance setup and fresh/persistent state, terminal dimensions, actions,
-   representative before/after screens, findings and their resolution in
-   [implementation progress](archive/implementation-progress.md). Identify the LLM
-   experience-review result separately from component and VM results. Store
-   its screenshots and action records in the
-   [interactive LLM review evidence](llm-interactive-review/tui/README.md)
-   directory, separately from automated integration-test implementations.
+   representative before/after screens, findings and their resolution in the
+   [interactive LLM review evidence](llm-interactive-review/tui/README.md).
+   Identify the LLM experience-review result separately from component and VM
+   results. Store its screenshots and action records in that directory,
+   separately from automated integration-test implementations.
    After any further product change, repeat the affected experience review
    and relevant integration checks. Preserve unaffected evidence with its scope.
 

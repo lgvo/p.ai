@@ -38,8 +38,9 @@ evidence and the pending manual gate are recorded in
 [implementation progress](../docs/archive/implementation-progress.md).
 
 The image uses static local account lookup without nscd/nsncd. Hostnames use
-standard `files dns` lookup; additional NSS modules are excluded by the
-[runtime substrate contract](../docs/archive/runtime-isolation.md#non-activating-workspace-access).
+standard `files dns` lookup; additional NSS modules are excluded, as the
+archived [runtime substrate contract](../docs/archive/runtime-isolation.md#non-activating-workspace-access)
+specified.
 
 NixOS links `/etc/systemd/system` to an immutable generated store tree, so the
 image provides fixed unit links from the units' visible destinations to
@@ -54,8 +55,12 @@ program the fixed path `/usr/libexec/p/attach` through a root-owned link to
 appears at `/usr/libexec/p/git-ssh` through `/etc/p/assets/p-git-ssh`.
 Assembly writes verified bytes to those mutable targets.
 
-Before `p-interactive.service` starts, trusted assembly must establish the
-paths specified by [runtime isolation](../docs/archive/runtime-isolation.md#fixed-paths):
+Before `p-interactive.service` starts, trusted assembly must establish these
+paths, which the architecture account describes in
+[Inside the session](../docs/architecture/runtime-driver-and-session-guest.md#inside-the-session)
+and the archived
+[runtime isolation](../docs/archive/runtime-isolation.md#fixed-paths) design
+specified:
 
 - Incus mounts the socket-only host directory read-only, private, and unshifted
   at `/opt/p/endpoints`. Its host owner is unmapped inside the container. A
@@ -84,8 +89,11 @@ publishes the complete standalone clone at `/workspace`. Git verifies the
 assigned branch against the captured object ID, or establishes unborn `main`
 for an empty P Git repository. Retry reconstructs interrupted unpublished
 scratch; a completed retained workspace is left intact, and unexpected
-contents at `/workspace` are preserved and refused. The protected staging and
-publication rules are owned by [runtime isolation](../docs/archive/runtime-isolation.md#fixed-paths).
+contents at `/workspace` are preserved and refused. The architecture
+account's [Inside the session](../docs/architecture/runtime-driver-and-session-guest.md#inside-the-session)
+describes the protected staging and publication as the code does them now; the
+archived [runtime isolation](../docs/archive/runtime-isolation.md#fixed-paths)
+design records their original rules.
 That clone is workspace v1, which refuses a captured root flake: it has no
 image to activate one. Workspace v2 is for a session created from a commit
 image, whose `/workspace` already holds a clone detached at the captured

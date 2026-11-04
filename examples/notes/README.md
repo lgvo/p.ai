@@ -220,8 +220,8 @@ maps the native and adaptive TUI journeys separately, including the corrected
 13-test attached suite and all three service journals. A separate dedicated
 persistent lab passed clean shutdown/relaunch, retained source/private
 files/units/SQL data and resumed its pending job after explicit service startup.
-See the [validation workflow](../../docs/archive/development-validations.md#three-service-developer-workflow)
-for the separate evidence requirements. Existing origin/import/publication/retry
+The archived [validation workflow](../../docs/archive/development-validations.md#three-service-developer-workflow)
+set the separate evidence requirements. Existing origin/import/publication/retry
 gates (VM17, VM20 and creation recovery gates) test those contracts; they do not
 by themselves establish a sample-source origin journey; the evidence index
 records the actual sample import and explicit publication instead. Major TUI

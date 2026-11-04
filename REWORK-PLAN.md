@@ -12,13 +12,17 @@ in [DEBT.md](DEBT.md).
 The rework keeps these unchanged. A change to any of them is a break and goes
 on TO-DECIDE.md before it is made.
 
-| Interface | Owner | What stays fixed |
+| Interface | Owner during this rework | What stays fixed |
 |---|---|---|
 | Control API | [control-api.md](docs/archive/control-api.md) | Method names, params, results, error codes and kinds, `system.capabilities` lists and their order, framing limits, session socket protocol |
 | Plugin contract | [plugin-contract.md](docs/archive/plugin-contract.md) | Package format and digest, activation, capability/grant table, WASI ABI and broker methods, bounds, asset plans |
 | CLI | [user-guide.md](docs/archive/user-guide.md) | `p` subcommands, arguments, output and exit codes |
 | TUI workflows | [development-validations.md](docs/archive/development-validations.md#live-terminal-browser) | Every screen, key and RPC call; no TUI layout, navigation, control, feedback or terminal-handoff change |
 | Durable state | `internal/control` migrations | SQLite schema and migrations 1–21, evidence JSON shapes; no new migration |
+
+The first four owner documents were archived on 2026-11-04 and are history, not
+authority; the [architecture account](docs/architecture/README.md) describes
+these interfaces as the code has them.
 
 ## Current system
 

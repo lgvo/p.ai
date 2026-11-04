@@ -1,7 +1,8 @@
 # VM infrastructure validation — 2026-09-23
 
 This records a narrow lab result. It does not close the full
-[P runtime/environment gates](../../docs/archive/development-validations.md).
+[P runtime/environment gates](../../docs/archive/development-validations.md),
+now archived.
 
 ## Tested configuration
 
@@ -23,9 +24,9 @@ This records a narrow lab result. It does not close the full
 
 Exact provisioning and restriction values are in [machine.nix](machine.nix).
 The table records the original run. Current tests use an 8 GiB VM and disable
-Nix build sandboxing inside containers under the required Incus boundary;
-[implementation progress](../../docs/archive/implementation-progress.md) records their
-separate validation results.
+Nix build sandboxing inside containers under the required Incus boundary; the
+archived [implementation progress](../../docs/archive/implementation-progress.md)
+records their separate validation results up to 471a3eb.
 The VM does not mount the workstation's Nix store, checkout, or home; its
 store is supplied through a generated disk image. Containers receive only
 their own managed root disks in the smoke test.

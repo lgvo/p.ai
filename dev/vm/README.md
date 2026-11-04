@@ -211,8 +211,10 @@ The test checks:
 
 This does not prove project Nix builds/devShell activation, public egress,
 the complete endpoint/mount policy, P attachment leases, Git branch authority,
-or P lifecycle recovery. Those remain in the
-[development validation gates](../../docs/archive/development-validations.md).
+or P lifecycle recovery. Those were separate
+[development validation gates](../../docs/archive/development-validations.md),
+now archived; the [architecture overview](../../docs/architecture/README.md#validation)
+describes how the current code is validated.
 
 ## Automated P validation
 
@@ -315,8 +317,10 @@ that VM suite.
 `tests/integration/test-vm-selection.sh` checks selection and markers with mock
 commands in an isolated fixture checkout without starting a VM or sharing a
 running lab's lock. It runs as part of `just unit-tests`.
-See [implementation progress](../../docs/archive/implementation-progress.md) for
-the exact supported CLI scope and acceptance evidence. The suite exercises
+See the archived [implementation progress](../../docs/archive/implementation-progress.md)
+for the supported CLI scope and acceptance evidence up to 471a3eb, and the
+[architecture overview](../../docs/architecture/README.md#validation) for the
+current validation layers. The suite exercises
 plugin management, durable lifecycle/RPC, Git/SSH, isolated environments,
 networking and reviewed cleanup. Authenticated Codex execution remains the
 user's manual gate; automated checks use event fixtures and dummy files.
